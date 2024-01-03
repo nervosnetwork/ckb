@@ -479,11 +479,14 @@ fn test_discovery_behavior() {
 
     wait_connect_state(&node2, 2);
 
-    wait_discovery(&node3, |num| num >= 2);
+    wait_discovery(&node3, |num| num >= 3);
 
+    // use node1 instead of node3 because ANNOUNCE_INTERVAL is 24 hour
+    // node2 can't announce node1 address to node3 within 24 hours
+    // but the reverse can
     let addrs = {
-        let listen_addr = &node3.listen_addr;
-        let mut locked = node3.network_state.peer_store.lock();
+        let listen_addr = &node1.listen_addr;
+        let mut locked = node1.network_state.peer_store.lock();
 
         locked
             .fetch_addrs_to_feeler(6)
@@ -508,7 +511,7 @@ fn test_discovery_behavior() {
     };
 
     for addr in addrs {
-        node3.dial_addr(
+        node1.dial_addr(
             addr,
             TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
         );
