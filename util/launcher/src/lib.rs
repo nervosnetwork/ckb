@@ -243,6 +243,17 @@ impl Launcher {
         config
     }
 
+    pub fn check_indexer_config(&self) -> Result<(), ExitCode> {
+        // check if indexer and rich-indexer are both set
+        if (self.args.indexer || self.args.config.rpc.indexer_enable())
+            && (self.args.rich_indexer || self.args.config.rpc.rich_indexer_enable())
+        {
+            eprintln!("Config Error: indexer and rich-indexer cannot be both set");
+            return Err(ExitCode::Config);
+        }
+        Ok(())
+    }
+
     /// start block filter service
     pub fn start_block_filter(&self, shared: &Shared) {
         if self

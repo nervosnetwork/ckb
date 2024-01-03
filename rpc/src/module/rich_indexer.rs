@@ -42,11 +42,11 @@ pub trait RichIndexerRpc {
     ///   "id": 2
     /// }
     /// ```
-    #[rpc(name = "get_rich_indexer_tip")]
-    async fn get_rich_indexer_tip(&self) -> Result<Option<IndexerTip>>;
+    #[rpc(name = "get_indexer_tip")]
+    async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>>;
 
-    #[rpc(name = "get_rich_indexer_cells")]
-    async fn get_rich_indexer_cells(
+    #[rpc(name = "get_cells")]
+    async fn get_cells(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -54,8 +54,8 @@ pub trait RichIndexerRpc {
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>>;
 
-    #[rpc(name = "get_rich_indexer_transactions")]
-    async fn get_rich_indexer_transactions(
+    #[rpc(name = "get_transactions")]
+    async fn get_transactions(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -63,8 +63,8 @@ pub trait RichIndexerRpc {
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>>;
 
-    #[rpc(name = "get_rich_indexer_cells_capacity")]
-    async fn get_rich_indexer_cells_capacity(
+    #[rpc(name = "get_cells_capacity")]
+    async fn get_cells_capacity(
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>>;
@@ -83,14 +83,14 @@ impl RichIndexerRpcImpl {
 
 #[async_trait]
 impl RichIndexerRpc for RichIndexerRpcImpl {
-    async fn get_rich_indexer_tip(&self) -> Result<Option<IndexerTip>> {
+    async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>> {
         self.handle
             .get_indexer_tip()
             .await
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    async fn get_rich_indexer_cells(
+    async fn get_cells(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -103,7 +103,7 @@ impl RichIndexerRpc for RichIndexerRpcImpl {
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    async fn get_rich_indexer_transactions(
+    async fn get_transactions(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -116,7 +116,7 @@ impl RichIndexerRpc for RichIndexerRpcImpl {
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    async fn get_rich_indexer_cells_capacity(
+    async fn get_cells_capacity(
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>> {

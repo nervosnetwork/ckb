@@ -195,51 +195,54 @@ impl<'a> ServiceBuilder<'a> {
         let mut pool_service =
             PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
 
-        // Init indexer service.
-        let indexer = IndexerService::new(
-            ckb_secondary_db.clone(),
-            pool_service.clone(),
-            indexer_config,
-            shared.async_handle().clone(),
-        );
-        let indexer_handle = indexer.handle();
-        let methods = IndexerRpcImpl::new(indexer_handle);
         if self.config.indexer_enable() {
+            // Init indexer service.
+            let indexer = IndexerService::new(
+                ckb_secondary_db.clone(),
+                pool_service.clone(),
+                indexer_config,
+                shared.async_handle().clone(),
+            );
             indexer.spawn_poll(shared.notify_controller().clone());
             if indexer_config.index_tx_pool {
                 pool_service.index_tx_pool(shared.notify_controller().clone());
             }
-        }
-        self = set_rpc_module_methods!(
-            self,
-            "Indexer",
-            indexer_enable,
-            add_indexer_rpc_methods,
-            methods
-        );
 
-        // Init rich-indexer service
-        let rich_indexer = RichIndexerService::new(
-            ckb_secondary_db,
-            pool_service.clone(),
-            indexer_config,
-            shared.async_handle().clone(),
-        );
-        let rich_indexer_handle = rich_indexer.async_handle();
-        let rich_indexer_methods = RichIndexerRpcImpl::new(rich_indexer_handle);
+            let indexer_handle = indexer.handle();
+            let methods = IndexerRpcImpl::new(indexer_handle);
+            self = set_rpc_module_methods!(
+                self,
+                "Indexer",
+                indexer_enable,
+                add_indexer_rpc_methods,
+                methods
+            );
+        }
+
         if self.config.rich_indexer_enable() {
+            // Init rich-indexer service
+            let rich_indexer = RichIndexerService::new(
+                ckb_secondary_db,
+                pool_service.clone(),
+                indexer_config,
+                shared.async_handle().clone(),
+            );
             rich_indexer.spawn_poll(shared.notify_controller().clone());
             if indexer_config.index_tx_pool {
                 pool_service.index_tx_pool(shared.notify_controller().clone());
             }
+
+            let rich_indexer_handle = rich_indexer.async_handle();
+            let rich_indexer_methods = RichIndexerRpcImpl::new(rich_indexer_handle);
+            self = set_rpc_module_methods!(
+                self,
+                "RichIndexer",
+                rich_indexer_enable,
+                add_rich_indexer_rpc_methods,
+                rich_indexer_methods
+            )
         }
-        set_rpc_module_methods!(
-            self,
-            "RichIndexer",
-            rich_indexer_enable,
-            add_rich_indexer_rpc_methods,
-            rich_indexer_methods
-        )
+        self
     }
 
     pub fn enable_subscription(&mut self, shared: Shared) {
