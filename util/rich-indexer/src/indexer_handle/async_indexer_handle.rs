@@ -418,13 +418,14 @@ impl AsyncRichIndexerHandle {
 
         // fetch
         let capacity = query
-            .fetch_one(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
-            .map(|row| row.get::<i64, _>("total_capacity") as u64)
-            .map_err(|err| Error::DB(err.to_string()))?;
-        if capacity == 0 {
-            return Ok(None);
-        }
+            .map_err(|err| Error::DB(err.to_string()))?
+            .and_then(|row| row.try_get::<i64, _>("total_capacity").ok());
+        let capacity = match capacity {
+            Some(capacity) => capacity as u64,
+            None => return Ok(None),
+        };
 
         let (block_hash, block_number) = SQLXPool::new_query(
             r#"
@@ -515,9 +516,9 @@ fn add_filter_script_len_range_conditions(
     range: &IndexerRange,
 ) {
     let condition = format!(
-        "COALESCE(LENGTH({}_script.code_hash), 0) \
-        + (CASE WHEN {}_script.hash_type IS NULL THEN 0 ELSE 1 END) \
-        + COALESCE(LENGTH({}_script.args), 0)",
+        r#"COALESCE(LENGTH({}_script.code_hash), 0)
+        + (CASE WHEN {}_script.hash_type IS NULL THEN 0 ELSE 1 END)
+        + COALESCE(LENGTH({}_script.args), 0)"#,
         script_name, script_name, script_name
     );
     query_builder.and_where_ge(&condition, range.start());
@@ -530,14 +531,14 @@ fn build_script_sub_query_sql(
     let mut query_builder = SqlBuilder::select_from("script");
     query_builder
         .field("script.id")
-        .and_where_eq("code_hash", "?")
-        .and_where_eq("hash_type", "?");
+        .and_where_eq("code_hash", "$1")
+        .and_where_eq("hash_type", "$2");
     match script_search_mode {
         Some(IndexerSearchMode::Prefix) | None | Some(IndexerSearchMode::Partial) => {
-            query_builder.and_where("args LIKE ?");
+            query_builder.and_where("args LIKE $3");
         }
         Some(IndexerSearchMode::Exact) => {
-            query_builder.and_where_eq("args", "?");
+            query_builder.and_where_eq("args", "$3");
         }
     }
     let sql_sub_query = query_builder
@@ -553,6 +554,7 @@ async fn build_sql_by_filter(
     limit: Uint32,
     after: Option<JsonBytes>,
 ) -> Result<String, Error> {
+    let mut param_index = 4;
     if let Some(after) = after {
         let after = decode_i64(after.as_bytes())?;
         match order {
@@ -564,14 +566,26 @@ async fn build_sql_by_filter(
         if filter.script.is_some() {
             match search_key.script_type {
                 IndexerScriptType::Lock => {
-                    query_builder.and_where_eq("type_script.code_hash", "?");
-                    query_builder.and_where_eq("type_script.hash_type", "?");
-                    query_builder.and_where("type_script.args LIKE ?");
+                    query_builder
+                        .and_where_eq("type_script.code_hash", format!("${}", param_index));
+                    param_index += 1;
+                    query_builder
+                        .and_where_eq("type_script.hash_type", format!("${}", param_index));
+                    param_index += 1;
+                    query_builder.and_where(format!("type_script.args LIKE ${}", param_index));
+                    param_index += 1;
                 }
                 IndexerScriptType::Type => {
-                    query_builder.and_where_eq("lock_script.code_hash", "?");
-                    query_builder.and_where_eq("lock_script.hash_type", "?");
-                    query_builder.and_where("lock_script.args LIKE ?");
+                    query_builder
+                        .and_where_eq("lock_script.code_hash", format!("${}", param_index));
+                    param_index += 1;
+
+                    query_builder
+                        .and_where_eq("lock_script.hash_type", format!("${}", param_index));
+                    param_index += 1;
+
+                    query_builder.and_where(format!("lock_script.args LIKE ${}", param_index));
+                    param_index += 1;
                 }
             }
         }
@@ -608,10 +622,10 @@ async fn build_sql_by_filter(
         if filter.output_data.is_some() {
             match filter.output_data_filter_mode {
                 Some(IndexerSearchMode::Prefix) | None | Some(IndexerSearchMode::Partial) => {
-                    query_builder.and_where("output.data LIKE ?");
+                    query_builder.and_where(format!("output.data LIKE ${}", param_index));
                 }
                 Some(IndexerSearchMode::Exact) => {
-                    query_builder.and_where_eq("output.data", "?");
+                    query_builder.and_where_eq("output.data", format!("${}", param_index));
                 }
             }
         }
