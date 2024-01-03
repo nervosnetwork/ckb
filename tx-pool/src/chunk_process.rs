@@ -5,6 +5,7 @@ use crate::{error::Reject, service::TxPoolService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_logger::info;
+use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -28,12 +29,6 @@ use tokio_util::sync::CancellationToken;
 const MIN_STEP_CYCLE: Cycle = 10_000_000;
 
 type Stop = bool;
-
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub(crate) enum ChunkCommand {
-    Suspend,
-    Resume,
-}
 
 enum State {
     Stopped,

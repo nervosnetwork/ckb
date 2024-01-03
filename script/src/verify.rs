@@ -16,6 +16,7 @@ use crate::{
         TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
+    ChunkCommand,
 };
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
@@ -36,9 +37,10 @@ use ckb_vm::{
     snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
+use std::{cell::RefCell, sync::RwLock};
+use tokio::{select, sync::mpsc};
 
 #[cfg(test)]
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -665,6 +667,46 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         Ok(VerifyResult::Completed(cycles))
     }
 
+    pub async fn resumable_verify_with_signal(
+        &self,
+        limit_cycles: Cycle,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    ) -> Result<VerifyResult, Error> {
+        let mut cycles = 0;
+
+        let groups: Vec<_> = self.groups().collect();
+        for (idx, (_hash, group)) in groups.iter().enumerate() {
+            // vm should early return invalid cycles
+            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::VMInternalError(format!(
+                    "expect invalid cycles {limit_cycles} {cycles}"
+                ))
+                .source(group)
+            })?;
+
+            match self
+                .verify_group_with_signal(group, remain_cycles, command_rx)
+                .await
+            {
+                Ok(ChunkState::Completed(used_cycles)) => {
+                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
+                }
+                Ok(ChunkState::Suspended(vms, context)) => {
+                    let current = idx;
+                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    return Ok(VerifyResult::Suspended(state));
+                }
+                Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(VerifyResult::Completed(cycles))
+    }
+
     /// Resuming an suspended verify from snapshot
     ///
     /// ## Params
@@ -970,6 +1012,31 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         }
     }
 
+    async fn verify_group_with_signal(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: Cycle,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    ) -> Result<ChunkState, ScriptError> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: &self.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            match verifier.verify() {
+                Ok(cycles) => Ok(ChunkState::Completed(cycles)),
+                Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
+                Err(e) => Err(e),
+            }
+        } else {
+            self.chunk_run_with_signal(group, max_cycles, command_rx)
+                .await
+        }
+    }
+
     /// Finds the script group from cell deps.
     pub fn find_script_group(
         &self,
@@ -1048,6 +1115,66 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         } else {
             Err(ScriptError::validation_failure(&script_group.script, code))
         }
+    }
+
+    async fn chunk_run_with_signal(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    ) -> Result<ChunkState, ScriptError> {
+        let context: Arc<Mutex<MachineContext>> = Default::default();
+
+        let map_vm_internal_error = |error: VMInternalError| match error {
+            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+            _ => ScriptError::VMInternalError(format!("{error:?}")),
+        };
+
+        let machines = {
+            // No snapshots are available, create machine from scratch
+            let mut machine = self.build_machine(script_group, max_cycles, Arc::clone(&context))?;
+            let program = self.extract_script(&script_group.script)?;
+            let bytes = machine
+                .load_program(&program, &[])
+                .map_err(map_vm_internal_error)?;
+            let program_bytes_cycles = transferred_byte_cycles(bytes);
+            // NOTE: previously, we made a distinction between machines
+            // that completes program loading without errors, and machines
+            // that fail program loading due to cycle limits. For the latter
+            // one, we won't generate any snapshots. Starting from this version,
+            // we will remove this distinction: when loading program exceeds
+            // maximum cycles, the error will be triggered when executing the
+            // first instruction. As a result, now all ResumableMachine will
+            // be transformed to snapshots. This is due to several considerations:
+            //
+            // * Let's do a little bit math: right now CKB has a block limit of
+            // ~570KB, a single transaction is further limited to 512KB in RPC,
+            // the biggest program one can load is either 512KB or ~570KB depending
+            // on which limit to use. The cycles consumed to load a program, is
+            // thus at most 131072 or ~145920, which is far less than the cycle
+            // limit for running a single transaction (70 million or more). In
+            // reality it might be extremely rare that loading a program would
+            // result in exceeding cycle limits. Removing the distinction here,
+            // would help simply the code.
+            // * If you pay attention to the code now, we already have this behavior
+            // in the code: most syscalls use +add_cycles_no_checking+ in the code,
+            // meaning an error would not be immediately generated when cycle limit
+            // is reached, the error would be raised when executing the first instruction
+            // after the syscall. What's more, when spawn is loading a program
+            // to its child machine, it also uses +add_cycles_no_checking+ so it
+            // won't generate errors immediately. This means that all spawned machines
+            // will be in a state that a program is loaded, regardless of the fact if
+            // loading a program in spawn reaches the cycle limit or not. As a
+            // result, we definitely want to pull the trigger, so we can have unified
+            // behavior everywhere.
+            machine
+                .machine
+                .add_cycles_no_checking(program_bytes_cycles)
+                .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")))?;
+            vec![machine]
+        };
+
+        run_vms_with_signal(script_group, max_cycles, machines, &context, command_rx).await
     }
 
     fn chunk_run(
@@ -1226,6 +1353,105 @@ fn run_vms(
             &script_group.script,
             exit_code,
         ))
+    }
+}
+
+// Run a series of VMs that are just freshly resumed
+async fn run_vms_with_signal(
+    script_group: &ScriptGroup,
+    _max_cycles: Cycle,
+    mut machines: Vec<Machine>,
+    context: &Arc<Mutex<MachineContext>>,
+    command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+) -> Result<ChunkState, ScriptError> {
+    let (mut exit_code, mut cycles) = (0, 0);
+
+    if machines.is_empty() {
+        return Err(ScriptError::VMInternalError(
+            "To resume VMs, at least one VM must be available!".to_string(),
+        ));
+    }
+
+    // let map_vm_internal_error = |error: VMInternalError| match error {
+    //     VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+    //     _ => ScriptError::VMInternalError(format!("{error:?}")),
+    // };
+
+    while let Some(machine) = machines.pop() {
+        match run_vm_with_signal(machine, command_rx).await {
+            (Ok(code), run_cycles) => {
+                exit_code = code;
+                cycles = run_cycles;
+            }
+            (Err(error), _) => match error {
+                VMInternalError::CyclesExceeded => {
+                    return Ok(ChunkState::suspended(vec![], Arc::clone(context)));
+                }
+                _ => return Err(ScriptError::VMInternalError(format!("{error:?}"))),
+            },
+        };
+    }
+
+    if exit_code == 0 {
+        Ok(ChunkState::Completed(cycles))
+    } else {
+        Err(ScriptError::validation_failure(
+            &script_group.script,
+            exit_code,
+        ))
+    }
+}
+
+async fn run_vm_with_signal(
+    mut vm: Machine,
+    signal: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+) -> (Result<i8, ckb_vm::Error>, Cycle) {
+    let (finished_send, mut finished_recv) = mpsc::unbounded_channel();
+    let pause = vm.machine.pause();
+    let (child_sender, mut child_recv) = tokio::sync::watch::channel(ChunkCommand::Resume);
+    child_recv.mark_changed();
+    let jh = tokio::spawn(async move {
+        loop {
+            select! {
+                _ = child_recv.changed() => {
+                    let state = child_recv.borrow().to_owned();
+                    if state == ChunkCommand::Resume {
+                        let result = vm.run();
+                        eprintln!("res: {:?}", result);
+                        if matches!(result, Err(ckb_vm::Error::Pause)) {
+                            continue;
+                        } else {
+                            finished_send.send((result, vm.machine.cycles())).unwrap();
+                            return;
+                        }
+                    }
+                }
+                else => {
+                        eprintln!("now paused ...");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+            }
+        }
+    });
+
+    loop {
+        tokio::select! {
+            _ = signal.changed() => {
+                let state = signal.borrow().to_owned();
+                if state == ChunkCommand::Suspend {
+                    eprintln!("received pause signal ...");
+                    pause.interrupt();
+                } else if state == ChunkCommand::Resume {
+                    eprintln!("received resume signal ...");
+                    child_sender.send(ChunkCommand::Resume).unwrap();
+                }
+            }
+            res = finished_recv.recv() => {
+                eprintln!("finished ...: {:?}", res);
+                let _ = jh.await.unwrap();
+                return res.unwrap();
+            }
+        }
     }
 }
 
