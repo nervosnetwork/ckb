@@ -2,8 +2,10 @@ use crate::component::entry::TxEntry;
 use crate::try_or_return_with_snapshot;
 
 use crate::{error::Reject, service::TxPoolService};
-use ckb_script::ChunkCommand;
+use ckb_script::{ChunkCommand, VerifyResult};
 use ckb_stop_handler::CancellationToken;
+use ckb_types::packed::Byte32;
+use ckb_verification::cache::TxVerificationCache;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -42,7 +44,8 @@ enum State {
 
 struct Worker {
     tasks: Arc<RwLock<VerifyQueue>>,
-    command_rx: tokio::sync::watch::Receiver<ChunkCommand>,
+    command_rx: watch::Receiver<ChunkCommand>,
+    queue_rx: watch::Receiver<usize>,
     outbox: UnboundedSender<VerifyNotify>,
     service: TxPoolService,
     exit_signal: CancellationToken,
@@ -53,6 +56,7 @@ impl Clone for Worker {
         Self {
             tasks: Arc::clone(&self.tasks),
             command_rx: self.command_rx.clone(),
+            queue_rx: self.queue_rx.clone(),
             exit_signal: self.exit_signal.clone(),
             outbox: self.outbox.clone(),
             service: self.service.clone(),
@@ -64,7 +68,8 @@ impl Worker {
     pub fn new(
         service: TxPoolService,
         tasks: Arc<RwLock<VerifyQueue>>,
-        command_rx: tokio::sync::watch::Receiver<ChunkCommand>,
+        command_rx: watch::Receiver<ChunkCommand>,
+        queue_rx: watch::Receiver<usize>,
         outbox: UnboundedSender<VerifyNotify>,
         exit_signal: CancellationToken,
     ) -> Self {
@@ -72,6 +77,7 @@ impl Worker {
             service,
             tasks,
             command_rx,
+            queue_rx,
             outbox,
             exit_signal,
         }
@@ -80,31 +86,41 @@ impl Worker {
     /// start handle tasks
     pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
             loop {
-                if self.exit_signal.is_cancelled() {
-                    break;
+                tokio::select! {
+                    _ = self.exit_signal.cancelled() => {
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        self.process_inner().await;
+                    }
+                    _ = self.queue_rx.changed() => {
+                        self.process_inner().await;
+                    }
                 }
-
-                if self.tasks.read().await.get_first().is_none() {
-                    // sleep for 100 ms
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    continue;
-                }
-                // pick a entry to run verify
-                let entry = match self.tasks.write().await.pop_first() {
-                    Some(entry) => entry,
-                    None => continue,
-                };
-                let short_id = entry.tx.proposal_short_id().to_string();
-                let res = self.run_verify_tx(entry).await;
-                self.outbox
-                    .send(VerifyNotify::Done {
-                        short_id,
-                        result: res,
-                    })
-                    .unwrap();
             }
         })
+    }
+
+    async fn process_inner(&mut self) -> bool {
+        if self.tasks.read().await.get_first().is_none() {
+            return false;
+        }
+        // pick a entry to run verify
+        let entry = match self.tasks.write().await.pop_first() {
+            Some(entry) => entry,
+            None => return false,
+        };
+        let short_id = entry.tx.proposal_short_id().to_string();
+        let res = self.run_verify_tx(entry).await;
+        self.outbox
+            .send(VerifyNotify::Done {
+                short_id,
+                result: res,
+            })
+            .unwrap();
+        true
     }
 
     async fn run_verify_tx(
@@ -142,13 +158,14 @@ impl Worker {
                     let (ret, submit_snapshot) =
                         self.service.submit_entry(tip_hash, entry, status).await;
                     try_or_return_with_snapshot!(ret, submit_snapshot);
-                    // self.service
-                    //     .after_process(tx, remote, &submit_snapshot, &Ok(completed))
-                    //     .await;
-                    // self.remove_front().await;
+                    self.service
+                        .after_process(tx, remote, &submit_snapshot, &Ok(completed))
+                        .await;
                     return Some((Ok(false), submit_snapshot));
                 }
-                CacheEntry::Suspended(_suspended) => {}
+                CacheEntry::Suspended(_suspended) => {
+                    panic!("not expected");
+                }
             }
         }
 
@@ -207,6 +224,24 @@ impl Worker {
             }
         }
         // verify passed
+
+        let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
+        let (ret, submit_snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
+        try_or_return_with_snapshot!(ret, snapshot);
+
+        self.service.notify_block_assembler(status).await;
+
+        self.service
+            .after_process(tx, remote, &submit_snapshot, &Ok(completed))
+            .await;
+
+        update_cache(
+            Arc::clone(&self.service.txs_verify_cache),
+            tx_hash,
+            CacheEntry::Completed(completed),
+        )
+        .await;
+
         return Some((Ok(false), snapshot));
     }
 
@@ -216,27 +251,36 @@ impl Worker {
         &mut self,
         rtx: Arc<ResolvedTransaction>,
         data_loader: DL,
-        _max_cycles: Cycle,
+        max_cycles: Cycle,
         consensus: Arc<Consensus>,
         tx_env: Arc<TxVerifyEnv>,
     ) -> Result<State, Reject> {
         let script_verifier = ScriptVerifier::new(rtx, data_loader, consensus, tx_env);
-        let cycle_limit = 1000000000;
-        let _res = script_verifier
-            .resumable_verify_with_signal(cycle_limit, &mut self.command_rx)
+        let res = script_verifier
+            .resumable_verify_with_signal(max_cycles, &mut self.command_rx)
             .await
-            .unwrap();
-        return Ok(State::Completed(0));
+            .map_err(Reject::Verification)?;
+        match res {
+            VerifyResult::Completed(cycles) => {
+                return Ok(State::Completed(cycles));
+            }
+            VerifyResult::Suspended(_) => {
+                panic!("not expected");
+            }
+        }
     }
+}
+
+async fn update_cache(cache: Arc<RwLock<TxVerificationCache>>, tx_hash: Byte32, entry: CacheEntry) {
+    let mut guard = cache.write().await;
+    guard.put(tx_hash, entry);
 }
 
 pub(crate) struct VerifyMgr {
     workers: Vec<Worker>,
     worker_notify: UnboundedReceiver<VerifyNotify>,
     join_handles: Option<Vec<JoinHandle<()>>>,
-    pub signal_exit: CancellationToken,
-    pub verify_queue: Arc<RwLock<VerifyQueue>>,
-    pub service: TxPoolService,
+    signal_exit: CancellationToken,
 }
 
 impl VerifyMgr {
@@ -244,21 +288,21 @@ impl VerifyMgr {
         service: TxPoolService,
         chunk_rx: watch::Receiver<ChunkCommand>,
         signal_exit: CancellationToken,
-        //verify_queue: Arc<RwLock<VerifyQueue>>,
+        verify_queue: Arc<RwLock<VerifyQueue>>,
+        queue_rx: watch::Receiver<usize>,
     ) -> Self {
         let (notify_tx, notify_rx) = unbounded_channel::<VerifyNotify>();
-        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new()));
         let workers: Vec<_> = (0..4)
             .map({
                 let tasks = Arc::clone(&verify_queue);
                 let command_rx = chunk_rx.clone();
                 let signal_exit = signal_exit.clone();
-                let service = service.clone();
                 move |_| {
                     let worker = Worker::new(
                         service.clone(),
                         Arc::clone(&tasks),
                         command_rx.clone(),
+                        queue_rx.clone(),
                         notify_tx.clone(),
                         signal_exit.clone(),
                     );
@@ -267,12 +311,10 @@ impl VerifyMgr {
             })
             .collect();
         Self {
-            service,
             workers,
             worker_notify: notify_rx,
             join_handles: None,
             signal_exit,
-            verify_queue,
         }
     }
 

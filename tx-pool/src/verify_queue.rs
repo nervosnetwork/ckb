@@ -7,6 +7,7 @@ use ckb_types::{
 };
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
+use tokio::sync::watch;
 
 const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100;
 const SHRINK_THRESHOLD: usize = 120;
@@ -44,12 +45,14 @@ pub struct VerifyEntry {
 
 pub struct VerifyQueue {
     inner: MultiIndexVerifyEntryMap,
+    queue_tx: watch::Sender<usize>,
 }
 
 impl VerifyQueue {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(queue_tx: watch::Sender<usize>) -> Self {
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
+            queue_tx,
         }
     }
 
@@ -119,6 +122,7 @@ impl VerifyQueue {
                 .as_millis() as u64,
             inner: Entry { tx, remote },
         });
+        self.queue_tx.send(self.len()).unwrap();
         true
     }
 

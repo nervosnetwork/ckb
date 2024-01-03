@@ -1194,7 +1194,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             vec![machine]
         };
 
-        run_vms_with_signal(script_group, max_cycles, machines, &context, command_rx).await
+        run_vms_with_signal(script_group, max_cycles, machines, command_rx).await
     }
 
     fn chunk_run(
@@ -1379,23 +1379,17 @@ fn run_vms(
 // Run a series of VMs that are just freshly resumed
 async fn run_vms_with_signal(
     script_group: &ScriptGroup,
-    _max_cycles: Cycle,
+    max_cycles: Cycle,
     mut machines: Vec<Machine>,
-    context: &Arc<Mutex<MachineContext>>,
     command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
 ) -> Result<ChunkState, ScriptError> {
     let (mut exit_code, mut cycles) = (0, 0);
 
     if machines.is_empty() {
         return Err(ScriptError::VMInternalError(
-            "To resume VMs, at least one VM must be available!".to_string(),
+            "At least one VM must be available!".to_string(),
         ));
     }
-
-    // let map_vm_internal_error = |error: VMInternalError| match error {
-    //     VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-    //     _ => ScriptError::VMInternalError(format!("{error:?}")),
-    // };
 
     while let Some(machine) = machines.pop() {
         match run_vm_with_signal(machine, command_rx).await {
@@ -1405,7 +1399,7 @@ async fn run_vms_with_signal(
             }
             (Err(error), _) => match error {
                 VMInternalError::CyclesExceeded => {
-                    return Ok(ChunkState::suspended(vec![], Arc::clone(context)));
+                    return Err(ScriptError::ExceededMaximumCycles(max_cycles))
                 }
                 _ => return Err(ScriptError::VMInternalError(format!("{error:?}"))),
             },

@@ -381,7 +381,6 @@ pub struct TxPoolServiceBuilder {
     pub(crate) handle: Handle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
-    pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
     pub(crate) started: Arc<AtomicBool>,
     pub(crate) block_assembler_channel: (
         mpsc::Sender<BlockAssemblerMessage>,
@@ -404,7 +403,6 @@ impl TxPoolServiceBuilder {
         let (reorg_sender, reorg_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let signal_receiver: CancellationToken = new_tokio_exit_rx();
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new()));
         let started = Arc::new(AtomicBool::new(false));
 
         let controller = TxPoolController {
@@ -431,7 +429,6 @@ impl TxPoolServiceBuilder {
             tx_relay_sender,
             chunk_rx,
             started,
-            verify_queue,
             block_assembler_channel,
         };
 
@@ -473,6 +470,8 @@ impl TxPoolServiceBuilder {
             }
         };
 
+        let (queue_tx, queue_rx) = watch::channel(0 as usize);
+        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(queue_tx)));
         let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
@@ -483,20 +482,21 @@ impl TxPoolServiceBuilder {
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
             block_assembler_sender,
-            verify_queue: self.verify_queue,
+            verify_queue: verify_queue.clone(),
             network,
             consensus,
             delay: Arc::new(RwLock::new(LinkedHashMap::new())),
             after_delay: Arc::new(AtomicBool::new(after_delay_window)),
         };
 
-        let verify_mgr = Arc::new(RwLock::new(VerifyMgr::new(
+        let mut verify_mgr = VerifyMgr::new(
             service.clone(),
             self.chunk_rx,
             self.signal_receiver.clone(),
-        )));
-        self.handle
-            .spawn(async move { verify_mgr.write().await.run().await });
+            verify_queue,
+            queue_rx,
+        );
+        self.handle.spawn(async move { verify_mgr.run().await });
 
         let mut receiver = self.receiver;
         let mut reorg_receiver = self.reorg_receiver;
