@@ -332,15 +332,7 @@ impl AsyncRichIndexerHandle {
 
         // query output
         let mut query_builder = SqlBuilder::select_from("output");
-        query_builder.field("output.capacity");
-        match search_key.with_data {
-            Some(true) | None => {
-                query_builder.field("output.data as output_data");
-            }
-            Some(false) => {
-                query_builder.field("NULL as output_data");
-            }
-        }
+        query_builder.field("SUM(output.capacity) as total_capacity");
         query_builder.join(&format!("{} script_res", script_sub_query_sql));
         match search_key.script_type {
             IndexerScriptType::Lock => {
@@ -426,13 +418,10 @@ impl AsyncRichIndexerHandle {
 
         // fetch
         let capacity = query
-            .fetch_all(&mut *tx)
+            .fetch_one(&mut *tx)
             .await
-            .map_err(|err| Error::DB(err.to_string()))?
-            .iter()
-            .map(|row| row.get::<i64, _>("capacity") as u64)
-            .sum::<u64>();
-
+            .map(|row| row.get::<i64, _>("total_capacity") as u64)
+            .map_err(|err| Error::DB(err.to_string()))?;
         if capacity == 0 {
             return Ok(None);
         }
