@@ -5,6 +5,7 @@ use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::Resource;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_types::global::DATA_DIR;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -122,6 +123,11 @@ pub fn gen_txs_from_genesis(block: &BlockView) -> Vec<TransactionView> {
 
 fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("resolve");
+
+    let tmp_dir = tempfile::tempdir().expect("create tmp_dir failed");
+    DATA_DIR
+        .set(tmp_dir.path().join("data"))
+        .expect("DATA_DIR set only once");
 
     group.bench_with_input(BenchmarkId::new("resolve", SIZE), &SIZE, |b, txs_size| {
         b.iter_batched(
