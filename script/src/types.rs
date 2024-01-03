@@ -471,3 +471,10 @@ impl std::fmt::Debug for TransactionState {
             .finish()
     }
 }
+
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub enum ChunkCommand {
+    Suspend,
+    Resume,
+    Shutdown,
+}

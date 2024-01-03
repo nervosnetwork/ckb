@@ -10,8 +10,8 @@ mod verify_env;
 pub use crate::error::{ScriptError, TransactionScriptError};
 pub use crate::syscalls::spawn::update_caller_machine;
 pub use crate::types::{
-    CoreMachine, MachineContext, ResumableMachine, ScriptGroup, ScriptGroupType, ScriptVersion,
-    TransactionSnapshot, TransactionState, VerifyResult, VmIsa, VmVersion,
+    ChunkCommand, CoreMachine, MachineContext, ResumableMachine, ScriptGroup, ScriptGroupType,
+    ScriptVersion, TransactionSnapshot, TransactionState, VerifyResult, VmIsa, VmVersion,
 };
 pub use crate::verify::{TransactionScriptsSyscallsGenerator, TransactionScriptsVerifier};
 pub use crate::verify_env::TxVerifyEnv;
