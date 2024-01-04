@@ -283,7 +283,7 @@ impl ChainService {
 
     // Truncate the main chain
     // Use for testing only, can only truncate less than 50000 blocks each time
-    pub(crate) fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
+    pub fn truncate(&mut self, target_tip_hash: &Byte32) -> Result<(), Error> {
         let snapshot = Arc::clone(&self.shared.snapshot());
         assert!(snapshot.is_main_chain(target_tip_hash));
 
@@ -311,6 +311,11 @@ impl ChainService {
 
         let db_txn = self.shared.store().begin_transaction();
         self.rollback(&fork, &db_txn)?;
+
+        for block in fork.detached_blocks().iter().rev() {
+            db_txn.delete_block_ext(&block.hash())?;
+            db_txn.delete_block(block)?;
+        }
 
         db_txn.insert_tip_header(&target_tip_header)?;
         db_txn.insert_current_epoch_ext(&target_epoch_ext)?;
