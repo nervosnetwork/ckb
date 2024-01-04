@@ -87,6 +87,7 @@ impl Worker {
     pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(100));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = self.exit_signal.cancelled() => {

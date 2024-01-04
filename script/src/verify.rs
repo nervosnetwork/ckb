@@ -40,7 +40,10 @@ use ckb_vm::{
 use std::collections::{BTreeMap, HashMap};
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
-use tokio::{select, sync::mpsc};
+use tokio::{
+    select,
+    sync::{mpsc, oneshot, watch},
+};
 
 #[cfg(test)]
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -1418,11 +1421,11 @@ async fn run_vms_with_signal(
 
 async fn run_vm_with_signal(
     mut vm: Machine,
-    signal: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    signal: &mut watch::Receiver<ChunkCommand>,
 ) -> (Result<i8, ckb_vm::Error>, Cycle) {
     let (finished_send, mut finished_recv) = mpsc::unbounded_channel();
     let pause = vm.machine.pause();
-    let (child_sender, mut child_recv) = tokio::sync::watch::channel(ChunkCommand::Resume);
+    let (child_sender, mut child_recv) = watch::channel(ChunkCommand::Resume);
     child_recv.mark_changed();
     let jh = tokio::spawn(async move {
         loop {
@@ -1431,7 +1434,6 @@ async fn run_vm_with_signal(
                     let state = child_recv.borrow().to_owned();
                     if state == ChunkCommand::Resume {
                         let result = vm.run();
-                        eprintln!("res: {:?}", result);
                         if matches!(result, Err(ckb_vm::Error::Pause)) {
                             continue;
                         } else {
@@ -1440,10 +1442,6 @@ async fn run_vm_with_signal(
                         }
                     }
                 }
-                else => {
-                        eprintln!("now paused ...");
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    }
             }
         }
     });
@@ -1453,18 +1451,16 @@ async fn run_vm_with_signal(
             _ = signal.changed() => {
                 let state = signal.borrow().to_owned();
                 if state == ChunkCommand::Suspend {
-                    eprintln!("received pause signal ...");
                     pause.interrupt();
                 } else if state == ChunkCommand::Resume {
-                    eprintln!("received resume signal ...");
                     child_sender.send(ChunkCommand::Resume).unwrap();
                 }
             }
             res = finished_recv.recv() => {
-                eprintln!("finished ...: {:?}", res);
                 let _ = jh.await.unwrap();
                 return res.unwrap();
             }
+            else => { break (Err(ckb_vm::Error::Unexpected("channel closed".into())), 0) }
         }
     }
 }
