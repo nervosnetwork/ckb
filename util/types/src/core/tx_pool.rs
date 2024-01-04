@@ -113,7 +113,7 @@ pub enum TxStatus {
     /// Status "proposed". The transaction is in the pool and has been proposed.
     Proposed,
     /// Status "committed". The transaction has been committed to the canonical chain.
-    Committed(H256),
+    Committed(BlockNumber, H256),
     /// Status "unknown". The node has not seen the transaction,
     /// or it should be rejected but was cleared due to storage limitations.
     Unknown,
@@ -203,12 +203,13 @@ impl TransactionWithStatus {
     /// Build with committed status
     pub fn with_committed(
         tx: Option<core::TransactionView>,
+        number: BlockNumber,
         hash: H256,
         cycles: Option<core::Cycle>,
         fee: Option<Capacity>,
     ) -> Self {
         Self {
-            tx_status: TxStatus::Committed(hash),
+            tx_status: TxStatus::Committed(number, hash),
             transaction: tx,
             cycles,
             fee,

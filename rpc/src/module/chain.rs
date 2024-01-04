@@ -2138,6 +2138,7 @@ impl ChainRpcImpl {
             };
             return Ok(TransactionWithStatus::with_committed(
                 None,
+                tx_info.block_number,
                 tx_info.block_hash.unpack(),
                 cycles,
                 None,
@@ -2185,6 +2186,7 @@ impl ChainRpcImpl {
 
             return Ok(TransactionWithStatus::with_committed(
                 Some(tx),
+                tx_info.block_number,
                 tx_info.block_hash.unpack(),
                 cycles,
                 None,
