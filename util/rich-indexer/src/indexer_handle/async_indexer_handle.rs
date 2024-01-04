@@ -579,11 +579,9 @@ async fn build_sql_by_filter(
                     query_builder
                         .and_where_eq("lock_script.code_hash", format!("${}", param_index));
                     param_index += 1;
-
                     query_builder
                         .and_where_eq("lock_script.hash_type", format!("${}", param_index));
                     param_index += 1;
-
                     query_builder.and_where(format!("lock_script.args LIKE ${}", param_index));
                     param_index += 1;
                 }

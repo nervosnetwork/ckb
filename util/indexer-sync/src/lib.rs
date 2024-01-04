@@ -95,38 +95,42 @@ impl IndexerSyncService {
             error!("secondary_db try_catch_up_with_primary error {}", e);
         }
         loop {
-            if let Some((tip_number, tip_hash)) = indexer.tip().expect("get tip should be OK") {
-                match self.get_block_by_number(tip_number + 1) {
-                    Some(block) => {
-                        if block.parent_hash() == tip_hash {
-                            info!(
-                                "{} append {}, {}",
-                                indexer.get_identity(),
-                                block.number(),
-                                block.hash()
-                            );
-                            indexer.append(&block).expect("append block should be OK");
-                        } else {
-                            info!(
-                                "{} rollback {}, {}",
-                                indexer.get_identity(),
-                                tip_number,
-                                tip_hash
-                            );
-                            indexer.rollback().expect("rollback block should be OK");
+            match indexer.tip() {
+                Ok(Some((tip_number, tip_hash))) => {
+                    match self.get_block_by_number(tip_number + 1) {
+                        Some(block) => {
+                            if block.parent_hash() == tip_hash {
+                                info!(
+                                    "{} append {}, {}",
+                                    indexer.get_identity(),
+                                    block.number(),
+                                    block.hash()
+                                );
+                                indexer.append(&block).expect("append block should be OK");
+                            } else {
+                                info!(
+                                    "{} rollback {}, {}",
+                                    indexer.get_identity(),
+                                    tip_number,
+                                    tip_hash
+                                );
+                                indexer.rollback().expect("rollback block should be OK");
+                            }
+                        }
+                        None => {
+                            break;
                         }
                     }
-                    None => {
-                        break;
-                    }
                 }
-            } else {
-                match self.get_block_by_number(0) {
+                Ok(None) => match self.get_block_by_number(0) {
                     Some(block) => indexer.append(&block).expect("append block should be OK"),
                     None => {
-                        error!("ckb node returns an empty genesis block");
+                        error!("CKB node returns an empty genesis block");
                         break;
                     }
+                },
+                Err(e) => {
+                    error!("Failed to get tip: {}", e);
                 }
             }
         }
