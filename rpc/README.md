@@ -7210,6 +7210,8 @@ Transaction status and the block hash if it is committed.
 
 *   `status`: [`Status`](#type-status) - The transaction status, allowed values: “pending”, “proposed” “committed” “unknown” and “rejected”.
 
+*   `block_number`: [`BlockNumber`](#type-blocknumber) `|` `null` - The block number of the block which has committed this transaction in the canonical chain.
+
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
 
 *   `reason`: `string` `|` `null` - The reason why the transaction is rejected
