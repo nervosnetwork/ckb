@@ -24,6 +24,8 @@ pub const CMD_STATS: &str = "stats";
 pub const CMD_LIST_HASHES: &str = "list-hashes";
 /// Subcommand `reset-data`.
 pub const CMD_RESET_DATA: &str = "reset-data";
+/// Subcommand `truncate-data`.
+pub const CMD_TRUNCATE_BLOCK: &str = "truncate-block";
 /// Subcommand `peer-id`.
 pub const CMD_PEERID: &str = "peer-id";
 /// Subcommand `gen`.
