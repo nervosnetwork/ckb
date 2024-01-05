@@ -24,8 +24,15 @@ const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgr
 const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
 
 #[derive(Clone)]
+pub enum DBType {
+    Sqlite,
+    Postgres,
+}
+
+#[derive(Clone)]
 pub struct SQLXPool {
     pool: Arc<OnceCell<AnyPool>>,
+    db_type: OnceCell<DBType>,
     max_conn: u32,
     min_conn: u32,
     conn_timeout: Duration,
@@ -55,6 +62,7 @@ impl SQLXPool {
     ) -> Self {
         SQLXPool {
             pool: Arc::new(OnceCell::new()),
+            db_type: OnceCell::new(),
             max_conn: max_connections,
             min_conn: min_connections,
             conn_timeout: Duration::from_secs(connection_timeout),
@@ -88,6 +96,9 @@ impl SQLXPool {
                 if require_init {
                     self.create_tables_for_sqlite(db_config).await?;
                 }
+                self.db_type
+                    .set(DBType::Sqlite)
+                    .map_err(|_| anyhow!("set db_type failed!"))?;
                 Ok(())
             }
             DBDriver::Postgres => {
@@ -103,9 +114,19 @@ impl SQLXPool {
                 if require_init {
                     self.create_tables_for_postgres(db_config).await?;
                 }
+                self.db_type
+                    .set(DBType::Postgres)
+                    .map_err(|_| anyhow!("set db_type failed!"))?;
                 Ok(())
             }
         }
+    }
+
+    pub fn get_db_type(&self) -> Result<DBType> {
+        self.db_type
+            .get()
+            .cloned()
+            .ok_or_else(|| anyhow!("db_type not inited!"))
     }
 
     pub async fn fetch_count(&self, table_name: &str) -> Result<u64> {

@@ -1,5 +1,5 @@
 use crate::indexer::to_fixed_array;
-use crate::store::SQLXPool;
+use crate::store::{DBType, SQLXPool};
 
 use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::{
@@ -64,7 +64,12 @@ impl AsyncRichIndexerHandle {
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
         // sub query for script
-        let script_sub_query_sql = build_script_sub_query_sql(&search_key.script_search_mode)?;
+        let script_sub_query_sql = build_script_sub_query_sql(
+            self.store
+                .get_db_type()
+                .map_err(|err| Error::DB(err.to_string()))?,
+            &search_key.script_search_mode,
+        )?;
 
         // query output
         let mut query_builder = SqlBuilder::select_from("output");
@@ -113,29 +118,26 @@ impl AsyncRichIndexerHandle {
         query_builder.and_where("input.output_id IS NULL"); // live cells
 
         // build sql
-        let sql = build_sql_by_filter(query_builder, &search_key, order, limit, after).await?;
+        let sql = build_sql_by_filter(
+            self.store
+                .get_db_type()
+                .map_err(|err| Error::DB(err.to_string()))?,
+            query_builder,
+            &search_key,
+            order,
+            limit,
+            after,
+        )
+        .await?;
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
         query = query
             .bind(search_key.script.code_hash.as_bytes())
             .bind(search_key.script.hash_type as i16);
-        match search_key.script_search_mode {
-            Some(IndexerSearchMode::Prefix) | None => {
-                let mut new_args = search_key.script.args.as_bytes().to_vec();
-                new_args.push(0x25); // End with %
-                query = query.bind(new_args);
-            }
-            Some(IndexerSearchMode::Exact) => {
-                query = query.bind(search_key.script.args.as_bytes());
-            }
-            Some(IndexerSearchMode::Partial) => {
-                let mut new_args = vec![0x25]; // Start with %
-                new_args.extend_from_slice(search_key.script.args.as_bytes());
-                new_args.push(0x25); // End with %
-                query = query.bind(new_args);
-            }
-        }
+        let new_args =
+            process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
+        query = query.bind(new_args);
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
                 query = query
@@ -147,22 +149,8 @@ impl AsyncRichIndexerHandle {
                 query = query.bind(new_args);
             }
             if let Some(data) = &filter.output_data {
-                match filter.output_data_filter_mode {
-                    Some(IndexerSearchMode::Prefix) | None => {
-                        let mut new_data = data.as_bytes().to_vec();
-                        new_data.push(0x25); // End with %
-                        query = query.bind(new_data);
-                    }
-                    Some(IndexerSearchMode::Exact) => {
-                        query = query.bind(data.as_bytes());
-                    }
-                    Some(IndexerSearchMode::Partial) => {
-                        let mut new_data = vec![0x25]; // Start with %
-                        new_data.extend_from_slice(data.as_bytes());
-                        new_data.push(0x25); // End with %
-                        query = query.bind(new_data);
-                    }
-                }
+                let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
+                query = query.bind(new_data);
             }
         }
 
@@ -194,7 +182,12 @@ impl AsyncRichIndexerHandle {
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
         // sub query for script
-        let script_sub_query_sql = build_script_sub_query_sql(&search_key.script_search_mode)?;
+        let script_sub_query_sql = build_script_sub_query_sql(
+            self.store
+                .get_db_type()
+                .map_err(|err| Error::DB(err.to_string()))?,
+            &search_key.script_search_mode,
+        )?;
 
         // query cells
         let mut query_builder = SqlBuilder::select_from("output");
@@ -232,7 +225,17 @@ impl AsyncRichIndexerHandle {
             .on("input_transaction.block_id = input_block.id");
 
         // build sql
-        let sql = build_sql_by_filter(query_builder, &search_key, order, limit, after).await?;
+        let sql = build_sql_by_filter(
+            self.store
+                .get_db_type()
+                .map_err(|err| Error::DB(err.to_string()))?,
+            query_builder,
+            &search_key,
+            order,
+            limit,
+            after,
+        )
+        .await?;
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
@@ -328,7 +331,12 @@ impl AsyncRichIndexerHandle {
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>, Error> {
         // sub query for script
-        let script_sub_query_sql = build_script_sub_query_sql(&search_key.script_search_mode)?;
+        let script_sub_query_sql = build_script_sub_query_sql(
+            self.store
+                .get_db_type()
+                .map_err(|err| Error::DB(err.to_string()))?,
+            &search_key.script_search_mode,
+        )?;
 
         // query output
         let mut query_builder = SqlBuilder::select_from("output");
@@ -526,6 +534,7 @@ fn add_filter_script_len_range_conditions(
 }
 
 fn build_script_sub_query_sql(
+    db_type: DBType,
     script_search_mode: &Option<IndexerSearchMode>,
 ) -> Result<String, Error> {
     let mut query_builder = SqlBuilder::select_from("script");
@@ -535,7 +544,14 @@ fn build_script_sub_query_sql(
         .and_where_eq("hash_type", "$2");
     match script_search_mode {
         Some(IndexerSearchMode::Prefix) | None | Some(IndexerSearchMode::Partial) => {
-            query_builder.and_where("args LIKE $3");
+            match db_type {
+                DBType::Postgres => {
+                    query_builder.and_where("args LIKE $3");
+                }
+                DBType::Sqlite => {
+                    query_builder.and_where("args LIKE $3 ESCAPE '\x5c'");
+                }
+            }
         }
         Some(IndexerSearchMode::Exact) => {
             query_builder.and_where_eq("args", "$3");
@@ -548,6 +564,7 @@ fn build_script_sub_query_sql(
 }
 
 async fn build_sql_by_filter(
+    db_type: DBType,
     mut query_builder: SqlBuilder,
     search_key: &IndexerSearchKey,
     order: IndexerOrder,
@@ -572,7 +589,18 @@ async fn build_sql_by_filter(
                     query_builder
                         .and_where_eq("type_script.hash_type", format!("${}", param_index));
                     param_index += 1;
-                    query_builder.and_where(format!("type_script.args LIKE ${}", param_index));
+                    match db_type {
+                        DBType::Postgres => {
+                            query_builder
+                                .and_where(format!("type_script.args LIKE ${}", param_index));
+                        }
+                        DBType::Sqlite => {
+                            query_builder.and_where(format!(
+                                "type_script.args LIKE ${} ESCAPE '\x5c'",
+                                param_index
+                            ));
+                        }
+                    }
                     param_index += 1;
                 }
                 IndexerScriptType::Type => {
@@ -582,7 +610,18 @@ async fn build_sql_by_filter(
                     query_builder
                         .and_where_eq("lock_script.hash_type", format!("${}", param_index));
                     param_index += 1;
-                    query_builder.and_where(format!("lock_script.args LIKE ${}", param_index));
+                    match db_type {
+                        DBType::Postgres => {
+                            query_builder
+                                .and_where(format!("lock_script.args LIKE ${}", param_index));
+                        }
+                        DBType::Sqlite => {
+                            query_builder.and_where(format!(
+                                "lock_script.args LIKE ${} ESCAPE '\x5c'",
+                                param_index
+                            ));
+                        }
+                    }
                     param_index += 1;
                 }
             }
@@ -620,7 +659,17 @@ async fn build_sql_by_filter(
         if filter.output_data.is_some() {
             match filter.output_data_filter_mode {
                 Some(IndexerSearchMode::Prefix) | None | Some(IndexerSearchMode::Partial) => {
-                    query_builder.and_where(format!("output.data LIKE ${}", param_index));
+                    match db_type {
+                        DBType::Postgres => {
+                            query_builder.and_where(format!("output.data LIKE ${}", param_index));
+                        }
+                        DBType::Sqlite => {
+                            query_builder.and_where(format!(
+                                "output.data LIKE ${} ESCAPE '\x5c'",
+                                param_index
+                            ));
+                        }
+                    }
                 }
                 Some(IndexerSearchMode::Exact) => {
                     query_builder.and_where_eq("output.data", format!("${}", param_index));
@@ -771,4 +820,38 @@ fn build_grouped_indexer_tx(
         .into_values()
         .map(IndexerTx::Grouped)
         .collect()
+}
+
+fn process_bind_data_by_mode(mode: &Option<IndexerSearchMode>, data: &JsonBytes) -> Vec<u8> {
+    match mode {
+        Some(IndexerSearchMode::Exact) => data.as_bytes().to_vec(),
+        _ => {
+            // 0x5c is the escape character
+            // 0x25 is the % character
+            let mut new_data: Vec<u8> = data
+                .as_bytes()
+                .iter()
+                .flat_map(|&b| {
+                    if b == 0x25 || b == 0x5c {
+                        vec![0x5c, b]
+                    } else {
+                        vec![b]
+                    }
+                })
+                .collect();
+
+            match mode {
+                Some(IndexerSearchMode::Partial) => {
+                    new_data.insert(0, 0x25); // Start with %
+                    new_data.push(0x25); // End with %
+                }
+                Some(IndexerSearchMode::Prefix) | None => {
+                    new_data.push(0x25); // End with %
+                }
+                _ => {}
+            }
+
+            new_data
+        }
+    }
 }
