@@ -10,7 +10,7 @@ wrk.body = [[
         {
             "script": {
                 "code_hash": "0xbbad126377d45f90a8ee120da988a2d7332c78ba8fd679aab478a19d6c133494",
-                "hash_type": "type",
+                "hash_type": "data1",
                 "args": "0x"
             },
             "script_type": "type",
@@ -18,7 +18,8 @@ wrk.body = [[
             "filter": {
                 "output_data": "0x0000",
                 "output_data_filter_mode": "partial"
-            }
+            },
+            "with_data": false
         },
         "asc",
         "0x64"

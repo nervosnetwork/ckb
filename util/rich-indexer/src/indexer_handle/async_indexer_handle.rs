@@ -242,22 +242,9 @@ impl AsyncRichIndexerHandle {
         query = query
             .bind(search_key.script.code_hash.as_bytes())
             .bind(search_key.script.hash_type as i16);
-        match search_key.script_search_mode {
-            Some(IndexerSearchMode::Prefix) | None => {
-                let mut new_args = search_key.script.args.as_bytes().to_vec();
-                new_args.push(0x25); // End with %
-                query = query.bind(new_args);
-            }
-            Some(IndexerSearchMode::Exact) => {
-                query = query.bind(search_key.script.args.as_bytes());
-            }
-            Some(IndexerSearchMode::Partial) => {
-                let mut new_args = vec![0x25]; // Start with %
-                new_args.extend_from_slice(search_key.script.args.as_bytes());
-                new_args.push(0x25); // End with %
-                query = query.bind(new_args);
-            }
-        }
+        let new_args =
+            process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
+        query = query.bind(new_args);
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
                 query = query
@@ -269,22 +256,8 @@ impl AsyncRichIndexerHandle {
                 query = query.bind(new_args);
             }
             if let Some(data) = &filter.output_data {
-                match filter.output_data_filter_mode {
-                    Some(IndexerSearchMode::Prefix) | None => {
-                        let mut new_data = data.as_bytes().to_vec();
-                        new_data.push(0x25); // End with %
-                        query = query.bind(new_data);
-                    }
-                    Some(IndexerSearchMode::Exact) => {
-                        query = query.bind(data.as_bytes());
-                    }
-                    Some(IndexerSearchMode::Partial) => {
-                        let mut new_data = vec![0x25]; // Start with %
-                        new_data.extend_from_slice(data.as_bytes());
-                        new_data.push(0x25); // End with %
-                        query = query.bind(new_data);
-                    }
-                }
+                let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
+                query = query.bind(new_data);
             }
         }
 
@@ -372,22 +345,9 @@ impl AsyncRichIndexerHandle {
         query = query
             .bind(search_key.script.code_hash.as_bytes())
             .bind(search_key.script.hash_type as i16);
-        match search_key.script_search_mode {
-            Some(IndexerSearchMode::Prefix) | None => {
-                let mut new_args = search_key.script.args.as_bytes().to_vec();
-                new_args.push(0x25); // End with %
-                query = query.bind(new_args);
-            }
-            Some(IndexerSearchMode::Exact) => {
-                query = query.bind(search_key.script.args.as_bytes());
-            }
-            Some(IndexerSearchMode::Partial) => {
-                let mut new_args = vec![0x25]; // Start with %
-                new_args.extend_from_slice(search_key.script.args.as_bytes());
-                new_args.push(0x25); // End with %
-                query = query.bind(new_args);
-            }
-        }
+        let new_args =
+            process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
+        query = query.bind(new_args);
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
                 query = query
@@ -399,22 +359,8 @@ impl AsyncRichIndexerHandle {
                 query = query.bind(new_args);
             }
             if let Some(data) = &filter.output_data {
-                match filter.output_data_filter_mode {
-                    Some(IndexerSearchMode::Prefix) | None => {
-                        let mut new_data = data.as_bytes().to_vec();
-                        new_data.push(0x25); // End with %
-                        query = query.bind(new_data);
-                    }
-                    Some(IndexerSearchMode::Exact) => {
-                        query = query.bind(data.as_bytes());
-                    }
-                    Some(IndexerSearchMode::Partial) => {
-                        let mut new_data = vec![0x25]; // Start with %
-                        new_data.extend_from_slice(data.as_bytes());
-                        new_data.push(0x25); // End with %
-                        query = query.bind(new_data);
-                    }
-                }
+                let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
+                query = query.bind(new_data);
             }
         }
 
