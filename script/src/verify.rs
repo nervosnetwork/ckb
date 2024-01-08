@@ -37,9 +37,12 @@ use ckb_vm::{
     snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
-use std::collections::{BTreeMap, HashMap};
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::atomic::AtomicU8,
+};
 use tokio::{
     select,
     sync::{mpsc, oneshot, watch},
@@ -1194,6 +1197,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .machine
                 .add_cycles_no_checking(program_bytes_cycles)
                 .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")))?;
+            let mut context = context.lock().unwrap();
+            context.set_pause(machine.machine.pause().clone());
             vec![machine]
         };
 

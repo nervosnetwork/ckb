@@ -5,13 +5,13 @@ use ckb_types::{
     packed::{Byte32, Script},
 };
 use ckb_vm::{
-    machine::{VERSION0, VERSION1, VERSION2},
+    machine::{Pause, VERSION0, VERSION1, VERSION2},
     snapshot::{make_snapshot, Snapshot},
     Error as VMInternalError, SupportMachine, ISA_A, ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::{fmt, sync::atomic::AtomicU8};
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -119,6 +119,14 @@ pub(crate) type Machine = TraceMachine<CoreMachine>;
 pub struct MachineContext {
     /// A stack of ResumableMachines.
     pub suspended_machines: Vec<ResumableMachine>,
+    pub pause: Pause,
+}
+
+impl MachineContext {
+    /// Creates a new MachineContext struct
+    pub fn set_pause(&mut self, pause: Pause) {
+        self.pause = pause;
+    }
 }
 
 /// Data structure captured all environment data for a suspended machine
@@ -163,6 +171,7 @@ impl TryFrom<&SpawnData> for ResumePoint {
             caller_content_addr,
             caller_content_length_addr,
             cycles_base,
+            ..
         } = value;
         Ok(ResumePoint::Spawn {
             callee_peak_memory: *callee_peak_memory,
