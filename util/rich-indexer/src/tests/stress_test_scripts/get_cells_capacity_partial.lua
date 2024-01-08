@@ -33,4 +33,4 @@ function response(status, headers, body)
 end
 
 -- This command is run under the condition that the CPU has 4 cores
--- wrk -t4 -c100 -d60s -s ./util/rich-indexer/src/tests/stress_test_scripts/get_cells_capacity_partial.lua --latency http://127.0.0.1:8114
+-- wrk -t4 -c30 -d30s -s ./util/rich-indexer/src/tests/stress_test_scripts/get_cells_capacity_partial.lua --latency http://127.0.0.1:8114

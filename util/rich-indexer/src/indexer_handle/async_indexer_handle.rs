@@ -64,7 +64,7 @@ impl AsyncRichIndexerHandle {
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
         // sub query for script
-        let script_sub_query_sql = build_script_sub_query_sql(
+        let script_sub_query_sql = build_query_script_sql(
             self.store
                 .get_db_type()
                 .map_err(|err| Error::DB(err.to_string()))?,
@@ -76,13 +76,28 @@ impl AsyncRichIndexerHandle {
         query_builder
             .field("output.id")
             .field("output.output_index")
-            .field("output.capacity")
-            .field("lock_script.code_hash AS lock_code_hash")
-            .field("lock_script.hash_type AS lock_hash_type")
-            .field("lock_script.args AS lock_args")
-            .field("type_script.code_hash AS type_code_hash")
-            .field("type_script.hash_type AS type_hash_type")
-            .field("type_script.args AS type_args")
+            .field("output.capacity");
+        match search_key.script_type {
+            IndexerScriptType::Lock => {
+                query_builder
+                    .field("query_script.code_hash AS lock_code_hash")
+                    .field("query_script.hash_type AS lock_hash_type")
+                    .field("query_script.args AS lock_args")
+                    .field("type_script.code_hash AS type_code_hash")
+                    .field("type_script.hash_type AS type_hash_type")
+                    .field("type_script.args AS type_args");
+            }
+            IndexerScriptType::Type => {
+                query_builder
+                    .field("lock_script.code_hash AS lock_code_hash")
+                    .field("lock_script.hash_type AS lock_hash_type")
+                    .field("lock_script.args AS lock_args")
+                    .field("query_script.code_hash AS type_code_hash")
+                    .field("query_script.hash_type AS type_hash_type")
+                    .field("query_script.args AS type_args");
+            }
+        }
+        query_builder
             .field("ckb_transaction.tx_index")
             .field("ckb_transaction.tx_hash")
             .field("block.block_number");
@@ -94,28 +109,33 @@ impl AsyncRichIndexerHandle {
                 query_builder.field("NULL as output_data");
             }
         }
-        query_builder.join(&format!("{} script_res", script_sub_query_sql));
+        query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
         match search_key.script_type {
             IndexerScriptType::Lock => {
-                query_builder.on("output.lock_script_id = script_res.id");
+                query_builder.on("output.lock_script_id = query_script.id");
             }
             IndexerScriptType::Type => {
-                query_builder.on("output.type_script_id = script_res.id");
+                query_builder.on("output.type_script_id = query_script.id");
             }
         }
         query_builder
             .join("ckb_transaction")
             .on("output.tx_id = ckb_transaction.id")
             .join("block")
-            .on("ckb_transaction.block_id = block.id")
-            .left()
-            .join(name!("script";"lock_script"))
-            .on("output.lock_script_id = lock_script.id")
-            .join(name!("script";"type_script"))
-            .on("output.type_script_id = type_script.id")
-            .join("input")
-            .on("output.id = input.output_id");
-        query_builder.and_where("input.output_id IS NULL"); // live cells
+            .on("ckb_transaction.block_id = block.id");
+        match search_key.script_type {
+            IndexerScriptType::Lock => query_builder
+                .left()
+                .join(name!("script";"type_script"))
+                .on("output.type_script_id = type_script.id"),
+            IndexerScriptType::Type => query_builder
+                .left()
+                .join(name!("script";"lock_script"))
+                .on("output.lock_script_id = lock_script.id"),
+        }
+        .join("input")
+        .on("output.id = input.output_id")
+        .and_where("input.output_id IS NULL"); // live cells
 
         // build sql
         let sql = build_sql_by_filter(
@@ -182,7 +202,7 @@ impl AsyncRichIndexerHandle {
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
         // sub query for script
-        let script_sub_query_sql = build_script_sub_query_sql(
+        let script_sub_query_sql = build_query_script_id_sql(
             self.store
                 .get_db_type()
                 .map_err(|err| Error::DB(err.to_string()))?,
@@ -193,22 +213,21 @@ impl AsyncRichIndexerHandle {
         let mut query_builder = SqlBuilder::select_from("output");
         query_builder
             .field("output.id")
-            .field("output_transaction.tx_hash AS ouput_tx_hash")
-            .field("output_transaction.tx_hash AS ouput_tx_hash")
             .field("output_block.block_number AS output_block_number")
+            .field("output_transaction.tx_hash AS ouput_tx_hash")
             .field("output_transaction.tx_index AS output_tx_index")
             .field("output.output_index")
-            .field("input_transaction.tx_hash AS input_tx_hash")
             .field("input_block.block_number AS input_block_number")
+            .field("input_transaction.tx_hash AS input_tx_hash")
             .field("input_transaction.tx_index AS input_tx_index")
             .field("input.input_index");
-        query_builder.join(&format!("{} script_res", script_sub_query_sql));
+        query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
         match search_key.script_type {
             IndexerScriptType::Lock => {
-                query_builder.on("output.lock_script_id = script_res.id");
+                query_builder.on("output.lock_script_id = query_script.id");
             }
             IndexerScriptType::Type => {
-                query_builder.on("output.type_script_id = script_res.id");
+                query_builder.on("output.type_script_id = query_script.id");
             }
         }
         query_builder
@@ -304,7 +323,7 @@ impl AsyncRichIndexerHandle {
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>, Error> {
         // sub query for script
-        let script_sub_query_sql = build_script_sub_query_sql(
+        let script_sub_query_sql = build_query_script_id_sql(
             self.store
                 .get_db_type()
                 .map_err(|err| Error::DB(err.to_string()))?,
@@ -314,24 +333,45 @@ impl AsyncRichIndexerHandle {
         // query output
         let mut query_builder = SqlBuilder::select_from("output");
         query_builder.field("CAST(SUM(output.capacity) AS BIGINT) AS total_capacity");
-        query_builder.join(&format!("{} script_res", script_sub_query_sql));
+        query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
         match search_key.script_type {
             IndexerScriptType::Lock => {
-                query_builder.on("output.lock_script_id = script_res.id");
+                query_builder.on("output.lock_script_id = query_script.id");
             }
             IndexerScriptType::Type => {
-                query_builder.on("output.type_script_id = script_res.id");
+                query_builder.on("output.type_script_id = query_script.id");
+            }
+        }
+        if let Some(ref filter) = search_key.filter {
+            if filter.block_range.is_some() {
+                query_builder
+                    .join("ckb_transaction")
+                    .on("output.tx_id = ckb_transaction.id")
+                    .join("block")
+                    .on("ckb_transaction.block_id = block.id");
             }
         }
         query_builder
             .left()
-            .join(name!("script";"lock_script"))
-            .on("output.lock_script_id = lock_script.id")
-            .join(name!("script";"type_script"))
-            .on("output.type_script_id = type_script.id")
             .join("input")
-            .on("output.id = input.output_id");
-        query_builder.and_where("input.output_id IS NULL"); // live cells
+            .on("output.id = input.output_id")
+            .and_where("input.output_id IS NULL"); // live cells
+        if let Some(ref filter) = search_key.filter {
+            if filter.script.is_some() {
+                match search_key.script_type {
+                    IndexerScriptType::Lock => {
+                        query_builder
+                            .join(name!("script";"type_script"))
+                            .on("output.type_script_id = type_script.id");
+                    }
+                    IndexerScriptType::Type => {
+                        query_builder
+                            .join(name!("script";"lock_script"))
+                            .on("output.lock_script_id = lock_script.id");
+                    }
+                }
+            }
+        }
 
         // sql string
         let sql = query_builder
@@ -479,7 +519,40 @@ fn add_filter_script_len_range_conditions(
     query_builder.and_where_lt(&condition, range.end());
 }
 
-fn build_script_sub_query_sql(
+fn build_query_script_sql(
+    db_type: DBType,
+    script_search_mode: &Option<IndexerSearchMode>,
+) -> Result<String, Error> {
+    let mut query_builder = SqlBuilder::select_from("script");
+    query_builder
+        .field("script.id")
+        .field("script.code_hash")
+        .field("script.hash_type")
+        .field("script.args")
+        .and_where_eq("code_hash", "$1")
+        .and_where_eq("hash_type", "$2");
+    match script_search_mode {
+        Some(IndexerSearchMode::Prefix) | None | Some(IndexerSearchMode::Partial) => {
+            match db_type {
+                DBType::Postgres => {
+                    query_builder.and_where("args LIKE $3");
+                }
+                DBType::Sqlite => {
+                    query_builder.and_where("args LIKE $3 ESCAPE '\x5c'");
+                }
+            }
+        }
+        Some(IndexerSearchMode::Exact) => {
+            query_builder.and_where_eq("args", "$3");
+        }
+    }
+    let sql_sub_query = query_builder
+        .subquery()
+        .map_err(|err| Error::DB(err.to_string()))?;
+    Ok(sql_sub_query)
+}
+
+fn build_query_script_id_sql(
     db_type: DBType,
     script_search_mode: &Option<IndexerSearchMode>,
 ) -> Result<String, Error> {
