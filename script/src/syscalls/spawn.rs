@@ -234,17 +234,17 @@ where
                 update_caller_machine(machine, data, machine_child.machine.cycles(), &spawn_data)?;
                 Ok(true)
             }
-            Err(VMError::CyclesExceeded) => {
-                let mut context = self
-                    .context
-                    .lock()
-                    .map_err(|e| VMError::Unexpected(format!("Failed to acquire lock: {}", e)))?;
-                context
-                    .suspended_machines
-                    .push(ResumableMachine::spawn(machine_child, spawn_data));
-                Err(VMError::CyclesExceeded)
+            Err(err) => {
+                if matches!(err, VMError::CyclesExceeded | VMError::Pause) {
+                    let mut context = self.context.lock().map_err(|e| {
+                        VMError::Unexpected(format!("Failed to acquire lock: {}", e))
+                    })?;
+                    context
+                        .suspended_machines
+                        .push(ResumableMachine::spawn(machine_child, spawn_data));
+                }
+                Err(err)
             }
-            Err(err) => Err(err),
         }
     }
 }
