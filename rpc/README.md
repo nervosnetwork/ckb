@@ -889,6 +889,7 @@ Response
     "min_replace_fee": "0x16923f7f6a",
     "tx_status": {
       "block_hash": null,
+      "block_number": null,
       "status": "pending",
       "reason": null
     }
@@ -909,6 +910,7 @@ The response looks like below when `verbosity` is 0.
     "cycles": "0x219",
     "tx_status": {
       "block_hash": null,
+      "block_number": null,
       "status": "pending",
       "reason": null
     }
@@ -7209,6 +7211,8 @@ Transaction status and the block hash if it is committed.
 `TxStatus` is a JSON object with the following fields.
 
 *   `status`: [`Status`](#type-status) - The transaction status, allowed values: “pending”, “proposed” “committed” “unknown” and “rejected”.
+
+*   `block_number`: [`BlockNumber`](#type-blocknumber) `|` `null` - The block number of the block which has committed this transaction in the canonical chain.
 
 *   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
 
