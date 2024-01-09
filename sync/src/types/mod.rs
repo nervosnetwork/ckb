@@ -1070,7 +1070,7 @@ impl SyncShared {
         self.accept_block(
             chain,
             Arc::clone(&block),
-            peer_id_with_msg_bytes,
+            Some(peer_id_with_msg_bytes),
             Some(verify_success_callback),
         )
     }
@@ -1086,62 +1086,10 @@ impl SyncShared {
         self.accept_block(
             chain,
             Arc::clone(&block),
-            (peer_id, message_bytes),
+            Some((peer_id, message_bytes)),
             None::<VerifyCallback>,
         );
     }
-
-    /// Try to find blocks from the orphan block pool that may no longer be orphan
-    // pub fn try_search_orphan_pool(&self, chain: &ChainController) {
-    //     let leaders = self.state.orphan_pool().clone_leaders();
-    //     debug!("orphan pool leader parents hash len: {}", leaders.len());
-    //
-    //     for hash in leaders {
-    //         if self.state.orphan_pool().is_empty() {
-    //             break;
-    //         }
-    //         if self.is_stored(&hash) {
-    //             let descendants = self.state.remove_orphan_by_parent(&hash);
-    //             debug!(
-    //                 "try accepting {} descendant orphan blocks by exist parents hash",
-    //                 descendants.len()
-    //             );
-    //             for block in descendants {
-    //                 // If we can not find the block's parent in database, that means it was failed to accept
-    //                 // its parent, so we treat it as an invalid block as well.
-    //                 if !self.is_stored(&block.parent_hash()) {
-    //                     debug!(
-    //                         "parent-unknown orphan block, block: {}, {}, parent: {}",
-    //                         block.header().number(),
-    //                         block.header().hash(),
-    //                         block.header().parent_hash(),
-    //                     );
-    //                     continue;
-    //                 }
-    //
-    //                 let block = Arc::new(block);
-    //                 if let Err(err) = self.accept_block(chain, Arc::clone(&block)) {
-    //                     debug!(
-    //                         "accept descendant orphan block {} error {:?}",
-    //                         block.header().hash(),
-    //                         err
-    //                     );
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    /// Cleanup orphan_pool,
-    /// Remove blocks whose epoch is 6 (EXPIRED_EPOCH) epochs behind the current epoch.
-    // pub(crate) fn periodic_clean_orphan_pool(&self) {
-    //     let hashes = self
-    //         .state
-    //         .clean_expired_blocks(self.active_chain().epoch_ext().number());
-    //     for hash in hashes {
-    //         self.shared().remove_header_view(&hash);
-    //     }
-    // }
 
     // Only used by unit test
     // Blocking insert a new block, return the verify result
@@ -1174,12 +1122,12 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-        peer_id_with_msg_bytes: (PeerIndex, u64),
+        peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
         verify_callback: Option<VerifyCallback>,
     ) {
         let lonely_block_with_callback = LonelyBlock {
             block,
-            peer_id_with_msg_bytes: Some(peer_id_with_msg_bytes),
+            peer_id_with_msg_bytes,
             switch: None,
         }
         .with_callback(verify_callback);
