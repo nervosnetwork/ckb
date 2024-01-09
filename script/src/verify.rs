@@ -37,15 +37,12 @@ use ckb_vm::{
     snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
+use std::collections::{BTreeMap, HashMap};
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::atomic::AtomicU8,
-};
 use tokio::{
     select,
-    sync::{mpsc, oneshot, watch},
+    sync::{mpsc, watch},
 };
 
 #[cfg(test)]
@@ -1199,10 +1196,10 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")))?;
             let mut context = context.lock().unwrap();
             context.set_pause(machine.machine.pause().clone());
-            vec![machine]
+            vec![ResumableMachine::initial(machine)]
         };
 
-        run_vms_with_signal(script_group, max_cycles, machines, command_rx).await
+        run_vms_with_signal(script_group, max_cycles, machines, &context, command_rx).await
     }
 
     fn chunk_run(
@@ -1387,63 +1384,77 @@ fn run_vms(
 // Run a series of VMs that are just freshly resumed
 async fn run_vms_with_signal(
     script_group: &ScriptGroup,
-    max_cycles: Cycle,
-    mut machines: Vec<Machine>,
-    command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    _max_cycles: Cycle,
+    mut machines: Vec<ResumableMachine>,
+    context: &Arc<Mutex<MachineContext>>,
+    signal: &mut tokio::sync::watch::Receiver<ChunkCommand>,
 ) -> Result<ChunkState, ScriptError> {
-    let (mut exit_code, mut cycles) = (0, 0);
-
     if machines.is_empty() {
         return Err(ScriptError::VMInternalError(
             "At least one VM must be available!".to_string(),
         ));
     }
 
-    while let Some(machine) = machines.pop() {
-        match run_vm_with_signal(machine, command_rx).await {
-            (Ok(code), run_cycles) => {
-                exit_code = code;
-                cycles = run_cycles;
-            }
-            (Err(error), _) => match error {
-                VMInternalError::CyclesExceeded => {
-                    return Err(ScriptError::ExceededMaximumCycles(max_cycles))
-                }
-                _ => return Err(ScriptError::VMInternalError(format!("{error:?}"))),
-            },
-        };
-    }
-
-    if exit_code == 0 {
-        Ok(ChunkState::Completed(cycles))
-    } else {
-        Err(ScriptError::validation_failure(
-            &script_group.script,
-            exit_code,
-        ))
-    }
-}
-
-async fn run_vm_with_signal(
-    mut vm: Machine,
-    signal: &mut watch::Receiver<ChunkCommand>,
-) -> (Result<i8, ckb_vm::Error>, Cycle) {
-    let (finished_send, mut finished_recv) = mpsc::unbounded_channel();
-    let pause = vm.machine.pause();
+    let pause = machines[0].pause();
+    let (finished_send, mut finished_recv) =
+        mpsc::unbounded_channel::<(Result<i8, ckb_vm::Error>, u64)>();
     let (child_sender, mut child_recv) = watch::channel(ChunkCommand::Resume);
     child_recv.mark_changed();
+    let context_clone = context.clone();
     let jh = tokio::spawn(async move {
+        let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
         loop {
             select! {
                 _ = child_recv.changed() => {
                     let state = child_recv.borrow().to_owned();
                     if state == ChunkCommand::Resume {
-                        let result = vm.run();
-                        if matches!(result, Err(ckb_vm::Error::Pause)) {
-                            continue;
-                        } else {
-                            finished_send.send((result, vm.machine.cycles())).unwrap();
+                        if machines.len() == 0 {
+                            finished_send.send((Ok(exit_code), cycles)).unwrap();
                             return;
+                        }
+
+                        while let Some(mut machine) = machines.pop() {
+                            if let Some(callee_spawn_data) = &spawn_data {
+                                update_caller_machine(
+                                    &mut machine.machine_mut().machine,
+                                    exit_code,
+                                    cycles,
+                                    callee_spawn_data,
+                                )
+                                .unwrap();
+                            }
+
+                            let res = machine.run();
+                            match res {
+                                Ok(code) => {
+                                    exit_code = code;
+                                    cycles = machine.cycles();
+                                    if let ResumableMachine::Spawn(_, data) = machine {
+                                        spawn_data = Some(data);
+                                    } else {
+                                        spawn_data = None;
+                                    }
+                                }
+                                Err(VMInternalError::Pause) => {
+                                    let mut new_suspended_machines: Vec<_> = {
+                                        let mut context = context_clone.lock().map_err(|e| {
+                                            ScriptError::VMInternalError(format!(
+                                                "Failed to acquire lock: {}",
+                                                e
+                                            ))
+                                        }).unwrap();
+                                        context.suspended_machines.drain(..).collect()
+                                    };
+                                    // The inner most machine lives at the top of the vector,
+                                    // reverse the list for natural order.
+                                    new_suspended_machines.reverse();
+                                    machines.push(machine);
+                                    machines.append(&mut new_suspended_machines);
+                                }
+                                _ => {
+                                        finished_send.send((res, machine.cycles())).unwrap();
+                                }
+                            };
                         }
                     }
                 }
@@ -1462,13 +1473,72 @@ async fn run_vm_with_signal(
                 }
             }
             res = finished_recv.recv() => {
-                let _ = jh.await.unwrap();
-                return res.unwrap();
+                let _ = jh.await;
+                match res.unwrap() {
+                    (Ok(0), cycles) => {
+                        return Ok(ChunkState::Completed(cycles));
+                    }
+                    (Ok(exit_code), _) => {
+                        return Err(ScriptError::validation_failure(
+                            &script_group.script,
+                            exit_code
+                        ))},
+                    (Err(e), _) => {
+                        return Err(ScriptError::VMInternalError(format!("{e:?}")));
+                    }
+                }
+
             }
-            else => { break (Err(ckb_vm::Error::Unexpected("channel closed".into())), 0) }
+            else => { break Err(ScriptError::validation_failure(&script_group.script, 0)) }
         }
     }
 }
+
+// async fn run_vm_with_signal(
+//     mut vm: Machine,
+//     signal: &mut watch::Receiver<ChunkCommand>,
+// ) -> (Result<i8, ckb_vm::Error>, Cycle) {
+//     let (finished_send, mut finished_recv) = mpsc::unbounded_channel();
+//     let pause = vm.machine.pause();
+//     let (child_sender, mut child_recv) = watch::channel(ChunkCommand::Resume);
+//     child_recv.mark_changed();
+//     let jh = tokio::spawn(async move {
+//         loop {
+//             select! {
+//                 _ = child_recv.changed() => {
+//                     let state = child_recv.borrow().to_owned();
+//                     if state == ChunkCommand::Resume {
+//                         let result = vm.run();
+//                         if matches!(result, Err(ckb_vm::Error::Pause)) {
+//                             continue;
+//                         } else {
+//                             finished_send.send((result, vm.machine.cycles())).unwrap();
+//                             return;
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     });
+
+//     loop {
+//         tokio::select! {
+//             _ = signal.changed() => {
+//                 let state = signal.borrow().to_owned();
+//                 if state == ChunkCommand::Suspend {
+//                     pause.interrupt();
+//                 } else if state == ChunkCommand::Resume {
+//                     child_sender.send(ChunkCommand::Resume).unwrap();
+//                 }
+//             }
+//             res = finished_recv.recv() => {
+//                 let _ = jh.await.unwrap();
+//                 return res.unwrap();
+//             }
+//             else => { break (Err(ckb_vm::Error::Unexpected("channel closed".into())), 0) }
+//         }
+//     }
+// }
 
 fn wrapping_cycles_add(
     lhs: Cycle,

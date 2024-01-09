@@ -32,12 +32,12 @@ type Stop = bool;
 pub enum VerifyNotify {
     Done {
         short_id: String,
-        result: Option<(Result<Stop, Reject>, Arc<Snapshot>)>,
+        result: (Result<Stop, Reject>, Arc<Snapshot>),
     },
 }
 
 enum State {
-    Stopped,
+    //Stopped,
     //Suspended(Arc<TransactionSnapshot>),
     Completed(Cycle),
 }
@@ -104,24 +104,35 @@ impl Worker {
         })
     }
 
-    async fn process_inner(&mut self) -> bool {
+    async fn process_inner(&mut self) {
         if self.tasks.read().await.get_first().is_none() {
-            return false;
+            return;
         }
         // pick a entry to run verify
         let entry = match self.tasks.write().await.pop_first() {
             Some(entry) => entry,
-            None => return false,
+            None => return,
         };
         let short_id = entry.tx.proposal_short_id().to_string();
-        let res = self.run_verify_tx(entry).await;
+        let (res, snapshot) = self
+            .run_verify_tx(entry.clone())
+            .await
+            .expect("run_verify_tx failed");
         self.outbox
             .send(VerifyNotify::Done {
                 short_id,
-                result: res,
+                result: (res.clone(), snapshot.clone()),
             })
             .unwrap();
-        true
+
+        match res {
+            Err(e) => {
+                self.service
+                    .after_process(entry.tx, entry.remote, &snapshot, &Err(e))
+                    .await;
+            }
+            _ => {}
+        }
     }
 
     async fn run_verify_tx(
@@ -210,7 +221,7 @@ impl Worker {
 
         let completed: Completed = match state {
             // verify failed
-            State::Stopped => return Some((Ok(true), snapshot)),
+            // State::Stopped => return Some((Ok(true), snapshot)),
             State::Completed(cycles) => Completed { cycles, fee },
         };
         if let Some((declared_cycle, _peer)) = remote {

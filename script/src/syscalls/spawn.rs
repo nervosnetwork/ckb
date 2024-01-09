@@ -276,8 +276,14 @@ pub fn build_child_machine<
         cycles_limit,
         (callee_memory_limit * SPAWN_MEMORY_PAGE_SIZE) as usize,
     );
-    let machine_builder =
-        DefaultMachineBuilder::new(machine_core).instruction_cycle_func(Box::new(estimate_cycles));
+    let pause = context
+        .lock()
+        .map_err(|e| VMError::Unexpected(format!("Failed to acquire lock: {}", e)))?
+        .pause
+        .clone();
+    let machine_builder = DefaultMachineBuilder::new(machine_core)
+        .instruction_cycle_func(Box::new(estimate_cycles))
+        .pause(pause);
     let machine_syscalls = syscalls_generator.generate_same_syscalls(script_version, script_group);
     let machine_builder = machine_syscalls
         .into_iter()
