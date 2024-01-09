@@ -704,7 +704,7 @@ impl TxPoolService {
                     }
                     ScriptVerifyResult::Suspended(state) => {
                         if is_chunk_full {
-                            Err(Reject::Full("chunk".to_owned()))
+                            Err(Reject::Full("chunk is full".to_owned()))
                         } else {
                             let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
                             Ok(CacheEntry::suspended(snap, fee))

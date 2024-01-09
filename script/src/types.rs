@@ -10,8 +10,8 @@ use ckb_vm::{
     Error as VMInternalError, SupportMachine, ISA_A, ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::{Arc, Mutex};
-use std::{fmt, sync::atomic::AtomicU8};
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -222,6 +222,10 @@ impl ResumableMachine {
 
     pub(crate) fn cycles(&self) -> Cycle {
         self.machine().machine.cycles()
+    }
+
+    pub(crate) fn pause(&self) -> Pause {
+        self.machine().machine.pause()
     }
 
     pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
@@ -454,5 +458,4 @@ impl std::fmt::Debug for TransactionState {
 pub enum ChunkCommand {
     Suspend,
     Resume,
-    Shutdown,
 }
