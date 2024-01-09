@@ -58,15 +58,10 @@ impl BlockFetcher {
         {
             header
         } else {
-            let unverified_tip_header = self.sync_shared.shared().get_unverified_tip();
-            if best_known.number() < unverified_tip_header.number() {
-                (best_known.number(), best_known.hash()).into()
-            } else {
-                (unverified_tip_header.number(), unverified_tip_header.hash()).into()
-            }
-            // let guess_number = min(tip_header.number(), best_known.number());
-            // let guess_hash = self.active_chain.get_block_hash(guess_number)?;
-            // (guess_number, guess_hash).into()
+            let tip_header = self.active_chain.tip_header();
+            let guess_number = min(tip_header.number(), best_known.number());
+            let guess_hash = self.active_chain.get_block_hash(guess_number)?;
+            (guess_number, guess_hash).into()
         };
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
@@ -141,7 +136,7 @@ impl BlockFetcher {
             // last_common_header, is expected to provide a more realistic picture. Hence here we
             // specially advance this peer's last_common_header at the case of both us on the same
             // active chain.
-            if self.active_chain.is_unverified_chain(&best_known.hash()) {
+            if self.active_chain.is_main_chain(&best_known.hash()) {
                 self.sync_shared
                     .state()
                     .peers()
@@ -157,8 +152,19 @@ impl BlockFetcher {
             return None;
         }
 
+        if best_known.number() <= self.sync_shared.shared().get_unverified_tip().number() {
+            debug!(
+                "Peer {}'s best known: {} is less or equal than unverified_tip : {}",
+                self.peer,
+                best_known.number(),
+                self.sync_shared.shared().get_unverified_tip().number()
+            );
+            return None;
+        }
+
         let state = self.sync_shared.state();
-        let mut start = last_common.number() + 1;
+
+        let mut start = self.sync_shared.shared().get_unverified_tip().number() + 1;
         let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
