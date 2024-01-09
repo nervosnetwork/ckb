@@ -23,7 +23,7 @@ const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../resources/create_sqlite_i
 const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgres_table.sql");
 const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DBType {
     Sqlite,
     Postgres,

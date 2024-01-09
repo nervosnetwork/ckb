@@ -11,8 +11,8 @@ use ckb_jsonrpc_types::{
     BlockView as JsonBlockView, IndexerOrder, IndexerScriptType, IndexerSearchKey,
     IndexerSearchMode, JsonBytes,
 };
+use ckb_types::h256;
 use ckb_types::prelude::*;
-use ckb_types::{h160, h256};
 
 const MEMORY_DB: &str = ":memory:";
 const BLOCK_DIR: &str = "./src/tests/data/blocks/";

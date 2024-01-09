@@ -144,8 +144,8 @@ impl AsyncRichIndexerHandle {
                 .map_err(|err| Error::DB(err.to_string()))?,
             query_builder,
             &search_key,
-            order,
-            limit,
+            Some(order),
+            Some(limit),
             after,
         )
         .await?;
@@ -250,8 +250,8 @@ impl AsyncRichIndexerHandle {
                 .map_err(|err| Error::DB(err.to_string()))?,
             query_builder,
             &search_key,
-            order,
-            limit,
+            Some(order),
+            Some(limit),
             after,
         )
         .await?;
@@ -354,10 +354,9 @@ impl AsyncRichIndexerHandle {
         query_builder
             .left()
             .join("input")
-            .on("output.id = input.output_id")
-            .and_where("input.output_id IS NULL"); // live cells
+            .on("output.id = input.output_id");
         if let Some(ref filter) = search_key.filter {
-            if filter.script.is_some() {
+            if filter.script.is_some() || filter.script_len_range.is_some() {
                 match search_key.script_type {
                     IndexerScriptType::Lock => {
                         query_builder
@@ -372,13 +371,20 @@ impl AsyncRichIndexerHandle {
                 }
             }
         }
+        query_builder.and_where("input.output_id IS NULL"); // live cells
 
-        // sql string
-        let sql = query_builder
-            .sql()
-            .map_err(|err| Error::DB(err.to_string()))?
-            .trim_end_matches(';')
-            .to_string();
+        // build sql
+        let sql = build_sql_by_filter(
+            self.store
+                .get_db_type()
+                .map_err(|err| Error::DB(err.to_string()))?,
+            query_builder,
+            &search_key,
+            None,
+            None,
+            None,
+        )
+        .await?;
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
@@ -586,17 +592,19 @@ async fn build_sql_by_filter(
     db_type: DBType,
     mut query_builder: SqlBuilder,
     search_key: &IndexerSearchKey,
-    order: IndexerOrder,
-    limit: Uint32,
+    order: Option<IndexerOrder>,
+    limit: Option<Uint32>,
     after: Option<JsonBytes>,
 ) -> Result<String, Error> {
-    let mut param_index = 4;
+    let mut param_index = 4; // start from 4
     if let Some(after) = after {
         let after = decode_i64(after.as_bytes())?;
-        match order {
-            IndexerOrder::Asc => query_builder.and_where_gt("output.id", after),
-            IndexerOrder::Desc => query_builder.and_where_lt("output.id", after),
-        };
+        if let Some(order) = &order {
+            match order {
+                IndexerOrder::Asc => query_builder.and_where_gt("output.id", after),
+                IndexerOrder::Desc => query_builder.and_where_lt("output.id", after),
+            };
+        }
     }
     if let Some(ref filter) = search_key.filter {
         if filter.script.is_some() {
@@ -696,11 +704,15 @@ async fn build_sql_by_filter(
             }
         }
     }
-    match order {
-        IndexerOrder::Asc => query_builder.order_by("output.id", false),
-        IndexerOrder::Desc => query_builder.order_by("output.id", true),
-    };
-    query_builder.limit(limit.value());
+    if let Some(order) = order {
+        match order {
+            IndexerOrder::Asc => query_builder.order_by("output.id", false),
+            IndexerOrder::Desc => query_builder.order_by("output.id", true),
+        };
+    }
+    if let Some(limit) = limit {
+        query_builder.limit(limit.value());
+    }
 
     // sql string
     let sql = query_builder

@@ -41,11 +41,7 @@ async fn get_cells() {
             h256!("0x0000000000000000000000000000000000000000000000000000000000000000").pack(),
         )
         .hash_type((ScriptHashType::Data as u8).into())
-        .args(
-            h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18")
-                .as_bytes()
-                .pack(),
-        )
+        .args(hex::decode("62e907b15cbf").expect("Decoding failed").pack())
         .build();
     let search_key = IndexerSearchKey {
         script: lock_script.into(),
@@ -304,6 +300,84 @@ async fn get_transactions() {
         .await
         .unwrap();
     assert_eq!(7, txs.objects.len());
+}
+
+#[tokio::test]
+async fn get_cells_capacity() {
+    let pool = connect_sqlite(MEMORY_DB).await;
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+
+    insert_blocks(pool).await;
+
+    let search_key = IndexerSearchKey {
+        script: ScriptBuilder::default()
+            .code_hash(
+                h256!("0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8").pack(),
+            )
+            .hash_type((ScriptHashType::Type as u8).into())
+            .args(
+                hex::decode("57ccb07be6875f61d93636b0ee11b675494627d2")
+                    .expect("Decoding failed")
+                    .pack(),
+            )
+            .build()
+            .into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: Some(IndexerSearchKeyFilter {
+            script: None,
+            script_len_range: Some(IndexerRange::new(0, 1)),
+            output_data: None,
+            output_data_filter_mode: None,
+            output_data_len_range: None,
+            output_capacity_range: None,
+            block_range: Some(IndexerRange::new(0, 1)),
+        }),
+        with_data: None,
+        group_by_transaction: None,
+    };
+
+    let capacity = indexer
+        .get_cells_capacity(search_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(839957834700000000, capacity.capacity.value());
+
+    let search_key = IndexerSearchKey {
+        script: ScriptBuilder::default()
+            .code_hash(
+                h256!("0x00000000000000000000000000000000000000000000000000545950455f4944").pack(),
+            )
+            .hash_type((ScriptHashType::Type as u8).into())
+            .args(
+                hex::decode("500929d6a1294bf9bf1bf565f549fa4a5f1316a3306ad3d4783e64bc")
+                    .expect("Decoding failed")
+                    .pack(),
+            )
+            .build()
+            .into(),
+        script_type: IndexerScriptType::Type,
+        script_search_mode: Some(IndexerSearchMode::Partial),
+        filter: Some(IndexerSearchKeyFilter {
+            script: None,
+            script_len_range: None,
+            output_data: Some(JsonBytes::from_vec(vec![127, 69, 76])),
+            output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+            output_data_len_range: None,
+            output_capacity_range: None,
+            block_range: None,
+        }),
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+
+    let capacity = indexer
+        .get_cells_capacity(search_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(1600000000000, capacity.capacity.value());
 }
 
 #[tokio::test]
