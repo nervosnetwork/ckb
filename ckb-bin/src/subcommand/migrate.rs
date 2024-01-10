@@ -1,5 +1,5 @@
 use ckb_app_config::{ExitCode, MigrateArgs};
-use ckb_launcher::migrate::Migrate;
+use ckb_migrate::migrate::Migrate;
 use is_terminal::IsTerminal;
 use std::cmp::Ordering;
 
@@ -10,7 +10,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
 
     {
         let read_only_db = migrate.open_read_only_db().map_err(|e| {
-            eprintln!("migrate error {e}");
+            eprintln!("Migration error {e}");
             ExitCode::Failure
         })?;
 
@@ -18,8 +18,8 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
             let db_status = migrate.check(&db);
             if matches!(db_status, Ordering::Greater) {
                 eprintln!(
-                    "The database is created by a higher version CKB executable binary, \n\
-                     so that the current CKB executable binary couldn't open this database.\n\
+                    "The database was created by a higher version CKB executable binary \n\
+                     and cannot be opened by the current binary.\n\
                      Please download the latest CKB executable binary."
                 );
                 return Err(ExitCode::Failure);
@@ -50,7 +50,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                     > ",
                     );
                     if input.trim().to_lowercase() != "yes" {
-                        eprintln!("The migration was declined since the user didn't confirm.");
+                        eprintln!("Migration was declined since the user didn't confirm.");
                         return Err(ExitCode::Failure);
                     }
                 } else {
@@ -62,7 +62,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
     }
 
     let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-        eprintln!("migrate error {e}");
+        eprintln!("Migration error {e}");
         ExitCode::Failure
     })?;
 

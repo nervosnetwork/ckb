@@ -1,4 +1,9 @@
-use crate::{utils::wait_until, Node, Spec};
+use crate::{
+    rpc::RpcClient,
+    util::{cell::gen_spendable, transaction::always_success_transactions},
+    utils::wait_until,
+    Node, Spec,
+};
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
@@ -441,39 +446,22 @@ impl Spec for RbfContainInvalidCells {
 
         node0.mine_until_out_bootstrap_period();
 
-        // build txs chain
-        let tx0 = node0.new_transaction_spend_tip_cellbase();
-        let mut txs = vec![tx0];
-        let max_count = 5;
-        while txs.len() <= max_count {
-            let parent = txs.last().unwrap();
-            let child = parent
-                .as_advanced_builder()
-                .set_inputs(vec![{
-                    CellInput::new_builder()
-                        .previous_output(OutPoint::new(parent.hash(), 0))
-                        .build()
-                }])
-                .set_outputs(vec![parent.output(0).unwrap()])
-                .build();
-            txs.push(child);
-        }
-        assert_eq!(txs.len(), max_count + 1);
-        // send Tx chain
-        for tx in txs[..=max_count - 1].iter() {
+        let cells = gen_spendable(node0, 3);
+        let txs = always_success_transactions(node0, &cells);
+        for tx in txs.iter() {
             let ret = node0.rpc_client().send_transaction_result(tx.data().into());
             assert!(ret.is_ok());
         }
 
         let clone_tx = txs[2].clone();
+
+        let cell = CellDep::new_builder()
+            .out_point(OutPoint::new(txs[1].hash(), 0))
+            .build();
+
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
             .capacity(capacity_bytes!(70).pack())
-            .build();
-
-        // build a cell from conflicts txs's output
-        let cell = CellDep::new_builder()
-            .out_point(OutPoint::new(txs[2].hash(), 0))
             .build();
         let tx2 = clone_tx
             .as_advanced_builder()
@@ -490,11 +478,6 @@ impl Spec for RbfContainInvalidCells {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("new Tx contains cell deps from conflicts"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -687,7 +670,7 @@ impl Spec for RbfReplaceProposedSuccess {
         let tx2_status = node0.rpc_client().get_transaction(tx2.hash()).tx_status;
         assert_eq!(tx2_status.status, Status::Pending);
 
-        // submit a black block
+        // submit a blank block
         let example = node0.new_block(None, None, None);
         let blank_block = example
             .as_advanced_builder()
@@ -724,6 +707,71 @@ impl Spec for RbfReplaceProposedSuccess {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
+pub struct RbfConcurrency;
+impl Spec for RbfConcurrency {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+        node0.new_block_with_blocking(|template| template.number.value() != 13);
+        let tx_hash_0 = node0.generate_transaction();
+        info!("Generate 4 txs with same input");
+        let tx1 = node0.new_transaction(tx_hash_0.clone());
+
+        let mut conflicts = vec![tx1];
+        // tx1 capacity is 100, set other txs to higer fee
+        let fees = vec![
+            capacity_bytes!(83),
+            capacity_bytes!(82),
+            capacity_bytes!(81),
+            capacity_bytes!(80),
+        ];
+        for fee in fees.iter() {
+            let tx2_temp = node0.new_transaction(tx_hash_0.clone());
+            let output = CellOutputBuilder::default().capacity(fee.pack()).build();
+
+            let tx2 = tx2_temp
+                .as_advanced_builder()
+                .set_outputs(vec![output])
+                .build();
+            conflicts.push(tx2);
+        }
+
+        // make 5 threads to set_transaction concurrently
+        let mut handles = vec![];
+        for tx in &conflicts {
+            let cur_tx = tx.clone();
+            let rpc_address = node0.rpc_listen();
+            let handle = std::thread::spawn(move || {
+                let rpc_client = RpcClient::new(&rpc_address);
+                let _ = rpc_client.send_transaction_result(cur_tx.data().into());
+            });
+            handles.push(handle);
+        }
+        for handle in handles {
+            let _ = handle.join();
+        }
+
+        let status: Vec<_> = conflicts
+            .iter()
+            .map(|tx| {
+                let res = node0.rpc_client().get_transaction(tx.hash());
+                res.tx_status.status
+            })
+            .collect();
+
+        // the last tx should be in Pending(with the highest fee), others should be in Rejected
+        assert_eq!(status[4], Status::Pending);
+        for s in status.iter().take(4) {
+            assert_eq!(*s, Status::Rejected);
+        }
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

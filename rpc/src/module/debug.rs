@@ -1,15 +1,16 @@
+use async_trait::async_trait;
 use ckb_jsonrpc_types::{ExtraLoggerConfig, MainLoggerConfig};
 use ckb_logger_service::Logger;
 use jsonrpc_core::{Error, ErrorCode::InternalError, Result};
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::time;
-
 /// RPC Module Debug for internal RPC methods.
 ///
 /// **This module is for CKB developers and will not guarantee compatibility.** The methods here
 /// will be changed or removed without advanced notification.
-#[rpc(server)]
 #[doc(hidden)]
+#[rpc]
+#[async_trait]
 pub trait DebugRpc {
     /// Dumps jemalloc memory profiling information into a file.
     ///
@@ -35,8 +36,10 @@ pub trait DebugRpc {
     fn set_extra_logger(&self, name: String, config_opt: Option<ExtraLoggerConfig>) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub(crate) struct DebugRpcImpl {}
 
+#[async_trait]
 impl DebugRpc for DebugRpcImpl {
     fn jemalloc_profiling_dump(&self) -> Result<String> {
         let timestamp = time::SystemTime::now()

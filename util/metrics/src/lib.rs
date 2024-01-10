@@ -37,6 +37,15 @@ make_static_metric! {
             metadata,
         },
     }
+
+    // Struct for CKB tx-pool entry status statistics type label
+    struct CkbTxPoolEntryStatistics: IntGauge{
+        "type" => {
+            pending,
+            gap,
+            proposed,
+        },
+    }
 }
 
 pub struct Metrics {
@@ -64,6 +73,8 @@ pub struct Metrics {
     pub ckb_sys_mem_process: CkbSysMemProcessStatistics,
     // GaugeVec for CKB system memory jemalloc statistics
     pub ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics,
+    // GaugeVec for CKB tx-pool tx entry status statistics
+    pub ckb_tx_pool_entry: CkbTxPoolEntryStatistics,
     /// Histogram for CKB network connections
     pub ckb_message_bytes: HistogramVec,
     /// Gauge for CKB rocksdb statistics
@@ -123,6 +134,14 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| M
         &register_int_gauge_vec!(
             "ckb_sys_mem_jemalloc",
             "CKB system memory for jemalloc statistics",
+            &["type"]
+        )
+        .unwrap(),
+    ),
+    ckb_tx_pool_entry: CkbTxPoolEntryStatistics::from(
+        &register_int_gauge_vec!(
+            "ckb_tx_pool_entry",
+            "CKB tx-pool entry status statistics",
             &["type"]
         )
         .unwrap(),

@@ -10,7 +10,7 @@ use hyper::{
 use prometheus::Encoder as _;
 
 use ckb_async_runtime::Handle;
-use ckb_logger::debug;
+use ckb_logger::info;
 use ckb_metrics_config::{Config, Exporter, Target};
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_util::strings;
@@ -59,14 +59,14 @@ fn run_exporter(exporter: Exporter, handle: &Handle) -> Result<(), String> {
             let make_svc = make_service_fn(move |_conn| async move {
                 Ok::<_, Infallible>(service_fn(start_prometheus_service))
             });
-            ckb_logger::info!("start prometheus exporter at {}", addr);
+            ckb_logger::info!("Start prometheus exporter at {}", addr);
             handle.spawn(async move {
                 let server = Server::bind(&addr)
                     .serve(make_svc)
                     .with_graceful_shutdown(async {
                         let exit_rx: CancellationToken = new_tokio_exit_rx();
                         exit_rx.cancelled().await;
-                        debug!("prometheus server received exit signal, exit now");
+                        info!("Prometheus server received exit signal; exit now");
                     });
                 if let Err(err) = server.await {
                     ckb_logger::error!("prometheus server error: {}", err);

@@ -16,7 +16,7 @@ use ckb_jsonrpc_types::{
     IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx,
     IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
-use ckb_logger::{debug, error, info};
+use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
@@ -118,7 +118,7 @@ impl IndexerService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        debug!("Indexer received exit signal, exit now");
+                        info!("Indexer received exit signal, exit now");
                         break
                     },
                     else => break,
@@ -145,10 +145,10 @@ impl IndexerService {
                 match self.get_block_by_number(tip_number + 1) {
                     Some(block) => {
                         if block.parent_hash() == tip_hash {
-                            info!("append {}, {}", block.number(), block.hash());
+                            info!("Append {}, {}", block.number(), block.hash());
                             indexer.append(&block).expect("append block should be OK");
                         } else {
-                            info!("rollback {}, {}", tip_number, tip_hash);
+                            info!("Rollback {}, {}", tip_number, tip_hash);
                             indexer.rollback().expect("rollback block should be OK");
                         }
                     }
@@ -204,7 +204,7 @@ impl IndexerService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        debug!("Indexer received exit signal, exit now");
+                        info!("Indexer received exit signal, exit now");
                         break
                     },
                 }
@@ -253,6 +253,7 @@ impl IndexerService {
 ///
 /// The handle is internally reference-counted and can be freely cloned.
 /// A handle can be obtained using the IndexerService::handle method.
+#[derive(Clone)]
 pub struct IndexerHandle {
     pub(crate) store: RocksdbStore,
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
@@ -832,7 +833,7 @@ impl IndexerHandle {
 
 const MAX_PREFIX_SEARCH_SIZE: usize = u16::max_value() as usize;
 
-// a helper fn to build query options from search paramters, returns prefix, from_key, direction and skip offset
+// a helper fn to build query options from search parameters, returns prefix, from_key, direction and skip offset
 fn build_query_options(
     search_key: &IndexerSearchKey,
     lock_prefix: KeyPrefix,

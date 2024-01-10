@@ -1,14 +1,16 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_indexer::IndexerHandle;
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellsCapacity, IndexerOrder, IndexerPagination, IndexerSearchKey,
     IndexerTip, IndexerTx, JsonBytes, Uint32,
 };
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 
 /// RPC Module Indexer.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait IndexerRpc {
     /// Returns the indexed tip
     ///
@@ -59,9 +61,11 @@ pub trait IndexerRpc {
     ///     - with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
     /// * order: enum, asc | desc
     /// * limit: result size limit
-    /// * after_cursor: pagination parameter, optional
+    /// * after: pagination parameter, optional
     ///
     /// ## Returns
+    ///
+    /// If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_cells.
     ///
     /// * objects:
     ///     - output: the fields of an output cell
@@ -406,9 +410,12 @@ pub trait IndexerRpc {
     ///     - group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
     /// * order: enum, asc | desc
     /// * limit: result size limit
-    /// * after_cursor: pagination parameter, optional
+    /// * after: pagination parameter, optional
     ///
     /// ## Returns
+    ///
+    /// If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_transactions.
+    ///
     ///  * objects - enum, ungrouped TxWithCell | grouped TxWithCells
     ///     - TxWithCell:
     ///         - tx_hash: transaction hash,
@@ -868,6 +875,7 @@ pub trait IndexerRpc {
     ) -> Result<Option<IndexerCellsCapacity>>;
 }
 
+#[derive(Clone)]
 pub(crate) struct IndexerRpcImpl {
     pub(crate) handle: IndexerHandle,
 }
@@ -878,6 +886,7 @@ impl IndexerRpcImpl {
     }
 }
 
+#[async_trait]
 impl IndexerRpc for IndexerRpcImpl {
     fn get_indexer_tip(&self) -> Result<Option<IndexerTip>> {
         self.handle

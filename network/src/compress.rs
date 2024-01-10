@@ -72,7 +72,7 @@ impl Message {
                 Ok(decompressed_bytes_len) => {
                     if decompressed_bytes_len > MAX_UNCOMPRESSED_LEN {
                         debug!(
-                            "the maximum uncompressed bytes len limit is exceeded, limit: {}, len: {}",
+                            "The limit for uncompressed bytes len is exceeded. limit: {}, len: {}",
                             MAX_UNCOMPRESSED_LEN, decompressed_bytes_len
                         );
                         Err(io::ErrorKind::InvalidData.into())

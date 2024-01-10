@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use ckb_jsonrpc_types::{AlertMessage, ChainInfo, DeploymentInfo, DeploymentPos, DeploymentsInfo};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
@@ -5,12 +6,13 @@ use ckb_traits::HeaderFieldsProvider;
 use ckb_types::prelude::Unpack;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// RPC Module Stats for getting various statistic data.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait StatsRpc {
     /// Returns statistics about the chain.
     ///
@@ -99,11 +101,13 @@ pub trait StatsRpc {
     fn get_deployments_info(&self) -> Result<DeploymentsInfo>;
 }
 
+#[derive(Clone)]
 pub(crate) struct StatsRpcImpl {
     pub shared: Shared,
     pub alert_notifier: Arc<Mutex<AlertNotifier>>,
 }
 
+#[async_trait]
 impl StatsRpc for StatsRpcImpl {
     fn get_blockchain_info(&self) -> Result<ChainInfo> {
         let chain = self.shared.consensus().id.clone();

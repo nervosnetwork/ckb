@@ -10,9 +10,12 @@ pub mod module;
 #[cfg(test)]
 mod tests;
 
+use jsonrpc_core::MetaIoHandler;
+use jsonrpc_utils::pub_sub::Session;
+
 pub use crate::error::RPCError;
 pub use crate::server::RpcServer;
 pub use crate::service_builder::ServiceBuilder;
 
 #[doc(hidden)]
-pub type IoHandler = jsonrpc_pubsub::PubSubHandler<Option<crate::module::SubscriptionSession>>;
+pub type IoHandler = MetaIoHandler<Option<Session>>;

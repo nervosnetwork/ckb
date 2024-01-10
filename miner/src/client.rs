@@ -4,7 +4,7 @@ use ckb_app_config::MinerClientConfig;
 use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
 use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
-use ckb_logger::{debug, error};
+use ckb_logger::{debug, error, info};
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::{
     packed::{Block, Byte32},
@@ -87,7 +87,7 @@ impl Rpc {
                         });
                     },
                     _ = stop_rx.cancelled() => {
-                        debug!("Rpc server received exit signal, exit now");
+                        info!("Rpc server received exit signal, exit now");
                         break
                     },
                     else => break
@@ -199,15 +199,15 @@ impl Client {
             ckb_logger::info!("listen notify mode : {}", addr);
             ckb_logger::info!(
                 r#"
-Please note that ckb-miner runs in notify mode,
-and you need to configure the corresponding information in the block assembler of the ckb,
-for example
+Please note that ckb-miner runs in notify mode. \
+You should configure the corresponding information in CKB block assembler, \
+for example:
 
 [block_assembler]
 ...
 notify = ["http://{}"]
 
-Otherwise ckb-miner does not work properly and will behave as it stopped committing new valid blocks after a while
+Otherwise ckb-miner will malfunction and stop submitting valid blocks after a certain period.
 "#,
                 addr
             );
@@ -235,7 +235,7 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
         let stop_rx: CancellationToken = new_tokio_exit_rx();
         let graceful = server.with_graceful_shutdown(async move {
             stop_rx.cancelled().await;
-            debug!("Miner client received exit signal, exit now");
+            info!("Miner client received exit signal. Exit now");
         });
 
         if let Err(e) = graceful.await {
@@ -255,7 +255,7 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
                     self.fetch_block_template().await;
                 }
                 _ = stop_rx.cancelled() => {
-                    debug!("Miner client pool_block_template received exit signal, exit now");
+                    info!("Miner client pool_block_template received exit signal, exit now");
                     break
                 },
                 else => break,
@@ -302,10 +302,10 @@ Otherwise ckb-miner does not work properly and will behave as it stopped committ
                 if is_method_not_found {
                     error!(
                         "RPC Method Not Found: \
-                         please do checks as follow: \
-                         1. if the CKB server has enabled the Miner API module; \
-                         2. if the CKB server has set `block_assembler`; \
-                         3. If the RPC URL for CKB miner is right.",
+                         Please perform the following checks: \
+                         1. Ensure that the CKB server has enabled the Miner API module; \
+                         2. Verify that the CKB server has set the `block_assembler` correctly; \
+                         3. Confirm that the RPC URL for CKB miner is correct.",
                     );
                 } else {
                     error!("rpc call get_block_template error: {:?}", err);

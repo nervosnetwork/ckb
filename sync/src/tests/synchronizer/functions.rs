@@ -3,13 +3,12 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
 use ckb_dao::DaoCalculator;
 use ckb_error::InternalErrorKind;
-use ckb_launcher::SharedBuilder;
 use ckb_network::{
     async_trait, bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
     SessionType, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::{Shared, Snapshot};
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{

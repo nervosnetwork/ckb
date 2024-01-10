@@ -1,7 +1,7 @@
 //! TODO(doc): @quake
 use ckb_app_config::NotifyConfig;
 use ckb_async_runtime::Handle;
-use ckb_logger::{debug, error, trace};
+use ckb_logger::{debug, error, info, trace};
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
 use ckb_types::{
@@ -178,7 +178,7 @@ impl NotifyService {
                     Some(msg) = network_alert_register_receiver.recv() => { self.handle_register_network_alert(msg) },
                     Some(msg) = network_alert_receiver.recv() => { self.handle_notify_network_alert(msg) },
                     _ = signal_receiver.cancelled() => {
-                        debug!("NotifyService received exit signal, exit now");
+                        info!("NotifyService received exit signal, exit now");
                         break;
                     }
                     else => break,
@@ -225,7 +225,7 @@ impl NotifyService {
     }
 
     fn handle_notify_new_block(&self, block: BlockView) {
-        trace!("event new block {:?}", block);
+        trace!("New block event {:?}", block);
         let block_hash = block.hash();
         // notify all subscribers
         for subscriber in self.new_block_subscribers.values() {
@@ -233,7 +233,7 @@ impl NotifyService {
             let subscriber = subscriber.clone();
             self.handle.spawn(async move {
                 if let Err(e) = subscriber.send(block).await {
-                    error!("notify new block error {}", e);
+                    error!("Failed to notify new block, error: {}", e);
                 }
             });
         }
@@ -241,7 +241,7 @@ impl NotifyService {
         // notify all watchers
         for watcher in self.new_block_watchers.values() {
             if let Err(e) = watcher.send(block_hash.clone()) {
-                error!("notify new block watcher error {}", e);
+                error!("Failed to notify new block watcher, error: {}", e);
             }
         }
 
@@ -252,9 +252,9 @@ impl NotifyService {
                 let args = [format!("{block_hash:#x}")];
                 match timeout(script_timeout, Command::new(&script).args(&args).status()).await {
                     Ok(ret) => match ret {
-                        Ok(status) => debug!("the new_block_notify script exited with: {status}"),
+                        Ok(status) => debug!("The new_block_notify script exited with: {status}"),
                         Err(e) => error!(
-                            "failed to run new_block_notify_script: {} {:?}, error: {}",
+                            "Failed to run new_block_notify_script: {} {:?}, error: {}",
                             script, args[0], e
                         ),
                     },
@@ -279,7 +279,7 @@ impl NotifyService {
     }
 
     fn handle_notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
-        trace!("event new tx {:?}", tx_entry);
+        trace!("New tx event {:?}", tx_entry);
         // notify all subscribers
         let tx_timeout = self.timeout.tx;
         // notify all subscribers
@@ -288,7 +288,7 @@ impl NotifyService {
             let subscriber = subscriber.clone();
             self.handle.spawn(async move {
                 if let Err(e) = subscriber.send_timeout(tx_entry, tx_timeout).await {
-                    error!("notify new transaction error {}", e);
+                    error!("Failed to notify new transaction, error: {}", e);
                 }
             });
         }
@@ -309,7 +309,7 @@ impl NotifyService {
     }
 
     fn handle_notify_proposed_transaction(&self, tx_entry: PoolTransactionEntry) {
-        trace!("event proposed tx {:?}", tx_entry);
+        trace!("Proposed tx event {:?}", tx_entry);
         // notify all subscribers
         let tx_timeout = self.timeout.tx;
         // notify all subscribers
@@ -318,7 +318,7 @@ impl NotifyService {
             let subscriber = subscriber.clone();
             self.handle.spawn(async move {
                 if let Err(e) = subscriber.send_timeout(tx_entry, tx_timeout).await {
-                    error!("notify proposed transaction error {}", e);
+                    error!("Failed to notify proposed transaction, error {}", e);
                 }
             });
         }
@@ -339,7 +339,7 @@ impl NotifyService {
     }
 
     fn handle_notify_reject_transaction(&self, tx_entry: (PoolTransactionEntry, Reject)) {
-        trace!("event reject tx {:?}", tx_entry);
+        trace!("Tx reject event {:?}", tx_entry);
         // notify all subscribers
         let tx_timeout = self.timeout.tx;
         // notify all subscribers
@@ -348,7 +348,7 @@ impl NotifyService {
             let subscriber = subscriber.clone();
             self.handle.spawn(async move {
                 if let Err(e) = subscriber.send_timeout(tx_entry, tx_timeout).await {
-                    error!("notify reject transaction error {}", e);
+                    error!("Failed to notify transaction reject, error: {}", e);
                 }
             });
         }
@@ -366,7 +366,7 @@ impl NotifyService {
     }
 
     fn handle_notify_network_alert(&self, alert: Alert) {
-        trace!("event network alert {:?}", alert);
+        trace!("Network alert event {:?}", alert);
         let alert_timeout = self.timeout.alert;
         let message = alert
             .as_reader()
@@ -381,7 +381,7 @@ impl NotifyService {
             let alert = alert.clone();
             self.handle.spawn(async move {
                 if let Err(e) = subscriber.send_timeout(alert, alert_timeout).await {
-                    error!("notify network_alert error {}", e);
+                    error!("Failed to notify network_alert, error: {}", e);
                 }
             });
         }

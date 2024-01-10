@@ -2,15 +2,6 @@
 //!
 //! ckb launcher is helps to launch ckb node.
 
-// declare here for mute ./devtools/ci/check-cargotoml.sh error
-extern crate num_cpus;
-
-pub mod migrate;
-mod migrations;
-mod shared_builder;
-#[cfg(test)]
-mod tests;
-
 use ckb_app_config::{
     BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
 };
@@ -29,9 +20,11 @@ use ckb_network::{
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
-use ckb_rpc::{RpcServer, ServiceBuilder};
+use ckb_rpc::RpcServer;
+use ckb_rpc::ServiceBuilder;
 use ckb_shared::Shared;
 
+use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -39,8 +32,6 @@ use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::sync::Arc;
-
-pub use crate::shared_builder::{SharedBuilder, SharedPackage};
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
@@ -109,8 +100,8 @@ impl Launcher {
                     Some(block_assembler)
                 } else {
                     info!(
-                        "Miner is disabled because block assembler is not a recommended lock format. \
-                         Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
+                        "Miner is disabled because block assembler uses a non-recommended lock format. \
+                         Edit ckb.toml or use `ckb run --ba-advanced` for other lock scripts"
                     );
 
                     None
@@ -118,7 +109,7 @@ impl Launcher {
             }
 
             _ => {
-                info!("Miner is disabled, edit ckb.toml to enable it");
+                info!("Miner is disabled; edit ckb.toml to enable it");
 
                 None
             }
@@ -170,9 +161,9 @@ impl Launcher {
         } else {
             // stored != configured
             eprintln!(
-                "chain_spec_hash mismatch Config({}) storage({}), pass command line argument \
-                    --skip-spec-check if you are sure that the two different chains are compatible; \
-                    or pass --overwrite-spec to force overriding stored chain spec with configured chain spec",
+                "chain_spec_hash mismatch: Config({}), storage({}). \
+                    If the two chains are compatible, pass command line argument --skip-spec-check; \
+                    otherwise, pass --overwrite-spec to enforce overriding the stored chain spec with the configured one.",
                 self.args.chain_spec_hash, stored_spec_hash.expect("checked")
             );
             return Err(ExitCode::Config);
@@ -269,7 +260,7 @@ impl Launcher {
         chain_controller: ChainController,
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
-    ) -> (NetworkController, RpcServer) {
+    ) -> NetworkController {
         let sync_shared = Arc::new(SyncShared::with_tmpdir(
             shared.clone(),
             self.args.config.network.sync.clone(),
@@ -385,7 +376,7 @@ impl Launcher {
         .expect("Start network service failed");
 
         let rpc_config = self.adjust_rpc_config();
-        let builder = ServiceBuilder::new(&rpc_config)
+        let mut builder = ServiceBuilder::new(&rpc_config)
             .enable_chain(shared.clone())
             .enable_pool(
                 shared.clone(),
@@ -417,15 +408,12 @@ impl Launcher {
                 &self.args.config.indexer,
             )
             .enable_debug();
+        builder.enable_subscription(shared.clone());
         let io_handler = builder.build();
 
-        let rpc_server = RpcServer::new(
-            rpc_config.clone(),
-            io_handler,
-            shared.notify_controller(),
-            self.async_handle.clone().into_inner(),
-        );
+        let async_handle = shared.async_handle();
+        let _rpc = RpcServer::new(rpc_config, io_handler, async_handle.clone());
 
-        (network_controller, rpc_server)
+        network_controller
     }
 }

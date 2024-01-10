@@ -11,7 +11,9 @@ use ckb_app_config::TxPoolConfig;
 use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
+use ckb_types::core::tx_pool::PoolTxDetailInfo;
 use ckb_types::core::CapacityError;
+use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
@@ -130,14 +132,14 @@ impl TxPool {
     pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
         let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
             error!(
-                "total_tx_size {} overflow by sub {}",
+                "total_tx_size {} overflown by sub {}",
                 self.total_tx_size, tx_size
             );
             0
         });
         let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
             error!(
-                "total_tx_cycles {} overflow by sub {}",
+                "total_tx_cycles {} overflown by sub {}",
                 self.total_tx_cycles, cycles
             );
             0
@@ -278,7 +280,7 @@ impl TxPool {
                 for entry in removed {
                     let tx_hash = entry.transaction().hash();
                     debug!(
-                        "removed by size limit {} timestamp({})",
+                        "Removed by size limit {} timestamp({})",
                         tx_hash, entry.timestamp
                     );
                     let reject = Reject::Full(format!(
@@ -525,25 +527,34 @@ impl TxPool {
     pub(crate) fn check_rbf(
         &self,
         snapshot: &Snapshot,
-        rtx: &ResolvedTransaction,
-        conflict_ids: &HashSet<ProposalShortId>,
-        fee: Capacity,
-        tx_size: usize,
-    ) -> Result<(), Reject> {
-        // Rule #1, the node has enabled RBF, which is checked by caller
+        entry: &TxEntry,
+    ) -> Result<HashSet<ProposalShortId>, Reject> {
         assert!(self.enable_rbf());
-        assert!(!conflict_ids.is_empty());
+        let tx_inputs: Vec<OutPoint> = entry.transaction().input_pts_iter().collect();
+        let conflict_ids = self.pool_map.find_conflict_tx(entry.transaction());
 
+        if conflict_ids.is_empty() {
+            return Ok(conflict_ids);
+        }
+
+        let tx_cells_deps: Vec<OutPoint> = entry
+            .transaction()
+            .cell_deps_iter()
+            .map(|c| c.out_point())
+            .collect();
+        let short_id = entry.proposal_short_id();
+
+        // Rule #1, the node has enabled RBF, which is checked by caller
         let conflicts = conflict_ids
             .iter()
             .filter_map(|id| self.get_pool_entry(id))
             .collect::<Vec<_>>();
         assert!(conflicts.len() == conflict_ids.len());
 
-        let short_id = rtx.transaction.proposal_short_id();
         // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
         // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
-        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, tx_size) {
+        let fee = entry.fee;
+        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, entry.size) {
             if fee < min_replace_fee {
                 return Err(Reject::RBFRejected(format!(
                     "Tx's current fee is {}, expect it to >= {} to replace old txs",
@@ -564,21 +575,16 @@ impl TxPool {
             outputs.extend(c.inner.transaction().output_pts_iter());
         }
 
-        if rtx
-            .transaction
-            .input_pts_iter()
-            .any(|pt| !inputs.contains(&pt) && !snapshot.transaction_exists(&pt.tx_hash()))
+        if tx_inputs
+            .iter()
+            .any(|pt| !inputs.contains(pt) && !snapshot.transaction_exists(&pt.tx_hash()))
         {
             return Err(Reject::RBFRejected(
                 "new Tx contains unconfirmed inputs".to_string(),
             ));
         }
 
-        if rtx
-            .transaction
-            .cell_deps_iter()
-            .any(|dep| outputs.contains(&dep.out_point()))
-        {
+        if tx_cells_deps.iter().any(|dep| outputs.contains(dep)) {
             return Err(Reject::RBFRejected(
                 "new Tx contains cell deps from conflicts".to_string(),
             ));
@@ -611,11 +617,7 @@ impl TxPool {
 
             for entry in entries.iter() {
                 let hash = entry.inner.transaction().hash();
-                if rtx
-                    .transaction
-                    .input_pts_iter()
-                    .any(|pt| pt.tx_hash() == hash)
-                {
+                if tx_inputs.iter().any(|pt| pt.tx_hash() == hash) {
                     return Err(Reject::RBFRejected(
                         "new Tx contains inputs in descendants of to be replaced Tx".to_string(),
                     ));
@@ -623,7 +625,39 @@ impl TxPool {
             }
         }
 
-        Ok(())
+        Ok(conflict_ids)
+    }
+
+    /// query the details of a transaction in the pool, only for trouble shooting
+    pub(crate) fn get_tx_detail(&self, id: &ProposalShortId) -> Option<PoolTxDetailInfo> {
+        if let Some(entry) = self.pool_map.get_by_id(id) {
+            let ids = self.get_ids();
+            let rank_in_pending = if entry.status == Status::Proposed {
+                0
+            } else {
+                let tx_hash = entry.inner.transaction().hash();
+                ids.pending
+                    .iter()
+                    .enumerate()
+                    .find(|(_, hash)| &tx_hash == *hash)
+                    .map(|r| r.0)
+                    .unwrap_or_default()
+                    + 1
+            };
+            let res = PoolTxDetailInfo {
+                timestamp: entry.inner.timestamp,
+                entry_status: entry.status.to_string(),
+                pending_count: self.pool_map.pending_size(),
+                rank_in_pending,
+                proposed_count: ids.proposed.len(),
+                descendants_count: self.pool_map.calc_descendants(id).len(),
+                ancestors_count: self.pool_map.calc_ancestors(id).len(),
+                score_sortkey: entry.inner.as_score_key().into(),
+            };
+            Some(res)
+        } else {
+            None
+        }
     }
 
     fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
@@ -638,7 +672,7 @@ impl TxPool {
                 Ok(recent_reject) => Some(recent_reject),
                 Err(err) => {
                     error!(
-                        "Failed to open recent reject database {:?} {}",
+                        "Failed to open the recent reject database {:?} {}",
                         config.recent_reject, err
                     );
                     None

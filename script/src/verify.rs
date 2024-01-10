@@ -536,6 +536,18 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         }
     }
 
+    fn is_vm_version_1_and_syscalls_2_enabled(&self) -> bool {
+        // If the proposal window is allowed to prejudge on the vm version,
+        // it will cause proposal tx to start a new vm in the blocks before hardfork,
+        // destroying the assumption that the transaction execution only uses the old vm
+        // before hardfork, leading to unexpected network splits.
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
+        let hardfork_switch = self.consensus.hardfork_switch();
+        hardfork_switch
+            .ckb2021
+            .is_vm_version_1_and_syscalls_2_enabled(epoch_number)
+    }
+
     fn is_vm_version_2_and_syscalls_3_enabled(&self) -> bool {
         // If the proposal window is allowed to prejudge on the vm version,
         // it will cause proposal tx to start a new vm in the blocks before hardfork,
@@ -551,11 +563,18 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     /// Returns the version of the machine based on the script and the consensus rules.
     pub fn select_version(&self, script: &Script) -> Result<ScriptVersion, ScriptError> {
         let is_vm_version_2_and_syscalls_3_enabled = self.is_vm_version_2_and_syscalls_3_enabled();
+        let is_vm_version_1_and_syscalls_2_enabled = self.is_vm_version_1_and_syscalls_2_enabled();
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
             ScriptHashType::Data => Ok(ScriptVersion::V0),
-            ScriptHashType::Data1 => Ok(ScriptVersion::V1),
+            ScriptHashType::Data1 => {
+                if is_vm_version_1_and_syscalls_2_enabled {
+                    Ok(ScriptVersion::V1)
+                } else {
+                    Err(ScriptError::InvalidVmVersion(1))
+                }
+            }
             ScriptHashType::Data2 => {
                 if is_vm_version_2_and_syscalls_3_enabled {
                     Ok(ScriptVersion::V2)
@@ -566,8 +585,10 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             ScriptHashType::Type => {
                 if is_vm_version_2_and_syscalls_3_enabled {
                     Ok(ScriptVersion::V2)
-                } else {
+                } else if is_vm_version_1_and_syscalls_2_enabled {
                     Ok(ScriptVersion::V1)
+                } else {
+                    Ok(ScriptVersion::V0)
                 }
             }
         }
@@ -998,7 +1019,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         Ok(machine)
     }
 
-    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+    /// Runs a single program, then returns the exit code together with the entire
+    /// machine to the caller for more inspections.
+    pub fn detailed_run(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<(i8, Machine), ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let context = Default::default();
         let mut machine = self.build_machine(script_group, max_cycles, context)?;
@@ -1016,6 +1043,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             .add_cycles_no_checking(transferred_byte_cycles(bytes))
             .map_err(map_vm_internal_error)?;
         let code = machine.run().map_err(map_vm_internal_error)?;
+
+        Ok((code, machine))
+    }
+
+    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+        let (code, machine) = self.detailed_run(script_group, max_cycles)?;
+
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {

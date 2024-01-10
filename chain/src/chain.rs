@@ -257,7 +257,7 @@ impl ChainService {
                         },
                     },
                     recv(signal_receiver) -> _ => {
-                        debug!("ChainService received exit signal, exit now");
+                        info!("ChainService received exit signal, exit now");
                         break;
                     }
                 }
@@ -345,13 +345,13 @@ impl ChainService {
         let block_number = block.number();
         let block_hash = block.hash();
 
-        debug!("begin processing block: {}-{}", block_number, block_hash);
+        debug!("Begin processing block: {}-{}", block_number, block_hash);
         if block_number < 1 {
-            warn!("receive 0 number block: 0-{}", block_hash);
+            warn!("Receive 0 number block: 0-{}", block_hash);
         }
 
         self.insert_block(block, switch).map(|ret| {
-            debug!("finish processing block");
+            debug!("Finish processing block");
             ret
         })
     }
@@ -444,7 +444,7 @@ impl ChainService {
 
         let current_total_difficulty = shared_snapshot.total_difficulty().to_owned();
         debug!(
-            "difficulty current = {:#x}, cannon = {:#x}",
+            "Current difficulty = {:#x}, cannon = {:#x}",
             current_total_difficulty, cannon_total_difficulty,
         );
 
@@ -453,7 +453,7 @@ impl ChainService {
 
         if new_best_block {
             debug!(
-                "new best block found: {} => {:#x}, difficulty diff = {:#x}",
+                "Newly found best block : {} => {:#x}, difficulty diff = {:#x}",
                 block.header().number(),
                 block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
@@ -506,7 +506,7 @@ impl ChainService {
                     fork.detached_proposal_id().clone(),
                     new_snapshot,
                 ) {
-                    error!("notify update_tx_pool_for_reorg error {}", e);
+                    error!("Notify update_tx_pool_for_reorg error {}", e);
                 }
             }
 
@@ -535,7 +535,7 @@ impl ChainService {
             if tx_pool_controller.service_started() {
                 let block_ref: &BlockView = &block;
                 if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
-                    error!("notify new_uncle error {}", e);
+                    error!("Notify new_uncle error {}", e);
                 }
             }
         }
@@ -576,7 +576,7 @@ impl ChainService {
             let proposal_start =
                 cmp::max(1, (new_tip + 1).saturating_sub(proposal_window.farthest()));
 
-            debug!("reload_proposal_table [{}, {}]", proposal_start, common);
+            debug!("Reload_proposal_table [{}, {}]", proposal_start, common);
             for bn in proposal_start..=common {
                 let blk = self
                     .shared
@@ -930,13 +930,13 @@ impl ChainService {
 
     fn print_error(&self, b: &BlockView, err: &Error) {
         error!(
-            "block verify error, block number: {}, hash: {}, error: {:?}",
+            "Block verify error. Block number: {}, hash: {}, error: {:?}",
             b.header().number(),
             b.header().hash(),
             err
         );
         if log_enabled!(ckb_logger::Level::Trace) {
-            trace!("block {}", b.data());
+            trace!("Block {}", b.data());
         }
     }
 

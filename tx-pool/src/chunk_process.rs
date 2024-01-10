@@ -4,7 +4,7 @@ use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
-use ckb_logger::debug;
+use ckb_logger::info;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -85,7 +85,7 @@ impl ChunkProcess {
                     }
                 },
                 _ = self.signal.cancelled() => {
-                    debug!("TxPool received exit signal, exit now");
+                    info!("TxPool chunk_command service received exit signal, exit now");
                     break
                 },
                 else => break,
@@ -218,8 +218,7 @@ impl ChunkProcess {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.service.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
-            try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
         let cached = self.service.fetch_tx_verify_cache(&tx_hash).await;
 
@@ -244,10 +243,8 @@ impl ChunkProcess {
                     let completed = try_or_return_with_snapshot!(ret, snapshot);
 
                     let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    let (ret, submit_snapshot) = self
-                        .service
-                        .submit_entry(tip_hash, entry, status, conflicts)
-                        .await;
+                    let (ret, submit_snapshot) =
+                        self.service.submit_entry(tip_hash, entry, status).await;
                     try_or_return_with_snapshot!(ret, submit_snapshot);
                     self.service
                         .after_process(tx, remote, &submit_snapshot, &Ok(completed))
@@ -325,10 +322,7 @@ impl ChunkProcess {
         }
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-        let (ret, submit_snapshot) = self
-            .service
-            .submit_entry(tip_hash, entry, status, conflicts)
-            .await;
+        let (ret, submit_snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, snapshot);
 
         self.service.notify_block_assembler(status).await;

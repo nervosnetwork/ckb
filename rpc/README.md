@@ -92,19 +92,20 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `tx_pool_info`](#method-tx_pool_info)
         * [Method `clear_tx_pool`](#method-clear_tx_pool)
         * [Method `get_raw_tx_pool`](#method-get_raw_tx_pool)
+        * [Method `get_pool_tx_detail_info`](#method-get_pool_tx_detail_info)
         * [Method `tx_pool_ready`](#method-tx_pool_ready)
     * [Module Stats](#module-stats)
         * [Method `get_blockchain_info`](#method-get_blockchain_info)
         * [Method `get_deployments_info`](#method-get_deployments_info)
     * [Module Subscription](#module-subscription)
         * [Method `subscribe`](#method-subscribe)
-        * [Method `unsubscribe`](#method-unsubscribe)
 * [RPC Errors](#rpc-errors)
 * [RPC Types](#rpc-types)
     * [Type `Alert`](#type-alert)
     * [Type `AlertId`](#type-alertid)
     * [Type `AlertMessage`](#type-alertmessage)
     * [Type `AlertPriority`](#type-alertpriority)
+    * [Type `AncestorsScoreSortKey`](#type-ancestorsscoresortkey)
     * [Type `BannedAddr`](#type-bannedaddr)
     * [Type `Block`](#type-block)
     * [Type `BlockEconomicState`](#type-blockeconomicstate)
@@ -163,6 +164,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionEntry`](#type-pooltransactionentry)
     * [Type `PoolTransactionReject`](#type-pooltransactionreject)
+    * [Type `PoolTxDetailInfo`](#type-pooltxdetailinfo)
     * [Type `ProposalShortId`](#type-proposalshortid)
     * [Type `ProposalWindow`](#type-proposalwindow)
     * [Type `Ratio`](#type-ratio)
@@ -261,7 +263,7 @@ Response
   "error": {
     "code": -1000,
     "data": "SigNotEnough",
-    "message":"AlertFailedToVerifySignatures: The count of sigs less than threshold."
+    "message":"AlertFailedToVerifySignatures: The count of sigs is less than threshold."
   },
   "jsonrpc": "2.0",
   "result": null,
@@ -1662,7 +1664,7 @@ Response
             { "rfc": "0029", "epoch_number": "0x0" },
             { "rfc": "0030", "epoch_number": "0x0" },
             { "rfc": "0031", "epoch_number": "0x0" },
-            { "rfc": "0032", "epoch_number": "0x0" },
+            { "rfc": "0032", "epoch_number": "0x1526" },
             { "rfc": "0036", "epoch_number": "0x0" },
             { "rfc": "0038", "epoch_number": "0x0" },
             { "rfc": "0048", "epoch_number": null },
@@ -2179,9 +2181,11 @@ Returns the live cells collection by the lock or type script.
 
 *   limit: result size limit
 
-*   after_cursor: pagination parameter, optional
+*   after: pagination parameter, optional
 
 ###### Returns
+
+If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_cells.
 
 *   objects:
     *   output: the fields of an output cell
@@ -2556,9 +2560,11 @@ Returns the transactions collection by the lock or type script.
 
 *   limit: result size limit
 
-*   after_cursor: pagination parameter, optional
+*   after: pagination parameter, optional
 
 ###### Returns
+
+If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_transactions.
 
 *   objects - enum, ungrouped TxWithCell | grouped TxWithCells
     *   TxWithCell:
@@ -3133,8 +3139,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-  "error": null
+  "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
 }
 ```
 
@@ -3209,8 +3214,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
-  "error": null
+  "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029"
 }
 ```
 
@@ -3267,8 +3271,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xa0001000003",
-  "error": null
+  "result": "0xa0001000003"
 }
 ```
 
@@ -3341,8 +3344,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
-  "error": null
+  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
 }
 ```
 
@@ -3454,8 +3456,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75",
-  "error": null
+  "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75"
 }
 ```
 
@@ -3565,8 +3566,7 @@ Response
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-  "error": null
+  "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000"
 }
 ```
 
@@ -4661,6 +4661,60 @@ Response
 ```
 
 
+#### Method `get_pool_tx_detail_info`
+* `get_pool_tx_detail_info(tx_hash)`
+    * `tx_hash`: [`H256`](#type-h256)
+* result: [`PoolTxDetailInfo`](#type-pooltxdetailinfo)
+
+Query and returns the details of a transaction in the pool, only for trouble shooting
+
+###### Params
+
+*   `tx_hash` - Hash of a transaction
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_pool_tx_detail_info",
+  "params": [
+    "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+   "jsonrpc": "2.0",
+   "result": {
+       "ancestors_count": "0x0",
+       "descendants_count": "0x0",
+       "entry_status": "pending",
+       "pending_count": "0x1",
+       "proposed_count": "0x0",
+       "rank_in_pending": "0x1",
+       "score_sortkey": {
+           "ancestors_fee": "0x16923f7dcf",
+           "ancestors_weight": "0x112",
+           "fee": "0x16923f7dcf",
+           "weight": "0x112"
+       },
+       "timestamp": "0x18aa1baa54c"
+   },
+   "id": 42
+}
+```
+
+
 #### Method `tx_pool_ready`
 * `tx_pool_ready()`
 * result: `boolean`
@@ -4907,7 +4961,7 @@ The type of the `params.result` in the push message is a two-elements array, whe
 
 ###### Examples
 
-Request
+Subscribe Request
 
 
 ```
@@ -4922,32 +4976,19 @@ Request
 ```
 
 
-Response
+Subscribe Response
 
 
 ```
 {
   "id": 42,
   "jsonrpc": "2.0",
-  "result": "0x2a"
+  "result": "0xf3"
 }
 ```
 
 
-#### Method `unsubscribe`
-* `unsubscribe(id)`
-    * `id`: `string`
-* result: `boolean`
-
-Unsubscribes from a subscribed topic.
-
-###### Params
-
-*   `id` - Subscription ID
-
-###### Examples
-
-Request
+Unsubscribe Request
 
 
 ```
@@ -4956,13 +4997,13 @@ Request
   "jsonrpc": "2.0",
   "method": "unsubscribe",
   "params": [
-    "0x2a"
+    "0xf3"
   ]
 }
 ```
 
 
-Response
+Unsubscribe Response
 
 
 ```
@@ -5215,6 +5256,23 @@ Alerts are sorted by priority. Greater integers mean higher priorities.
 
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
 
+### Type `AncestorsScoreSortKey`
+
+A struct as a sorted key for tx-pool
+
+#### Fields
+
+`AncestorsScoreSortKey` is a JSON object with the following fields.
+
+*   `fee`: [`Uint64`](#type-uint64) - Fee
+
+*   `weight`: [`Uint64`](#type-uint64) - Weight
+
+*   `ancestors_fee`: [`Uint64`](#type-uint64) - Ancestors fee
+
+*   `ancestors_weight`: [`Uint64`](#type-uint64) - Ancestors weight
+
+
 ### Type `BannedAddr`
 
 A banned P2P address.
@@ -5249,6 +5307,10 @@ The JSON view of a Block used as a parameter in the RPC.
 *   `transactions`: `Array<` [`Transaction`](#type-transaction) `>` - The transactions in the block body.
 
 *   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
+
+*   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension in the block body.
+
+    This is a field introduced in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md). Since the activation of [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md), this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.
 
 
 ### Type `BlockEconomicState`
@@ -5402,7 +5464,7 @@ Miners optional pick transactions and then assemble the final block.
 
 *   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension for the new block.
 
-    This field is optional. It’s a reserved field, please leave it blank. More details can be found in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md).
+    This is a field introduced in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md). Since the activation of [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md), this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.
 
 
 ### Type `BlockView`
@@ -5420,6 +5482,10 @@ The JSON view of a Block including header and body.
 *   `transactions`: `Array<` [`TransactionView`](#type-transactionview) `>` - The transactions in the block body.
 
 *   `proposals`: `Array<` [`ProposalShortId`](#type-proposalshortid) `>` - The proposal IDs in the block body.
+
+*   `extension`: [`JsonBytes`](#type-jsonbytes) `|` `null` - The extension in the block body.
+
+    This is a field introduced in [CKB RFC 0031](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md). Since the activation of [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md), this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.
 
 
 ### Type `Byte32`
@@ -6491,13 +6557,38 @@ Different reject types:
 *   `ExceededMaximumAncestorsCount`: Transaction exceeded maximum ancestors count limit
 *   `ExceededTransactionSizeLimit`: Transaction exceeded maximum size limit
 *   `Full`: Transaction are replaced because the pool is full
-*   `Duplicated`: Transaction already exist in transaction_pool
+*   `Duplicated`: Transaction already exists in transaction_pool
 *   `Malformed`: Malformed transaction
 *   `DeclaredWrongCycles`: Declared wrong cycles
 *   `Resolve`: Resolve failed
 *   `Verification`: Verification failed
 *   `Expiry`: Transaction expired
 *   `RBFRejected`: RBF rejected
+
+
+### Type `PoolTxDetailInfo`
+
+A Tx details info in tx-pool.
+
+#### Fields
+
+`PoolTxDetailInfo` is a JSON object with the following fields.
+
+*   `timestamp`: [`Uint64`](#type-uint64) - The time added into tx-pool
+
+*   `entry_status`: `string` - The detailed status in tx-pool, `pending`, `gap`, `proposed`
+
+*   `rank_in_pending`: [`Uint64`](#type-uint64) - The rank in pending, starting from 0
+
+*   `pending_count`: [`Uint64`](#type-uint64) - The pending(`pending` and `gap`) count
+
+*   `proposed_count`: [`Uint64`](#type-uint64) - The proposed count
+
+*   `descendants_count`: [`Uint64`](#type-uint64) - The descendants count of tx
+
+*   `ancestors_count`: [`Uint64`](#type-uint64) - The ancestors count of tx
+
+*   `score_sortkey`: [`AncestorsScoreSortKey`](#type-ancestorsscoresortkey) - The score key details, useful to debug
 
 
 ### Type `ProposalShortId`

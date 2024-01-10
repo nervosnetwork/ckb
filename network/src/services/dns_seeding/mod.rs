@@ -57,7 +57,7 @@ impl DnsSeedingService {
                 >= 2
         });
         if enough_outbound {
-            debug!("Enough outbound peers");
+            debug!("Enough outbound peers available");
             return Ok(());
         }
 
@@ -82,18 +82,18 @@ impl DnsSeedingService {
                                     match SeedRecord::decode_with_pubkey(record, &pubkey) {
                                         Ok(seed_record) => {
                                             let address = seed_record.address();
-                                            trace!("got dns txt address: {}", address);
+                                            trace!("Received DNS txt address: {}", address);
                                             addrs.push(address);
                                         }
                                         Err(err) => {
                                             debug!(
-                                                "decode dns txt record failed: {err:?}, {record:?}"
+                                                "DNS txt record decode failed: {err:?}, {record:?}"
                                             );
                                         }
                                     }
                                 }
                                 Err(err) => {
-                                    debug!("get dns txt record error: {:?}", err);
+                                    debug!("DNS txt record retrivial error: {:?}", err);
                                 }
                             }
                         }

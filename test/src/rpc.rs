@@ -7,8 +7,9 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockFilter, BlockNumber, BlockTemplate,
     BlockView, Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles,
-    HeaderView, LocalNode, OutPoint, RawTxPool, RemoteNode, Timestamp, Transaction,
-    TransactionProof, TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64, Version,
+    HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, Timestamp,
+    Transaction, TransactionProof, TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64,
+    Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -87,6 +88,12 @@ impl RpcClient {
         self.inner
             .get_transaction(hash.unpack(), Some(verbosity.into()), None)
             .expect("rpc call get_transaction")
+    }
+
+    pub fn get_pool_tx_detail_info(&self, hash: Byte32) -> PoolTxDetailInfo {
+        self.inner
+            .get_pool_tx_detail_info(hash.unpack())
+            .expect("rpc call get_transaction_tx_pool_details")
     }
 
     pub fn get_block_hash(&self, number: CoreBlockNumber) -> Option<Byte32> {
@@ -299,7 +306,8 @@ impl RpcClient {
     }
 }
 
-jsonrpc!(pub struct Inner {
+jsonrpc!(
+    pub struct Inner {
     pub fn get_block(&self, _hash: H256) -> Option<BlockView>;
     pub fn get_fork_block(&self, _hash: H256) -> Option<BlockView>;
     pub fn get_block_by_number(&self, _number: BlockNumber) -> Option<BlockView>;
@@ -357,4 +365,5 @@ jsonrpc!(pub struct Inner {
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
     pub fn notify_transaction(&self, tx: Transaction) -> H256;
     pub fn tx_pool_ready(&self) -> bool;
+    pub fn get_pool_tx_detail_info(&self, _hash: H256) -> PoolTxDetailInfo;
 });

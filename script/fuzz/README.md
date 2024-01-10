@@ -1,6 +1,6 @@
 ## How to run
 
-install component and tools (require rust nighlty)
+install component and tools (require rust nightly)
 ```
 rustup component add llvm-tools-preview
 cargo install cargo-binutils

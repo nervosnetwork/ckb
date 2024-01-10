@@ -36,7 +36,7 @@ impl Spec for TransactionRelayLowFeeRate {
             node1,
             0,
             10,
-            "reject tx The min fee rate is 1000 shannons/KW, so the transaction fee should be 242 shannons at least, but only got 0"
+            "Reject tx The min fee rate is 1000 shannons/KW, requiring a transaction fee of at least 242 shannons, but the fee provided is only 0"
         )
         .is_some());
     }

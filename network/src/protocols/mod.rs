@@ -294,7 +294,7 @@ impl ServiceProtocol for CKBHandler {
             && context.proto_id != SupportProtocols::RelayV2.protocol_id()
         {
             debug!(
-                "session {}, protocol {} with version {}, not 3, so disconnect it",
+                "The version of session {}, protocol {} is {}, not 3. It will be disconnected.",
                 context.session.id, context.proto_id, version
             );
             let id = context.session.id;
@@ -508,7 +508,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         Ok(())
     }
     async fn async_disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error> {
-        debug!("disconnect peer: {}, message: {}", peer_index, message);
+        debug!("Disconnect peer: {}, message: {}", peer_index, message);
         async_disconnect_with_message(&self.async_p2p_control, peer_index, message).await?;
         Ok(())
     }
@@ -586,7 +586,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         Ok(())
     }
     fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error> {
-        debug!("disconnect peer: {}, message: {}", peer_index, message);
+        debug!("Disconnect peer: {}, message: {}", peer_index, message);
         disconnect_with_message(&self.p2p_control, peer_index, message)?;
         Ok(())
     }

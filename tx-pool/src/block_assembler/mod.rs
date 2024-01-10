@@ -122,7 +122,7 @@ impl BlockAssembler {
         let basic_block_size =
             Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension.clone());
 
-        let (dao, _checked_txs) =
+        let (dao, _checked_txs, _failed_txs) =
             Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])
                 .expect("calc_dao for BlockAssembler initial");
 
@@ -197,12 +197,18 @@ impl BlockAssembler {
         };
 
         let proposals_size = proposals.len() * ProposalShortId::serialized_size();
-        let (dao, checked_txs) = Self::calc_dao(
+        let (dao, checked_txs, failed_txs) = Self::calc_dao(
             &current.snapshot,
             &current.epoch,
             current_template.cellbase.clone(),
             txs,
         )?;
+        if !failed_txs.is_empty() {
+            let mut tx_pool_writer = tx_pool.write().await;
+            for id in failed_txs {
+                tx_pool_writer.remove_tx(&id);
+            }
+        }
 
         let txs_size = checked_txs.iter().map(|tx| tx.size).sum();
         let total_size = basic_size + txs_size;
@@ -251,7 +257,7 @@ impl BlockAssembler {
         let basic_block_size =
             Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
 
-        let (dao, _checked_txs) =
+        let (dao, _checked_txs, _failed_txs) =
             Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])?;
 
         builder
@@ -407,7 +413,7 @@ impl BlockAssembler {
             txs
         };
 
-        if let Ok((dao, checked_txs)) = Self::calc_dao(
+        if let Ok((dao, checked_txs, _failed_txs)) = Self::calc_dao(
             &current.snapshot,
             &current.epoch,
             current_template.cellbase.clone(),
@@ -577,12 +583,13 @@ impl BlockAssembler {
         current_epoch: &EpochExt,
         cellbase: TransactionView,
         entries: Vec<TxEntry>,
-    ) -> Result<(Byte32, Vec<TxEntry>), AnyError> {
+    ) -> Result<(Byte32, Vec<TxEntry>, Vec<ProposalShortId>), AnyError> {
         let tip_header = snapshot.tip_header();
         let consensus = snapshot.consensus();
         let mut seen_inputs = HashSet::new();
         let mut transactions_checker = TransactionsChecker::new(iter::once(&cellbase));
 
+        let mut checked_failed_txs = vec![];
         let checked_entries: Vec<_> = block_in_place(|| {
             entries
                 .into_iter()
@@ -595,13 +602,14 @@ impl BlockAssembler {
                             .check(&mut seen_inputs, &overlay_cell_checker, snapshot)
                     {
                         error!(
-                            "resolve transactions when build block template, \
+                            "Resolving transactions while building block template, \
                              tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",
                             tip_header.number(),
                             tip_header.hash(),
                             entry.transaction().hash(),
                             err
                         );
+                        checked_failed_txs.push(entry.proposal_short_id());
                         None
                     } else {
                         transactions_checker.insert(entry.transaction());
@@ -620,7 +628,7 @@ impl BlockAssembler {
         let dao = DaoCalculator::new(consensus, &snapshot.borrow_as_data_loader())
             .dao_field_with_current_epoch(entries_iter, tip_header, current_epoch)?;
 
-        Ok((dao, checked_entries))
+        Ok((dao, checked_entries, checked_failed_txs))
     }
 
     pub(crate) async fn notify(&self) {
@@ -641,7 +649,10 @@ impl BlockAssembler {
                             timeout(notify_timeout, client.request(req))
                                 .await
                                 .map_err(|_| {
-                                    ckb_logger::warn!("block assembler notify {} timed out", url);
+                                    ckb_logger::warn!(
+                                        "block assembler notifying {} timed out",
+                                        url
+                                    );
                                 });
                     });
                 }
@@ -668,7 +679,9 @@ impl BlockAssembler {
                             Ok(status) => debug!("the command exited with: {}", status),
                             Err(e) => error!("the script {} failed to spawn {}", script, e),
                         },
-                        Err(_) => ckb_logger::warn!("block assembler notify {} timed out", script),
+                        Err(_) => {
+                            ckb_logger::warn!("block assembler notifying {} timed out", script)
+                        }
                     }
                 });
             }

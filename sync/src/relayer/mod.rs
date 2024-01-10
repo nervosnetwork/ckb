@@ -667,7 +667,10 @@ impl Relayer {
                 let message = packed::RelayMessage::new_builder().set(content).build();
                 let status = send_message_to(nc, peer, &message);
                 if !status.is_ok() {
-                    ckb_logger::error!("break asking for transactions, status: {:?}", status);
+                    ckb_logger::error!(
+                        "interrupted request for transactions, status: {:?}",
+                        status
+                    );
                 }
             }
         }
@@ -904,13 +907,13 @@ impl CKBProtocolHandler for Relayer {
                     trace_target!(crate::LOG_TARGET_RELAY, "remove v2 relay notify fail");
                 }
                 if nc.remove_notify(ASK_FOR_TXS_TOKEN).await.is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
+                    trace_target!(crate::LOG_TARGET_RELAY, "remove v2 relay notify fail");
                 }
                 if nc.remove_notify(TX_HASHES_TOKEN).await.is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
+                    trace_target!(crate::LOG_TARGET_RELAY, "remove v2 relay notify fail");
                 }
                 if nc.remove_notify(SEARCH_ORPHAN_POOL_TOKEN).await.is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v1 relay notify fail");
+                    trace_target!(crate::LOG_TARGET_RELAY, "remove v2 relay notify fail");
                 }
                 for kv_pair in self.shared().state().peers().state.iter() {
                     let (peer, state) = kv_pair.pair();

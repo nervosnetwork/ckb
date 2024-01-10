@@ -1,5 +1,5 @@
 use ckb_channel::TrySendError;
-use ckb_logger::{debug, error, info, trace, warn};
+use ckb_logger::{debug, info, trace, warn};
 use ckb_util::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -9,22 +9,22 @@ struct CkbServiceHandles {
 
 /// Wait all ckb services exit
 pub fn wait_all_ckb_services_exit() {
-    info!("waiting exit signal...");
+    info!("Waiting exit signal...");
     let exit_signal = new_crossbeam_exit_rx();
     let _ = exit_signal.recv();
     let mut handles = CKB_HANDLES.lock();
-    debug!("wait_all_ckb_services_exit wait all threads to exit");
+    debug!("wait_all_ckb_services_exit waiting all threads to exit");
     for (name, join_handle) in handles.thread_handles.drain(..) {
         match join_handle.join() {
             Ok(_) => {
-                debug!("wait thread {} done", name);
+                info!("Waiting thread {} done.", name);
             }
             Err(e) => {
-                warn!("wait thread {}: ERROR: {:?}", name, e)
+                warn!("Waiting thread {}: ERROR: {:?}", name, e)
             }
         }
     }
-    debug!("all ckb threads have been stopped");
+    debug!("All ckb threads have been stopped.");
 }
 
 static CKB_HANDLES: once_cell::sync::Lazy<Mutex<CkbServiceHandles>> =
@@ -54,26 +54,26 @@ pub fn new_crossbeam_exit_rx() -> ckb_channel::Receiver<()> {
 
 /// Broadcast exit signals to all threads and all tokio tasks
 pub fn broadcast_exit_signals() {
-    debug!("received exit signal, broadcasting exit signal to all threads");
+    debug!("Received exit signal; broadcasting exit signal to all threads");
     TOKIO_EXIT.cancel();
     CROSSBEAM_EXIT_SENDERS
         .lock()
         .iter()
         .for_each(|tx| match tx.try_send(()) {
             Ok(_) => {}
-            Err(TrySendError::Full(_)) => error!("send exit signal to channel failed since the channel is full, this should not happen"),
+            Err(TrySendError::Full(_)) => info!("Ckb process has received exit signal"),
             Err(TrySendError::Disconnected(_)) => {
-                info!("broadcast thread: channel is disconnected")
+                debug!("broadcast thread: channel is disconnected")
             }
         });
 }
 
 /// Register a thread `JoinHandle` to  `CKB_HANDLES`
 pub fn register_thread(name: &str, thread_handle: std::thread::JoinHandle<()>) {
-    trace!("register thread {}", name);
+    trace!("Registering thread {}", name);
     CKB_HANDLES
         .lock()
         .thread_handles
         .push((name.into(), thread_handle));
-    trace!("register thread done {}", name);
+    trace!("Thread registration completed {}", name);
 }

@@ -12,7 +12,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     deadlock_detection();
 
     info!("ckb version: {}", version);
-
     let mut launcher = Launcher::new(args, version, async_handle);
 
     let block_assembler_config = launcher.sanitize_block_assembler_config()?;
@@ -45,7 +44,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.start_block_filter(&shared);
 
-    let (network_controller, _rpc_server) = launcher.start_network_and_rpc(
+    let network_controller = launcher.start_network_and_rpc(
         &shared,
         chain_controller.clone(),
         miner_enable,

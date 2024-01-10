@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use crate::module::chain::CyclesEstimator;
+use async_trait::async_trait;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
     Capacity, DaoWithdrawingCalculationKind, EstimateCycles, OutPoint, Transaction,
@@ -8,14 +9,15 @@ use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*};
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 
 /// RPC Module Experiment for experimenting methods.
 ///
 /// **EXPERIMENTAL warning**
 ///
 /// The methods here may be removed or changed in future releases without prior notifications.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait ExperimentRpc {
     /// Dry run a transaction and return the execution cycles.
     ///
@@ -162,10 +164,12 @@ pub trait ExperimentRpc {
     ) -> Result<Capacity>;
 }
 
+#[derive(Clone)]
 pub(crate) struct ExperimentRpcImpl {
     pub shared: Shared,
 }
 
+#[async_trait]
 impl ExperimentRpc for ExperimentRpcImpl {
     fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles> {
         let tx: packed::Transaction = tx.into();

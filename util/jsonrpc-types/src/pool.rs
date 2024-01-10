@@ -1,6 +1,7 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
 use ckb_types::core::service::PoolTransactionEntry as CorePoolTransactionEntry;
 use ckb_types::core::tx_pool::{
+    AncestorsScoreSortKey as CoreAncestorsScoreSortKey, PoolTxDetailInfo as CorePoolTxDetailInfo,
     Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds, TxPoolInfo as CoreTxPoolInfo,
 };
 use ckb_types::prelude::Unpack;
@@ -214,6 +215,66 @@ pub enum RawTxPool {
     Verbose(TxPoolEntries),
 }
 
+/// A struct as a sorted key for tx-pool
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct AncestorsScoreSortKey {
+    /// Fee
+    pub fee: Uint64,
+    /// Weight
+    pub weight: Uint64,
+    /// Ancestors fee
+    pub ancestors_fee: Uint64,
+    /// Ancestors weight
+    pub ancestors_weight: Uint64,
+}
+
+impl From<CoreAncestorsScoreSortKey> for AncestorsScoreSortKey {
+    fn from(value: CoreAncestorsScoreSortKey) -> Self {
+        Self {
+            fee: value.fee.into(),
+            weight: value.weight.into(),
+            ancestors_fee: value.ancestors_fee.into(),
+            ancestors_weight: value.ancestors_weight.into(),
+        }
+    }
+}
+
+/// A Tx details info in tx-pool.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct PoolTxDetailInfo {
+    /// The time added into tx-pool
+    pub timestamp: Uint64,
+    /// The detailed status in tx-pool, `pending`, `gap`, `proposed`
+    pub entry_status: String,
+    /// The rank in pending, starting from 0
+    pub rank_in_pending: Uint64,
+    /// The pending(`pending` and `gap`) count
+    pub pending_count: Uint64,
+    /// The proposed count
+    pub proposed_count: Uint64,
+    /// The descendants count of tx
+    pub descendants_count: Uint64,
+    /// The ancestors count of tx
+    pub ancestors_count: Uint64,
+    /// The score key details, useful to debug
+    pub score_sortkey: AncestorsScoreSortKey,
+}
+
+impl From<CorePoolTxDetailInfo> for PoolTxDetailInfo {
+    fn from(info: CorePoolTxDetailInfo) -> Self {
+        Self {
+            timestamp: info.timestamp.into(),
+            entry_status: info.entry_status,
+            rank_in_pending: (info.rank_in_pending as u64).into(),
+            pending_count: (info.pending_count as u64).into(),
+            proposed_count: (info.proposed_count as u64).into(),
+            descendants_count: (info.descendants_count as u64).into(),
+            ancestors_count: (info.ancestors_count as u64).into(),
+            score_sortkey: info.score_sortkey.into(),
+        }
+    }
+}
+
 /// TX reject message
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", content = "description")]
@@ -230,7 +291,7 @@ pub enum PoolTransactionReject {
     /// Transaction are replaced because the pool is full
     Full(String),
 
-    /// Transaction already exist in transaction_pool
+    /// Transaction already exists in transaction_pool
     Duplicated(String),
 
     /// Malformed transaction

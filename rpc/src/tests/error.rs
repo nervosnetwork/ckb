@@ -22,13 +22,13 @@ fn test_submit_transaction_error() {
     let min_fee_rate = FeeRate::from_u64(500);
     let reject = Reject::LowFeeRate(min_fee_rate, 100, 50);
     assert_eq!(
-            "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KW, so the transaction fee should be 100 shannons at least, but only got 50",
+            "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KW, requiring a transaction fee of at least 100 shannons, but the fee provided is only 50",
             RPCError::from_submit_transaction_reject(&reject).message
         );
 
     let reject = Reject::ExceededMaximumAncestorsCount;
     assert_eq!(
-            "PoolRejectedTransactionByMaxAncestorsCountLimit: Transaction exceeded maximum ancestors count limit, try send it later",
+            "PoolRejectedTransactionByMaxAncestorsCountLimit: Transaction exceeded maximum ancestors count limit; try later",
             RPCError::from_submit_transaction_reject(&reject).message
         );
 
@@ -37,13 +37,13 @@ fn test_submit_transaction_error() {
         FeeRate::from_u64(500)
     ));
     assert_eq!(
-        "PoolIsFull: Transaction are replaced because the pool is full, the fee_rate for this transaction is: 500 shannons/KW",
+        "PoolIsFull: Transaction is replaced because the pool is full, the fee_rate for this transaction is: 500 shannons/KW",
         RPCError::from_submit_transaction_reject(&reject).message
     );
 
     let reject = Reject::Duplicated(Byte32::new([0; 32]));
     assert_eq!(
-            "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)) already exist in transaction_pool",
+            "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)) already exists in transaction_pool",
             RPCError::from_submit_transaction_reject(&reject).message
         );
 

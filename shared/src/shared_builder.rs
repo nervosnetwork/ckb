@@ -1,35 +1,33 @@
-//! Shared factory
-//!
-//! which can be used in order to configure the properties of a new shared.
+//! shared_builder provide SharedBuilder and SharedPacakge
+use ckb_channel::Receiver;
+use ckb_proposal_table::ProposalTable;
+use ckb_tx_pool::service::TxVerificationResult;
+use ckb_tx_pool::{TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder};
+use std::cmp::Ordering;
 
-use crate::migrate::Migrate;
-use ckb_app_config::ExitCode;
-use ckb_app_config::{BlockAssemblerConfig, DBConfig, NotifyConfig, StoreConfig, TxPoolConfig};
-use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
-use ckb_channel::Receiver;
+
+use crate::Shared;
+use ckb_proposal_table::ProposalView;
+use ckb_snapshot::{Snapshot, SnapshotMgr};
+
+use ckb_app_config::{
+    BlockAssemblerConfig, DBConfig, ExitCode, NotifyConfig, StoreConfig, TxPoolConfig,
+};
+use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
-use ckb_freezer::Freezer;
 use ckb_logger::{error, info};
-use ckb_notify::{NotifyController, NotifyService, PoolTransactionEntry};
-use ckb_proposal_table::ProposalTable;
-use ckb_proposal_table::ProposalView;
-use ckb_shared::Shared;
-use ckb_snapshot::{Snapshot, SnapshotMgr};
-
-use ckb_store::ChainDB;
-use ckb_store::ChainStore;
-use ckb_tx_pool::{
-    error::Reject, service::TxVerificationResult, TokioRwLock, TxEntry, TxPool,
-    TxPoolServiceBuilder,
-};
+use ckb_migrate::migrate::Migrate;
+use ckb_notify::{NotifyController, NotifyService};
+use ckb_store::{ChainDB, ChainStore, Freezer};
+use ckb_types::core::service::PoolTransactionEntry;
+use ckb_types::core::tx_pool::Reject;
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
 use ckb_verification::cache::init_cache;
-use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -48,6 +46,7 @@ pub struct SharedBuilder {
     async_handle: Handle,
 }
 
+/// Open or create a rocksdb
 pub fn open_or_create_db(
     bin_name: &str,
     root_dir: &Path,
@@ -56,7 +55,7 @@ pub fn open_or_create_db(
     let migrate = Migrate::new(&config.path);
 
     let read_only_db = migrate.open_read_only_db().map_err(|e| {
-        eprintln!("migrate error {e}");
+        eprintln!("Migration error {e}");
         ExitCode::Failure
     })?;
 
@@ -64,8 +63,8 @@ pub fn open_or_create_db(
         match migrate.check(&db) {
             Ordering::Greater => {
                 eprintln!(
-                    "The database is created by a higher version CKB executable binary, \n\
-                     so that the current CKB executable binary couldn't open this database.\n\
+                    "The database was created by a higher version CKB executable binary \n\
+                     and cannot be opened by the current binary.\n\
                      Please download the latest CKB executable binary."
                 );
                 Err(ExitCode::Failure)
@@ -74,21 +73,20 @@ pub fn open_or_create_db(
             Ordering::Less => {
                 if migrate.require_expensive(&db) {
                     eprintln!(
-                        "For optimal performance, CKB wants to migrate the data into new format.\n\
-                        You can use the old version CKB if you don't want to do the migration.\n\
-                        We strongly recommended you to use the latest stable version of CKB, \
-                        since the old versions may have unfixed vulnerabilities.\n\
-                        Run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\" to migrate the data.\n\
-                        We strongly recommend that you backup the data directory before migration.",
+                        "For optimal performance, CKB recommends migrating your data into a new format.\n\
+                        If you prefer to stick with the older version, \n\
+                        it's important to note that they may have unfixed vulnerabilities.\n\
+                        Before migrating, we strongly recommend backuping your data directory.
+                        To migrate, run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\".",
                         bin_name,
                         root_dir.display()
                     );
                     Err(ExitCode::Failure)
                 } else {
-                    info!("process fast migrations ...");
+                    info!("Processing fast migrations ...");
 
                     let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-                        eprintln!("migrate error {e}");
+                        eprintln!("Migration error {e}");
                         ExitCode::Failure
                     })?;
 
@@ -106,7 +104,7 @@ pub fn open_or_create_db(
     } else {
         let db = RocksDB::open(config, COLUMNS);
         migrate.init_db_version(&db).map_err(|e| {
-            eprintln!("migrate init_db_version error {e}");
+            eprintln!("Migrate init_db_version error {e}");
             ExitCode::Failure
         })?;
         Ok(db)
@@ -177,7 +175,7 @@ impl SharedBuilder {
             notify_config: None,
             store_config: None,
             block_assembler_config: None,
-            async_handle: runtime.borrow().get_or_init(new_background_runtime).clone(),
+            async_handle: runtime.get_or_init(new_background_runtime).clone(),
         })
     }
 }
@@ -372,51 +370,6 @@ impl SharedBuilder {
     }
 }
 
-/// SharedBuilder build returning the shared/package halves
-/// The package structs used for init other component
-pub struct SharedPackage {
-    table: Option<ProposalTable>,
-    tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
-}
-
-impl SharedPackage {
-    /// Takes the proposal_table out of the package, leaving a None in its place.
-    pub fn take_proposal_table(&mut self) -> ProposalTable {
-        self.table.take().expect("take proposal_table")
-    }
-
-    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
-    pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
-        self.tx_pool_builder.take().expect("take tx_pool_builder")
-    }
-
-    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
-        self.relay_tx_receiver
-            .take()
-            .expect("take relay_tx_receiver")
-    }
-}
-
-fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
-    NotifyService::new(notify_config, handle).start()
-}
-
-fn build_store(
-    db: RocksDB,
-    store_config: StoreConfig,
-    ancient_path: Option<PathBuf>,
-) -> Result<ChainDB, Error> {
-    let store = if store_config.freezer_enable && ancient_path.is_some() {
-        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
-        ChainDB::new_with_freezer(db, freezer, store_config)
-    } else {
-        ChainDB::new(db, store_config)
-    };
-    Ok(store)
-}
-
 fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
     let notify_pending = notify.clone();
 
@@ -482,4 +435,49 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
         },
     ));
+}
+
+fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
+    NotifyService::new(notify_config, handle).start()
+}
+
+fn build_store(
+    db: RocksDB,
+    store_config: StoreConfig,
+    ancient_path: Option<PathBuf>,
+) -> Result<ChainDB, Error> {
+    let store = if store_config.freezer_enable && ancient_path.is_some() {
+        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
+        ChainDB::new_with_freezer(db, freezer, store_config)
+    } else {
+        ChainDB::new(db, store_config)
+    };
+    Ok(store)
+}
+
+/// SharedBuilder build returning the shared/package halves
+/// The package structs used for init other component
+pub struct SharedPackage {
+    table: Option<ProposalTable>,
+    tx_pool_builder: Option<TxPoolServiceBuilder>,
+    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
+}
+
+impl SharedPackage {
+    /// Takes the proposal_table out of the package, leaving a None in its place.
+    pub fn take_proposal_table(&mut self) -> ProposalTable {
+        self.table.take().expect("take proposal_table")
+    }
+
+    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
+    pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
+        self.tx_pool_builder.take().expect("take tx_pool_builder")
+    }
+
+    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
+    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
+        self.relay_tx_receiver
+            .take()
+            .expect("take relay_tx_receiver")
+    }
 }

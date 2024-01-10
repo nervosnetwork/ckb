@@ -209,8 +209,9 @@ impl VerifiableHeader {
     }
 
     /// Checks if the current verifiable header is valid.
-    pub fn is_valid(&self, mmr_activated_epoch: EpochNumber) -> bool {
-        let has_chain_root = self.header().epoch().number() >= mmr_activated_epoch;
+    pub fn is_valid(&self, mmr_activated_epoch_number: EpochNumber) -> bool {
+        let mmr_activated_epoch = EpochNumberWithFraction::new(mmr_activated_epoch_number, 0, 1);
+        let has_chain_root = self.header().epoch() > mmr_activated_epoch;
         if has_chain_root {
             if self.header().is_genesis() {
                 if !self.parent_chain_root().is_default() {
@@ -321,6 +322,25 @@ impl ProverMessageBuilder for packed::SendBlocksProofBuilder {
     }
 }
 
+impl ProverMessageBuilder for packed::SendBlocksProofV1Builder {
+    type ProvedItems = (packed::HeaderVec, packed::Byte32Vec, packed::BytesOptVec);
+    type MissingItems = packed::Byte32Vec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self {
+        self.headers(items.0)
+            .blocks_uncles_hash(items.1)
+            .blocks_extension(items.2)
+    }
+    fn set_missing_items(self, items: Self::MissingItems) -> Self {
+        self.missing_block_hashes(items)
+    }
+}
+
 impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
     type ProvedItems = packed::FilteredBlockVec;
     type MissingItems = packed::Byte32Vec;
@@ -332,6 +352,29 @@ impl ProverMessageBuilder for packed::SendTransactionsProofBuilder {
     }
     fn set_proved_items(self, items: Self::ProvedItems) -> Self {
         self.filtered_blocks(items)
+    }
+    fn set_missing_items(self, items: Self::MissingItems) -> Self {
+        self.missing_tx_hashes(items)
+    }
+}
+
+impl ProverMessageBuilder for packed::SendTransactionsProofV1Builder {
+    type ProvedItems = (
+        packed::FilteredBlockVec,
+        packed::Byte32Vec,
+        packed::BytesOptVec,
+    );
+    type MissingItems = packed::Byte32Vec;
+    fn set_last_header(self, last_header: packed::VerifiableHeader) -> Self {
+        self.last_header(last_header)
+    }
+    fn set_proof(self, proof: packed::HeaderDigestVec) -> Self {
+        self.proof(proof)
+    }
+    fn set_proved_items(self, items: Self::ProvedItems) -> Self {
+        self.filtered_blocks(items.0)
+            .blocks_uncles_hash(items.1)
+            .blocks_extension(items.2)
     }
     fn set_missing_items(self, items: Self::MissingItems) -> Self {
         self.missing_tx_hashes(items)

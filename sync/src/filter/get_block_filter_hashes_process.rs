@@ -32,11 +32,11 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
     pub fn execute(self) -> Status {
         let active_chain = self.filter.shared.active_chain();
         let start_number: BlockNumber = self.message.to_entity().start_number().unpack();
-        let tip_number: BlockNumber = active_chain.tip_number();
+        let latest: BlockNumber = active_chain.get_latest_built_filter_block_number();
 
         let mut block_filter_hashes = Vec::new();
 
-        if tip_number >= start_number {
+        if latest >= start_number {
             let parent_block_filter_hash = if start_number > 0 {
                 match active_chain
                     .get_block_hash(start_number - 1)

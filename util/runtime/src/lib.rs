@@ -61,7 +61,6 @@ impl Handle {
             // move tokio_task_guard into the spawned future
             // so that it will be dropped when the future is finished
             let _guard = tokio_task_guard;
-
             future.await
         })
     }
@@ -142,7 +141,7 @@ pub fn new_background_runtime() -> Handle {
         .name("GlobalRtBuilder".to_string())
         .spawn(move || {
             let ret = runtime.block_on(async move { handle_stop_rx.recv().await });
-            ckb_logger::debug!("global runtime finish {:?}", ret);
+            ckb_logger::debug!("Global runtime finished {:?}", ret);
         })
         .expect("tokio runtime started");
 

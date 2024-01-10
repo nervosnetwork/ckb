@@ -1,12 +1,12 @@
 //! Top-level Pool type, methods, and tests
 extern crate rustc_hash;
 extern crate slab;
+use super::links::TxLinks;
 use crate::component::edges::Edges;
 use crate::component::links::{Relation, TxLinksMap};
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
-
 use ckb_logger::{debug, trace};
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::OutPoint;
@@ -19,8 +19,6 @@ use ckb_types::{
 use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
 
-use super::links::TxLinks;
-
 type ConflictEntry = (TxEntry, Reject);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -28,6 +26,16 @@ pub enum Status {
     Pending,
     Gap,
     Proposed,
+}
+
+impl ToString for Status {
+    fn to_string(&self) -> String {
+        match self {
+            Status::Pending => "pending".to_string(),
+            Status::Gap => "gap".to_string(),
+            Status::Proposed => "proposed".to_string(),
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -107,6 +115,14 @@ impl PoolMap {
         self.add_entry(entry, Status::Proposed)
     }
 
+    pub(crate) fn get_max_update_time(&self) -> u64 {
+        self.entries
+            .iter()
+            .map(|(_, entry)| entry.inner.timestamp)
+            .max()
+            .unwrap_or(0)
+    }
+
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.entries.get_by_id(id)
     }
@@ -173,9 +189,10 @@ impl PoolMap {
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         self.check_and_record_ancestors(&mut entry)?;
+        self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
-        self.record_entry_edges(&entry);
         self.record_entry_descendants(&entry);
+        self.track_entry_statics();
         Ok(true)
     }
 
@@ -186,6 +203,7 @@ impl PoolMap {
                 e.status = status;
             })
             .expect("unconsistent pool");
+        self.track_entry_statics();
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -371,7 +389,7 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_edges(&mut self, entry: &TxEntry) {
+    fn record_entry_edges(&mut self, entry: &TxEntry) -> Result<(), Reject> {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
@@ -380,7 +398,7 @@ impl PoolMap {
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
         for i in inputs {
-            self.edges.insert_input(i.to_owned(), tx_short_id.clone());
+            self.edges.insert_input(i.to_owned(), tx_short_id.clone())?;
         }
 
         // record dep-txid
@@ -393,6 +411,7 @@ impl PoolMap {
                 .header_deps
                 .insert(tx_short_id, header_deps.into_iter().collect());
         }
+        Ok(())
     }
 
     fn record_entry_descendants(&mut self, entry: &TxEntry) {
@@ -502,5 +521,22 @@ impl PoolMap {
             inner: entry.clone(),
             evict_key,
         });
+    }
+
+    fn track_entry_statics(&self) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_tx_pool_entry
+                .pending
+                .set(self.entries.get_by_status(&Status::Pending).len() as i64);
+            metrics
+                .ckb_tx_pool_entry
+                .gap
+                .set(self.entries.get_by_status(&Status::Gap).len() as i64);
+            metrics
+                .ckb_tx_pool_entry
+                .proposed
+                .set(self.proposed_size() as i64);
+        }
     }
 }

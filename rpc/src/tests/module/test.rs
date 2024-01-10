@@ -85,6 +85,26 @@ fn test_generate_epochs() {
     );
 }
 
+#[test]
+fn test_rpc_tcp() {
+    use tokio::runtime::Runtime;
+
+    let suite = setup_rpc();
+    let rt = Runtime::new().unwrap();
+    let res = rt.block_on(async move {
+        suite
+            .tcp(&RpcTestRequest {
+                id: 42,
+                jsonrpc: "2.0".to_string(),
+                method: "generate_epochs".to_string(),
+                params: vec!["0x20000000000".into()],
+            })
+            .await
+    });
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap().result, "0x1e0014000000");
+}
+
 // setup a chain for integration test rpc
 fn setup_rpc() -> RpcTestSuite {
     const INITIAL_PRIMARY_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);

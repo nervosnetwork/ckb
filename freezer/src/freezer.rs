@@ -91,7 +91,11 @@ impl Freezer {
         let number = self.number();
         let mut guard = self.inner.lock();
         let mut ret = BTreeMap::new();
-        ckb_logger::trace!("freezer freeze start {} threshold {}", number, threshold);
+        ckb_logger::trace!(
+            "Freezer process initiated, starting from {}, threshold {}",
+            number,
+            threshold
+        );
 
         for number in number..threshold {
             if self.stopped.load(Ordering::SeqCst) {
@@ -120,9 +124,9 @@ impl Freezer {
                     (number, block.transactions().len() as u32),
                 );
                 guard.tip = Some(block.header());
-                ckb_logger::trace!("freezer block append {}", number);
+                ckb_logger::trace!("Freezer block append {}", number);
             } else {
-                ckb_logger::error!("freezer block missing {}", number);
+                ckb_logger::error!("Freezer block missing {}", number);
                 break;
             }
         }

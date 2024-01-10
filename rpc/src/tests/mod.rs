@@ -1,11 +1,6 @@
-use crate::{RpcServer, ServiceBuilder};
-use ckb_app_config::{BlockAssemblerConfig, NetworkConfig, RpcConfig, RpcModule};
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::ScriptHashType;
-use ckb_launcher::SharedBuilder;
-use ckb_network::{Flags, NetworkService, NetworkState};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -15,19 +10,24 @@ use ckb_types::{
         cell::resolve_transaction, BlockBuilder, BlockView, HeaderView, TransactionBuilder,
         TransactionView,
     },
-    h256,
     packed::{CellInput, OutPoint},
     prelude::*,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{cmp, collections::HashSet, fmt, sync::Arc};
+use std::error::Error;
+use std::{cmp, collections::HashSet, fmt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+use self::setup::setup_rpc_test_suite;
 
 mod error;
 mod examples;
 mod fee_rate;
 mod module;
+mod setup;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq, Default)]
 struct RpcTestRequest {
@@ -78,12 +78,12 @@ impl RpcTestResponse {
 }
 
 #[allow(dead_code)]
-struct RpcTestSuite {
+pub(crate) struct RpcTestSuite {
     rpc_client: Client,
     rpc_uri: String,
+    tcp_uri: Option<String>,
     shared: Shared,
     chain_controller: ChainController,
-    rpc_server: RpcServer,
     _tmp_dir: tempfile::TempDir,
 }
 
@@ -102,6 +102,20 @@ impl RpcTestSuite {
             })
             .json::<RpcTestResponse>()
             .expect("Deserialize RpcTestRequest")
+    }
+
+    async fn tcp(&self, request: &RpcTestRequest) -> Result<RpcTestResponse, Box<dyn Error>> {
+        // Connect to the server.
+        assert!(self.tcp_uri.is_some());
+        let mut stream = TcpStream::connect(self.tcp_uri.as_ref().unwrap()).await?;
+        let json = serde_json::to_string(&request)? + "\n";
+        stream.write_all(json.as_bytes()).await?;
+        // Read the server's response.
+        let mut buffer = [0; 1024];
+        let n = stream.read(&mut buffer).await?;
+        let response = std::str::from_utf8(&buffer[..n])?;
+        let message: RpcTestResponse = serde_json::from_str(response)?;
+        Ok(message)
     }
 
     fn wait_block_template_number(&self, target: u64) {
@@ -203,119 +217,7 @@ fn always_success_transaction() -> TransactionView {
         .build()
 }
 
-// setup a chain with 20 blocks and enable `Chain`, `Miner` and `Pool` rpc modules for unit test
-// there is a similar fn `setup_rpc_test_suite` which enables all rpc modules, may be refactored into one fn with different paramsters in other PRs
+// setup a chain with 20 blocks and enable `Chain`, `Miner` and `Pool` rpc modules for unit test.
 fn setup(consensus: Consensus) -> RpcTestSuite {
-    let (shared, mut pack) = SharedBuilder::with_temp_db()
-        .consensus(consensus)
-        .block_assembler_config(Some(BlockAssemblerConfig {
-            code_hash: h256!("0x0"),
-            args: Default::default(),
-            hash_type: ScriptHashType::Data,
-            message: Default::default(),
-            use_binary_version_as_message_prefix: false,
-            binary_version: "TEST".to_string(),
-            update_interval_millis: 800,
-            notify: vec![],
-            notify_scripts: vec![],
-            notify_timeout_millis: 800,
-        }))
-        .build()
-        .unwrap();
-    let chain_controller =
-        ChainService::new(shared.clone(), pack.take_proposal_table()).start::<&str>(None);
-
-    // Start network services
-    let tmp_dir = tempfile::tempdir().expect("create tempdir failed");
-
-    let tmp_path = tmp_dir.path().to_path_buf();
-    let network_controller = {
-        let network_config = NetworkConfig {
-            path: tmp_path,
-            ping_interval_secs: 1,
-            ping_timeout_secs: 1,
-            connect_outbound_interval_secs: 1,
-            ..Default::default()
-        };
-        let network_state =
-            Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
-        NetworkService::new(
-            Arc::clone(&network_state),
-            Vec::new(),
-            Vec::new(),
-            (
-                shared.consensus().identify_name(),
-                "0.1.0".to_string(),
-                Flags::COMPATIBILITY,
-            ),
-        )
-        .start(shared.async_handle())
-        .expect("Start network service failed")
-    };
-
-    pack.take_tx_pool_builder()
-        .start(network_controller.clone());
-
-    // Build chain, insert 20 blocks
-    let mut parent = shared.consensus().genesis_block().clone();
-
-    for _ in 0..20 {
-        let block = next_block(&shared, &parent.header());
-        chain_controller
-            .process_block(Arc::new(block.clone()))
-            .expect("processing new block should be ok");
-        parent = block;
-    }
-
-    // Start rpc services
-    let rpc_config = RpcConfig {
-        listen_address: "127.0.0.1:0".to_owned(),
-        tcp_listen_address: None,
-        ws_listen_address: None,
-        max_request_body_size: 20_000_000,
-        threads: None,
-        modules: vec![
-            RpcModule::Chain,
-            RpcModule::Miner,
-            RpcModule::Pool,
-            RpcModule::IntegrationTest,
-        ],
-        reject_ill_transactions: false,
-        enable_deprecated_rpc: false,
-        extra_well_known_lock_scripts: vec![],
-        extra_well_known_type_scripts: vec![],
-    };
-
-    let builder = ServiceBuilder::new(&rpc_config)
-        .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), vec![], vec![])
-        .enable_miner(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-            true,
-        )
-        .enable_integration_test(shared.clone(), network_controller, chain_controller.clone());
-    let io_handler = builder.build();
-
-    let rpc_server = RpcServer::new(
-        rpc_config,
-        io_handler,
-        shared.notify_controller(),
-        shared.async_handle().clone().into_inner(),
-    );
-    let rpc_uri = format!(
-        "http://{}:{}/",
-        rpc_server.http_address().ip(),
-        rpc_server.http_address().port()
-    );
-    let rpc_client = Client::new();
-    RpcTestSuite {
-        shared,
-        chain_controller,
-        rpc_server,
-        rpc_uri,
-        rpc_client,
-        _tmp_dir: tmp_dir,
-    }
+    setup_rpc_test_suite(20, Some(consensus))
 }

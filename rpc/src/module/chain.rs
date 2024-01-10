@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use crate::util::FeeRateCollector;
+use async_trait::async_trait;
 use ckb_jsonrpc_types::{
     BlockEconomicState, BlockFilter, BlockNumber, BlockResponse, BlockView, CellWithStatus,
     Consensus, EpochNumber, EpochView, EstimateCycles, FeeRateStatistics, HeaderView, OutPoint,
@@ -26,7 +27,7 @@ use ckb_types::{
 use ckb_verification::ScriptVerifier;
 use ckb_verification::TxVerifyEnv;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -52,7 +53,8 @@ use std::sync::Arc;
 /// * it is found as an output in any transaction in the [canonical chain](#canonical-chain),
 /// and
 /// * it is not found as an input in any transaction in the canonical chain.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait ChainRpc {
     /// Returns the information about a block by hash.
     ///
@@ -1344,7 +1346,7 @@ pub trait ChainRpc {
     ///             { "rfc": "0029", "epoch_number": "0x0" },
     ///             { "rfc": "0030", "epoch_number": "0x0" },
     ///             { "rfc": "0031", "epoch_number": "0x0" },
-    ///             { "rfc": "0032", "epoch_number": "0x0" },
+    ///             { "rfc": "0032", "epoch_number": "0x1526" },
     ///             { "rfc": "0036", "epoch_number": "0x0" },
     ///             { "rfc": "0038", "epoch_number": "0x0" },
     ///             { "rfc": "0048", "epoch_number": null },
@@ -1606,6 +1608,7 @@ pub trait ChainRpc {
     fn get_fee_rate_statistics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
 }
 
+#[derive(Clone)]
 pub(crate) struct ChainRpcImpl {
     pub shared: Shared,
 }
@@ -1614,6 +1617,7 @@ const DEFAULT_BLOCK_VERBOSITY_LEVEL: u32 = 2;
 const DEFAULT_HEADER_VERBOSITY_LEVEL: u32 = 1;
 const DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL: u32 = 2;
 
+#[async_trait]
 impl ChainRpc for ChainRpcImpl {
     fn get_block(
         &self,
@@ -2147,7 +2151,7 @@ impl ChainRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let tx_status = tx_pool.get_tx_status(tx_hash);
         if let Err(e) = tx_status {
-            error!("send get_tx_status request error {}", e);
+            error!("Send get_tx_status request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
         let tx_status = tx_status.unwrap();
@@ -2194,13 +2198,13 @@ impl ChainRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let transaction_with_status = tx_pool.get_transaction_with_status(tx_hash);
         if let Err(e) = transaction_with_status {
-            error!("send get_transaction_with_status request error {}", e);
+            error!("Send get_transaction_with_status request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
         let transaction_with_status = transaction_with_status.unwrap();
 
         if let Err(e) = transaction_with_status {
-            error!("get transaction_with_status from db error {}", e);
+            error!("Get transaction_with_status from db error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
         let transaction_with_status = transaction_with_status.unwrap();

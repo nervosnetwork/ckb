@@ -1,4 +1,5 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_chain::chain::ChainController;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Byte32, EpochNumberWithFraction, Transaction};
@@ -20,12 +21,13 @@ use ckb_types::{
 };
 use ckb_verification_traits::Switch;
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 /// RPC for Integration Test.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait IntegrationTestRpc {
     /// process block without any block verification.
     ///
@@ -100,8 +102,7 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-    ///   "error": null
+    ///   "result": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"
     /// }
     /// ```
     #[rpc(name = "process_block_without_verify")]
@@ -163,8 +164,7 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029",
-    ///   "error": null
+    ///   "result": "0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029"
     /// }
     /// ```
     #[rpc(name = "generate_block")]
@@ -216,8 +216,7 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0xa0001000003",
-    ///   "error": null
+    ///   "result": "0xa0001000003"
     /// }
     /// ```
     #[rpc(name = "generate_epochs")]
@@ -286,8 +285,7 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
-    ///   "error": null
+    ///   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
     /// }
     /// ```
     #[rpc(name = "notify_transaction")]
@@ -392,8 +390,7 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75",
-    ///   "error": null
+    ///   "result": "0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75"
     /// }
     /// ```
     #[rpc(name = "generate_block_with_template")]
@@ -496,20 +493,21 @@ pub trait IntegrationTestRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
-    ///   "error": null
+    ///   "result": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000"
     /// }
     /// ```
     #[rpc(name = "calculate_dao_field")]
     fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
 }
 
+#[derive(Clone)]
 pub(crate) struct IntegrationTestRpcImpl {
     pub network_controller: NetworkController,
     pub shared: Shared,
     pub chain: ChainController,
 }
 
+#[async_trait]
 impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn process_block_without_verify(&self, data: Block, broadcast: bool) -> Result<Option<H256>> {
         let block: packed::Block = data.into();
@@ -611,7 +609,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.notify_txs(vec![tx]) {
-            error!("send notify_txs request error {}", e);
+            error!("Send notify_txs request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         }
         Ok(tx_hash.unpack())
@@ -653,7 +651,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 )
                 .map_err(|err| {
                     error!(
-                        "resolve transactions error when generating block \
+                        "Resolve transactions error when generating block \
                          with block template, error: {:?}",
                         err
                     );

@@ -1,17 +1,21 @@
 use crate::error::RPCError;
+use async_trait::async_trait;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::hardfork::{mainnet, testnet};
-use ckb_jsonrpc_types::{OutputsValidator, RawTxPool, Script, Transaction, TxPoolInfo};
+use ckb_jsonrpc_types::{
+    OutputsValidator, PoolTxDetailInfo, RawTxPool, Script, Transaction, TxPoolInfo,
+};
 use ckb_logger::error;
 use ckb_shared::shared::Shared;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
-use jsonrpc_derive::rpc;
+use jsonrpc_utils::rpc;
 use std::sync::Arc;
 
 /// RPC Module Pool for transaction memory pool.
-#[rpc(server)]
+#[rpc]
+#[async_trait]
 pub trait PoolRpc {
     /// Submits a new transaction into the transaction pool. If the transaction is already in the
     /// pool, rebroadcast it to peers.
@@ -253,6 +257,52 @@ pub trait PoolRpc {
     #[rpc(name = "get_raw_tx_pool")]
     fn get_raw_tx_pool(&self, verbose: Option<bool>) -> Result<RawTxPool>;
 
+    /// Query and returns the details of a transaction in the pool, only for trouble shooting
+    /// ## Params
+    ///
+    /// * `tx_hash` - Hash of a transaction
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "get_pool_tx_detail_info",
+    ///   "params": [
+    ///     "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///    "jsonrpc": "2.0",
+    ///    "result": {
+    ///        "ancestors_count": "0x0",
+    ///        "descendants_count": "0x0",
+    ///        "entry_status": "pending",
+    ///        "pending_count": "0x1",
+    ///        "proposed_count": "0x0",
+    ///        "rank_in_pending": "0x1",
+    ///        "score_sortkey": {
+    ///            "ancestors_fee": "0x16923f7dcf",
+    ///            "ancestors_weight": "0x112",
+    ///            "fee": "0x16923f7dcf",
+    ///            "weight": "0x112"
+    ///        },
+    ///        "timestamp": "0x18aa1baa54c"
+    ///    },
+    ///    "id": 42
+    /// }
+    /// ```
+    #[rpc(name = "get_pool_tx_detail_info")]
+    fn get_pool_tx_detail_info(&self, tx_hash: H256) -> Result<PoolTxDetailInfo>;
+
     /// Returns whether tx-pool service is started, ready for request.
     ///
     /// ## Examples
@@ -281,6 +331,7 @@ pub trait PoolRpc {
     fn tx_pool_ready(&self) -> Result<bool>;
 }
 
+#[derive(Clone)]
 pub(crate) struct PoolRpcImpl {
     shared: Shared,
     well_known_lock_scripts: Vec<packed::Script>,
@@ -385,6 +436,7 @@ fn build_well_known_type_scripts(chain_spec_name: &str) -> Vec<packed::Script> {
     }).expect("checked json str").into_iter().map(Into::into).collect()
 }
 
+#[async_trait]
 impl PoolRpc for PoolRpcImpl {
     fn tx_pool_ready(&self) -> Result<bool> {
         let tx_pool = self.shared.tx_pool_controller();
@@ -423,7 +475,7 @@ impl PoolRpc for PoolRpcImpl {
         let submit_tx = tx_pool.submit_local_tx(tx.clone());
 
         if let Err(e) = submit_tx {
-            error!("send submit_tx request error {}", e);
+            error!("Send submit_tx request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         }
 
@@ -438,7 +490,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
 
         tx_pool.remove_local_tx(tx_hash.pack()).map_err(|e| {
-            error!("send remove_tx request error {}", e);
+            error!("Send remove_tx request error {}", e);
             RPCError::ckb_internal_error(e)
         })
     }
@@ -447,7 +499,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let get_tx_pool_info = tx_pool.get_tx_pool_info();
         if let Err(e) = get_tx_pool_info {
-            error!("send get_tx_pool_info request error {}", e);
+            error!("Send get_tx_pool_info request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
 
@@ -481,6 +533,14 @@ impl PoolRpc for PoolRpcImpl {
             RawTxPool::Ids(ids.into())
         };
         Ok(raw)
+    }
+
+    fn get_pool_tx_detail_info(&self, tx_hash: H256) -> Result<PoolTxDetailInfo> {
+        let tx_pool = self.shared.tx_pool_controller();
+        let tx_detail = tx_pool
+            .get_tx_detail(tx_hash.pack())
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
+        Ok(tx_detail.into())
     }
 }
 

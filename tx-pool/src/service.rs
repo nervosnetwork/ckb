@@ -14,12 +14,12 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
+use ckb_logger::error;
 use ckb_logger::info;
-use ckb_logger::{debug, error};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
-use ckb_types::core::tx_pool::{TransactionWithStatus, TxStatus};
+use ckb_types::core::tx_pool::{PoolTxDetailInfo, TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{
         tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TRANSACTION_SIZE_LIMIT},
@@ -76,9 +76,7 @@ type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 pub(crate) type SubmitTxResult = Result<(), Reject>;
 
 type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
-
 type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
-
 type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
 
 pub(crate) type ChainReorgArgs = (
@@ -105,6 +103,7 @@ pub(crate) enum Message {
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
+    GetPoolTxDetails(Request<Byte32, PoolTxDetailInfo>),
 
     // test
     #[cfg(feature = "internal")]
@@ -304,6 +303,11 @@ impl TxPoolController {
         send_message!(self, GetAllIds, ())
     }
 
+    /// query the details of a transaction in the pool
+    pub fn get_tx_detail(&self, tx_hash: Byte32) -> Result<PoolTxDetailInfo, AnyError> {
+        send_message!(self, GetPoolTxDetails, tx_hash)
+    }
+
     /// Saves tx pool into disk.
     pub fn save_pool(&self) -> Result<(), AnyError> {
         info!("Please be patient, tx-pool are saving data into disk ...");
@@ -329,7 +333,7 @@ impl TxPoolController {
     /// Load persisted txs into pool, assume that all txs are sorted
     fn load_persisted_data(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
         if !txs.is_empty() {
-            info!("Loading persisted tx-pool data, total {} txs", txs.len());
+            info!("Loading persistent tx-pool data, total {} txs", txs.len());
             let mut failed_txs = 0;
             for tx in txs {
                 if self.submit_local_tx(tx)?.is_err() {
@@ -337,10 +341,10 @@ impl TxPoolController {
                 }
             }
             if failed_txs == 0 {
-                info!("Persisted tx-pool data is loaded");
+                info!("Persistent tx-pool data is loaded");
             } else {
                 info!(
-                    "Persisted tx-pool data is loaded, {} stale txs are ignored",
+                    "Persistent tx-pool data is loaded, {} stale txs are ignored",
                     failed_txs
                 );
             }
@@ -467,7 +471,7 @@ impl TxPoolServiceBuilder {
             Ok(txs) => txs,
             Err(e) => {
                 error!("{}", e.to_string());
-                error!("Failed to load txs from tx-pool persisted data file, all txs are ignored");
+                error!("Failed to load txs from tx-pool persistent data file, all txs are ignored");
                 Vec::new()
             }
         };
@@ -513,6 +517,7 @@ impl TxPoolServiceBuilder {
                     _ = signal_receiver.cancelled() => {
                         info!("TxPool is saving, please wait...");
                         process_service.save_pool().await;
+                        info!("TxPool process_service exit now");
                         break
                     },
                     else => break,
@@ -528,8 +533,8 @@ impl TxPoolServiceBuilder {
                 // block_assembler.update_interval_millis set zero interval should only be used for tests,
                 // external notification will be disabled.
                 ckb_logger::warn!(
-                    "block_assembler.update_interval_millis set zero interval should only be used for tests, \
-                    external notification will be disabled."
+                    "block_assembler.update_interval_millis set to zero interval. \
+                    This should only be used for tests, as external notification will be disabled."
                 );
                 self.handle.spawn(async move {
                     loop {
@@ -539,7 +544,7 @@ impl TxPoolServiceBuilder {
                                 block_assembler::process(service_clone, &message).await;
                             },
                             _ = signal_receiver.cancelled() => {
-                                debug!("TxPool received exit signal, exit now");
+                                info!("TxPool block_assembler process service received exit signal, exit now");
                                 break
                             },
                             else => break,
@@ -574,7 +579,7 @@ impl TxPoolServiceBuilder {
                                 queue.clear();
                             }
                             _ = signal_receiver.cancelled() => {
-                                debug!("TxPool received exit signal, exit now");
+                                info!("TxPool block_assembler process service received exit signal, exit now");
                                 break
                             },
                             else => break,
@@ -612,7 +617,7 @@ impl TxPoolServiceBuilder {
                         service.update_block_assembler_after_tx_pool_reorg().await;
                     },
                     _ = signal_receiver.cancelled() => {
-                        debug!("TxPool received exit signal, exit now");
+                        info!("TxPool reorg process service received exit signal, exit now");
                         break
                     },
                     else => break,
@@ -621,7 +626,7 @@ impl TxPoolServiceBuilder {
         });
         self.started.store(true, Ordering::Relaxed);
         if let Err(err) = self.tx_pool_controller.load_persisted_data(txs) {
-            error!("Failed to import persisted txs, cause: {}", err);
+            error!("Failed to import persistent txs, cause: {}", err);
         }
     }
 }
@@ -667,7 +672,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         Message::GetTxPoolInfo(Request { responder, .. }) => {
             let info = service.info().await;
             if let Err(e) = responder.send(info) {
-                error!("responder send get_tx_pool_info failed {:?}", e);
+                error!("Responder sending get_tx_pool_info failed {:?}", e);
             };
         }
         Message::BlockTemplate(Request {
@@ -676,7 +681,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             let block_template_result = service.get_block_template().await;
             if let Err(e) = responder.send(block_template_result) {
-                error!("responder send block_template_result failed {:?}", e);
+                error!("Responder sending block_template_result failed {:?}", e);
             };
         }
         Message::SubmitLocalTx(Request {
@@ -685,7 +690,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             let result = service.resumeble_process_tx(tx, None).await;
             if let Err(e) = responder.send(result) {
-                error!("responder send submit_tx result failed {:?}", e);
+                error!("Responder sending submit_tx result failed {:?}", e);
             };
         }
         Message::RemoveLocalTx(Request {
@@ -694,7 +699,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             let result = service.remove_tx(tx_hash).await;
             if let Err(e) = responder.send(result) {
-                error!("responder send remove_tx result failed {:?}", e);
+                error!("Responder sending remove_tx result failed {:?}", e);
             };
         }
         Message::SubmitRemoteTx(Request {
@@ -706,12 +711,12 @@ async fn process(mut service: TxPoolService, message: Message) {
                     .resumeble_process_tx(tx, Some((declared_cycles, peer)))
                     .await;
                 if let Err(e) = responder.send(()) {
-                    error!("responder send submit_tx result failed {:?}", e);
+                    error!("Responder sending submit_tx result failed {:?}", e);
                 };
             } else {
                 let _result = service.process_tx(tx, Some((declared_cycles, peer))).await;
                 if let Err(e) = responder.send(()) {
-                    error!("responder send submit_tx result failed {:?}", e);
+                    error!("Responder sending submit_tx result failed {:?}", e);
                 };
             }
         }
@@ -727,7 +732,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             let tx_pool = service.tx_pool.read().await;
             proposals.retain(|id| !tx_pool.contains_proposal_id(id));
             if let Err(e) = responder.send(proposals) {
-                error!("responder send fresh_proposals_filter failed {:?}", e);
+                error!("Responder sending fresh_proposals_filter failed {:?}", e);
             };
         }
         Message::GetTxStatus(Request {
@@ -764,7 +769,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             };
 
             if let Err(e) = responder.send(ret) {
-                error!("responder send get_tx_status failed {:?}", e)
+                error!("Responder sending get_tx_status failed {:?}", e)
             };
         }
         Message::GetTransactionWithStatus(Request {
@@ -803,7 +808,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             };
 
             if let Err(e) = responder.send(ret) {
-                error!("responder send get_tx_status failed {:?}", e)
+                error!("Responder sending get_tx_status failed {:?}", e)
             };
         }
         Message::FetchTxs(Request {
@@ -820,7 +825,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 })
                 .collect();
             if let Err(e) = responder.send(txs) {
-                error!("responder send fetch_txs failed {:?}", e);
+                error!("Responder sending fetch_txs failed {:?}", e);
             };
         }
         Message::FetchTxsWithCycles(Request {
@@ -837,7 +842,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 })
                 .collect();
             if let Err(e) = responder.send(txs) {
-                error!("responder send fetch_txs_with_cycles failed {:?}", e);
+                error!("Responder sending fetch_txs_with_cycles failed {:?}", e);
             };
         }
         Message::NewUncle(Notify { arguments: uncle }) => {
@@ -849,27 +854,40 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             service.clear_pool(new_snapshot).await;
             if let Err(e) = responder.send(()) {
-                error!("responder send clear_pool failed {:?}", e)
+                error!("Responder sending clear_pool failed {:?}", e)
+            };
+        }
+        Message::GetPoolTxDetails(Request {
+            responder,
+            arguments: tx_hash,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let id = ProposalShortId::from_tx_hash(&tx_hash);
+            let tx_details = tx_pool
+                .get_tx_detail(&id)
+                .unwrap_or(PoolTxDetailInfo::with_unknown());
+            if let Err(e) = responder.send(tx_details) {
+                error!("responder send get_pool_tx_details failed {:?}", e)
             };
         }
         Message::GetAllEntryInfo(Request { responder, .. }) => {
             let tx_pool = service.tx_pool.read().await;
             let info = tx_pool.get_all_entry_info();
             if let Err(e) = responder.send(info) {
-                error!("responder send get_all_entry_info failed {:?}", e)
+                error!("Responder sending get_all_entry_info failed {:?}", e)
             };
         }
         Message::GetAllIds(Request { responder, .. }) => {
             let tx_pool = service.tx_pool.read().await;
             let ids = tx_pool.get_ids();
             if let Err(e) = responder.send(ids) {
-                error!("responder send get_ids failed {:?}", e)
+                error!("Responder sending get_ids failed {:?}", e)
             };
         }
         Message::SavePool(Request { responder, .. }) => {
             service.save_pool().await;
             if let Err(e) = responder.send(()) {
-                error!("responder send save_pool failed {:?}", e)
+                error!("Responder sending save_pool failed {:?}", e)
             };
         }
         #[cfg(feature = "internal")]
@@ -880,7 +898,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             service.plug_entry(entries, target).await;
 
             if let Err(e) = responder.send(()) {
-                error!("responder send plug_entry failed {:?}", e);
+                error!("Responder sending plug_entry failed {:?}", e);
             };
         }
         #[cfg(feature = "internal")]
@@ -896,7 +914,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 bytes_limit.unwrap_or(max_block_bytes) as usize,
             );
             if let Err(e) = responder.send(txs) {
-                error!("responder send plug_entry failed {:?}", e);
+                error!("Responder sending plug_entry failed {:?}", e);
             };
         }
     }
@@ -918,7 +936,7 @@ impl TxPoolService {
             total_tx_cycles: tx_pool.total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
             min_rbf_rate: self.tx_pool_config.min_rbf_rate,
-            last_txs_updated_at: 0,
+            last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
             tx_size_limit: TRANSACTION_SIZE_LIMIT,
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
         }
@@ -981,14 +999,14 @@ impl TxPoolService {
                 PlugTarget::Pending => {
                     for entry in entries {
                         if let Err(err) = tx_pool.add_pending(entry) {
-                            error!("plug entry add_pending error {}", err);
+                            error!("Plug entry add_pending error {}", err);
                         }
                     }
                 }
                 PlugTarget::Proposed => {
                     for entry in entries {
                         if let Err(err) = tx_pool.add_proposed(entry) {
-                            error!("plug entry add_proposed error {}", err);
+                            error!("Plug entry add_proposed error {}", err);
                         }
                     }
                 }

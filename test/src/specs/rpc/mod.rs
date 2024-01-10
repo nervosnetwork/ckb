@@ -1,6 +1,7 @@
 mod get_block_median_time;
 mod get_block_template;
 mod get_blockchain_info;
+mod get_pool;
 #[cfg(target_os = "linux")]
 mod set_ban;
 mod submit_block;
@@ -10,6 +11,7 @@ mod truncate;
 pub use get_block_median_time::*;
 pub use get_block_template::*;
 pub use get_blockchain_info::*;
+pub use get_pool::*;
 #[cfg(target_os = "linux")]
 pub use set_ban::*;
 pub use submit_block::*;

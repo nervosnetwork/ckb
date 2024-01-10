@@ -6,8 +6,8 @@ use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
-use ckb_jsonrpc_types::TxStatus;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
+use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
 use ckb_logger::{debug, error};
 use ckb_resource::Resource;
 use ckb_types::{
@@ -52,6 +52,7 @@ pub struct Node {
     consensus: Consensus,
     p2p_listen: String,
     rpc_client: RpcClient,
+    rpc_listen: String,
 
     node_id: Option<String>,     // initialize when starts node
     guard: Option<ProcessGuard>, // initialize when starts node
@@ -134,8 +135,8 @@ impl Node {
         };
 
         let p2p_listen = app_config.network.listen_addresses[0].to_string();
-        let rpc_address = app_config.rpc.listen_address;
-        let rpc_client = RpcClient::new(&format!("http://{rpc_address}/"));
+        let rpc_listen = format!("http://{}/", app_config.rpc.listen_address);
+        let rpc_client = RpcClient::new(&rpc_listen);
         let consensus = {
             // Ensure the data path is available because chain_spec.build_consensus() needs to access the
             // system-cell data.
@@ -154,6 +155,7 @@ impl Node {
             consensus,
             p2p_listen,
             rpc_client,
+            rpc_listen,
             node_id: None,
             guard: None,
         }
@@ -182,6 +184,10 @@ impl Node {
 
     pub fn p2p_listen(&self) -> String {
         self.p2p_listen.clone()
+    }
+
+    pub fn rpc_listen(&self) -> String {
+        self.rpc_listen.clone()
     }
 
     pub fn p2p_address(&self) -> String {
@@ -424,6 +430,10 @@ impl Node {
             .expect("block filter exists")
     }
 
+    pub fn get_pool_tx_detail_info(&self, hash: Byte32) -> PoolTxDetailInfo {
+        self.rpc_client().get_pool_tx_detail_info(hash)
+    }
+
     /// The states of chain and txpool are updated asynchronously. Which means that the chain has
     /// updated to the newest tip but txpool not.
     /// get_tip_tx_pool_info wait to ensure the txpool update to the newest tip as well.
@@ -605,6 +615,11 @@ impl Node {
         let tx_pool_info = self.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
         assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
+    }
+
+    pub fn assert_pool_entry_status(&self, hash: Byte32, expect_status: &str) {
+        let response = self.get_pool_tx_detail_info(hash);
+        assert_eq!(response.entry_status, expect_status);
     }
 
     pub fn assert_tx_pool_cycles(&self, total_tx_cycles: u64) {

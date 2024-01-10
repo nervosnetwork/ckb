@@ -83,7 +83,7 @@ impl Shared {
     /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
     pub fn spawn_freeze(&self) -> Option<FreezerClose> {
         if let Some(freezer) = self.store.freezer() {
-            ckb_logger::info!("Freezer enable");
+            ckb_logger::info!("Freezer enabled");
             let signal_receiver = new_crossbeam_exit_rx();
             let shared = self.clone();
             let freeze_jh = thread::Builder::new()
@@ -123,7 +123,7 @@ impl Shared {
         }
 
         if current_epoch <= THRESHOLD_EPOCH {
-            ckb_logger::trace!("freezer loaf");
+            ckb_logger::trace!("Freezer idles");
             return Ok(());
         }
 
@@ -143,7 +143,7 @@ impl Shared {
         );
 
         ckb_logger::trace!(
-            "freezer current_epoch {} number {} threshold {}",
+            "Freezer current_epoch {} number {} threshold {}",
             current_epoch,
             frozen_number,
             threshold
@@ -163,7 +163,7 @@ impl Shared {
         // Wipe out frozen data
         self.wipe_out_frozen_data(&snapshot, ret, stopped)?;
 
-        ckb_logger::trace!("freezer finish");
+        ckb_logger::trace!("Freezer completed");
 
         Ok(())
     }
@@ -183,7 +183,7 @@ impl Shared {
             // remain header
             for (hash, (number, txs)) in &frozen {
                 batch.delete_block_body(*number, hash, *txs).map_err(|e| {
-                    ckb_logger::error!("freezer delete_block_body failed {}", e);
+                    ckb_logger::error!("Freezer delete_block_body failed {}", e);
                     e
                 })?;
 
@@ -206,7 +206,7 @@ impl Shared {
                 }
             }
             self.store.write_sync(&batch).map_err(|e| {
-                ckb_logger::error!("freezer write_batch delete failed {}", e);
+                ckb_logger::error!("Freezer write_batch delete failed {}", e);
                 e
             })?;
             batch.clear()?;
@@ -224,13 +224,13 @@ impl Shared {
                 batch
                     .delete_block(number.unpack(), hash, *txs)
                     .map_err(|e| {
-                        ckb_logger::error!("freezer delete_block_body failed {}", e);
+                        ckb_logger::error!("Freezer delete_block_body failed {}", e);
                         e
                     })?;
             }
 
             self.store.write(&batch).map_err(|e| {
-                ckb_logger::error!("freezer write_batch delete failed {}", e);
+                ckb_logger::error!("Freezer write_batch delete failed {}", e);
                 e
             })?;
 
@@ -259,7 +259,7 @@ impl Shared {
             Some(start_t.as_slice()),
             Some(end_t.as_slice()),
         ) {
-            ckb_logger::error!("freezer compact_range {}-{} error {}", start, end, e);
+            ckb_logger::error!("Freezer compact_range {}-{} error {}", start, end, e);
         }
     }
 

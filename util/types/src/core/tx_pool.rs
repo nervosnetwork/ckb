@@ -17,11 +17,11 @@ use std::collections::HashMap;
 #[derive(Error, Debug, Clone)]
 pub enum Reject {
     /// Transaction fee lower than config
-    #[error("The min fee rate is {0}, so the transaction fee should be {1} shannons at least, but only got {2}")]
+    #[error("The min fee rate is {0}, requiring a transaction fee of at least {1} shannons, but the fee provided is only {2}")]
     LowFeeRate(FeeRate, u64, u64),
 
     /// Transaction exceeded maximum ancestors count limit
-    #[error("Transaction exceeded maximum ancestors count limit, try send it later")]
+    #[error("Transaction exceeded maximum ancestors count limit; try later")]
     ExceededMaximumAncestorsCount,
 
     /// Transaction exceeded maximum size limit
@@ -29,11 +29,11 @@ pub enum Reject {
     ExceededTransactionSizeLimit(u64, u64),
 
     /// Transaction are replaced because the pool is full
-    #[error("Transaction are replaced because the pool is full, {0}")]
+    #[error("Transaction is replaced because the pool is full, {0}")]
     Full(String),
 
-    /// Transaction already exist in transaction_pool
-    #[error("Transaction({0}) already exist in transaction_pool")]
+    /// Transaction already exists in transaction_pool
+    #[error("Transaction({0}) already exists in transaction_pool")]
     Duplicated(Byte32),
 
     /// Malformed transaction
@@ -343,4 +343,48 @@ pub struct TxPoolInfo {
     pub tx_size_limit: u64,
     /// Total limit on the size of transactions in the tx-pool
     pub max_tx_pool_size: u64,
+}
+
+/// A struct as a sorted key in tx-pool
+#[derive(Eq, PartialEq, Clone, Debug, Default)]
+pub struct AncestorsScoreSortKey {
+    /// fee
+    pub fee: Capacity,
+    /// weight
+    pub weight: u64,
+    /// ancestors_fee
+    pub ancestors_fee: Capacity,
+    /// ancestors_weight
+    pub ancestors_weight: u64,
+}
+
+/// A Tx details info in tx-pool.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct PoolTxDetailInfo {
+    /// The time added into tx-pool
+    pub timestamp: u64,
+    /// The detailed status in tx-pool, `Pending`, `Gap`, `Proposed`
+    pub entry_status: String,
+    /// The rank in pending, starting from 0
+    pub rank_in_pending: usize,
+    /// The pending(`Pending` and `Gap`) count
+    pub pending_count: usize,
+    /// The proposed count
+    pub proposed_count: usize,
+    /// The descendants count of tx
+    pub descendants_count: usize,
+    /// The ancestors count of tx
+    pub ancestors_count: usize,
+    /// The score key details, useful to debug
+    pub score_sortkey: AncestorsScoreSortKey,
+}
+
+impl PoolTxDetailInfo {
+    /// Build with rejected status
+    pub fn with_unknown() -> Self {
+        Self {
+            entry_status: "unknown".to_string(),
+            ..Default::default()
+        }
+    }
 }

@@ -125,7 +125,7 @@ pub enum TransactionError {
     /// Error dues to the the fact that the since rule is not respected.
     ///
     /// See also [0017-tx-valid-since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
-    #[error("InvalidSince(Inputs[{index}]): the field since is invalid")]
+    #[error("InvalidSince(Inputs[{index}]): the since field is invalid")]
     InvalidSince {
         /// The index of input with invalid since field
         index: usize,
@@ -171,7 +171,7 @@ pub enum TransactionError {
     },
 
     /// The compatible error.
-    #[error("Compatible: the feature \"{feature}\" is used in current transaction but not enabled in current chain")]
+    #[error("Compatible: the feature \"{feature}\" is used in current transaction, but not enabled in current chain")]
     Compatible {
         /// The feature name.
         feature: &'static str,
@@ -185,7 +185,7 @@ pub enum TransactionError {
     },
 
     /// The internal error.
-    #[error("Internal: {description}, this error shouldn't happen, please report this bug to developers.")]
+    #[error("Internal: {description}, this error shouldn't happen; please report this bug to developers.")]
     Internal {
         /// The error description
         description: String,
