@@ -31,14 +31,14 @@ _full_help() {
 function short_version { #@test
   run _short
   assert_success
-  assert_output --regexp "^ckb [0-9.]+[-]?[a-z0-9]*$"
+  assert_output --regexp "^ckb [0-9.]+[-[a-z0-9]*]?$"
 }
 
 #@test "ckb --version" {
 function long_version { #@test
   run _long
   assert_success
-  assert_output --regexp "^ckb [0-9.]+-.*\([0-9a-z-]+ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$"
+  assert_output --regexp "^ckb [0-9.]+[-[a-z0-9]*]? \([0-9a-z-]+ [0-9]{4}-[0-9]{2}-[0-9]{2}\)$"
 }
 
 function help { #@test
