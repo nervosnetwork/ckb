@@ -19,7 +19,6 @@ use sqlx::{
     Row, Transaction,
 };
 
-use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 
 /// Async handle to the rich-indexer.
@@ -145,18 +144,36 @@ impl AsyncRichIndexerHandle {
         .on("output.id = input.output_id")
         .and_where("input.output_id IS NULL"); // live cells
 
-        // build sql
-        let sql = build_sql_by_filter(
+        if let Some(after) = after {
+            let after = decode_i64(after.as_bytes())?;
+            match order {
+                IndexerOrder::Asc => query_builder.and_where_gt("output.id", after),
+                IndexerOrder::Desc => query_builder.and_where_lt("output.id", after),
+            };
+        }
+
+        let mut param_index = 4;
+        build_cell_filter(
             self.store
                 .get_db_type()
                 .map_err(|err| Error::DB(err.to_string()))?,
-            query_builder,
+            &mut query_builder,
             &search_key,
-            Some(&order),
-            Some(limit),
-            after.and_then(|a| decode_i64(a.as_bytes()).ok()),
-        )
-        .await?;
+            &mut param_index,
+        );
+
+        match order {
+            IndexerOrder::Asc => query_builder.order_by("output.id", false),
+            IndexerOrder::Desc => query_builder.order_by("output.id", true),
+        };
+        query_builder.limit(limit);
+
+        // sql string
+        let sql = query_builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
@@ -226,47 +243,92 @@ impl AsyncRichIndexerHandle {
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
 
-        let (after, first_input) = match after {
-            Some(after) => {
-                if after.len() != 9 {
-                    return Err(Error::Params(
-                        "Unable to parse the 'after' parameter.".to_string(),
-                    ));
-                }
-                let (after, check_last_input) = after.as_bytes().split_at(after.len() - 1);
-                let cursor = decode_i64(after)?;
-                let input = if check_last_input[0] != 0 {
-                    get_inputs(vec![cursor], &order, &mut tx).await?
-                } else {
-                    vec![]
-                };
-                (Some(cursor), input)
-            }
-            None => (None, vec![]),
-        };
-
         match search_key.group_by_transaction {
             Some(false) | None => {
-                let outputs =
-                    get_outputs(db_type, search_key, &order, limit, after, &mut tx).await?;
-                let inputs = get_inputs(
-                    outputs
-                        .iter()
-                        .map(|(output_id, _, _, _, _)| output_id.to_owned())
-                        .collect(),
-                    &order,
-                    &mut tx,
-                )
-                .await?;
-                tx.commit()
-                    .await
-                    .map_err(|err| Error::DB(err.to_string()))?;
-                let indexer_txs =
-                    build_ungrouped_indexer_tx(first_input, outputs, inputs, limit.into());
-                Ok(indexer_txs)
+                let mut last_cursor = None;
+                if let Some(after) = after {
+                    if after.len() != 12 {
+                        return Err(Error::Params(
+                            "Unable to parse the 'after' parameter.".to_string(),
+                        ));
+                    }
+                    let (last, offset) = after.as_bytes().split_at(after.len() - 4);
+                    let last = decode_i64(last)?;
+                    let offset = decode_i32(offset)?;
+                    last_cursor = Some((last, offset));
+                };
+
+                let txs =
+                    get_tx_with_cell(db_type, search_key, &order, limit, last_cursor, &mut tx)
+                        .await?;
+
+                let mut last_id = 0;
+                let mut count = 0i32;
+                let txs = txs
+                    .into_iter()
+                    .map(|(id, block_number, tx_index, tx_hash, io_type, io_index)| {
+                        if id == last_id {
+                            count += 1;
+                        } else {
+                            last_id = id;
+                            count = 1;
+                        }
+                        IndexerTx::Ungrouped(IndexerTxWithCell {
+                            tx_hash: bytes_to_h256(&tx_hash),
+                            block_number: block_number.into(),
+                            tx_index: tx_index.into(),
+                            io_index: io_index.into(),
+                            io_type: match io_type {
+                                0 => IndexerCellType::Input,
+                                1 => IndexerCellType::Output,
+                                _ => unreachable!(),
+                            },
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                let mut last_cursor = last_id.to_le_bytes().to_vec();
+                let mut offset = count.to_le_bytes().to_vec();
+                last_cursor.append(&mut offset);
+
+                Ok(IndexerPagination {
+                    objects: txs,
+                    last_cursor: JsonBytes::from_vec(last_cursor),
+                })
             }
             Some(true) => {
-                unimplemented!()
+                let txs =
+                    get_tx_with_cells(db_type, search_key, &order, limit, after, &mut tx).await?;
+
+                let mut last_cursor = 0;
+                let txs = txs
+                    .into_iter()
+                    .map(|(id, block_number, tx_index, tx_hash, io_pairs)| {
+                        last_cursor = id;
+                        IndexerTx::Grouped(IndexerTxWithCells {
+                            tx_hash: bytes_to_h256(&tx_hash),
+                            block_number: block_number.into(),
+                            tx_index: tx_index.into(),
+                            cells: io_pairs
+                                .into_iter()
+                                .map(|(io_type, io_index)| {
+                                    (
+                                        match io_type {
+                                            0 => IndexerCellType::Input,
+                                            1 => IndexerCellType::Output,
+                                            _ => unreachable!(),
+                                        },
+                                        io_index.into(),
+                                    )
+                                })
+                                .collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                Ok(IndexerPagination {
+                    objects: txs,
+                    last_cursor: JsonBytes::from_vec(last_cursor.to_le_bytes().to_vec()),
+                })
             }
         }
     }
@@ -277,11 +339,13 @@ impl AsyncRichIndexerHandle {
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>, Error> {
         // sub query for script
+        let mut param_indexer = 1;
         let script_sub_query_sql = build_query_script_id_sql(
             self.store
                 .get_db_type()
                 .map_err(|err| Error::DB(err.to_string()))?,
             &search_key.script_search_mode,
+            &mut param_indexer,
         )?;
 
         // query output
@@ -327,18 +391,21 @@ impl AsyncRichIndexerHandle {
         }
         query_builder.and_where("input.output_id IS NULL"); // live cells
 
-        // build sql
-        let sql = build_sql_by_filter(
+        build_cell_filter(
             self.store
                 .get_db_type()
                 .map_err(|err| Error::DB(err.to_string()))?,
-            query_builder,
+            &mut query_builder,
             &search_key,
-            None,
-            None,
-            None,
-        )
-        .await?;
+            &mut param_indexer,
+        );
+
+        // sql string
+        let sql = query_builder
+            .sql()
+            .map_err(|err| Error::DB(err.to_string()))?
+            .trim_end_matches(';')
+            .to_string();
 
         // bind
         let mut query = SQLXPool::new_query(&sql);
@@ -464,6 +531,16 @@ fn decode_i64(data: &[u8]) -> Result<i64, Error> {
     Ok(i64::from_le_bytes(to_fixed_array(&data[0..8])))
 }
 
+fn decode_i32(data: &[u8]) -> Result<i32, Error> {
+    if data.len() != 4 {
+        return Err(Error::Params(
+            "unable to convert from bytes to i32 due to insufficient data in little-endian format"
+                .to_string(),
+        ));
+    }
+    Ok(i32::from_le_bytes(to_fixed_array(&data[0..4])))
+}
+
 fn add_filter_script_len_range_conditions(
     query_builder: &mut SqlBuilder,
     script_name: &str,
@@ -515,60 +592,53 @@ fn build_query_script_sql(
 fn build_query_script_id_sql(
     db_type: DBType,
     script_search_mode: &Option<IndexerSearchMode>,
+    param_index: &mut usize,
 ) -> Result<String, Error> {
     let mut query_builder = SqlBuilder::select_from("script");
     query_builder
         .field("script.id")
-        .and_where_eq("code_hash", "$1")
-        .and_where_eq("hash_type", "$2");
+        .and_where_eq("code_hash", &format!("${}", param_index));
+    *param_index += 1;
+    query_builder.and_where_eq("hash_type", &format!("${}", param_index));
+    *param_index += 1;
     match script_search_mode {
         Some(IndexerSearchMode::Prefix) | None | Some(IndexerSearchMode::Partial) => {
             match db_type {
                 DBType::Postgres => {
-                    query_builder.and_where("args LIKE $3");
+                    query_builder.and_where(&format!("args LIKE ${}", param_index));
                 }
                 DBType::Sqlite => {
-                    query_builder.and_where("args LIKE $3 ESCAPE '\x5c'");
+                    query_builder.and_where(&format!("args LIKE ${} ESCAPE '\x5c'", param_index));
                 }
             }
         }
         Some(IndexerSearchMode::Exact) => {
-            query_builder.and_where_eq("args", "$3");
+            query_builder.and_where_eq("args", &format!("${}", param_index));
         }
     }
+    *param_index += 1;
     let sql_sub_query = query_builder
         .subquery()
         .map_err(|err| Error::DB(err.to_string()))?;
     Ok(sql_sub_query)
 }
 
-async fn build_sql_by_filter(
+fn build_cell_filter(
     db_type: DBType,
-    mut query_builder: SqlBuilder,
+    query_builder: &mut SqlBuilder,
     search_key: &IndexerSearchKey,
-    order: Option<&IndexerOrder>,
-    limit: Option<u32>,
-    after: Option<i64>,
-) -> Result<String, Error> {
-    let mut param_index = 4; // start from 4
-    if let Some(after) = after {
-        if let Some(order) = &order {
-            match order {
-                IndexerOrder::Asc => query_builder.and_where_gt("output.id", after),
-                IndexerOrder::Desc => query_builder.and_where_lt("output.id", after),
-            };
-        }
-    }
+    param_index: &mut usize,
+) {
     if let Some(ref filter) = search_key.filter {
         if filter.script.is_some() {
             match search_key.script_type {
                 IndexerScriptType::Lock => {
                     query_builder
                         .and_where_eq("type_script.code_hash", format!("${}", param_index));
-                    param_index += 1;
+                    *param_index += 1;
                     query_builder
                         .and_where_eq("type_script.hash_type", format!("${}", param_index));
-                    param_index += 1;
+                    *param_index += 1;
                     match db_type {
                         DBType::Postgres => {
                             query_builder
@@ -581,15 +651,15 @@ async fn build_sql_by_filter(
                             ));
                         }
                     }
-                    param_index += 1;
+                    *param_index += 1;
                 }
                 IndexerScriptType::Type => {
                     query_builder
                         .and_where_eq("lock_script.code_hash", format!("${}", param_index));
-                    param_index += 1;
+                    *param_index += 1;
                     query_builder
                         .and_where_eq("lock_script.hash_type", format!("${}", param_index));
-                    param_index += 1;
+                    *param_index += 1;
                     match db_type {
                         DBType::Postgres => {
                             query_builder
@@ -602,25 +672,17 @@ async fn build_sql_by_filter(
                             ));
                         }
                     }
-                    param_index += 1;
+                    *param_index += 1;
                 }
             }
         }
         if let Some(script_len_range) = &filter.script_len_range {
             match search_key.script_type {
                 IndexerScriptType::Lock => {
-                    add_filter_script_len_range_conditions(
-                        &mut query_builder,
-                        "type",
-                        script_len_range,
-                    );
+                    add_filter_script_len_range_conditions(query_builder, "type", script_len_range);
                 }
                 IndexerScriptType::Type => {
-                    add_filter_script_len_range_conditions(
-                        &mut query_builder,
-                        "lock",
-                        script_len_range,
-                    );
+                    add_filter_script_len_range_conditions(query_builder, "lock", script_len_range);
                 }
             }
         }
@@ -655,192 +717,9 @@ async fn build_sql_by_filter(
                     query_builder.and_where_eq("output.data", format!("${}", param_index));
                 }
             }
+            *param_index += 1;
         }
     }
-    if let Some(order) = order {
-        match order {
-            IndexerOrder::Asc => query_builder.order_by("output.id", false),
-            IndexerOrder::Desc => query_builder.order_by("output.id", true),
-        };
-    }
-    if let Some(limit) = limit {
-        query_builder.limit(limit);
-    }
-
-    // sql string
-    let sql = query_builder
-        .sql()
-        .map_err(|err| Error::DB(err.to_string()))?
-        .trim_end_matches(';')
-        .to_string();
-
-    Ok(sql)
-}
-
-fn build_ungrouped_indexer_tx(
-    first_input: Vec<(i64, u64, u32, Vec<u8>, u32)>,
-    outputs: Vec<(i64, u64, u32, Vec<u8>, u32)>,
-    inputs: Vec<(i64, u64, u32, Vec<u8>, u32)>,
-    limit: u32,
-) -> IndexerPagination<IndexerTx> {
-    let mut outputs = VecDeque::from(outputs);
-    let mut inputs = VecDeque::from(inputs);
-    let mut indexer_txs = Vec::new();
-    let mut last_cursor = None;
-
-    if let Some((input_id, input_block_number, input_tx_index, input_tx_hash, input_index)) =
-        first_input.get(0)
-    {
-        indexer_txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
-            tx_hash: bytes_to_h256(&input_tx_hash),
-            block_number: (*input_block_number).into(),
-            tx_index: (*input_tx_index).into(),
-            io_index: (*input_index).into(),
-            io_type: IndexerCellType::Input,
-        }));
-        last_cursor = Some((*input_id, 0u8));
-    }
-
-    while indexer_txs.len() < limit as usize && (!outputs.is_empty() || !inputs.is_empty()) {
-        let mut id = None;
-        if let Some((
-            output_id,
-            output_block_number,
-            output_tx_index,
-            output_tx_hash,
-            output_index,
-        )) = outputs.pop_front()
-        {
-            id = Some(output_id);
-            indexer_txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
-                tx_hash: bytes_to_h256(&output_tx_hash),
-                block_number: output_block_number.into(),
-                tx_index: output_tx_index.into(),
-                io_index: output_index.into(),
-                io_type: IndexerCellType::Output,
-            }));
-            last_cursor = Some((output_id, 1u8));
-        }
-
-        if indexer_txs.len() < limit as usize {
-            if let Some((
-                input_id,
-                input_block_number,
-                input_tx_index,
-                input_tx_hash,
-                input_index,
-            )) = inputs.pop_front()
-            {
-                if id == Some(input_id) {
-                    indexer_txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
-                        tx_hash: bytes_to_h256(&input_tx_hash),
-                        block_number: input_block_number.into(),
-                        tx_index: input_tx_index.into(),
-                        io_index: input_index.into(),
-                        io_type: IndexerCellType::Input,
-                    }));
-                    last_cursor = Some((input_id, 0u8));
-                } else {
-                    inputs.push_front((
-                        input_id,
-                        input_block_number,
-                        input_tx_index,
-                        input_tx_hash,
-                        input_index,
-                    ));
-                }
-            }
-        }
-    }
-
-    // IndexerPagination {
-    //     objects: indexer_txs,
-    //     last_cursor: JsonBytes::from_vec({
-    //         let (last_id, check_last_input) = last_cursor;
-    //         let mut last_cursor = last_id.to_le_bytes().to_vec();
-    //         last_cursor.push(check_last_input);
-    //         last_cursor
-    //     }),
-    // }
-
-    IndexerPagination {
-        objects: indexer_txs,
-        last_cursor: JsonBytes::from_vec(
-            last_cursor
-                .map(|(last_id, check_last_input)| {
-                    let mut last_cursor = last_id.to_le_bytes().to_vec();
-                    last_cursor.push(check_last_input);
-                    last_cursor
-                })
-                .unwrap_or_else(Vec::new),
-        ),
-    }
-}
-
-fn build_grouped_indexer_tx(
-    cells: Vec<(
-        Vec<u8>,
-        u64,
-        u32,
-        u32,
-        Option<Vec<u8>>,
-        Option<u64>,
-        Option<u32>,
-        Option<u32>,
-    )>,
-) -> Vec<IndexerTx> {
-    let mut grouped_cells: HashMap<Vec<u8>, IndexerTxWithCells> = HashMap::new();
-
-    for (
-        output_tx_hash,
-        output_block_number,
-        output_tx_index,
-        output_index,
-        input_tx_hash,
-        input_block_number,
-        input_tx_index,
-        input_index,
-    ) in cells
-    {
-        let output_cell = (IndexerCellType::Output, output_index.into());
-        let entry = grouped_cells
-            .entry(output_tx_hash.clone())
-            .or_insert(IndexerTxWithCells {
-                tx_hash: bytes_to_h256(&output_tx_hash),
-                block_number: output_block_number.into(),
-                tx_index: output_tx_index.into(),
-                cells: Vec::new(),
-            });
-        entry.cells.push(output_cell);
-
-        if let (
-            Some(input_tx_hash),
-            Some(input_block_number),
-            Some(input_tx_index),
-            Some(input_io_index),
-        ) = (
-            input_tx_hash,
-            input_block_number,
-            input_tx_index,
-            input_index,
-        ) {
-            let input_cell = (IndexerCellType::Input, input_io_index.into());
-            let entry = grouped_cells
-                .entry(input_tx_hash.clone())
-                .or_insert(IndexerTxWithCells {
-                    tx_hash: bytes_to_h256(&input_tx_hash),
-                    block_number: input_block_number.into(),
-                    tx_index: input_tx_index.into(),
-                    cells: Vec::new(),
-                });
-            entry.cells.push(input_cell);
-        }
-    }
-
-    grouped_cells
-        .into_values()
-        .map(IndexerTx::Grouped)
-        .collect()
 }
 
 fn process_bind_data_by_mode(mode: &Option<IndexerSearchMode>, data: &JsonBytes) -> Vec<u8> {
@@ -877,73 +756,64 @@ fn process_bind_data_by_mode(mode: &Option<IndexerSearchMode>, data: &JsonBytes)
     }
 }
 
-pub async fn get_outputs(
+pub async fn get_tx_with_cell(
     db_type: DBType,
     search_key: IndexerSearchKey,
     order: &IndexerOrder,
     limit: u32,
-    after: Option<i64>,
+    last_cursor: Option<(i64, i32)>,
     tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<(i64, u64, u32, Vec<u8>, u32)>, Error> {
-    // sub query for script
-    let script_sub_query_sql =
-        build_query_script_id_sql(db_type.clone(), &search_key.script_search_mode)?;
+) -> Result<Vec<(i64, u64, u32, Vec<u8>, u16, u32)>, Error> {
+    let sql_union = build_tx_with_cell_union_sub_query(db_type, &search_key)?;
 
-    // query outputs
-    let mut query_builder = SqlBuilder::select_from("output");
-    query_builder
-        .field("output.id AS output_id")
-        .field("output_block.block_number AS output_block_number")
-        .field("output_transaction.tx_index AS output_tx_index")
-        .field("output_transaction.tx_hash AS output_tx_hash")
-        .field("output.output_index");
-    query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
-    match search_key.script_type {
-        IndexerScriptType::Lock => {
-            query_builder.on("output.lock_script_id = query_script.id");
-        }
-        IndexerScriptType::Type => {
-            query_builder.on("output.type_script_id = query_script.id");
-        }
+    let mut query_builder = SqlBuilder::select_from(&format!("{} AS res", sql_union));
+    query_builder.field("*");
+
+    if let Some((last, _)) = last_cursor {
+        match order {
+            IndexerOrder::Asc => query_builder.and_where_ge("tx_id", last),
+            IndexerOrder::Desc => query_builder.and_where_le("tx_id", last),
+        };
     }
-    query_builder
-        .join(name!("ckb_transaction";"output_transaction"))
-        .on("output.tx_id = output_transaction.id")
-        .join(name!("block";"output_block"))
-        .on("output_transaction.block_id = output_block.id");
+    match order {
+        IndexerOrder::Asc => query_builder.order_by("tx_id", false),
+        IndexerOrder::Desc => query_builder.order_by("tx_id", true),
+    };
+    query_builder.limit(limit);
+    if let Some((_, offset)) = last_cursor {
+        query_builder.offset(offset);
+    }
 
     // build sql
-    let sql = build_sql_by_filter(
-        db_type,
-        query_builder,
-        &search_key,
-        Some(order),
-        Some(limit),
-        after,
-    )
-    .await?;
+    let sql = query_builder
+        .sql()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
 
-    // bind
+    // bind for output and input
     let mut query = SQLXPool::new_query(&sql);
-    query = query
-        .bind(search_key.script.code_hash.as_bytes())
-        .bind(search_key.script.hash_type as i16);
-    let new_args =
-        process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
-    query = query.bind(new_args);
-    if let Some(filter) = search_key.filter.as_ref() {
-        if let Some(script) = filter.script.as_ref() {
-            query = query
-                .bind(script.code_hash.as_bytes())
-                .bind(script.hash_type.clone() as i16);
-            // Default prefix search
-            let mut new_args = script.args.as_bytes().to_vec();
-            new_args.push(0x25); // End with %
-            query = query.bind(new_args);
-        }
-        if let Some(data) = &filter.output_data {
-            let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
-            query = query.bind(new_data);
+    for _ in 0..2 {
+        query = query
+            .bind(search_key.script.code_hash.as_bytes())
+            .bind(search_key.script.hash_type.clone() as i16);
+        let new_args =
+            process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
+        query = query.bind(new_args);
+        if let Some(filter) = search_key.filter.as_ref() {
+            if let Some(script) = filter.script.as_ref() {
+                query = query
+                    .bind(script.code_hash.as_bytes())
+                    .bind(script.hash_type.clone() as i16);
+                // Default prefix search
+                let mut new_args = script.args.as_bytes().to_vec();
+                new_args.push(0x25); // End with %
+                query = query.bind(new_args);
+            }
+            if let Some(data) = &filter.output_data {
+                let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
+                query = query.bind(new_data);
+            }
         }
     }
 
@@ -955,11 +825,12 @@ pub async fn get_outputs(
         .iter()
         .map(|row| {
             (
-                row.get::<i64, _>("output_id"),
-                row.get::<i64, _>("output_block_number") as u64,
-                row.get::<i32, _>("output_tx_index") as u32,
-                row.get::<Vec<u8>, _>("output_tx_hash"),
-                row.get::<i32, _>("output_index") as u32,
+                row.get::<i64, _>("tx_id"),
+                row.get::<i64, _>("block_number") as u64,
+                row.get::<i32, _>("tx_index") as u32,
+                row.get::<Vec<u8>, _>("tx_hash"),
+                row.get::<i32, _>("io_type") as u16,
+                row.get::<i32, _>("io_index") as u32,
             )
         })
         .collect::<Vec<_>>();
@@ -967,58 +838,254 @@ pub async fn get_outputs(
     Ok(outputs)
 }
 
-pub async fn get_inputs(
-    ids: Vec<i64>,
+pub async fn get_tx_with_cells(
+    db_type: DBType,
+    search_key: IndexerSearchKey,
     order: &IndexerOrder,
+    limit: u32,
+    after: Option<JsonBytes>,
     tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<(i64, u64, u32, Vec<u8>, u32)>, Error> {
-    let mut query_builder = SqlBuilder::select_from("input");
-    query_builder
-        .field("input.output_id")
-        .field("input_block.block_number AS input_block_number")
-        .field("input_transaction.tx_hash AS input_tx_hash")
-        .field("input_transaction.tx_index AS input_tx_index")
-        .field("input.input_index");
-    query_builder
-        .join(name!("ckb_transaction";"input_transaction"))
-        .on("input.consumed_tx_id = input_transaction.id")
-        .join(name!("block";"input_block"))
-        .on("input_transaction.block_id = input_block.id");
-    let ids_str = ids
-        .into_iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<String>>()
-        .join(",");
-    query_builder.and_where(format!("input.output_id IN ({})", ids_str));
-    match order {
-        IndexerOrder::Asc => query_builder.order_by("output_id", false),
-        IndexerOrder::Desc => query_builder.order_by("output_id", true),
-    };
+) -> Result<Vec<(i64, u64, u32, Vec<u8>, Vec<(u16, u32)>)>, Error> {
+    let sql_union = build_tx_with_cell_union_sub_query(db_type.clone(), &search_key)?;
 
-    // sql string
+    let mut query_builder = SqlBuilder::select_from(&format!("{} AS res_union", sql_union));
+    let sql = query_builder
+        .field("*")
+        .subquery()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
+
+    let mut query_builder = SqlBuilder::select_from(&format!("{} AS res", sql));
+    query_builder
+        .field("tx_id")
+        .field("block_number")
+        .field("tx_index")
+        .field("tx_hash");
+    match db_type {
+        DBType::Postgres => {
+            query_builder.field(
+                "'\"' || array_to_string(ARRAY_AGG(CONCAT(io_type, ',', io_index)), '\",\"') || '\"' AS io_pairs",
+            );
+        }
+        DBType::Sqlite => {
+            query_builder.field(
+                " '\"' || GROUP_CONCAT(io_type || ',' || io_index, '\",\"') || '\"' AS io_pairs",
+            );
+        }
+    }
+
+    if let Some(after) = after {
+        let after = decode_i64(after.as_bytes())?;
+        match order {
+            IndexerOrder::Asc => query_builder.and_where_gt("tx_id", after),
+            IndexerOrder::Desc => query_builder.and_where_lt("tx_id", after),
+        };
+    }
+    query_builder.group_by("tx_id, block_number, tx_index, tx_hash");
+    match order {
+        IndexerOrder::Asc => query_builder.order_by("tx_id", false),
+        IndexerOrder::Desc => query_builder.order_by("tx_id", true),
+    };
+    query_builder.limit(limit);
+
+    // build sql
     let sql = query_builder
         .sql()
         .map_err(|err| Error::DB(err.to_string()))?
         .trim_end_matches(';')
         .to_string();
 
+    // bind for output and input
+    let mut query = SQLXPool::new_query(&sql);
+    for _ in 0..2 {
+        query = query
+            .bind(search_key.script.code_hash.as_bytes())
+            .bind(search_key.script.hash_type.clone() as i16);
+        let new_args =
+            process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
+        query = query.bind(new_args);
+        if let Some(filter) = search_key.filter.as_ref() {
+            if let Some(script) = filter.script.as_ref() {
+                query = query
+                    .bind(script.code_hash.as_bytes())
+                    .bind(script.hash_type.clone() as i16);
+                // Default prefix search
+                let mut new_args = script.args.as_bytes().to_vec();
+                new_args.push(0x25); // End with %
+                query = query.bind(new_args);
+            }
+            if let Some(data) = &filter.output_data {
+                let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
+                query = query.bind(new_data);
+            }
+        }
+    }
+
     // fetch
-    let query = SQLXPool::new_query(&sql);
-    let inputs = query
+    let outputs = query
         .fetch_all(&mut *tx)
         .await
         .map_err(|err| Error::DB(err.to_string()))?
         .iter()
         .map(|row| {
             (
-                row.get::<i64, _>("output_id"),
-                row.get::<i64, _>("input_block_number") as u64,
-                row.get::<i32, _>("input_tx_index") as u32,
-                row.get::<Vec<u8>, _>("input_tx_hash"),
-                row.get::<i32, _>("input_index") as u32,
+                row.get::<i64, _>("tx_id"),
+                row.get::<i64, _>("block_number") as u64,
+                row.get::<i32, _>("tx_index") as u32,
+                row.get::<Vec<u8>, _>("tx_hash"),
+                {
+                    row.get::<String, _>("io_pairs")
+                        .trim_matches('{')
+                        .trim_matches('}')
+                        .split("\",\"")
+                        .map(|s| {
+                            let s = s.trim_matches('\"');
+                            let mut iter = s.split(',');
+                            (
+                                iter.next().unwrap().parse::<u16>().unwrap(),
+                                iter.next().unwrap().parse::<u32>().unwrap(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                },
             )
         })
         .collect::<Vec<_>>();
 
-    Ok(inputs)
+    Ok(outputs)
+}
+
+fn build_tx_with_cell_union_sub_query(
+    db_type: DBType,
+    search_key: &IndexerSearchKey,
+) -> Result<String, Error> {
+    let mut param_index = 1;
+
+    // query outputs
+    let mut query_output_builder = SqlBuilder::select_from("ckb_transaction");
+    query_output_builder
+        .field("ckb_transaction.id AS tx_id")
+        .field("block.block_number")
+        .field("ckb_transaction.tx_index")
+        .field("ckb_transaction.tx_hash")
+        .field("1 AS io_type")
+        .field("output.output_index AS io_index");
+    query_output_builder
+        .join("block")
+        .on("ckb_transaction.block_id = block.id")
+        .join("output")
+        .on("output.tx_id = ckb_transaction.id")
+        .join(&format!(
+            "{} AS query_script",
+            build_query_script_id_sql(
+                db_type.clone(),
+                &search_key.script_search_mode,
+                &mut param_index
+            )?
+        ));
+    match search_key.script_type {
+        IndexerScriptType::Lock => {
+            query_output_builder.on("output.lock_script_id = query_script.id");
+        }
+        IndexerScriptType::Type => {
+            query_output_builder.on("output.type_script_id = query_script.id");
+        }
+    }
+    if let Some(ref filter) = search_key.filter {
+        if filter.script.is_some() || filter.script_len_range.is_some() {
+            match search_key.script_type {
+                IndexerScriptType::Lock => {
+                    query_output_builder
+                        .left()
+                        .join(name!("script";"type_script"))
+                        .on("output.type_script_id = type_script.id");
+                }
+                IndexerScriptType::Type => {
+                    query_output_builder
+                        .left()
+                        .join(name!("script";"lock_script"))
+                        .on("output.lock_script_id = lock_script.id");
+                }
+            }
+        }
+    }
+    build_cell_filter(
+        db_type.clone(),
+        &mut query_output_builder,
+        &search_key,
+        &mut param_index,
+    );
+
+    // query inputs
+    let mut query_input_builder = SqlBuilder::select_from("ckb_transaction");
+    query_input_builder
+        .field("ckb_transaction.id AS tx_id")
+        .field("block.block_number")
+        .field("ckb_transaction.tx_index")
+        .field("ckb_transaction.tx_hash")
+        .field("0 AS io_type")
+        .field("input.input_index AS io_index");
+    query_input_builder
+        .join("block")
+        .on("ckb_transaction.block_id = block.id")
+        .join("input")
+        .on("input.consumed_tx_id = ckb_transaction.id")
+        .join("output")
+        .on("output.id = input.output_id")
+        .join(&format!(
+            "{} AS query_script",
+            build_query_script_id_sql(
+                db_type.clone(),
+                &search_key.script_search_mode,
+                &mut param_index
+            )?
+        ));
+    match search_key.script_type {
+        IndexerScriptType::Lock => {
+            query_input_builder.on("output.lock_script_id = query_script.id");
+        }
+        IndexerScriptType::Type => {
+            query_input_builder.on("output.type_script_id = query_script.id");
+        }
+    }
+    if let Some(ref filter) = search_key.filter {
+        if filter.script.is_some() || filter.script_len_range.is_some() {
+            match search_key.script_type {
+                IndexerScriptType::Lock => {
+                    query_input_builder
+                        .left()
+                        .join(name!("script";"type_script"))
+                        .on("output.type_script_id = type_script.id");
+                }
+                IndexerScriptType::Type => {
+                    query_input_builder
+                        .left()
+                        .join(name!("script";"lock_script"))
+                        .on("output.lock_script_id = lock_script.id");
+                }
+            }
+        }
+    }
+    build_cell_filter(
+        db_type.clone(),
+        &mut query_input_builder,
+        &search_key,
+        &mut param_index,
+    );
+
+    let sql_query_input = query_input_builder
+        .sql()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
+
+    let sql_union = query_output_builder
+        .union_all(&sql_query_input)
+        .subquery()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
+
+    Ok(sql_union)
 }

@@ -1,6 +1,6 @@
 use super::*;
 
-use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
+use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter, IndexerTx};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -271,7 +271,6 @@ async fn get_transactions_ungrouped() {
         .args(hex::decode("").expect("Decoding failed").pack())
         .build();
 
-    // ungrouped by transaction
     let search_key = IndexerSearchKey {
         script: lock_script.clone().into(),
         script_type: IndexerScriptType::Lock,
@@ -393,7 +392,6 @@ async fn get_transactions_grouped() {
         .args(hex::decode("").expect("Decoding failed").pack())
         .build();
 
-    // grouped by transaction
     let search_key = IndexerSearchKey {
         script: lock_script.clone().into(),
         script_type: IndexerScriptType::Lock,
@@ -407,6 +405,51 @@ async fn get_transactions_grouped() {
         .await
         .unwrap();
     assert_eq!(2, txs.objects.len());
+
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: Some(true),
+    };
+    let txs = indexer
+        .get_transactions(search_key, IndexerOrder::Asc, 1u32.into(), None)
+        .await
+        .unwrap();
+    assert_eq!(1, txs.objects.len());
+    match &txs.objects[0] {
+        IndexerTx::Grouped(tx_with_cells) => {
+            assert_eq!(5, tx_with_cells.cells.len());
+        }
+        _ => panic!("unexpected transaction type"),
+    }
+
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: Some(true),
+    };
+    let txs = indexer
+        .get_transactions(
+            search_key,
+            IndexerOrder::Asc,
+            1u32.into(),
+            Some(txs.last_cursor),
+        )
+        .await
+        .unwrap();
+    assert_eq!(1, txs.objects.len());
+    match &txs.objects[0] {
+        IndexerTx::Grouped(tx_with_cells) => {
+            assert_eq!(2, tx_with_cells.cells.len());
+        }
+        _ => panic!("unexpected transaction type"),
+    }
 }
 
 #[tokio::test]
