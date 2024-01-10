@@ -14,9 +14,12 @@ use ckb_types::packed::{CellOutputBuilder, OutPointBuilder, ScriptBuilder};
 use ckb_types::prelude::*;
 use ckb_types::H256;
 use sql_builder::{name, name::SqlName, SqlBuilder};
-use sqlx::{any::AnyRow, Row};
+use sqlx::{
+    any::{Any, AnyRow},
+    Row, Transaction,
+};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 
 /// Async handle to the rich-indexer.
@@ -63,6 +66,11 @@ impl AsyncRichIndexerHandle {
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
+        let limit = limit.value() as u32;
+        if limit == 0 {
+            return Err(Error::invalid_params("limit should be greater than 0"));
+        }
+
         // sub query for script
         let script_sub_query_sql = build_query_script_sql(
             self.store
@@ -144,9 +152,9 @@ impl AsyncRichIndexerHandle {
                 .map_err(|err| Error::DB(err.to_string()))?,
             query_builder,
             &search_key,
-            Some(order),
+            Some(&order),
             Some(limit),
-            after,
+            after.and_then(|a| decode_i64(a.as_bytes()).ok()),
         )
         .await?;
 
@@ -194,6 +202,7 @@ impl AsyncRichIndexerHandle {
         })
     }
 
+    /// Get transactions
     pub async fn get_transactions(
         &self,
         search_key: IndexerSearchKey,
@@ -201,120 +210,65 @@ impl AsyncRichIndexerHandle {
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
-        // sub query for script
-        let script_sub_query_sql = build_query_script_id_sql(
-            self.store
-                .get_db_type()
-                .map_err(|err| Error::DB(err.to_string()))?,
-            &search_key.script_search_mode,
-        )?;
-
-        // query cells
-        let mut query_builder = SqlBuilder::select_from("output");
-        query_builder
-            .field("output.id")
-            .field("output_block.block_number AS output_block_number")
-            .field("output_transaction.tx_hash AS ouput_tx_hash")
-            .field("output_transaction.tx_index AS output_tx_index")
-            .field("output.output_index")
-            .field("input_block.block_number AS input_block_number")
-            .field("input_transaction.tx_hash AS input_tx_hash")
-            .field("input_transaction.tx_index AS input_tx_index")
-            .field("input.input_index");
-        query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
-        match search_key.script_type {
-            IndexerScriptType::Lock => {
-                query_builder.on("output.lock_script_id = query_script.id");
-            }
-            IndexerScriptType::Type => {
-                query_builder.on("output.type_script_id = query_script.id");
-            }
-        }
-        query_builder
-            .join(name!("ckb_transaction";"output_transaction"))
-            .on("output.tx_id = output_transaction.id")
-            .join(name!("block";"output_block"))
-            .on("output_transaction.block_id = output_block.id")
-            .left()
-            .join("input")
-            .on("output.id = input.output_id")
-            .join(name!("ckb_transaction";"input_transaction"))
-            .on("input.consumed_tx_id = input_transaction.id")
-            .join(name!("block";"input_block"))
-            .on("input_transaction.block_id = input_block.id");
-
-        // build sql
-        let sql = build_sql_by_filter(
-            self.store
-                .get_db_type()
-                .map_err(|err| Error::DB(err.to_string()))?,
-            query_builder,
-            &search_key,
-            Some(order),
-            Some(limit),
-            after,
-        )
-        .await?;
-
-        // bind
-        let mut query = SQLXPool::new_query(&sql);
-        query = query
-            .bind(search_key.script.code_hash.as_bytes())
-            .bind(search_key.script.hash_type as i16);
-        let new_args =
-            process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
-        query = query.bind(new_args);
-        if let Some(filter) = search_key.filter.as_ref() {
-            if let Some(script) = filter.script.as_ref() {
-                query = query
-                    .bind(script.code_hash.as_bytes())
-                    .bind(script.hash_type.clone() as i16);
-                // Default prefix search
-                let mut new_args = script.args.as_bytes().to_vec();
-                new_args.push(0x25); // End with %
-                query = query.bind(new_args);
-            }
-            if let Some(data) = &filter.output_data {
-                let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
-                query = query.bind(new_data);
-            }
+        let limit = limit.value() as u32;
+        if limit == 0 {
+            return Err(Error::invalid_params("limit should be greater than 0"));
         }
 
-        // fetch
-        let mut last_cursor = Vec::new();
-        let cells = self
+        let db_type = self
             .store
-            .fetch_all(query)
-            .await
-            .map_err(|err| Error::DB(err.to_string()))?
-            .iter()
-            .map(|row| {
-                last_cursor = row.get::<i64, _>("id").to_le_bytes().to_vec();
-                (
-                    row.get::<Vec<u8>, _>("ouput_tx_hash"),
-                    row.get::<i64, _>("output_block_number") as u64,
-                    row.get::<i32, _>("output_tx_index") as u32,
-                    row.get::<i32, _>("output_index") as u32,
-                    row.get::<Option<Vec<u8>>, _>("input_tx_hash"),
-                    row.get::<Option<i64>, _>("input_block_number")
-                        .map(|value| value as u64),
-                    row.get::<Option<i32>, _>("input_tx_index")
-                        .map(|value| value as u32),
-                    row.get::<Option<i32>, _>("input_index")
-                        .map(|value| value as u32),
-                )
-            })
-            .collect::<Vec<_>>();
+            .get_db_type()
+            .map_err(|err| Error::DB(err.to_string()))?;
 
-        let indexer_txs = match search_key.group_by_transaction {
-            Some(false) | None => build_ungrouped_indexer_tx(cells),
-            Some(true) => build_grouped_indexer_tx(cells),
+        let mut tx = self
+            .store
+            .transaction()
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+
+        let (after, first_input) = match after {
+            Some(after) => {
+                if after.len() != 9 {
+                    return Err(Error::Params(
+                        "Unable to parse the 'after' parameter.".to_string(),
+                    ));
+                }
+                let (after, check_last_input) = after.as_bytes().split_at(after.len() - 1);
+                let cursor = decode_i64(after)?;
+                let input = if check_last_input[0] != 0 {
+                    get_inputs(vec![cursor], &order, &mut tx).await?
+                } else {
+                    vec![]
+                };
+                (Some(cursor), input)
+            }
+            None => (None, vec![]),
         };
 
-        Ok(IndexerPagination {
-            objects: indexer_txs,
-            last_cursor: JsonBytes::from_vec(last_cursor),
-        })
+        match search_key.group_by_transaction {
+            Some(false) | None => {
+                let outputs =
+                    get_outputs(db_type, search_key, &order, limit, after, &mut tx).await?;
+                let inputs = get_inputs(
+                    outputs
+                        .iter()
+                        .map(|(output_id, _, _, _, _)| output_id.to_owned())
+                        .collect(),
+                    &order,
+                    &mut tx,
+                )
+                .await?;
+                tx.commit()
+                    .await
+                    .map_err(|err| Error::DB(err.to_string()))?;
+                let indexer_txs =
+                    build_ungrouped_indexer_tx(first_input, outputs, inputs, limit.into());
+                Ok(indexer_txs)
+            }
+            Some(true) => {
+                unimplemented!()
+            }
+        }
     }
 
     /// Get cells_capacity by specified search_key
@@ -592,13 +546,12 @@ async fn build_sql_by_filter(
     db_type: DBType,
     mut query_builder: SqlBuilder,
     search_key: &IndexerSearchKey,
-    order: Option<IndexerOrder>,
-    limit: Option<Uint32>,
-    after: Option<JsonBytes>,
+    order: Option<&IndexerOrder>,
+    limit: Option<u32>,
+    after: Option<i64>,
 ) -> Result<String, Error> {
     let mut param_index = 4; // start from 4
     if let Some(after) = after {
-        let after = decode_i64(after.as_bytes())?;
         if let Some(order) = &order {
             match order {
                 IndexerOrder::Asc => query_builder.and_where_gt("output.id", after),
@@ -711,7 +664,7 @@ async fn build_sql_by_filter(
         };
     }
     if let Some(limit) = limit {
-        query_builder.limit(limit.value());
+        query_builder.limit(limit);
     }
 
     // sql string
@@ -725,53 +678,60 @@ async fn build_sql_by_filter(
 }
 
 fn build_ungrouped_indexer_tx(
-    cells: Vec<(
-        Vec<u8>,
-        u64,
-        u32,
-        u32,
-        Option<Vec<u8>>,
-        Option<u64>,
-        Option<u32>,
-        Option<u32>,
-    )>,
-) -> Vec<IndexerTx> {
-    cells
-        .into_iter()
-        .flat_map(
-            |(
-                output_tx_hash,
-                output_block_number,
-                output_tx_index,
-                output_index,
-                input_tx_hash,
+    first_input: Vec<(i64, u64, u32, Vec<u8>, u32)>,
+    outputs: Vec<(i64, u64, u32, Vec<u8>, u32)>,
+    inputs: Vec<(i64, u64, u32, Vec<u8>, u32)>,
+    limit: u32,
+) -> IndexerPagination<IndexerTx> {
+    let mut outputs = VecDeque::from(outputs);
+    let mut inputs = VecDeque::from(inputs);
+    let mut indexer_txs = Vec::new();
+    let mut last_cursor = None;
+
+    if let Some((input_id, input_block_number, input_tx_index, input_tx_hash, input_index)) =
+        first_input.get(0)
+    {
+        indexer_txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
+            tx_hash: bytes_to_h256(&input_tx_hash),
+            block_number: (*input_block_number).into(),
+            tx_index: (*input_tx_index).into(),
+            io_index: (*input_index).into(),
+            io_type: IndexerCellType::Input,
+        }));
+        last_cursor = Some((*input_id, 0u8));
+    }
+
+    while indexer_txs.len() < limit as usize && (!outputs.is_empty() || !inputs.is_empty()) {
+        let mut id = None;
+        if let Some((
+            output_id,
+            output_block_number,
+            output_tx_index,
+            output_tx_hash,
+            output_index,
+        )) = outputs.pop_front()
+        {
+            id = Some(output_id);
+            indexer_txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
+                tx_hash: bytes_to_h256(&output_tx_hash),
+                block_number: output_block_number.into(),
+                tx_index: output_tx_index.into(),
+                io_index: output_index.into(),
+                io_type: IndexerCellType::Output,
+            }));
+            last_cursor = Some((output_id, 1u8));
+        }
+
+        if indexer_txs.len() < limit as usize {
+            if let Some((
+                input_id,
                 input_block_number,
                 input_tx_index,
+                input_tx_hash,
                 input_index,
-            )| {
-                let mut indexer_txs = Vec::new();
-
-                // Create an IndexerTx for the cell itself
-                indexer_txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
-                    tx_hash: bytes_to_h256(&output_tx_hash),
-                    block_number: output_block_number.into(),
-                    tx_index: output_tx_index.into(),
-                    io_index: output_index.into(),
-                    io_type: IndexerCellType::Output,
-                }));
-
-                // If there is an input, create an additional IndexerTx
-                if let (
-                    Some(input_tx_hash),
-                    Some(input_block_number),
-                    Some(input_tx_index),
-                    Some(input_index),
-                ) = (
-                    input_tx_hash,
-                    input_block_number,
-                    input_tx_index,
-                    input_index,
-                ) {
+            )) = inputs.pop_front()
+            {
+                if id == Some(input_id) {
                     indexer_txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
                         tx_hash: bytes_to_h256(&input_tx_hash),
                         block_number: input_block_number.into(),
@@ -779,12 +739,42 @@ fn build_ungrouped_indexer_tx(
                         io_index: input_index.into(),
                         io_type: IndexerCellType::Input,
                     }));
+                    last_cursor = Some((input_id, 0u8));
+                } else {
+                    inputs.push_front((
+                        input_id,
+                        input_block_number,
+                        input_tx_index,
+                        input_tx_hash,
+                        input_index,
+                    ));
                 }
+            }
+        }
+    }
 
-                indexer_txs
-            },
-        )
-        .collect()
+    // IndexerPagination {
+    //     objects: indexer_txs,
+    //     last_cursor: JsonBytes::from_vec({
+    //         let (last_id, check_last_input) = last_cursor;
+    //         let mut last_cursor = last_id.to_le_bytes().to_vec();
+    //         last_cursor.push(check_last_input);
+    //         last_cursor
+    //     }),
+    // }
+
+    IndexerPagination {
+        objects: indexer_txs,
+        last_cursor: JsonBytes::from_vec(
+            last_cursor
+                .map(|(last_id, check_last_input)| {
+                    let mut last_cursor = last_id.to_le_bytes().to_vec();
+                    last_cursor.push(check_last_input);
+                    last_cursor
+                })
+                .unwrap_or_else(Vec::new),
+        ),
+    }
 }
 
 fn build_grouped_indexer_tx(
@@ -885,4 +875,150 @@ fn process_bind_data_by_mode(mode: &Option<IndexerSearchMode>, data: &JsonBytes)
             new_data
         }
     }
+}
+
+pub async fn get_outputs(
+    db_type: DBType,
+    search_key: IndexerSearchKey,
+    order: &IndexerOrder,
+    limit: u32,
+    after: Option<i64>,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<Vec<(i64, u64, u32, Vec<u8>, u32)>, Error> {
+    // sub query for script
+    let script_sub_query_sql =
+        build_query_script_id_sql(db_type.clone(), &search_key.script_search_mode)?;
+
+    // query outputs
+    let mut query_builder = SqlBuilder::select_from("output");
+    query_builder
+        .field("output.id AS output_id")
+        .field("output_block.block_number AS output_block_number")
+        .field("output_transaction.tx_index AS output_tx_index")
+        .field("output_transaction.tx_hash AS output_tx_hash")
+        .field("output.output_index");
+    query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
+    match search_key.script_type {
+        IndexerScriptType::Lock => {
+            query_builder.on("output.lock_script_id = query_script.id");
+        }
+        IndexerScriptType::Type => {
+            query_builder.on("output.type_script_id = query_script.id");
+        }
+    }
+    query_builder
+        .join(name!("ckb_transaction";"output_transaction"))
+        .on("output.tx_id = output_transaction.id")
+        .join(name!("block";"output_block"))
+        .on("output_transaction.block_id = output_block.id");
+
+    // build sql
+    let sql = build_sql_by_filter(
+        db_type,
+        query_builder,
+        &search_key,
+        Some(order),
+        Some(limit),
+        after,
+    )
+    .await?;
+
+    // bind
+    let mut query = SQLXPool::new_query(&sql);
+    query = query
+        .bind(search_key.script.code_hash.as_bytes())
+        .bind(search_key.script.hash_type as i16);
+    let new_args =
+        process_bind_data_by_mode(&search_key.script_search_mode, &search_key.script.args);
+    query = query.bind(new_args);
+    if let Some(filter) = search_key.filter.as_ref() {
+        if let Some(script) = filter.script.as_ref() {
+            query = query
+                .bind(script.code_hash.as_bytes())
+                .bind(script.hash_type.clone() as i16);
+            // Default prefix search
+            let mut new_args = script.args.as_bytes().to_vec();
+            new_args.push(0x25); // End with %
+            query = query.bind(new_args);
+        }
+        if let Some(data) = &filter.output_data {
+            let new_data = process_bind_data_by_mode(&filter.output_data_filter_mode, &data);
+            query = query.bind(new_data);
+        }
+    }
+
+    // fetch
+    let outputs = query
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|err| Error::DB(err.to_string()))?
+        .iter()
+        .map(|row| {
+            (
+                row.get::<i64, _>("output_id"),
+                row.get::<i64, _>("output_block_number") as u64,
+                row.get::<i32, _>("output_tx_index") as u32,
+                row.get::<Vec<u8>, _>("output_tx_hash"),
+                row.get::<i32, _>("output_index") as u32,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    Ok(outputs)
+}
+
+pub async fn get_inputs(
+    ids: Vec<i64>,
+    order: &IndexerOrder,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<Vec<(i64, u64, u32, Vec<u8>, u32)>, Error> {
+    let mut query_builder = SqlBuilder::select_from("input");
+    query_builder
+        .field("input.output_id")
+        .field("input_block.block_number AS input_block_number")
+        .field("input_transaction.tx_hash AS input_tx_hash")
+        .field("input_transaction.tx_index AS input_tx_index")
+        .field("input.input_index");
+    query_builder
+        .join(name!("ckb_transaction";"input_transaction"))
+        .on("input.consumed_tx_id = input_transaction.id")
+        .join(name!("block";"input_block"))
+        .on("input_transaction.block_id = input_block.id");
+    let ids_str = ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<String>>()
+        .join(",");
+    query_builder.and_where(format!("input.output_id IN ({})", ids_str));
+    match order {
+        IndexerOrder::Asc => query_builder.order_by("output_id", false),
+        IndexerOrder::Desc => query_builder.order_by("output_id", true),
+    };
+
+    // sql string
+    let sql = query_builder
+        .sql()
+        .map_err(|err| Error::DB(err.to_string()))?
+        .trim_end_matches(';')
+        .to_string();
+
+    // fetch
+    let query = SQLXPool::new_query(&sql);
+    let inputs = query
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|err| Error::DB(err.to_string()))?
+        .iter()
+        .map(|row| {
+            (
+                row.get::<i64, _>("output_id"),
+                row.get::<i64, _>("input_block_number") as u64,
+                row.get::<i32, _>("input_tx_index") as u32,
+                row.get::<Vec<u8>, _>("input_tx_hash"),
+                row.get::<i32, _>("input_index") as u32,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    Ok(inputs)
 }

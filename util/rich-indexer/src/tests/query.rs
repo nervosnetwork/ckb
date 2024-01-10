@@ -257,7 +257,129 @@ async fn get_cells_by_cursor() {
 }
 
 #[tokio::test]
-async fn get_transactions() {
+async fn get_transactions_ungrouped() {
+    let pool = connect_sqlite(MEMORY_DB).await;
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+
+    insert_blocks(pool).await;
+
+    let lock_script = ScriptBuilder::default()
+        .code_hash(
+            h256!("0x0000000000000000000000000000000000000000000000000000000000000000").pack(),
+        )
+        .hash_type((ScriptHashType::Data as u8).into())
+        .args(hex::decode("").expect("Decoding failed").pack())
+        .build();
+
+    // ungrouped by transaction
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let txs = indexer
+        .get_transactions(search_key, IndexerOrder::Asc, 4u32.into(), None)
+        .await
+        .unwrap();
+    assert_eq!(4, txs.objects.len());
+
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let txs = indexer
+        .get_transactions(
+            search_key,
+            IndexerOrder::Asc,
+            4u32.into(),
+            Some(txs.last_cursor),
+        )
+        .await
+        .unwrap();
+    assert_eq!(3, txs.objects.len());
+
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let txs = indexer
+        .get_transactions(search_key, IndexerOrder::Asc, 100u32.into(), None)
+        .await
+        .unwrap();
+    assert_eq!(7, txs.objects.len());
+
+    let lock_script = ScriptBuilder::default()
+        .code_hash(
+            h256!("0x709f3fda12f561cfacf92273c57a98fede188a3f1a59b1f888d113f9cce08649").pack(),
+        )
+        .hash_type((ScriptHashType::Data as u8).into())
+        .args(
+            hex::decode("b73961e46d9eb118d3de1d1e8f30b3af7bbf3160")
+                .expect("Decoding failed")
+                .pack(),
+        )
+        .build();
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let txs = indexer
+        .get_transactions(search_key, IndexerOrder::Asc, 1u32.into(), None)
+        .await
+        .unwrap();
+    assert_eq!(1, txs.objects.len());
+
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let txs = indexer
+        .get_transactions(
+            search_key,
+            IndexerOrder::Asc,
+            1u32.into(),
+            Some(txs.last_cursor),
+        )
+        .await
+        .unwrap();
+    assert_eq!(1, txs.objects.len());
+
+    let search_key = IndexerSearchKey {
+        script: lock_script.clone().into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let txs = indexer
+        .get_transactions(search_key, IndexerOrder::Asc, 100u32.into(), None)
+        .await
+        .unwrap();
+    assert_eq!(2, txs.objects.len());
+}
+
+#[tokio::test]
+async fn get_transactions_grouped() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
 
@@ -285,21 +407,6 @@ async fn get_transactions() {
         .await
         .unwrap();
     assert_eq!(2, txs.objects.len());
-
-    // ungrouped by transaction
-    let search_key = IndexerSearchKey {
-        script: lock_script.clone().into(),
-        script_type: IndexerScriptType::Lock,
-        script_search_mode: Some(IndexerSearchMode::Exact),
-        filter: None,
-        with_data: Some(false),
-        group_by_transaction: None,
-    };
-    let txs = indexer
-        .get_transactions(search_key, IndexerOrder::Asc, 100u32.into(), None)
-        .await
-        .unwrap();
-    assert_eq!(7, txs.objects.len());
 }
 
 #[tokio::test]
