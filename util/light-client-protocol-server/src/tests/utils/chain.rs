@@ -147,10 +147,7 @@ impl MockChain {
             .blocking_process_block(Arc::new(block))
             .expect("process block");
         assert!(
-            matches!(
-                verified_block_status,
-                VerifiedBlockStatus::FirstSeenAndVerified
-            ),
+            verified_block_status,
             "failed to process block {block_number}"
         );
         while self
