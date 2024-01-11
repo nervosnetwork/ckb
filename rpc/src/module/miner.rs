@@ -275,14 +275,11 @@ impl MinerRpc for MinerRpcImpl {
             .verify(&header)
             .map_err(|err| handle_submit_error(&work_id, &err))?;
 
-        let verify_result: VerifyResult = self.chain.blocking_process_block(Arc::clone(&block));
-
-        // TODO: review this logic
-        let is_new = matches!(
-            verify_result,
-            Ok(VerifiedBlockStatus::FirstSeenAndVerified
-                | VerifiedBlockStatus::UncleBlockNotVerified)
-        );
+        // Verify and insert block
+        let is_new = self
+            .chain
+            .blocking_process_block(Arc::clone(&block))
+            .map_err(|err| handle_submit_error(&work_id, &err))?;
 
         // Announce only new block
         if is_new {
