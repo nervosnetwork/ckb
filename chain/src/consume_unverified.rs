@@ -224,7 +224,7 @@ impl ConsumeUnverifiedBlockProcessor {
                     verified
                 );
                 return if verified {
-                    Ok(VerifiedBlockStatus::PreviouslySeenAndVerified)
+                    Ok(true)
                 } else {
                     Err(InternalErrorKind::Other
                         .other("block previously verified failed")
@@ -346,8 +346,6 @@ impl ConsumeUnverifiedBlockProcessor {
             if let Some(metrics) = ckb_metrics::handle() {
                 metrics.ckb_chain_tip.set(block.header().number() as i64);
             }
-
-            Ok(VerifiedBlockStatus::FirstSeenAndVerified)
         } else {
             self.shared.refresh_snapshot();
             info!(
@@ -366,8 +364,8 @@ impl ConsumeUnverifiedBlockProcessor {
                     error!("[verify block] notify new_uncle error {}", e);
                 }
             }
-            Ok(VerifiedBlockStatus::UncleBlockNotVerified)
         }
+        Ok(true)
     }
 
     pub(crate) fn update_proposal_table(&mut self, fork: &ForkChanges) {
