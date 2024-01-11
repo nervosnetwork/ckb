@@ -12,7 +12,7 @@ use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::core::{BlockExt, BlockView, HeaderView};
+use ckb_types::core::{BlockExt, BlockView, EpochNumber, EpochNumberWithFraction, HeaderView};
 use ckb_types::U256;
 use ckb_verification::InvalidParentError;
 use std::sync::Arc;
@@ -217,11 +217,19 @@ impl ConsumeOrphan {
     }
 
     pub(crate) fn start(&self) {
+        let mut last_check_expired_orphans_epoch: EpochNumber = 0;
         loop {
             select! {
                 recv(self.lonely_blocks_rx) -> msg => match msg {
                     Ok(lonely_block) => {
+                        let lonely_block_epoch: EpochNumberWithFraction = lonely_block.block().epoch();
+
                         self.process_lonely_block(lonely_block);
+
+                        if lonely_block_epoch.number() > last_check_expired_orphans_epoch {
+                            self.clean_expired_orphan_blocks();
+                            last_check_expired_orphans_epoch = lonely_block_epoch.number();
+                        }
                     },
                     Err(err) => {
                         error!("lonely_block_rx err: {}", err);
@@ -234,6 +242,21 @@ impl ConsumeOrphan {
                 },
             }
         }
+    }
+
+    fn clean_expired_orphan_blocks(&self) {
+        let epoch = self.shared.snapshot().tip_header().epoch();
+        let expired_blocks = self
+            .orphan_blocks_broker
+            .clean_expired_blocks(epoch.number());
+        if expired_blocks.is_empty() {
+            return;
+        }
+        let expired_blocks_count = expired_blocks.len();
+        for block_hash in expired_blocks {
+            self.shared.remove_header_view(&block_hash);
+        }
+        debug!("cleaned {} expired orphan blocks", expired_blocks_count);
     }
 
     fn search_orphan_pool(&self) {
