@@ -34,12 +34,9 @@ fn repeat_process_block() {
     chain.gen_empty_block_with_nonce(100u128, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
-    assert_eq!(
-        chain_controller
-            .blocking_process_block(Arc::clone(&block))
-            .expect("process block ok"),
-        VerifiedBlockStatus::FirstSeenAndVerified
-    );
+    assert!(chain_controller
+        .blocking_process_block(Arc::clone(&block))
+        .expect("process block ok"));
     assert_eq!(
         shared
             .store()
@@ -49,12 +46,9 @@ fn repeat_process_block() {
         Some(true)
     );
 
-    assert_ne!(
-        chain_controller
-            .blocking_process_block(Arc::clone(&block))
-            .expect("process block ok"),
-        VerifiedBlockStatus::FirstSeenAndVerified
-    );
+    assert!(!chain_controller
+        .blocking_process_block(Arc::clone(&block))
+        .expect("process block ok"));
     assert_eq!(
         shared
             .store()
