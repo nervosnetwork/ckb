@@ -29,7 +29,7 @@ type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 /// VerifyResult is the result type to represent the result of block verification
-pub type VerifyResult = Result<VerifiedBlockStatus, Error>;
+pub type VerifyResult = Result<bool, Error>;
 
 /// VerifyCallback is the callback type to be called after block verification
 pub type VerifyCallback = Box<dyn FnOnce(VerifyResult) + Send + Sync>;
