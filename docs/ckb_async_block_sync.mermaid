@@ -69,7 +69,7 @@ sequenceDiagram
       Note over Sp: call nc.ban_peer() to punish the malicious peer
     end
     opt Execute Callback
-      Note over CV: callback: Box<dyn FnOnce(Result<VerifiedBlockStatus, Error>) + Send + Sync>
+      Note over CV: callback: Box<dyn FnOnce(Result<bool , Error>) + Send + Sync>
 
     end
   end

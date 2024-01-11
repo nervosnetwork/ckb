@@ -3,7 +3,7 @@
 
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
-use ckb_chain::{start_chain_services, VerifiedBlockStatus};
+use ckb_chain::start_chain_services;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
