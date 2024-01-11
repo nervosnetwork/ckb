@@ -34,20 +34,6 @@ pub type VerifyResult = Result<bool, Error>;
 /// VerifyCallback is the callback type to be called after block verification
 pub type VerifyCallback = Box<dyn FnOnce(VerifyResult) + Send + Sync>;
 
-/// VerifiedBlockStatus is
-#[derive(Debug, Clone, PartialEq)]
-pub enum VerifiedBlockStatus {
-    /// The block is being seen for the first time, and VM have verified it
-    FirstSeenAndVerified,
-
-    /// The block is being seen for the first time
-    /// but VM have not verified it since its a uncle block
-    UncleBlockNotVerified,
-
-    /// The block has been verified before.
-    PreviouslySeenAndVerified,
-}
-
 /// LonelyBlock is the block which we have not check weather its parent is stored yet
 #[derive(Clone)]
 pub struct LonelyBlock {

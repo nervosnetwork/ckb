@@ -1,6 +1,5 @@
-use crate::chain::ChainController;
 use crate::tests::util::start_chain;
-use crate::VerifiedBlockStatus;
+use crate::ChainController;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_error::assert_error_eq;
