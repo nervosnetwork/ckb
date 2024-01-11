@@ -15,9 +15,9 @@ sequenceDiagram
   box crate:ckb_chain
     participant C
   end
-  
+
   Note left of S: synchronizer received <br>Block(122) from remote peer
-  
+
   Note over S: try_process SyncMessageUnionReader::SendBlock
 
 
@@ -27,7 +27,7 @@ sequenceDiagram
   Note over C: insert_block(Block(122))
   C->>-BP: return result of process_block(Block(122))
   BP->>-S: return result of BlockProcess::execute(Block(122))
-  
+
   alt block is Valid
     Note over S: going on
   else block is Invalid
@@ -42,7 +42,7 @@ sequenceDiagram
   Note over C: insert_block(Block(123))
   C->>-BP: return result of process_block(Block(123))
   BP->>-S: return result of BlockProcess::execute(Block(123))
-  
+
   alt block is Valid
     Note over S: going on
   else block is Invalid
