@@ -392,20 +392,12 @@ impl Synchronizer {
             error!("block {} already partial stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared
-                .blocking_insert_new_block_with_verbose_info(
-                    &self.chain,
-                    Arc::new(block),
-                    peer_id,
-                    message_bytes,
-                )
-                .map(|v| {
-                    matches!(
-                        v,
-                        ckb_chain::VerifiedBlockStatus::FirstSeenAndVerified
-                            | ckb_chain::VerifiedBlockStatus::UncleBlockNotVerified
-                    )
-                })
+            self.shared.blocking_insert_new_block_with_verbose_info(
+                &self.chain,
+                Arc::new(block),
+                peer_id,
+                message_bytes,
+            )
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
