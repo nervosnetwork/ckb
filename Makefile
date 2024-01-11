@@ -131,7 +131,7 @@ profiling: ## Build binary with for profiling without debug symbols.
 
 .PHONY: profiling-with-debug-symbols
 build-for-profiling: ## Build binary with for profiling.
-	devtools/release/make-with-debug-symbols profilling
+	devtools/release/make-with-debug-symbols profiling
 
 .PHONY: prod
 prod: ## Build binary for production release.
