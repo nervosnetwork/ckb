@@ -29,6 +29,10 @@ type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 /// VerifyResult is the result type to represent the result of block verification
+///
+/// Ok(true) : it's a newly verified block
+/// Ok(false): it's a block which has been verified before
+/// Err(err) : it's a block which failed to verify
 pub type VerifyResult = Result<bool, Error>;
 
 /// VerifyCallback is the callback type to be called after block verification
