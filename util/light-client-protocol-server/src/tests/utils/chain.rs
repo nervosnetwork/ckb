@@ -4,7 +4,6 @@ use std::{
 };
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
-use ckb_chain::VerifiedBlockStatus;
 use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;

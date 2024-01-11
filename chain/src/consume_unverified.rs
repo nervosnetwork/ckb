@@ -1,7 +1,6 @@
 use crate::{
     tell_synchronizer_to_punish_the_bad_peer, utils::forkchanges::ForkChanges, GlobalIndex,
-    LonelyBlock, LonelyBlockWithCallback, TruncateRequest, UnverifiedBlock, VerifiedBlockStatus,
-    VerifyResult,
+    LonelyBlock, LonelyBlockWithCallback, TruncateRequest, UnverifiedBlock, VerifyResult,
 };
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};

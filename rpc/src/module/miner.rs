@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_chain::{ChainController, VerifiedBlockStatus, VerifyResult};
+use ckb_chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error, warn};
 use ckb_network::{NetworkController, PeerIndex, SupportProtocols, TargetSession};
