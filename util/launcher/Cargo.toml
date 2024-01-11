@@ -27,7 +27,6 @@ ckb-sync = { path = "../../sync", version = "= 0.114.0-pre"}
 ckb-verification = { path = "../../verification", version = "= 0.114.0-pre" }
 ckb-verification-traits = { path = "../../verification/traits", version = "= 0.114.0-pre" }
 ckb-async-runtime = { path = "../runtime", version = "= 0.114.0-pre" }
-ckb-proposal-table = { path = "../proposal-table", version = "= 0.114.0-pre" }
 ckb-channel = { path = "../channel", version = "= 0.114.0-pre" }
 ckb-tx-pool = { path = "../../tx-pool", version = "= 0.114.0-pre" }
 ckb-light-client-protocol-server = { path = "../light-client-protocol-server", version = "= 0.114.0-pre" }
