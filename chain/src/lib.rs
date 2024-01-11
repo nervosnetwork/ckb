@@ -14,6 +14,7 @@ use ckb_types::core::{BlockNumber, BlockView, HeaderView};
 use ckb_types::packed::Byte32;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
+mod chain_controller;
 mod chain_service;
 mod consume_orphan;
 mod consume_unverified;
@@ -21,7 +22,8 @@ mod consume_unverified;
 mod tests;
 mod utils;
 
-pub use chain_service::{start_chain_services, ChainController};
+pub use chain_controller::ChainController;
+pub use chain_service::start_chain_services;
 
 type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
