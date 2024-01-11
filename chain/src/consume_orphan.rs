@@ -29,13 +29,12 @@ impl ConsumeDescendantProcessor {
         let block_number = unverified_block.block().number();
         let block_hash = unverified_block.block().hash();
 
-        let send_success = match self.unverified_blocks_tx.send(unverified_block) {
+        match self.unverified_blocks_tx.send(unverified_block) {
             Ok(_) => {
                 debug!(
                     "process desendant block success {}-{}",
                     block_number, block_hash
                 );
-                true
             }
             Err(SendError(unverified_block)) => {
                 error!("send unverified_block_tx failed, the receiver has been closed");
@@ -47,12 +46,9 @@ impl ConsumeDescendantProcessor {
 
                 let verify_result: VerifyResult = Err(err);
                 unverified_block.execute_callback(verify_result);
-                false
+                return;
             }
         };
-        if !send_success {
-            return;
-        }
 
         if total_difficulty.gt(self.shared.get_unverified_tip().total_difficulty()) {
             self.shared.set_unverified_tip(ckb_shared::HeaderIndex::new(
