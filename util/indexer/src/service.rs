@@ -1,10 +1,10 @@
 //！The indexer service.
 
+use crate::error::Error;
 use crate::indexer::{self, extract_raw_data, CustomFilters, Indexer, Key, KeyPrefix, Value};
 use crate::pool::Pool;
-use crate::store::{IteratorDirection, RocksdbStore, SecondaryDB, Store};
+use crate::store::{Batch, IteratorDirection, RocksdbStore, SecondaryDB, Store};
 
-use crate::error::Error;
 use ckb_app_config::{DBConfig, IndexerConfig};
 use ckb_async_runtime::{
     tokio::{self, time},
@@ -20,11 +20,17 @@ use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{
+    core::{self, BlockNumber},
+    packed,
+    prelude::*,
+    H256,
+};
 use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
+use std::thread::sleep;
 use std::time::Duration;
 
 const SUBSCRIBER_NAME: &str = "Indexer";
@@ -41,6 +47,7 @@ pub struct IndexerService {
     async_handle: Handle,
     block_filter: Option<String>,
     cell_filter: Option<String>,
+    init_tip_hash: Option<H256>,
 }
 
 impl IndexerService {
@@ -76,6 +83,7 @@ impl IndexerService {
             poll_interval: Duration::from_secs(config.poll_interval),
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
+            init_tip_hash: config.init_tip_hash.clone(),
         }
     }
 
@@ -127,6 +135,44 @@ impl IndexerService {
         });
     }
 
+    fn apply_init_tip(&self) {
+        if let Some(init_tip_hash) = &self.init_tip_hash {
+            let indexer_tip = self
+                .store
+                .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
+                .expect("iter Header should be OK")
+                .next()
+                .map(|(key, _)| {
+                    BlockNumber::from_be_bytes(key[1..9].try_into().expect("stored block key"))
+                });
+            if let Some(indexer_tip) = indexer_tip {
+                if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                    if indexer_tip >= init_tip.number() {
+                        return;
+                    }
+                }
+            }
+            loop {
+                if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+                    error!("secondary_db try_catch_up_with_primary error {}", e);
+                }
+                if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                    let init_tip_number = header.number();
+                    let mut batch = self.store.batch().expect("create batch should be OK");
+                    batch
+                        .put_kv(
+                            Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                            vec![],
+                        )
+                        .expect("insert init tip header should be OK");
+                    batch.commit().expect("commit batch should be OK");
+                    break;
+                }
+                sleep(Duration::from_secs(1));
+            }
+        }
+    }
+
     fn try_loop_sync(&self) {
         // assume that long fork will not happen >= 100 blocks.
         let keep_num = 100;
@@ -171,9 +217,11 @@ impl IndexerService {
     /// Processes that handle block cell and expect to be spawned to run in tokio runtime
     pub fn spawn_poll(&self, notify_controller: NotifyController) {
         let initial_service = self.clone();
-        let initial_syncing = self
-            .async_handle
-            .spawn_blocking(move || initial_service.try_loop_sync());
+        let initial_syncing = self.async_handle.spawn_blocking(move || {
+            initial_service.apply_init_tip();
+            initial_service.try_loop_sync()
+        });
+
         let stop: CancellationToken = new_tokio_exit_rx();
         let async_handle = self.async_handle.clone();
         let poll_service = self.clone();
