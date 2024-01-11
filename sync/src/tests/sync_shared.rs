@@ -21,18 +21,18 @@ fn test_insert_new_block() {
         Arc::new(next_block)
     };
 
-    matches!(
+    assert!(matches!(
         shared
             .blocking_insert_new_block(&chain, Arc::clone(&new_block))
             .expect("insert valid block"),
         VerifiedBlockStatus::FirstSeenAndVerified,
-    );
-    matches!(
+    ));
+    assert!(matches!(
         shared
             .blocking_insert_new_block(&chain, Arc::clone(&new_block))
             .expect("insert duplicated valid block"),
         VerifiedBlockStatus::PreviouslySeenAndVerified,
-    );
+    ));
 }
 
 #[test]
