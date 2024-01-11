@@ -185,7 +185,7 @@ impl BlockFetcher {
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
             let mut header = self
                 .active_chain
-                .get_ancestor(&best_known.hash(), start + span - 1)?;
+                .get_ancestor_with_unverified(&best_known.hash(), start + span - 1)?;
             let mut status = self.sync_shared.shared().get_block_status(&header.hash());
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted

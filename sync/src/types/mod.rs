@@ -1814,19 +1814,18 @@ impl ActiveChain {
             }
         };
 
-        let get_header_view_fn: fn(&Byte32, bool) -> Option<HeaderIndexView> =
-            |hash, store_first| self.shared.get_header_index_view(hash, store_first);
+        let get_header_view_fn =
+            |hash: &Byte32, store_first: bool| self.shared.get_header_index_view(hash, store_first);
 
-        let fast_scanner_fn: fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderIndexView> =
-            |number, current| {
-                // shortcut to return an ancestor block
-                if current.number <= tip_number && block_is_on_chain_fn(&current.hash) {
-                    self.get_block_hash(number)
-                        .and_then(|hash| self.shared.get_header_index_view(&hash, true))
-                } else {
-                    None
-                }
-            };
+        let fast_scanner_fn = |number: BlockNumber, current: BlockNumberAndHash| {
+            // shortcut to return an ancestor block
+            if current.number <= tip_number && block_is_on_chain_fn(&current.hash) {
+                self.get_block_hash(number)
+                    .and_then(|hash| self.shared.get_header_index_view(&hash, true))
+            } else {
+                None
+            }
+        };
 
         self.shared
             .get_header_index_view(base, false)?
