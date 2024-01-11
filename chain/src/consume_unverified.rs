@@ -223,7 +223,7 @@ impl ConsumeUnverifiedBlockProcessor {
                     verified
                 );
                 return if verified {
-                    Ok(true)
+                    Ok(false)
                 } else {
                     Err(InternalErrorKind::Other
                         .other("block previously verified failed")
