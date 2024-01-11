@@ -21,18 +21,12 @@ fn test_insert_new_block() {
         Arc::new(next_block)
     };
 
-    assert!(matches!(
-        shared
-            .blocking_insert_new_block(&chain, Arc::clone(&new_block))
-            .expect("insert valid block"),
-        VerifiedBlockStatus::FirstSeenAndVerified,
-    ));
-    assert!(matches!(
-        shared
-            .blocking_insert_new_block(&chain, Arc::clone(&new_block))
-            .expect("insert duplicated valid block"),
-        VerifiedBlockStatus::PreviouslySeenAndVerified,
-    ));
+    assert!(shared
+        .blocking_insert_new_block(&chain, Arc::clone(&new_block))
+        .expect("insert valid block"));
+    assert!(!shared
+        .blocking_insert_new_block(&chain, Arc::clone(&new_block))
+        .expect("insert duplicated valid block"),);
 }
 
 #[test]
@@ -108,12 +102,9 @@ fn test_insert_parent_unknown_block() {
 
     // After inserting parent of an orphan block
 
-    assert!(matches!(
-        shared
-            .blocking_insert_new_block(&chain, Arc::clone(&parent))
-            .expect("insert parent of orphan block"),
-        VerifiedBlockStatus::FirstSeenAndVerified | VerifiedBlockStatus::UncleBlockNotVerified,
-    ));
+    assert!(shared
+        .blocking_insert_new_block(&chain, Arc::clone(&parent))
+        .expect("insert parent of orphan block"));
     assert_eq!(
         shared.active_chain().get_block_status(&valid_hash),
         BlockStatus::BLOCK_VALID
@@ -153,12 +144,9 @@ fn test_switch_valid_fork() {
     let mut valid_fork = Vec::new();
     for _ in 2..shared.active_chain().tip_number() {
         let block = make_valid_block(shared.shared(), parent_hash.clone());
-        assert_eq!(
-            shared
-                .blocking_insert_new_block(&chain, Arc::new(block.clone()))
-                .expect("insert fork"),
-            VerifiedBlockStatus::UncleBlockNotVerified
-        );
+        assert!(shared
+            .blocking_insert_new_block(&chain, Arc::new(block.clone()))
+            .expect("insert fork"));
 
         parent_hash = block.header().hash();
         valid_fork.push(block);
@@ -176,12 +164,9 @@ fn test_switch_valid_fork() {
     // Make the fork switch as the main chain.
     for _ in tip_number..tip_number + 2 {
         let block = inherit_block(shared.shared(), &parent_hash.clone()).build();
-        assert!(matches!(
-            shared
-                .blocking_insert_new_block(&chain, Arc::new(block.clone()))
-                .expect("insert fork"),
-            VerifiedBlockStatus::FirstSeenAndVerified | VerifiedBlockStatus::UncleBlockNotVerified,
-        ));
+        assert!(shared
+            .blocking_insert_new_block(&chain, Arc::new(block.clone()))
+            .expect("insert fork"));
 
         parent_hash = block.header().hash();
         valid_fork.push(block);
