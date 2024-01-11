@@ -13,7 +13,7 @@ use ckb_types::{
     core::{service::Request, BlockView},
     packed::Byte32,
 };
-use ckb_verification_traits::{Switch, Verifier};
+use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
 /// Controller to the chain service.
