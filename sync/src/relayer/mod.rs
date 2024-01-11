@@ -26,9 +26,11 @@ use crate::utils::{
 };
 use crate::{Status, StatusCode};
 use ckb_chain::ChainController;
-use ckb_chain::{VerifiedBlockStatus, VerifyResult};
+use ckb_chain::VerifyResult;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
-use ckb_logger::{debug_target, error, error_target, info_target, trace_target, warn_target};
+use ckb_logger::{
+    debug, debug_target, error, error_target, info_target, trace_target, warn_target,
+};
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
@@ -316,17 +318,22 @@ impl Relayer {
             let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
             let block = Arc::clone(&block);
             move |result: VerifyResult| match result {
-                Ok(verified_block_status) => match verified_block_status {
-                    VerifiedBlockStatus::FirstSeenAndVerified
-                    | VerifiedBlockStatus::UncleBlockNotVerified => {
-                        if broadcast_compact_block_tx.send((block, peer)).is_err() {
-                            error!(
+                Ok(verified) => {
+                    if !verified {
+                        debug!(
+                            "block {}-{} has verified already, won't build compact block and broadcast it",
+                            block.number(),
+                            block.hash()
+                        );
+                        return;
+                    }
+
+                    if broadcast_compact_block_tx.send((block, peer)).is_err() {
+                        error!(
                         "send block to broadcast_compact_block_tx failed, this shouldn't happen",
                     );
-                        }
                     }
-                    _ => {}
-                },
+                }
                 Err(err) => {
                     error!(
                         "verify block {}-{} failed: {:?}, won't build compact block and broadcast it",
