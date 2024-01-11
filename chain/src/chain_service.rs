@@ -12,6 +12,7 @@ use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, warn};
 use ckb_network::tokio;
+use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
 use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::ChainServicesBuilder;
@@ -196,6 +197,12 @@ impl ChainService {
         {
             let result = self.non_contextual_verify(lonely_block.block());
             if let Err(err) = result {
+                error!(
+                    "block {}-{} verify failed: {:?}",
+                    block_number, block_hash, err
+                );
+                self.shared
+                    .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_INVALID);
                 tell_synchronizer_to_punish_the_bad_peer(
                     self.verify_failed_blocks_tx.clone(),
                     lonely_block.peer_id_with_msg_bytes(),
