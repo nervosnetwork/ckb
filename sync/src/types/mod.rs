@@ -1781,25 +1781,56 @@ impl ActiveChain {
     }
 
     pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<HeaderIndexView> {
-        let unverified_tip_number = self.unverified_tip_number();
+        self.get_ancestor_internal(base, number, false)
+    }
+
+    pub fn get_ancestor_with_unverified(
+        &self,
+        base: &Byte32,
+        number: BlockNumber,
+    ) -> Option<HeaderIndexView> {
+        self.get_ancestor_internal(base, number, true)
+    }
+
+    fn get_ancestor_internal(
+        &self,
+        base: &Byte32,
+        number: BlockNumber,
+        with_unverified: bool,
+    ) -> Option<HeaderIndexView> {
+        let tip_number = {
+            if with_unverified {
+                self.unverified_tip_number()
+            } else {
+                self.tip_number()
+            }
+        };
+
+        let block_is_on_chain_fn = |hash: &Byte32| {
+            if with_unverified {
+                self.is_unverified_chain(hash)
+            } else {
+                self.is_main_chain(hash)
+            }
+        };
+
+        let get_header_view_fn: fn(&Byte32, bool) -> Option<HeaderIndexView> =
+            |hash, store_first| self.shared.get_header_index_view(hash, store_first);
+
+        let fast_scanner_fn: fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderIndexView> =
+            |number, current| {
+                // shortcut to return an ancestor block
+                if current.number <= tip_number && block_is_on_chain_fn(&current.hash) {
+                    self.get_block_hash(number)
+                        .and_then(|hash| self.shared.get_header_index_view(&hash, true))
+                } else {
+                    None
+                }
+            };
+
         self.shared
             .get_header_index_view(base, false)?
-            .get_ancestor(
-                unverified_tip_number,
-                number,
-                |hash, store_first| self.shared.get_header_index_view(hash, store_first),
-                |number, current| {
-                    // shortcut to return an ancestor block
-                    if current.number <= unverified_tip_number
-                        && self.is_unverified_chain(&current.hash)
-                    {
-                        self.get_block_hash(number)
-                            .and_then(|hash| self.shared.get_header_index_view(&hash, true))
-                    } else {
-                        None
-                    }
-                },
-            )
+            .get_ancestor(tip_number, number, get_header_view_fn, fast_scanner_fn)
     }
 
     pub fn get_locator(&self, start: BlockNumberAndHash) -> Vec<Byte32> {
