@@ -19,7 +19,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::{cell::ResolvedTransaction, Cycle};
-//use ckb_verification::cache::TxVerificationCache;
+
 use ckb_verification::{
     cache::{CacheEntry, Completed},
     ContextualWithoutScriptTransactionVerifier, DaoScriptSizeVerifier, ScriptVerifier,
@@ -302,6 +302,7 @@ pub(crate) struct VerifyMgr {
     worker_notify: UnboundedReceiver<VerifyNotify>,
     join_handles: Option<Vec<JoinHandle<()>>>,
     signal_exit: CancellationToken,
+    command_rx: watch::Receiver<ChunkCommand>,
 }
 
 impl VerifyMgr {
@@ -336,6 +337,7 @@ impl VerifyMgr {
             worker_notify: notify_rx,
             join_handles: None,
             signal_exit,
+            command_rx: chunk_rx,
         }
     }
 
@@ -349,18 +351,16 @@ impl VerifyMgr {
     }
 
     async fn start_loop(&mut self) {
-        let mut interval = tokio::time::interval(Duration::from_micros(1000));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
                 _ = self.signal_exit.cancelled() => {
                     break;
                 },
+                _ = self.command_rx.changed() => {
+                    eprintln!("command: {:?}", self.command_rx.borrow());
+                }
                 res = self.worker_notify.recv() => {
                     eprintln!("res: {:?}", res);
-                }
-                _ = interval.tick() => {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         }

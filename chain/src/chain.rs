@@ -240,6 +240,7 @@ impl ChainService {
                             let instant = Instant::now();
 
                             let _ = tx_control.suspend_chunk_process();
+                            eprintln!("suspend chunk process");
                             let _ = responder.send(self.process_block(block, verify));
                             let _ = tx_control.continue_chunk_process();
 
