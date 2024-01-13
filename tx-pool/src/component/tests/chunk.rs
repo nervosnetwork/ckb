@@ -1,6 +1,7 @@
 use ckb_types::core::TransactionBuilder;
+use tokio::sync::watch;
 
-use crate::component::chunk::{ChunkQueue, Entry};
+use crate::verify_queue::{Entry, VerifyQueue};
 
 #[test]
 fn basic() {
@@ -10,13 +11,14 @@ fn basic() {
         remote: None,
     };
     let id = tx.proposal_short_id();
-    let mut queue = ChunkQueue::new();
+    let (queue_tx, _queue_rx) = watch::channel(0 as usize);
+    let mut queue = VerifyQueue::new(queue_tx);
 
     assert!(queue.add_tx(tx.clone(), None));
-    assert_eq!(queue.pop_front().as_ref(), Some(&entry));
-    assert!(queue.contains_key(&id));
-    assert!(!queue.add_tx(tx, None));
+    assert_eq!(queue.pop_first().as_ref(), Some(&entry));
+    assert!(!queue.contains_key(&id));
+    assert!(queue.add_tx(tx, None));
 
-    queue.clean_front();
+    queue.clear();
     assert!(!queue.contains_key(&id));
 }
