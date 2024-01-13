@@ -78,9 +78,10 @@ impl VerifyQueue {
     }
 
     pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
-        let ret = self.inner.remove_by_id(id);
-        self.shrink_to_fit();
-        Some(ret.unwrap().inner)
+        self.inner.remove_by_id(id).map(|e| {
+            self.shrink_to_fit();
+            e.inner
+        })
     }
 
     pub fn remove_txs(&mut self, ids: impl Iterator<Item = ProposalShortId>) {
