@@ -1510,52 +1510,6 @@ async fn run_vms_with_signal(
     }
 }
 
-// async fn run_vm_with_signal(
-//     mut vm: Machine,
-//     signal: &mut watch::Receiver<ChunkCommand>,
-// ) -> (Result<i8, ckb_vm::Error>, Cycle) {
-//     let (finished_send, mut finished_recv) = mpsc::unbounded_channel();
-//     let pause = vm.machine.pause();
-//     let (child_sender, mut child_recv) = watch::channel(ChunkCommand::Resume);
-//     child_recv.mark_changed();
-//     let jh = tokio::spawn(async move {
-//         loop {
-//             select! {
-//                 _ = child_recv.changed() => {
-//                     let state = child_recv.borrow().to_owned();
-//                     if state == ChunkCommand::Resume {
-//                         let result = vm.run();
-//                         if matches!(result, Err(ckb_vm::Error::Pause)) {
-//                             continue;
-//                         } else {
-//                             finished_send.send((result, vm.machine.cycles())).unwrap();
-//                             return;
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     });
-
-//     loop {
-//         tokio::select! {
-//             _ = signal.changed() => {
-//                 let state = signal.borrow().to_owned();
-//                 if state == ChunkCommand::Suspend {
-//                     pause.interrupt();
-//                 } else if state == ChunkCommand::Resume {
-//                     child_sender.send(ChunkCommand::Resume).unwrap();
-//                 }
-//             }
-//             res = finished_recv.recv() => {
-//                 let _ = jh.await.unwrap();
-//                 return res.unwrap();
-//             }
-//             else => { break (Err(ckb_vm::Error::Unexpected("channel closed".into())), 0) }
-//         }
-//     }
-// }
-
 fn wrapping_cycles_add(
     lhs: Cycle,
     rhs: Cycle,
