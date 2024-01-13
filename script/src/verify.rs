@@ -1400,62 +1400,78 @@ async fn run_vms_with_signal(
         mpsc::unbounded_channel::<(Result<i8, ckb_vm::Error>, u64)>();
     let (child_sender, mut child_recv) = watch::channel(ChunkCommand::Resume);
     child_recv.mark_changed();
+    eprintln!("begin to run vms with signal: vms len {}", machines.len());
     let context_clone = context.clone();
     let jh = tokio::spawn(async move {
         let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
         loop {
+            eprintln!("begin to loop .........");
             select! {
                 _ = child_recv.changed() => {
                     let state = child_recv.borrow().to_owned();
-                    if state == ChunkCommand::Resume {
-                        if machines.len() == 0 {
-                            finished_send.send((Ok(exit_code), cycles)).unwrap();
-                            return;
+                    if state != ChunkCommand::Resume {
+                        continue;
+                    }
+                    eprintln!("first resume here: {:?}", machines.len());
+                    if machines.len() == 0 {
+                        finished_send.send((Ok(exit_code), cycles)).unwrap();
+                        return;
+                    }
+
+                    while let Some(mut machine) = machines.pop() {
+                        eprintln!("first run vm now {}", machine.cycles());
+                        if let Some(callee_spawn_data) = &spawn_data {
+                            update_caller_machine(
+                                &mut machine.machine_mut().machine,
+                                exit_code,
+                                cycles,
+                                callee_spawn_data,
+                            )
+                            .unwrap();
                         }
 
-                        while let Some(mut machine) = machines.pop() {
-                            if let Some(callee_spawn_data) = &spawn_data {
-                                update_caller_machine(
-                                    &mut machine.machine_mut().machine,
-                                    exit_code,
-                                    cycles,
-                                    callee_spawn_data,
-                                )
-                                .unwrap();
+                        let res = machine.run();
+                        eprintln!("first run vm now {} res: {:?}", machine.cycles(), res);
+                        match res {
+                            Ok(code) => {
+                                exit_code = code;
+                                cycles = machine.cycles();
+                                if let ResumableMachine::Spawn(_, data) = machine {
+                                    spawn_data = Some(data);
+                                } else {
+                                    spawn_data = None;
+                                }
+                                eprintln!("finished run vm: {}", machines.len());
+                                if machines.len() == 0 {
+                                    finished_send.send((Ok(exit_code), cycles)).unwrap();
+                                    return;
+                                }
                             }
-
-                            let res = machine.run();
-                            match res {
-                                Ok(code) => {
-                                    exit_code = code;
-                                    cycles = machine.cycles();
-                                    if let ResumableMachine::Spawn(_, data) = machine {
-                                        spawn_data = Some(data);
-                                    } else {
-                                        spawn_data = None;
-                                    }
-                                }
-                                Err(VMInternalError::Pause) => {
-                                    let mut new_suspended_machines: Vec<_> = {
-                                        let mut context = context_clone.lock().map_err(|e| {
-                                            ScriptError::VMInternalError(format!(
-                                                "Failed to acquire lock: {}",
-                                                e
-                                            ))
-                                        }).unwrap();
-                                        context.suspended_machines.drain(..).collect()
-                                    };
-                                    // The inner most machine lives at the top of the vector,
-                                    // reverse the list for natural order.
-                                    new_suspended_machines.reverse();
-                                    machines.push(machine);
-                                    machines.append(&mut new_suspended_machines);
-                                }
-                                _ => {
-                                        finished_send.send((res, machine.cycles())).unwrap();
-                                }
-                            };
-                        }
+                            Err(VMInternalError::Pause) => {
+                                let mut new_suspended_machines: Vec<_> = {
+                                    let mut context = context_clone.lock().map_err(|e| {
+                                        ScriptError::VMInternalError(format!(
+                                            "Failed to acquire lock: {}",
+                                            e
+                                        ))
+                                    }).unwrap();
+                                    context.suspended_machines.drain(..).collect()
+                                };
+                                // The inner most machine lives at the top of the vector,
+                                // reverse the list for natural order.
+                                new_suspended_machines.reverse();
+                                machines.push(machine);
+                                machines.append(&mut new_suspended_machines);
+                                // wait for Resume command to begin next loop iteration
+                                break;
+                            }
+                            _ => {
+                                // other error happened here, for example CyclesExceeded,
+                                // we need to return as verification failed
+                                finished_send.send((res, machine.cycles())).unwrap();
+                                return;
+                            }
+                        };
                     }
                 }
             }

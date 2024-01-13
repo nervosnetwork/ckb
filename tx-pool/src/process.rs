@@ -316,6 +316,7 @@ impl TxPoolService {
         }
 
         if let Some((ret, snapshot)) = self.verify_or_add_to_queue(tx.clone(), remote).await {
+            eprintln!("resumeble_process_tx: ret = {:?}", ret);
             match ret {
                 Ok(processed) => {
                     if let ProcessResult::Completed(completed) = processed {
@@ -710,6 +711,7 @@ impl TxPoolService {
                     .resumable_verify(self.tx_pool_config.max_tx_verify_cycles)
                     .map_err(Reject::Verification)?;
 
+                eprintln!("first verify: {:?}", ret);
                 match ret {
                     ScriptVerifyResult::Completed(cycles) => {
                         if let Err(e) = DaoScriptSizeVerifier::new(
@@ -746,6 +748,7 @@ impl TxPoolService {
                         .enqueue_suspended_tx(rtx.transaction.clone(), cached, remote)
                         .await;
                     try_or_return_with_snapshot!(ret, snapshot);
+                    eprintln!("added to queue here: {:?}", tx.proposal_short_id());
                     return Some((Ok(ProcessResult::Suspended), snapshot));
                 }
                 CacheEntry::Completed(completed) => completed,

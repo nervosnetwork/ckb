@@ -36,6 +36,7 @@ pub enum VerifyNotify {
     },
 }
 
+#[derive(Clone, Debug)]
 enum State {
     //Stopped,
     //Suspended(Arc<TransactionSnapshot>),
@@ -113,11 +114,13 @@ impl Worker {
             Some(entry) => entry,
             None => return,
         };
+        eprintln!("begin to process: {:?}", entry);
         let short_id = entry.tx.proposal_short_id().to_string();
         let (res, snapshot) = self
             .run_verify_tx(entry.clone())
             .await
             .expect("run_verify_tx failed");
+        eprintln!("process done: {:?}", res);
         self.outbox
             .send(VerifyNotify::Done {
                 short_id,
@@ -152,6 +155,7 @@ impl Worker {
 
         let tx_env = Arc::new(TxVerifyEnv::new_submit(tip_header));
 
+        eprintln!("run_verify_tx cached: {:?}", cached);
         if let Some(ref cached) = cached {
             match cached {
                 CacheEntry::Completed(completed) => {
@@ -176,7 +180,8 @@ impl Worker {
                     return Some((Ok(false), submit_snapshot));
                 }
                 CacheEntry::Suspended(_suspended) => {
-                    panic!("not expected");
+                    eprintln!("not expected suspended: {:?}", cached);
+                    //panic!("not expected");
                 }
             }
         }
@@ -208,6 +213,7 @@ impl Worker {
             consensus.max_block_cycles()
         };
 
+        eprintln!("begin to loop: {:?}", rtx);
         let ret = self
             .loop_resume(
                 Arc::clone(&rtx),
@@ -217,6 +223,7 @@ impl Worker {
                 Arc::clone(&tx_env),
             )
             .await;
+        eprintln!("loop done: {:?}", ret);
         let state = try_or_return_with_snapshot!(ret, snapshot);
 
         let completed: Completed = match state {
@@ -224,6 +231,8 @@ impl Worker {
             // State::Stopped => return Some((Ok(true), snapshot)),
             State::Completed(cycles) => Completed { cycles, fee },
         };
+        eprintln!("completed: {:?}", completed);
+        eprintln!("remote: {:?}", remote);
         if let Some((declared_cycle, _peer)) = remote {
             if declared_cycle != completed.cycles {
                 return Some((
