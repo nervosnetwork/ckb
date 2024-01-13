@@ -1370,6 +1370,7 @@ fn run_vms(
     }
 
     if exit_code == 0 {
+        eprintln!("run_vms finished: {} cycles: {}", exit_code, cycles);
         Ok(ChunkState::Completed(cycles))
     } else {
         Err(ScriptError::validation_failure(
