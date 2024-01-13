@@ -123,6 +123,7 @@ impl VerifyQueue {
                 .as_millis() as u64,
             inner: Entry { tx, remote },
         });
+        eprintln!("added to queue len: {:?}", self.len());
         self.queue_tx.send(self.len()).unwrap();
         true
     }
