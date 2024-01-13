@@ -701,10 +701,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         for (idx, (_hash, group)) in groups.iter().enumerate() {
             // vm should early return invalid cycles
             let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {limit_cycles} {cycles}"
-                ))
-                .source(group)
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
             })?;
 
             match self
@@ -1150,7 +1148,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            _ => ScriptError::VMInternalError(format!("{error:?}")),
+            _ => ScriptError::VMInternalError(error),
         };
 
         let machines = {
@@ -1193,7 +1191,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             machine
                 .machine
                 .add_cycles_no_checking(program_bytes_cycles)
-                .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")))?;
+                .map_err(|e| ScriptError::VMInternalError(e))?;
             let mut context = context.lock().unwrap();
             context.set_pause(machine.machine.pause().clone());
             vec![ResumableMachine::initial(machine)]
@@ -1390,8 +1388,8 @@ async fn run_vms_with_signal(
     signal: &mut tokio::sync::watch::Receiver<ChunkCommand>,
 ) -> Result<ChunkState, ScriptError> {
     if machines.is_empty() {
-        return Err(ScriptError::VMInternalError(
-            "At least one VM must be available!".to_string(),
+        return Err(ScriptError::Other(
+            "To resume VMs, at least one VM must be available!".to_string(),
         ));
     }
 
@@ -1450,10 +1448,7 @@ async fn run_vms_with_signal(
                             Err(VMInternalError::Pause) => {
                                 let mut new_suspended_machines: Vec<_> = {
                                     let mut context = context_clone.lock().map_err(|e| {
-                                        ScriptError::VMInternalError(format!(
-                                            "Failed to acquire lock: {}",
-                                            e
-                                        ))
+                                        ScriptError::Other(format!("Failed to acquire lock: {}", e))
                                     }).unwrap();
                                     context.suspended_machines.drain(..).collect()
                                 };
@@ -1499,8 +1494,8 @@ async fn run_vms_with_signal(
                             &script_group.script,
                             exit_code
                         ))},
-                    (Err(e), _) => {
-                        return Err(ScriptError::VMInternalError(format!("{e:?}")));
+                    (Err(err), _) => {
+                        return Err(ScriptError::VMInternalError(err));
                     }
                 }
 
