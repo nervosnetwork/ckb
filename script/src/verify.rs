@@ -690,6 +690,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         Ok(VerifyResult::Completed(cycles))
     }
 
+    /// Performing a resumable verification on the transaction scripts with signal
+    /// If `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes.
     pub async fn resumable_verify_with_signal(
         &self,
         limit_cycles: Cycle,
@@ -1191,7 +1193,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             machine
                 .machine
                 .add_cycles_no_checking(program_bytes_cycles)
-                .map_err(|e| ScriptError::VMInternalError(e))?;
+                .map_err(ScriptError::VMInternalError)?;
             let mut context = context.lock().unwrap();
             context.set_pause(machine.machine.pause().clone());
             vec![ResumableMachine::initial(machine)]
@@ -1400,7 +1402,7 @@ async fn run_vms_with_signal(
     let (child_sender, mut child_recv) = watch::channel(ChunkCommand::Resume);
     child_recv.mark_changed();
     eprintln!("begin to run vms with signal: vms len {}", machines.len());
-    let context_clone = context.clone();
+    let context_clone = Arc::clone(context);
     let jh = tokio::spawn(async move {
         let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
         loop {
@@ -1412,7 +1414,7 @@ async fn run_vms_with_signal(
                         continue;
                     }
                     eprintln!("first resume here: {:?}", machines.len());
-                    if machines.len() == 0 {
+                    if machines.is_empty() {
                         finished_send.send((Ok(exit_code), cycles)).unwrap();
                         return;
                     }
@@ -1441,7 +1443,7 @@ async fn run_vms_with_signal(
                                     spawn_data = None;
                                 }
                                 eprintln!("finished run vm: {}", machines.len());
-                                if machines.len() == 0 {
+                                if machines.is_empty() {
                                     finished_send.send((Ok(exit_code), cycles)).unwrap();
                                     return;
                                 }

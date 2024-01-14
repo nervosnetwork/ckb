@@ -124,17 +124,14 @@ impl Worker {
         self.outbox
             .send(VerifyNotify::Done {
                 short_id,
-                result: (res.clone(), snapshot.clone()),
+                result: (res.clone(), Arc::clone(&snapshot)),
             })
             .unwrap();
 
-        match res {
-            Err(e) => {
-                self.service
-                    .after_process(entry.tx, entry.remote, &snapshot, &Err(e))
-                    .await;
-            }
-            _ => {}
+        if let Err(e) = res {
+            self.service
+                .after_process(entry.tx, entry.remote, &snapshot, &Err(e))
+                .await;
         }
     }
 
@@ -263,7 +260,7 @@ impl Worker {
         )
         .await;
 
-        return Some((Ok(false), snapshot));
+        Some((Ok(false), snapshot))
     }
 
     async fn loop_resume<
@@ -282,9 +279,7 @@ impl Worker {
             .await
             .map_err(Reject::Verification)?;
         match res {
-            VerifyResult::Completed(cycles) => {
-                return Ok(State::Completed(cycles));
-            }
+            VerifyResult::Completed(cycles) => Ok(State::Completed(cycles)),
             VerifyResult::Suspended(_) => {
                 panic!("not expected");
             }
@@ -320,15 +315,14 @@ impl VerifyMgr {
                 let command_rx = chunk_rx.clone();
                 let signal_exit = signal_exit.clone();
                 move |_| {
-                    let worker = Worker::new(
+                    Worker::new(
                         service.clone(),
                         Arc::clone(&tasks),
                         command_rx.clone(),
                         queue_rx.clone(),
                         notify_tx.clone(),
                         signal_exit.clone(),
-                    );
-                    worker
+                    )
                 }
             })
             .collect();

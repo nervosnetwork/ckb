@@ -119,6 +119,9 @@ pub(crate) type Machine = TraceMachine<CoreMachine>;
 pub struct MachineContext {
     /// A stack of ResumableMachines.
     pub suspended_machines: Vec<ResumableMachine>,
+    /// A pause will be set for suspend machines.
+    /// The child machine will reuse parent machine's pause,
+    /// so that when parent is paused, all its children will be paused.
     pub pause: Pause,
 }
 
@@ -454,8 +457,11 @@ impl std::fmt::Debug for TransactionState {
     }
 }
 
+/// ChunkCommand is used to control the verification process to suspend or resume
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum ChunkCommand {
+    /// Suspend the verification process
     Suspend,
+    /// Resume the verification process
     Resume,
 }
