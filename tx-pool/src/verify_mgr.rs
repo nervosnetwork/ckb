@@ -2,6 +2,7 @@ extern crate num_cpus;
 use crate::component::entry::TxEntry;
 use crate::try_or_return_with_snapshot;
 use crate::{error::Reject, service::TxPoolService};
+use ckb_logger::info;
 use ckb_script::{ChunkCommand, VerifyResult};
 use ckb_stop_handler::CancellationToken;
 use ckb_types::packed::Byte32;
@@ -348,10 +349,11 @@ impl VerifyMgr {
         loop {
             tokio::select! {
                 _ = self.signal_exit.cancelled() => {
+                    info!("TxPool chunk_command service received exit signal, exit now");
                     break;
                 },
                 _ = self.command_rx.changed() => {
-                    eprintln!("command: {:?}", self.command_rx.borrow());
+                    //eprintln!("command: {:?}", self.command_rx.borrow());
                 }
                 res = self.worker_notify.recv() => {
                     eprintln!("res: {:?}", res);
