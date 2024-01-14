@@ -1,6 +1,6 @@
+extern crate num_cpus;
 use crate::component::entry::TxEntry;
 use crate::try_or_return_with_snapshot;
-
 use crate::{error::Reject, service::TxPoolService};
 use ckb_script::{ChunkCommand, VerifyResult};
 use ckb_stop_handler::CancellationToken;
@@ -309,7 +309,7 @@ impl VerifyMgr {
         queue_rx: watch::Receiver<usize>,
     ) -> Self {
         let (notify_tx, notify_rx) = unbounded_channel::<VerifyNotify>();
-        let workers: Vec<_> = (0..4)
+        let workers: Vec<_> = (0..num_cpus::get())
             .map({
                 let tasks = Arc::clone(&verify_queue);
                 let command_rx = chunk_rx.clone();
