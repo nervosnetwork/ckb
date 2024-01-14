@@ -469,7 +469,7 @@ impl TxPoolServiceBuilder {
             }
         };
 
-        let (queue_tx, queue_rx) = watch::channel(0 as usize);
+        let (queue_tx, queue_rx) = watch::channel(0_usize);
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(queue_tx)));
         let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
         let service = TxPoolService {
@@ -481,7 +481,7 @@ impl TxPoolServiceBuilder {
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
             block_assembler_sender,
-            verify_queue: verify_queue.clone(),
+            verify_queue: Arc::clone(&verify_queue),
             network,
             consensus,
             delay: Arc::new(RwLock::new(LinkedHashMap::new())),

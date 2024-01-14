@@ -11,7 +11,7 @@ fn basic() {
         remote: None,
     };
     let id = tx.proposal_short_id();
-    let (queue_tx, _queue_rx) = watch::channel(0 as usize);
+    let (queue_tx, _queue_rx) = watch::channel(0_usize);
     let mut queue = VerifyQueue::new(queue_tx);
 
     assert!(queue.add_tx(tx.clone(), None));
