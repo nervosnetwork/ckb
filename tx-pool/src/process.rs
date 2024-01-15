@@ -677,24 +677,17 @@ impl TxPoolService {
 
         let data_loader = snapshot.as_data_loader();
 
-        let completed = if let Some(ref entry) = cached {
-            match entry {
-                CacheEntry::Completed(completed) => {
-                    let ret = TimeRelativeTransactionVerifier::new(
-                        Arc::clone(&rtx),
-                        Arc::clone(&self.consensus),
-                        data_loader,
-                        tx_env,
-                    )
-                    .verify()
-                    .map_err(Reject::Verification);
-                    try_or_return_with_snapshot!(ret, snapshot);
-                    *completed
-                }
-                CacheEntry::Suspended(_) => {
-                    panic!("Unexpected suspended entry in cache");
-                }
-            }
+        let completed = if let Some(ref completed) = cached {
+            let ret = TimeRelativeTransactionVerifier::new(
+                Arc::clone(&rtx),
+                Arc::clone(&self.consensus),
+                data_loader,
+                tx_env,
+            )
+            .verify()
+            .map_err(Reject::Verification);
+            try_or_return_with_snapshot!(ret, snapshot);
+            *completed
         } else if remote.is_some() {
             // for remote transaction with large decleard cycles, we enqueue it to verify queue
             let ret = self
@@ -732,7 +725,7 @@ impl TxPoolService {
                         {
                             return Err(Reject::Verification(e));
                         }
-                        Ok(CacheEntry::completed(cycles, fee))
+                        Ok(Completed { cycles, fee })
                     }
                     ScriptVerifyResult::Suspended(_state) => {
                         panic!("unexpect suspend");
@@ -740,11 +733,7 @@ impl TxPoolService {
                 }
             });
 
-            let entry = try_or_return_with_snapshot!(ret, snapshot);
-            match entry {
-                CacheEntry::Completed(completed) => completed,
-                _ => panic!("unexpect suspend"),
-            }
+            try_or_return_with_snapshot!(ret, snapshot)
         };
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
@@ -757,7 +746,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, CacheEntry::Completed(completed));
+                guard.put(tx_hash, completed);
             });
         }
 
@@ -839,7 +828,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, CacheEntry::Completed(verified));
+                guard.put(tx_hash, verified);
             });
         }
 
