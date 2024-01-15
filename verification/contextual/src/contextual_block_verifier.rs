@@ -429,25 +429,9 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                             .into()
                         })
                         .map(|_| (tx_hash, *completed)),
-                        CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
-                            Arc::clone(tx),
-                            Arc::clone(&self.context.consensus),
-                            self.context.store.as_data_loader(),
-                            Arc::clone(&tx_env),
-                        )
-                        .complete(
-                            self.context.consensus.max_block_cycles(),
-                            skip_script_verify,
-                            &suspended.snap,
-                        )
-                        .map_err(|error| {
-                            BlockTransactionsError {
-                                index: index as u32,
-                                error,
-                            }
-                            .into()
-                        })
-                        .map(|completed| (tx_hash, completed)),
+                        CacheEntry::Suspended(_suspended) => {
+                            panic!("unexpected Suspended in verify");
+                        },
                     }
                 } else {
                     ContextualTransactionVerifier::new(

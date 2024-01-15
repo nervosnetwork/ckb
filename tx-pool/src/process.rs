@@ -666,12 +666,19 @@ impl TxPoolService {
                     *completed
                 }
                 CacheEntry::Suspended(_) => {
-                    return Some((Ok(ProcessResult::Suspended), snapshot));
+                    panic!("Unexpected suspended entry in cache");
                 }
             }
+        } else if remote.is_some() {
+            // for remote transaction with large decleard cycles, we enqueue it to verify queue
+            let ret = self
+                .enqueue_suspended_tx(rtx.transaction.clone(), remote)
+                .await;
+            try_or_return_with_snapshot!(ret, snapshot);
+            eprintln!("added to queue here: {:?}", tx.proposal_short_id());
+            return Some((Ok(ProcessResult::Suspended), snapshot));
         } else {
-            let is_chunk_full = self.is_chunk_full().await;
-
+            // for local transaction, we verify it directly with a max cycles limit
             let ret = block_in_place(|| {
                 let verifier = ContextualTransactionVerifier::new(
                     Arc::clone(&rtx),
@@ -680,10 +687,11 @@ impl TxPoolService {
                     tx_env,
                 );
 
+                let cycle_limit = snapshot.cloned_consensus().max_block_cycles();
                 // FIXME(yukang): here we're still using old `resumable_verify` interface
                 // ideally we should unify the interface with `resumable_verify_with_signal`
                 let (ret, fee) = verifier
-                    .resumable_verify(self.tx_pool_config.max_tx_verify_cycles)
+                    .resumable_verify(cycle_limit)
                     .map_err(Reject::Verification)?;
 
                 eprintln!("first verify: {:?}", ret);
@@ -698,46 +706,28 @@ impl TxPoolService {
                         {
                             return Err(Reject::Verification(e));
                         }
-                        if let Some((declared, _)) = remote {
-                            if declared != cycles {
-                                return Err(Reject::DeclaredWrongCycles(declared, cycles));
-                            }
-                        }
                         Ok(CacheEntry::completed(cycles, fee))
                     }
-                    ScriptVerifyResult::Suspended(state) => {
-                        if is_chunk_full {
-                            Err(Reject::Full("chunk is full".to_owned()))
-                        } else {
-                            let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
-                            Ok(CacheEntry::suspended(snap, fee))
-                        }
+                    ScriptVerifyResult::Suspended(_state) => {
+                        panic!("unexpect suspend");
                     }
                 }
             });
 
             let entry = try_or_return_with_snapshot!(ret, snapshot);
             match entry {
-                CacheEntry::Suspended(_) => {
-                    let ret = self
-                        .enqueue_suspended_tx(rtx.transaction.clone(), remote)
-                        .await;
-                    try_or_return_with_snapshot!(ret, snapshot);
-                    eprintln!("added to queue here: {:?}", tx.proposal_short_id());
-                    return Some((Ok(ProcessResult::Suspended), snapshot));
-                }
                 CacheEntry::Completed(completed) => completed,
+                _ => panic!("unexpect suspend"),
             }
         };
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-
         let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
         if cached.is_none() {
-            // update cache
+            // update cache in background
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
@@ -748,7 +738,7 @@ impl TxPoolService {
         Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
     }
 
-    pub(crate) async fn is_chunk_full(&self) -> bool {
+    pub(crate) async fn _is_chunk_full(&self) -> bool {
         self.verify_queue.read().await.is_full()
     }
 
