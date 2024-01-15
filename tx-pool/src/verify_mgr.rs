@@ -282,6 +282,7 @@ impl Worker {
         match res {
             VerifyResult::Completed(cycles) => Ok(State::Completed(cycles)),
             VerifyResult::Suspended(_) => {
+                // `resumable_verify_with_signal` should not return `Suspended`
                 panic!("not expected");
             }
         }
