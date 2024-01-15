@@ -1385,7 +1385,7 @@ fn run_vms(
 // Run a series of VMs that are just freshly resumed
 async fn run_vms_with_signal(
     script_group: &ScriptGroup,
-    _max_cycles: Cycle,
+    max_cycles: Cycle,
     machines: Vec<ResumableMachine>,
     context: Arc<Mutex<MachineContext>>,
     signal: &mut tokio::sync::watch::Receiver<ChunkCommand>,
@@ -1428,7 +1428,11 @@ async fn run_vms_with_signal(
                             exit_code
                         ))},
                     (Err(err), _) => {
-                        return Err(ScriptError::VMInternalError(err));
+                        let map_vm_internal_error = |error: VMInternalError| match error {
+                            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+                            _ => ScriptError::VMInternalError(error),
+                        };
+                        return Err(map_vm_internal_error(err));
                     }
                 }
 
