@@ -164,7 +164,12 @@ impl BlockFetcher {
 
         let state = self.sync_shared.state();
 
-        let mut start = self.sync_shared.shared().get_unverified_tip().number() + 1;
+        let mut start = {
+            match self.ibd {
+                IBDState::In => self.sync_shared.shared().get_unverified_tip().number() + 1,
+                IBDState::Out => last_common.number() + 1,
+            }
+        };
         let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
@@ -183,9 +188,17 @@ impl BlockFetcher {
             let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
 
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
-            let mut header = self
-                .active_chain
-                .get_ancestor_with_unverified(&best_known.hash(), start + span - 1)?;
+            let mut header: HeaderIndexView = {
+                match self.ibd {
+                    IBDState::In => self
+                        .active_chain
+                        .get_ancestor_with_unverified(&best_known.hash(), start + span - 1),
+                    IBDState::Out => self
+                        .active_chain
+                        .get_ancestor(&best_known.hash(), start + span - 1),
+                }
+            }?;
+
             let mut status = self.sync_shared.shared().get_block_status(&header.hash());
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted
