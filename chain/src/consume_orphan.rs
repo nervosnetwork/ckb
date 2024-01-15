@@ -71,9 +71,6 @@ impl ConsumeDescendantProcessor {
                 self.shared.get_unverified_tip().hash(),
             );
         }
-
-        self.shared
-            .insert_block_status(block_hash, BlockStatus::BLOCK_PARTIAL_STORED);
     }
 
     fn accept_descendant(&self, block: Arc<BlockView>) -> Result<(HeaderView, U256), Error> {
@@ -151,6 +148,11 @@ impl ConsumeDescendantProcessor {
     pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
         match self.accept_descendant(lonely_block.block().to_owned()) {
             Ok((parent_header, total_difficulty)) => {
+                self.shared.insert_block_status(
+                    lonely_block.block().hash(),
+                    BlockStatus::BLOCK_PARTIAL_STORED,
+                );
+
                 let unverified_block: UnverifiedBlock =
                     lonely_block.combine_parent_header(parent_header);
 
