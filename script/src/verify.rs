@@ -700,7 +700,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         let mut cycles = 0;
 
         let groups: Vec<_> = self.groups().collect();
-        for (idx, (_hash, group)) in groups.iter().enumerate() {
+        for (_idx, (_hash, group)) in groups.iter().enumerate() {
             // vm should early return invalid cycles
             let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
                 ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
@@ -714,10 +714,12 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 Ok(ChunkState::Completed(used_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
-                Ok(ChunkState::Suspended(vms, context)) => {
-                    let current = idx;
-                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
-                    return Ok(VerifyResult::Suspended(state));
+                Ok(ChunkState::Suspended(_vms, _context)) => {
+                    // FIXME: we need to cleanup this later, state will not contain snapshot
+                    //let current = idx;
+                    //let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    //return Ok(VerifyResult::Suspended(state));
+                    panic!("unexpect suspend in resumable_verify_with_signal");
                 }
                 Err(e) => {
                     #[cfg(feature = "logging")]
@@ -1051,7 +1053,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             };
             match verifier.verify() {
                 Ok(cycles) => Ok(ChunkState::Completed(cycles)),
-                Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
+                // FIXME(yukang) we need to clean this up later
+                // Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
                 Err(e) => Err(e),
             }
         } else {
@@ -1429,8 +1432,8 @@ async fn run_vms_with_signal(
                         ))},
                     (Err(err), _) => {
                         let map_vm_internal_error = |error: VMInternalError| match error {
-                            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-                            _ => ScriptError::VMInternalError(error),
+                        VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+                        _ => ScriptError::VMInternalError(error),
                         };
                         return Err(map_vm_internal_error(err));
                     }
