@@ -34,7 +34,6 @@ use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::task::block_in_place;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
 
@@ -698,7 +697,7 @@ impl TxPoolService {
             return Some((Ok(ProcessResult::Suspended), snapshot));
         } else {
             // for local transaction, we verify it directly with a max cycles limit
-            let ret = block_in_place(|| {
+            let ret = {
                 let verifier = ContextualTransactionVerifier::new(
                     Arc::clone(&rtx),
                     Arc::clone(&self.consensus),
@@ -707,31 +706,28 @@ impl TxPoolService {
                 );
 
                 let cycle_limit = snapshot.cloned_consensus().max_block_cycles();
-                // FIXME(yukang): here we're still using old `resumable_verify` interface
-                // ideally we should unify the interface with `resumable_verify_with_signal`
-                let (ret, fee) = verifier
-                    .resumable_verify(cycle_limit)
-                    .map_err(Reject::Verification)?;
-
-                eprintln!("first verify: {:?}", ret);
+                let ret = verifier
+                    .verify_until_completed(cycle_limit)
+                    .await
+                    .map_err(Reject::Verification);
+                let (ret, fee) = try_or_return_with_snapshot!(ret, snapshot);
                 match ret {
                     ScriptVerifyResult::Completed(cycles) => {
-                        if let Err(e) = DaoScriptSizeVerifier::new(
+                        let res = DaoScriptSizeVerifier::new(
                             Arc::clone(&rtx),
                             Arc::clone(&self.consensus),
                             snapshot.as_data_loader(),
                         )
                         .verify()
-                        {
-                            return Err(Reject::Verification(e));
-                        }
+                        .map_err(Reject::Verification);
+                        try_or_return_with_snapshot!(res, snapshot);
                         Ok(Completed { cycles, fee })
                     }
                     ScriptVerifyResult::Suspended(_state) => {
                         panic!("unexpect suspend");
                     }
                 }
-            });
+            };
 
             try_or_return_with_snapshot!(ret, snapshot)
         };

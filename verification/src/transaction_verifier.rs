@@ -160,14 +160,23 @@ where
         }
     }
 
-    /// Perform resumable context-dependent verification, return a `Result` to `CacheEntry`
-    pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<(VerifyResult, Capacity), Error> {
+    /// Perform context-dependent verification, return a `Result` to `CacheEntry`
+    pub async fn verify_until_completed(
+        &self,
+        limit_cycles: Cycle,
+    ) -> Result<(VerifyResult, Capacity), Error> {
         self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
-        //let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
-        let ret = self.script.resumable_verify(limit_cycles)?;
+        // here we use a dummy command_rx, which will never receive a Suspend command
+        // to make sure the verification will not be interrupted and ExceededMaximumCycles will be treated as an error
+        let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
+        let ret = self
+            .script
+            .resumable_verify_with_signal(limit_cycles, &mut command_rx)
+            .await?;
+        eprintln!("resumable_verify_with_signal ret: {:?}", ret);
         Ok((ret, fee))
     }
 

@@ -37,13 +37,6 @@ pub enum VerifyNotify {
     },
 }
 
-#[derive(Clone, Debug)]
-enum State {
-    //Stopped,
-    //Suspended(Arc<TransactionSnapshot>),
-    Completed(Cycle),
-}
-
 struct Worker {
     tasks: Arc<RwLock<VerifyQueue>>,
     command_rx: watch::Receiver<ChunkCommand>,
@@ -85,10 +78,9 @@ impl Worker {
         }
     }
 
-    /// start handle tasks
     pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(100));
+            let mut interval = tokio::time::interval(Duration::from_millis(500));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
@@ -216,9 +208,10 @@ impl Worker {
         let state = try_or_return_with_snapshot!(ret, snapshot);
 
         let completed: Completed = match state {
-            // verify failed
-            // State::Stopped => return Some((Ok(true), snapshot)),
-            State::Completed(cycles) => Completed { cycles, fee },
+            VerifyResult::Completed(cycles) => Completed { cycles, fee },
+            _ => {
+                panic!("not expected");
+            }
         };
         eprintln!("completed: {:?}", completed);
         eprintln!("remote: {:?}", remote);
@@ -234,13 +227,11 @@ impl Worker {
             }
         }
         // verify passed
-
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
         let (ret, submit_snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, snapshot);
 
         self.service.notify_block_assembler(status).await;
-
         self.service
             .after_process(tx, remote, &submit_snapshot, &Ok(completed))
             .await;
@@ -264,19 +255,13 @@ impl Worker {
         max_cycles: Cycle,
         consensus: Arc<Consensus>,
         tx_env: Arc<TxVerifyEnv>,
-    ) -> Result<State, Reject> {
+    ) -> Result<VerifyResult, Reject> {
         let script_verifier = ScriptVerifier::new(rtx, data_loader, consensus, tx_env);
         let res = script_verifier
             .resumable_verify_with_signal(max_cycles, &mut self.command_rx)
             .await
             .map_err(Reject::Verification)?;
-        match res {
-            VerifyResult::Completed(cycles) => Ok(State::Completed(cycles)),
-            VerifyResult::Suspended(_) => {
-                // `resumable_verify_with_signal` should not return `Suspended`
-                panic!("not expected");
-            }
-        }
+        Ok(res)
     }
 }
 
