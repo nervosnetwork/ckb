@@ -151,16 +151,30 @@ impl BlockFetcher {
         if last_common == best_known {
             return None;
         }
-
-        if best_known.number() <= self.sync_shared.shared().get_unverified_tip().number() {
-            debug!(
-                "Peer {}'s best known: {} is less or equal than unverified_tip : {}",
-                self.peer,
-                best_known.number(),
-                self.sync_shared.shared().get_unverified_tip().number()
-            );
-            return None;
-        }
+        match self.ibd {
+            IBDState::In => {
+                if last_common.number() <= self.active_chain.unverified_tip_number() {
+                    debug!(
+                        "In IBD mode, Peer {}'s last common: {} is less or equal than unverified_tip : {}, won't request block from this peer",
+                        self.peer,
+                        last_common.number(),
+                        self.active_chain.unverified_tip_number()
+                    );
+                    return None;
+                }
+            }
+            IBDState::Out => {
+                if last_common.number() <= self.active_chain.tip_number() {
+                    debug!(
+                        "Out IBD mode, Peer {}'s last common: {} is less or equal than tip : {}, won't request block from this peer",
+                        self.peer,
+                        last_common.number(),
+                        self.active_chain.tip_number()
+                    );
+                    return None;
+                }
+            }
+        };
 
         let state = self.sync_shared.state();
 
