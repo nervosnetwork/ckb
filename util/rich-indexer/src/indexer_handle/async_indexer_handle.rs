@@ -767,7 +767,8 @@ pub async fn get_tx_with_cell(
     let sql_union = build_tx_with_cell_union_sub_query(db_type, &search_key)?;
 
     let mut query_builder = SqlBuilder::select_from(&format!("{} AS res", sql_union));
-    query_builder.field("*");
+    query_builder.field("tx_id, block.block_number, tx_index, tx_hash, io_type, io_index");
+    query_builder.join("block").on("res.block_id = block.id");
 
     if let Some((last, _)) = last_cursor {
         match order {
@@ -850,7 +851,9 @@ pub async fn get_tx_with_cells(
 
     let mut query_builder = SqlBuilder::select_from(&format!("{} AS res_union", sql_union));
     let sql = query_builder
-        .field("*")
+        .field("tx_id, block.block_number, tx_index, tx_hash, io_type, io_index")
+        .join("block")
+        .on("res_union.block_id = block.id")
         .subquery()
         .map_err(|err| Error::DB(err.to_string()))?
         .trim_end_matches(';')
@@ -966,14 +969,12 @@ fn build_tx_with_cell_union_sub_query(
     let mut query_output_builder = SqlBuilder::select_from("ckb_transaction");
     query_output_builder
         .field("ckb_transaction.id AS tx_id")
-        .field("block.block_number")
+        .field("ckb_transaction.block_id")
         .field("ckb_transaction.tx_index")
         .field("ckb_transaction.tx_hash")
         .field("1 AS io_type")
         .field("output.output_index AS io_index");
     query_output_builder
-        .join("block")
-        .on("ckb_transaction.block_id = block.id")
         .join("output")
         .on("output.tx_id = ckb_transaction.id")
         .join(&format!(
@@ -1021,14 +1022,12 @@ fn build_tx_with_cell_union_sub_query(
     let mut query_input_builder = SqlBuilder::select_from("ckb_transaction");
     query_input_builder
         .field("ckb_transaction.id AS tx_id")
-        .field("block.block_number")
+        .field("ckb_transaction.block_id")
         .field("ckb_transaction.tx_index")
         .field("ckb_transaction.tx_hash")
         .field("0 AS io_type")
         .field("input.input_index AS io_index");
     query_input_builder
-        .join("block")
-        .on("ckb_transaction.block_id = block.id")
         .join("input")
         .on("input.consumed_tx_id = ckb_transaction.id")
         .join("output")
