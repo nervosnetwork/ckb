@@ -41,6 +41,31 @@ async fn get_cells() {
             h256!("0x0000000000000000000000000000000000000000000000000000000000000000").pack(),
         )
         .hash_type((ScriptHashType::Data as u8).into())
+        .args(
+            hex::decode("62e907b15cbf27d5425399ebf6f0fb50ebb88f18")
+                .expect("Decoding failed")
+                .pack(),
+        )
+        .build();
+    let search_key = IndexerSearchKey {
+        script: lock_script.into(),
+        script_type: IndexerScriptType::Lock,
+        script_search_mode: Some(IndexerSearchMode::Exact),
+        filter: None,
+        with_data: Some(false),
+        group_by_transaction: None,
+    };
+    let cells = indexer
+        .get_cells(search_key, IndexerOrder::Asc, 100u32.into(), None)
+        .await
+        .unwrap();
+    assert_eq!(cells.objects.len(), 1);
+
+    let lock_script = ScriptBuilder::default()
+        .code_hash(
+            h256!("0x0000000000000000000000000000000000000000000000000000000000000000").pack(),
+        )
+        .hash_type((ScriptHashType::Data as u8).into())
         .args(hex::decode("62e907b15cbf").expect("Decoding failed").pack())
         .build();
     let search_key = IndexerSearchKey {
@@ -275,7 +300,15 @@ async fn get_transactions_ungrouped() {
         script: lock_script.clone().into(),
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Exact),
-        filter: None,
+        filter: Some(IndexerSearchKeyFilter {
+            script: None,
+            script_len_range: None,
+            output_data: None,
+            output_data_filter_mode: None,
+            output_data_len_range: None,
+            output_capacity_range: None,
+            block_range: Some(IndexerRange::new(0, 1)),
+        }),
         with_data: Some(false),
         group_by_transaction: None,
     };
@@ -396,7 +429,15 @@ async fn get_transactions_grouped() {
         script: lock_script.clone().into(),
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Exact),
-        filter: None,
+        filter: Some(IndexerSearchKeyFilter {
+            script: None,
+            script_len_range: None,
+            output_data: None,
+            output_data_filter_mode: None,
+            output_data_len_range: None,
+            output_capacity_range: None,
+            block_range: Some(IndexerRange::new(0, 1)),
+        }),
         with_data: Some(false),
         group_by_transaction: Some(true),
     };
@@ -521,7 +562,6 @@ async fn get_cells_capacity() {
         with_data: Some(false),
         group_by_transaction: None,
     };
-
     let capacity = indexer
         .get_cells_capacity(search_key)
         .await
