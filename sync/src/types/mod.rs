@@ -1125,6 +1125,16 @@ impl SyncShared {
         peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
         verify_callback: Option<VerifyCallback>,
     ) {
+        {
+            let entry = self
+                .shared()
+                .block_status_map()
+                .entry(block.header().hash());
+            if let dashmap::mapref::entry::Entry::Vacant(entry) = entry {
+                entry.insert(BlockStatus::BLOCK_RECEIVED);
+            }
+        }
+
         let lonely_block_with_callback = LonelyBlock {
             block,
             peer_id_with_msg_bytes,
