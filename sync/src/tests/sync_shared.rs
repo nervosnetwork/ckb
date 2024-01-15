@@ -9,6 +9,7 @@ use ckb_shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
 use ckb_types::core::{BlockBuilder, BlockView, Capacity};
+use ckb_types::packed::Byte32;
 use ckb_types::prelude::*;
 use std::sync::Arc;
 
@@ -91,13 +92,32 @@ fn test_insert_parent_unknown_block() {
     shared.accept_block(&chain, Arc::clone(&valid_orphan), None, None);
     shared.accept_block(&chain, Arc::clone(&invalid_orphan), None, None);
 
+    let wait_for_block_status_match = |hash: &Byte32, expect_status: BlockStatus| -> bool {
+        let mut status_match = false;
+        let now = std::time::Instant::now();
+        while now.elapsed().as_secs() < 2 {
+            if shared.active_chain().get_block_status(hash) == expect_status {
+                status_match = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+        status_match
+    };
+
     assert_eq!(
         shared.active_chain().get_block_status(&valid_hash),
         BlockStatus::BLOCK_RECEIVED
     );
+
+    if shared.active_chain().get_block_status(&invalid_hash) == BlockStatus::BLOCK_RECEIVED {
+        wait_for_block_status_match(&invalid_hash, BlockStatus::BLOCK_INVALID);
+    }
+
+    // This block won't pass non_contextual_check, and will be BLOCK_INVALID immediately
     assert_eq!(
         shared.active_chain().get_block_status(&invalid_hash),
-        BlockStatus::BLOCK_RECEIVED
+        BlockStatus::BLOCK_INVALID
     );
 
     // After inserting parent of an orphan block
@@ -105,18 +125,19 @@ fn test_insert_parent_unknown_block() {
     assert!(shared
         .blocking_insert_new_block(&chain, Arc::clone(&parent))
         .expect("insert parent of orphan block"));
-    assert_eq!(
-        shared.active_chain().get_block_status(&valid_hash),
+
+    assert!(wait_for_block_status_match(
+        &valid_hash,
         BlockStatus::BLOCK_VALID
-    );
-    assert_eq!(
-        shared.active_chain().get_block_status(&invalid_hash),
+    ));
+    assert!(wait_for_block_status_match(
+        &invalid_hash,
         BlockStatus::BLOCK_INVALID
-    );
-    assert_eq!(
-        shared.active_chain().get_block_status(&parent_hash),
+    ));
+    assert!(wait_for_block_status_match(
+        &parent_hash,
         BlockStatus::BLOCK_VALID
-    );
+    ));
 }
 
 #[test]
