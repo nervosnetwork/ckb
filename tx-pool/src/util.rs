@@ -101,18 +101,7 @@ pub(crate) fn verify_rtx(
                     .map_err(Reject::Verification)
             }
             CacheEntry::Suspended(suspended) => {
-                ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
-                    .complete(max_tx_verify_cycles, false, &suspended.snap)
-                    .and_then(|result| {
-                        DaoScriptSizeVerifier::new(
-                            rtx,
-                            snapshot.cloned_consensus(),
-                            snapshot.as_data_loader(),
-                        )
-                        .verify()?;
-                        Ok(result)
-                    })
-                    .map_err(Reject::Verification)
+                panic!("Unexpected suspended entry in verify_rtx: {:?}", suspended);
             }
         }
     } else {

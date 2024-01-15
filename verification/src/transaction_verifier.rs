@@ -166,6 +166,7 @@ where
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
+        //let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
         let ret = self.script.resumable_verify(limit_cycles)?;
         Ok((ret, fee))
     }
