@@ -42,7 +42,10 @@ use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 use tokio::{
     select,
-    sync::{mpsc, watch},
+    sync::{
+        mpsc,
+        watch::{self, Receiver},
+    },
 };
 
 #[cfg(test)]
@@ -716,9 +719,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 }
                 Ok(ChunkState::Suspended(_vms, _context)) => {
                     // FIXME: we need to cleanup this later, state will not contain snapshot
-                    //let current = idx;
-                    //let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
-                    //return Ok(VerifyResult::Suspended(state));
                     panic!("unexpect suspend in resumable_verify_with_signal");
                 }
                 Err(e) => {
@@ -1053,8 +1053,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             };
             match verifier.verify() {
                 Ok(cycles) => Ok(ChunkState::Completed(cycles)),
-                // FIXME(yukang) we need to clean this up later
-                // Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
                 Err(e) => Err(e),
             }
         } else {
@@ -1375,7 +1373,6 @@ fn run_vms(
     }
 
     if exit_code == 0 {
-        eprintln!("run_vms finished: {} cycles: {}", exit_code, cycles);
         Ok(ChunkState::Completed(cycles))
     } else {
         Err(ScriptError::validation_failure(
@@ -1391,7 +1388,7 @@ async fn run_vms_with_signal(
     max_cycles: Cycle,
     machines: Vec<ResumableMachine>,
     context: Arc<Mutex<MachineContext>>,
-    signal: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    signal: &mut Receiver<ChunkCommand>,
 ) -> Result<ChunkState, ScriptError> {
     if machines.is_empty() {
         return Err(ScriptError::Other(
@@ -1419,9 +1416,9 @@ async fn run_vms_with_signal(
                     child_sender.send(ChunkCommand::Resume).unwrap();
                 }
             }
-            res = finished_recv.recv() => {
+            Some(res) = finished_recv.recv() => {
                 let _ = jh.await;
-                match res.unwrap() {
+                match res {
                     (Ok(0), cycles) => {
                         return Ok(ChunkState::Completed(cycles));
                     }
@@ -1454,21 +1451,18 @@ async fn run_vms_child(
     let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
     child_recv.mark_changed();
     loop {
-        eprintln!("begin to loop .........");
         select! {
             _ = child_recv.changed() => {
                 let state = child_recv.borrow().to_owned();
                 if state != ChunkCommand::Resume {
                     continue;
                 }
-                eprintln!("first resume here: {:?}", machines.len());
                 if machines.is_empty() {
                     finished_send.send((Ok(exit_code), cycles)).unwrap();
                     return;
                 }
 
                 while let Some(mut machine) = machines.pop() {
-                    eprintln!("first run vm now {}", machine.cycles());
                     if let Some(callee_spawn_data) = &spawn_data {
                         update_caller_machine(
                             &mut machine.machine_mut().machine,
@@ -1480,7 +1474,6 @@ async fn run_vms_child(
                     }
 
                     let res = machine.run();
-                    eprintln!("first run vm now {} res: {:?}", machine.cycles(), res);
                     match res {
                         Ok(code) => {
                             exit_code = code;
@@ -1490,7 +1483,6 @@ async fn run_vms_child(
                             } else {
                                 spawn_data = None;
                             }
-                            eprintln!("finished run vm: {}", machines.len());
                             if machines.is_empty() {
                                 finished_send.send((Ok(exit_code), cycles)).unwrap();
                                 return;

@@ -21,7 +21,7 @@ ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.114.0-pre" }
 ckb-error = { path = "../error", version = "= 0.114.0-pre" }
 derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
 ckb-verification-traits = { path = "./traits", version = "= 0.114.0-pre" }
-tokio = { version = "1", features = ["sync", "process"] }
+tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.114.0-pre" }
