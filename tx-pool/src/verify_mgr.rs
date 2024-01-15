@@ -154,34 +154,25 @@ impl Worker {
         let tx_env = Arc::new(TxVerifyEnv::new_submit(tip_header));
 
         eprintln!("run_verify_tx cached: {:?}", cached);
-        if let Some(ref cached) = cached {
-            match cached {
-                CacheEntry::Completed(completed) => {
-                    let ret = TimeRelativeTransactionVerifier::new(
-                        Arc::clone(&rtx),
-                        Arc::clone(&consensus),
-                        snapshot.as_data_loader(),
-                        Arc::clone(&tx_env),
-                    )
-                    .verify()
-                    .map(|_| *completed)
-                    .map_err(Reject::Verification);
-                    let completed = try_or_return_with_snapshot!(ret, snapshot);
+        if let Some(ref completed) = cached {
+            let ret = TimeRelativeTransactionVerifier::new(
+                Arc::clone(&rtx),
+                Arc::clone(&consensus),
+                snapshot.as_data_loader(),
+                Arc::clone(&tx_env),
+            )
+            .verify()
+            .map(|_| *completed)
+            .map_err(Reject::Verification);
+            let completed = try_or_return_with_snapshot!(ret, snapshot);
 
-                    let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    let (ret, submit_snapshot) =
-                        self.service.submit_entry(tip_hash, entry, status).await;
-                    try_or_return_with_snapshot!(ret, submit_snapshot);
-                    self.service
-                        .after_process(tx, remote, &submit_snapshot, &Ok(completed))
-                        .await;
-                    return Some((Ok(false), submit_snapshot));
-                }
-                CacheEntry::Suspended(_suspended) => {
-                    eprintln!("not expected suspended: {:?}", cached);
-                    //panic!("not expected");
-                }
-            }
+            let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
+            let (ret, submit_snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
+            try_or_return_with_snapshot!(ret, submit_snapshot);
+            self.service
+                .after_process(tx, remote, &submit_snapshot, &Ok(completed))
+                .await;
+            return Some((Ok(false), submit_snapshot));
         }
 
         let cloned_snapshot = Arc::clone(&snapshot);
@@ -257,7 +248,7 @@ impl Worker {
         update_cache(
             Arc::clone(&self.service.txs_verify_cache),
             tx_hash,
-            CacheEntry::Completed(completed),
+            completed,
         )
         .await;
 

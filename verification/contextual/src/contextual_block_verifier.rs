@@ -379,7 +379,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         self.handle.spawn(async move {
             let mut guard = txs_verify_cache.write().await;
             for (k, v) in ret {
-                guard.put(k, CacheEntry::Completed(v));
+                guard.put(k, v);
             }
         });
     }
@@ -412,9 +412,8 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash();
 
-                if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
-                    match cache_entry {
-                        CacheEntry::Completed(completed) => TimeRelativeTransactionVerifier::new(
+                if let Some(completed) = fetched_cache.get(&tx_hash) {
+                    TimeRelativeTransactionVerifier::new(
                             Arc::clone(tx),
                             Arc::clone(&self.context.consensus),
                             self.context.store.as_data_loader(),
@@ -428,11 +427,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                             }
                             .into()
                         })
-                        .map(|_| (tx_hash, *completed)),
-                        CacheEntry::Suspended(_suspended) => {
-                            panic!("unexpected Suspended in verify");
-                        },
-                    }
+                        .map(|_| (tx_hash, *completed))
                 } else {
                     ContextualTransactionVerifier::new(
                         Arc::clone(tx),

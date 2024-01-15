@@ -17,14 +17,8 @@ pub fn init_cache() -> TxVerificationCache {
     lru::LruCache::new(CACHE_SIZE)
 }
 
-#[derive(Clone, Debug)]
 /// TX verification lru entry
-pub enum CacheEntry {
-    /// Completed
-    Completed(Completed),
-    /// Suspended
-    Suspended(Suspended),
-}
+pub type CacheEntry = Completed;
 
 /// Suspended state
 #[derive(Clone, Debug)]
@@ -42,16 +36,4 @@ pub struct Completed {
     pub cycles: Cycle,
     /// Cached tx fee
     pub fee: Capacity,
-}
-
-impl CacheEntry {
-    /// Constructs a completed CacheEntry
-    pub fn completed(cycles: Cycle, fee: Capacity) -> Self {
-        CacheEntry::Completed(Completed { cycles, fee })
-    }
-
-    /// Constructs a Suspended CacheEntry
-    pub fn suspended(snap: Arc<TransactionSnapshot>, fee: Capacity) -> Self {
-        CacheEntry::Suspended(Suspended { snap, fee })
-    }
 }

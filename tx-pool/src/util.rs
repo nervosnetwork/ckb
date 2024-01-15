@@ -92,18 +92,11 @@ pub(crate) fn verify_rtx(
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
-    if let Some(ref cached) = cache_entry {
-        match cached {
-            CacheEntry::Completed(completed) => {
-                TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
-                    .verify()
-                    .map(|_| *completed)
-                    .map_err(Reject::Verification)
-            }
-            CacheEntry::Suspended(suspended) => {
-                panic!("Unexpected suspended entry in verify_rtx: {:?}", suspended);
-            }
-        }
+    if let Some(ref completed) = cache_entry {
+        TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+            .verify()
+            .map(|_| *completed)
+            .map_err(Reject::Verification)
     } else {
         block_in_place(|| {
             ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
