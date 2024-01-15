@@ -151,28 +151,15 @@ impl BlockFetcher {
         if last_common == best_known {
             return None;
         }
-        match self.ibd {
-            IBDState::In => {
-                if last_common.number() <= self.active_chain.unverified_tip_number() {
-                    debug!(
-                        "In IBD mode, Peer {}'s last common: {} is less or equal than unverified_tip : {}, won't request block from this peer",
+
+        if matches!(self.ibd, IBDState::In) {
+            if best_known.number() <= self.active_chain.unverified_tip_number() {
+                debug!("In IBD mode, Peer {}'s best_known: {} is less or equal than unverified_tip : {}, won't request block from this peer",
                         self.peer,
-                        last_common.number(),
+                        best_known.number(),
                         self.active_chain.unverified_tip_number()
                     );
-                    return None;
-                }
-            }
-            IBDState::Out => {
-                if last_common.number() <= self.active_chain.tip_number() {
-                    debug!(
-                        "Out IBD mode, Peer {}'s last common: {} is less or equal than tip : {}, won't request block from this peer",
-                        self.peer,
-                        last_common.number(),
-                        self.active_chain.tip_number()
-                    );
-                    return None;
-                }
+                return None;
             }
         };
 
