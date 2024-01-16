@@ -1355,7 +1355,6 @@ impl SyncShared {
         ActiveChain {
             shared: self.clone(),
             snapshot: Arc::clone(&self.shared.snapshot()),
-            state: Arc::clone(&self.state),
         }
     }
 
@@ -2048,7 +2047,6 @@ impl SyncState {
 pub struct ActiveChain {
     shared: SyncShared,
     snapshot: Arc<Snapshot>,
-    state: Arc<SyncState>,
 }
 
 #[doc(hidden)]
