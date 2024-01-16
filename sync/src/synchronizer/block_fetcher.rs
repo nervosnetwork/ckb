@@ -211,14 +211,17 @@ impl BlockFetcher {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
 
-                if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
-                    // If the block is stored, its ancestor must on store
-                    // So we can skip the search of this space directly
-                    self.sync_shared
-                        .state()
-                        .peers()
-                        .set_last_common_header(self.peer, header.number_and_hash());
-                    end = min(best_known.number(), header.number() + block_download_window);
+                if status.contains(BlockStatus::BLOCK_STORED) {
+                    if status.contains(BlockStatus::BLOCK_VALID) {
+                        // If the block is stored, its ancestor must on store
+                        // So we can skip the search of this space directly
+                        self.sync_shared
+                            .state()
+                            .peers()
+                            .set_last_common_header(self.peer, header.number_and_hash());
+                    }
+
+                    end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
