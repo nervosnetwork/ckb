@@ -161,6 +161,7 @@ where
     }
 
     /// Perform context-dependent verification, return a `Result` to `CacheEntry`
+    /// FIXME(yukang): only used in tests
     pub async fn verify_until_completed(
         &self,
         limit_cycles: Cycle,
