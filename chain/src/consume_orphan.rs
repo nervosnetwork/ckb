@@ -290,7 +290,10 @@ impl ConsumeOrphan {
         let parent_status = self.shared.get_block_status(&parent_hash);
         if parent_status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
             debug!(
-                "parent has stored, processing descendant directly {}",
+                "parent {} has stored: {:?}, processing descendant directly {}-{}",
+                parent_hash,
+                parent_status,
+                lonely_block.block().number(),
                 lonely_block.block().hash()
             );
             self.descendant_processor.process_descendant(lonely_block);
