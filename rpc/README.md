@@ -147,10 +147,10 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
     * [Type `IndexerOrder`](#type-indexerorder)
     * [Type `IndexerRange`](#type-indexerrange)
-    * [Type `IndexerScriptSearchMode`](#type-indexerscriptsearchmode)
     * [Type `IndexerScriptType`](#type-indexerscripttype)
     * [Type `IndexerSearchKey`](#type-indexersearchkey)
     * [Type `IndexerSearchKeyFilter`](#type-indexersearchkeyfilter)
+    * [Type `IndexerSearchMode`](#type-indexersearchmode)
     * [Type `IndexerTip`](#type-indexertip)
     * [Type `IndexerTx`](#type-indexertx)
     * [Type `JsonBytes`](#type-jsonbytes)
@@ -2164,10 +2164,16 @@ Returns the live cells collection by the lock or type script.
 
     *   script_type - enum, lock | type
 
+    *   script_search_mode - enum, prefix | exact
+
     *   filter - filter cells by following conditions, all conditions are optional
         *   script: if search script type is lock, filter cells by type script prefix, and vice versa
 
         *   script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+
+        *   output_data: filter cells by output data
+
+        *   output_data_filter_mode: enum, prefix | exact | partial
 
         *   output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
 
@@ -2548,6 +2554,8 @@ Returns the transactions collection by the lock or type script.
     *   script - Script, supports prefix search when group_by_transaction is false
 
     *   script_type - enum, lock | type
+
+    *   script_search_mode - enum, prefix | exact
 
     *   filter - filter cells by following conditions, all conditions are optional
         *   script: if search script type is lock, filter cells by type script, and vice versa
@@ -2992,8 +3000,16 @@ Returns the live cells capacity by the lock or type script.
 
     *   script_type - enum, lock | type
 
+    *   script_search_mode - enum, prefix | exact
+
     *   filter - filter cells by following conditions, all conditions are optional
         *   script: if search script type is lock, filter cells by type script prefix, and vice versa
+
+        *   script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+
+        *   output_data: filter cells by output data
+
+        *   output_data_filter_mode: enum, prefix | exact | partial
 
         *   output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
 
@@ -6183,16 +6199,6 @@ A array represent (half-open) range bounded inclusively below and exclusively ab
 
 
 
-### Type `IndexerScriptSearchMode`
-
-IndexerScriptSearchMode represent script search mode, default is prefix search
-
-`IndexerScriptSearchMode` is equivalent to `"prefix" | "exact"`.
-
-*   Mode `prefix` search script with prefix
-*   Mode `exact` search script with exact match
-
-
 ### Type `IndexerScriptType`
 
 ScriptType `Lock` | `Type`
@@ -6215,7 +6221,7 @@ SearchKey represent indexer support params
 
 *   `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
 
-*   `script_search_mode`: [`IndexerScriptSearchMode`](#type-indexerscriptsearchmode) `|` `null` - Script search mode, optional default is `prefix`, means search script with prefix
+*   `script_search_mode`: [`IndexerSearchMode`](#type-indexersearchmode) `|` `null` - Script search mode, optional default is `prefix`, means search script with prefix
 
 *   `filter`: [`IndexerSearchKeyFilter`](#type-indexersearchkeyfilter) `|` `null` - filter cells by following conditions, all conditions are optional
 
@@ -6236,11 +6242,26 @@ IndexerSearchKeyFilter represent indexer params `filter`
 
 *   `script_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by script len range
 
+*   `output_data`: [`JsonBytes`](#type-jsonbytes) `|` `null` - filter cells by output data
+
+*   `output_data_filter_mode`: [`IndexerSearchMode`](#type-indexersearchmode) `|` `null` - output data filter mode, optional default is `prefix`
+
 *   `output_data_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output data len range
 
 *   `output_capacity_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output capacity range
 
 *   `block_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by block number range
+
+
+### Type `IndexerSearchMode`
+
+IndexerSearchMode represent search mode, default is prefix search
+
+`IndexerSearchMode` is equivalent to `"prefix" | "exact" | "partial"`.
+
+*   Mode `prefix` search with prefix
+*   Mode `exact` search with exact match
+*   Mode `partial` search with partial match
 
 
 ### Type `IndexerTip`
