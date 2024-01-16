@@ -722,8 +722,8 @@ impl NetRpc for NetRpcImpl {
 
     fn sync_state(&self) -> Result<SyncState> {
         let chain = self.sync_shared.active_chain();
-        let shared = chain.shared().shared();
-        let state = chain.shared().state();
+        let shared = chain.shared();
+        let state = chain.state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
         let best_known = state.shared_best_header();
         let unverified_tip = shared.get_unverified_tip();

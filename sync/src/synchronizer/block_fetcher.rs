@@ -200,7 +200,10 @@ impl BlockFetcher {
                 }
             }?;
 
-            let mut status = self.sync_shared.shared().get_block_status(&header.hash());
+            let mut status = self
+                .sync_shared
+                .active_chain()
+                .get_block_status(&header.hash());
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted
             for _ in 0..span {
@@ -236,7 +239,10 @@ impl BlockFetcher {
                     fetch.push(header)
                 }
 
-                status = self.sync_shared.shared().get_block_status(&parent_hash);
+                status = self
+                    .sync_shared
+                    .active_chain()
+                    .get_block_status(&parent_hash);
                 header = self
                     .sync_shared
                     .get_header_index_view(&parent_hash, false)?;

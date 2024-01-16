@@ -1039,7 +1039,7 @@ impl SyncShared {
     /// Get snapshot with current chain
     pub fn active_chain(&self) -> ActiveChain {
         ActiveChain {
-            shared: self.clone(),
+            sync_shared: self.clone(),
             snapshot: Arc::clone(&self.shared.snapshot()),
         }
     }
@@ -1258,7 +1258,7 @@ impl SyncShared {
             return false;
         }
 
-        let status = self.shared().get_block_status(&block.hash());
+        let status = self.active_chain().get_block_status(&block.hash());
         debug!(
             "new_block_received {}-{}, status: {:?}",
             block.number(),
@@ -1633,24 +1633,6 @@ impl SyncState {
         self.inflight_proposals.contains_key(proposal_id)
     }
 
-    // pub fn insert_orphan_block(&self, block: core::BlockView) {
-    //     self.insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
-    //     self.orphan_block_pool.insert(block);
-    // }
-    //
-    // pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
-    //     let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
-    //     blocks.iter().for_each(|block| {
-    //         self.block_status_map.remove(&block.hash());
-    //     });
-    //     shrink_to_fit!(self.block_status_map, SHRINK_THRESHOLD);
-    //     blocks
-    // }
-    //
-    // pub fn orphan_pool(&self) -> &OrphanBlockPool {
-    //     &self.orphan_block_pool
-    // }
-
     pub fn drain_get_block_proposals(
         &self,
     ) -> DashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
@@ -1682,27 +1664,31 @@ impl SyncState {
         }
         self.peers().disconnected(pi);
     }
-
-    // pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
-    //     self.orphan_block_pool.get_block(block_hash)
-    // }
-    //
-    // pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<packed::Byte32> {
-    //     self.orphan_block_pool.clean_expired_blocks(epoch)
-    // }
 }
 
 /** ActiveChain captures a point-in-time view of indexed chain of blocks. */
 #[derive(Clone)]
 pub struct ActiveChain {
-    shared: SyncShared,
+    sync_shared: SyncShared,
     snapshot: Arc<Snapshot>,
 }
 
 #[doc(hidden)]
 impl ActiveChain {
+    pub(crate) fn sync_shared(&self) -> &SyncShared {
+        &self.sync_shared
+    }
+
+    pub fn shared(&self) -> &Shared {
+        self.sync_shared.shared()
+    }
+
     fn store(&self) -> &ChainDB {
-        self.shared.store()
+        self.sync_shared.store()
+    }
+
+    pub fn state(&self) -> &SyncState {
+        self.sync_shared.state()
     }
 
     fn snapshot(&self) -> &Snapshot {
@@ -1740,10 +1726,6 @@ impl ActiveChain {
             .unwrap_or_default()
     }
 
-    pub fn shared(&self) -> &SyncShared {
-        &self.shared
-    }
-
     pub fn total_difficulty(&self) -> &U256 {
         self.snapshot.total_difficulty()
     }
@@ -1768,18 +1750,14 @@ impl ActiveChain {
         self.snapshot.is_main_chain(hash)
     }
     pub fn is_unverified_chain(&self, hash: &packed::Byte32) -> bool {
-        self.shared()
-            .shared()
-            .store()
-            .get_block_epoch_index(hash)
-            .is_some()
+        self.store().get_block_epoch_index(hash).is_some()
     }
 
     pub fn is_initial_block_download(&self) -> bool {
-        self.shared.shared().is_initial_block_download()
+        self.shared().is_initial_block_download()
     }
     pub fn unverified_tip_header(&self) -> HeaderIndex {
-        self.shared.shared.get_unverified_tip()
+        self.shared().get_unverified_tip()
     }
 
     pub fn unverified_tip_hash(&self) -> Byte32 {
@@ -1824,20 +1802,21 @@ impl ActiveChain {
             }
         };
 
-        let get_header_view_fn =
-            |hash: &Byte32, store_first: bool| self.shared.get_header_index_view(hash, store_first);
+        let get_header_view_fn = |hash: &Byte32, store_first: bool| {
+            self.sync_shared.get_header_index_view(hash, store_first)
+        };
 
         let fast_scanner_fn = |number: BlockNumber, current: BlockNumberAndHash| {
             // shortcut to return an ancestor block
             if current.number <= tip_number && block_is_on_chain_fn(&current.hash) {
                 self.get_block_hash(number)
-                    .and_then(|hash| self.shared.get_header_index_view(&hash, true))
+                    .and_then(|hash| self.sync_shared.get_header_index_view(&hash, true))
             } else {
                 None
             }
         };
 
-        self.shared
+        self.sync_shared
             .get_header_index_view(base, false)?
             .get_ancestor(tip_number, number, get_header_view_fn, fast_scanner_fn)
     }
@@ -1885,7 +1864,7 @@ impl ActiveChain {
                 }
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.shared.consensus().genesis_hash());
+                    locator.push(self.sync_shared.consensus().genesis_hash());
                 }
                 break;
             }
@@ -1935,7 +1914,7 @@ impl ActiveChain {
         }
 
         let locator_hash = locator.last().expect("empty checked");
-        if locator_hash != &self.shared.consensus().genesis_hash() {
+        if locator_hash != &self.sync_shared.consensus().genesis_hash() {
             return None;
         }
 
@@ -1953,11 +1932,11 @@ impl ActiveChain {
 
         if let Some(header) = locator
             .get(index - 1)
-            .and_then(|hash| self.shared.store().get_block_header(hash))
+            .and_then(|hash| self.sync_shared.store().get_block_header(hash))
         {
             let mut block_hash = header.data().raw().parent_hash();
             loop {
-                let block_header = match self.shared.store().get_block_header(&block_hash) {
+                let block_header = match self.sync_shared.store().get_block_header(&block_hash) {
                     None => break latest_common,
                     Some(block_header) => block_header,
                 };
@@ -1986,7 +1965,7 @@ impl ActiveChain {
         (block_number + 1..max_height)
             .filter_map(|block_number| self.snapshot.get_block_hash(block_number))
             .take_while(|block_hash| block_hash != hash_stop)
-            .filter_map(|block_hash| self.shared.store().get_block_header(&block_hash))
+            .filter_map(|block_hash| self.sync_shared.store().get_block_header(&block_hash))
             .collect()
     }
 
@@ -1997,8 +1976,7 @@ impl ActiveChain {
         block_number_and_hash: BlockNumberAndHash,
     ) {
         if let Some(last_time) = self
-            .shared()
-            .state
+            .state()
             .pending_get_headers
             .write()
             .get(&(peer, block_number_and_hash.hash()))
@@ -2016,8 +1994,7 @@ impl ActiveChain {
                 );
             }
         }
-        self.shared()
-            .state()
+        self.state()
             .pending_get_headers
             .write()
             .put((peer, block_number_and_hash.hash()), Instant::now());
