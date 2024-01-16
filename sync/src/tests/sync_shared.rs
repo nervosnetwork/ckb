@@ -4,6 +4,8 @@
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
 use ckb_chain::start_chain_services;
+use ckb_logger::info;
+use ckb_logger_service::LoggerInitGuard;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
@@ -11,6 +13,7 @@ use ckb_test_chain_utils::always_success_cellbase;
 use ckb_types::core::{BlockBuilder, BlockView, Capacity};
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::*;
+use std::fmt::format;
 use std::sync::Arc;
 
 #[test]
@@ -142,6 +145,8 @@ fn test_insert_parent_unknown_block() {
 
 #[test]
 fn test_switch_valid_fork() {
+    let _log_guard: LoggerInitGuard =
+        ckb_logger_service::init_for_test("info,ckb_chain=debug").expect("init log");
     let (shared, chain) = build_chain(4);
     let make_valid_block = |shared, parent_hash| -> BlockView {
         let header = inherit_block(shared, &parent_hash).build().header();
@@ -162,9 +167,20 @@ fn test_switch_valid_fork() {
         let block_hash = shared.store().get_block_hash(number).unwrap();
         shared.store().get_block(&block_hash).unwrap();
     }
+
+    info!(
+        "chain tip is {}={}",
+        shared.active_chain().tip_number(),
+        shared.active_chain().tip_hash()
+    );
     let mut valid_fork = Vec::new();
     for _ in 2..shared.active_chain().tip_number() {
         let block = make_valid_block(shared.shared(), parent_hash.clone());
+        info!(
+            "blocking insert valid fork: {}-{}",
+            block.number(),
+            block.hash()
+        );
         assert!(shared
             .blocking_insert_new_block(&chain, Arc::new(block.clone()))
             .expect("insert fork"));
@@ -178,6 +194,9 @@ fn test_switch_valid_fork() {
                 .active_chain()
                 .get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_STORED,
+            "block {}-{} should be BLOCK_STORED",
+            block.number(),
+            block.hash()
         );
     }
 
@@ -185,6 +204,11 @@ fn test_switch_valid_fork() {
     // Make the fork switch as the main chain.
     for _ in tip_number..tip_number + 2 {
         let block = inherit_block(shared.shared(), &parent_hash.clone()).build();
+        info!(
+            "blocking insert fork block: {}-{}",
+            block.number(),
+            block.hash()
+        );
         assert!(shared
             .blocking_insert_new_block(&chain, Arc::new(block.clone()))
             .expect("insert fork"));
@@ -198,6 +222,9 @@ fn test_switch_valid_fork() {
                 .active_chain()
                 .get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_VALID,
+            "block {}-{} should be BLOCK_VALID",
+            block.number(),
+            block.hash()
         );
     }
 }

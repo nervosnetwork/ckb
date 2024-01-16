@@ -530,7 +530,6 @@ fn setup_panic_logger() {
 
 /// Only used by unit test
 /// Initializes the [Logger](struct.Logger.html) and run the logging service.
-#[cfg(test)]
 pub fn init_for_test(filter: &str) -> Result<LoggerInitGuard, SetLoggerError> {
     setup_panic_logger();
     let config: Config = Config {

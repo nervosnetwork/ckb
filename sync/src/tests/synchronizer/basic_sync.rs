@@ -10,6 +10,7 @@ use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_logger::info;
+use ckb_logger_service::LoggerInitGuard;
 use ckb_network::SupportProtocols;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder};
@@ -33,6 +34,7 @@ const DEFAULT_CHANNEL: usize = 128;
 
 #[test]
 fn basic_sync() {
+    let _log_guard: LoggerInitGuard = ckb_logger_service::init_for_test("debug").expect("init log");
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(0);
     let thread_name = "fake_time=0".to_string();
@@ -46,11 +48,17 @@ fn basic_sync() {
     node1.connect(&mut node2, SupportProtocols::Sync.protocol_id());
     info!("node1 and node2 connected");
 
+    let now = std::time::Instant::now();
     let (signal_tx1, signal_rx1) = bounded(DEFAULT_CHANNEL);
-    node1.start(thread_name.clone(), signal_tx1, |data| {
+    node1.start(thread_name.clone(), signal_tx1, move |data| {
         let msg = packed::SyncMessage::from_slice(&data)
             .expect("sync message")
             .to_enum();
+
+        assert!(
+            now.elapsed().as_secs() <= 10,
+            "node1 should got block(3)'s SendBlock message within 10 seconds"
+        );
         // terminate thread after 3 blocks
         if let packed::SyncMessageUnionReader::SendBlock(reader) = msg.as_reader() {
             let block = reader.block().to_entity().into_view();
