@@ -29,3 +29,4 @@ numext-fixed-uint = "0.1"
 [dev-dependencies]
 tempfile.workspace = true
 rand = "0.8"
+hex = "0.4"

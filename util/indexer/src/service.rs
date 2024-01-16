@@ -13,7 +13,7 @@ use ckb_async_runtime::{
 use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
-    IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey, IndexerTip, IndexerTx,
+    IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip, IndexerTx,
     IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
 use ckb_logger::{error, info};
@@ -333,6 +333,17 @@ impl IndexerHandle {
         limit: Uint32,
         after_cursor: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
+        if search_key
+            .script_search_mode
+            .as_ref()
+            .map(|mode| *mode == IndexerSearchMode::Partial)
+            .unwrap_or(false)
+        {
+            return Err(Error::invalid_params(
+                "the CKB indexer doesn't support script partial search mode.",
+            ));
+        }
+
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -351,7 +362,7 @@ impl IndexerHandle {
         };
         let script_search_exact = matches!(
             search_key.script_search_mode,
-            Some(IndexerScriptSearchMode::Exact)
+            Some(IndexerSearchMode::Exact)
         );
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
@@ -433,6 +444,30 @@ impl IndexerHandle {
                     }
                 }
 
+                if let Some((data, mode)) = &filter_options.output_data {
+                    match mode {
+                        IndexerSearchMode::Prefix => {
+                            if !output_data.raw_data().starts_with(data) {
+                                return None;
+                            }
+                        }
+                        IndexerSearchMode::Exact => {
+                            if output_data.raw_data() != data {
+                                return None;
+                            }
+                        }
+                        IndexerSearchMode::Partial => {
+                            if !output_data
+                                .raw_data()
+                                .windows(data.len())
+                                .any(|window| window == data)
+                            {
+                                return None;
+                            }
+                        }
+                    }
+                }
+
                 if let Some([r0, r1]) = filter_options.output_data_len_range {
                     if output_data.len() < r0 || output_data.len() >= r1 {
                         return None;
@@ -480,6 +515,33 @@ impl IndexerHandle {
         limit: Uint32,
         after_cursor: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
+        let limit = limit.value() as usize;
+        if limit == 0 {
+            return Err(Error::invalid_params("limit should be greater than 0"));
+        }
+
+        if search_key
+            .script_search_mode
+            .as_ref()
+            .map(|mode| *mode == IndexerSearchMode::Partial)
+            .unwrap_or(false)
+        {
+            return Err(Error::invalid_params(
+                "the CKB indexer doesn't support script partial search mode.",
+            ));
+        }
+
+        if search_key
+            .filter
+            .as_ref()
+            .map(|filter| filter.output_data.is_some())
+            .unwrap_or(false)
+        {
+            return Err(Error::invalid_params(
+                "the CKB indexer doesn't support data filtering.",
+            ));
+        }
+
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::TxLockScript,
@@ -487,10 +549,6 @@ impl IndexerHandle {
             order,
             after_cursor,
         )?;
-        let limit = limit.value() as usize;
-        if limit == 0 {
-            return Err(Error::invalid_params("limit should be greater than 0"));
-        }
 
         let (filter_script, filter_block_range) = if let Some(filter) = search_key.filter.as_ref() {
             if filter.script_len_range.is_some() {
@@ -525,7 +583,7 @@ impl IndexerHandle {
         };
         let script_search_exact = matches!(
             search_key.script_search_mode,
-            Some(IndexerScriptSearchMode::Exact)
+            Some(IndexerSearchMode::Exact)
         );
 
         let mode = IteratorMode::From(from_key.as_ref(), direction);
@@ -747,6 +805,17 @@ impl IndexerHandle {
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>, Error> {
+        if search_key
+            .script_search_mode
+            .as_ref()
+            .map(|mode| *mode == IndexerSearchMode::Partial)
+            .unwrap_or(false)
+        {
+            return Err(Error::invalid_params(
+                "the CKB indexer doesn't support script partial search mode",
+            ));
+        }
+
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -760,7 +829,7 @@ impl IndexerHandle {
         };
         let script_search_exact = matches!(
             search_key.script_search_mode,
-            Some(IndexerScriptSearchMode::Exact)
+            Some(IndexerSearchMode::Exact)
         );
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
@@ -835,6 +904,30 @@ impl IndexerHandle {
                                 .map(|script| extract_raw_data(&script).len())
                                 .unwrap_or_default();
                             if script_len < r0 || script_len > r1 {
+                                return None;
+                            }
+                        }
+                    }
+                }
+
+                if let Some((data, mode)) = &filter_options.output_data {
+                    match mode {
+                        IndexerSearchMode::Prefix => {
+                            if !output_data.as_slice().starts_with(data) {
+                                return None;
+                            }
+                        }
+                        IndexerSearchMode::Exact => {
+                            if output_data.as_slice() != data {
+                                return None;
+                            }
+                        }
+                        IndexerSearchMode::Partial => {
+                            if !output_data
+                                .as_slice()
+                                .windows(data.len())
+                                .any(|window| window == data)
+                            {
                                 return None;
                             }
                         }
@@ -929,6 +1022,7 @@ fn build_query_options(
 struct FilterOptions {
     script_prefix: Option<Vec<u8>>,
     script_len_range: Option<[usize; 2]>,
+    output_data: Option<(Vec<u8>, IndexerSearchMode)>,
     output_data_len_range: Option<[usize; 2]>,
     output_capacity_range: Option<[core::Capacity; 2]>,
     block_range: Option<[core::BlockNumber; 2]>,
@@ -964,6 +1058,13 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
             ]
         });
 
+        let output_data = filter.output_data.map(|data| {
+            let mode = filter
+                .output_data_filter_mode
+                .unwrap_or(IndexerSearchMode::Prefix);
+            (data.as_bytes().to_vec(), mode)
+        });
+
         let output_data_len_range = filter.output_data_len_range.map(|range| {
             [
                 Into::<u64>::into(range.start()) as usize,
@@ -983,6 +1084,7 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
         Ok(FilterOptions {
             script_prefix,
             script_len_range,
+            output_data,
             output_data_len_range,
             output_capacity_range,
             block_range,
@@ -1763,7 +1865,7 @@ mod tests {
             .get_cells(
                 IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                    script_search_mode: Some(IndexerSearchMode::Exact),
                     ..Default::default()
                 },
                 IndexerOrder::Asc,
@@ -1783,7 +1885,7 @@ mod tests {
             .get_transactions(
                 IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                    script_search_mode: Some(IndexerSearchMode::Exact),
                     ..Default::default()
                 },
                 IndexerOrder::Asc,
@@ -1799,7 +1901,7 @@ mod tests {
             .get_transactions(
                 IndexerSearchKey {
                     script: lock_script1.clone().into(),
-                    script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                    script_search_mode: Some(IndexerSearchMode::Exact),
                     group_by_transaction: Some(true),
                     ..Default::default()
                 },
@@ -1819,7 +1921,7 @@ mod tests {
         let capacity = rpc
             .get_cells_capacity(IndexerSearchKey {
                 script: lock_script1.clone().into(),
-                script_search_mode: Some(IndexerScriptSearchMode::Exact),
+                script_search_mode: Some(IndexerSearchMode::Exact),
                 ..Default::default()
             })
             .unwrap()
@@ -1844,5 +1946,139 @@ mod tests {
             1000 * 100000000 * (total_blocks + 1) + 2000 * 100000000,
             capacity.capacity.value()
         );
+    }
+
+    #[test]
+    fn output_data_filter_mode_rpc() {
+        let store = new_store("script_search_mode_rpc");
+        let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
+        let rpc = IndexerHandle { store, pool: None };
+
+        // setup test data
+        let lock_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .build();
+
+        let lock_script11 = ScriptBuilder::default()
+            .code_hash(lock_script1.code_hash())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script11".to_vec()).pack())
+            .build();
+
+        let type_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
+            .build();
+
+        let type_script11 = ScriptBuilder::default()
+            .code_hash(type_script1.code_hash())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script11".to_vec()).pack())
+            .build();
+
+        let cellbase0 = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(0))
+            .witness(Script::default().into_witness())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx00 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1.clone())
+                    .type_(Some(type_script1.clone()).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let tx01 = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000).pack())
+                    .lock(lock_script11.clone())
+                    .type_(Some(type_script11.clone()).pack())
+                    .build(),
+            )
+            .output_data(hex::decode("62e907b15cbfaa").unwrap().pack())
+            .build();
+
+        let block0 = BlockBuilder::default()
+            .transaction(cellbase0)
+            .transaction(tx00.clone())
+            .transaction(tx01.clone())
+            .header(HeaderBuilder::default().number(0.pack()).build())
+            .build();
+
+        indexer.append(&block0).unwrap();
+
+        // test get_cells rpc with output_data Prefix search mode
+        let cells = rpc
+            .get_cells(
+                IndexerSearchKey {
+                    script: lock_script11.clone().into(),
+                    filter: Some(IndexerSearchKeyFilter {
+                        output_data: Some(JsonBytes::from_vec(hex::decode("62").unwrap())),
+                        output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(1, cells.objects.len(),);
+
+        // test get_cells rpc with output_data Partial search mode
+        let cells = rpc
+            .get_cells(
+                IndexerSearchKey {
+                    script: lock_script11.clone().into(),
+                    filter: Some(IndexerSearchKeyFilter {
+                        output_data: Some(JsonBytes::from_vec(hex::decode("e907b1").unwrap())),
+                        output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(1, cells.objects.len(),);
+
+        // test get_cells rpc with output_data Exact search mode
+        let cells = rpc
+            .get_cells(
+                IndexerSearchKey {
+                    script: lock_script11.into(),
+                    filter: Some(IndexerSearchKeyFilter {
+                        output_data: Some(JsonBytes::from_vec(
+                            hex::decode("62e907b15cbfaa").unwrap(),
+                        )),
+                        output_data_filter_mode: Some(IndexerSearchMode::Exact),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(1, cells.objects.len(),);
     }
 }

@@ -856,6 +856,7 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
+ "hex",
  "numext-fixed-uint",
  "rand 0.8.5",
  "rhai",
