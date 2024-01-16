@@ -1400,7 +1400,6 @@ async fn run_vms_with_signal(
     let (finished_send, mut finished_recv) =
         mpsc::unbounded_channel::<(Result<i8, ckb_vm::Error>, u64)>();
     let (child_sender, child_recv) = watch::channel(ChunkCommand::Resume);
-    eprintln!("begin to run vms with signal: vms len {}", machines.len());
     let jh =
         tokio::spawn(
             async move { run_vms_child(machines, child_recv, finished_send, context).await },
