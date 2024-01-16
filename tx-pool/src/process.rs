@@ -731,16 +731,9 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<(), Reject> {
-        let tx_hash = tx.hash();
+    ) -> Result<bool, Reject> {
         let mut chunk = self.verify_queue.write().await;
-        if !chunk.add_tx(tx, remote) {
-            return Err(Reject::Full(format!(
-                "chunk is full, tx_hash: {:#x}",
-                tx_hash
-            )));
-        }
-        Ok(())
+        chunk.add_tx(tx, remote)
     }
 
     pub(crate) async fn _process_tx(

@@ -4,7 +4,7 @@ extern crate rustc_hash;
 extern crate slab;
 use ckb_network::PeerIndex;
 use ckb_types::{
-    core::{Cycle, TransactionView},
+    core::{tx_pool::Reject, Cycle, TransactionView},
     packed::ProposalShortId,
 };
 use ckb_util::shrink_to_fit;
@@ -12,7 +12,7 @@ use multi_index_map::MultiIndexMap;
 use tokio::sync::watch;
 
 const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100;
-const SHRINK_THRESHOLD: usize = 120;
+const SHRINK_THRESHOLD: usize = 100;
 
 /// The verify queue is a priority queue of transactions to verify.
 #[derive(Debug, Clone, Eq)]
@@ -120,9 +120,19 @@ impl VerifyQueue {
 
     /// If the queue did not have this tx present, true is returned.
     /// If the queue did have this tx present, false is returned.
-    pub fn add_tx(&mut self, tx: TransactionView, remote: Option<(Cycle, PeerIndex)>) -> bool {
+    pub fn add_tx(
+        &mut self,
+        tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<bool, Reject> {
         if self.contains_key(&tx.proposal_short_id()) {
-            return false;
+            return Ok(false);
+        }
+        if self.is_full() {
+            return Err(Reject::Full(format!(
+                "chunk is full, tx_hash: {:#x}",
+                tx.hash()
+            )));
         }
         self.inner.insert(VerifyEntry {
             id: tx.proposal_short_id(),
@@ -132,9 +142,8 @@ impl VerifyQueue {
                 .as_millis() as u64,
             inner: Entry { tx, remote },
         });
-        eprintln!("added to queue len: {:?}", self.len());
         self.queue_tx.send(self.len()).unwrap();
-        true
+        Ok(true)
     }
 
     /// Clears the map, removing all elements.

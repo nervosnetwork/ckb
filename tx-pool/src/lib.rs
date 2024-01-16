@@ -12,7 +12,6 @@ mod process;
 pub mod service;
 mod util;
 mod verify_mgr;
-pub mod verify_queue;
 
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::TxEntry;
