@@ -210,8 +210,8 @@ impl BlockFetcher {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
 
-                if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
-                    if status.contains(BlockStatus::BLOCK_STORED) {
+                if status.contains(BlockStatus::BLOCK_STORED) {
+                    if status.contains(BlockStatus::BLOCK_VALID) {
                         // If the block is stored, its ancestor must on store
                         // So we can skip the search of this space directly
                         self.sync_shared

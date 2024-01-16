@@ -363,8 +363,8 @@ impl Synchronizer {
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-        if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
-            error!("Block {} already partial stored", block_hash);
+        if status.contains(BlockStatus::BLOCK_STORED) {
+            error!("Block {} already stored", block_hash);
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared
                 .insert_new_block(&self.chain, Arc::new(block), peer_id, message_bytes);
@@ -388,8 +388,8 @@ impl Synchronizer {
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
-        if status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
-            error!("block {} already partial stored", block_hash);
+        if status.contains(BlockStatus::BLOCK_STORED) {
+            error!("block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared.blocking_insert_new_block_with_verbose_info(
