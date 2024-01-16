@@ -148,10 +148,8 @@ impl ConsumeDescendantProcessor {
     pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
         match self.accept_descendant(lonely_block.block().to_owned()) {
             Ok((parent_header, total_difficulty)) => {
-                self.shared.insert_block_status(
-                    lonely_block.block().hash(),
-                    BlockStatus::BLOCK_PARTIAL_STORED,
-                );
+                self.shared
+                    .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
 
                 let unverified_block: UnverifiedBlock =
                     lonely_block.combine_parent_header(parent_header);
@@ -266,9 +264,9 @@ impl ConsumeOrphan {
             if !self.shared.contains_block_status(
                 self.shared.store(),
                 &leader_hash,
-                BlockStatus::BLOCK_PARTIAL_STORED,
+                BlockStatus::BLOCK_STORED,
             ) {
-                trace!("orphan leader: {} not partial stored", leader_hash);
+                trace!("orphan leader: {} not stored", leader_hash);
                 continue;
             }
 
@@ -291,7 +289,7 @@ impl ConsumeOrphan {
         let parent_status = self
             .shared
             .get_block_status(self.shared.store(), &parent_hash);
-        if parent_status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
+        if parent_status.contains(BlockStatus::BLOCK_STORED) {
             debug!(
                 "parent {} has stored: {:?}, processing descendant directly {}-{}",
                 parent_hash,
