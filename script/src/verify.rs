@@ -698,7 +698,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     pub async fn resumable_verify_with_signal(
         &self,
         limit_cycles: Cycle,
-        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<VerifyResult, Error> {
         let mut cycles = 0;
 
@@ -1041,7 +1041,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         group: &ScriptGroup,
         max_cycles: Cycle,
-        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<ChunkState, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
@@ -1145,7 +1145,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<ChunkState, ScriptError> {
         let context: Arc<Mutex<MachineContext>> = Default::default();
 
@@ -1382,7 +1382,7 @@ fn run_vms(
     }
 }
 
-// Run a series of VMs that are just freshly resumed
+// Run a series of VMs with control signal, will only return when verification finished
 async fn run_vms_with_signal(
     script_group: &ScriptGroup,
     max_cycles: Cycle,
@@ -1409,11 +1409,13 @@ async fn run_vms_with_signal(
     loop {
         tokio::select! {
             _ = signal.changed() => {
-                let state = signal.borrow().to_owned();
-                if state == ChunkCommand::Suspend {
-                    pause.interrupt();
-                } else if state == ChunkCommand::Resume {
-                    child_sender.send(ChunkCommand::Resume).unwrap();
+                match signal.borrow().to_owned() {
+                    ChunkCommand::Suspend => {
+                        pause.interrupt();
+                    }
+                    ChunkCommand::Resume => {
+                        child_sender.send(ChunkCommand::Resume).unwrap();
+                    }
                 }
             }
             Some(res) = finished_recv.recv() => {
@@ -1500,8 +1502,8 @@ async fn run_vms_child(
                             new_suspended_machines.reverse();
                             machines.push(machine);
                             machines.append(&mut new_suspended_machines);
-                            // wait for Resume command to begin next loop iteration
                             eprintln!("suspend here: {:?}", machines.len());
+                            // break to wait for Resume command to begin next loop iteration
                             break;
                         }
                         _ => {
