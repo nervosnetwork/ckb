@@ -1,7 +1,7 @@
 extern crate num_cpus;
 use crate::component::entry::TxEntry;
+use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::try_or_return_with_snapshot;
-use crate::verify_queue::{Entry, VerifyQueue};
 use crate::{error::Reject, service::TxPoolService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::info;
@@ -69,10 +69,10 @@ impl Worker {
                     _ = self.queue_rx.changed() => {
                         true
                     }
-                    _ = interval.tick() => {
+                    _ = self.command_rx.changed() => {
                         true
                     }
-                    _ = self.command_rx.changed() => {
+                    _ = interval.tick() => {
                         true
                     }
                 };
