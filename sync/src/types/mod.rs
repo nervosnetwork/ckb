@@ -1355,7 +1355,6 @@ impl SyncShared {
         ActiveChain {
             shared: self.clone(),
             snapshot: Arc::clone(&self.shared.snapshot()),
-            state: Arc::clone(&self.state),
         }
     }
 
@@ -2048,7 +2047,6 @@ impl SyncState {
 pub struct ActiveChain {
     shared: SyncShared,
     snapshot: Arc<Snapshot>,
-    state: Arc<SyncState>,
 }
 
 #[doc(hidden)]
@@ -2300,6 +2298,7 @@ impl ActiveChain {
         block_number_and_hash: BlockNumberAndHash,
     ) {
         if let Some(last_time) = self
+            .shared()
             .state
             .pending_get_headers
             .write()
@@ -2318,7 +2317,8 @@ impl ActiveChain {
                 );
             }
         }
-        self.state
+        self.shared()
+            .state()
             .pending_get_headers
             .write()
             .put((peer, block_number_and_hash.hash()), Instant::now());
@@ -2338,10 +2338,10 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        match self.state.block_status_map.get(block_hash) {
+        match self.shared().state().block_status_map.get(block_hash) {
             Some(status_ref) => *status_ref.value(),
             None => {
-                if self.state.header_map.contains_key(block_hash) {
+                if self.shared().state().header_map.contains_key(block_hash) {
                     BlockStatus::HEADER_VALID
                 } else {
                     let verified = self
