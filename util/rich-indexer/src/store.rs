@@ -1,5 +1,3 @@
-use crate::indexer::bulk_insert_blocks_simple;
-
 use anyhow::{anyhow, Result};
 use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
@@ -94,7 +92,7 @@ impl SQLXPool {
                     .set(pool)
                     .map_err(|_| anyhow!("set pool failed!"))?;
                 if require_init {
-                    self.create_tables_for_sqlite(db_config).await?;
+                    self.create_tables_for_sqlite().await?;
                 }
                 self.db_type
                     .set(DBType::Sqlite)
@@ -112,7 +110,7 @@ impl SQLXPool {
                     .set(pool)
                     .map_err(|_| anyhow!("set pool failed"))?;
                 if require_init {
-                    self.create_tables_for_postgres(db_config).await?;
+                    self.create_tables_for_postgres().await?;
                 }
                 self.db_type
                     .set(DBType::Postgres)
@@ -211,7 +209,7 @@ impl SQLXPool {
         self.max_conn
     }
 
-    async fn create_tables_for_sqlite(&self, config: &RichIndexerConfig) -> Result<()> {
+    async fn create_tables_for_sqlite(&self) -> Result<()> {
         let mut tx = self.transaction().await?;
         sqlx::query(SQL_SQLITE_CREATE_TABLE)
             .execute(&mut *tx)
@@ -219,17 +217,10 @@ impl SQLXPool {
         sqlx::query(SQL_SQLITE_CREATE_INDEX)
             .execute(&mut *tx)
             .await?;
-        if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
-            let blocks_simple = vec![(
-                config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
-                config.init_tip_number.unwrap() as i64,
-            )];
-            bulk_insert_blocks_simple(blocks_simple, &mut tx).await?;
-        }
         tx.commit().await.map_err(Into::into)
     }
 
-    async fn create_tables_for_postgres(&mut self, config: &RichIndexerConfig) -> Result<()> {
+    async fn create_tables_for_postgres(&mut self) -> Result<()> {
         let commands_table = SQL_POSTGRES_CREATE_TABLE.split(';');
         let commands_index = SQL_POSTGRES_CREATE_INDEX.split(';');
         for command in commands_table.chain(commands_index) {
@@ -238,15 +229,7 @@ impl SQLXPool {
                 sqlx::query(command).execute(pool).await?;
             }
         }
-        let mut tx = self.transaction().await?;
-        if config.init_tip_hash.is_some() && config.init_tip_number.is_some() {
-            let blocks_simple = vec![(
-                config.init_tip_hash.clone().unwrap().as_bytes().to_vec(),
-                config.init_tip_number.unwrap() as i64,
-            )];
-            bulk_insert_blocks_simple(blocks_simple, &mut tx).await?;
-        }
-        tx.commit().await.map_err(Into::into)
+        Ok(())
     }
 
     pub async fn is_postgres_require_init(

@@ -23,12 +23,15 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{self, BlockNumber, BlockView},
     packed::Byte32,
+    prelude::*,
+    H256,
 };
 use rocksdb::prelude::*;
 
 use std::marker::Send;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
+use std::thread::sleep;
 use std::time::Duration;
 
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
@@ -43,6 +46,8 @@ pub trait IndexerSync {
     fn rollback(&self) -> Result<(), Error>;
     /// Get indexer identity
     fn get_identity(&self) -> &str;
+    /// Set init tip
+    fn set_init_tip(&self, init_tip_number: u64, init_tip_hash: &H256);
 }
 
 /// Construct new secondary db instance
@@ -69,6 +74,7 @@ pub struct IndexerSyncService {
     pool_service: PoolService,
     poll_interval: Duration,
     async_handle: Handle,
+    init_tip_hash: Option<H256>,
 }
 
 impl IndexerSyncService {
@@ -78,12 +84,44 @@ impl IndexerSyncService {
         pool_service: PoolService,
         config: &IndexerSyncConfig,
         async_handle: Handle,
+        init_tip_hash: Option<H256>,
     ) -> Self {
         Self {
             secondary_db,
             pool_service,
             poll_interval: Duration::from_secs(config.poll_interval),
             async_handle,
+            init_tip_hash,
+        }
+    }
+
+    /// Apply init tip
+    fn apply_init_tip<I>(&self, indexer_service: I)
+    where
+        I: IndexerSync + Clone + Send + 'static,
+    {
+        if let Some(init_tip_hash) = &self.init_tip_hash {
+            let indexer_tip = indexer_service
+                .tip()
+                .expect("indexer_service tip should be OK");
+            if let Some((indexer_tip, _)) = indexer_tip {
+                if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                    if indexer_tip >= init_tip.number() {
+                        return;
+                    }
+                }
+            }
+            loop {
+                if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+                    error!("secondary_db try_catch_up_with_primary error {}", e);
+                }
+                if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                    let init_tip_number = header.number();
+                    indexer_service.set_init_tip(init_tip_number, init_tip_hash);
+                    break;
+                }
+                sleep(Duration::from_secs(1));
+            }
         }
     }
 
@@ -148,9 +186,10 @@ impl IndexerSyncService {
         // Initial sync
         let initial_service = self.clone();
         let indexer = indexer_service.clone();
-        let initial_syncing = self
-            .async_handle
-            .spawn_blocking(move || initial_service.try_loop_sync(indexer));
+        let initial_syncing = self.async_handle.spawn_blocking(move || {
+            initial_service.apply_init_tip(indexer.clone());
+            initial_service.try_loop_sync(indexer)
+        });
 
         // Follow-up sync
         let stop: CancellationToken = new_tokio_exit_rx();

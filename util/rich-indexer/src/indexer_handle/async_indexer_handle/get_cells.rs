@@ -22,7 +22,7 @@ impl AsyncRichIndexerHandle {
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
-        let limit = limit.value() as u32;
+        let limit = limit.value();
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }

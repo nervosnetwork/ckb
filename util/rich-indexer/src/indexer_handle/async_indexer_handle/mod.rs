@@ -6,8 +6,9 @@ use crate::indexer::to_fixed_array;
 use crate::store::{DBType, SQLXPool};
 
 use ckb_indexer_sync::{Error, Pool};
-use ckb_jsonrpc_types::{IndexerRange, IndexerScriptType, IndexerSearchMode, IndexerTip};
-use ckb_jsonrpc_types::{IndexerSearchKey, JsonBytes};
+use ckb_jsonrpc_types::{
+    IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip,
+};
 use ckb_types::H256;
 use num_bigint::BigUint;
 use sql_builder::SqlBuilder;
@@ -277,7 +278,6 @@ fn decode_i32(data: &[u8]) -> Result<i32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hex;
 
     #[test]
     fn test_get_binary_upper_boundary_empty() {

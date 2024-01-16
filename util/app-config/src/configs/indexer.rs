@@ -1,4 +1,3 @@
-use super::indexer_sync::IndexerSyncConfig;
 use super::rich_indexer::{DBDriver, RichIndexerConfig};
 
 use ckb_types::H256;

@@ -691,6 +691,18 @@ where
     fn get_identity(&self) -> &str {
         SUBSCRIBER_NAME
     }
+
+    /// Set init tip
+    fn set_init_tip(&self, init_tip_number: u64, init_tip_hash: &ckb_types::H256) {
+        let mut batch = self.store.batch().expect("create batch should be OK");
+        batch
+            .put_kv(
+                Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                vec![],
+            )
+            .expect("insert init tip header should be OK");
+        batch.commit().expect("commit batch should be OK");
+    }
 }
 
 impl<S> Indexer<S>

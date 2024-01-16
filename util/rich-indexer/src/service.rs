@@ -34,8 +34,13 @@ impl RichIndexerService {
             .block_on(store.connect(&config.rich_indexer))
             .expect("Failed to connect to rich-indexer database");
 
-        let sync =
-            IndexerSyncService::new(ckb_db, pool_service, &config.into(), async_handle.clone());
+        let sync = IndexerSyncService::new(
+            ckb_db,
+            pool_service,
+            &config.into(),
+            async_handle.clone(),
+            config.init_tip_hash.clone(),
+        );
         Self {
             store,
             sync,

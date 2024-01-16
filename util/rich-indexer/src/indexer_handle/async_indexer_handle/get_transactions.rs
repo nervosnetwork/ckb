@@ -19,7 +19,7 @@ impl AsyncRichIndexerHandle {
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
-        let limit = limit.value() as u32;
+        let limit = limit.value();
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
@@ -426,7 +426,7 @@ fn build_tx_with_cell_union_sub_query(
     build_filter(
         db_type.clone(),
         &mut query_output_builder,
-        &search_key,
+        search_key,
         &mut param_index,
     );
 
@@ -476,7 +476,7 @@ fn build_tx_with_cell_union_sub_query(
     build_filter(
         db_type.clone(),
         &mut query_input_builder,
-        &search_key,
+        search_key,
         &mut param_index,
     );
 

@@ -1,4 +1,3 @@
-use ckb_types::H256;
 use serde::{Deserialize, Serialize};
 use std::{default::Default, path::PathBuf};
 
@@ -28,12 +27,6 @@ impl ToString for DBDriver {
 /// Rich indexer config options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RichIndexerConfig {
-    /// The init tip block number
-    #[serde(default)]
-    pub init_tip_number: Option<u64>,
-    /// The init tip block hash
-    #[serde(default)]
-    pub init_tip_hash: Option<H256>,
     /// Rich indexer database type.
     #[serde(default)]
     pub db_type: DBDriver,
@@ -61,8 +54,6 @@ pub struct RichIndexerConfig {
 impl Default for RichIndexerConfig {
     fn default() -> Self {
         Self {
-            init_tip_number: None,
-            init_tip_hash: None,
             db_type: DBDriver::default(),
             store: PathBuf::default(),
             db_name: default_db_name(),

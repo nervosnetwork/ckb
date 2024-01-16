@@ -12,6 +12,7 @@ use ckb_types::{
     core::{BlockNumber, BlockView, TransactionView},
     packed::Byte32,
     prelude::*,
+    H256,
 };
 use sqlx::{Any, Transaction};
 
@@ -82,6 +83,14 @@ impl IndexerSync for RichIndexer {
     /// Return identity
     fn get_identity(&self) -> &str {
         SUBSCRIBER_NAME
+    }
+
+    /// Set init tip
+    fn set_init_tip(&self, init_tip_number: u64, init_tip_hash: &H256) {
+        let future = self
+            .async_rich_indexer
+            .set_init_tip(init_tip_number, init_tip_hash);
+        self.async_runtime.block_on(future)
     }
 }
 
@@ -214,6 +223,20 @@ impl AsyncRichIndexer {
         bulk_insert_input_table(tx_id, input_rows, tx).await?;
         bulk_insert_script_table(script_set, tx).await?;
         bulk_insert_output_table(tx_id, output_cell_rows, tx).await
+    }
+
+    pub(crate) async fn set_init_tip(&self, init_tip_number: u64, init_tip_hash: &H256) {
+        let blocks_simple = vec![(init_tip_hash.as_bytes().to_vec(), init_tip_number as i64)];
+        let mut tx = self
+            .store
+            .transaction()
+            .await
+            .map_err(|err| Error::DB(err.to_string()))
+            .expect("set_init_tip create transaction should be OK");
+        bulk_insert_blocks_simple(blocks_simple, &mut tx)
+            .await
+            .expect("set_init_tip bulk_insert_blocks_simple should be OK");
+        tx.commit().await.expect("set_init_tip commit should be OK");
     }
 }
 
