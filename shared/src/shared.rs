@@ -418,32 +418,35 @@ impl Shared {
     pub fn block_status_map(&self) -> &DashMap<Byte32, BlockStatus> {
         &self.block_status_map
     }
-    pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        match self.block_status_map.get(block_hash) {
+
+    pub fn get_block_status<T: ChainStore>(&self, store: &T, block_hash: &Byte32) -> BlockStatus {
+        match self.block_status_map().get(block_hash) {
             Some(status_ref) => *status_ref.value(),
             None => {
-                if self.header_map.contains_key(block_hash) {
+                if self.header_map().contains_key(block_hash) {
                     BlockStatus::HEADER_VALID
                 } else {
-                    let verified = self
-                        .store()
+                    let verified = store
                         .get_block_ext(block_hash)
                         .map(|block_ext| block_ext.verified);
                     match verified {
+                        None => BlockStatus::UNKNOWN,
+                        Some(None) => BlockStatus::BLOCK_STORED,
                         Some(Some(true)) => BlockStatus::BLOCK_VALID,
                         Some(Some(false)) => BlockStatus::BLOCK_INVALID,
-                        Some(None) => BlockStatus::BLOCK_STORED,
-                        None => {
-                            if self.store().get_block_header(block_hash).is_some() {
-                                BlockStatus::BLOCK_PARTIAL_STORED
-                            } else {
-                                BlockStatus::UNKNOWN
-                            }
-                        }
                     }
                 }
             }
         }
+    }
+
+    pub fn contains_block_status<T: ChainStore>(
+        &self,
+        store: &T,
+        block_hash: &Byte32,
+        status: BlockStatus,
+    ) -> bool {
+        self.get_block_status(store, block_hash).contains(status)
     }
 
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
@@ -459,9 +462,6 @@ impl Shared {
             "remove_block_status shrink_to_fit cost {:?}",
             log_now.elapsed()
         );
-    }
-    pub fn contains_block_status(&self, block_hash: &Byte32, status: BlockStatus) -> bool {
-        self.get_block_status(block_hash).contains(status)
     }
 
     pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
