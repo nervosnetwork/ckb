@@ -14,9 +14,9 @@ wrk.body = [[
                 "args": "0x"
             },
             "script_type": "type",
-            "script_search_mode": "partial",
+            "script_search_mode": "prefix",
             "filter": {
-                "output_data": "0x0000",
+                "output_data": "0xa58618a553",
                 "output_data_filter_mode": "partial"
             },
             "with_data": false
@@ -36,4 +36,4 @@ function response(status, headers, body)
 end
 
 -- This command is run under the condition that the CPU has 4 cores
--- wrk -t4 -c30 -d30s -s ./util/rich-indexer/src/tests/stress_test_scripts/get_cells_partial.lua --latency http://127.0.0.1:8114
+-- wrk -t4 -c30 -d30s -s ./util/rich-indexer/src/tests/stress_test_scripts/get_cells_partial_data.lua --latency http://127.0.0.1:8114

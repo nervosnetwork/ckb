@@ -819,6 +819,177 @@ async fn script_search_mode_rpc() {
     );
 }
 
+#[tokio::test]
+async fn output_data_filter_mode_rpc() {
+    let pool = connect_sqlite(MEMORY_DB).await;
+    let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));
+    let rpc = AsyncRichIndexerHandle::new(pool, None);
+
+    // setup test data
+    let lock_script1 = ScriptBuilder::default()
+        .code_hash(H256(rand::random()).pack())
+        .hash_type(ScriptHashType::Type.into())
+        .args(Bytes::from(b"lock_script1".to_vec()).pack())
+        .build();
+
+    let lock_script11 = ScriptBuilder::default()
+        .code_hash(lock_script1.code_hash())
+        .hash_type(ScriptHashType::Type.into())
+        .args(Bytes::from(b"lock_script11".to_vec()).pack())
+        .build();
+
+    let type_script1 = ScriptBuilder::default()
+        .code_hash(H256(rand::random()).pack())
+        .hash_type(ScriptHashType::Data.into())
+        .args(Bytes::from(b"type_script1".to_vec()).pack())
+        .build();
+
+    let type_script11 = ScriptBuilder::default()
+        .code_hash(type_script1.code_hash())
+        .hash_type(ScriptHashType::Data.into())
+        .args(Bytes::from(b"type_script11".to_vec()).pack())
+        .build();
+
+    let cellbase0 = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .witness(Script::default().into_witness())
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(1000).pack())
+                .lock(lock_script1.clone())
+                .build(),
+        )
+        .output_data(Default::default())
+        .build();
+
+    let tx00 = TransactionBuilder::default()
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(1000).pack())
+                .lock(lock_script1.clone())
+                .type_(Some(type_script1.clone()).pack())
+                .build(),
+        )
+        .output_data(Default::default())
+        .build();
+
+    let tx01 = TransactionBuilder::default()
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(2000).pack())
+                .lock(lock_script11.clone())
+                .type_(Some(type_script11.clone()).pack())
+                .build(),
+        )
+        .output_data(hex::decode("62e907b15cbf00aa00bbcc").unwrap().pack())
+        .build();
+
+    let block0 = BlockBuilder::default()
+        .transaction(cellbase0)
+        .transaction(tx00.clone())
+        .transaction(tx01.clone())
+        .header(HeaderBuilder::default().number(0.pack()).build())
+        .build();
+
+    indexer.append(&block0).await.unwrap();
+
+    // test get_cells rpc with output_data Prefix search mode
+    let cells = rpc
+        .get_cells(
+            IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(hex::decode("62").unwrap())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            1000.into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(1, cells.objects.len(),);
+
+    // test get_cells rpc with output_data Partial search mode
+    let cells = rpc
+        .get_cells(
+            IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(hex::decode("e907b1").unwrap())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            1000.into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(1, cells.objects.len(),);
+
+    // test get_cells rpc with output_data Exact search mode
+    let cells = rpc
+        .get_cells(
+            IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(
+                        hex::decode("62e907b15cbf00aa00bbcc").unwrap(),
+                    )),
+                    output_data_filter_mode: Some(IndexerSearchMode::Exact),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            1000.into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(1, cells.objects.len(),);
+
+    // test get_cells_capacity rpc with output_data Partial search mode
+    let cells = rpc
+        .get_cells_capacity(IndexerSearchKey {
+            script: lock_script11.clone().into(),
+            filter: Some(IndexerSearchKeyFilter {
+                output_data: Some(JsonBytes::from_vec(
+                    hex::decode("62e907b15cbf00aa00bb").unwrap(),
+                )),
+                output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let capacity: u64 = cells.unwrap().capacity.into();
+    assert_eq!(200000000000, capacity);
+
+    // test get_cells_capacity rpc with output_data Partial search mode
+    let cells = rpc
+        .get_cells_capacity(IndexerSearchKey {
+            script: lock_script11.clone().into(),
+            filter: Some(IndexerSearchKeyFilter {
+                output_data: Some(JsonBytes::from_vec(hex::decode("aa00bb").unwrap())),
+                output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let capacity: u64 = cells.unwrap().capacity.into();
+    assert_eq!(200000000000, capacity);
+}
+
 /// helper fn extracts script fields raw data
 fn extract_raw_data(script: &Script) -> Vec<u8> {
     [

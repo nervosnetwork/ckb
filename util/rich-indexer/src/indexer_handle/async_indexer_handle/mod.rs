@@ -96,10 +96,10 @@ fn build_query_script_sql(
         Some(IndexerSearchMode::Partial) => {
             match db_type {
                 DBType::Postgres => {
-                    query_builder.and_where(&format!("args LIKE ${}", param_index));
+                    query_builder.and_where(format!("position(${} in args) > 0", param_index));
                 }
                 DBType::Sqlite => {
-                    query_builder.and_where(&format!("args LIKE ${} ESCAPE '\x5c'", param_index));
+                    query_builder.and_where(format!("instr(args, ${}) > 0", param_index));
                 }
             }
             *param_index += 1;
@@ -137,10 +137,10 @@ fn build_query_script_id_sql(
         Some(IndexerSearchMode::Partial) => {
             match db_type {
                 DBType::Postgres => {
-                    query_builder.and_where(&format!("args LIKE ${}", param_index));
+                    query_builder.and_where(format!("position(${} in args) > 0", param_index));
                 }
                 DBType::Sqlite => {
-                    query_builder.and_where(&format!("args LIKE ${} ESCAPE '\x5c'", param_index));
+                    query_builder.and_where(format!("instr(args, ${}) > 0", param_index));
                 }
             }
             *param_index += 1;
@@ -224,13 +224,14 @@ fn build_cell_filter(
                 Some(IndexerSearchMode::Partial) => {
                     match db_type {
                         DBType::Postgres => {
-                            query_builder.and_where(format!("output.data LIKE ${}", param_index));
-                        }
-                        DBType::Sqlite => {
                             query_builder.and_where(format!(
-                                "output.data LIKE ${} ESCAPE '\x5c'",
+                                "position(${} in output.data) > 0",
                                 param_index
                             ));
+                        }
+                        DBType::Sqlite => {
+                            query_builder
+                                .and_where(format!("instr(output.data, ${}) > 0", param_index));
                         }
                     }
                     *param_index += 1;
@@ -238,27 +239,6 @@ fn build_cell_filter(
             }
         }
     }
-}
-
-fn process_bind_data_for_partial_mode(data: &JsonBytes) -> Vec<u8> {
-    // 0x5c is the escape character
-    // 0x25 is the % character
-    let mut new_data: Vec<u8> = data
-        .as_bytes()
-        .iter()
-        .flat_map(|&b| {
-            if b == 0x25 || b == 0x5c {
-                vec![0x5c, b]
-            } else {
-                vec![b]
-            }
-        })
-        .collect();
-
-    new_data.insert(0, 0x25); // Start with %
-    new_data.push(0x25); // End with %
-
-    new_data
 }
 
 fn get_binary_upper_boundary(value: &[u8]) -> Vec<u8> {

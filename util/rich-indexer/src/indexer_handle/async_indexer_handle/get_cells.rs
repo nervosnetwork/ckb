@@ -145,12 +145,8 @@ impl AsyncRichIndexerHandle {
                     .bind(search_key.script.args.as_bytes())
                     .bind(get_binary_upper_boundary(search_key.script.args.as_bytes()));
             }
-            Some(IndexerSearchMode::Exact) => {
+            Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
                 query = query.bind(search_key.script.args.as_bytes());
-            }
-            Some(IndexerSearchMode::Partial) => {
-                let new_args = process_bind_data_for_partial_mode(&search_key.script.args);
-                query = query.bind(new_args);
             }
         }
         if let Some(filter) = search_key.filter.as_ref() {
@@ -170,12 +166,8 @@ impl AsyncRichIndexerHandle {
                             .bind(data.as_bytes())
                             .bind(get_binary_upper_boundary(data.as_bytes()));
                     }
-                    Some(IndexerSearchMode::Exact) => {
+                    Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
                         query = query.bind(data.as_bytes());
-                    }
-                    Some(IndexerSearchMode::Partial) => {
-                        let new_data = process_bind_data_for_partial_mode(&data);
-                        query = query.bind(new_data);
                     }
                 }
             }

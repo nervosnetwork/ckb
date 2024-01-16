@@ -184,12 +184,8 @@ pub async fn get_tx_with_cell(
                     .bind(search_key.script.args.as_bytes())
                     .bind(get_binary_upper_boundary(search_key.script.args.as_bytes()));
             }
-            Some(IndexerSearchMode::Exact) => {
+            Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
                 query = query.bind(search_key.script.args.as_bytes());
-            }
-            Some(IndexerSearchMode::Partial) => {
-                let new_args = process_bind_data_for_partial_mode(&search_key.script.args);
-                query = query.bind(new_args);
             }
         }
         if let Some(filter) = search_key.filter.as_ref() {
@@ -209,12 +205,8 @@ pub async fn get_tx_with_cell(
                             .bind(data.as_bytes())
                             .bind(get_binary_upper_boundary(data.as_bytes()));
                     }
-                    Some(IndexerSearchMode::Exact) => {
+                    Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
                         query = query.bind(data.as_bytes());
-                    }
-                    Some(IndexerSearchMode::Partial) => {
-                        let new_data = process_bind_data_for_partial_mode(&data);
-                        query = query.bind(new_data);
                     }
                 }
             }
@@ -324,12 +316,8 @@ pub async fn get_tx_with_cells(
                     .bind(search_key.script.args.as_bytes())
                     .bind(get_binary_upper_boundary(search_key.script.args.as_bytes()));
             }
-            Some(IndexerSearchMode::Exact) => {
+            Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
                 query = query.bind(search_key.script.args.as_bytes());
-            }
-            Some(IndexerSearchMode::Partial) => {
-                let new_args = process_bind_data_for_partial_mode(&search_key.script.args);
-                query = query.bind(new_args);
             }
         }
         if let Some(filter) = search_key.filter.as_ref() {
@@ -349,12 +337,8 @@ pub async fn get_tx_with_cells(
                             .bind(data.as_bytes())
                             .bind(get_binary_upper_boundary(data.as_bytes()));
                     }
-                    Some(IndexerSearchMode::Exact) => {
+                    Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
                         query = query.bind(data.as_bytes());
-                    }
-                    Some(IndexerSearchMode::Partial) => {
-                        let new_data = process_bind_data_for_partial_mode(&data);
-                        query = query.bind(new_data);
                     }
                 }
             }
@@ -580,13 +564,14 @@ fn build_filter(
                 Some(IndexerSearchMode::Partial) => {
                     match db_type {
                         DBType::Postgres => {
-                            query_builder.and_where(format!("output.data LIKE ${}", param_index));
-                        }
-                        DBType::Sqlite => {
                             query_builder.and_where(format!(
-                                "output.data LIKE ${} ESCAPE '\x5c'",
+                                "position(${} in output.data) > 0",
                                 param_index
                             ));
+                        }
+                        DBType::Sqlite => {
+                            query_builder
+                                .and_where(format!("instr(output.data, ${}) > 0", param_index));
                         }
                     }
                     *param_index += 1;
