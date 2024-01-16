@@ -677,51 +677,55 @@ impl TxPoolService {
 
         let data_loader = snapshot.as_data_loader();
 
-        let completed = if let Some(ref completed) = cached {
-            let ret = TimeRelativeTransactionVerifier::new(
-                Arc::clone(&rtx),
-                Arc::clone(&self.consensus),
-                data_loader,
-                tx_env,
-            )
-            .verify()
-            .map_err(Reject::Verification);
-            try_or_return_with_snapshot!(ret, snapshot);
-            *completed
-        } else if remote.is_some() {
-            // for remote transaction with large decleard cycles, we enqueue it to verify queue
-            let ret = self
-                .enqueue_suspended_tx(rtx.transaction.clone(), remote)
-                .await;
-            try_or_return_with_snapshot!(ret, snapshot);
-            eprintln!("added to queue here: {:?}", tx.proposal_short_id());
-            return Some((Ok(ProcessResult::Suspended), snapshot));
-        } else {
-            // for local transaction, we verify it directly with a max cycles limit
-            let ret = {
-                block_in_place(|| {
-                    let cycle_limit = snapshot.cloned_consensus().max_block_cycles();
-                    ContextualTransactionVerifier::new(
-                        Arc::clone(&rtx),
-                        Arc::clone(&self.consensus),
-                        data_loader,
-                        tx_env,
-                    )
-                    .verify(cycle_limit, false)
-                    .and_then(|result| {
-                        DaoScriptSizeVerifier::new(
+        let completed = match cached {
+            Some(completed) => {
+                let ret = TimeRelativeTransactionVerifier::new(
+                    Arc::clone(&rtx),
+                    Arc::clone(&self.consensus),
+                    data_loader,
+                    tx_env,
+                )
+                .verify()
+                .map_err(Reject::Verification);
+                try_or_return_with_snapshot!(ret, snapshot);
+                completed
+            }
+            None if remote.is_some() => {
+                // for remote transaction with large decleard cycles, we enqueue it to verify queue
+                let ret = self
+                    .enqueue_suspended_tx(rtx.transaction.clone(), remote)
+                    .await;
+                try_or_return_with_snapshot!(ret, snapshot);
+                eprintln!("added to queue here: {:?}", tx.proposal_short_id());
+                return Some((Ok(ProcessResult::Suspended), snapshot));
+            }
+            None => {
+                // for local transaction, we verify it directly with a max cycles limit
+                let ret = {
+                    block_in_place(|| {
+                        let cycle_limit = snapshot.cloned_consensus().max_block_cycles();
+                        ContextualTransactionVerifier::new(
                             Arc::clone(&rtx),
-                            snapshot.cloned_consensus(),
-                            snapshot.as_data_loader(),
+                            Arc::clone(&self.consensus),
+                            data_loader,
+                            tx_env,
                         )
-                        .verify()?;
-                        Ok(result)
+                        .verify(cycle_limit, false)
+                        .and_then(|result| {
+                            DaoScriptSizeVerifier::new(
+                                Arc::clone(&rtx),
+                                snapshot.cloned_consensus(),
+                                snapshot.as_data_loader(),
+                            )
+                            .verify()?;
+                            Ok(result)
+                        })
+                        .map_err(Reject::Verification)
                     })
-                    .map_err(Reject::Verification)
-                })
-            };
+                };
 
-            try_or_return_with_snapshot!(ret, snapshot)
+                try_or_return_with_snapshot!(ret, snapshot)
+            }
         };
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
@@ -739,10 +743,6 @@ impl TxPoolService {
         }
 
         Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
-    }
-
-    pub(crate) async fn _is_chunk_full(&self) -> bool {
-        self.verify_queue.read().await.is_full()
     }
 
     pub(crate) async fn enqueue_suspended_tx(
