@@ -152,15 +152,15 @@ impl BlockFetcher {
             return None;
         }
 
-        if matches!(self.ibd, IBDState::In) {
-            if best_known.number() <= self.active_chain.unverified_tip_number() {
-                debug!("In IBD mode, Peer {}'s best_known: {} is less or equal than unverified_tip : {}, won't request block from this peer",
+        if matches!(self.ibd, IBDState::In)
+            && best_known.number() <= self.active_chain.unverified_tip_number()
+        {
+            debug!("In IBD mode, Peer {}'s best_known: {} is less or equal than unverified_tip : {}, won't request block from this peer",
                         self.peer,
                         best_known.number(),
                         self.active_chain.unverified_tip_number()
                     );
-                return None;
-            }
+            return None;
         };
 
         let state = self.sync_shared.state();
