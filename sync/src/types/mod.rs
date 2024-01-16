@@ -2037,25 +2037,7 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        match self.shared().shared().block_status_map().get(block_hash) {
-            Some(status_ref) => *status_ref.value(),
-            None => {
-                if self.shared().shared().header_map().contains_key(block_hash) {
-                    BlockStatus::HEADER_VALID
-                } else {
-                    let verified = self
-                        .snapshot
-                        .get_block_ext(block_hash)
-                        .map(|block_ext| block_ext.verified);
-                    match verified {
-                        None => BlockStatus::UNKNOWN,
-                        Some(None) => BlockStatus::BLOCK_STORED,
-                        Some(Some(true)) => BlockStatus::BLOCK_VALID,
-                        Some(Some(false)) => BlockStatus::BLOCK_INVALID,
-                    }
-                }
-            }
-        }
+        self.shared().get_block_status(self.snapshot(), block_hash)
     }
 
     pub fn contains_block_status(&self, block_hash: &Byte32, status: BlockStatus) -> bool {
