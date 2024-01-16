@@ -263,10 +263,11 @@ impl ConsumeOrphan {
 
     fn search_orphan_pool(&self) {
         for leader_hash in self.orphan_blocks_broker.clone_leaders() {
-            if !self
-                .shared
-                .contains_block_status(&leader_hash, BlockStatus::BLOCK_PARTIAL_STORED)
-            {
+            if !self.shared.contains_block_status(
+                self.shared.store(),
+                &leader_hash,
+                BlockStatus::BLOCK_PARTIAL_STORED,
+            ) {
                 trace!("orphan leader: {} not partial stored", leader_hash);
                 continue;
             }
@@ -287,7 +288,9 @@ impl ConsumeOrphan {
 
     fn process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
         let parent_hash = lonely_block.block().parent_hash();
-        let parent_status = self.shared.get_block_status(&parent_hash);
+        let parent_status = self
+            .shared
+            .get_block_status(self.shared.store(), &parent_hash);
         if parent_status.contains(BlockStatus::BLOCK_PARTIAL_STORED) {
             debug!(
                 "parent {} has stored: {:?}, processing descendant directly {}-{}",
