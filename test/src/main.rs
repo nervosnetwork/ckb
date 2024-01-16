@@ -587,6 +587,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmVersion1),
         Box::new(CheckVmVersion2),
         Box::new(CheckVmBExtension),
+        Box::new(RandomlyKill),
     ];
     specs.shuffle(&mut thread_rng());
     specs

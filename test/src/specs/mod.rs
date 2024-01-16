@@ -8,6 +8,7 @@ mod relay;
 mod rpc;
 mod sync;
 mod tx_pool;
+mod fault_injection;
 
 pub use alert::*;
 pub use consensus::*;
@@ -19,6 +20,7 @@ pub use relay::*;
 pub use rpc::*;
 pub use sync::*;
 pub use tx_pool::*;
+pub use fault_injection::*;
 
 use crate::Node;
 use ckb_app_config::CKBAppConfig;
