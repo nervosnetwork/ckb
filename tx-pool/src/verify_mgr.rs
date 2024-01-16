@@ -62,22 +62,32 @@ impl Worker {
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                tokio::select! {
+                let try_pick = tokio::select! {
                     _ = self.exit_signal.cancelled() => {
                         break;
                     }
                     _ = self.queue_rx.changed() => {
-                        self.process_inner().await;
+                        true
                     }
                     _ = interval.tick() => {
-                        self.process_inner().await;
+                        true
                     }
+                    _ = self.command_rx.changed() => {
+                        true
+                    }
+                };
+                if try_pick {
+                    self.process_inner().await;
                 }
             }
         })
     }
 
     async fn process_inner(&mut self) {
+        if self.command_rx.borrow().to_owned() == ChunkCommand::Suspend {
+            return;
+        }
+
         if self.tasks.read().await.get_first().is_none() {
             return;
         }
