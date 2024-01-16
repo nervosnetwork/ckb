@@ -375,8 +375,6 @@ pub async fn get_tx_with_cells(
                 row.get::<Vec<u8>, _>("tx_hash"),
                 {
                     row.get::<String, _>("io_pairs")
-                        .trim_matches('{')
-                        .trim_matches('}')
                         .split("\",\"")
                         .map(|s| {
                             let s = s.trim_matches('\"');
