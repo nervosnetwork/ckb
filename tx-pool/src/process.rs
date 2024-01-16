@@ -27,13 +27,14 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualTransactionVerifier, DaoScriptSizeVerifier, ScriptVerifyResult,
-    TimeRelativeTransactionVerifier, TxVerifyEnv,
+    ContextualTransactionVerifier, DaoScriptSizeVerifier, TimeRelativeTransactionVerifier,
+    TxVerifyEnv,
 };
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::task::block_in_place;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
 
@@ -672,35 +673,26 @@ impl TxPoolService {
         } else {
             // for local transaction, we verify it directly with a max cycles limit
             let ret = {
-                let verifier = ContextualTransactionVerifier::new(
-                    Arc::clone(&rtx),
-                    Arc::clone(&self.consensus),
-                    data_loader,
-                    tx_env,
-                );
-
-                let cycle_limit = snapshot.cloned_consensus().max_block_cycles();
-                let ret = verifier
-                    .verify_until_completed(cycle_limit)
-                    .await
-                    .map_err(Reject::Verification);
-                let (ret, fee) = try_or_return_with_snapshot!(ret, snapshot);
-                match ret {
-                    ScriptVerifyResult::Completed(cycles) => {
-                        let res = DaoScriptSizeVerifier::new(
+                block_in_place(|| {
+                    let cycle_limit = snapshot.cloned_consensus().max_block_cycles();
+                    ContextualTransactionVerifier::new(
+                        Arc::clone(&rtx),
+                        Arc::clone(&self.consensus),
+                        data_loader,
+                        tx_env,
+                    )
+                    .verify(cycle_limit, false)
+                    .and_then(|result| {
+                        DaoScriptSizeVerifier::new(
                             Arc::clone(&rtx),
-                            Arc::clone(&self.consensus),
+                            snapshot.cloned_consensus(),
                             snapshot.as_data_loader(),
                         )
-                        .verify()
-                        .map_err(Reject::Verification);
-                        try_or_return_with_snapshot!(res, snapshot);
-                        Ok(Completed { cycles, fee })
-                    }
-                    ScriptVerifyResult::Suspended(_state) => {
-                        panic!("unexpect suspend");
-                    }
-                }
+                        .verify()?;
+                        Ok(result)
+                    })
+                    .map_err(Reject::Verification)
+                })
             };
 
             try_or_return_with_snapshot!(ret, snapshot)
