@@ -2,6 +2,7 @@ use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
 use crate::component::orphan::Entry as OrphanEntry;
 use crate::component::pool_map::Status;
+use crate::component::verify_queue::Entry;
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
@@ -16,6 +17,7 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
+use ckb_script::{ChunkCommand, VerifyResult};
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
@@ -30,10 +32,12 @@ use ckb_verification::{
     ContextualTransactionVerifier, DaoScriptSizeVerifier, TimeRelativeTransactionVerifier,
     TxVerifyEnv,
 };
+use ckb_verification::{ContextualWithoutScriptTransactionVerifier, ScriptVerifier};
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::watch;
 use tokio::task::block_in_place;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
@@ -716,6 +720,107 @@ impl TxPoolService {
         }
 
         Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
+    }
+
+    pub(crate) async fn run_verify_tx(
+        &mut self,
+        entry: Entry,
+        command_rx: &mut watch::Receiver<ChunkCommand>,
+    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
+        let Entry { tx, remote } = entry;
+        let tx_hash = tx.hash();
+
+        let (ret, snapshot) = self.pre_check(&tx).await;
+        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let cached = self.fetch_tx_verify_cache(&tx_hash).await;
+        let tip_header = snapshot.tip_header();
+        let consensus = snapshot.cloned_consensus();
+
+        let tx_env = Arc::new(TxVerifyEnv::new_submit(tip_header));
+
+        if let Some(ref completed) = cached {
+            let ret = TimeRelativeTransactionVerifier::new(
+                Arc::clone(&rtx),
+                Arc::clone(&consensus),
+                snapshot.as_data_loader(),
+                Arc::clone(&tx_env),
+            )
+            .verify()
+            .map(|_| *completed)
+            .map_err(Reject::Verification);
+            let completed = try_or_return_with_snapshot!(ret, snapshot);
+
+            let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
+            let (ret, snapshot) = self.submit_entry(tip_hash, entry, status).await;
+            try_or_return_with_snapshot!(ret, snapshot);
+            return Some((Ok(completed), snapshot));
+        }
+
+        let cloned_snapshot = Arc::clone(&snapshot);
+        let data_loader = cloned_snapshot.as_data_loader();
+        let ret = ContextualWithoutScriptTransactionVerifier::new(
+            Arc::clone(&rtx),
+            Arc::clone(&consensus),
+            data_loader.clone(),
+            Arc::clone(&tx_env),
+        )
+        .verify()
+        .and_then(|result| {
+            DaoScriptSizeVerifier::new(
+                Arc::clone(&rtx),
+                Arc::clone(&consensus),
+                data_loader.clone(),
+            )
+            .verify()?;
+            Ok(result)
+        })
+        .map_err(Reject::Verification);
+        let fee = try_or_return_with_snapshot!(ret, snapshot);
+
+        let max_cycles = if let Some((declared_cycle, _peer)) = remote {
+            declared_cycle
+        } else {
+            consensus.max_block_cycles()
+        };
+
+        let ret = {
+            let script_verifier =
+                ScriptVerifier::new(Arc::clone(&rtx), data_loader, consensus, tx_env);
+            script_verifier
+                .resumable_verify_with_signal(max_cycles, command_rx)
+                .await
+                .map_err(Reject::Verification)
+        };
+
+        let state = try_or_return_with_snapshot!(ret, snapshot);
+        let completed: Completed = match state {
+            VerifyResult::Completed(cycles) => Completed { cycles, fee },
+            _ => {
+                panic!("not expected");
+            }
+        };
+        if let Some((declared_cycle, _peer)) = remote {
+            if declared_cycle != completed.cycles {
+                return Some((
+                    Err(Reject::DeclaredWrongCycles(
+                        declared_cycle,
+                        completed.cycles,
+                    )),
+                    snapshot,
+                ));
+            }
+        }
+        // verify passed
+        let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
+        let (ret, snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        try_or_return_with_snapshot!(ret, snapshot);
+
+        self.notify_block_assembler(status).await;
+
+        let mut guard = self.txs_verify_cache.write().await;
+        guard.put(tx_hash, completed);
+
+        Some((Ok(completed), snapshot))
     }
 
     pub(crate) async fn enqueue_suspended_tx(

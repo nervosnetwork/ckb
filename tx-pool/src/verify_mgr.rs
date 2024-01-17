@@ -1,20 +1,9 @@
 extern crate num_cpus;
-use crate::component::entry::TxEntry;
-use crate::component::verify_queue::{Entry, VerifyQueue};
-use crate::try_or_return_with_snapshot;
-use crate::{error::Reject, service::TxPoolService};
-use ckb_chain_spec::consensus::Consensus;
+use crate::component::verify_queue::VerifyQueue;
+use crate::service::TxPoolService;
 use ckb_logger::info;
-use ckb_script::{ChunkCommand, VerifyResult};
-use ckb_snapshot::Snapshot;
+use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
-use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
-use ckb_types::core::{cell::ResolvedTransaction, Cycle};
-use ckb_verification::{
-    cache::Completed, ContextualWithoutScriptTransactionVerifier, DaoScriptSizeVerifier,
-    ScriptVerifier, TimeRelativeTransactionVerifier, TxVerifyEnv,
-};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{watch, RwLock};
@@ -98,143 +87,14 @@ impl Worker {
         };
 
         let (res, snapshot) = self
-            .run_verify_tx(entry.clone())
+            .service
+            .run_verify_tx(entry.clone(), &mut self.command_rx)
             .await
             .expect("run_verify_tx failed");
 
-        match res {
-            Ok(completed) => {
-                self.service
-                    .after_process(entry.tx, entry.remote, &snapshot, &Ok(completed))
-                    .await;
-            }
-            Err(e) => {
-                self.service
-                    .after_process(entry.tx, entry.remote, &snapshot, &Err(e))
-                    .await;
-            }
-        }
-    }
-
-    async fn run_verify_tx(
-        &mut self,
-        entry: Entry,
-    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
-        let Entry { tx, remote } = entry;
-        let tx_hash = tx.hash();
-
-        let (ret, snapshot) = self.service.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
-
-        let cached = self.service.fetch_tx_verify_cache(&tx_hash).await;
-
-        let tip_header = snapshot.tip_header();
-        let consensus = snapshot.cloned_consensus();
-
-        let tx_env = Arc::new(TxVerifyEnv::new_submit(tip_header));
-
-        if let Some(ref completed) = cached {
-            let ret = TimeRelativeTransactionVerifier::new(
-                Arc::clone(&rtx),
-                Arc::clone(&consensus),
-                snapshot.as_data_loader(),
-                Arc::clone(&tx_env),
-            )
-            .verify()
-            .map(|_| *completed)
-            .map_err(Reject::Verification);
-            let completed = try_or_return_with_snapshot!(ret, snapshot);
-
-            let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-            let (ret, snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
-            try_or_return_with_snapshot!(ret, snapshot);
-            return Some((Ok(completed), snapshot));
-        }
-
-        let cloned_snapshot = Arc::clone(&snapshot);
-        let data_loader = cloned_snapshot.as_data_loader();
-        let ret = ContextualWithoutScriptTransactionVerifier::new(
-            Arc::clone(&rtx),
-            Arc::clone(&consensus),
-            data_loader.clone(),
-            Arc::clone(&tx_env),
-        )
-        .verify()
-        .and_then(|result| {
-            DaoScriptSizeVerifier::new(
-                Arc::clone(&rtx),
-                Arc::clone(&consensus),
-                data_loader.clone(),
-            )
-            .verify()?;
-            Ok(result)
-        })
-        .map_err(Reject::Verification);
-        let fee = try_or_return_with_snapshot!(ret, snapshot);
-
-        let max_cycles = if let Some((declared_cycle, _peer)) = remote {
-            declared_cycle
-        } else {
-            consensus.max_block_cycles()
-        };
-
-        let ret = self
-            .loop_resume(
-                Arc::clone(&rtx),
-                data_loader,
-                max_cycles,
-                Arc::clone(&consensus),
-                Arc::clone(&tx_env),
-            )
+        self.service
+            .after_process(entry.tx, entry.remote, &snapshot, &res)
             .await;
-        let state = try_or_return_with_snapshot!(ret, snapshot);
-
-        let completed: Completed = match state {
-            VerifyResult::Completed(cycles) => Completed { cycles, fee },
-            _ => {
-                panic!("not expected");
-            }
-        };
-        if let Some((declared_cycle, _peer)) = remote {
-            if declared_cycle != completed.cycles {
-                return Some((
-                    Err(Reject::DeclaredWrongCycles(
-                        declared_cycle,
-                        completed.cycles,
-                    )),
-                    snapshot,
-                ));
-            }
-        }
-        // verify passed
-        let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-        let (ret, snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
-        try_or_return_with_snapshot!(ret, snapshot);
-
-        self.service.notify_block_assembler(status).await;
-
-        let mut guard = self.service.txs_verify_cache.write().await;
-        guard.put(tx_hash, completed);
-
-        Some((Ok(completed), snapshot))
-    }
-
-    async fn loop_resume<
-        DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
-    >(
-        &mut self,
-        rtx: Arc<ResolvedTransaction>,
-        data_loader: DL,
-        max_cycles: Cycle,
-        consensus: Arc<Consensus>,
-        tx_env: Arc<TxVerifyEnv>,
-    ) -> Result<VerifyResult, Reject> {
-        let script_verifier = ScriptVerifier::new(rtx, data_loader, consensus, tx_env);
-        let res = script_verifier
-            .resumable_verify_with_signal(max_cycles, &mut self.command_rx)
-            .await
-            .map_err(Reject::Verification)?;
-        Ok(res)
     }
 }
 
