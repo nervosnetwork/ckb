@@ -8,7 +8,8 @@ use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
-use ckb_logger::{debug, error};
+use ckb_logger::{debug, error, info};
+use ckb_network::multiaddr::Multiaddr;
 use ckb_resource::Resource;
 use ckb_types::{
     bytes,
@@ -19,8 +20,8 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
-use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::borrow::{Borrow, BorrowMut};
+use std::collections::{HashMap, HashSet};
 use std::convert::Into;
 use std::fs;
 use std::path::PathBuf;
@@ -749,11 +750,11 @@ pub fn connect_all(nodes: &[Node]) {
 }
 
 // TODO it will be removed out later, in another PR
-pub fn disconnect_all(nodes: &[Node]) {
+pub fn disconnect_all<N: Borrow<Node>>(nodes: &[N]) {
     for node_a in nodes.iter() {
         for node_b in nodes.iter() {
-            if node_a.p2p_address() != node_b.p2p_address() {
-                node_a.disconnect(node_b);
+            if node_a.borrow().p2p_address() != node_b.borrow().p2p_address() {
+                node_a.borrow().disconnect(node_b.borrow());
             }
         }
     }
@@ -777,5 +778,42 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
     }
     for node in nodes {
         node.borrow().wait_for_tx_pool();
+    }
+}
+
+// TODO it will be removed out later, in another PR
+pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
+    let node_multiaddrs: HashMap<String, Multiaddr> = nodes
+        .iter()
+        .map(|n| {
+            (
+                n.borrow().node_id().to_owned(),
+                n.borrow().p2p_address().try_into().unwrap(),
+            )
+        })
+        .collect();
+    let other_node_addrs: Vec<Vec<Multiaddr>> = node_multiaddrs
+        .iter()
+        .map(|(id, _)| {
+            let addrs = node_multiaddrs
+                .iter()
+                .filter(|(other_id, _)| other_id.as_str() != id.as_str())
+                .map(|(_, addr)| addr.to_owned())
+                .collect::<Vec<_>>();
+            addrs
+        })
+        .collect();
+    for (i, node) in nodes.iter_mut().enumerate() {
+        node.borrow_mut()
+            .modify_app_config(|config: &mut CKBAppConfig| {
+                info!("Setting bootnodes to {:?}", other_node_addrs[i]);
+                config.network.bootnodes = other_node_addrs[i].clone();
+            })
+    }
+    // Restart nodes to make bootnodes work
+    for node in nodes.iter_mut() {
+        node.borrow_mut().stop();
+        node.borrow_mut().start();
+        info!("Restarted node {:?}", node.borrow_mut().node_id());
     }
 }
