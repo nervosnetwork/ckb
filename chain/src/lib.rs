@@ -8,7 +8,7 @@
 use ckb_error::{is_internal_db_error, Error};
 use ckb_logger::{debug, error};
 use ckb_network::PeerIndex;
-use ckb_shared::types::VerifyFailedBlockInfo;
+use ckb_shared::types::{BlockNumberAndHash, VerifyFailedBlockInfo};
 use ckb_types::core::service::Request;
 use ckb_types::core::{BlockNumber, BlockView, HeaderView};
 use ckb_types::packed::Byte32;
@@ -66,6 +66,35 @@ impl LonelyBlock {
     }
 }
 
+/// LonelyBlock is the block which we have not check weather its parent is stored yet
+#[derive(Clone)]
+pub struct LonelyBlockHash {
+    /// block
+    pub block_number_and_hash: BlockNumberAndHash,
+
+    /// This block is received from which peer, and the message bytes size
+    pub peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
+
+    /// The Switch to control the verification process
+    pub switch: Option<Switch>,
+}
+
+/// LonelyBlockWithCallback Combine LonelyBlock with an optional verify_callback
+pub struct LonelyBlockHashWithCallback {
+    /// The LonelyBlock
+    pub lonely_block: LonelyBlockHash,
+    /// The optional verify_callback
+    pub verify_callback: Option<VerifyCallback>,
+}
+
+impl LonelyBlockHashWithCallback {
+    pub(crate) fn execute_callback(self, verify_result: VerifyResult) {
+        if let Some(verify_callback) = self.verify_callback {
+            verify_callback(verify_result);
+        }
+    }
+}
+
 /// LonelyBlockWithCallback Combine LonelyBlock with an optional verify_callback
 pub struct LonelyBlockWithCallback {
     /// The LonelyBlock
@@ -110,6 +139,36 @@ impl LonelyBlockWithCallback {
         UnverifiedBlock {
             unverified_block: self,
             parent_header,
+        }
+    }
+}
+
+pub(crate) struct UnverifiedBlockHash {
+    pub unverified_block: LonelyBlockHashWithCallback,
+    pub parent_header: HeaderView,
+}
+
+impl UnverifiedBlockHash {
+    fn execute_callback(self, verify_result: VerifyResult) {
+        self.unverified_block.execute_callback(verify_result)
+    }
+}
+
+impl From<UnverifiedBlock> for UnverifiedBlockHash {
+    fn from(value: UnverifiedBlock) -> Self {
+        Self {
+            unverified_block: LonelyBlockHashWithCallback {
+                lonely_block: LonelyBlockHash {
+                    block_number_and_hash: BlockNumberAndHash {
+                        number: value.block().number(),
+                        hash: value.block().hash(),
+                    },
+                    peer_id_with_msg_bytes: value.peer_id_with_msg_bytes(),
+                    switch: value.unverified_block.switch(),
+                },
+                verify_callback: value.unverified_block.verify_callback,
+            },
+            parent_header: value.parent_header,
         }
     }
 }
