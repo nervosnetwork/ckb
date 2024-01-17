@@ -9,7 +9,6 @@
 
 
 int main() {
-    for(; ;) {
-    }
+    for(; ;) {}
     return CKB_SUCCESS;
 }
