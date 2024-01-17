@@ -140,7 +140,7 @@ impl Net {
         let protocol_id = protocol.protocol_id();
         let peer_index = self
             .receivers
-            .get(node_id)
+            .get(&node_id)
             .map(|(peer_index, _)| *peer_index)
             .unwrap_or_else(|| panic!("not connected peer {}", node.p2p_address()));
         self.controller()
@@ -156,7 +156,7 @@ impl Net {
         let node_id = node.node_id();
         let (peer_index, receiver) = self
             .receivers
-            .get(node_id)
+            .get(&node_id)
             .unwrap_or_else(|| panic!("not connected peer {}", node.p2p_address()));
         let net_message = receiver.recv_timeout(timeout)?;
         info!(
