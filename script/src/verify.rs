@@ -1410,16 +1410,16 @@ async fn run_vms_with_signal(
         );
 
     loop {
-        //eprintln!("parent wait to receive: {:?}", signal.borrow().to_owned());
         tokio::select! {
             _ = signal.changed() => {
-                match signal.borrow().to_owned() {
+                let command = signal.borrow().to_owned();
+                match command {
                     ChunkCommand::Suspend => {
                         pause.interrupt();
                     }
-                    ChunkCommand::Resume => {
+                    ChunkCommand::Resume | ChunkCommand::Stop => {
                         pause.free();
-                        let _res = child_sender.send(ChunkCommand::Resume);
+                        let _res = child_sender.send(command);
                     }
                 }
             }
@@ -1462,9 +1462,16 @@ async fn run_vms_child(
     loop {
         select! {
             _ = child_recv.changed() => {
-                let state = child_recv.borrow().to_owned();
-                if state != ChunkCommand::Resume {
-                    continue;
+                match child_recv.borrow().to_owned() {
+                    ChunkCommand::Stop => {
+                        let exit = (Err(ckb_vm::Error::Unexpected("stopped".to_string())), cycles);
+                        let _ = finished_send.send(exit);
+                        return;
+                    }
+                    ChunkCommand::Suspend => {
+                        continue;
+                    }
+                    ChunkCommand::Resume => {}
                 }
                 if machines.is_empty() {
                     finished_send.send((Ok(exit_code), cycles)).unwrap();

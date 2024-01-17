@@ -647,7 +647,7 @@ fn check_spawn_snapshot() {
     assert!(chunks_count > 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn check_spawn_async() {
     let script_version = SCRIPT_VERSION;
     if script_version <= ScriptVersion::V1 {
@@ -705,20 +705,17 @@ async fn check_spawn_async() {
     let _jt = tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            let res = command_tx.send(ChunkCommand::Suspend);
+            let _res = command_tx.send(ChunkCommand::Suspend);
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            if res.is_err() {
-                break;
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            let res = command_tx.send(ChunkCommand::Resume);
-            if res.is_err() {
-                break;
-            }
+
+            let _res = command_tx.send(ChunkCommand::Resume);
             tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
 
             let _res = command_tx.send(ChunkCommand::Suspend);
-            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+            let _res = command_tx.send(ChunkCommand::Resume);
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
     });
 
@@ -727,6 +724,63 @@ async fn check_spawn_async() {
         .await
         .unwrap();
     assert_eq!(cycles, cycles_once);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn check_spawn_suspend_shutdown() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/infinite_loop");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let _jt = tokio::spawn(async move {
+        loop {
+            let _res = command_tx.send(ChunkCommand::Suspend);
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+
+            let _res = command_tx.send(ChunkCommand::Resume);
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+
+            let _res = command_tx.send(ChunkCommand::Suspend);
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+
+            let _res = command_tx.send(ChunkCommand::Stop);
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
+    });
+
+    let res = verifier
+        .verify_complete_async(script_version, &rtx, &mut command_rx, true)
+        .await;
+    assert!(res.is_err());
+    let err = res.unwrap_err().to_string();
+    assert!(err.contains("VM Internal Error: Unexpected(\"stopped\")"));
 }
 
 #[test]
