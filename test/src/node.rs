@@ -26,6 +26,7 @@ use std::convert::Into;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -50,7 +51,12 @@ impl Drop for ProcessGuard {
     }
 }
 
+#[derive(Clone)]
 pub struct Node {
+    inner: Arc<InnerNode>,
+}
+
+pub struct InnerNode {
     spec_node_name: String,
     working_dir: PathBuf,
     consensus: Consensus,
@@ -58,8 +64,8 @@ pub struct Node {
     rpc_client: RpcClient,
     rpc_listen: String,
 
-    node_id: Option<String>,     // initialize when starts node
-    guard: Option<ProcessGuard>, // initialize when starts node
+    node_id: RwLock<Option<String>>, // initialize when starts node
+    guard: RwLock<Option<ProcessGuard>>, // initialize when starts node
 }
 
 impl Node {
@@ -109,7 +115,7 @@ impl Node {
         modifier(&mut app_config);
         fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
+        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
     }
 
     pub fn modify_chain_spec<M>(&mut self, modifier: M)
@@ -122,7 +128,7 @@ impl Node {
         modifier(&mut chain_spec);
         fs::write(&chain_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
+        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
     }
 
     // Initialize Node instance based on working directory
@@ -154,44 +160,51 @@ impl Node {
             chain_spec.build_consensus().unwrap()
         };
         Self {
-            spec_node_name,
-            working_dir,
-            consensus,
-            p2p_listen,
-            rpc_client,
-            rpc_listen,
-            node_id: None,
-            guard: None,
+            inner: Arc::new(InnerNode {
+                spec_node_name,
+                working_dir,
+                consensus,
+                p2p_listen,
+                rpc_client,
+                rpc_listen,
+                node_id: RwLock::new(None),
+                guard: RwLock::new(None),
+            }),
         }
     }
 
     pub fn rpc_client(&self) -> &RpcClient {
-        &self.rpc_client
+        &self.inner.rpc_client
     }
 
     pub fn working_dir(&self) -> PathBuf {
-        self.working_dir.clone()
+        self.inner.working_dir.clone()
     }
 
     pub fn log_path(&self) -> PathBuf {
         self.working_dir().join("data/logs/run.log")
     }
 
-    pub fn node_id(&self) -> &str {
+    pub fn node_id(&self) -> String {
         // peer_id.to_base58()
-        self.node_id.as_ref().expect("uninitialized node_id")
+        self.inner
+            .node_id
+            .read()
+            .expect("read locked node_id")
+            .clone()
+            .expect("uninitialized node_id")
     }
 
     pub fn consensus(&self) -> &Consensus {
-        &self.consensus
+        &self.inner.consensus
     }
 
     pub fn p2p_listen(&self) -> String {
-        self.p2p_listen.clone()
+        self.inner.p2p_listen.clone()
     }
 
     pub fn rpc_listen(&self) -> String {
-        self.rpc_listen.clone()
+        self.inner.rpc_listen.clone()
     }
 
     pub fn p2p_address(&self) -> String {
@@ -682,20 +695,36 @@ impl Node {
 
         self.wait_tx_pool_ready();
 
-        self.guard = Some(ProcessGuard {
-            name: self.spec_node_name.clone(),
+        self.set_process_guard(ProcessGuard {
+            name: self.inner.spec_node_name.clone(),
             child: child_process,
             killed: false,
         });
-        self.node_id = Some(node_info.node_id);
+        self.set_node_id(node_info.node_id.as_str());
+    }
+
+    pub(crate) fn set_process_guard(&mut self, guard: ProcessGuard) {
+        let mut g = self.inner.guard.write().unwrap();
+        *g = Some(guard);
+    }
+
+    pub(crate) fn set_node_id(&mut self, node_id: &str) {
+        let mut n = self.inner.node_id.write().unwrap();
+        *n = Some(node_id.to_owned());
+    }
+
+    pub(crate) fn take_guard(&mut self) -> Option<ProcessGuard> {
+        let mut g = self.inner.guard.write().unwrap();
+        g.take()
     }
 
     pub fn stop(&mut self) {
-        drop(self.guard.take())
+        drop(self.take_guard());
     }
 
     pub fn stop_gracefully(&mut self) {
-        if let Some(mut guard) = self.guard.take() {
+        let guard = self.take_guard();
+        if let Some(mut guard) = guard {
             if !guard.killed {
                 // on nix: send SIGINT to the child
                 // on windows: use taskkill to kill the child gracefully
