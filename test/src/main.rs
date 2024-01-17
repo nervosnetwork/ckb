@@ -398,6 +398,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(RequestUnverifiedBlocks),
         Box::new(SyncTimeout),
+        Box::new(SyncChurn),
         Box::new(GetBlockFilterCheckPoints),
         Box::new(GetBlockFilterHashes),
         Box::new(GetBlockFilters),
