@@ -173,6 +173,76 @@ impl TransactionScriptsVerifierWithEnv {
         self.verify(version, rtx, u64::MAX)
     }
 
+    pub(crate) async fn verify_without_limit_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+    ) -> Result<Cycle, Error> {
+        let data_loader = self.store.as_data_loader();
+        let epoch = match version {
+            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
+            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
+            ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
+        };
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
+        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
+        let verifier = TransactionScriptsVerifier::new(
+            Arc::new(rtx.clone()),
+            data_loader,
+            Arc::clone(&self.consensus),
+            tx_env,
+        );
+
+        let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
+        let res = verifier
+            .resumable_verify_with_signal(u64::MAX, &mut command_rx)
+            .await;
+        match res {
+            Ok(VerifyResult::Completed(cycle)) => Ok(cycle),
+            Ok(VerifyResult::Suspended(_)) => unreachable!(),
+            Err(err) => Err(err),
+        }
+    }
+
+    pub(crate) async fn verify_complete_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        skip_debug_pause: bool,
+    ) -> Result<Cycle, Error> {
+        let data_loader = self.store.as_data_loader();
+        let epoch = match version {
+            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
+            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
+            ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
+        };
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
+        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
+        let verifier = TransactionScriptsVerifier::new(
+            Arc::new(rtx.clone()),
+            data_loader,
+            Arc::clone(&self.consensus),
+            tx_env,
+        );
+
+        if skip_debug_pause {
+            verifier.set_skip_pause(true);
+        }
+        let res = verifier
+            .resumable_verify_with_signal(Cycle::MAX, command_rx)
+            .await;
+        match res {
+            Ok(VerifyResult::Completed(cycle)) => Ok(cycle),
+            Ok(VerifyResult::Suspended(_)) => unreachable!(),
+            Err(err) => Err(err),
+        }
+    }
+
     // If the max cycles is meaningless, please use `verify_without_limit`,
     // so reviewers or developers can understand the intentions easier.
     pub(crate) fn verify(

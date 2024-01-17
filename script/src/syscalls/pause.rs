@@ -28,6 +28,8 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Pause {
         if self.skip.load(Ordering::SeqCst) {
             return Ok(true);
         }
-        Err(VMError::CyclesExceeded)
+        // FIXME(yukang): currently we change to use VMInternalError::CyclesExceeded | VMInternalError::Pause
+        // as a flag to Suspend, only for compatibility with old tests, maybe we need cleanup this later.
+        Err(VMError::Pause)
     }
 }
