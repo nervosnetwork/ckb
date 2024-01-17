@@ -218,18 +218,11 @@ impl ChainService {
         match self.lonely_block_tx.send(lonely_block) {
             Ok(_) => {}
             Err(SendError(lonely_block)) => {
-                error!("failed to notify new block to orphan pool");
+                error!("Failed to notify new block to orphan pool, It seems that the orphan pool has exited.");
 
                 let err: Error = InternalErrorKind::System
                     .other("OrphanBlock broker disconnected")
                     .into();
-
-                tell_synchronizer_to_punish_the_bad_peer(
-                    self.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id_with_msg_bytes(),
-                    lonely_block.block().hash(),
-                    &err,
-                );
 
                 let verify_result = Err(err);
                 lonely_block.execute_callback(verify_result);
