@@ -408,6 +408,42 @@ fn check_exec_wrong_callee_format() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn async_check_exec_wrong_callee_format() {
+    let script_version = SCRIPT_VERSION;
+
+    let (exec_caller_cell, exec_caller_data_hash) =
+        load_cell_from_path("testdata/exec_caller_from_cell_data");
+    let (exec_callee_cell, _exec_caller_data_hash) =
+        load_cell_from_slice(&[0x00, 0x01, 0x02, 0x03]);
+
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(exec_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier
+        .verify_without_limit_async(script_version, &rtx)
+        .await;
+    assert!(result.is_err());
+}
+
 #[test]
 fn check_exec_big_offset_length() {
     let script_version = SCRIPT_VERSION;
@@ -518,7 +554,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::CyclesExceeded => {
+                        VMInternalError::CyclesExceeded | VMInternalError::Pause => {
                             tmp = Some(vm);
                             limit += step_cycles;
                             continue;
@@ -718,7 +754,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
                         }
                     }
                     Err(error) => match error {
-                        VMInternalError::CyclesExceeded => {
+                        VMInternalError::CyclesExceeded | VMInternalError::Pause => {
                             tmp = Some(vm);
                             limit += step_cycles;
                             continue;

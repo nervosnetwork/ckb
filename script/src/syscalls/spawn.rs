@@ -235,7 +235,7 @@ where
                 Ok(true)
             }
             Err(err) => {
-                if matches!(err, VMError::CyclesExceeded | VMError::Pause) {
+                if matches!(err, VMError::Pause | VMError::CyclesExceeded) {
                     let mut context = self.context.lock().map_err(|e| {
                         VMError::Unexpected(format!("Failed to acquire lock: {}", e))
                     })?;

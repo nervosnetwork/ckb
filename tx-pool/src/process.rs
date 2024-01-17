@@ -303,7 +303,6 @@ impl TxPoolService {
         }
 
         if let Some((ret, snapshot)) = self._resumeble_process_tx(tx.clone(), remote).await {
-            eprintln!("resumeble_process_tx: ret = {:?}", ret);
             match ret {
                 Ok(processed) => {
                     if let ProcessResult::Completed(completed) = processed {

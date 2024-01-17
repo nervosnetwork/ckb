@@ -1353,7 +1353,7 @@ fn run_vms(
                 }
             }
             Err(error) => match error {
-                VMInternalError::CyclesExceeded => {
+                VMInternalError::CyclesExceeded | VMInternalError::Pause => {
                     let mut new_suspended_machines: Vec<_> = {
                         let mut context = context.lock().map_err(|e| {
                             ScriptError::Other(format!("Failed to acquire lock: {}", e))
@@ -1396,9 +1396,13 @@ async fn run_vms_with_signal(
         ));
     }
 
-    let pause = machines[0].pause();
+    let mut pause = machines[0].pause();
     let (finished_send, mut finished_recv) =
         mpsc::unbounded_channel::<(Result<i8, ckb_vm::Error>, u64)>();
+
+    // send initial `Resume` command to child
+    // it's maybe useful to set initial command to `signal.borrow().to_owned()`
+    // so that we can control the initial state of child, which is useful for testing purpose
     let (child_sender, child_recv) = watch::channel(ChunkCommand::Resume);
     let jh =
         tokio::spawn(
@@ -1406,6 +1410,7 @@ async fn run_vms_with_signal(
         );
 
     loop {
+        //eprintln!("parent wait to receive: {:?}", signal.borrow().to_owned());
         tokio::select! {
             _ = signal.changed() => {
                 match signal.borrow().to_owned() {
@@ -1413,7 +1418,8 @@ async fn run_vms_with_signal(
                         pause.interrupt();
                     }
                     ChunkCommand::Resume => {
-                        child_sender.send(ChunkCommand::Resume).unwrap();
+                        pause.free();
+                        let _res = child_sender.send(ChunkCommand::Resume);
                     }
                 }
             }
@@ -1451,6 +1457,8 @@ async fn run_vms_child(
 ) {
     let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
     child_recv.mark_changed();
+    // mark changed to make sure we can receive initial command
+    // and start to run immediately
     loop {
         select! {
             _ = child_recv.changed() => {
@@ -1501,7 +1509,6 @@ async fn run_vms_child(
                             new_suspended_machines.reverse();
                             machines.push(machine);
                             machines.append(&mut new_suspended_machines);
-                            eprintln!("suspend here: {:?}", machines.len());
                             // break to wait for Resume command to begin next loop iteration
                             break;
                         }
