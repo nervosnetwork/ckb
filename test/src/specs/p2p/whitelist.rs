@@ -49,7 +49,7 @@ impl Spec for WhitelistOnSessionLimit {
             peers.len() == 2
                 && peers
                     .into_iter()
-                    .all(|node| id_set.contains(&node.node_id.as_str()))
+                    .all(|node| id_set.contains(&node.node_id))
         });
 
         if !is_connect_peer_num_eq_2 {
@@ -81,7 +81,7 @@ impl Spec for WhitelistOnSessionLimit {
             peers.len() == 3
                 && peers
                     .into_iter()
-                    .all(|node| id_set.contains(&node.node_id.as_str()))
+                    .all(|node| id_set.contains(&node.node_id))
         });
 
         if !is_connect_peer_num_eq_3 {
