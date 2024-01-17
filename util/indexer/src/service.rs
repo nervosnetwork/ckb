@@ -344,6 +344,28 @@ impl IndexerHandle {
             ));
         }
 
+        let limit = limit.value() as usize;
+        if limit == 0 {
+            return Err(Error::invalid_params("limit should be greater than 0"));
+        }
+
+        if search_key
+            .filter
+            .as_ref()
+            .and_then(|filter| {
+                if filter.output_data_filter_mode == Some(IndexerSearchMode::Partial) {
+                    filter.output_data.as_ref()
+                } else {
+                    None
+                }
+            })
+            .map_or(false, |data| data.is_empty())
+        {
+            return Err(Error::invalid_params(
+                "search_key.filter.output_data empty data is not allowed",
+            ));
+        }
+
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -351,10 +373,6 @@ impl IndexerHandle {
             order,
             after_cursor,
         )?;
-        let limit = limit.value() as usize;
-        if limit == 0 {
-            return Err(Error::invalid_params("limit should be greater than 0"));
-        }
 
         let filter_script_type = match search_key.script_type {
             IndexerScriptType::Lock => IndexerScriptType::Type,
@@ -810,6 +828,23 @@ impl IndexerHandle {
             ));
         }
 
+        if search_key
+            .filter
+            .as_ref()
+            .and_then(|filter| {
+                if filter.output_data_filter_mode == Some(IndexerSearchMode::Partial) {
+                    filter.output_data.as_ref()
+                } else {
+                    None
+                }
+            })
+            .map_or(false, |data| data.is_empty())
+        {
+            return Err(Error::invalid_params(
+                "search_key.filter.output_data empty data is not allowed",
+            ));
+        }
+
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -907,18 +942,18 @@ impl IndexerHandle {
                 if let Some((data, mode)) = &filter_options.output_data {
                     match mode {
                         IndexerSearchMode::Prefix => {
-                            if !output_data.as_slice().starts_with(data) {
+                            if !output_data.raw_data().starts_with(data) {
                                 return None;
                             }
                         }
                         IndexerSearchMode::Exact => {
-                            if output_data.as_slice() != data {
+                            if output_data.raw_data() != data {
                                 return None;
                             }
                         }
                         IndexerSearchMode::Partial => {
                             if !output_data
-                                .as_slice()
+                                .raw_data()
                                 .windows(data.len())
                                 .any(|window| window == data)
                             {
@@ -2035,6 +2070,25 @@ mod tests {
             .unwrap();
         assert_eq!(1, cells.objects.len(),);
 
+        // test get_cells rpc with output_data Prefix search mode
+        let cells = rpc
+            .get_cells(
+                IndexerSearchKey {
+                    script: lock_script11.clone().into(),
+                    filter: Some(IndexerSearchKeyFilter {
+                        output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                        output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(1, cells.objects.len(),);
+
         // test get_cells rpc with output_data Partial search mode
         let cells = rpc
             .get_cells(
@@ -2058,7 +2112,7 @@ mod tests {
         let cells = rpc
             .get_cells(
                 IndexerSearchKey {
-                    script: lock_script11.into(),
+                    script: lock_script11.clone().into(),
                     filter: Some(IndexerSearchKeyFilter {
                         output_data: Some(JsonBytes::from_vec(
                             hex::decode("62e907b15cbfaa").unwrap(),
@@ -2074,5 +2128,102 @@ mod tests {
             )
             .unwrap();
         assert_eq!(1, cells.objects.len(),);
+
+        // test get_cells rpc with output_data Partial search mode
+        let cells = rpc.get_cells(
+            IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            1000.into(),
+            None,
+        );
+        let error = cells.err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "Invalid params search_key.filter.output_data empty data is not allowed",
+        );
+
+        // test get_cells_capacity rpc with output_data Exact search mode
+        let cells_capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(hex::decode("62e907b15cbfaa").unwrap())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Exact),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+        let capacity: u64 = cells_capacity.unwrap().capacity.into();
+        assert_eq!(200000000000, capacity);
+
+        // test get_cells_capacity rpc with output_data Prefix search mode
+        let cells_capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(hex::decode("62e907b15cbf").unwrap())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+        let capacity: u64 = cells_capacity.unwrap().capacity.into();
+        assert_eq!(200000000000, capacity);
+
+        // test get_cells_capacity rpc with output_data Prefix search mode
+        let cells_capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+        let capacity: u64 = cells_capacity.unwrap().capacity.into();
+        assert_eq!(200000000000, capacity);
+
+        // test get_cells_capacity rpc with output_data Partial search mode
+        let cells_capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(hex::decode("5cbf").unwrap())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+        let capacity: u64 = cells_capacity.unwrap().capacity.into();
+        assert_eq!(200000000000, capacity);
+
+        // test get_cells_capacity rpc with output_data Partial search mode
+        let cells_capacity = rpc.get_cells_capacity(IndexerSearchKey {
+            script: lock_script11.clone().into(),
+            filter: Some(IndexerSearchKeyFilter {
+                output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let error = cells_capacity.err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "Invalid params search_key.filter.output_data empty data is not allowed",
+        );
     }
 }
