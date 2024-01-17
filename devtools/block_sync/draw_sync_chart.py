@@ -100,6 +100,8 @@ for duration, height, label in results:
 
     lgs.append(lg)
 
+    ax.hlines([11_500_000], 0, max(duration), colors="gray", linestyles="dashed")
+
     for i, h in enumerate(height):
         if h % 1_000_000 == 0:
             ax.vlines([duration[i]], 0, h, colors="gray", linestyles="dashed")
@@ -107,7 +109,7 @@ for duration, height, label in results:
         if h == 10_000_000:
             alabels.append(((duration[i],h),label))
 
-        if h == 10_000_000 or h == 11_000_000:
+        if h == 11_000_000 or h == 11_500_000:
             ax.vlines([duration[i]], 0, h, colors="black", linestyles="dashed")
             voff=-60
             if h == 11_000_000:
@@ -135,9 +137,9 @@ for duration, height, label in results:
     ax.yaxis.grid(color='gray', linestyle='dashed', which='minor')
   
     xminorLocator = MultipleLocator(1.0)
-    ax.xaxis.set_minor_locator(xminorLocator)
+    ax.xaxis.set_major_locator(xminorLocator)
 
-    yminorLocator = MultipleLocator(1_000_000)
+    yminorLocator = MultipleLocator(500_000)
     ax.yaxis.set_major_locator(yminorLocator)
 
 
@@ -164,6 +166,9 @@ for (duration,h), label in alabels:
         lheight += 20
     elif loffset > 0:
         lheight -= 20
+
+
+plt.axhline(y=11_500_000, color='blue', linestyle='--')
 
 # plt.legend(tuple(lgs), tuple(args.label), loc='upper left', shadow=True)
 plt.title('CKB Block Sync progress Chart')
