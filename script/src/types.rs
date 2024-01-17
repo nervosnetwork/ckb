@@ -464,4 +464,6 @@ pub enum ChunkCommand {
     Suspend,
     /// Resume the verification process
     Resume,
+    /// Stop the verification process
+    Stop,
 }
