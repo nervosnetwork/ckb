@@ -810,7 +810,6 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
     }
 }
 
-// TODO it will be removed out later, in another PR
 pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
     let node_multiaddrs: HashMap<String, Multiaddr> = nodes
         .iter()
