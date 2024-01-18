@@ -103,20 +103,19 @@ impl VerifyQueue {
 
     /// Returns the first entry in the queue and remove it
     pub fn pop_first(&mut self) -> Option<Entry> {
-        if let Some(entry) = self.get_first() {
-            self.remove_tx(&entry.tx.proposal_short_id());
-            Some(entry)
+        if let Some(short_id) = self.peak_first() {
+            self.remove_tx(&short_id)
         } else {
             None
         }
     }
 
     /// Returns the first entry in the queue
-    pub fn get_first(&self) -> Option<Entry> {
+    pub fn peak_first(&self) -> Option<ProposalShortId> {
         self.inner
             .iter_by_added_time()
             .next()
-            .map(|entry| entry.inner.clone())
+            .map(|entry| entry.inner.tx.proposal_short_id())
     }
 
     /// If the queue did not have this tx present, true is returned.
