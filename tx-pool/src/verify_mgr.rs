@@ -43,6 +43,8 @@ impl Worker {
     }
 
     pub async fn start(mut self) -> JoinHandle<()> {
+        // use a channel to receive the queue change event makes sure the worker
+        // know immediately when the queue is changed, otherwise we may have a delay of `interval`
         let mut queue_rx = self.tasks.read().await.subscribe();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(500));
@@ -53,7 +55,7 @@ impl Worker {
                         break;
                     }
                     _ = self.command_rx.changed() => {
-                        true
+                        *self.command_rx.borrow() == ChunkCommand::Resume
                     }
                     _ = queue_rx.changed() => {
                         true
@@ -70,10 +72,6 @@ impl Worker {
     }
 
     async fn process_inner(&mut self) {
-        if self.command_rx.borrow().to_owned() != ChunkCommand::Resume {
-            return;
-        }
-
         if self.tasks.read().await.peek().is_none() {
             return;
         }
