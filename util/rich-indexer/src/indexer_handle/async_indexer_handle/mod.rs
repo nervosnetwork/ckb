@@ -3,8 +3,9 @@ mod get_cells_capacity;
 mod get_transactions;
 
 use crate::indexer::to_fixed_array;
-use crate::store::{DBType, SQLXPool};
+use crate::store::SQLXPool;
 
+use ckb_app_config::DBDriver;
 use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::{
     IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip,
@@ -69,7 +70,7 @@ fn add_filter_script_len_range_conditions(
 }
 
 fn build_query_script_sql(
-    db_type: DBType,
+    db_driver: DBDriver,
     script_search_mode: &Option<IndexerSearchMode>,
     param_index: &mut usize,
 ) -> Result<String, Error> {
@@ -95,11 +96,11 @@ fn build_query_script_sql(
             *param_index += 1;
         }
         Some(IndexerSearchMode::Partial) => {
-            match db_type {
-                DBType::Postgres => {
+            match db_driver {
+                DBDriver::Postgres => {
                     query_builder.and_where(format!("position(${} in args) > 0", param_index));
                 }
-                DBType::Sqlite => {
+                DBDriver::Sqlite => {
                     query_builder.and_where(format!("instr(args, ${}) > 0", param_index));
                 }
             }
@@ -113,7 +114,7 @@ fn build_query_script_sql(
 }
 
 fn build_query_script_id_sql(
-    db_type: DBType,
+    db_driver: DBDriver,
     script_search_mode: &Option<IndexerSearchMode>,
     param_index: &mut usize,
 ) -> Result<String, Error> {
@@ -136,11 +137,11 @@ fn build_query_script_id_sql(
             *param_index += 1;
         }
         Some(IndexerSearchMode::Partial) => {
-            match db_type {
-                DBType::Postgres => {
+            match db_driver {
+                DBDriver::Postgres => {
                     query_builder.and_where(format!("position(${} in args) > 0", param_index));
                 }
-                DBType::Sqlite => {
+                DBDriver::Sqlite => {
                     query_builder.and_where(format!("instr(args, ${}) > 0", param_index));
                 }
             }
@@ -154,7 +155,7 @@ fn build_query_script_id_sql(
 }
 
 fn build_cell_filter(
-    db_type: DBType,
+    db_driver: DBDriver,
     query_builder: &mut SqlBuilder,
     search_key: &IndexerSearchKey,
     param_index: &mut usize,
@@ -223,14 +224,14 @@ fn build_cell_filter(
                     *param_index += 1;
                 }
                 Some(IndexerSearchMode::Partial) => {
-                    match db_type {
-                        DBType::Postgres => {
+                    match db_driver {
+                        DBDriver::Postgres => {
                             query_builder.and_where(format!(
                                 "position(${} in output.data) > 0",
                                 param_index
                             ));
                         }
-                        DBType::Sqlite => {
+                        DBDriver::Sqlite => {
                             query_builder
                                 .and_where(format!("instr(output.data, ${}) > 0", param_index));
                         }

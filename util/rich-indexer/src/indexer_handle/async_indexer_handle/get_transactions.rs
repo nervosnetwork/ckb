@@ -1,6 +1,7 @@
 use super::*;
-use crate::store::{DBType, SQLXPool};
+use crate::store::SQLXPool;
 
+use ckb_app_config::DBDriver;
 use ckb_indexer_sync::Error;
 use ckb_jsonrpc_types::{
     IndexerCellType, IndexerScriptType, IndexerSearchMode, IndexerTx, IndexerTxWithCell,
@@ -24,11 +25,6 @@ impl AsyncRichIndexerHandle {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
 
-        let db_type = self
-            .store
-            .get_db_type()
-            .map_err(|err| Error::DB(err.to_string()))?;
-
         let mut tx = self
             .store
             .transaction()
@@ -50,9 +46,15 @@ impl AsyncRichIndexerHandle {
                     last_cursor = Some((last, offset));
                 };
 
-                let txs =
-                    get_tx_with_cell(db_type, search_key, &order, limit, last_cursor, &mut tx)
-                        .await?;
+                let txs = get_tx_with_cell(
+                    self.store.db_driver,
+                    search_key,
+                    &order,
+                    limit,
+                    last_cursor,
+                    &mut tx,
+                )
+                .await?;
 
                 let mut last_id = 0;
                 let mut count = 0i32;
@@ -89,8 +91,15 @@ impl AsyncRichIndexerHandle {
                 })
             }
             Some(true) => {
-                let txs =
-                    get_tx_with_cells(db_type, search_key, &order, limit, after, &mut tx).await?;
+                let txs = get_tx_with_cells(
+                    self.store.db_driver,
+                    search_key,
+                    &order,
+                    limit,
+                    after,
+                    &mut tx,
+                )
+                .await?;
 
                 let mut last_cursor = 0;
                 let txs = txs
@@ -127,14 +136,14 @@ impl AsyncRichIndexerHandle {
 }
 
 pub async fn get_tx_with_cell(
-    db_type: DBType,
+    db_driver: DBDriver,
     search_key: IndexerSearchKey,
     order: &IndexerOrder,
     limit: u32,
     last_cursor: Option<(i64, i32)>,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Vec<(i64, u64, u32, Vec<u8>, u16, u32)>, Error> {
-    let sql_union = build_tx_with_cell_union_sub_query(db_type, &search_key)?;
+    let sql_union = build_tx_with_cell_union_sub_query(db_driver, &search_key)?;
 
     let mut query_builder = SqlBuilder::select_from(&format!("{} AS res", sql_union));
     query_builder.field("tx_id, block.block_number, ckb_transaction.tx_index, ckb_transaction.tx_hash, io_type, io_index");
@@ -235,14 +244,14 @@ pub async fn get_tx_with_cell(
 }
 
 pub async fn get_tx_with_cells(
-    db_type: DBType,
+    db_driver: DBDriver,
     search_key: IndexerSearchKey,
     order: &IndexerOrder,
     limit: u32,
     after: Option<JsonBytes>,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Vec<(i64, u64, u32, Vec<u8>, Vec<(u16, u32)>)>, Error> {
-    let sql_union = build_tx_with_cell_union_sub_query(db_type.clone(), &search_key)?;
+    let sql_union = build_tx_with_cell_union_sub_query(db_driver, &search_key)?;
 
     let mut query_builder = SqlBuilder::select_from(&format!("{} AS res_union", sql_union));
     query_builder
@@ -270,13 +279,13 @@ pub async fn get_tx_with_cells(
         .field("block_number")
         .field("tx_index")
         .field("tx_hash");
-    match db_type {
-        DBType::Postgres => {
+    match db_driver {
+        DBDriver::Postgres => {
             query_builder.field(
                 "'\"' || array_to_string(ARRAY_AGG(CONCAT(io_type, ',', io_index)), '\",\"') || '\"' AS io_pairs",
             );
         }
-        DBType::Sqlite => {
+        DBDriver::Sqlite => {
             query_builder.field(
                 " '\"' || GROUP_CONCAT(io_type || ',' || io_index, '\",\"') || '\"' AS io_pairs",
             );
@@ -378,7 +387,7 @@ pub async fn get_tx_with_cells(
 }
 
 fn build_tx_with_cell_union_sub_query(
-    db_type: DBType,
+    db_driver: DBDriver,
     search_key: &IndexerSearchKey,
 ) -> Result<String, Error> {
     let mut param_index = 1;
@@ -391,11 +400,7 @@ fn build_tx_with_cell_union_sub_query(
         .field("output.output_index AS io_index");
     query_output_builder.join(&format!(
         "{} AS query_script",
-        build_query_script_id_sql(
-            db_type.clone(),
-            &search_key.script_search_mode,
-            &mut param_index
-        )?
+        build_query_script_id_sql(db_driver, &search_key.script_search_mode, &mut param_index)?
     ));
     match search_key.script_type {
         IndexerScriptType::Lock => {
@@ -424,7 +429,7 @@ fn build_tx_with_cell_union_sub_query(
         }
     }
     build_filter(
-        db_type.clone(),
+        db_driver,
         &mut query_output_builder,
         search_key,
         &mut param_index,
@@ -441,11 +446,7 @@ fn build_tx_with_cell_union_sub_query(
         .on("output.id = input.output_id")
         .join(&format!(
             "{} AS query_script",
-            build_query_script_id_sql(
-                db_type.clone(),
-                &search_key.script_search_mode,
-                &mut param_index
-            )?
+            build_query_script_id_sql(db_driver, &search_key.script_search_mode, &mut param_index)?
         ));
     match search_key.script_type {
         IndexerScriptType::Lock => {
@@ -474,7 +475,7 @@ fn build_tx_with_cell_union_sub_query(
         }
     }
     build_filter(
-        db_type.clone(),
+        db_driver,
         &mut query_input_builder,
         search_key,
         &mut param_index,
@@ -497,7 +498,7 @@ fn build_tx_with_cell_union_sub_query(
 }
 
 fn build_filter(
-    db_type: DBType,
+    db_driver: DBDriver,
     query_builder: &mut SqlBuilder,
     search_key: &IndexerSearchKey,
     param_index: &mut usize,
@@ -562,14 +563,14 @@ fn build_filter(
                     *param_index += 1;
                 }
                 Some(IndexerSearchMode::Partial) => {
-                    match db_type {
-                        DBType::Postgres => {
+                    match db_driver {
+                        DBDriver::Postgres => {
                             query_builder.and_where(format!(
                                 "position(${} in output.data) > 0",
                                 param_index
                             ));
                         }
-                        DBType::Sqlite => {
+                        DBDriver::Sqlite => {
                             query_builder
                                 .and_where(format!("instr(output.data, ${}) > 0", param_index));
                         }

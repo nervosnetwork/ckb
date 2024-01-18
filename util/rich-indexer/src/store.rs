@@ -21,65 +21,35 @@ const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../resources/create_sqlite_i
 const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgres_table.sql");
 const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
 
-#[derive(Clone, Debug)]
-pub enum DBType {
-    Sqlite,
-    Postgres,
-}
-
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SQLXPool {
     pool: Arc<OnceCell<AnyPool>>,
-    db_type: OnceCell<DBType>,
-    max_conn: u32,
-    min_conn: u32,
-    conn_timeout: Duration,
-    max_lifetime: Duration,
-    idle_timeout: Duration,
+    pub(crate) db_driver: DBDriver,
 }
 
 impl Debug for SQLXPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SQLXPool")
-            .field("max_conn", &self.max_conn)
-            .field("min_conn", &self.min_conn)
-            .field("conn_timeout", &self.conn_timeout)
-            .field("max_lifetime", &self.max_lifetime)
-            .field("idle_timeout", &self.idle_timeout)
+            .field("db_driver", &self.db_driver)
             .finish()
     }
 }
 
 impl SQLXPool {
-    pub fn new(
-        max_connections: u32,
-        min_connections: u32,
-        connection_timeout: u64,
-        max_lifetime: u64,
-        idle_timeout: u64,
-    ) -> Self {
+    pub fn new() -> Self {
         SQLXPool {
             pool: Arc::new(OnceCell::new()),
-            db_type: OnceCell::new(),
-            max_conn: max_connections,
-            min_conn: min_connections,
-            conn_timeout: Duration::from_secs(connection_timeout),
-            max_lifetime: Duration::from_secs(max_lifetime),
-            idle_timeout: Duration::from_secs(idle_timeout),
+            db_driver: DBDriver::default(),
         }
-    }
-
-    pub fn default() -> Self {
-        SQLXPool::new(10, 0, 60, 1800, 30)
     }
 
     pub async fn connect(&mut self, db_config: &RichIndexerConfig) -> Result<()> {
         let pool_options = AnyPoolOptions::new()
-            .max_connections(self.max_conn)
-            .min_connections(self.min_conn)
-            .acquire_timeout(self.conn_timeout)
-            .max_lifetime(self.max_lifetime)
-            .idle_timeout(self.idle_timeout);
+            .max_connections(10)
+            .min_connections(0)
+            .acquire_timeout(Duration::from_secs(60))
+            .max_lifetime(Duration::from_secs(1800))
+            .idle_timeout(Duration::from_secs(30));
         match db_config.db_type {
             DBDriver::Sqlite => {
                 let require_init = is_sqlite_require_init(db_config);
@@ -94,9 +64,7 @@ impl SQLXPool {
                 if require_init {
                     self.create_tables_for_sqlite().await?;
                 }
-                self.db_type
-                    .set(DBType::Sqlite)
-                    .map_err(|_| anyhow!("set db_type failed!"))?;
+                self.db_driver = DBDriver::Sqlite;
                 Ok(())
             }
             DBDriver::Postgres => {
@@ -112,19 +80,10 @@ impl SQLXPool {
                 if require_init {
                     self.create_tables_for_postgres().await?;
                 }
-                self.db_type
-                    .set(DBType::Postgres)
-                    .map_err(|_| anyhow!("set db_type failed!"))?;
+                self.db_driver = DBDriver::Postgres;
                 Ok(())
             }
         }
-    }
-
-    pub fn get_db_type(&self) -> Result<DBType> {
-        self.db_type
-            .get()
-            .cloned()
-            .ok_or_else(|| anyhow!("db_type not inited!"))
     }
 
     pub async fn fetch_count(&self, table_name: &str) -> Result<u64> {
@@ -203,10 +162,6 @@ impl SQLXPool {
         self.pool
             .get()
             .ok_or_else(|| anyhow!("pg pool not inited!"))
-    }
-
-    pub fn get_max_connections(&self) -> u32 {
-        self.max_conn
     }
 
     async fn create_tables_for_sqlite(&self) -> Result<()> {

@@ -31,9 +31,7 @@ impl AsyncRichIndexerHandle {
 
         // sub query for script
         let script_sub_query_sql = build_query_script_sql(
-            self.store
-                .get_db_type()
-                .map_err(|err| Error::DB(err.to_string()))?,
+            self.store.db_driver,
             &search_key.script_search_mode,
             &mut param_index,
         )?;
@@ -113,9 +111,7 @@ impl AsyncRichIndexerHandle {
         }
 
         build_cell_filter(
-            self.store
-                .get_db_type()
-                .map_err(|err| Error::DB(err.to_string()))?,
+            self.store.db_driver,
             &mut query_builder,
             &search_key,
             &mut param_index,

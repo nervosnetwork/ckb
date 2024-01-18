@@ -5,7 +5,7 @@ const PGSQL: &str = "postgres://";
 const SQLITE: &str = "sqlite://";
 
 /// Rich indexer database type.
-#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum DBDriver {
     /// Sqlite config options.
