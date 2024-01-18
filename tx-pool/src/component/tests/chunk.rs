@@ -57,6 +57,15 @@ async fn verify_queue_basic() {
     let counts = count.await.unwrap();
     assert_eq!(counts, vec![1, 1, 1, 2]);
 
+    let cur = queue.pop_first();
+    assert_eq!(cur.unwrap().tx, tx);
+
+    assert!(!queue.is_empty());
+    let cur = queue.pop_first();
+    assert_eq!(cur.unwrap().tx, tx2);
+
+    assert!(queue.is_empty());
+
     queue.clear();
     assert!(!queue.contains_key(&id));
 }
