@@ -473,6 +473,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RbfTooManyDescendants),
         Box::new(RbfContainNewTx),
         Box::new(RbfContainInvalidInput),
+        Box::new(RbfChildPayForParent),
         Box::new(RbfContainInvalidCells),
         Box::new(RbfRejectReplaceProposed),
         Box::new(RbfReplaceProposedSuccess),
