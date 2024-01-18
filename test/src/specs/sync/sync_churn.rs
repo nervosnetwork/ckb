@@ -50,6 +50,6 @@ impl Spec for SyncChurn {
         restart_thread.join().unwrap();
 
         info!("Waiting for all nodes sync");
-        waiting_for_sync(&nodes);
+        waiting_for_sync(nodes);
     }
 }
