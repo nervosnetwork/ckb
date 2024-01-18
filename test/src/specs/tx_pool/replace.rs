@@ -437,6 +437,100 @@ impl Spec for RbfContainInvalidInput {
     }
 }
 
+pub struct RbfChildPayForParent;
+
+// RBF Rule #2
+impl Spec for RbfChildPayForParent {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+
+        // build txs chain
+        let tx0 = node0.new_transaction_spend_tip_cellbase();
+        let mut txs = vec![tx0];
+        let max_count = 5;
+
+        let output5 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(50).pack())
+            .build();
+
+        while txs.len() <= max_count {
+            let parent = txs.last().unwrap();
+            // we set tx5's fee to higher, so tx5 will pay for tx1
+            let output = if txs.len() == max_count - 1 {
+                output5.clone()
+            } else {
+                parent.output(0).unwrap()
+            };
+            let child = parent
+                .as_advanced_builder()
+                .set_inputs(vec![{
+                    CellInput::new_builder()
+                        .previous_output(OutPoint::new(parent.hash(), 0))
+                        .build()
+                }])
+                .set_outputs(vec![output])
+                .build();
+            txs.push(child);
+        }
+        assert_eq!(txs.len(), max_count + 1);
+        // send Tx chain
+        for tx in txs[..=max_count - 1].iter() {
+            let ret = node0.rpc_client().send_transaction_result(tx.data().into());
+            assert!(ret.is_ok());
+        }
+
+        let clone_tx = txs[2].clone();
+        // Set tx2 fee to a higher value, but not enough to pay for tx5
+        let output2 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(70).pack())
+            .build();
+
+        let tx2 = clone_tx
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(txs[1].hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![output2])
+            .build();
+
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("RBF rejected: Tx's current fee is 3000000000, expect it to >= 5000000363 to replace old txs"));
+
+        // let's try a new transaction with new higher fee
+        let output2 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(45).pack())
+            .build();
+        let tx2 = clone_tx
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(txs[1].hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![output2])
+            .build();
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_ok());
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
 pub struct RbfContainInvalidCells;
 
 // RBF Rule, contains cell from conflicts txs
