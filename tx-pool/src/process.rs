@@ -306,6 +306,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
+        add_verify_queue: bool,
     ) -> Result<(), Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
@@ -319,7 +320,10 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        if let Some((ret, snapshot)) = self._resumeble_process_tx(tx.clone(), remote).await {
+        if let Some((ret, snapshot)) = self
+            ._resumeble_process_tx(tx.clone(), remote, add_verify_queue)
+            .await
+        {
             match ret {
                 Ok(processed) => {
                     if let ProcessResult::Completed(completed) = processed {
@@ -660,6 +664,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
+        add_verify_queue: bool,
     ) -> Option<(Result<ProcessResult, Reject>, Arc<Snapshot>)> {
         let tx_hash = tx.hash();
 
@@ -693,8 +698,10 @@ impl TxPoolService {
                 try_or_return_with_snapshot!(ret, snapshot);
                 completed
             }
-            None if remote.is_some() => {
-                // for remote transaction with large decleard cycles, we enqueue it to verify queue
+            None if add_verify_queue => {
+                // for remote transaction with decleard cycles, we enqueue it to verify queue directly
+                // notified transaction now don't have decleard cycles, we may need to fix it in future,
+                // now we also enqueue it to verify queue directly
                 let ret = self
                     .enqueue_suspended_tx(rtx.transaction.clone(), remote)
                     .await;
@@ -704,6 +711,7 @@ impl TxPoolService {
             }
             None => {
                 // for local transaction, we verify it directly with a max cycles limit
+                assert!(remote.is_none());
                 let ret = {
                     block_in_place(|| {
                         let cycle_limit = snapshot.cloned_consensus().max_block_cycles();

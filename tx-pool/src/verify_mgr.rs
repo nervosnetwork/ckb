@@ -77,7 +77,7 @@ impl Worker {
             return;
         }
 
-        if self.tasks.read().await.peak_first().is_none() {
+        if self.tasks.read().await.peek().is_none() {
             return;
         }
         // pick a entry to run verify
