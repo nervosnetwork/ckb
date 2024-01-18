@@ -1451,10 +1451,7 @@ async fn run_vms_child(
         let _ = child_rx.changed().await;
         match *child_rx.borrow() {
             ChunkCommand::Stop => {
-                let exit = (
-                    Err(ckb_vm::Error::Unexpected("stopped".to_string())),
-                    cycles,
-                );
+                let exit = (Err(ckb_vm::Error::External("stopped".into())), cycles);
                 let _ = finish_tx.send(exit);
                 return;
             }
@@ -1517,9 +1514,7 @@ async fn run_vms_child(
                 _ => {
                     // other error happened here, for example CyclesExceeded,
                     // we need to return as verification failed
-                    finish_tx
-                        .send((res, machine.cycles()))
-                        .expect("send finished");
+                    finish_tx.send((res, machine.cycles())).expect("send error");
                     return;
                 }
             };

@@ -780,7 +780,7 @@ async fn check_spawn_suspend_shutdown() {
         .await;
     assert!(res.is_err());
     let err = res.unwrap_err().to_string();
-    assert!(err.contains("VM Internal Error: Unexpected(\"stopped\")"));
+    assert!(err.contains("VM Internal Error: External(\"stopped\")"));
 }
 
 #[test]
