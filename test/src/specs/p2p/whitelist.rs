@@ -46,10 +46,7 @@ impl Spec for WhitelistOnSessionLimit {
         let rpc_client0 = node0.rpc_client();
         let is_connect_peer_num_eq_2 = wait_until(10, || {
             let peers = rpc_client0.get_peers();
-            peers.len() == 2
-                && peers
-                    .into_iter()
-                    .all(|node| id_set.contains(&node.node_id))
+            peers.len() == 2 && peers.into_iter().all(|node| id_set.contains(&node.node_id))
         });
 
         if !is_connect_peer_num_eq_2 {
@@ -78,10 +75,7 @@ impl Spec for WhitelistOnSessionLimit {
         let rpc_client0 = node0.rpc_client();
         let is_connect_peer_num_eq_3 = wait_until(10, || {
             let peers = rpc_client0.get_peers();
-            peers.len() == 3
-                && peers
-                    .into_iter()
-                    .all(|node| id_set.contains(&node.node_id))
+            peers.len() == 3 && peers.into_iter().all(|node| id_set.contains(&node.node_id))
         });
 
         if !is_connect_peer_num_eq_3 {
