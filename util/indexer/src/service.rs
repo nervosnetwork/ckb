@@ -26,6 +26,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
+use memchr::memmem;
 use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
@@ -349,23 +350,6 @@ impl IndexerHandle {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
 
-        if search_key
-            .filter
-            .as_ref()
-            .and_then(|filter| {
-                if filter.output_data_filter_mode == Some(IndexerSearchMode::Partial) {
-                    filter.output_data.as_ref()
-                } else {
-                    None
-                }
-            })
-            .map_or(false, |data| data.is_empty())
-        {
-            return Err(Error::invalid_params(
-                "search_key.filter.output_data empty data is not allowed",
-            ));
-        }
-
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -475,13 +459,7 @@ impl IndexerHandle {
                             }
                         }
                         IndexerSearchMode::Partial => {
-                            if !output_data
-                                .raw_data()
-                                .windows(data.len())
-                                .any(|window| window == data)
-                            {
-                                return None;
-                            }
+                            memmem::find(&output_data.raw_data(), data)?;
                         }
                     }
                 }
@@ -828,23 +806,6 @@ impl IndexerHandle {
             ));
         }
 
-        if search_key
-            .filter
-            .as_ref()
-            .and_then(|filter| {
-                if filter.output_data_filter_mode == Some(IndexerSearchMode::Partial) {
-                    filter.output_data.as_ref()
-                } else {
-                    None
-                }
-            })
-            .map_or(false, |data| data.is_empty())
-        {
-            return Err(Error::invalid_params(
-                "search_key.filter.output_data empty data is not allowed",
-            ));
-        }
-
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
             KeyPrefix::CellLockScript,
@@ -952,13 +913,7 @@ impl IndexerHandle {
                             }
                         }
                         IndexerSearchMode::Partial => {
-                            if !output_data
-                                .raw_data()
-                                .windows(data.len())
-                                .any(|window| window == data)
-                            {
-                                return None;
-                            }
+                            memmem::find(&output_data.raw_data(), data)?;
                         }
                     }
                 }
@@ -2137,25 +2092,23 @@ mod tests {
         assert_eq!(1, cells.objects.len(),);
 
         // test get_cells rpc with output_data Partial search mode
-        let cells = rpc.get_cells(
-            IndexerSearchKey {
-                script: lock_script11.clone().into(),
-                filter: Some(IndexerSearchKeyFilter {
-                    output_data: Some(JsonBytes::from_vec(vec![])),
-                    output_data_filter_mode: Some(IndexerSearchMode::Partial),
+        let cells = rpc
+            .get_cells(
+                IndexerSearchKey {
+                    script: lock_script11.clone().into(),
+                    filter: Some(IndexerSearchKeyFilter {
+                        output_data: Some(JsonBytes::from_vec(vec![])),
+                        output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            IndexerOrder::Asc,
-            1000.into(),
-            None,
-        );
-        let error = cells.err().unwrap();
-        assert_eq!(
-            error.to_string(),
-            "Invalid params search_key.filter.output_data empty data is not allowed",
-        );
+                },
+                IndexerOrder::Asc,
+                1000.into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(1, cells.objects.len(),);
 
         // test get_cells_capacity rpc with output_data Exact search mode
         let mut data = [0u8; 7];
@@ -2224,19 +2177,18 @@ mod tests {
         assert_eq!(200000000000, capacity);
 
         // test get_cells_capacity rpc with output_data Partial search mode
-        let cells_capacity = rpc.get_cells_capacity(IndexerSearchKey {
-            script: lock_script11.clone().into(),
-            filter: Some(IndexerSearchKeyFilter {
-                output_data: Some(JsonBytes::from_vec(vec![])),
-                output_data_filter_mode: Some(IndexerSearchMode::Partial),
+        let cells_capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(vec![])),
+                    output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                    ..Default::default()
+                }),
                 ..Default::default()
-            }),
-            ..Default::default()
-        });
-        let error = cells_capacity.err().unwrap();
-        assert_eq!(
-            error.to_string(),
-            "Invalid params search_key.filter.output_data empty data is not allowed",
-        );
+            })
+            .unwrap();
+        let capacity: u64 = cells_capacity.unwrap().capacity.into();
+        assert_eq!(200000000000, capacity);
     }
 }
