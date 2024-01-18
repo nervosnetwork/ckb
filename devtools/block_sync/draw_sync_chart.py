@@ -106,7 +106,7 @@ for duration, height, label in results:
         if h % 1_000_000 == 0:
             ax.vlines([duration[i]], 0, h, colors="gray", linestyles="dashed")
 
-        if h == 10_000_000:
+        if i == len(height) -1 :
             alabels.append(((duration[i],h),label))
 
         if h == 11_000_000 or h == 11_500_000:
@@ -149,7 +149,7 @@ for duration, height, label in results:
 # sort alabsle by .0.1
 alabels.sort(key=lambda x: x[0][0])
 
-lheight=80
+lheight=40
 loffset=-40
 count=len(alabels)
 for (duration,h), label in alabels:
