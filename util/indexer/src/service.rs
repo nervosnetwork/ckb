@@ -1136,6 +1136,7 @@ mod tests {
         packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
         H256,
     };
+    use faster_hex::hex_decode;
 
     fn new_store(prefix: &str) -> RocksdbStore {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
@@ -2031,6 +2032,8 @@ mod tests {
             .output_data(Default::default())
             .build();
 
+        let mut data = [0u8; 7];
+        hex_decode("62e907b15cbfaa".as_bytes(), &mut data).unwrap();
         let tx01 = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
@@ -2039,7 +2042,7 @@ mod tests {
                     .type_(Some(type_script11.clone()).pack())
                     .build(),
             )
-            .output_data(hex::decode("62e907b15cbfaa").unwrap().pack())
+            .output_data(data.to_vec().pack())
             .build();
 
         let block0 = BlockBuilder::default()
@@ -2052,12 +2055,14 @@ mod tests {
         indexer.append(&block0).unwrap();
 
         // test get_cells rpc with output_data Prefix search mode
+        let mut data = [0u8; 1];
+        hex_decode("62".as_bytes(), &mut data).unwrap();
         let cells = rpc
             .get_cells(
                 IndexerSearchKey {
                     script: lock_script11.clone().into(),
                     filter: Some(IndexerSearchKeyFilter {
-                        output_data: Some(JsonBytes::from_vec(hex::decode("62").unwrap())),
+                        output_data: Some(JsonBytes::from_vec(data.to_vec())),
                         output_data_filter_mode: Some(IndexerSearchMode::Prefix),
                         ..Default::default()
                     }),
@@ -2076,7 +2081,7 @@ mod tests {
                 IndexerSearchKey {
                     script: lock_script11.clone().into(),
                     filter: Some(IndexerSearchKeyFilter {
-                        output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                        output_data: Some(JsonBytes::from_vec(vec![])),
                         output_data_filter_mode: Some(IndexerSearchMode::Prefix),
                         ..Default::default()
                     }),
@@ -2090,12 +2095,14 @@ mod tests {
         assert_eq!(1, cells.objects.len(),);
 
         // test get_cells rpc with output_data Partial search mode
+        let mut data = [0u8; 3];
+        hex_decode("e907b1".as_bytes(), &mut data).unwrap();
         let cells = rpc
             .get_cells(
                 IndexerSearchKey {
                     script: lock_script11.clone().into(),
                     filter: Some(IndexerSearchKeyFilter {
-                        output_data: Some(JsonBytes::from_vec(hex::decode("e907b1").unwrap())),
+                        output_data: Some(JsonBytes::from_vec(data.to_vec())),
                         output_data_filter_mode: Some(IndexerSearchMode::Partial),
                         ..Default::default()
                     }),
@@ -2109,14 +2116,14 @@ mod tests {
         assert_eq!(1, cells.objects.len(),);
 
         // test get_cells rpc with output_data Exact search mode
+        let mut data = [0u8; 7];
+        hex_decode("62e907b15cbfaa".as_bytes(), &mut data).unwrap();
         let cells = rpc
             .get_cells(
                 IndexerSearchKey {
                     script: lock_script11.clone().into(),
                     filter: Some(IndexerSearchKeyFilter {
-                        output_data: Some(JsonBytes::from_vec(
-                            hex::decode("62e907b15cbfaa").unwrap(),
-                        )),
+                        output_data: Some(JsonBytes::from_vec(data.to_vec())),
                         output_data_filter_mode: Some(IndexerSearchMode::Exact),
                         ..Default::default()
                     }),
@@ -2134,7 +2141,7 @@ mod tests {
             IndexerSearchKey {
                 script: lock_script11.clone().into(),
                 filter: Some(IndexerSearchKeyFilter {
-                    output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                    output_data: Some(JsonBytes::from_vec(vec![])),
                     output_data_filter_mode: Some(IndexerSearchMode::Partial),
                     ..Default::default()
                 }),
@@ -2151,11 +2158,13 @@ mod tests {
         );
 
         // test get_cells_capacity rpc with output_data Exact search mode
+        let mut data = [0u8; 7];
+        hex_decode("62e907b15cbfaa".as_bytes(), &mut data).unwrap();
         let cells_capacity = rpc
             .get_cells_capacity(IndexerSearchKey {
                 script: lock_script11.clone().into(),
                 filter: Some(IndexerSearchKeyFilter {
-                    output_data: Some(JsonBytes::from_vec(hex::decode("62e907b15cbfaa").unwrap())),
+                    output_data: Some(JsonBytes::from_vec(data.to_vec())),
                     output_data_filter_mode: Some(IndexerSearchMode::Exact),
                     ..Default::default()
                 }),
@@ -2166,11 +2175,13 @@ mod tests {
         assert_eq!(200000000000, capacity);
 
         // test get_cells_capacity rpc with output_data Prefix search mode
+        let mut data = [0u8; 6];
+        hex_decode("62e907b15cbf".as_bytes(), &mut data).unwrap();
         let cells_capacity = rpc
             .get_cells_capacity(IndexerSearchKey {
                 script: lock_script11.clone().into(),
                 filter: Some(IndexerSearchKeyFilter {
-                    output_data: Some(JsonBytes::from_vec(hex::decode("62e907b15cbf").unwrap())),
+                    output_data: Some(JsonBytes::from_vec(data.to_vec())),
                     output_data_filter_mode: Some(IndexerSearchMode::Prefix),
                     ..Default::default()
                 }),
@@ -2185,7 +2196,7 @@ mod tests {
             .get_cells_capacity(IndexerSearchKey {
                 script: lock_script11.clone().into(),
                 filter: Some(IndexerSearchKeyFilter {
-                    output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                    output_data: Some(JsonBytes::from_vec(vec![])),
                     output_data_filter_mode: Some(IndexerSearchMode::Prefix),
                     ..Default::default()
                 }),
@@ -2196,11 +2207,13 @@ mod tests {
         assert_eq!(200000000000, capacity);
 
         // test get_cells_capacity rpc with output_data Partial search mode
+        let mut data = [0u8; 2];
+        hex_decode("5cbf".as_bytes(), &mut data).unwrap();
         let cells_capacity = rpc
             .get_cells_capacity(IndexerSearchKey {
                 script: lock_script11.clone().into(),
                 filter: Some(IndexerSearchKeyFilter {
-                    output_data: Some(JsonBytes::from_vec(hex::decode("5cbf").unwrap())),
+                    output_data: Some(JsonBytes::from_vec(data.to_vec())),
                     output_data_filter_mode: Some(IndexerSearchMode::Partial),
                     ..Default::default()
                 }),
@@ -2214,7 +2227,7 @@ mod tests {
         let cells_capacity = rpc.get_cells_capacity(IndexerSearchKey {
             script: lock_script11.clone().into(),
             filter: Some(IndexerSearchKeyFilter {
-                output_data: Some(JsonBytes::from_vec(hex::decode("").unwrap())),
+                output_data: Some(JsonBytes::from_vec(vec![])),
                 output_data_filter_mode: Some(IndexerSearchMode::Partial),
                 ..Default::default()
             }),
