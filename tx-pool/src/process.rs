@@ -205,14 +205,14 @@ impl TxPoolService {
         }
     }
 
+    pub(crate) async fn verify_queue_contains(&self, tx: &TransactionView) -> bool {
+        let queue = self.verify_queue.read().await;
+        queue.contains_key(&tx.proposal_short_id())
+    }
+
     pub(crate) async fn orphan_contains(&self, tx: &TransactionView) -> bool {
         let orphan = self.orphan.read().await;
         orphan.contains_key(&tx.proposal_short_id())
-    }
-
-    pub(crate) async fn chunk_contains(&self, tx: &TransactionView) -> bool {
-        let chunk = self.verify_queue.read().await;
-        chunk.contains_key(&tx.proposal_short_id())
     }
 
     pub(crate) async fn with_tx_pool_read_lock<U, F: FnMut(&TxPool, Arc<Snapshot>) -> U>(
@@ -315,7 +315,7 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        if self.chunk_contains(&tx).await {
+        if self.verify_queue_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
@@ -347,7 +347,7 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
 
-        if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
+        if self.verify_queue_contains(&tx).await || self.orphan_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
@@ -378,8 +378,8 @@ impl TxPoolService {
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         {
-            let mut chunk = self.verify_queue.write().await;
-            if chunk.remove_tx(&id).is_some() {
+            let mut queue = self.verify_queue.write().await;
+            if queue.remove_tx(&id).is_some() {
                 return true;
             }
         }
@@ -553,7 +553,7 @@ impl TxPoolService {
             for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
                     debug!(
-                        "process_orphan {} added to chunk; find previous from {}",
+                        "process_orphan {} added to verify queue; find previous from {}",
                         orphan.tx.hash(),
                         tx.hash(),
                     );
@@ -699,7 +699,7 @@ impl TxPoolService {
                     .enqueue_suspended_tx(rtx.transaction.clone(), remote)
                     .await;
                 try_or_return_with_snapshot!(ret, snapshot);
-                eprintln!("added to queue here: {:?}", tx.proposal_short_id());
+                error!("added to verify queue: {:?}", tx.proposal_short_id());
                 return Some((Ok(ProcessResult::Suspended), snapshot));
             }
             None => {
@@ -822,7 +822,7 @@ impl TxPoolService {
         let completed: Completed = match state {
             VerifyResult::Completed(cycles) => Completed { cycles, fee },
             _ => {
-                panic!("not expected");
+                unreachable!("unexpected Suspend in run_verify_tx");
             }
         };
         if let Some((declared_cycle, _peer)) = remote {
@@ -854,8 +854,8 @@ impl TxPoolService {
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
-        let mut chunk = self.verify_queue.write().await;
-        chunk.add_tx(tx, remote)
+        let mut queue = self.verify_queue.write().await;
+        queue.add_tx(tx, remote)
     }
 
     pub(crate) async fn _process_tx(
@@ -1041,8 +1041,8 @@ impl TxPoolService {
 
         self.remove_orphan_txs_by_attach(&attached).await;
         {
-            let mut chunk = self.verify_queue.write().await;
-            chunk.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+            let mut queue = self.verify_queue.write().await;
+            queue.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
     }
 

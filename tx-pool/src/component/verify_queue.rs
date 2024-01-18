@@ -3,6 +3,7 @@
 extern crate rustc_hash;
 extern crate slab;
 use ckb_network::PeerIndex;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{tx_pool::Reject, Cycle, TransactionView},
     packed::ProposalShortId,
@@ -14,7 +15,7 @@ use tokio::sync::watch;
 const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100;
 const SHRINK_THRESHOLD: usize = 100;
 
-/// The verify queue is a priority queue of transactions to verify.
+/// The verify queue Entry to verify.
 #[derive(Debug, Clone, Eq)]
 pub struct Entry {
     pub(crate) tx: TransactionView,
@@ -71,7 +72,7 @@ impl VerifyQueue {
 
     /// Returns true if the queue is full.
     pub fn is_full(&self) -> bool {
-        self.len() > DEFAULT_MAX_VERIFY_TRANSACTIONS
+        self.len() >= DEFAULT_MAX_VERIFY_TRANSACTIONS
     }
 
     /// Returns true if the queue contains a tx with the specified id.
@@ -130,16 +131,13 @@ impl VerifyQueue {
         }
         if self.is_full() {
             return Err(Reject::Full(format!(
-                "chunk is full, tx_hash: {:#x}",
+                "chunk is full, failed to add tx: {:#x}",
                 tx.hash()
             )));
         }
         self.inner.insert(VerifyEntry {
             id: tx.proposal_short_id(),
-            added_time: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("timestamp")
-                .as_millis() as u64,
+            added_time: unix_time_as_millis(),
             inner: Entry { tx, remote },
         });
         self.queue_tx.send(self.len()).unwrap();

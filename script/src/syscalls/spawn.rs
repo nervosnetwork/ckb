@@ -235,6 +235,9 @@ where
                 Ok(true)
             }
             Err(err) => {
+                // `CyclesExceeded` for old version snapshot
+                // `Pause` for new version suspend with pause signal
+                // Maybe we need to cleanup in future
                 if matches!(err, VMError::Pause | VMError::CyclesExceeded) {
                     let mut context = self.context.lock().map_err(|e| {
                         VMError::Unexpected(format!("Failed to acquire lock: {}", e))
