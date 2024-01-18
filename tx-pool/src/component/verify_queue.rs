@@ -103,7 +103,7 @@ impl VerifyQueue {
 
     /// Returns the first entry in the queue and remove it
     pub fn pop_first(&mut self) -> Option<Entry> {
-        if let Some(short_id) = self.peak_first() {
+        if let Some(short_id) = self.peek() {
             self.remove_tx(&short_id)
         } else {
             None
@@ -111,7 +111,7 @@ impl VerifyQueue {
     }
 
     /// Returns the first entry in the queue
-    pub fn peak_first(&self) -> Option<ProposalShortId> {
+    pub fn peek(&self) -> Option<ProposalShortId> {
         self.inner
             .iter_by_added_time()
             .next()
