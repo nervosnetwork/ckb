@@ -12,7 +12,6 @@ use tokio::task::JoinHandle;
 struct Worker {
     tasks: Arc<RwLock<VerifyQueue>>,
     command_rx: watch::Receiver<ChunkCommand>,
-    queue_rx: watch::Receiver<usize>,
     service: TxPoolService,
     exit_signal: CancellationToken,
 }
@@ -22,7 +21,6 @@ impl Clone for Worker {
         Self {
             tasks: Arc::clone(&self.tasks),
             command_rx: self.command_rx.clone(),
-            queue_rx: self.queue_rx.clone(),
             exit_signal: self.exit_signal.clone(),
             service: self.service.clone(),
         }
@@ -34,19 +32,18 @@ impl Worker {
         service: TxPoolService,
         tasks: Arc<RwLock<VerifyQueue>>,
         command_rx: watch::Receiver<ChunkCommand>,
-        queue_rx: watch::Receiver<usize>,
         exit_signal: CancellationToken,
     ) -> Self {
         Worker {
             service,
             tasks,
             command_rx,
-            queue_rx,
             exit_signal,
         }
     }
 
-    pub fn start(mut self) -> JoinHandle<()> {
+    pub async fn start(mut self) -> JoinHandle<()> {
+        let mut queue_rx = self.tasks.read().await.subscribe();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -55,10 +52,10 @@ impl Worker {
                     _ = self.exit_signal.cancelled() => {
                         break;
                     }
-                    _ = self.queue_rx.changed() => {
+                    _ = self.command_rx.changed() => {
                         true
                     }
-                    _ = self.command_rx.changed() => {
+                    _ = queue_rx.changed() => {
                         true
                     }
                     _ = interval.tick() => {
@@ -73,7 +70,7 @@ impl Worker {
     }
 
     async fn process_inner(&mut self) {
-        if self.command_rx.borrow().to_owned() == ChunkCommand::Suspend {
+        if self.command_rx.borrow().to_owned() != ChunkCommand::Resume {
             return;
         }
 
@@ -108,14 +105,12 @@ pub(crate) struct VerifyMgr {
 impl VerifyMgr {
     pub fn new(
         service: TxPoolService,
-        chunk_rx: watch::Receiver<ChunkCommand>,
+        command_rx: watch::Receiver<ChunkCommand>,
         signal_exit: CancellationToken,
-        verify_queue: Arc<RwLock<VerifyQueue>>,
-        queue_rx: watch::Receiver<usize>,
     ) -> Self {
         let workers: Vec<_> = (0..num_cpus::get())
             .map({
-                let tasks = Arc::clone(&verify_queue);
+                let tasks = Arc::clone(&service.verify_queue);
                 let signal_exit = signal_exit.clone();
                 move |_| {
                     let (child_tx, child_rx) = watch::channel(ChunkCommand::Resume);
@@ -125,7 +120,6 @@ impl VerifyMgr {
                             service.clone(),
                             Arc::clone(&tasks),
                             child_rx,
-                            queue_rx.clone(),
                             signal_exit.clone(),
                         ),
                     )
@@ -136,7 +130,7 @@ impl VerifyMgr {
             workers,
             join_handles: None,
             signal_exit,
-            command_rx: chunk_rx,
+            command_rx,
         }
     }
 
@@ -151,7 +145,7 @@ impl VerifyMgr {
     async fn start_loop(&mut self) {
         let mut join_handles = Vec::new();
         for w in self.workers.iter_mut() {
-            let h = w.1.clone().start();
+            let h = w.1.clone().start().await;
             join_handles.push(h);
         }
         self.join_handles.replace(join_handles);

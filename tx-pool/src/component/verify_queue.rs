@@ -46,16 +46,20 @@ pub struct VerifyEntry {
 pub struct VerifyQueue {
     /// inner tx entry
     inner: MultiIndexVerifyEntryMap,
-    /// used to notify the tx-pool to update the txs count
+    /// when queue is changed, notify the tx-pool to update the txs count
     queue_tx: watch::Sender<usize>,
+    /// subscribe this channel to get the txs count in the queue
+    queue_rx: watch::Receiver<usize>,
 }
 
 impl VerifyQueue {
     /// Create a new VerifyQueue
-    pub(crate) fn new(queue_tx: watch::Sender<usize>) -> Self {
+    pub(crate) fn new() -> Self {
+        let (queue_tx, queue_rx) = watch::channel(0_usize);
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
             queue_tx,
+            queue_rx,
         }
     }
 
@@ -83,6 +87,11 @@ impl VerifyQueue {
     /// Shrink the capacity of the queue as much as possible.
     pub fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.inner, SHRINK_THRESHOLD);
+    }
+
+    /// get a queue_rx to subscribe the txs count in the queue
+    pub fn subscribe(&self) -> watch::Receiver<usize> {
+        self.queue_rx.clone()
     }
 
     /// Remove a tx from the queue
