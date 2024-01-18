@@ -315,7 +315,7 @@ impl ConsumeUnverifiedBlockProcessor {
 
         let db_txn = Arc::new(self.shared.store().begin_transaction());
         if new_best_block {
-            debug!(
+            info!(
                 "[verify block] new best block found: {} => {:#x}, difficulty diff = {:#x}, unverified_tip: {}",
                 block.header().number(),
                 block.header().hash(),
