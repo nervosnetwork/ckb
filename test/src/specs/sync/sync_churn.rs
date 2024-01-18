@@ -12,6 +12,17 @@ fn select_random_node<'a, R: Rng>(rng: &mut R, nodes: &'a mut [Node]) -> &'a mut
 
 pub struct SyncChurn;
 
+/// This test will start 5 nodes, and randomly restart 4 nodes in the middle of mining.
+/// After all nodes are synced, the test is considered successful.
+/// This test is used to test the robustness of the sync protocol.
+/// If the sync protocol is not robust enough, the test will fail.
+/// But this test is not a complete test, it can only test the robustness of the sync protocol to a certain extent.
+/// Some weaknesses of this test:
+/// 1. This test only consider the simple case of some nodes restarting in the middle of mining,
+/// while other nodes are always mining correctly.
+/// 2. This fault injection of restarting nodes is not comprehensive enough.
+/// 3. Even if the test fails, we can't deterministically reproduce the same error.
+/// We may need some foundationdb-like tools to deterministically reproduce the same error.
 impl Spec for SyncChurn {
     crate::setup!(num_nodes: 5);
 
