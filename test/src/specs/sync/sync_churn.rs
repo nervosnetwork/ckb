@@ -1,4 +1,5 @@
 use crate::node::{make_bootnodes_for_all, waiting_for_sync};
+use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
 use ckb_logger::info;
 use rand::Rng;
@@ -28,9 +29,10 @@ impl Spec for SyncChurn {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         make_bootnodes_for_all(nodes);
+        out_ibd_mode(nodes);
 
         let mut mining_nodes = nodes.clone();
-        let mut churn_nodes = mining_nodes.split_off(1);
+        let mut churn_nodes = mining_nodes.split_off(2);
 
         let (restart_stopped_tx, restart_stopped_rx) = mpsc::channel();
 
