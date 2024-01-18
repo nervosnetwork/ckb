@@ -5,13 +5,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
-<<<<<<< HEAD
 use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, VerifyResult};
-=======
-use ckb_script::{
-    ChunkCommand, TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult,
-};
->>>>>>> 6a1178ada (begin to fix dataloader issue)
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -177,7 +171,6 @@ where
             .script
             .resumable_verify_with_signal(limit_cycles, &mut command_rx)
             .await?;
-        eprintln!("resumable_verify_with_signal ret: {:?}", ret);
         Ok((ret, fee))
     }
 

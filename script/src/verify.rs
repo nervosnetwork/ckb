@@ -693,8 +693,9 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         Ok(VerifyResult::Completed(cycles))
     }
 
-    /// Performing a resumable verification on the transaction scripts with signal
-    /// If `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes.
+    /// Performing a resumable verification on the transaction scripts with signal channel,
+    /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
+    /// otherwise, it will return until the verification is completed.
     pub async fn resumable_verify_with_signal(
         &self,
         limit_cycles: Cycle,
@@ -718,8 +719,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(_vms, _context)) => {
-                    // FIXME: we need to cleanup this later, state will not contain snapshot
-                    panic!("unexpect suspend in resumable_verify_with_signal");
+                    // FIXME(yukang): we need to cleanup this later, state will not contain snapshot
+                    unreachable!("unexpect suspend in resumable_verify_with_signal");
                 }
                 Err(e) => {
                     #[cfg(feature = "logging")]
@@ -1051,10 +1052,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 script_group: group,
                 max_cycles,
             };
-            match verifier.verify() {
-                Ok(cycles) => Ok(ChunkState::Completed(cycles)),
-                Err(e) => Err(e),
-            }
+            verifier.verify().map(ChunkState::Completed)
         } else {
             self.chunk_run_with_signal(group, max_cycles, command_rx)
                 .await
@@ -1200,7 +1198,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             vec![ResumableMachine::initial(machine)]
         };
 
-        run_vms_with_signal(script_group, max_cycles, machines, context, command_rx).await
+        run_vms_with_signal(script_group, machines, context, command_rx).await
     }
 
     fn chunk_run(
@@ -1383,9 +1381,9 @@ fn run_vms(
 }
 
 // Run a series of VMs with control signal, will only return when verification finished
+// Or send `Stop` command when verification is suspended
 async fn run_vms_with_signal(
     script_group: &ScriptGroup,
-    max_cycles: Cycle,
     machines: Vec<ResumableMachine>,
     context: Arc<Mutex<MachineContext>>,
     signal: &mut Receiver<ChunkCommand>,
@@ -1435,11 +1433,7 @@ async fn run_vms_with_signal(
                             exit_code
                         ))},
                     (Err(err), _) => {
-                        let map_vm_internal_error = |error: VMInternalError| match error {
-                        VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-                        _ => ScriptError::VMInternalError(error),
-                        };
-                        return Err(map_vm_internal_error(err));
+                        return Err(ScriptError::VMInternalError(err));
                     }
                 }
 
@@ -1456,13 +1450,13 @@ async fn run_vms_child(
     context: Arc<Mutex<MachineContext>>,
 ) {
     let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
-    child_recv.mark_changed();
     // mark changed to make sure we can receive initial command
     // and start to run immediately
+    child_recv.mark_changed();
     loop {
         select! {
             _ = child_recv.changed() => {
-                match child_recv.borrow().to_owned() {
+                match *child_recv.borrow() {
                     ChunkCommand::Stop => {
                         let exit = (Err(ckb_vm::Error::Unexpected("stopped".to_string())), cycles);
                         let _ = finished_send.send(exit);

@@ -168,6 +168,12 @@ impl VerifyMgr {
                 }
             }
         }
+        if let Some(jh) = self.join_handles.take() {
+            for h in jh {
+                h.await.expect("Worker thread panic");
+            }
+        }
+        info!("TxPool verify_mgr service exited");
     }
 
     pub async fn run(&mut self) {
