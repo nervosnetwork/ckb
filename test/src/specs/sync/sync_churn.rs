@@ -41,16 +41,24 @@ impl Spec for SyncChurn {
             loop {
                 let mining_node = select_random_node(&mut rng, &mut mining_nodes);
                 mining_node.mine(1);
-                waiting_for_sync(&mining_nodes);
-                if restart_stopped_rx.try_recv().is_ok() {
+                // Because the test that waiting for nodes to sync has a implicit maximum waiting time
+                // (currently 60 seconds, we can sync about 200 blocks per second, so a maxium blocks of 10000 is reasonable)
+                // and the implicit waiting time is not long enough when there are too many blocks to sync,
+                // so we stop mining when the tip block number is greater than 15000.
+                // Otherwise nodes may not be able to sync within the implicit waiting time.
+                let too_many_blocks = mining_node.get_tip_block_number() > 10000;
+                if too_many_blocks || restart_stopped_rx.try_recv().is_ok() {
                     break;
                 }
+                waiting_for_sync(&mining_nodes);
             }
         });
 
         let restart_thread = thread::spawn(move || {
             let mut rng = rand::thread_rng();
-            for _ in 0..100 {
+            // It takes about 1 second to restart a node. So restarting nodes 100 times takes about 100 seconds.
+            let num_restarts = 100;
+            for _ in 0..num_restarts {
                 let node = select_random_node(&mut rng, &mut churn_nodes);
                 info!("Restarting node {}", node.node_id());
                 node.stop();
