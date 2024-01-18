@@ -1,6 +1,7 @@
 mod alert;
 mod consensus;
 mod dao;
+mod fault_injection;
 mod hardfork;
 mod mining;
 mod p2p;
@@ -8,11 +9,11 @@ mod relay;
 mod rpc;
 mod sync;
 mod tx_pool;
-mod fault_injection;
 
 pub use alert::*;
 pub use consensus::*;
 pub use dao::*;
+pub use fault_injection::*;
 pub use hardfork::*;
 pub use mining::*;
 pub use p2p::*;
@@ -20,7 +21,6 @@ pub use relay::*;
 pub use rpc::*;
 pub use sync::*;
 pub use tx_pool::*;
-pub use fault_injection::*;
 
 use crate::Node;
 use ckb_app_config::CKBAppConfig;

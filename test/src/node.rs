@@ -821,8 +821,8 @@ pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
         })
         .collect();
     let other_node_addrs: Vec<Vec<Multiaddr>> = node_multiaddrs
-        .iter()
-        .map(|(id, _)| {
+        .keys()
+        .map(|id| {
             let addrs = node_multiaddrs
                 .iter()
                 .filter(|(other_id, _)| other_id.as_str() != id.as_str())
