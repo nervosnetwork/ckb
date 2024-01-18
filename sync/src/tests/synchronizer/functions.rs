@@ -1212,10 +1212,6 @@ fn test_internal_db_error() {
 
     let (shared, mut pack) = builder.build().unwrap();
 
-    // TODO fix later
-    // let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    // let _chain_controller = chain_service.start::<&str>(None);
-
     let sync_shared = Arc::new(SyncShared::new(
         shared,
         Default::default(),
