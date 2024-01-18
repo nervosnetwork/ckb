@@ -15,9 +15,9 @@ async fn verify_queue_basic() {
     let tx2 = build_tx(vec![(&tx.hash(), 0)], 1);
 
     let id = tx.proposal_short_id();
-    let (queue_tx, mut queue_rx) = watch::channel(0_usize);
     let (exit_tx, mut exit_rx) = watch::channel(());
-    let mut queue = VerifyQueue::new(queue_tx);
+    let mut queue = VerifyQueue::new();
+    let mut queue_rx = queue.subscribe();
     let count = tokio::spawn(async move {
         let mut counts = vec![];
         loop {

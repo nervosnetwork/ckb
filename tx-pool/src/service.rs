@@ -470,8 +470,7 @@ impl TxPoolServiceBuilder {
             }
         };
 
-        let (queue_tx, queue_rx) = watch::channel(0_usize);
-        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(queue_tx)));
+        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new()));
         let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
@@ -489,13 +488,8 @@ impl TxPoolServiceBuilder {
             after_delay: Arc::new(AtomicBool::new(after_delay_window)),
         };
 
-        let mut verify_mgr = VerifyMgr::new(
-            service.clone(),
-            self.chunk_rx,
-            self.signal_receiver.clone(),
-            verify_queue,
-            queue_rx,
-        );
+        let mut verify_mgr =
+            VerifyMgr::new(service.clone(), self.chunk_rx, self.signal_receiver.clone());
         self.handle.spawn(async move { verify_mgr.run().await });
 
         let mut receiver = self.receiver;
