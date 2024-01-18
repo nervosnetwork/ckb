@@ -32,7 +32,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
 
     let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
     let (unverified_tx, unverified_rx) =
-        channel::bounded::<UnverifiedBlockHash>(BLOCK_DOWNLOAD_WINDOW as usize * 512);
+        channel::bounded::<UnverifiedBlockHash>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
     let consumer_unverified_thread = thread::Builder::new()
         .name("consume_unverified_blocks".into())
