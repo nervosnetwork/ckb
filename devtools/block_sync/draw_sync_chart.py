@@ -87,6 +87,8 @@ alabels = []
 
 import matplotlib.ticker as ticker
 
+vlabels = []
+
 for duration, height, label in results:
 # for ckb_log_file, label in tasks:
 #     print("ckb_log_file: ", ckb_log_file)
@@ -103,24 +105,11 @@ for duration, height, label in results:
     ax.hlines([11_500_000], 0, max(duration), colors="gray", linestyles="dashed")
 
     for i, h in enumerate(height):
-        if h % 1_000_000 == 0:
-            ax.vlines([duration[i]], 0, h, colors="gray", linestyles="dashed")
-
         if i == len(height) -1 :
             alabels.append(((duration[i],h),label))
 
-        if h == 11_000_000 or h == 11_500_000:
-            ax.vlines([duration[i]], 0, h, colors="black", linestyles="dashed")
-            voff=-60
-            if h == 11_000_000:
-                voff=-75
-            ax.annotate(round(duration[i],1),
-                fontsize=8,
-                xy=(duration[i], 0), xycoords='data',
-                xytext=(0, voff), textcoords='offset points',
-                bbox=dict(boxstyle="round", fc="0.9"),
-                arrowprops=dict(arrowstyle="-"),
-                horizontalalignment='center', verticalalignment='bottom')
+        if h == 11_500_000:
+            vlabels.append((duration[i],h))
 
 
     ax.get_yaxis().get_major_formatter().set_scientific(False)
@@ -148,6 +137,7 @@ for duration, height, label in results:
 
 # sort alabsle by .0.1
 alabels.sort(key=lambda x: x[0][0])
+vlabels.sort(key=lambda x: x[0])
 
 lheight=40
 loffset=-40
@@ -166,6 +156,19 @@ for (duration,h), label in alabels:
         lheight += 20
     elif loffset > 0:
         lheight -= 20
+
+for index, (duration, h) in enumerate(vlabels):
+    ax.vlines([duration], 0, h, colors="black", linestyles="dashed")
+    voff=-60
+    if index % 2 == 0:
+        voff=-75
+    ax.annotate(round(duration, 1),
+                fontsize=8,
+                xy=(duration, 0), xycoords='data',
+                xytext=(0, voff), textcoords='offset points',
+                bbox=dict(boxstyle="round", fc="0.9"),
+                arrowprops=dict(arrowstyle="-"),
+                horizontalalignment='center', verticalalignment='bottom')
 
 
 plt.axhline(y=11_500_000, color='blue', linestyle='--')
