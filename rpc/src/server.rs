@@ -85,10 +85,9 @@ impl RpcServer {
         enable_websocket: bool,
     ) -> Result<SocketAddr, AnyError> {
         let stream_config = StreamServerConfig::default()
+            .with_keep_alive(true)
             .with_channel_size(4)
             .with_pipeline_size(4);
-
-        let cors = CorsLayer::permissive();
 
         // HTTP and WS server.
         let method_router =
@@ -97,7 +96,7 @@ impl RpcServer {
             .route("/", method_router.clone())
             .route("/*path", method_router)
             .layer(Extension(Arc::clone(rpc)))
-            .layer(cors)
+            .layer(CorsLayer::permissive())
             .layer(TimeoutLayer::new(Duration::from_secs(30)));
 
         if enable_websocket {
