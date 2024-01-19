@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
+use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 
 #[doc(hidden)]
@@ -87,6 +88,8 @@ impl RpcServer {
             .with_channel_size(4)
             .with_pipeline_size(4);
 
+        let cors = CorsLayer::permissive();
+
         // HTTP and WS server.
         let method_router =
             post(handle_jsonrpc::<Option<Session>>).get(handle_jsonrpc_ws::<Option<Session>>);
@@ -94,6 +97,7 @@ impl RpcServer {
             .route("/", method_router.clone())
             .route("/*path", method_router)
             .layer(Extension(Arc::clone(rpc)))
+            .layer(cors)
             .layer(TimeoutLayer::new(Duration::from_secs(30)));
 
         if enable_websocket {
