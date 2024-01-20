@@ -42,11 +42,11 @@ impl Worker {
         }
     }
 
-    pub async fn start(mut self) -> JoinHandle<()> {
-        // use a channel to receive the queue change event makes sure the worker
-        // know immediately when the queue is changed, otherwise we may have a delay of `interval`
-        let mut queue_rx = self.tasks.read().await.subscribe();
+    pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
+            // use a notify to receive the queue change event makes sure the worker
+            // know immediately when the queue is changed, otherwise we may have a delay of `interval`
+            let queue_ready = self.tasks.read().await.subscribe();
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
@@ -57,7 +57,7 @@ impl Worker {
                     _ = self.command_rx.changed() => {
                         *self.command_rx.borrow() == ChunkCommand::Resume
                     }
-                    _ = queue_rx.changed() => {
+                    _ = queue_ready.notified() => {
                         true
                     }
                     _ = interval.tick() => {
@@ -143,7 +143,7 @@ impl VerifyMgr {
     async fn start_loop(&mut self) {
         let mut join_handles = Vec::new();
         for w in self.workers.iter_mut() {
-            let h = w.1.clone().start().await;
+            let h = w.1.clone().start();
             join_handles.push(h);
         }
         self.join_handles.replace(join_handles);

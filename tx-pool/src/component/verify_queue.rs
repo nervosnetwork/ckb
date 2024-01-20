@@ -10,7 +10,8 @@ use ckb_types::{
 };
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
-use tokio::sync::watch;
+use std::sync::Arc;
+use tokio::sync::Notify;
 
 const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100;
 const SHRINK_THRESHOLD: usize = 100;
@@ -46,20 +47,16 @@ pub struct VerifyEntry {
 pub struct VerifyQueue {
     /// inner tx entry
     inner: MultiIndexVerifyEntryMap,
-    /// when queue is changed, notify the tx-pool to update the txs count
-    queue_tx: watch::Sender<usize>,
-    /// subscribe this channel to get the txs count in the queue
-    queue_rx: watch::Receiver<usize>,
+    /// subscribe this notify to get be notified when there is item in the queue
+    ready_rx: Arc<Notify>,
 }
 
 impl VerifyQueue {
     /// Create a new VerifyQueue
     pub(crate) fn new() -> Self {
-        let (queue_tx, queue_rx) = watch::channel(0_usize);
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
-            queue_tx,
-            queue_rx,
+            ready_rx: Arc::new(Notify::new()),
         }
     }
 
@@ -90,8 +87,8 @@ impl VerifyQueue {
     }
 
     /// get a queue_rx to subscribe the txs count in the queue
-    pub fn subscribe(&self) -> watch::Receiver<usize> {
-        self.queue_rx.clone()
+    pub fn subscribe(&self) -> Arc<Notify> {
+        Arc::clone(&self.ready_rx)
     }
 
     /// Remove a tx from the queue
@@ -148,7 +145,7 @@ impl VerifyQueue {
             added_time: unix_time_as_millis(),
             inner: Entry { tx, remote },
         });
-        self.queue_tx.send(self.len()).unwrap();
+        self.ready_rx.notify_one();
         Ok(true)
     }
 

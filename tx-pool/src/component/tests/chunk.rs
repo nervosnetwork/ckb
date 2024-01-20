@@ -17,21 +17,20 @@ async fn verify_queue_basic() {
     let id = tx.proposal_short_id();
     let (exit_tx, mut exit_rx) = watch::channel(());
     let mut queue = VerifyQueue::new();
-    let mut queue_rx = queue.subscribe();
+    let queue_rx = queue.subscribe();
     let count = tokio::spawn(async move {
-        let mut counts = vec![];
+        let mut count = 0;
         loop {
             select! {
-                _ = queue_rx.changed() => {
-                    let value = queue_rx.borrow().to_owned();
-                    counts.push(value);
+                _ = queue_rx.notified() => {
+                    count += 1;
                 }
                 _ = exit_rx.changed() => {
                     break;
                 }
             }
         }
-        counts
+        count
     });
 
     assert!(queue.add_tx(tx.clone(), None).unwrap());
@@ -55,7 +54,7 @@ async fn verify_queue_basic() {
 
     exit_tx.send(()).unwrap();
     let counts = count.await.unwrap();
-    assert_eq!(counts, vec![1, 1, 1, 2]);
+    assert_eq!(counts, 4);
 
     let cur = queue.pop_first();
     assert_eq!(cur.unwrap().tx, tx);
