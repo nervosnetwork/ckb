@@ -103,6 +103,7 @@ impl RpcServer {
         let mut app = Router::new()
             .route("/", method_router.clone())
             .route("/*path", method_router)
+            .route("/ping", get(ping_handler))
             .layer(Extension(Arc::clone(rpc)))
             .layer(CorsLayer::permissive())
             .layer(TimeoutLayer::new(Duration::from_secs(30)))
@@ -187,6 +188,11 @@ impl RpcServer {
         });
         Ok(tcp_address)
     }
+}
+
+/// used for compatible with old health endpoint
+async fn ping_handler() -> impl IntoResponse {
+    "pong"
 }
 
 /// used for compatible with old PRC error responce for GET
