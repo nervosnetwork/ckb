@@ -1,11 +1,13 @@
 use crate::IoHandler;
-use axum::routing::post;
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
 use axum::{Extension, Router};
 use ckb_app_config::RpcConfig;
 use ckb_async_runtime::Handle;
 use ckb_error::AnyError;
 use ckb_logger::info;
 
+use axum::http::StatusCode;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use futures_util::{SinkExt, TryStreamExt};
 use jsonrpc_core::MetaIoHandler;
@@ -90,14 +92,21 @@ impl RpcServer {
             .with_pipeline_size(4);
 
         // HTTP and WS server.
-        let method_router =
-            post(handle_jsonrpc::<Option<Session>>).get(handle_jsonrpc_ws::<Option<Session>>);
+        let post_router = post(handle_jsonrpc::<Option<Session>>);
+        let get_router = if enable_websocket {
+            get(handle_jsonrpc_ws::<Option<Session>>)
+        } else {
+            get(get_error_handler)
+        };
+        let method_router = post_router.merge(get_router);
+
         let mut app = Router::new()
             .route("/", method_router.clone())
             .route("/*path", method_router)
             .layer(Extension(Arc::clone(rpc)))
             .layer(CorsLayer::permissive())
-            .layer(TimeoutLayer::new(Duration::from_secs(30)));
+            .layer(TimeoutLayer::new(Duration::from_secs(30)))
+            .layer(Extension(stream_config.clone()));
 
         if enable_websocket {
             let ws_config: StreamServerConfig =
@@ -178,4 +187,12 @@ impl RpcServer {
         });
         Ok(tcp_address)
     }
+}
+
+/// used for compatible with old PRC error responce for GET
+async fn get_error_handler() -> impl IntoResponse {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        "Used HTTP Method is not allowed. POST or OPTIONS is required",
+    )
 }
