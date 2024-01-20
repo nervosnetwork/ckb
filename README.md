@@ -70,5 +70,6 @@ Mainnet Mirana or Testnet Pudge, switch to the branch [master].
 - [Platform Support](docs/platform-support.md)
 - [How to Download or Build CKB Binary](https://docs.nervos.org/docs/basics/guides/get-ckb)
 - [How to Download or Build CKB Binary on Windows](https://docs.nervos.org/docs/basics/guides/ckb-on-windows)
+- [How to test miner on dev chain](docs/dev-miner.md)
 
 You can find a more comprehensive document website at [https://docs.nervos.org](https://docs.nervos.org).
