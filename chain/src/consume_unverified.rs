@@ -75,7 +75,6 @@ impl ConsumeUnverifiedBlocks {
                 recv(self.unverified_block_rx) -> msg => match msg {
                     Ok(unverified_task) => {
                         // process this unverified block
-                        trace!("got an unverified block, wait cost: {:?}", begin_loop.elapsed());
                         if let Some(handle) = ckb_metrics::handle() {
                             handle.ckb_chain_consume_unverified_block_waiting_block_duration_sum.add(_trace_begin_loop.elapsed().as_secs_f64())
                         }

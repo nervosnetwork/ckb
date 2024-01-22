@@ -77,7 +77,15 @@ pub struct LonelyBlockWithCallback {
 impl LonelyBlockWithCallback {
     pub(crate) fn execute_callback(self, verify_result: VerifyResult) {
         if let Some(verify_callback) = self.verify_callback {
+            let _trace_now = minstant::Instant::now();
+
             verify_callback(verify_result);
+
+            if let Some(handle) = ckb_metrics::handle() {
+                handle
+                    .ckb_chain_execute_callback_duration_sum
+                    .add(_trace_now.elapsed().as_secs_f64())
+            }
         }
     }
 
