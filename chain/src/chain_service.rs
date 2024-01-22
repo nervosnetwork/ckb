@@ -192,8 +192,32 @@ impl ChainService {
     fn asynchronous_process_block(&self, lonely_block: LonelyBlockWithCallback) {
         let block_number = lonely_block.block().number();
         let block_hash = lonely_block.block().hash();
+        // Skip verifying a genesis block if its hash is equal to our genesis hash,
+        // otherwise, return error and ban peer.
         if block_number < 1 {
-            warn!("receive 0 number block: 0-{}", block_hash);
+            if self.shared.genesis_hash() != block_hash {
+                warn!(
+                    "receive 0 number block: 0-{}, expect genesis hash: {}",
+                    block_hash,
+                    self.shared.genesis_hash()
+                );
+                self.shared
+                    .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_INVALID);
+                let error = InternalErrorKind::System
+                    .other("Invalid genesis block received")
+                    .into();
+                tell_synchronizer_to_punish_the_bad_peer(
+                    self.verify_failed_blocks_tx.clone(),
+                    lonely_block.peer_id_with_msg_bytes(),
+                    lonely_block.block().hash(),
+                    &error,
+                );
+                lonely_block.execute_callback(Err(error));
+            } else {
+                warn!("receive 0 number block: 0-{}", block_hash);
+                lonely_block.execute_callback(Ok(false));
+            }
+            return;
         }
 
         if lonely_block.switch().is_none()
