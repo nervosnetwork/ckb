@@ -59,6 +59,59 @@ fn repeat_process_block() {
 }
 
 #[test]
+fn process_genesis_block() {
+    let tx = TransactionBuilder::default()
+        .witness(Script::default().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .outputs(vec![
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100_000_000).pack())
+                .build();
+            100
+        ])
+        .outputs_data(vec![Bytes::new(); 100].pack())
+        .build();
+    let always_success_tx = create_always_success_tx();
+
+    let dao = genesis_dao_data(vec![&tx, &always_success_tx]).unwrap();
+
+    let genesis_block = BlockBuilder::default()
+        .transaction(tx.clone())
+        .transaction(always_success_tx.clone())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
+        .dao(dao.clone())
+        .build();
+
+    let consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block)
+        .build();
+    let (chain_controller, shared, _parent) = start_chain(Some(consensus));
+
+    let block = Arc::new(shared.consensus().genesis_block().clone());
+
+    let result = chain_controller.blocking_process_block(Arc::clone(&block));
+    assert!(!result.expect("process block ok"));
+    assert_eq!(
+        shared
+            .store()
+            .get_block_ext(&block.header().hash())
+            .unwrap()
+            .verified,
+        Some(true)
+    );
+
+    let different_genesis_block = BlockBuilder::default()
+        .transaction(tx)
+        .transaction(always_success_tx)
+        // Difficulty is changed here
+        .compact_target(difficulty_to_compact(U256::from(999u64)).pack())
+        .dao(dao)
+        .build();
+    let result = chain_controller.blocking_process_block(Arc::new(different_genesis_block));
+    assert!(result.is_err());
+}
+
+#[test]
 fn test_genesis_transaction_spend() {
     // let data: Vec<packed::Bytes> = ;
     let tx = TransactionBuilder::default()
