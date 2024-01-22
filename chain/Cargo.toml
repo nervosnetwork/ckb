@@ -33,6 +33,7 @@ crossbeam = "0.8.2"
 ckb-network = { path = "../network", version = "= 0.114.0-pre" }
 tokio = { version = "1", features = ["sync"] }
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.114.0-pre"}
+minstant = "0.1.4"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.114.0-pre" }
