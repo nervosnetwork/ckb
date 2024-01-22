@@ -184,7 +184,8 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         });
     }
 
-    // the default value of pool config `max_ancestors_count` is 125, only 125 txs will be added to committed list of the block template
+    // the default value of pool config `max_ancestors_count` is 125,
+    // only 125 txs will be added to committed list of the block template
     suite.wait_block_template_array_ge("transactions", 1);
 
     let response = suite.rpc(&RpcTestRequest {

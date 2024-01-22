@@ -418,6 +418,7 @@ impl PoolMap {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let outputs = entry.transaction().output_pts();
         let mut children = HashSet::new();
+        let mut direct_children = HashSet::new();
 
         // collect children
         for o in outputs {
@@ -425,13 +426,17 @@ impl PoolMap {
                 children.extend(ids);
             }
             if let Some(id) = self.edges.get_input_ref(&o).cloned() {
-                children.insert(id);
+                children.insert(id.clone());
+                direct_children.insert(id);
             }
         }
         // update children
         if !children.is_empty() {
             for child in &children {
                 self.links.add_parent(child, tx_short_id.clone());
+            }
+            for child in &direct_children {
+                self.links.add_direct_parent(child, tx_short_id.clone());
             }
             if let Some(links) = self.links.inner.get_mut(&tx_short_id) {
                 links.children.extend(children);
@@ -447,8 +452,10 @@ impl PoolMap {
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
         );
-        let short_id = entry.proposal_short_id();
+        let mut direct_parents: HashSet<ProposalShortId> =
+            HashSet::with_capacity(entry.transaction().inputs().len());
 
+        let short_id = entry.proposal_short_id();
         for input in entry.transaction().inputs() {
             let input_pt = input.previous_output();
             if let Some(deps) = self.edges.deps.get(&input_pt) {
@@ -458,7 +465,8 @@ impl PoolMap {
             let parent_hash = &input_pt.tx_hash();
             let id = ProposalShortId::from_tx_hash(parent_hash);
             if self.links.inner.contains_key(&id) {
-                parents.insert(id);
+                parents.insert(id.clone());
+                direct_parents.insert(id);
             }
         }
         for cell_dep in entry.transaction().cell_deps() {
@@ -473,13 +481,18 @@ impl PoolMap {
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
 
+        let direct_ancestors = self
+            .links
+            .calc_relation_ids(direct_parents.clone(), Relation::DirectParents);
+
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
+            // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        if entry.ancestors_count > self.max_ancestors_count {
-            debug!("debug: exceeded maximum ancestors count");
+        entry.direct_ancestors_count = direct_ancestors.len() + 1;
+        if entry.direct_ancestors_count > self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
@@ -489,6 +502,7 @@ impl PoolMap {
 
         let links = TxLinks {
             parents,
+            direct_parents,
             children: Default::default(),
         };
         self.links.inner.insert(short_id, links);
