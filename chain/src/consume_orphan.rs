@@ -56,6 +56,9 @@ impl ConsumeDescendantProcessor {
                 block_hash.clone(),
                 total_difficulty,
             ));
+            if let Some(handle) = ckb_metrics::handle() {
+                handle.ckb_chain_unverified_tip.set(block_number as i64);
+            }
             debug!(
                 "set unverified_tip to {}-{}, while unverified_tip - verified_tip = {}",
                 block_number.clone(),
@@ -224,7 +227,11 @@ impl ConsumeOrphan {
                     Ok(lonely_block) => {
                         let lonely_block_epoch: EpochNumberWithFraction = lonely_block.block().epoch();
 
+                        let _trace_now = minstant::Instant::now();
                         self.process_lonely_block(lonely_block);
+                        if let Some(handle) = ckb_metrics::handle() {
+                            handle.ckb_chain_process_lonely_block_duration_sum.add(_trace_now.elapsed().as_secs_f64())
+                        }
 
                         if lonely_block_epoch.number() > last_check_expired_orphans_epoch {
                             self.clean_expired_orphan_blocks();
