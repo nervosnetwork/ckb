@@ -149,7 +149,11 @@ impl ChainService {
                     Ok(Request { responder, arguments: lonely_block }) => {
                         // asynchronous_process_block doesn't interact with tx-pool,
                         // no need to pause tx-pool's chunk_process here.
+                        let _trace_now = minstant::Instant::now();
                         self.asynchronous_process_block(lonely_block);
+                        if let Some(handle) = ckb_metrics::handle(){
+                            handle.ckb_chain_async_process_block_duration_sum.add(_trace_now.elapsed().as_secs_f64())
+                        }
                         let _ = responder.send(());
                     },
                     _ => {
