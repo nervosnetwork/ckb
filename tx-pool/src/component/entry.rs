@@ -39,6 +39,8 @@ pub struct TxEntry {
     pub descendants_cycles: Cycle,
     /// descendants txs count
     pub descendants_count: usize,
+    /// dicrect ancestors txs count
+    pub direct_ancestors_count: usize,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
 }
@@ -71,6 +73,7 @@ impl TxEntry {
             descendants_cycles: cycles,
             descendants_count: 1,
             ancestors_count: 1,
+            direct_ancestors_count: 1,
         }
     }
 
