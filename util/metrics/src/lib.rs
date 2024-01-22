@@ -62,6 +62,8 @@ pub struct Metrics {
     pub ckb_chain_consume_unverified_block_duration_sum: Gauge,
     /// ckb_chain consume_unverified thread's consume_unverified_block waiting for block duration sum (seconds)
     pub ckb_chain_consume_unverified_block_waiting_block_duration_sum: Gauge,
+    /// ckb_chain execute_callback duration sum (seconds)
+    pub ckb_chain_execute_callback_duration_sum: Gauge,
     /// Gauge for tracking the size of all frozen data
     pub ckb_freezer_size: IntGauge,
     /// Counter for measuring the effective amount of data read
@@ -96,95 +98,104 @@ pub struct Metrics {
     pub ckb_network_ban_peer: IntCounter,
 }
 
-static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| Metrics {
-    ckb_chain_tip: register_int_gauge!("ckb_chain_tip", "The CKB chain tip header number").unwrap(),
-    ckb_chain_unverified_tip: register_int_gauge!(
+static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
+    Metrics {
+        ckb_chain_tip: register_int_gauge!("ckb_chain_tip", "The CKB chain tip header number").unwrap(),
+        ckb_chain_unverified_tip: register_int_gauge!(
         "ckb_chain_unverified_tip",
         "The CKB chain unverified tip header number"
     )
-    .unwrap(),
-    ckb_chain_async_process_block_duration_sum: register_gauge!(
-        "ckb_chain_async_process_block_duration",
+            .unwrap(),
+        ckb_chain_async_process_block_duration_sum: register_gauge!(
+        "ckb_chain_async_process_block_duration_sum",
         "The CKB chain asynchronous_process_block duration sum"
     )
-    .unwrap(),
-    ckb_chain_process_lonely_block_duration_sum: register_gauge!(
-        "ckb_chain_process_lonely_block_duration",
+            .unwrap(),
+        ckb_chain_process_lonely_block_duration_sum: register_gauge!(
+        "ckb_chain_process_lonely_block_duration_sum",
         "The CKB chain consume_orphan thread's process_lonely_block duration sum"
     )
-    .unwrap(),
-    ckb_chain_consume_unverified_block_duration_sum: register_gauge!(
-        "ckb_chain_consume_unverified_block_duration",
+            .unwrap(),
+        ckb_chain_consume_unverified_block_duration_sum: register_gauge!(
+        "ckb_chain_consume_unverified_block_duration_sum",
         "The CKB chain consume_unverified thread's consume_unverified_block duration sum"
     )
-    .unwrap(),
-    ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
-    ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
-    ckb_relay_transaction_short_id_collide: register_int_counter!(
+            .unwrap(),
+        ckb_chain_consume_unverified_block_waiting_block_duration_sum: register_gauge!(
+        "ckb_chain_consume_unverified_block_waiting_block_duration_sum",
+        "The CKB chain consume_unverified thread's consume_unverified_block waiting for block duration sum"
+    ).unwrap(),
+        ckb_chain_execute_callback_duration_sum: register_gauge!(
+            "ckb_chain_execute_callback_duration_sum",
+            "The CKB chain execute_callback duration sum"
+        ).unwrap(),
+        ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
+        ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
+        ckb_relay_transaction_short_id_collide: register_int_counter!(
         "ckb_relay_transaction_short_id_collide",
         "The CKB relay transaction short id collide"
     )
-    .unwrap(),
-    ckb_relay_cb_verify_duration: register_histogram!(
+            .unwrap(),
+        ckb_relay_cb_verify_duration: register_histogram!(
         "ckb_relay_cb_verify_duration",
         "The CKB relay compact block verify duration"
     )
-    .unwrap(),
-    ckb_block_process_duration: register_histogram!(
+            .unwrap(),
+        ckb_block_process_duration: register_histogram!(
         "ckb_block_process_duration",
         "The CKB block process duration"
     )
-    .unwrap(),
-    ckb_relay_cb_transaction_count: register_int_counter!(
+            .unwrap(),
+        ckb_relay_cb_transaction_count: register_int_counter!(
         "ckb_relay_cb_transaction_count",
         "The CKB relay compact block transaction count"
     )
-    .unwrap(),
-    ckb_relay_cb_reconstruct_ok: register_int_counter!(
+            .unwrap(),
+        ckb_relay_cb_reconstruct_ok: register_int_counter!(
         "ckb_relay_cb_reconstruct_ok",
         "The CKB relay compact block reconstruct ok count"
     )
-    .unwrap(),
-    ckb_relay_cb_fresh_tx_cnt: register_int_counter!(
+            .unwrap(),
+        ckb_relay_cb_fresh_tx_cnt: register_int_counter!(
         "ckb_relay_cb_fresh_tx_cnt",
         "The CKB relay compact block fresh tx count"
     )
-    .unwrap(),
-    ckb_relay_cb_reconstruct_fail: register_int_counter!(
+            .unwrap(),
+        ckb_relay_cb_reconstruct_fail: register_int_counter!(
         "ckb_relay_cb_reconstruct_fail",
         "The CKB relay compact block reconstruct fail count"
     )
-    .unwrap(),
-    ckb_shared_best_number: register_int_gauge!(
+            .unwrap(),
+        ckb_shared_best_number: register_int_gauge!(
         "ckb_shared_best_number",
         "The CKB shared best header number"
     )
-    .unwrap(),
-    ckb_sys_mem_process: CkbSysMemProcessStatistics::from(
-        &register_int_gauge_vec!(
+            .unwrap(),
+        ckb_sys_mem_process: CkbSysMemProcessStatistics::from(
+            &register_int_gauge_vec!(
             "ckb_sys_mem_process",
             "CKB system memory for process statistics",
             &["type"]
         )
-        .unwrap(),
-    ),
-    ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics::from(
-        &register_int_gauge_vec!(
+                .unwrap(),
+        ),
+        ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics::from(
+            &register_int_gauge_vec!(
             "ckb_sys_mem_jemalloc",
             "CKB system memory for jemalloc statistics",
             &["type"]
         )
-        .unwrap(),
-    ),
-    ckb_tx_pool_entry: CkbTxPoolEntryStatistics::from(
-        &register_int_gauge_vec!(
+                .unwrap(),
+        ),
+        ckb_tx_pool_entry: CkbTxPoolEntryStatistics::from(
+            &register_int_gauge_vec!(
             "ckb_tx_pool_entry",
             "CKB tx-pool entry status statistics",
             &["type"]
         )
-        .unwrap(),
-    ),
-    ckb_message_bytes: register_histogram_vec!(
+                .unwrap(),
+        ),
+        ckb_message_bytes: register_histogram_vec!(
         "ckb_message_bytes",
         "The CKB message bytes",
         &["direction", "protocol_name", "msg_item_name", "status_code"],
@@ -192,19 +203,20 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| M
             500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0, 100000.0, 200000.0, 500000.0
         ]
     )
-    .unwrap(),
+            .unwrap(),
 
-    ckb_sys_mem_rocksdb: register_int_gauge_vec!(
+        ckb_sys_mem_rocksdb: register_int_gauge_vec!(
         "ckb_sys_mem_rocksdb",
         "CKB system memory for rocksdb statistics",
         &["type", "cf"]
     )
-    .unwrap(),
-    ckb_network_ban_peer: register_int_counter!(
+            .unwrap(),
+        ckb_network_ban_peer: register_int_counter!(
         "ckb_network_ban_peer",
         "CKB network baned peer count"
     )
-    .unwrap(),
+            .unwrap(),
+    }
 });
 
 /// Indicate whether the metrics service is enabled.
