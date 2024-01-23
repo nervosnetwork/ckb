@@ -95,18 +95,18 @@ impl LonelyBlockHashWithCallback {
     }
 }
 
-impl Into<LonelyBlockHashWithCallback> for LonelyBlockWithCallback {
-    fn into(self) -> LonelyBlockHashWithCallback {
+impl From<LonelyBlockWithCallback> for LonelyBlockHashWithCallback {
+    fn from(val: LonelyBlockWithCallback) -> Self {
         LonelyBlockHashWithCallback {
             lonely_block: LonelyBlockHash {
                 block_number_and_hash: BlockNumberAndHash {
-                    number: self.lonely_block.block.number(),
-                    hash: self.lonely_block.block.hash(),
+                    number: val.lonely_block.block.number(),
+                    hash: val.lonely_block.block.hash(),
                 },
-                peer_id_with_msg_bytes: self.lonely_block.peer_id_with_msg_bytes,
-                switch: self.lonely_block.switch,
+                peer_id_with_msg_bytes: val.lonely_block.peer_id_with_msg_bytes,
+                switch: val.lonely_block.switch,
             },
-            verify_callback: self.verify_callback,
+            verify_callback: val.verify_callback,
         }
     }
 }
