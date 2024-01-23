@@ -1,9 +1,13 @@
 use crate::consume_orphan::ConsumeDescendantProcessor;
 use crate::consume_unverified::ConsumeUnverifiedBlockProcessor;
 use crate::utils::forkchanges::ForkChanges;
-use crate::{start_chain_services, LonelyBlock, UnverifiedBlock, VerifyFailedBlockInfo};
+use crate::{
+    start_chain_services, LonelyBlock, LonelyBlockHash, LonelyBlockHashWithCallback,
+    LonelyBlockWithCallback, VerifyFailedBlockInfo,
+};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_proposal_table::ProposalTable;
+use ckb_shared::types::BlockNumberAndHash;
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
@@ -25,26 +29,28 @@ fn process_block(
     blk: &BlockView,
     switch: Switch,
 ) {
-    let lonely_block = LonelyBlock {
-        block: Arc::new(blk.to_owned()),
+    let lonely_block_hash = LonelyBlockHash {
         peer_id_with_msg_bytes: None,
         switch: Some(switch),
+        block_number_and_hash: BlockNumberAndHash::new(blk.number(), blk.hash()),
     };
 
-    consume_descendant_processor.process_descendant(lonely_block.clone().without_callback());
-
-    let parent_hash = blk.data().header().raw().parent_hash();
-    let parent_header = consume_descendant_processor
-        .shared
-        .store()
-        .get_block_header(&parent_hash)
-        .unwrap();
-
-    let unverified_block = UnverifiedBlock {
-        unverified_block: lonely_block.without_callback(),
-        parent_header,
+    let lonely_block = LonelyBlock {
+        peer_id_with_msg_bytes: None,
+        switch: Some(switch),
+        block: Arc::new(blk.to_owned()),
     };
-    consume_unverified_block_processor.consume_unverified_blocks(unverified_block);
+
+    consume_descendant_processor.process_descendant(LonelyBlockWithCallback {
+        verify_callback: None,
+        lonely_block,
+    });
+
+    let lonely_block_hash = LonelyBlockHashWithCallback {
+        verify_callback: None,
+        lonely_block: lonely_block_hash,
+    };
+    consume_unverified_block_processor.consume_unverified_blocks(lonely_block_hash);
 }
 
 // 0--1--2--3--4
@@ -77,7 +83,8 @@ fn test_find_fork_case1() {
 
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let (unverified_blocks_tx, _unverified_blocks_rx) =
+        channel::unbounded::<LonelyBlockHashWithCallback>();
     let consume_descendant_processor = ConsumeDescendantProcessor {
         shared: shared.clone(),
         unverified_blocks_tx,
@@ -169,7 +176,8 @@ fn test_find_fork_case2() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let (unverified_blocks_tx, _unverified_blocks_rx) =
+        channel::unbounded::<LonelyBlockHashWithCallback>();
     let consume_descendant_processor = ConsumeDescendantProcessor {
         shared: shared.clone(),
         unverified_blocks_tx,
@@ -262,7 +270,8 @@ fn test_find_fork_case3() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let (unverified_blocks_tx, _unverified_blocks_rx) =
+        channel::unbounded::<LonelyBlockHashWithCallback>();
     let consume_descendant_processor = ConsumeDescendantProcessor {
         shared: shared.clone(),
         unverified_blocks_tx,
@@ -353,7 +362,8 @@ fn test_find_fork_case4() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let (unverified_blocks_tx, _unverified_blocks_rx) =
+        channel::unbounded::<LonelyBlockHashWithCallback>();
     let consume_descendant_processor = ConsumeDescendantProcessor {
         shared: shared.clone(),
         unverified_blocks_tx,
@@ -445,7 +455,8 @@ fn repeatedly_switch_fork() {
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
     let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
         tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<UnverifiedBlock>();
+    let (unverified_blocks_tx, _unverified_blocks_rx) =
+        channel::unbounded::<LonelyBlockHashWithCallback>();
     let consume_descendant_processor = ConsumeDescendantProcessor {
         shared: shared.clone(),
         unverified_blocks_tx,
