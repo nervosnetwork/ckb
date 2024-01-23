@@ -95,6 +95,22 @@ impl LonelyBlockHashWithCallback {
     }
 }
 
+impl Into<LonelyBlockHashWithCallback> for LonelyBlockWithCallback {
+    fn into(self) -> LonelyBlockHashWithCallback {
+        LonelyBlockHashWithCallback {
+            lonely_block: LonelyBlockHash {
+                block_number_and_hash: BlockNumberAndHash {
+                    number: self.lonely_block.block.number(),
+                    hash: self.lonely_block.block.hash(),
+                },
+                peer_id_with_msg_bytes: self.lonely_block.peer_id_with_msg_bytes,
+                switch: self.lonely_block.switch,
+            },
+            verify_callback: self.verify_callback,
+        }
+    }
+}
+
 /// LonelyBlockWithCallback Combine LonelyBlock with an optional verify_callback
 pub struct LonelyBlockWithCallback {
     /// The LonelyBlock
@@ -131,45 +147,6 @@ impl LonelyBlockWithCallback {
     /// get switch param
     pub fn switch(&self) -> Option<Switch> {
         self.lonely_block.switch
-    }
-}
-
-impl LonelyBlockWithCallback {
-    pub(crate) fn combine_parent_header(self, parent_header: HeaderView) -> UnverifiedBlock {
-        UnverifiedBlock {
-            unverified_block: self,
-            parent_header,
-        }
-    }
-}
-
-pub(crate) struct UnverifiedBlockHash {
-    pub unverified_block: LonelyBlockHashWithCallback,
-    pub parent_header: HeaderView,
-}
-
-impl UnverifiedBlockHash {
-    fn execute_callback(self, verify_result: VerifyResult) {
-        self.unverified_block.execute_callback(verify_result)
-    }
-}
-
-impl From<UnverifiedBlock> for UnverifiedBlockHash {
-    fn from(value: UnverifiedBlock) -> Self {
-        Self {
-            unverified_block: LonelyBlockHashWithCallback {
-                lonely_block: LonelyBlockHash {
-                    block_number_and_hash: BlockNumberAndHash {
-                        number: value.block().number(),
-                        hash: value.block().hash(),
-                    },
-                    peer_id_with_msg_bytes: value.peer_id_with_msg_bytes(),
-                    switch: value.unverified_block.switch(),
-                },
-                verify_callback: value.unverified_block.verify_callback,
-            },
-            parent_header: value.parent_header,
-        }
     }
 }
 
