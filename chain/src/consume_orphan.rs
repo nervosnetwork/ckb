@@ -1,7 +1,7 @@
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
-    tell_synchronizer_to_punish_the_bad_peer, LonelyBlockWithCallback, UnverifiedBlock,
-    UnverifiedBlockHash, VerifyResult,
+    tell_synchronizer_to_punish_the_bad_peer, LonelyBlockHashWithCallback, LonelyBlockWithCallback,
+    VerifyResult,
 };
 use ckb_channel::{select, Receiver, SendError, Sender};
 use ckb_error::{Error, InternalErrorKind};
@@ -19,32 +19,28 @@ use std::sync::Arc;
 
 pub(crate) struct ConsumeDescendantProcessor {
     pub shared: Shared,
-    pub unverified_blocks_tx: Sender<UnverifiedBlockHash>,
+    pub unverified_blocks_tx: Sender<LonelyBlockHashWithCallback>,
 
     pub verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 impl ConsumeDescendantProcessor {
-    fn send_unverified_block(&self, unverified_block: UnverifiedBlockHash, total_difficulty: U256) {
-        let block_number = unverified_block
-            .unverified_block
-            .lonely_block
-            .block_number_and_hash
-            .number();
-        let block_hash = unverified_block
-            .unverified_block
-            .lonely_block
-            .block_number_and_hash
-            .hash();
+    fn send_unverified_block(
+        &self,
+        lonely_block: LonelyBlockHashWithCallback,
+        total_difficulty: U256,
+    ) {
+        let block_number = lonely_block.lonely_block.block_number_and_hash.number();
+        let block_hash = lonely_block.lonely_block.block_number_and_hash.hash();
 
-        match self.unverified_blocks_tx.send(unverified_block) {
+        match self.unverified_blocks_tx.send(lonely_block) {
             Ok(_) => {
                 debug!(
                     "process desendant block success {}-{}",
                     block_number, block_hash
                 );
             }
-            Err(SendError(unverified_block)) => {
+            Err(SendError(lonely_block)) => {
                 error!("send unverified_block_tx failed, the receiver has been closed");
                 let err: Error = InternalErrorKind::System
                     .other(
@@ -53,7 +49,7 @@ impl ConsumeDescendantProcessor {
                     .into();
 
                 let verify_result: VerifyResult = Err(err);
-                unverified_block.execute_callback(verify_result);
+                lonely_block.execute_callback(verify_result);
                 return;
             }
         };
@@ -158,15 +154,12 @@ impl ConsumeDescendantProcessor {
 
     pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
         match self.accept_descendant(lonely_block.block().to_owned()) {
-            Ok((parent_header, total_difficulty)) => {
+            Ok((_parent_header, total_difficulty)) => {
                 self.shared
                     .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
+                let lonely_block_hash = lonely_block.into();
 
-                let unverified_block: UnverifiedBlock =
-                    lonely_block.combine_parent_header(parent_header);
-
-                let unverified_block_hash: UnverifiedBlockHash = unverified_block.into();
-                self.send_unverified_block(unverified_block_hash, total_difficulty)
+                self.send_unverified_block(lonely_block_hash, total_difficulty)
             }
 
             Err(err) => {
@@ -210,7 +203,7 @@ impl ConsumeOrphan {
     pub(crate) fn new(
         shared: Shared,
         orphan_block_pool: Arc<OrphanBlockPool>,
-        unverified_blocks_tx: Sender<UnverifiedBlockHash>,
+        unverified_blocks_tx: Sender<LonelyBlockHashWithCallback>,
         lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
         stop_rx: Receiver<()>,
