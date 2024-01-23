@@ -4,8 +4,8 @@
 use crate::consume_unverified::ConsumeUnverifiedBlocks;
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
-    tell_synchronizer_to_punish_the_bad_peer, ChainController, LonelyBlockWithCallback,
-    ProcessBlockRequest, UnverifiedBlock, UnverifiedBlockHash,
+    tell_synchronizer_to_punish_the_bad_peer, ChainController, LonelyBlockHashWithCallback,
+    LonelyBlockWithCallback, ProcessBlockRequest,
 };
 use ckb_channel::{self as channel, select, Receiver, SendError, Sender};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
@@ -32,7 +32,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
 
     let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
     let (unverified_tx, unverified_rx) =
-        channel::bounded::<UnverifiedBlockHash>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
+        channel::bounded::<LonelyBlockHashWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
     let consumer_unverified_thread = thread::Builder::new()
         .name("consume_unverified_blocks".into())

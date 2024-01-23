@@ -1,7 +1,7 @@
+use crate::LonelyBlockHashWithCallback;
 use crate::{
     tell_synchronizer_to_punish_the_bad_peer, utils::forkchanges::ForkChanges, GlobalIndex,
-    LonelyBlock, LonelyBlockWithCallback, TruncateRequest, UnverifiedBlock, UnverifiedBlockHash,
-    VerifyResult,
+    LonelyBlock, LonelyBlockWithCallback, TruncateRequest, UnverifiedBlock, VerifyResult,
 };
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
@@ -11,7 +11,7 @@ use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::block_status::BlockStatus;
-use ckb_shared::types::{BlockNumberAndHash, VerifyFailedBlockInfo};
+use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::Shared;
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
@@ -40,7 +40,7 @@ pub(crate) struct ConsumeUnverifiedBlockProcessor {
 pub(crate) struct ConsumeUnverifiedBlocks {
     tx_pool_controller: TxPoolController,
 
-    unverified_block_rx: Receiver<UnverifiedBlockHash>,
+    unverified_block_rx: Receiver<LonelyBlockHashWithCallback>,
     truncate_block_rx: Receiver<TruncateRequest>,
 
     stop_rx: Receiver<()>,
@@ -50,7 +50,7 @@ pub(crate) struct ConsumeUnverifiedBlocks {
 impl ConsumeUnverifiedBlocks {
     pub(crate) fn new(
         shared: Shared,
-        unverified_blocks_rx: Receiver<UnverifiedBlockHash>,
+        unverified_blocks_rx: Receiver<LonelyBlockHashWithCallback>,
         truncate_block_rx: Receiver<TruncateRequest>,
         proposal_table: ProposalTable,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
@@ -116,17 +116,14 @@ impl ConsumeUnverifiedBlocks {
 }
 
 impl ConsumeUnverifiedBlockProcessor {
-    fn load_full_unverified_block(&self, unverified_block: UnverifiedBlockHash) -> UnverifiedBlock {
+    fn load_full_unverified_block(
+        &self,
+        lonely_block: LonelyBlockHashWithCallback,
+    ) -> UnverifiedBlock {
         let block_view = self
             .shared
             .store()
-            .get_block(
-                &unverified_block
-                    .unverified_block
-                    .lonely_block
-                    .block_number_and_hash
-                    .hash(),
-            )
+            .get_block(&lonely_block.lonely_block.block_number_and_hash.hash())
             .expect("block stored");
         let parent_header_view = self
             .shared
@@ -138,20 +135,20 @@ impl ConsumeUnverifiedBlockProcessor {
             unverified_block: LonelyBlockWithCallback {
                 lonely_block: LonelyBlock {
                     block: Arc::new(block_view),
-                    peer_id_with_msg_bytes: unverified_block
-                        .unverified_block
-                        .lonely_block
-                        .peer_id_with_msg_bytes,
-                    switch: unverified_block.unverified_block.lonely_block.switch,
+                    peer_id_with_msg_bytes: lonely_block.lonely_block.peer_id_with_msg_bytes,
+                    switch: lonely_block.lonely_block.switch,
                 },
-                verify_callback: unverified_block.unverified_block.verify_callback,
+                verify_callback: lonely_block.verify_callback,
             },
             parent_header: parent_header_view,
         }
     }
 
-    pub(crate) fn consume_unverified_blocks(&mut self, unverified_block_hash: UnverifiedBlockHash) {
-        let unverified_block = self.load_full_unverified_block(unverified_block_hash);
+    pub(crate) fn consume_unverified_blocks(
+        &mut self,
+        lonely_block_hash: LonelyBlockHashWithCallback,
+    ) {
+        let unverified_block = self.load_full_unverified_block(lonely_block_hash);
         // process this unverified block
         let verify_result = self.verify_block(&unverified_block);
         match &verify_result {
