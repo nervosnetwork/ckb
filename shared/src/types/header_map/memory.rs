@@ -101,7 +101,9 @@ impl MemoryMap {
     pub(crate) fn remove(&self, key: &Byte32) -> Option<HeaderIndexView> {
         let mut guard = self.0.write();
         let ret = guard.remove(key);
-        shrink_to_fit!(guard, SHRINK_THRESHOLD);
+
+        // TODO: @eval-exec call shrink_to_fit only when CKB is in non-IBD mode
+        // shrink_to_fit!(guard, SHRINK_THRESHOLD);
         ret.map(|inner| (key.clone(), inner).into())
     }
 
