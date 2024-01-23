@@ -37,8 +37,6 @@ Nervos CKB is released under the terms of the MIT license. See [COPYING](COPYING
 - Testnet Pudge: Use the [latest release](https://github.com/nervosnetwork/ckb/releases/latest) and run `ckb init --chain testnet` to initialize the node.
     - Pudge is active since the epoch 3113.
 
-See more networks to join in the [wiki](https://github.com/nervosnetwork/ckb/wiki/Chains).
-
 
 ## Mining
 
