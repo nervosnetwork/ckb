@@ -1,14 +1,17 @@
 use crate::{
     rpc::RpcClient,
-    util::{cell::gen_spendable, transaction::always_success_transactions},
+    util::{
+        cell::gen_spendable,
+        transaction::{always_success_transaction, always_success_transactions},
+    },
     utils::wait_until,
     Node, Spec,
 };
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
-    core::{capacity_bytes, Capacity, TransactionView},
-    packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
+    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, DepType, TransactionView},
+    packed::{Byte32, CellDep, CellDepBuilder, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
 
@@ -866,6 +869,72 @@ impl Spec for RbfConcurrency {
         for s in status.iter().take(4) {
             assert_eq!(*s, Status::Rejected);
         }
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
+pub struct RbfCellDepsCheck;
+impl Spec for RbfCellDepsCheck {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        let initial_inputs = gen_spendable(node0, 2);
+        let input_a = &initial_inputs[0];
+        let input_c = &initial_inputs[1];
+
+        // Commit transaction root
+        let tx_a = {
+            let tx_a = always_success_transaction(node0, input_a);
+            node0.submit_transaction(&tx_a);
+            tx_a
+        };
+
+        let mut prev = tx_a.clone();
+        // Create transaction chain
+        for _i in 0..2 {
+            let input =
+                CellMetaBuilder::from_cell_output(prev.output(0).unwrap(), Default::default())
+                    .out_point(OutPoint::new(prev.hash(), 0))
+                    .build();
+            let cur = always_success_transaction(node0, &input);
+            let _ = node0.rpc_client().send_transaction(cur.data().into());
+            prev = cur.clone();
+        }
+
+        // Create a child transaction with celldep
+        let tx = always_success_transaction(node0, input_c);
+        let cell_dep_to_last = CellDepBuilder::default()
+            .dep_type(DepType::Code.into())
+            .out_point(OutPoint::new(prev.hash(), 0))
+            .build();
+        let tx_c = tx
+            .as_advanced_builder()
+            .cell_dep(cell_dep_to_last.clone())
+            .build();
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx_c.data().into());
+        assert!(res.is_ok());
+
+        // Create a new transaction for cell dep with high fee
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(80).pack())
+            .build();
+        let new_tx = tx_a
+            .as_advanced_builder()
+            .set_outputs(vec![output])
+            .cell_dep(cell_dep_to_last)
+            .build();
+
+        let res = node0.submit_transaction_with_result(&new_tx);
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("new Tx contains cell deps from conflicts"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

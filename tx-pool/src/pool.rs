@@ -514,10 +514,8 @@ impl TxPool {
 
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();
-        let mut outputs = HashSet::new();
         for c in conflicts.iter() {
             inputs.extend(c.inner.transaction().input_pts_iter());
-            outputs.extend(c.inner.transaction().output_pts_iter());
         }
 
         if tx_inputs
@@ -526,12 +524,6 @@ impl TxPool {
         {
             return Err(Reject::RBFRejected(
                 "new Tx contains unconfirmed inputs".to_string(),
-            ));
-        }
-
-        if tx_cells_deps.iter().any(|dep| outputs.contains(dep)) {
-            return Err(Reject::RBFRejected(
-                "new Tx contains cell deps from conflicts".to_string(),
             ));
         }
 
@@ -570,6 +562,15 @@ impl TxPool {
                 }
             }
             all_conflicted.extend(entries);
+        }
+
+        for entry in all_conflicted.iter() {
+            let hash = entry.inner.transaction().hash();
+            if tx_cells_deps.iter().any(|pt| pt.tx_hash() == hash) {
+                return Err(Reject::RBFRejected(
+                    "new Tx contains cell deps from conflicts".to_string(),
+                ));
+            }
         }
 
         // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
