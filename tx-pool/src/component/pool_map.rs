@@ -511,12 +511,14 @@ impl PoolMap {
             self.links.add_child(parent, short_id.clone());
         }
 
-        let links = TxLinks {
-            parents,
-            direct_parents,
-            children: Default::default(),
-        };
-        self.links.inner.insert(short_id, links);
+        self.links.add_link(
+            short_id,
+            TxLinks {
+                parents,
+                direct_parents,
+                children: Default::default(),
+            },
+        );
 
         Ok(true)
     }

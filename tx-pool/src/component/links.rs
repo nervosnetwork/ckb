@@ -72,11 +72,15 @@ impl TxLinksMap {
             relation_ids.insert(id);
         }
         // for direct parents, we don't store children in links map
-        // so filter those not in links map now, they maybe removed from tx-pool now
+        // so filter those not in links map, they maybe removed from tx-pool now
         if relation == Relation::DirectParents {
             relation_ids.retain(|id| self.inner.contains_key(id));
         }
         relation_ids
+    }
+
+    pub fn add_link(&mut self, short_id: ProposalShortId, links: TxLinks) {
+        self.inner.insert(short_id, links);
     }
 
     pub fn calc_ancestors(&self, short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
