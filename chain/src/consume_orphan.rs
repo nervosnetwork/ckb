@@ -24,6 +24,77 @@ pub(crate) struct ConsumeDescendantProcessor {
     pub verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
+// Store the an unverified block to the database. We may usually do this
+// for an orphan block with unknown parent. But this function is also useful in testing.
+pub fn store_unverified_block(shared: &Shared, block: Arc<BlockView>) -> Result<(HeaderView, U256), Error> {
+    let (block_number, block_hash) = (block.number(), block.hash());
+
+    let parent_header = shared
+        .store()
+        .get_block_header(&block.data().header().raw().parent_hash())
+        .expect("parent already store");
+
+    if let Some(ext) = shared.store().get_block_ext(&block.hash()) {
+        debug!("block {}-{} has stored BlockExt", block_number, block_hash);
+        return Ok((parent_header, ext.total_difficulty));
+    }
+
+    trace!("begin accept block: {}-{}", block.number(), block.hash());
+
+    let parent_ext = shared
+        .store()
+        .get_block_ext(&block.data().header().raw().parent_hash())
+        .expect("parent already store");
+
+    if parent_ext.verified == Some(false) {
+        return Err(InvalidParentError {
+            parent_hash: parent_header.hash(),
+        }
+        .into());
+    }
+
+    let cannon_total_difficulty =
+        parent_ext.total_difficulty.to_owned() + block.header().difficulty();
+
+    let db_txn = Arc::new(shared.store().begin_transaction());
+
+    let txn_snapshot = db_txn.get_snapshot();
+    let _snapshot_block_ext = db_txn.get_update_for_block_ext(&block.hash(), &txn_snapshot);
+
+    db_txn.insert_block(block.as_ref())?;
+
+    let next_block_epoch = shared
+        .consensus()
+        .next_epoch_ext(&parent_header, &db_txn.borrow_as_data_loader())
+        .expect("epoch should be stored");
+    let new_epoch = next_block_epoch.is_head();
+    let epoch = next_block_epoch.epoch();
+
+    db_txn.insert_block_epoch_index(
+        &block.header().hash(),
+        &epoch.last_block_hash_in_previous_epoch(),
+    )?;
+    if new_epoch {
+        db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+    }
+
+    let ext = BlockExt {
+        received_at: unix_time_as_millis(),
+        total_difficulty: cannon_total_difficulty.clone(),
+        total_uncles_count: parent_ext.total_uncles_count + block.data().uncles().len() as u64,
+        verified: None,
+        txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
+    };
+
+    db_txn.insert_block_ext(&block.header().hash(), &ext)?;
+
+    db_txn.commit()?;
+
+    Ok((parent_header, cannon_total_difficulty))
+}
+
 impl ConsumeDescendantProcessor {
     fn send_unverified_block(
         &self,
@@ -80,84 +151,12 @@ impl ConsumeDescendantProcessor {
         }
     }
 
-    fn accept_descendant(&self, block: Arc<BlockView>) -> Result<(HeaderView, U256), Error> {
-        let (block_number, block_hash) = (block.number(), block.hash());
-
-        let parent_header = self
-            .shared
-            .store()
-            .get_block_header(&block.data().header().raw().parent_hash())
-            .expect("parent already store");
-
-        if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
-            debug!("block {}-{} has stored BlockExt", block_number, block_hash);
-            return Ok((parent_header, ext.total_difficulty));
-        }
-
-        trace!("begin accept block: {}-{}", block.number(), block.hash());
-
-        let parent_ext = self
-            .shared
-            .store()
-            .get_block_ext(&block.data().header().raw().parent_hash())
-            .expect("parent already store");
-
-        if parent_ext.verified == Some(false) {
-            return Err(InvalidParentError {
-                parent_hash: parent_header.hash(),
-            }
-            .into());
-        }
-
-        let cannon_total_difficulty =
-            parent_ext.total_difficulty.to_owned() + block.header().difficulty();
-
-        let db_txn = Arc::new(self.shared.store().begin_transaction());
-
-        let txn_snapshot = db_txn.get_snapshot();
-        let _snapshot_block_ext = db_txn.get_update_for_block_ext(&block.hash(), &txn_snapshot);
-
-        db_txn.insert_block(block.as_ref())?;
-
-        let next_block_epoch = self
-            .shared
-            .consensus()
-            .next_epoch_ext(&parent_header, &db_txn.borrow_as_data_loader())
-            .expect("epoch should be stored");
-        let new_epoch = next_block_epoch.is_head();
-        let epoch = next_block_epoch.epoch();
-
-        db_txn.insert_block_epoch_index(
-            &block.header().hash(),
-            &epoch.last_block_hash_in_previous_epoch(),
-        )?;
-        if new_epoch {
-            db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
-        }
-
-        let ext = BlockExt {
-            received_at: unix_time_as_millis(),
-            total_difficulty: cannon_total_difficulty.clone(),
-            total_uncles_count: parent_ext.total_uncles_count + block.data().uncles().len() as u64,
-            verified: None,
-            txs_fees: vec![],
-            cycles: None,
-            txs_sizes: None,
-        };
-
-        db_txn.insert_block_ext(&block.header().hash(), &ext)?;
-
-        db_txn.commit()?;
-
-        Ok((parent_header, cannon_total_difficulty))
-    }
-
     pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
-        match self.accept_descendant(lonely_block.block().to_owned()) {
+        match store_unverified_block(&self.shared, lonely_block.block().to_owned()) {
             Ok((_parent_header, total_difficulty)) => {
-                self.shared
-                    .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
-                let lonely_block_hash = lonely_block.into();
+                self.shared.insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
+
+                let lonely_block_hash: LonelyBlockHashWithCallback = lonely_block.into();
 
                 self.send_unverified_block(lonely_block_hash, total_difficulty)
             }
