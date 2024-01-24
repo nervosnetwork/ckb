@@ -21,13 +21,13 @@ use std::sync::{Arc, RwLock};
 #[derive(Clone)]
 pub struct AsyncRichIndexerHandle {
     store: SQLXPool,
-    _pool: Option<Arc<RwLock<Pool>>>,
+    pool: Option<Arc<RwLock<Pool>>>,
 }
 
 impl AsyncRichIndexerHandle {
     /// Construct new AsyncRichIndexerHandle instance
     pub fn new(store: SQLXPool, pool: Option<Arc<RwLock<Pool>>>) -> Self {
-        Self { store, _pool: pool }
+        Self { store, pool }
     }
 }
 

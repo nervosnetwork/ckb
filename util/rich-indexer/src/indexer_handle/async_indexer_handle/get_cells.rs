@@ -102,6 +102,34 @@ impl AsyncRichIndexerHandle {
         .on("output.id = input.output_id")
         .and_where("input.output_id IS NULL"); // live cells
 
+        // filter cells in pool
+        let mut dead_cells = Vec::new();
+        if let Some(pool) = self
+            .pool
+            .as_ref()
+            .map(|pool| pool.read().expect("acquire lock"))
+        {
+            dead_cells = pool
+                .dead_cells()
+                .map(|out_point| {
+                    let tx_hash: H256 = out_point.tx_hash().unpack();
+                    (tx_hash.as_bytes().to_vec(), out_point.index().unpack())
+                })
+                .collect::<Vec<(_, u32)>>()
+        }
+        if !dead_cells.is_empty() {
+            let placeholders = dead_cells
+                .iter()
+                .map(|(_, output_index)| {
+                    let placeholder = format!("(${}, {})", param_index, output_index);
+                    param_index += 1;
+                    placeholder
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            query_builder.and_where(format!("(tx_hash, output_index) NOT IN ({})", placeholders));
+        }
+
         if let Some(after) = after {
             let after = decode_i64(after.as_bytes())?;
             match order {
@@ -166,6 +194,11 @@ impl AsyncRichIndexerHandle {
                         query = query.bind(data.as_bytes());
                     }
                 }
+            }
+        }
+        if !dead_cells.is_empty() {
+            for (tx_hash, _) in dead_cells {
+                query = query.bind(tx_hash)
             }
         }
 

@@ -160,6 +160,9 @@ impl AsyncRichIndexer {
             self.insert_transaction(block_id, tx_index, tx_view, tx)
                 .await?;
         }
+        if let Some(mut pool) = self.pool.as_ref().map(|p| p.write().expect("acquire lock")) {
+            pool.transactions_committed(&block_view.transactions());
+        }
         Ok(())
     }
 

@@ -5,6 +5,7 @@ use crate::store::SQLXPool;
 use ckb_indexer_sync::Error;
 use ckb_jsonrpc_types::{IndexerCellsCapacity, IndexerSearchKey};
 use ckb_jsonrpc_types::{IndexerScriptType, IndexerSearchMode};
+use ckb_types::prelude::*;
 use sql_builder::{name, name::SqlName, SqlBuilder};
 use sqlx::Row;
 
@@ -15,11 +16,11 @@ impl AsyncRichIndexerHandle {
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>, Error> {
         // sub query for script
-        let mut param_indexer = 1;
+        let mut param_index = 1;
         let script_sub_query_sql = build_query_script_id_sql(
             self.store.db_driver,
             &search_key.script_search_mode,
-            &mut param_indexer,
+            &mut param_index,
         )?;
 
         // query output
@@ -34,6 +35,7 @@ impl AsyncRichIndexerHandle {
                 query_builder.on("output.type_script_id = query_script.id");
             }
         }
+        let mut joined_ckb_transaction = false;
         if let Some(ref filter) = search_key.filter {
             if filter.block_range.is_some() {
                 query_builder
@@ -41,7 +43,13 @@ impl AsyncRichIndexerHandle {
                     .on("output.tx_id = ckb_transaction.id")
                     .join("block")
                     .on("ckb_transaction.block_id = block.id");
+                joined_ckb_transaction = true;
             }
+        }
+        if self.pool.is_some() && !joined_ckb_transaction {
+            query_builder
+                .join("ckb_transaction")
+                .on("output.tx_id = ckb_transaction.id");
         }
         query_builder
             .left()
@@ -65,11 +73,42 @@ impl AsyncRichIndexerHandle {
         }
         query_builder.and_where("input.output_id IS NULL"); // live cells
 
+        // filter cells in pool
+        let mut dead_cells = Vec::new();
+        if let Some(pool) = self
+            .pool
+            .as_ref()
+            .map(|pool| pool.read().expect("acquire lock"))
+        {
+            dead_cells = pool
+                .dead_cells()
+                .map(|out_point| {
+                    let tx_hash: H256 = out_point.tx_hash().unpack();
+                    (tx_hash.as_bytes().to_vec(), out_point.index().unpack())
+                })
+                .collect::<Vec<(_, u32)>>()
+        }
+        if !dead_cells.is_empty() {
+            let placeholders = dead_cells
+                .iter()
+                .map(|(_, output_index)| {
+                    let placeholder = format!("(${}, {})", param_index, output_index);
+                    param_index += 1;
+                    placeholder
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            query_builder.and_where(format!(
+                "(ckb_transaction.tx_hash, output_index) NOT IN ({})",
+                placeholders
+            ));
+        }
+
         build_cell_filter(
             self.store.db_driver,
             &mut query_builder,
             &search_key,
-            &mut param_indexer,
+            &mut param_index,
         );
 
         // sql string
@@ -115,6 +154,11 @@ impl AsyncRichIndexerHandle {
                         query = query.bind(data.as_bytes());
                     }
                 }
+            }
+        }
+        if !dead_cells.is_empty() {
+            for (tx_hash, _) in dead_cells {
+                query = query.bind(tx_hash)
             }
         }
 

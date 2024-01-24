@@ -54,6 +54,11 @@ impl Pool {
             self.transaction_committed(tx);
         }
     }
+
+    /// return all dead cells
+    pub fn dead_cells(&self) -> impl Iterator<Item = &OutPoint> {
+        self.dead_cells.iter()
+    }
 }
 
 /// Pool service
