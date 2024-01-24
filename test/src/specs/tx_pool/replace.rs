@@ -56,10 +56,25 @@ impl Spec for RbfBasic {
         info!("Generate 2 txs with same input");
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
-
-        // Set tx2 fee to a higher value, tx1 capacity is 100, set tx2 capacity to 80 for +20 fee.
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80).pack())
+            .capacity(capacity_bytes!(99).pack())
+            .build();
+
+        let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
+        // assume tx1's replace fee is ok
+        node0.rpc_client().send_transaction(tx1.data().into());
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 2);
+        // min_replace_fee is 363
+        // fee is 100000000
+        assert_eq!(ret.fee.unwrap().to_string(), "0x5f5e100");
+        // replace fee is 100000363
+        assert_eq!(ret.min_replace_fee.unwrap().to_string(), "0x5f5e26b");
+
+        // Set tx2 fee to a higher value, tx1 capacity is 99, set tx2 capacity to 95 for +4 fee.
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(95).pack())
             .build();
 
         let tx2 = tx2_temp
@@ -67,17 +82,18 @@ impl Spec for RbfBasic {
             .set_outputs(vec![output])
             .build();
 
-        node0.rpc_client().send_transaction(tx1.data().into());
-        let ret = node0
-            .rpc_client()
-            .get_transaction_with_verbosity(tx1.hash(), 2);
-        // min_replace_fee is 363
-        assert_eq!(ret.min_replace_fee.unwrap().to_string(), "0x16b");
-
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_ok(), "tx2 should replace old tx");
+
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx2.hash(), 2);
+        // fee is 500000000
+        assert!(ret.fee.unwrap().to_string() == "0x1dcd6500");
+        // replace fee is 500000363
+        assert!(ret.min_replace_fee.unwrap().to_string() == "0x1dcd666b");
 
         node0.mine_with_blocking(|template| template.proposals.len() != 2);
         node0.mine_with_blocking(|template| template.number.value() != 14);
@@ -125,6 +141,7 @@ impl Spec for RbfBasic {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_fee_rate = ckb_types::core::FeeRate(1000);
         config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }
