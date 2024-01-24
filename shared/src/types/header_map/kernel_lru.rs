@@ -1,4 +1,6 @@
 use std::path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[cfg(feature = "stats")]
 use ckb_logger::info;
@@ -138,7 +140,9 @@ where
             self.trace();
             self.stats().tick_primary_delete();
         }
-        self.memory.remove(hash);
+        // If IBD is not finished, don't shrink memory map
+        let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Relaxed);
+        self.memory.remove(hash, allow_shrink_to_fit);
         if self.backend.is_empty() {
             return;
         }
@@ -150,8 +154,11 @@ where
             tokio::task::block_in_place(|| {
                 self.backend.insert_batch(&values);
             });
+
+            // If IBD is not finished, don't shrink memory map
+            let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Relaxed);
             self.memory
-                .remove_batch(values.iter().map(|value| value.hash()));
+                .remove_batch(values.iter().map(|value| value.hash()), allow_shrink_to_fit);
         }
     }
 

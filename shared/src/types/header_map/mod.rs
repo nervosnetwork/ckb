@@ -2,6 +2,7 @@ use ckb_async_runtime::Handle;
 use ckb_logger::{debug, info};
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{mem::size_of, path};
@@ -29,7 +30,12 @@ const ITEM_BYTES_SIZE: usize = size_of::<HeaderIndexView>();
 const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
 impl HeaderMap {
-    pub fn new<P>(tmpdir: Option<P>, memory_limit: usize, async_handle: &Handle) -> Self
+    pub fn new<P>(
+        tmpdir: Option<P>,
+        memory_limit: usize,
+        async_handle: &Handle,
+        ibd_finished: Arc<AtomicBool>,
+    ) -> Self
     where
         P: AsRef<path::Path>,
     {
@@ -43,7 +49,7 @@ impl HeaderMap {
             );
         }
         let size_limit = memory_limit / ITEM_BYTES_SIZE;
-        let inner = Arc::new(HeaderMapKernel::new(tmpdir, size_limit));
+        let inner = Arc::new(HeaderMapKernel::new(tmpdir, size_limit, ibd_finished));
         let map = Arc::clone(&inner);
         let stop_rx: CancellationToken = new_tokio_exit_rx();
 
