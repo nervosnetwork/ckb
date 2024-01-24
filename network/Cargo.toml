@@ -36,7 +36,7 @@ ckb-spawn = { path = "../util/spawn", version = "= 0.114.0-pre" }
 socket2 = "0.4"
 bitflags = "1.0"
 
-p2p = { version="0.4.0", package="tentacle", features = ["upnp", "parking_lot"] }
+p2p = { version="0.4.0", package="tentacle", features = ["upnp", "parking_lot", "openssl-vendored"] }
 
 [features]
 with_sentry = ["sentry"]
