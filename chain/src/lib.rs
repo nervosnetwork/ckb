@@ -24,6 +24,7 @@ mod utils;
 
 pub use chain_controller::ChainController;
 pub use chain_service::start_chain_services;
+pub use consume_orphan::store_unverified_block;
 
 type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
