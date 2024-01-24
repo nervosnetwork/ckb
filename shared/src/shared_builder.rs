@@ -360,10 +360,13 @@ impl SharedBuilder {
         let header_map_memory_limit = header_map_memory_limit
             .unwrap_or(HeaderMapConfig::default().memory_limit.as_u64() as usize);
 
+        let ibd_finished = Arc::new(AtomicBool::new(false));
+
         let header_map = Arc::new(HeaderMap::new(
             header_map_tmp_dir,
             header_map_memory_limit,
             &async_handle.clone(),
+            Arc::clone(&ibd_finished),
         ));
 
         let tx_pool_config = tx_pool_config.unwrap_or_default();
@@ -405,7 +408,6 @@ impl SharedBuilder {
         let block_status_map = Arc::new(DashMap::new());
 
         let assume_valid_target = Arc::new(Mutex::new(sync_config.assume_valid_target));
-        let ibd_finished = Arc::new(AtomicBool::new(false));
         let shared = Shared::new(
             store,
             tx_pool_controller,
