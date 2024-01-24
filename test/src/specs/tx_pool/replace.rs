@@ -288,7 +288,7 @@ impl Spec for RbfTooManyDescendants {
             .err()
             .unwrap()
             .to_string()
-            .contains("Tx conflict too many txs"));
+            .contains("Tx conflict with too many txs"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

@@ -537,8 +537,8 @@ impl TxPool {
             replace_count += descendants.len() + 1;
             if replace_count > MAX_REPLACEMENT_CANDIDATES {
                 return Err(Reject::RBFRejected(format!(
-                    "Tx conflict too many txs, conflict txs count: {}",
-                    replace_count,
+                    "Tx conflict with too many txs, conflict txs count: {}, expect <= {}",
+                    replace_count, MAX_REPLACEMENT_CANDIDATES,
                 )));
             }
 
