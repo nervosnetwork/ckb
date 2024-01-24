@@ -18,6 +18,8 @@ where
     pub(crate) backend: Backend,
     // Configuration
     memory_limit: usize,
+    // if ckb is in IBD mode, don't shrink memory map
+    ibd_finished: Arc<AtomicBool>,
     // Statistics
     #[cfg(feature = "stats")]
     stats: Mutex<HeaderMapKernelStats>,
@@ -43,7 +45,11 @@ impl<Backend> HeaderMapKernel<Backend>
 where
     Backend: KeyValueBackend,
 {
-    pub(crate) fn new<P>(tmpdir: Option<P>, memory_limit: usize) -> Self
+    pub(crate) fn new<P>(
+        tmpdir: Option<P>,
+        memory_limit: usize,
+        ibd_finished: Arc<AtomicBool>,
+    ) -> Self
     where
         P: AsRef<path::Path>,
     {
@@ -56,6 +62,7 @@ where
                 memory,
                 backend,
                 memory_limit,
+                ibd_finished,
             }
         }
 
@@ -65,6 +72,7 @@ where
                 memory,
                 backend,
                 memory_limit,
+                ibd_finished,
                 stats: Mutex::new(HeaderMapKernelStats::new(50_000)),
             }
         }
