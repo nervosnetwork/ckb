@@ -311,6 +311,9 @@ impl ConsumeUnverifiedBlockProcessor {
         let epoch = next_block_epoch.epoch();
 
         let db_txn = Arc::new(self.shared.store().begin_transaction());
+        let txn_snapshot = db_txn.get_snapshot();
+        let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
+
         if new_best_block {
             info!(
                 "[verify block] new best block found: {} => {:#x}, difficulty diff = {:#x}, unverified_tip: {}",
