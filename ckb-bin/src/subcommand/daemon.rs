@@ -84,6 +84,6 @@ fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
             }
         }
     }
-    eprintln!("\n{}", "cbk daemon service stopped successfully".green());
+    eprintln!("\n{}", "ckb daemon service stopped successfully".green());
     Ok(())
 }
