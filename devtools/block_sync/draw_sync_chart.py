@@ -29,8 +29,8 @@ def parse_sync_statics(log_file):
                 timestamp_str = re.search(r'^(\S+ \S+)', line).group(1)  # Extract the timestamp string
                 timestamp = datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f").timestamp()
                 base_timestamp = timestamp
-             
-          
+
+
             if line.find('INFO ckb_chain::chain  block: ') != -1:
 
                 block_number = int(re.search(r'block: (\d+)', line).group(1))  # Extract the block number using regex
@@ -77,7 +77,7 @@ def process_task(task):
 
 
 tasks = [(ckb_log_file, label) for ckb_log_file, label in tasks]
-  
+
 
 import multiprocessing
 with multiprocessing.Pool() as pool:
@@ -114,7 +114,7 @@ for duration, height, label in results:
 
     ax.get_yaxis().get_major_formatter().set_scientific(False)
     ax.get_yaxis().get_major_formatter().set_useOffset(False)
-  
+
     ax.margins(0)
 
     ax.set_axisbelow(True)
@@ -124,7 +124,7 @@ for duration, height, label in results:
 
     ax.xaxis.grid(color='gray', linestyle='dashed', which='minor')
     ax.yaxis.grid(color='gray', linestyle='dashed', which='minor')
-  
+
     xminorLocator = MultipleLocator(1.0)
     ax.xaxis.set_major_locator(xminorLocator)
 

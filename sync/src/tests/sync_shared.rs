@@ -191,11 +191,14 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
 
     store_unverified_block(shared.shared(), Arc::clone(&parent)).expect("store parent block");
 
-    // Note that we will not find the block status obtained from 
+    // Note that we will not find the block status obtained from
     // shared.active_chain().get_block_status(&parent_hash) to be BLOCK_STORED,
     // because `get_block_status` does not read the block status from the database,
     // it use snapshot to get the block status, and the snapshot is not updated.
-    assert!(shared.store().get_block_ext(&parent_hash).is_some(), "parent block should be stored");
+    assert!(
+        shared.store().get_block_ext(&parent_hash).is_some(),
+        "parent block should be stored"
+    );
 
     assert!(shared
         .blocking_insert_new_block(&chain, Arc::clone(&child))
