@@ -5,6 +5,7 @@ use ckb_constant::sync::{
     MAX_ORPHAN_POOL_SIZE,
 };
 use ckb_logger::{debug, trace};
+use ckb_metrics::HistogramTimer;
 use ckb_network::PeerIndex;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::types::{BlockNumberAndHash, HeaderIndex, HeaderIndexView};
@@ -91,7 +92,9 @@ impl BlockFetcher {
     }
 
     pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
-        let trace_timecost_now = std::time::Instant::now();
+        let _trace_timecost: Option<HistogramTimer> = {
+            ckb_metrics::handle().map(|handle| handle.ckb_sync_block_fetch_duration.start_timer())
+        };
 
         if self.reached_inflight_limit() {
             trace!(
@@ -270,14 +273,13 @@ impl BlockFetcher {
         if fetch.is_empty() {
             debug!(
                 "[block fetch empty] peer-{}, fixed_last_common_header = {} \
-                best_known_header = {}, [tip/unverified_tip]: [{}/{}], inflight_len = {}, time_cost: {:?}",
+                best_known_header = {}, [tip/unverified_tip]: [{}/{}], inflight_len = {}",
                 self.peer,
                 last_common.number(),
                 best_known.number(),
                 tip,
                 unverified_tip,
                 state.read_inflight_blocks().total_inflight_count(),
-                trace_timecost_now.elapsed(),
             );
             trace!(
                 "[block fetch empty] peer-{}, inflight_state = {:?}",
@@ -290,7 +292,7 @@ impl BlockFetcher {
             let inflight_peer_count = state.read_inflight_blocks().peer_inflight_count(self.peer);
             let inflight_total_count = state.read_inflight_blocks().total_inflight_count();
             debug!(
-                "request peer-{} for batch blocks: [{}-{}], batch len:{}, [tip/unverified_tip]: [{}/{}], [peer/total inflight count]: [{} / {}], timecost: {:?}, blocks: {}",
+                "request peer-{} for batch blocks: [{}-{}], batch len:{}, [tip/unverified_tip]: [{}/{}], [peer/total inflight count]: [{} / {}], blocks: {}",
                 self.peer,
                 fetch_head,
                 fetch_last,
@@ -299,7 +301,6 @@ impl BlockFetcher {
                 self.sync_shared.shared().get_unverified_tip().number(),
                 inflight_peer_count,
                 inflight_total_count,
-                trace_timecost_now.elapsed(),
                 fetch.iter().map(|h| h.number().to_string()).collect::<Vec<_>>().join(","),
                 );
         }
