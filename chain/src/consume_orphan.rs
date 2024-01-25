@@ -26,7 +26,10 @@ pub(crate) struct ConsumeDescendantProcessor {
 
 // Store the an unverified block to the database. We may usually do this
 // for an orphan block with unknown parent. But this function is also useful in testing.
-pub fn store_unverified_block(shared: &Shared, block: Arc<BlockView>) -> Result<(HeaderView, U256), Error> {
+pub fn store_unverified_block(
+    shared: &Shared,
+    block: Arc<BlockView>,
+) -> Result<(HeaderView, U256), Error> {
     let (block_number, block_hash) = (block.number(), block.hash());
 
     let parent_header = shared
@@ -151,7 +154,8 @@ impl ConsumeDescendantProcessor {
     pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
         match store_unverified_block(&self.shared, lonely_block.block().to_owned()) {
             Ok((_parent_header, total_difficulty)) => {
-                self.shared.insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
+                self.shared
+                    .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
 
                 let lonely_block_hash: LonelyBlockHashWithCallback = lonely_block.into();
 
