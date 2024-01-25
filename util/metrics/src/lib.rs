@@ -7,12 +7,13 @@
 //! [`ckb-metrics-service`]: ../ckb_metrics_service/index.html
 
 use prometheus::{
-    register_gauge, register_histogram, register_histogram_vec, register_int_counter,
-    register_int_gauge, register_int_gauge_vec, Gauge, Histogram, HistogramVec, IntCounter,
-    IntGauge, IntGaugeVec,
+    register_histogram, register_histogram_vec, register_int_counter, register_int_gauge,
+    register_int_gauge_vec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec,
 };
 use prometheus_static_metric::make_static_metric;
 use std::cell::Cell;
+
+pub use prometheus::*;
 
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
     prometheus::gather()
@@ -54,16 +55,20 @@ pub struct Metrics {
     pub ckb_chain_tip: IntGauge,
     /// CKB chain unverified tip header number
     pub ckb_chain_unverified_tip: IntGauge,
-    /// ckb_chain asynchronous_process duration sum (seconds)
-    pub ckb_chain_async_process_block_duration_sum: Gauge,
-    /// ckb_chain consume_orphan thread's process_lonely_block duration sum (seconds)
-    pub ckb_chain_process_lonely_block_duration_sum: Gauge,
-    /// ckb_chain consume_unverified thread's consume_unverified_block duration sum (seconds)
-    pub ckb_chain_consume_unverified_block_duration_sum: Gauge,
-    /// ckb_chain consume_unverified thread's consume_unverified_block waiting for block duration sum (seconds)
-    pub ckb_chain_consume_unverified_block_waiting_block_duration_sum: Gauge,
-    /// ckb_chain execute_callback duration sum (seconds)
-    pub ckb_chain_execute_callback_duration_sum: Gauge,
+    /// ckb_chain asynchronous_process duration (seconds)
+    pub ckb_chain_async_process_block_duration: Histogram,
+    /// ckb_chain consume_orphan thread's process_lonely_block duration (seconds)
+    pub ckb_chain_process_lonely_block_duration: Histogram,
+    /// ckb_chain consume_unverified thread's consume_unverified_block duration (seconds)
+    pub ckb_chain_consume_unverified_block_duration: Histogram,
+    /// ckb_chain consume_unverified thread's consume_unverified_block waiting for block duration (seconds)
+    pub ckb_chain_consume_unverified_block_waiting_block_duration: Histogram,
+    /// ckb_chain execute_callback duration (seconds)
+    pub ckb_chain_execute_callback_duration: Histogram,
+    /// ckb_sync_msg_process duration (seconds)
+    pub ckb_sync_msg_process_duration: HistogramVec,
+    /// ckb_sync_block_fetch duraiton (seconds)
+    pub ckb_sync_block_fetch_duration: Histogram,
     /// Gauge for tracking the size of all frozen data
     pub ckb_freezer_size: IntGauge,
     /// Counter for measuring the effective amount of data read
@@ -106,28 +111,37 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
         "The CKB chain unverified tip header number"
     )
             .unwrap(),
-        ckb_chain_async_process_block_duration_sum: register_gauge!(
-        "ckb_chain_async_process_block_duration_sum",
-        "The CKB chain asynchronous_process_block duration sum"
+        ckb_chain_async_process_block_duration: register_histogram!(
+        "ckb_chain_async_process_block_duration",
+        "The CKB chain asynchronous_process_block duration (seconds)"
     )
             .unwrap(),
-        ckb_chain_process_lonely_block_duration_sum: register_gauge!(
-        "ckb_chain_process_lonely_block_duration_sum",
-        "The CKB chain consume_orphan thread's process_lonely_block duration sum"
+        ckb_chain_process_lonely_block_duration: register_histogram!(
+        "ckb_chain_process_lonely_block_duration",
+        "The CKB chain consume_orphan thread's process_lonely_block duration (seconds)"
     )
             .unwrap(),
-        ckb_chain_consume_unverified_block_duration_sum: register_gauge!(
-        "ckb_chain_consume_unverified_block_duration_sum",
-        "The CKB chain consume_unverified thread's consume_unverified_block duration sum"
+        ckb_chain_consume_unverified_block_duration: register_histogram!(
+        "ckb_chain_consume_unverified_block_duration",
+        "The CKB chain consume_unverified thread's consume_unverified_block duration (seconds)"
     )
             .unwrap(),
-        ckb_chain_consume_unverified_block_waiting_block_duration_sum: register_gauge!(
-        "ckb_chain_consume_unverified_block_waiting_block_duration_sum",
-        "The CKB chain consume_unverified thread's consume_unverified_block waiting for block duration sum"
+        ckb_chain_consume_unverified_block_waiting_block_duration: register_histogram!(
+        "ckb_chain_consume_unverified_block_waiting_block_duration",
+        "The CKB chain consume_unverified thread's consume_unverified_block waiting for block duration (seconds)"
     ).unwrap(),
-        ckb_chain_execute_callback_duration_sum: register_gauge!(
-            "ckb_chain_execute_callback_duration_sum",
-            "The CKB chain execute_callback duration sum"
+        ckb_chain_execute_callback_duration: register_histogram!(
+            "ckb_chain_execute_callback_duration",
+            "The CKB chain execute_callback duration (seconds)"
+        ).unwrap(),
+        ckb_sync_msg_process_duration: register_histogram_vec!(
+            "ckb_sync_msg_process_duration",
+            "The CKB sync message process duration (seconds)",
+            &["msg_type"],
+        ).unwrap(),
+        ckb_sync_block_fetch_duration: register_histogram!(
+            "ckb_sync_block_fetch_duration",
+            "The CKB sync block fetch duration (seconds)"
         ).unwrap(),
         ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
         ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
