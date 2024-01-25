@@ -232,7 +232,7 @@ impl ConsumeOrphan {
                         let _trace_now = minstant::Instant::now();
                         self.process_lonely_block(lonely_block);
                         if let Some(handle) = ckb_metrics::handle() {
-                            handle.ckb_chain_process_lonely_block_duration_sum.add(_trace_now.elapsed().as_secs_f64())
+                            handle.ckb_chain_process_lonely_block_duration.observe(_trace_now.elapsed().as_secs_f64())
                         }
 
                         if lonely_block_epoch.number() > last_check_expired_orphans_epoch {

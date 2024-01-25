@@ -33,6 +33,7 @@ use ckb_constant::sync::{
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_metrics::HistogramTimer;
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
@@ -265,6 +266,15 @@ impl Synchronizer {
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'_>,
     ) -> Status {
+        let _trace_timecost: Option<HistogramTimer> = {
+            ckb_metrics::handle().map(|handle| {
+                handle
+                    .ckb_sync_msg_process_duration
+                    .with_label_values(&[message.item_name()])
+                    .start_timer()
+            })
+        };
+
         match message {
             packed::SyncMessageUnionReader::GetHeaders(reader) => {
                 GetHeadersProcess::new(reader, self, peer, nc).execute()
