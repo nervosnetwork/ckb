@@ -25,7 +25,9 @@ ckb-async-runtime = { path = "../runtime", version = "= 0.114.0-pre" }
 rhai = { version = "1.10.0", features = ["no_function", "no_float", "no_module", "sync"]}
 serde_json = "1.0"
 numext-fixed-uint = "0.1"
+memchr = "2.7"
 
 [dev-dependencies]
 tempfile.workspace = true
 rand = "0.8"
+faster-hex = "0.6"

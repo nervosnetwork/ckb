@@ -856,6 +856,8 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
+ "faster-hex",
+ "memchr",
  "numext-fixed-uint",
  "rand 0.8.5",
  "rhai",
@@ -2995,9 +2997,9 @@ checksum = "b87248edafb776e59e6ee64a79086f65890d3510f2c656c000bf2a7e8a0aea40"
 
 [[package]]
 name = "memchr"
-version = "2.6.4"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
+checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
 
 [[package]]
 name = "memmap2"
