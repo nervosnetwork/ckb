@@ -129,8 +129,8 @@ impl LonelyBlockWithCallback {
 
             if let Some(handle) = ckb_metrics::handle() {
                 handle
-                    .ckb_chain_execute_callback_duration_sum
-                    .add(_trace_now.elapsed().as_secs_f64())
+                    .ckb_chain_execute_callback_duration
+                    .observe(_trace_now.elapsed().as_secs_f64())
             }
         }
     }

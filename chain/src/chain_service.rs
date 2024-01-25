@@ -152,7 +152,7 @@ impl ChainService {
                         let _trace_now = minstant::Instant::now();
                         self.asynchronous_process_block(lonely_block);
                         if let Some(handle) = ckb_metrics::handle(){
-                            handle.ckb_chain_async_process_block_duration_sum.add(_trace_now.elapsed().as_secs_f64())
+                            handle.ckb_chain_async_process_block_duration.observe(_trace_now.elapsed().as_secs_f64())
                         }
                         let _ = responder.send(());
                     },
