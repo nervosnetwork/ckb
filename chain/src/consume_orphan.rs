@@ -310,6 +310,12 @@ impl ConsumeOrphan {
         } else {
             self.orphan_blocks_broker.insert(lonely_block);
         }
-        self.search_orphan_pool()
+        self.search_orphan_pool();
+
+        ckb_metrics::handle().map(|handle| {
+            handle
+                .ckb_chain_orphan_count
+                .set(self.orphan_blocks_broker.len() as i64)
+        });
     }
 }
