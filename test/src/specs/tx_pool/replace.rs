@@ -1,14 +1,17 @@
 use crate::{
     rpc::RpcClient,
-    util::{cell::gen_spendable, transaction::always_success_transactions},
+    util::{
+        cell::gen_spendable,
+        transaction::{always_success_transaction, always_success_transactions},
+    },
     utils::wait_until,
     Node, Spec,
 };
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
-    core::{capacity_bytes, Capacity, TransactionView},
-    packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
+    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, DepType, TransactionView},
+    packed::{Byte32, CellDep, CellDepBuilder, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
 
@@ -53,10 +56,25 @@ impl Spec for RbfBasic {
         info!("Generate 2 txs with same input");
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
-
-        // Set tx2 fee to a higher value, tx1 capacity is 100, set tx2 capacity to 80 for +20 fee.
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80).pack())
+            .capacity(capacity_bytes!(99).pack())
+            .build();
+
+        let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
+        // assume tx1's replace fee is ok
+        node0.rpc_client().send_transaction(tx1.data().into());
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx1.hash(), 2);
+        // min_replace_fee is 363
+        // fee is 100000000
+        assert_eq!(ret.fee.unwrap().to_string(), "0x5f5e100");
+        // replace fee is 100000363
+        assert_eq!(ret.min_replace_fee.unwrap().to_string(), "0x5f5e26b");
+
+        // Set tx2 fee to a higher value, tx1 capacity is 99, set tx2 capacity to 95 for +4 fee.
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(95).pack())
             .build();
 
         let tx2 = tx2_temp
@@ -64,17 +82,18 @@ impl Spec for RbfBasic {
             .set_outputs(vec![output])
             .build();
 
-        node0.rpc_client().send_transaction(tx1.data().into());
-        let ret = node0
-            .rpc_client()
-            .get_transaction_with_verbosity(tx1.hash(), 2);
-        // min_replace_fee is 363
-        assert_eq!(ret.min_replace_fee.unwrap().to_string(), "0x16b");
-
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_ok(), "tx2 should replace old tx");
+
+        let ret = node0
+            .rpc_client()
+            .get_transaction_with_verbosity(tx2.hash(), 2);
+        // fee is 500000000
+        assert!(ret.fee.unwrap().to_string() == "0x1dcd6500");
+        // replace fee is 500000363
+        assert!(ret.min_replace_fee.unwrap().to_string() == "0x1dcd666b");
 
         node0.mine_with_blocking(|template| template.proposals.len() != 2);
         node0.mine_with_blocking(|template| template.number.value() != 14);
@@ -122,6 +141,7 @@ impl Spec for RbfBasic {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_fee_rate = ckb_types::core::FeeRate(1000);
         config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
     }
 }
@@ -285,7 +305,7 @@ impl Spec for RbfTooManyDescendants {
             .err()
             .unwrap()
             .to_string()
-            .contains("Tx conflict too many txs"));
+            .contains("Tx conflict with too many txs"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -430,6 +450,100 @@ impl Spec for RbfContainInvalidInput {
             .unwrap()
             .to_string()
             .contains("new Tx contains inputs in descendants of to be replaced Tx"));
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
+pub struct RbfChildPayForParent;
+
+// RBF Rule #2
+impl Spec for RbfChildPayForParent {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+
+        // build txs chain
+        let tx0 = node0.new_transaction_spend_tip_cellbase();
+        let mut txs = vec![tx0];
+        let max_count = 5;
+
+        let output5 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(50).pack())
+            .build();
+
+        while txs.len() <= max_count {
+            let parent = txs.last().unwrap();
+            // we set tx5's fee to higher, so tx5 will pay for tx1
+            let output = if txs.len() == max_count - 1 {
+                output5.clone()
+            } else {
+                parent.output(0).unwrap()
+            };
+            let child = parent
+                .as_advanced_builder()
+                .set_inputs(vec![{
+                    CellInput::new_builder()
+                        .previous_output(OutPoint::new(parent.hash(), 0))
+                        .build()
+                }])
+                .set_outputs(vec![output])
+                .build();
+            txs.push(child);
+        }
+        assert_eq!(txs.len(), max_count + 1);
+        // send Tx chain
+        for tx in txs[..=max_count - 1].iter() {
+            let ret = node0.rpc_client().send_transaction_result(tx.data().into());
+            assert!(ret.is_ok());
+        }
+
+        let clone_tx = txs[2].clone();
+        // Set tx2 fee to a higher value, but not enough to pay for tx5
+        let output2 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(70).pack())
+            .build();
+
+        let tx2 = clone_tx
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(txs[1].hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![output2])
+            .build();
+
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_err(), "tx2 should be rejected");
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("RBF rejected: Tx's current fee is 3000000000, expect it to >= 5000000363 to replace old txs"));
+
+        // let's try a new transaction with new higher fee
+        let output2 = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(45).pack())
+            .build();
+        let tx2 = clone_tx
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(txs[1].hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![output2])
+            .build();
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx2.data().into());
+        assert!(res.is_ok());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -772,6 +886,72 @@ impl Spec for RbfConcurrency {
         for s in status.iter().take(4) {
             assert_eq!(*s, Status::Rejected);
         }
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
+pub struct RbfCellDepsCheck;
+impl Spec for RbfCellDepsCheck {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        let initial_inputs = gen_spendable(node0, 2);
+        let input_a = &initial_inputs[0];
+        let input_c = &initial_inputs[1];
+
+        // Commit transaction root
+        let tx_a = {
+            let tx_a = always_success_transaction(node0, input_a);
+            node0.submit_transaction(&tx_a);
+            tx_a
+        };
+
+        let mut prev = tx_a.clone();
+        // Create transaction chain
+        for _i in 0..2 {
+            let input =
+                CellMetaBuilder::from_cell_output(prev.output(0).unwrap(), Default::default())
+                    .out_point(OutPoint::new(prev.hash(), 0))
+                    .build();
+            let cur = always_success_transaction(node0, &input);
+            let _ = node0.rpc_client().send_transaction(cur.data().into());
+            prev = cur.clone();
+        }
+
+        // Create a child transaction with celldep
+        let tx = always_success_transaction(node0, input_c);
+        let cell_dep_to_last = CellDepBuilder::default()
+            .dep_type(DepType::Code.into())
+            .out_point(OutPoint::new(prev.hash(), 0))
+            .build();
+        let tx_c = tx
+            .as_advanced_builder()
+            .cell_dep(cell_dep_to_last.clone())
+            .build();
+        let res = node0
+            .rpc_client()
+            .send_transaction_result(tx_c.data().into());
+        assert!(res.is_ok());
+
+        // Create a new transaction for cell dep with high fee
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(80).pack())
+            .build();
+        let new_tx = tx_a
+            .as_advanced_builder()
+            .set_outputs(vec![output])
+            .cell_dep(cell_dep_to_last)
+            .build();
+
+        let res = node0.submit_transaction_with_result(&new_tx);
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("new Tx contains cell deps from conflicts"));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
