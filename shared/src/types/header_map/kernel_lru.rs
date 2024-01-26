@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "stats")]
 use ckb_logger::info;
+use ckb_metrics::HistogramTimer;
 #[cfg(feature = "stats")]
 use ckb_util::{Mutex, MutexGuard};
 
@@ -150,6 +151,9 @@ where
     }
 
     pub(crate) fn limit_memory(&self) {
+        let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle()
+            .map(|handle| handle.ckb_header_map_limit_memory_duration.start_timer());
+
         if let Some(values) = self.memory.front_n(self.memory_limit) {
             tokio::task::block_in_place(|| {
                 self.backend.insert_batch(&values);
