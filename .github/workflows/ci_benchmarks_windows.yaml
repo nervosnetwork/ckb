@@ -57,10 +57,11 @@ jobs:
         iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
         .\install-scoop.ps1 -RunAsAdmin
         echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         scoop install git
         scoop bucket add extras
-        scoop install llvm yasm
+        scoop install llvm
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
