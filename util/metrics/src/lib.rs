@@ -71,6 +71,10 @@ pub struct Metrics {
     pub ckb_sync_msg_process_duration: HistogramVec,
     /// ckb_sync_block_fetch duraiton (seconds)
     pub ckb_sync_block_fetch_duration: Histogram,
+    // ckb_header_map_limit_memory duration (seconds)
+    pub ckb_header_map_limit_memory_duration: Histogram,
+    // ckb_header_map_limit_memory operation duration (seconds)
+    pub ckb_header_map_ops_duration: HistogramVec,
     /// Gauge for tracking the size of all frozen data
     pub ckb_freezer_size: IntGauge,
     /// Counter for measuring the effective amount of data read
@@ -148,6 +152,15 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
         ckb_sync_block_fetch_duration: register_histogram!(
             "ckb_sync_block_fetch_duration",
             "The CKB sync block fetch duration (seconds)"
+        ).unwrap(),
+        ckb_header_map_limit_memory_duration: register_histogram!(
+            "ckb_header_map_limit_memory_duration",
+            "The CKB header map limit_memory job duration (seconds)"
+        ).unwrap(),
+        ckb_header_map_ops_duration: register_histogram_vec!(
+            "ckb_header_map_ops_duration",
+            "The CKB header map operation duration (seconds)",
+            &["operation"],
         ).unwrap(),
         ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
         ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
