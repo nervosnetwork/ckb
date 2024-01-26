@@ -59,6 +59,8 @@ pub struct Metrics {
     pub ckb_relay_transaction_short_id_collide: IntCounter,
     /// Histogram for relay compact block verify duration
     pub ckb_relay_cb_verify_duration: Histogram,
+    /// Histogram for block process duration
+    pub ckb_block_process_duration: Histogram,
     /// Counter for relay compact block transaction count
     pub ckb_relay_cb_transaction_count: IntCounter,
     /// Counter for relay compact block reconstruct ok
@@ -95,6 +97,11 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| M
     ckb_relay_cb_verify_duration: register_histogram!(
         "ckb_relay_cb_verify_duration",
         "The CKB relay compact block verify duration"
+    )
+    .unwrap(),
+    ckb_block_process_duration: register_histogram!(
+        "ckb_block_process_duration",
+        "The CKB block process duration"
     )
     .unwrap(),
     ckb_relay_cb_transaction_count: register_int_counter!(
