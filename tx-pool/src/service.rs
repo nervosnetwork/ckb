@@ -678,7 +678,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: tx,
         }) => {
-            let result = service.resumeble_process_tx(tx, None, false).await;
+            let result = service.process_tx(tx, None).await.map(|_| ());
             if let Err(e) = responder.send(result) {
                 error!("Responder sending submit_tx result failed {:?}", e);
             };
@@ -698,7 +698,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }) => {
             if declared_cycles > service.tx_pool_config.max_tx_verify_cycles {
                 let _result = service
-                    .resumeble_process_tx(tx, Some((declared_cycles, peer)), true)
+                    .resumeble_process_tx(tx, Some((declared_cycles, peer)))
                     .await;
                 if let Err(e) = responder.send(()) {
                     error!("Responder sending submit_tx result failed {:?}", e);
@@ -712,7 +712,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::NotifyTxs(Notify { arguments: txs }) => {
             for tx in txs {
-                let _ret = service.resumeble_process_tx(tx, None, true).await;
+                let _ret = service.resumeble_process_tx(tx, None).await;
             }
         }
         Message::FreshProposalsFilter(Request {

@@ -28,15 +28,13 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualTransactionVerifier, DaoScriptSizeVerifier, TimeRelativeTransactionVerifier,
-    TxVerifyEnv,
+    TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
-use tokio::task::block_in_place;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
 
@@ -304,7 +302,6 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-        add_verify_queue: bool,
     ) -> Result<(), Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
@@ -318,10 +315,7 @@ impl TxPoolService {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        if let Some((ret, snapshot)) = self
-            ._resumeble_process_tx(tx.clone(), remote, add_verify_queue)
-            .await
-        {
+        if let Some((ret, snapshot)) = self._resumeble_process_tx(tx.clone(), remote).await {
             match ret {
                 Ok(processed) => {
                     if let ProcessResult::Completed(completed) = processed {
@@ -563,7 +557,7 @@ impl TxPoolService {
                         tx.hash(),
                     );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    self.enqueue_suspended_tx(orphan.tx, Some((orphan.cycle, orphan.peer)))
+                    self.enqueue_verify_queue(orphan.tx, Some((orphan.cycle, orphan.peer)))
                         .await
                         .expect("enqueue suspended tx");
                 } else if let Some((ret, snapshot)) = self
@@ -665,7 +659,6 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-        add_verify_queue: bool,
     ) -> Option<(Result<ProcessResult, Reject>, Arc<Snapshot>)> {
         let tx_hash = tx.hash();
 
@@ -680,14 +673,12 @@ impl TxPoolService {
             return None;
         }
 
-        let cached = self.fetch_tx_verify_cache(&tx_hash).await;
-        let tip_header = snapshot.tip_header();
-        let tx_env = Arc::new(status.with_env(tip_header));
-
-        let data_loader = snapshot.as_data_loader();
-
-        let completed = match cached {
+        let completed = match self.fetch_tx_verify_cache(&tx_hash).await {
             Some(completed) => {
+                let tip_header = snapshot.tip_header();
+                let tx_env = Arc::new(status.with_env(tip_header));
+                let data_loader = snapshot.as_data_loader();
+
                 let ret = TimeRelativeTransactionVerifier::new(
                     Arc::clone(&rtx),
                     Arc::clone(&self.consensus),
@@ -699,44 +690,16 @@ impl TxPoolService {
                 try_or_return_with_snapshot!(ret, snapshot);
                 completed
             }
-            None if add_verify_queue => {
+            None => {
                 // for remote transaction with decleard cycles, we enqueue it to verify queue directly
                 // notified transaction now don't have decleard cycles, we may need to fix it in future,
                 // now we also enqueue it to verify queue directly
                 let ret = self
-                    .enqueue_suspended_tx(rtx.transaction.clone(), remote)
+                    .enqueue_verify_queue(rtx.transaction.clone(), remote)
                     .await;
                 try_or_return_with_snapshot!(ret, snapshot);
                 error!("added to verify queue: {:?}", tx.proposal_short_id());
                 return Some((Ok(ProcessResult::Suspended), snapshot));
-            }
-            None => {
-                // for local transaction, we verify it directly with a max cycles limit
-                assert!(remote.is_none());
-                let ret = {
-                    block_in_place(|| {
-                        let cycle_limit = snapshot.cloned_consensus().max_block_cycles();
-                        ContextualTransactionVerifier::new(
-                            Arc::clone(&rtx),
-                            Arc::clone(&self.consensus),
-                            data_loader,
-                            tx_env,
-                        )
-                        .verify(cycle_limit, false)
-                        .and_then(|result| {
-                            DaoScriptSizeVerifier::new(
-                                Arc::clone(&rtx),
-                                snapshot.cloned_consensus(),
-                                snapshot.as_data_loader(),
-                            )
-                            .verify()?;
-                            Ok(result)
-                        })
-                        .map_err(Reject::Verification)
-                    })
-                };
-
-                try_or_return_with_snapshot!(ret, snapshot)
             }
         };
 
@@ -745,19 +708,12 @@ impl TxPoolService {
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
-        if cached.is_none() {
-            // update cache in background
-            let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
-            tokio::spawn(async move {
-                let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, completed);
-            });
-        }
-
+        // if tx is not in cache, it's added into verify queue and won't run into here
+        // the cache will be updated in `verify_mgr`, so we don't update cache here
         Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
     }
 
-    pub(crate) async fn enqueue_suspended_tx(
+    async fn enqueue_verify_queue(
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
