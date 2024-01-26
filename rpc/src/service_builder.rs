@@ -141,6 +141,8 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         network_controller: NetworkController,
         chain: ChainController,
+        well_known_lock_scripts: Vec<Script>,
+        well_known_type_scripts: Vec<Script>,
     ) -> Self {
         if self.config.integration_test_enable() {
             // IntegrationTest only on Dummy PoW chain
@@ -154,6 +156,8 @@ impl<'a> ServiceBuilder<'a> {
             shared: shared.clone(),
             network_controller,
             chain,
+            well_known_lock_scripts,
+            well_known_type_scripts,
         };
         set_rpc_module_methods!(
             self,
