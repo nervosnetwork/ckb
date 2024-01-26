@@ -155,26 +155,6 @@ where
     }
 
     /// Perform context-dependent verification, return a `Result` to `CacheEntry`
-    /// FIXME(yukang): only used in tests
-    pub async fn verify_until_completed(
-        &self,
-        limit_cycles: Cycle,
-    ) -> Result<(VerifyResult, Capacity), Error> {
-        self.compatible.verify()?;
-        self.time_relative.verify()?;
-        self.capacity.verify()?;
-        let fee = self.fee_calculator.transaction_fee()?;
-        // here we use a dummy command_rx, which will never receive a Suspend command
-        // to make sure the verification will not be interrupted and ExceededMaximumCycles will be treated as an error
-        let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
-        let ret = self
-            .script
-            .resumable_verify_with_signal(limit_cycles, &mut command_rx)
-            .await?;
-        Ok((ret, fee))
-    }
-
-    /// Perform context-dependent verification, return a `Result` to `CacheEntry`
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
@@ -187,6 +167,29 @@ where
             self.script.verify(max_cycles)?
         };
         let fee = self.fee_calculator.transaction_fee()?;
+        Ok(Completed { cycles, fee })
+    }
+
+    /// Perform context-dependent verification with command
+    /// The verification will be interrupted when receiving a Suspend command
+    pub async fn verify_with_pause(
+        &self,
+        max_cycles: Cycle,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+    ) -> Result<Completed, Error> {
+        self.compatible.verify()?;
+        self.time_relative.verify()?;
+        self.capacity.verify()?;
+        let fee = self.fee_calculator.transaction_fee()?;
+        let ret = self
+            .script
+            .resumable_verify_with_signal(max_cycles, command_rx)
+            .await?;
+        let cycles = if let VerifyResult::Completed(cycles) = ret {
+            cycles
+        } else {
+            unimplemented!("should not in suspend here");
+        };
         Ok(Completed { cycles, fee })
     }
 
@@ -837,65 +840,6 @@ impl CompatibleVerifier {
             }
         }
         Ok(())
-    }
-}
-
-/// Context-dependent checks exclude script
-///
-/// Contains:
-/// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
-/// [`CapacityVerifier`](./struct.CapacityVerifier.html)
-/// [`FeeCalculator`](./struct.FeeCalculator.html)
-pub struct ContextualWithoutScriptTransactionVerifier<DL> {
-    pub(crate) compatible: CompatibleVerifier,
-    pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
-    pub(crate) capacity: CapacityVerifier,
-    pub(crate) fee_calculator: FeeCalculator<DL>,
-}
-
-impl<DL> ContextualWithoutScriptTransactionVerifier<DL>
-where
-    DL: CellDataProvider
-        + HeaderProvider
-        + HeaderFieldsProvider
-        + EpochProvider
-        + ExtensionProvider
-        + Send
-        + Sync
-        + Clone
-        + 'static,
-{
-    /// Creates a new ContextualWithoutScriptTransactionVerifier
-    pub fn new(
-        rtx: Arc<ResolvedTransaction>,
-        consensus: Arc<Consensus>,
-        data_loader: DL,
-        tx_env: Arc<TxVerifyEnv>,
-    ) -> Self {
-        ContextualWithoutScriptTransactionVerifier {
-            compatible: CompatibleVerifier::new(
-                Arc::clone(&rtx),
-                Arc::clone(&consensus),
-                Arc::clone(&tx_env),
-            ),
-            time_relative: TimeRelativeTransactionVerifier::new(
-                Arc::clone(&rtx),
-                Arc::clone(&consensus),
-                data_loader.clone(),
-                tx_env,
-            ),
-            capacity: CapacityVerifier::new(Arc::clone(&rtx), consensus.dao_type_hash()),
-            fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
-        }
-    }
-
-    /// Perform verification
-    pub fn verify(&self) -> Result<Capacity, Error> {
-        self.compatible.verify()?;
-        self.time_relative.verify()?;
-        self.capacity.verify()?;
-        let fee = self.fee_calculator.transaction_fee()?;
-        Ok(fee)
     }
 }
 

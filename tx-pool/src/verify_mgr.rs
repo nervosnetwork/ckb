@@ -81,9 +81,13 @@ impl Worker {
 
             let (res, snapshot) = self
                 .service
-                .run_verify_tx(entry.clone(), &mut self.command_rx)
+                ._process_tx(
+                    entry.tx.clone(),
+                    entry.remote.map(|e| e.0),
+                    Some(&mut self.command_rx),
+                )
                 .await
-                .expect("run_verify_tx failed");
+                .expect("verify worker _process_tx failed");
 
             self.service
                 .after_process(entry.tx, entry.remote, &snapshot, &res)
