@@ -1,5 +1,5 @@
 use ckb_async_runtime::Handle;
-use ckb_logger::{debug, info};
+use ckb_logger::info;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::packed::Byte32;
 use std::sync::atomic::AtomicBool;
@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{mem::size_of, path};
 
+use ckb_metrics::HistogramTimer;
 use tokio::time::MissedTickBehavior;
 
 mod backend;
@@ -59,9 +60,7 @@ impl HeaderMap {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        let now = std::time::Instant::now();
                         map.limit_memory();
-                        debug!("HeaderMap limit_memory cost: {:?}", now.elapsed());
                     }
                     _ = stop_rx.cancelled() => {
                         info!("HeaderMap limit_memory received exit signal, exit now");
@@ -75,18 +74,45 @@ impl HeaderMap {
     }
 
     pub fn contains_key(&self, hash: &Byte32) -> bool {
+        let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle().map(|metric| {
+            metric
+                .ckb_header_map_ops_duration
+                .with_label_values(&["contains_key"])
+                .start_timer()
+        });
+
         self.inner.contains_key(hash)
     }
 
     pub fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
+        let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle().map(|metric| {
+            metric
+                .ckb_header_map_ops_duration
+                .with_label_values(&["get"])
+                .start_timer()
+        });
         self.inner.get(hash)
     }
 
     pub fn insert(&self, view: HeaderIndexView) -> Option<()> {
+        let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle().map(|metric| {
+            metric
+                .ckb_header_map_ops_duration
+                .with_label_values(&["insert"])
+                .start_timer()
+        });
+
         self.inner.insert(view)
     }
 
     pub fn remove(&self, hash: &Byte32) {
+        let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle().map(|metric| {
+            metric
+                .ckb_header_map_ops_duration
+                .with_label_values(&["remove"])
+                .start_timer()
+        });
+
         self.inner.remove(hash)
     }
 }
