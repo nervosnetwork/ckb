@@ -317,6 +317,7 @@ impl TxPoolController {
 
     /// Sends suspend chunk process cmd
     pub fn suspend_chunk_process(&self) -> Result<(), AnyError> {
+        debug!("[verify-test] run suspend_chunk_process");
         self.chunk_tx
             .send(ChunkCommand::Suspend)
             .map_err(handle_send_cmd_error)
@@ -325,6 +326,7 @@ impl TxPoolController {
 
     /// Sends continue chunk process cmd
     pub fn continue_chunk_process(&self) -> Result<(), AnyError> {
+        debug!("[verify-test] run continue_chunk_process");
         self.chunk_tx
             .send(ChunkCommand::Resume)
             .map_err(handle_send_cmd_error)

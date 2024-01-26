@@ -1,7 +1,7 @@
 extern crate num_cpus;
 use crate::component::verify_queue::VerifyQueue;
 use crate::service::TxPoolService;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use std::sync::Arc;
@@ -136,6 +136,7 @@ impl VerifyMgr {
     }
 
     fn send_child_command(&self, command: ChunkCommand) {
+        debug!("[verify-test] verify-mgr send child command: {:?}", command);
         for w in &self.workers {
             if let Err(err) = w.0.send(command.clone()) {
                 info!("send worker command failed, error: {}", err);
