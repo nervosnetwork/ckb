@@ -67,7 +67,6 @@ jobs:
     - name: Install nextest-rs/nextest
       uses: taiki-e/install-action@nextest
     - run: |
-        echo $PATH
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
         else
