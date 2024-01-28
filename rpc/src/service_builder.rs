@@ -20,8 +20,7 @@ use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
 use ckb_util::Mutex;
-use jsonrpc_core::MetaIoHandler;
-use jsonrpc_core::RemoteProcedure;
+use jsonrpc_core::{MetaIoHandler, RemoteProcedure};
 use jsonrpc_utils::pub_sub::Session;
 use std::sync::Arc;
 

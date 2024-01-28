@@ -936,20 +936,13 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-indexer-sync",
  "ckb-jsonrpc-types",
- "ckb-logger",
  "ckb-notify",
  "ckb-rocksdb",
- "ckb-stop-handler",
- "ckb-store",
  "ckb-types",
  "faster-hex",
  "memchr",
- "numext-fixed-uint",
  "rand 0.8.5",
- "rhai",
- "serde_json",
  "tempfile",
- "thiserror",
 ]
 
 [[package]]

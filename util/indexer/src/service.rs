@@ -12,14 +12,7 @@ use ckb_jsonrpc_types::{
     IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
 use ckb_notify::NotifyController;
-use ckb_stop_handler::{has_received_stop_signal, new_tokio_exit_rx, CancellationToken};
-use ckb_store::ChainStore;
-use ckb_types::{
-    core::{self, BlockNumber},
-    packed,
-    prelude::*,
-    H256,
-};
+use ckb_types::{core, packed, prelude::*, H256};
 use memchr::memmem;
 use rocksdb::{prelude::*, Direction, IteratorMode};
 
@@ -360,6 +353,11 @@ impl IndexerHandle {
             if filter.script_len_range.is_some() {
                 return Err(Error::invalid_params(
                     "doesn't support search_key.filter.script_len_range parameter",
+                ));
+            }
+            if filter.output_data.is_some() {
+                return Err(Error::invalid_params(
+                    "doesn't support search_key.filter.output_data parameter",
                 ));
             }
             if filter.output_data_len_range.is_some() {
