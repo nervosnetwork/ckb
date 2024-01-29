@@ -11,7 +11,8 @@ CREATE TABLE block(
     epoch BYTEA,
     dao BYTEA,
     proposals_hash BYTEA,
-    extra_hash BYTEA
+    extra_hash BYTEA,
+    extension BYTEA
 );
 
 CREATE TABLE block_association_proposal(
@@ -40,14 +41,13 @@ CREATE TABLE ckb_transaction(
 CREATE TABLE tx_association_header_dep(
     id BIGSERIAL,
     tx_id BIGINT NOT NULL,
-    block_hash BYTEA NOT NULL
+    block_id BIGINT NOT NULL
 );
 
 CREATE TABLE tx_association_cell_dep(
     id BIGSERIAL,
     tx_id BIGINT NOT NULL,
-    output_tx_hash BYTEA NOT NULL,
-    output_index INTEGER NOT NULL,
+    output_id BIGINT NOT NULL,
     dep_type SMALLINT NOT NULL
 );
 

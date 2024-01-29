@@ -226,6 +226,7 @@ async fn bulk_insert_block_table(
             "dao",
             "proposals_hash",
             "extra_hash",
+            "extension",
         ],
         block_rows,
         tx,
@@ -356,13 +357,17 @@ pub(crate) async fn bulk_insert_tx_association_header_dep_table(
     tx_view: &TransactionView,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    let tx_association_header_dep_rows = tx_view
-        .header_deps_iter()
-        .map(|header_dep| vec![tx_id.into(), header_dep.raw_data().to_vec().into()])
-        .collect::<Vec<Vec<FieldValue>>>();
+    let mut tx_association_header_dep_rows = Vec::new();
+    for header_dep in tx_view.header_deps_iter() {
+        query_block_id(&header_dep.raw_data().to_vec(), tx)
+            .await?
+            .map(|block_id| {
+                tx_association_header_dep_rows.push(vec![tx_id.into(), block_id.into()]);
+            });
+    }
     bulk_insert(
         "tx_association_header_dep",
-        &["tx_id", "block_hash"],
+        &["tx_id", "block_id"],
         &tx_association_header_dep_rows,
         None,
         tx,
@@ -375,22 +380,23 @@ pub(crate) async fn bulk_insert_tx_association_cell_dep_table(
     tx_view: &TransactionView,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
-    let tx_association_cell_dep_rows = tx_view
-        .cell_deps_iter()
-        .map(|cell_dep| {
-            let idx: u32 = cell_dep.out_point().index().unpack();
-            vec![
-                tx_id.into(),
-                cell_dep.out_point().tx_hash().raw_data().to_vec().into(),
-                (idx as i32).into(),
-                (u8::try_from(cell_dep.dep_type()).expect("cell_dep to u8 should be OK") as i16)
-                    .into(),
-            ]
-        })
-        .collect::<Vec<Vec<FieldValue>>>();
+    let mut tx_association_cell_dep_rows = Vec::new();
+    for cell_dep in tx_view.cell_deps_iter() {
+        query_output_id(&cell_dep.out_point(), tx)
+            .await?
+            .map(|output_id| {
+                tx_association_cell_dep_rows.push(vec![
+                    tx_id.into(),
+                    output_id.into(),
+                    (u8::try_from(cell_dep.dep_type()).expect("cell_dep to u8 should be OK")
+                        as i16)
+                        .into(),
+                ]);
+            });
+    }
     bulk_insert(
         "tx_association_cell_dep",
-        &["tx_id", "output_tx_hash", "output_index", "dep_type"],
+        &["tx_id", "output_id", "dep_type"],
         &tx_association_cell_dep_rows,
         None,
         tx,
@@ -480,6 +486,26 @@ pub(crate) async fn query_script_id(
     .bind(code_hash)
     .bind(hash_type)
     .bind(args)
+    .fetch_optional(tx)
+    .await
+    .map_err(|err| Error::DB(err.to_string()))
+    .map(|row| row.map(|row| row.get::<i64, _>("id")))
+}
+
+pub(crate) async fn query_block_id(
+    block_hash: &[u8],
+    tx: &mut Transaction<'_, Any>,
+) -> Result<Option<i64>, Error> {
+    sqlx::query(
+        r#"
+        SELECT id
+        FROM
+            block
+        WHERE
+            block_hash = $1
+        "#,
+    )
+    .bind(block_hash)
     .fetch_optional(tx)
     .await
     .map_err(|err| Error::DB(err.to_string()))
@@ -702,5 +728,9 @@ fn block_view_to_field_values(block_view: &BlockView) -> Vec<FieldValue> {
         block_view.dao().raw_data().to_vec().into(),
         block_view.proposals_hash().raw_data().to_vec().into(),
         block_view.extra_hash().raw_data().to_vec().into(),
+        match block_view.data().extension() {
+            Some(extension) => extension.raw_data().to_vec().into(),
+            None => Vec::new().into(),
+        }
     ]
 }

@@ -11,7 +11,8 @@ CREATE TABLE block(
     epoch BLOB,
     dao BLOB,
     proposals_hash BLOB,
-    extra_hash BLOB
+    extra_hash BLOB,
+    extension BLOB
 );
 
 CREATE TABLE block_association_proposal(
@@ -40,14 +41,13 @@ CREATE TABLE ckb_transaction(
 CREATE TABLE tx_association_header_dep(
     id INTEGER PRIMARY KEY,
     tx_id INTEGER NOT NULL,
-    block_hash BLOB NOT NULL
+    block_id INTEGER NOT NULL
 );
 
 CREATE TABLE tx_association_cell_dep(
     id INTEGER PRIMARY KEY,
     tx_id INTEGER NOT NULL,
-    output_tx_hash BLOB NOT NULL,
-    output_index INTEGER NOT NULL,
+    output_id INTEGER NOT NULL,
     dep_type INTEGER NOT NULL
 );
 

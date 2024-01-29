@@ -1,3 +1,5 @@
+CREATE INDEX "index_block_table_block_hash" ON "block" ("block_hash");
+
 CREATE INDEX "index_block_association_proposal_table_block_id" ON "block_association_proposal" ("block_id");
 CREATE INDEX "index_block_association_uncle_table_block_id" ON "block_association_uncle" ("block_id");
 
