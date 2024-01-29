@@ -1061,13 +1061,13 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-        peer_id_with_msg_bytes: (PeerIndex, u64),
+        peer_id: PeerIndex,
         verify_success_callback: VerifyCallback,
     ) {
         self.accept_block(
             chain,
             Arc::clone(&block),
-            Some(peer_id_with_msg_bytes),
+            Some(peer_id),
             Some(verify_success_callback),
         )
     }
@@ -1078,12 +1078,11 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        message_bytes: u64,
     ) {
         self.accept_block(
             chain,
             Arc::clone(&block),
-            Some((peer_id, message_bytes)),
+            Some(peer_id),
             None::<VerifyCallback>,
         );
     }
@@ -1109,7 +1108,7 @@ impl SyncShared {
     ) -> VerifyResult {
         let lonely_block: LonelyBlock = LonelyBlock {
             block,
-            peer_id_with_msg_bytes: Some((peer_id, message_bytes)),
+            peer_id: Some((peer_id, message_bytes)),
             switch: None,
         };
         chain.blocking_process_lonely_block(lonely_block)
@@ -1119,7 +1118,7 @@ impl SyncShared {
         &self,
         chain: &ChainController,
         block: Arc<core::BlockView>,
-        peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
+        peer_id: Option<PeerIndex>,
         verify_callback: Option<VerifyCallback>,
     ) {
         {
@@ -1134,7 +1133,7 @@ impl SyncShared {
 
         let lonely_block_with_callback = LonelyBlock {
             block,
-            peer_id_with_msg_bytes,
+            peer_id,
             switch: None,
         }
         .with_callback(verify_callback);
