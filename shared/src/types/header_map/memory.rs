@@ -93,12 +93,16 @@ impl MemoryMap {
     }
 
     pub(crate) fn insert(&self, header: HeaderIndexView) -> Option<()> {
+        ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.inc());
+
         let mut guard = self.0.write();
         let (key, value) = header.into();
         guard.insert(key, value).map(|_| ())
     }
 
     pub(crate) fn remove(&self, key: &Byte32, shrink_to_fit: bool) -> Option<HeaderIndexView> {
+        ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.dec());
+
         let mut guard = self.0.write();
         let ret = guard.remove(key);
 
@@ -127,9 +131,14 @@ impl MemoryMap {
 
     pub(crate) fn remove_batch(&self, keys: impl Iterator<Item = Byte32>, shrink_to_fit: bool) {
         let mut guard = self.0.write();
+        let mut keys_count = 0;
         for key in keys {
             guard.remove(&key);
+            keys_count += 1;
         }
+
+        ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.sub(keys_count));
+
         if shrink_to_fit {
             shrink_to_fit!(guard, SHRINK_THRESHOLD);
         }
