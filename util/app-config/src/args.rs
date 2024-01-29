@@ -164,6 +164,8 @@ pub struct ResetDataArgs {
     pub database: bool,
     /// Reset indexer.
     pub indexer: bool,
+    /// Reset rich-indexer.
+    pub rich_indexer: bool,
     /// Reset all network data, including the secret key and peer store.
     pub network: bool,
     /// Reset network peer store.
@@ -178,6 +180,8 @@ pub struct ResetDataArgs {
     pub db_path: PathBuf,
     /// The path to the indexer directory.
     pub indexer_path: PathBuf,
+    /// The path to the rich-indexer directory.
+    pub rich_indexer_path: PathBuf,
     /// The path to the network data directory.
     pub network_dir: PathBuf,
     /// The path to the network peer store directory.

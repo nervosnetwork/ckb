@@ -731,6 +731,6 @@ fn block_view_to_field_values(block_view: &BlockView) -> Vec<FieldValue> {
         match block_view.data().extension() {
             Some(extension) => extension.raw_data().to_vec().into(),
             None => Vec::new().into(),
-        }
+        },
     ]
 }

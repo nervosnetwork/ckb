@@ -81,14 +81,12 @@ impl IndexerConfig {
             &mut self.secondary_path,
             "secondary_path",
         );
-        if let DBDriver::Sqlite = &mut self.rich_indexer.db_type {
-            _adjust(
-                root_dir,
-                indexer_dir.as_ref(),
-                &mut self.rich_indexer.store,
-                "sqlite/sqlite.db",
-            );
-        }
+        _adjust(
+            root_dir,
+            indexer_dir.as_ref(),
+            &mut self.rich_indexer.store,
+            "sqlite/sqlite.db",
+        );
     }
 }
 

@@ -283,6 +283,12 @@ fn reset_data() -> Command {
                 .help("Delete only `data/indexer/store`"),
         )
         .arg(
+            Arg::new(ARG_RICH_INDEXER)
+                .long(ARG_RICH_INDEXER)
+                .action(clap::ArgAction::SetTrue)
+                .help("Delete only `data/indexer/sqlite`"),
+        )
+        .arg(
             Arg::new(ARG_NETWORK)
                 .long(ARG_NETWORK)
                 .action(clap::ArgAction::SetTrue)
