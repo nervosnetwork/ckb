@@ -209,10 +209,6 @@ block_uncles_cache_size    = 30
 #
 # # The 'ckb-rich-indexer' is an indexer built on relational databases. 
 # [indexer_v2.rich_indexer]
-# # The initial tip number and hash can be set as the starting height for building indexes in rich-indexer. Effective only during the initial index creation.
-# init_tip_number = 0
-# # The initial tip hash must match the tip number; otherwise, it will result in a rollback.
-# init_tip_hash = "0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5"
 # # By default, it uses an embedded SQLite database. 
 # # Alternatively, you can prepare a PostgreSQL database service and provide the connection parameters.
 # db_type = "postgres"
