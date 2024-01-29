@@ -5,12 +5,14 @@ use std::collections::{HashMap, HashSet};
 pub struct TxLinks {
     pub parents: HashSet<ProposalShortId>,
     pub children: HashSet<ProposalShortId>,
+    pub direct_parents: HashSet<ProposalShortId>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Relation {
     Parents,
     Children,
+    DirectParents,
 }
 
 impl TxLinks {
@@ -18,6 +20,7 @@ impl TxLinks {
         match relation {
             Relation::Parents => &self.parents,
             Relation::Children => &self.children,
+            Relation::DirectParents => &self.direct_parents,
         }
     }
 }
@@ -68,7 +71,16 @@ impl TxLinksMap {
             stage.remove(&id);
             relation_ids.insert(id);
         }
+        // for direct parents, we don't store children in links map
+        // so filter those not in links map, they maybe removed from tx-pool now
+        if relation == Relation::DirectParents {
+            relation_ids.retain(|id| self.inner.contains_key(id));
+        }
         relation_ids
+    }
+
+    pub fn add_link(&mut self, short_id: ProposalShortId, links: TxLinks) {
+        self.inner.insert(short_id, links);
     }
 
     pub fn calc_ancestors(&self, short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
@@ -129,6 +141,16 @@ impl TxLinksMap {
         self.inner
             .get_mut(short_id)
             .map(|links| links.parents.insert(parent))
+    }
+
+    pub fn add_direct_parent(
+        &mut self,
+        short_id: &ProposalShortId,
+        parent: ProposalShortId,
+    ) -> Option<bool> {
+        self.inner
+            .get_mut(short_id)
+            .map(|links| links.direct_parents.insert(parent))
     }
 
     pub fn clear(&mut self) {
