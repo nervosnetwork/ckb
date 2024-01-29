@@ -311,7 +311,6 @@ pub const SHRINK_THRESHOLD: usize = 300;
 pub struct VerifyFailedBlockInfo {
     pub block_hash: Byte32,
     pub peer_id: PeerIndex,
-    pub msg_bytes: u64,
     pub reason: String,
     pub is_internal_db_error: bool,
 }
