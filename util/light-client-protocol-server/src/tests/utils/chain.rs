@@ -141,14 +141,11 @@ impl MockChain {
         let block: packed::Block = block_template.into();
         let block = build(block);
         let block_number = block.number();
-        let verified_block_status = self
+        let is_ok = self
             .controller()
             .blocking_process_block(Arc::new(block))
             .expect("process block");
-        assert!(
-            verified_block_status,
-            "failed to process block {block_number}"
-        );
+        assert!(is_ok, "failed to process block {block_number}");
         while self
             .tx_pool()
             .get_tx_pool_info()
