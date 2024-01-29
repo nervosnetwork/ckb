@@ -105,13 +105,12 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Module Subscription](#module-subscription) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Subscription&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/main/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/cryptape/ckb-rpc-resources/1b4d99124ec802aaaa68e43c2474a4923e57f293/json/subscription_rpc_doc.json)
         * [Method `subscribe`](#method-subscribe)
         * [Method `unsubscribe`](#method-unsubscribe)
-* [RPC Errors](#rpc-errors)
 * [RPC Types](#rpc-types)
 
     * [Type `Alert`](#type-alert)
     * [Type `AlertId`](#type-alertid)
     * [Type `AlertMessage`](#type-alertmessage)
-    * [Type `AlertPriority`](#type-alertpriority)
+    * [Type `AncestorsScoreSortKey`](#type-ancestorsscoresortkey)
     * [Type `BannedAddr`](#type-bannedaddr)
     * [Type `Block`](#type-block)
     * [Type `BlockEconomicState`](#type-blockeconomicstate)
@@ -153,8 +152,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `IndexerCellType`](#type-indexercelltype)
     * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
     * [Type `IndexerOrder`](#type-indexerorder)
-    * [Type `IndexerRange`](#type-indexerrange)
-    * [Type `IndexerScriptSearchMode`](#type-indexerscriptsearchmode)
+    * [Type `IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
+    * [Type `IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
     * [Type `IndexerScriptType`](#type-indexerscripttype)
     * [Type `IndexerSearchKey`](#type-indexersearchkey)
     * [Type `IndexerSearchKeyFilter`](#type-indexersearchkeyfilter)
@@ -2137,31 +2136,22 @@ Returns the live cells collection by the lock or type script.
 
 ###### Params
 
-*   search_key:
-    *   script - Script, supports prefix search
-
-    *   scrip_type - enum, lock | type
-
-    *   filter - filter cells by following conditions, all conditions are optional
-        *   script: if search script type is lock, filter cells by type script prefix, and vice versa
-
-        *   script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
-
-        *   output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
-
-        *   output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
-
-        *   block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
-
-
-    *   with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
-
-
-*   order: enum, asc | desc
-
-*   limit: result size limit
-
-*   after: pagination parameter, optional
+* search_key:
+    - script - Script, supports prefix search
+    - script_type - enum, lock | type
+    - script_search_mode - enum, prefix | exact
+    - filter - filter cells by following conditions, all conditions are optional
+         - script: if search script type is lock, filter cells by type script prefix, and vice versa
+         - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+         - output_data: filter cells by output data
+         - output_data_filter_mode: enum, prefix | exact | partial
+         - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+         - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+    - with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
+* order: enum, asc | desc
+* limit: result size limit
+* after: pagination parameter, optional
 
 ###### Returns
 
@@ -2501,25 +2491,17 @@ Response
 
 Returns the transactions collection by the lock or type script.
 
-*   search_key:
-    *   script - Script, supports prefix search when group_by_transaction is false
-
-    *   scrip_type - enum, lock | type
-
-    *   filter - filter cells by following conditions, all conditions are optional
-        *   script: if search script type is lock, filter cells by type script, and vice versa
-
-        *   block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
-
-
-    *   group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
-
-
-*   order: enum, asc | desc
-
-*   limit: result size limit
-
-*   after: pagination parameter, optional
+* search_key:
+    - script - Script, supports prefix search when group_by_transaction is false
+    - script_type - enum, lock | type
+    - script_search_mode - enum, prefix | exact
+    - filter - filter cells by following conditions, all conditions are optional
+        - script: if search script type is lock, filter cells by type script, and vice versa
+        - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+    - group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
+* order: enum, asc | desc
+* limit: result size limit
+* after: pagination parameter, optional
 
 ###### Returns
 
@@ -2924,21 +2906,18 @@ Returns the live cells capacity by the lock or type script.
 
 ###### Parameters
 
-*   search_key:
-    *   script - Script
-
-    *   scrip_type - enum, lock | type
-
-    *   filter - filter cells by following conditions, all conditions are optional
-        *   script: if search script type is lock, filter cells by type script prefix, and vice versa
-
-        *   output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
-
-        *   output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
-
-        *   block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
-
-
+* search_key:
+    - script - Script
+    - script_type - enum, lock | type
+    - script_search_mode - enum, prefix | exact
+    - filter - filter cells by following conditions, all conditions are optional
+        - script: if search script type is lock, filter cells by type script prefix, and vice versa
+        - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+        - output_data: filter cells by output data
+        - output_data_filter_mode: enum, prefix | exact | partial
+        - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+        - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+        - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
 
 ###### Returns
 
@@ -4257,9 +4236,8 @@ If you want to track the status of the transaction, please use the `get_transact
 
 ###### Params
 
-*   `transaction` - The transaction.
-
-*   `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is “well_known_scripts_only”).
+* `transaction` - The transaction.
+* `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
 
 ###### Errors
 
@@ -4790,17 +4768,13 @@ Subscribe Request
 
 Subscribe Response
 
-Response
-
-
-```
+```json
 {
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0xf3"
 }
 ```
-
 
 #### Method `unsubscribe`
 * `unsubscribe(id)`
@@ -4810,15 +4784,13 @@ Response
 Unsubscribes from a subscribed topic.
 
 ###### Params
-
 *   `id` - Subscription ID
 
 ###### Examples
 
-Request
+Unsubscribe Request
 
-
-```
+```json
 {
   "id": 42,
   "jsonrpc": "2.0",
@@ -4831,10 +4803,7 @@ Request
 
 Unsubscribe Response
 
-Response
-
-
-```
+```json
 {
  "id": 42,
  "jsonrpc": "2.0",
@@ -4895,14 +4864,19 @@ An alert sent by RPC `send_alert`.
 
 * `notice_until`: [`Uint64`](#type-uint64) - The alert is expired after this timestamp.
 
-*   `message`: `string` - Alert message.
+* `priority`: [`AlertId`](#type-alertid) - Alerts are sorted by priority, highest first.
 
+### Type `AncestorsScoreSortKey`
+A struct as a sorted key for tx-pool
 
-### Type `AlertPriority`
+#### Fields:
+* `ancestors_fee`: [`Uint64`](#type-uint64) - Ancestors fee
 
-Alerts are sorted by priority. Greater integers mean higher priorities.
+* `ancestors_weight`: [`Uint64`](#type-uint64) - Ancestors weight
 
-This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
+* `fee`: [`Uint64`](#type-uint64) - Fee
+
+* `weight`: [`Uint64`](#type-uint64) - Weight
 
 ### Type `BannedAddr`
 A banned P2P address.
@@ -5605,21 +5579,24 @@ Cells capacity
 
 * `capacity`: [`Uint64`](#type-uint64) - total capacity
 
+### Type `IndexerOrder`
+Order Desc | Asc
 
+### Type `IndexerPagination_for_IndexerCell`
+IndexerPagination wraps objects array and last_cursor to provide paging
 
-### Type `IndexerScriptSearchMode`
+#### Fields:
+* `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
-IndexerScriptSearchMode represent script search mode, default is prefix search
+* `objects`: `Array<` [`IndexerCell`](#type-indexercell) `>` - objects collection
 
-`IndexerScriptSearchMode` is equivalent to `"prefix" | "exact"`.
+### Type `IndexerPagination_for_IndexerTx`
+IndexerPagination wraps objects array and last_cursor to provide paging
 
-*   Mode `prefix` search script with prefix
-*   Mode `exact` search script with exact match
+#### Fields:
+* `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
 * `objects`: `Array<` [`IndexerTx`](#type-indexertx) `>` - objects collection
-
-### Type `IndexerScriptSearchMode`
-IndexerScriptSearchMode represent script search mode, default is prefix search
 
 ### Type `IndexerScriptType`
 ScriptType `Lock` | `Type`
@@ -5630,34 +5607,13 @@ SearchKey represent indexer support params
 #### Fields:
 * `script`: [`Script`](#type-script) - Script
 
-*   `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
-
-*   `script_search_mode`: [`IndexerScriptSearchMode`](#type-indexerscriptsearchmode) `|` `null` - Script search mode, optional default is `prefix`, means search script with prefix
-
-*   `filter`: [`IndexerSearchKeyFilter`](#type-indexersearchkeyfilter) `|` `null` - filter cells by following conditions, all conditions are optional
-
-*   `with_data`: `boolean` `|` `null` - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
-
-*   `group_by_transaction`: `boolean` `|` `null` - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
-
+* `script_type`: [`IndexerScriptType`](#type-indexerscripttype) - Script Type
 
 ### Type `IndexerSearchKeyFilter`
 IndexerSearchKeyFilter represent indexer params `filter`
 
-#### Fields
-
-`IndexerSearchKeyFilter` is a JSON object with the following fields.
-
-*   `script`: [`Script`](#type-script) `|` `null` - if search script type is lock, filter cells by type script prefix, and vice versa
-
-*   `script_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by script len range
-
-*   `output_data_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output data len range
-
-*   `output_capacity_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by output capacity range
-
-*   `block_range`: [`IndexerRange`](#type-indexerrange) `|` `null` - filter cells by block number range
-
+### Type `IndexerSearchMode`
+IndexerSearchMode represent search mode, default is prefix search
 
 ### Type `IndexerTip`
 Indexer tip information
@@ -5849,54 +5805,6 @@ The chain synchronization state between the local node and a remote node.
 
     **Deprecated**: this is an internal state and will be removed in a future release.
 
-*   `inflight_count`: [`Uint64`](#type-uint64) - The count of concurrency downloading blocks.
-
-*   `can_fetch_count`: [`Uint64`](#type-uint64) - The count of blocks are available for concurrency download.
-
-
-### Type `PoolTransactionEntry`
-
-The transaction entry in the pool.
-
-#### Fields
-
-`PoolTransactionEntry` is a JSON object with the following fields.
-
-*   `transaction`: [`TransactionView`](#type-transactionview) - The transaction.
-
-*   `cycles`: [`Cycle`](#type-cycle) - Consumed cycles.
-
-*   `size`: [`Uint64`](#type-uint64) - The transaction serialized size in block.
-
-*   `fee`: [`Capacity`](#type-capacity) - The transaction fee.
-
-*   `timestamp`: [`Uint64`](#type-uint64) - The unix timestamp when entering the Txpool, unit: Millisecond
-
-
-### Type `PoolTransactionReject`
-
-TX reject message
-
-`PoolTransactionReject` is a JSON object with following fields.
-
-*   `type`: `"LowFeeRate" | "ExceededMaximumAncestorsCount" | "ExceededTransactionSizeLimit" | "Full" | "Duplicated" | "Malformed" | "DeclaredWrongCycles" | "Resolve" | "Verification" | "Expiry" | "RBFRejected"` - Reject type.
-*   `description`: `string` - Detailed description about why the transaction is rejected.
-
-Different reject types:
-
-*   `LowFeeRate`: Transaction fee lower than config
-*   `ExceededMaximumAncestorsCount`: Transaction exceeded maximum ancestors count limit
-*   `ExceededTransactionSizeLimit`: Transaction exceeded maximum size limit
-*   `Full`: Transaction are replaced because the pool is full
-*   `Duplicated`: Transaction already exist in transaction_pool
-*   `Malformed`: Malformed transaction
-*   `DeclaredWrongCycles`: Declared wrong cycles
-*   `Resolve`: Resolve failed
-*   `Verification`: Verification failed
-*   `Expiry`: Transaction expired
-*   `RBFRejected`: RBF rejected
-
-
 ### Type `PoolTxDetailInfo`
 A Tx details info in tx-pool.
 
@@ -5913,7 +5821,7 @@ A Tx details info in tx-pool.
 
 * `rank_in_pending`: [`Uint64`](#type-uint64) - The rank in pending, starting from 0
 
-*   `score_sortkey`: `string` - The score key details, useful to debug
+* `score_sortkey`: [`AncestorsScoreSortKey`](#type-ancestorsscoresortkey) - The score key details, useful to debug
 
 * `timestamp`: [`Uint64`](#type-uint64) - The time added into tx-pool
 
@@ -6377,20 +6285,8 @@ Transaction pool information.
 ### Type `TxStatus`
 Transaction status and the block hash if it is committed.
 
-#### Fields
-
-`TxStatus` is a JSON object with the following fields.
-
-*   `status`: [`Status`](#type-status) - The transaction status, allowed values: “pending”, “proposed” “committed” “unknown” and “rejected”.
-
-*   `block_hash`: [`H256`](#type-h256) `|` `null` - The block hash of the block which has committed this transaction in the canonical chain.
-
-*   `reason`: `string` `|` `null` - The reason why the transaction is rejected
-
-
-### Type `U256`
-
-The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
+#### Fields:
+* `status`: [`Status`](#type-status) - The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
 
 ### Type `Uint128`
 `Uint128` is `uint128`
