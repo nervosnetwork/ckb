@@ -1107,11 +1107,10 @@ impl SyncShared {
         chain: &ChainController,
         block: Arc<core::BlockView>,
         peer_id: PeerIndex,
-        message_bytes: u64,
     ) -> VerifyResult {
         let lonely_block: LonelyBlock = LonelyBlock {
             block,
-            peer_id: Some((peer_id, message_bytes)),
+            peer_id: Some(peer_id),
             switch: None,
         };
         chain.blocking_process_lonely_block(lonely_block)

@@ -384,7 +384,6 @@ impl Synchronizer {
         &self,
         block: core::BlockView,
         peer_id: PeerIndex,
-        message_bytes: u64,
     ) -> Result<bool, ckb_error::Error> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
@@ -398,7 +397,6 @@ impl Synchronizer {
                 &self.chain,
                 Arc::new(block),
                 peer_id,
-                message_bytes,
             )
         } else {
             debug!(
