@@ -153,7 +153,7 @@ pub trait SubscriptionRpc {
     /// *   `id` - Subscription ID
     ///
     /// ###### Examples
-    /// 
+    ///
     /// Unsubscribe Request
     ///
     /// ```json
