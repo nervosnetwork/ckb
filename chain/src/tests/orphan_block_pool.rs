@@ -21,7 +21,7 @@ fn gen_lonely_block(parent_header: &HeaderView) -> LonelyBlock {
         .build();
     LonelyBlock {
         block: Arc::new(block),
-        peer_id_with_msg_bytes: None,
+        peer_id: None,
         switch: None,
     }
 }
@@ -163,7 +163,7 @@ fn test_remove_expired_blocks() {
         let lonely_block_with_callback = LonelyBlockWithCallback {
             lonely_block: LonelyBlock {
                 block: Arc::new(new_block),
-                peer_id_with_msg_bytes: None,
+                peer_id: None,
                 switch: None,
             },
             verify_callback: None,

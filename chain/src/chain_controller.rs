@@ -55,7 +55,7 @@ impl ChainController {
     pub fn blocking_process_block(&self, block: Arc<BlockView>) -> VerifyResult {
         self.blocking_process_lonely_block(LonelyBlock {
             block,
-            peer_id_with_msg_bytes: None,
+            peer_id: None,
             switch: None,
         })
     }
@@ -68,7 +68,7 @@ impl ChainController {
     ) -> VerifyResult {
         self.blocking_process_lonely_block(LonelyBlock {
             block,
-            peer_id_with_msg_bytes: None,
+            peer_id: None,
             switch: Some(switch),
         })
     }
