@@ -111,9 +111,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
     ChainController::new(process_block_tx, truncate_block_tx, orphan_blocks_broker)
 }
 
-/// Chain background service
-///
-/// The ChainService provides a single-threaded background executor.
+/// Chain background service to receive LonelyBlock and only do `non_contextual_verify`
 #[derive(Clone)]
 pub(crate) struct ChainService {
     shared: Shared,
@@ -124,7 +122,7 @@ pub(crate) struct ChainService {
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 impl ChainService {
-    /// Create a new ChainService instance with shared and initial proposal_table.
+    /// Create a new ChainService instance with shared.
     pub(crate) fn new(
         shared: Shared,
         process_block_rx: Receiver<ProcessBlockRequest>,
@@ -140,6 +138,7 @@ impl ChainService {
         }
     }
 
+    /// Receive block from `process_block_rx` and do `non_contextual_verify`
     pub(crate) fn start_process_block(self) {
         let signal_receiver = new_crossbeam_exit_rx();
 
@@ -188,7 +187,7 @@ impl ChainService {
             .map(|_| ())
     }
 
-    // make block IO and verify asynchronize
+    // `self.non_contextual_verify` is very fast.
     fn asynchronous_process_block(&self, lonely_block: LonelyBlockWithCallback) {
         let block_number = lonely_block.block().number();
         let block_hash = lonely_block.block().hash();
