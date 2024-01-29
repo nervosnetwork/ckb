@@ -105,8 +105,14 @@ where
             self.stats().tick_primary_select();
         }
         if let Some(view) = self.memory.get_refresh(hash) {
+            ckb_metrics::handle()
+                .map(|metrics| metrics.ckb_header_map_memory_hit_miss_count.hit.inc());
             return Some(view);
         }
+
+        ckb_metrics::handle()
+            .map(|metrics| metrics.ckb_header_map_memory_hit_miss_count.miss.inc());
+
         if self.backend.is_empty() {
             return None;
         }
