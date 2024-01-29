@@ -135,7 +135,7 @@ impl ConsumeUnverifiedBlockProcessor {
             unverified_block: LonelyBlockWithCallback {
                 lonely_block: LonelyBlock {
                     block: Arc::new(block_view),
-                    peer_id_with_msg_bytes: lonely_block.lonely_block.peer_id_with_msg_bytes,
+                    peer_id: lonely_block.lonely_block.peer_id,
                     switch: lonely_block.lonely_block.switch,
                 },
                 verify_callback: lonely_block.verify_callback,
@@ -173,7 +173,7 @@ impl ConsumeUnverifiedBlockProcessor {
             Err(err) => {
                 error!(
                     "verify [{:?}]'s block {} failed: {}",
-                    unverified_block.peer_id_with_msg_bytes(),
+                    unverified_block.peer_id(),
                     unverified_block.block().hash(),
                     err
                 );
@@ -209,7 +209,7 @@ impl ConsumeUnverifiedBlockProcessor {
 
                 tell_synchronizer_to_punish_the_bad_peer(
                     self.verify_failed_blocks_tx.clone(),
-                    unverified_block.peer_id_with_msg_bytes(),
+                    unverified_block.peer_id(),
                     unverified_block.block().hash(),
                     err,
                 );
