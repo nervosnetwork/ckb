@@ -14,6 +14,7 @@ use ckb_types::core::{BlockNumber, BlockView, HeaderView};
 use ckb_types::packed::Byte32;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
+
 mod chain_controller;
 mod chain_service;
 mod consume_orphan;
@@ -45,8 +46,8 @@ pub struct LonelyBlock {
     /// block
     pub block: Arc<BlockView>,
 
-    /// This block is received from which peer, and the message bytes size
-    pub peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
+    /// This block is received from which peer
+    pub peer_id: Option<PeerIndex>,
 
     /// The Switch to control the verification process
     pub switch: Option<Switch>,
@@ -73,8 +74,8 @@ pub struct LonelyBlockHash {
     /// block
     pub block_number_and_hash: BlockNumberAndHash,
 
-    /// This block is received from which peer, and the message bytes size
-    pub peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
+    /// This block is received from which peer
+    pub peer_id: Option<PeerIndex>,
 
     /// The Switch to control the verification process
     pub switch: Option<Switch>,
@@ -104,7 +105,7 @@ impl From<LonelyBlockWithCallback> for LonelyBlockHashWithCallback {
                     number: val.lonely_block.block.number(),
                     hash: val.lonely_block.block.hash(),
                 },
-                peer_id_with_msg_bytes: val.lonely_block.peer_id_with_msg_bytes,
+                peer_id: val.lonely_block.peer_id,
                 switch: val.lonely_block.switch,
             },
             verify_callback: val.verify_callback,
@@ -141,8 +142,8 @@ impl LonelyBlockWithCallback {
     }
 
     /// get peer_id and msg_bytes
-    pub fn peer_id_with_msg_bytes(&self) -> Option<(PeerIndex, u64)> {
-        self.lonely_block.peer_id_with_msg_bytes
+    pub fn peer_id(&self) -> Option<PeerIndex> {
+        self.lonely_block.peer_id
     }
 
     /// get switch param
@@ -161,8 +162,8 @@ impl UnverifiedBlock {
         self.unverified_block.block()
     }
 
-    pub fn peer_id_with_msg_bytes(&self) -> Option<(PeerIndex, u64)> {
-        self.unverified_block.peer_id_with_msg_bytes()
+    pub fn peer_id(&self) -> Option<PeerIndex> {
+        self.unverified_block.peer_id()
     }
 
     pub fn execute_callback(self, verify_result: VerifyResult) {
@@ -193,17 +194,16 @@ impl GlobalIndex {
 
 pub(crate) fn tell_synchronizer_to_punish_the_bad_peer(
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-    peer_id_with_msg_bytes: Option<(PeerIndex, u64)>,
+    peer_id: Option<PeerIndex>,
     block_hash: Byte32,
     err: &Error,
 ) {
     let is_internal_db_error = is_internal_db_error(err);
-    match peer_id_with_msg_bytes {
-        Some((peer_id, msg_bytes)) => {
+    match peer_id {
+        Some(peer_id) => {
             let verify_failed_block_info = VerifyFailedBlockInfo {
                 block_hash,
                 peer_id,
-                msg_bytes,
                 reason: err.to_string(),
                 is_internal_db_error,
             };

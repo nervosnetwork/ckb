@@ -30,13 +30,13 @@ fn process_block(
     switch: Switch,
 ) {
     let lonely_block_hash = LonelyBlockHash {
-        peer_id_with_msg_bytes: None,
+        peer_id: None,
         switch: Some(switch),
         block_number_and_hash: BlockNumberAndHash::new(blk.number(), blk.hash()),
     };
 
     let lonely_block = LonelyBlock {
-        peer_id_with_msg_bytes: None,
+        peer_id: None,
         switch: Some(switch),
         block: Arc::new(blk.to_owned()),
     };

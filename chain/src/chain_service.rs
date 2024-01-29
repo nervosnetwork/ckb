@@ -207,7 +207,7 @@ impl ChainService {
                     .into();
                 tell_synchronizer_to_punish_the_bad_peer(
                     self.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id_with_msg_bytes(),
+                    lonely_block.peer_id(),
                     lonely_block.block().hash(),
                     &error,
                 );
@@ -232,7 +232,7 @@ impl ChainService {
                     .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_INVALID);
                 tell_synchronizer_to_punish_the_bad_peer(
                     self.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id_with_msg_bytes(),
+                    lonely_block.peer_id(),
                     lonely_block.block().hash(),
                     &err,
                 );
