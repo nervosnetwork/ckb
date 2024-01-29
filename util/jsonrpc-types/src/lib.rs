@@ -45,8 +45,8 @@ pub use self::net::{
     RemoteNodeProtocol, SyncState,
 };
 pub use self::pool::{
-    OutputsValidator, PoolTransactionEntry, PoolTransactionReject, PoolTxDetailInfo, RawTxPool,
-    TxPoolEntries, TxPoolEntry, TxPoolIds, TxPoolInfo,
+    AncestorsScoreSortKey, OutputsValidator, PoolTransactionEntry, PoolTransactionReject,
+    PoolTxDetailInfo, RawTxPool, TxPoolEntries, TxPoolEntry, TxPoolIds, TxPoolInfo,
 };
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
@@ -54,8 +54,8 @@ pub use self::uints::{Uint128, Uint32, Uint64};
 pub use ckb_types::core::RationalU256;
 pub use indexer::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
-    IndexerRange, IndexerScriptSearchMode, IndexerScriptType, IndexerSearchKey,
-    IndexerSearchKeyFilter, IndexerTip, IndexerTx, IndexerTxWithCell, IndexerTxWithCells,
+    IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchKeyFilter, IndexerSearchMode,
+    IndexerTip, IndexerTx, IndexerTxWithCell, IndexerTxWithCells,
 };
 pub use primitive::{
     AsEpochNumberWithFraction, BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction,

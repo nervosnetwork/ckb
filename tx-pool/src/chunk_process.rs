@@ -218,8 +218,7 @@ impl ChunkProcess {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.service.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
-            try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
         let cached = self.service.fetch_tx_verify_cache(&tx_hash).await;
 
@@ -244,10 +243,8 @@ impl ChunkProcess {
                     let completed = try_or_return_with_snapshot!(ret, snapshot);
 
                     let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                    let (ret, submit_snapshot) = self
-                        .service
-                        .submit_entry(tip_hash, entry, status, conflicts)
-                        .await;
+                    let (ret, submit_snapshot) =
+                        self.service.submit_entry(tip_hash, entry, status).await;
                     try_or_return_with_snapshot!(ret, submit_snapshot);
                     self.service
                         .after_process(tx, remote, &submit_snapshot, &Ok(completed))
@@ -325,10 +322,7 @@ impl ChunkProcess {
         }
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-        let (ret, submit_snapshot) = self
-            .service
-            .submit_entry(tip_hash, entry, status, conflicts)
-            .await;
+        let (ret, submit_snapshot) = self.service.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, snapshot);
 
         self.service.notify_block_assembler(status).await;
@@ -363,7 +357,7 @@ fn exceeded_maximum_cycles_error<
         .nth(current)
         .map(|(_hash, group)| ScriptError::ExceededMaximumCycles(max_cycles).source(group))
         .unwrap_or_else(|| {
-            ScriptError::VMInternalError(format!("suspended state group missing {current:?}"))
+            ScriptError::Other(format!("suspended state group missing {current:?}"))
                 .unknown_source()
         })
         .into()

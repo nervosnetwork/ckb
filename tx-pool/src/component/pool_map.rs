@@ -7,8 +7,9 @@ use crate::component::links::{Relation, TxLinksMap};
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
-use ckb_logger::{debug, trace};
+use ckb_logger::{debug, error, trace};
 use ckb_types::core::error::OutPointError;
+use ckb_types::core::Cycle;
 use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -66,6 +67,10 @@ pub struct PoolMap {
     /// All the parent/children relationships
     pub(crate) links: TxLinksMap,
     pub(crate) max_ancestors_count: usize,
+    // sum of all tx_pool tx's virtual sizes.
+    pub(crate) total_tx_size: usize,
+    // sum of all tx_pool tx's cycles.
+    pub(crate) total_tx_cycles: Cycle,
 }
 
 impl PoolMap {
@@ -75,6 +80,8 @@ impl PoolMap {
             edges: Edges::default(),
             links: TxLinksMap::new(),
             max_ancestors_count,
+            total_tx_size: 0,
+            total_tx_cycles: 0,
         }
     }
 
@@ -189,10 +196,11 @@ impl PoolMap {
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         self.check_and_record_ancestors(&mut entry)?;
+        self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
-        self.record_entry_edges(&entry);
         self.record_entry_descendants(&entry);
         self.track_entry_statics();
+        self.update_stat_for_add_tx(entry.size, entry.cycles);
         Ok(true)
     }
 
@@ -217,6 +225,7 @@ impl PoolMap {
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
+            self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
             entry.inner
         })
     }
@@ -332,6 +341,8 @@ impl PoolMap {
         self.entries = MultiIndexPoolEntryMap::default();
         self.edges.clear();
         self.links.clear();
+        self.total_tx_size = 0;
+        self.total_tx_cycles = 0;
     }
 
     pub(crate) fn score_sorted_iter_by(
@@ -389,7 +400,7 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_edges(&mut self, entry: &TxEntry) {
+    fn record_entry_edges(&mut self, entry: &TxEntry) -> Result<(), Reject> {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
@@ -398,7 +409,7 @@ impl PoolMap {
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
         for i in inputs {
-            self.edges.insert_input(i.to_owned(), tx_short_id.clone());
+            self.edges.insert_input(i.to_owned(), tx_short_id.clone())?;
         }
 
         // record dep-txid
@@ -411,12 +422,14 @@ impl PoolMap {
                 .header_deps
                 .insert(tx_short_id, header_deps.into_iter().collect());
         }
+        Ok(())
     }
 
     fn record_entry_descendants(&mut self, entry: &TxEntry) {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let outputs = entry.transaction().output_pts();
         let mut children = HashSet::new();
+        let mut direct_children = HashSet::new();
 
         // collect children
         for o in outputs {
@@ -424,13 +437,17 @@ impl PoolMap {
                 children.extend(ids);
             }
             if let Some(id) = self.edges.get_input_ref(&o).cloned() {
-                children.insert(id);
+                children.insert(id.clone());
+                direct_children.insert(id);
             }
         }
         // update children
         if !children.is_empty() {
             for child in &children {
                 self.links.add_parent(child, tx_short_id.clone());
+            }
+            for child in &direct_children {
+                self.links.add_direct_parent(child, tx_short_id.clone());
             }
             if let Some(links) = self.links.inner.get_mut(&tx_short_id) {
                 links.children.extend(children);
@@ -446,8 +463,10 @@ impl PoolMap {
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
         );
-        let short_id = entry.proposal_short_id();
+        let mut direct_parents: HashSet<ProposalShortId> =
+            HashSet::with_capacity(entry.transaction().inputs().len());
 
+        let short_id = entry.proposal_short_id();
         for input in entry.transaction().inputs() {
             let input_pt = input.previous_output();
             if let Some(deps) = self.edges.deps.get(&input_pt) {
@@ -457,7 +476,8 @@ impl PoolMap {
             let parent_hash = &input_pt.tx_hash();
             let id = ProposalShortId::from_tx_hash(parent_hash);
             if self.links.inner.contains_key(&id) {
-                parents.insert(id);
+                parents.insert(id.clone());
+                direct_parents.insert(id);
             }
         }
         for cell_dep in entry.transaction().cell_deps() {
@@ -472,13 +492,18 @@ impl PoolMap {
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
 
+        let direct_ancestors = self
+            .links
+            .calc_relation_ids(direct_parents.clone(), Relation::DirectParents);
+
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
+            // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        if entry.ancestors_count > self.max_ancestors_count {
-            debug!("debug: exceeded maximum ancestors count");
+        entry.direct_ancestors_count = direct_ancestors.len() + 1;
+        if entry.direct_ancestors_count > self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
@@ -486,18 +511,20 @@ impl PoolMap {
             self.links.add_child(parent, short_id.clone());
         }
 
-        let links = TxLinks {
-            parents,
-            children: Default::default(),
-        };
-        self.links.inner.insert(short_id, links);
+        self.links.add_link(
+            short_id,
+            TxLinks {
+                parents,
+                direct_parents,
+                children: Default::default(),
+            },
+        );
 
         Ok(true)
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
-        let inputs = entry.transaction().input_pts_iter();
-        for i in inputs {
+        for i in entry.transaction().input_pts_iter() {
             // release input record
             self.edges.remove_input(&i);
         }
@@ -537,5 +564,46 @@ impl PoolMap {
                 .proposed
                 .set(self.proposed_size() as i64);
         }
+    }
+
+    /// Update size and cycles statistics for add tx
+    fn update_stat_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
+        let total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
+            error!(
+                "total_tx_size {} overflown by add {}",
+                self.total_tx_size, tx_size
+            );
+            self.total_tx_size
+        });
+        let total_tx_cycles = self.total_tx_cycles.checked_add(cycles).unwrap_or_else(|| {
+            error!(
+                "total_tx_cycles {} overflown by add {}",
+                self.total_tx_cycles, cycles
+            );
+            self.total_tx_cycles
+        });
+        self.total_tx_size = total_tx_size;
+        self.total_tx_cycles = total_tx_cycles;
+    }
+
+    /// Update size and cycles statistics for remove tx
+    /// cycles overflow is possible, currently obtaining cycles is not accurate
+    fn update_stat_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
+        let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
+            error!(
+                "total_tx_size {} overflown by sub {}",
+                self.total_tx_size, tx_size
+            );
+            0
+        });
+        let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
+            error!(
+                "total_tx_cycles {} overflown by sub {}",
+                self.total_tx_cycles, cycles
+            );
+            0
+        });
+        self.total_tx_size = total_tx_size;
+        self.total_tx_cycles = total_tx_cycles;
     }
 }

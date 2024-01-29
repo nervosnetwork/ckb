@@ -204,7 +204,9 @@ impl HeadersSyncController {
                 self.last_updated_tip_ts = now_tip_ts;
                 self.is_close_to_the_end = false;
                 // if the node is behind the estimated tip header too much, sync again;
-                trace!("headers-sync: send GetHeaders again since we behind the tip too much");
+                trace!(
+                    "headers-sync: send GetHeaders again since we are significantly behind the tip"
+                );
                 None
             } else {
                 // ignore timeout because the tip already almost reach the real time;
@@ -213,7 +215,7 @@ impl HeadersSyncController {
             }
         } else if expected_before_finished < inspect_window {
             self.is_close_to_the_end = true;
-            trace!("headers-sync: ignore timeout because the tip almost reach the real time");
+            trace!("headers-sync: ignore timeout because the tip almost reaches the real time");
             Some(false)
         } else {
             let spent_since_last_updated = now.saturating_sub(self.last_updated_ts);
@@ -249,7 +251,7 @@ impl HeadersSyncController {
                             // the global average speed is too slow
                             trace!(
                                 "headers-sync: both the global average speed and the instantaneous speed \
-                                is slow than expected"
+                                are slower than expected"
                             );
                             Some(true)
                         } else {
@@ -1353,7 +1355,6 @@ impl SyncShared {
         ActiveChain {
             shared: self.clone(),
             snapshot: Arc::clone(&self.shared.snapshot()),
-            state: Arc::clone(&self.state),
         }
     }
 
@@ -1414,7 +1415,7 @@ impl SyncShared {
             if self.is_stored(&hash) {
                 let descendants = self.state.remove_orphan_by_parent(&hash);
                 debug!(
-                    "try accepting {} descendant orphan blocks by exist parents hash",
+                    "attempting to accept {} descendant orphan blocks with existing parents hash",
                     descendants.len()
                 );
                 for block in descendants {
@@ -2046,7 +2047,6 @@ impl SyncState {
 pub struct ActiveChain {
     shared: SyncShared,
     snapshot: Arc<Snapshot>,
-    state: Arc<SyncState>,
 }
 
 #[doc(hidden)]
@@ -2081,6 +2081,13 @@ impl ActiveChain {
 
     pub fn get_block_filter_hash(&self, hash: &packed::Byte32) -> Option<packed::Byte32> {
         self.store().get_block_filter_hash(hash)
+    }
+
+    pub fn get_latest_built_filter_block_number(&self) -> BlockNumber {
+        self.snapshot
+            .get_latest_built_filter_data_block_hash()
+            .and_then(|hash| self.snapshot.get_block_number(&hash))
+            .unwrap_or_default()
     }
 
     pub fn shared(&self) -> &SyncShared {
@@ -2291,6 +2298,7 @@ impl ActiveChain {
         block_number_and_hash: BlockNumberAndHash,
     ) {
         if let Some(last_time) = self
+            .shared()
             .state
             .pending_get_headers
             .write()
@@ -2298,7 +2306,7 @@ impl ActiveChain {
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
-                    "last send get headers from {} less than {:?} ago, ignore it",
+                    "Last get_headers request to peer {} is less than {:?}; Ignore it.",
                     peer, GET_HEADERS_TIMEOUT,
                 );
                 return;
@@ -2309,7 +2317,8 @@ impl ActiveChain {
                 );
             }
         }
-        self.state
+        self.shared()
+            .state()
             .pending_get_headers
             .write()
             .put((peer, block_number_and_hash.hash()), Instant::now());
@@ -2329,10 +2338,10 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        match self.state.block_status_map.get(block_hash) {
+        match self.shared().state().block_status_map.get(block_hash) {
             Some(status_ref) => *status_ref.value(),
             None => {
-                if self.state.header_map.contains_key(block_hash) {
+                if self.shared().state().header_map.contains_key(block_hash) {
                     BlockStatus::HEADER_VALID
                 } else {
                     let verified = self

@@ -87,7 +87,7 @@ impl CKBProtocolHandler for AlertRelayer {
         self.clear_expired_alerts();
         for alert in self.notifier.lock().received_alerts() {
             let alert_id: u32 = alert.as_reader().raw().id().unpack();
-            trace!("send alert {} to peer {}", alert_id, peer_index);
+            trace!("Send alert {} to peer {}", alert_id, peer_index);
             if let Err(err) = nc.quick_send_message_to(peer_index, alert.as_bytes()) {
                 debug!("alert_relayer send alert when connected error: {:?}", err);
             }
@@ -120,7 +120,7 @@ impl CKBProtocolHandler for AlertRelayer {
                     alert.to_entity()
                 } else {
                     info!(
-                        "Peer {} sends us malformed message: not utf-8 string",
+                        "A malformed message fromP peer {} : not utf-8 string",
                         peer_index
                     );
                     nc.ban_peer(
@@ -132,7 +132,7 @@ impl CKBProtocolHandler for AlertRelayer {
                 }
             }
             Err(err) => {
-                info!("Peer {} sends us malformed message: {:?}", peer_index, err);
+                info!("A malformed message from peer {}: {:?}", peer_index, err);
                 nc.ban_peer(
                     peer_index,
                     BAD_MESSAGE_BAN_TIME,
@@ -142,7 +142,7 @@ impl CKBProtocolHandler for AlertRelayer {
             }
         };
         let alert_id = alert.as_reader().raw().id().unpack();
-        trace!("receive alert {} from peer {}", alert_id, peer_index);
+        trace!("ReceiveD alert {} from peer {}", alert_id, peer_index);
         // ignore alert
         if self.notifier.lock().has_received(alert_id) {
             return;
@@ -150,7 +150,7 @@ impl CKBProtocolHandler for AlertRelayer {
         // verify
         if let Err(err) = self.verifier.verify_signatures(&alert) {
             debug!(
-                "Peer {} sends us an alert with invalid signatures, error {:?}",
+                "An alert from peer {} with invalid signatures, error {:?}",
                 peer_index, err
             );
             nc.ban_peer(

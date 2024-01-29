@@ -14,18 +14,18 @@ _reset_all() {
 function init { #@test
   run _init
   [ "$status" -eq 0 ]
-  assert_output --regexp "[iI]nitialized CKB directory.*create.*Genesis Hash: 0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5"
+  assert_output --regexp "[iI]nitialized CKB directory.*Create.*Genesis Hash: 0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5"
 }
 function init_mainnet { #@test
   run _init_mainnet
   [ "$status" -eq 0 ]
-  assert_output --regexp "Reinitialized CKB directory.*create.*Genesis Hash: 0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5"
+  assert_output --regexp "Reinitialized CKB directory.*Create.*Genesis Hash: 0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5"
 }
 
 function reset_all { #@test
   run _reset_all
   [ "$status" -eq 0 ]
-  assert_output --regexp "deleting .*data"
+  assert_output --regexp "Deleting .*data"
 }
 
 setup_file() {

@@ -80,7 +80,7 @@ impl BlockFetcher {
     pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
         if self.reached_inflight_limit() {
             trace!(
-                "[block_fetcher] inflight count reach limit, can't download any more from peer {}",
+                "[block_fetcher] inflight count has reached the limit, preventing further downloads from peer {}",
                 self.peer
             );
             return None;
@@ -110,7 +110,7 @@ impl BlockFetcher {
             Some(t) => t,
             None => {
                 debug!(
-                    "peer {} doesn't have best known header, ignore it",
+                    "Peer {} doesn't have best known header; ignore it",
                     self.peer
                 );
                 return None;

@@ -108,7 +108,7 @@ impl PingHandler {
                 .await
                 .is_err()
             {
-                debug!("send message fail");
+                debug!("Failed to send message");
             }
         }
     }
@@ -150,14 +150,14 @@ impl ServiceProtocol for PingHandler {
             .await
             .is_err()
         {
-            warn!("start ping fail");
+            warn!("Failed to start ping");
         }
         if context
             .set_service_notify(proto_id, self.timeout, CHECK_TIMEOUT_TOKEN)
             .await
             .is_err()
         {
-            warn!("start ping fail");
+            warn!("Failed to start ping");
         }
     }
 
@@ -174,7 +174,7 @@ impl ServiceProtocol for PingHandler {
             "proto id [{}] open on session [{}], address: [{}], type: [{:?}], version: {}",
             context.proto_id, session.id, session.address, session.ty, version
         );
-        debug!("connected sessions are: {:?}", self.connected_session_ids);
+        debug!("Connected sessions are: {:?}", self.connected_session_ids);
         // Register open ping protocol
         self.network_state.with_peer_registry_mut(|reg| {
             reg.get_peer_mut(session.id).map(|peer| {
@@ -193,7 +193,7 @@ impl ServiceProtocol for PingHandler {
             });
         });
         debug!(
-            "proto id [{}] close on session [{}]",
+            "Proto id [{}] closed on session [{}]",
             context.proto_id, session.id
         );
     }
@@ -202,7 +202,7 @@ impl ServiceProtocol for PingHandler {
         let session = context.session;
         match PingMessage::decode(data.as_ref()) {
             None => {
-                error!("decode message error");
+                error!("Message decode error");
                 if let Err(err) =
                     async_disconnect_with_message(context.control(), session.id, "ping failed")
                         .await
@@ -219,7 +219,7 @@ impl ServiceProtocol for PingHandler {
                             .await
                             .is_err()
                         {
-                            debug!("send message fail");
+                            debug!("Failed to send message");
                         }
                     }
                     PingPayload::Pong(nonce) => {
@@ -258,7 +258,7 @@ impl ServiceProtocol for PingHandler {
                     .iter()
                     .filter(|(_id, ps)| ps.processing && ps.elapsed() >= timeout)
                 {
-                    debug!("ping timeout, {:?}", id);
+                    debug!("Ping timeout, {:?}", id);
                     if let Err(err) =
                         async_disconnect_with_message(context.control(), *id, "ping timeout").await
                     {

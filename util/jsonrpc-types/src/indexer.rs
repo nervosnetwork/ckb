@@ -54,7 +54,7 @@ pub struct IndexerSearchKey {
     /// Script Type
     pub script_type: IndexerScriptType,
     /// Script search mode, optional default is `prefix`, means search script with prefix
-    pub script_search_mode: Option<IndexerScriptSearchMode>,
+    pub script_search_mode: Option<IndexerSearchMode>,
     /// filter cells by following conditions, all conditions are optional
     pub filter: Option<IndexerSearchKeyFilter>,
     /// bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
@@ -76,17 +76,19 @@ impl Default for IndexerSearchKey {
     }
 }
 
-/// IndexerScriptSearchMode represent script search mode, default is prefix search
-#[derive(Deserialize, JsonSchema)]
+/// IndexerSearchMode represent search mode, default is prefix search
+#[derive(Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum IndexerScriptSearchMode {
-    /// Mode `prefix` search script with prefix
+pub enum IndexerSearchMode {
+    /// Mode `prefix` search with prefix
     Prefix,
-    /// Mode `exact` search script with exact match
+    /// Mode `exact` search with exact match
     Exact,
+    /// Mode `partial` search with partial match
+    Partial,
 }
 
-impl Default for IndexerScriptSearchMode {
+impl Default for IndexerSearchMode {
     fn default() -> Self {
         Self::Prefix
     }
@@ -136,6 +138,10 @@ pub struct IndexerSearchKeyFilter {
     pub script: Option<Script>,
     /// filter cells by script len range
     pub script_len_range: Option<IndexerRange>,
+    /// filter cells by output data
+    pub output_data: Option<JsonBytes>,
+    /// output data filter mode, optional default is `prefix`
+    pub output_data_filter_mode: Option<IndexerSearchMode>,
     /// filter cells by output data len range
     pub output_data_len_range: Option<IndexerRange>,
     /// filter cells by output capacity range

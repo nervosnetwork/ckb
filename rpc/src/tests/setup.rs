@@ -35,9 +35,6 @@ const CELLBASE_MATURITY: u64 = 0;
 const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
 
 // Construct `Consensus` with an always-success cell
-//
-// It is similar to `util::test-chain-utils::always_success_consensus`, but with hard-code
-// genesis timestamp.
 pub(crate) fn always_success_consensus() -> Consensus {
     let always_success_tx = always_success_transaction();
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();

@@ -12,7 +12,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     deadlock_detection();
 
     info!("ckb version: {}", version);
-    let mut launcher = Launcher::new(args, version, async_handle.clone());
+    let mut launcher = Launcher::new(args, version, async_handle);
 
     let block_assembler_config = launcher.sanitize_block_assembler_config()?;
     let miner_enable = block_assembler_config.is_some();
@@ -54,6 +54,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let tx_pool_builder = pack.take_tx_pool_builder();
     tx_pool_builder.start(network_controller.clone());
 
+    info!("CKB service started ...");
     ctrlc::set_handler(|| {
         info!("Trapped exit signal, exiting...");
         broadcast_exit_signals();

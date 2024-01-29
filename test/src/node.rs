@@ -52,6 +52,7 @@ pub struct Node {
     consensus: Consensus,
     p2p_listen: String,
     rpc_client: RpcClient,
+    rpc_listen: String,
 
     node_id: Option<String>,     // initialize when starts node
     guard: Option<ProcessGuard>, // initialize when starts node
@@ -134,8 +135,8 @@ impl Node {
         };
 
         let p2p_listen = app_config.network.listen_addresses[0].to_string();
-        let rpc_address = app_config.rpc.listen_address;
-        let rpc_client = RpcClient::new(&format!("http://{rpc_address}/"));
+        let rpc_listen = format!("http://{}/", app_config.rpc.listen_address);
+        let rpc_client = RpcClient::new(&rpc_listen);
         let consensus = {
             // Ensure the data path is available because chain_spec.build_consensus() needs to access the
             // system-cell data.
@@ -154,6 +155,7 @@ impl Node {
             consensus,
             p2p_listen,
             rpc_client,
+            rpc_listen,
             node_id: None,
             guard: None,
         }
@@ -182,6 +184,10 @@ impl Node {
 
     pub fn p2p_listen(&self) -> String {
         self.p2p_listen.clone()
+    }
+
+    pub fn rpc_listen(&self) -> String {
+        self.rpc_listen.clone()
     }
 
     pub fn p2p_address(&self) -> String {

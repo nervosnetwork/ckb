@@ -91,7 +91,7 @@ impl<'a> HeadersProcess<'a> {
     }
 
     pub fn execute(self) -> Status {
-        debug!("HeadersProcess begin");
+        debug!("HeadersProcess begins");
         let shared: &SyncShared = self.synchronizer.shared();
         let consensus = shared.consensus();
         let headers = self
@@ -103,7 +103,7 @@ impl<'a> HeadersProcess<'a> {
             .collect::<Vec<_>>();
 
         if headers.len() > MAX_HEADERS_LEN {
-            warn!("HeadersProcess is oversize");
+            warn!("HeadersProcess is oversized");
             return StatusCode::HeadersIsInvalid.with_context("oversize");
         }
 
@@ -166,7 +166,7 @@ impl<'a> HeadersProcess<'a> {
                 }
                 ValidationState::TemporaryInvalid => {
                     debug!(
-                        "HeadersProcess accept result is temporary invalid, header = {:?}",
+                        "HeadersProcess accept result is temporarily invalid, header = {:?}",
                         header
                     );
                     return Status::ok();
@@ -201,7 +201,7 @@ impl<'a> HeadersProcess<'a> {
             && headers.len() != MAX_HEADERS_LEN
             && (!peer_flags.is_protect && !peer_flags.is_whitelist && peer_flags.is_outbound)
         {
-            debug!("Disconnect peer({}) is unprotected outbound", self.peer);
+            debug!("Disconnect an unprotected outbound peer ({})", self.peer);
             if let Err(err) = self
                 .nc
                 .disconnect(self.peer, "useless outbound peer in IBD")
@@ -250,7 +250,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
     pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), bool> {
         self.verifier.verify(self.header).map_err(|error| {
             debug!(
-                "HeadersProcess accept {:?} error {:?}",
+                "HeadersProcess accepted {:?} error {:?}",
                 self.header.number(),
                 error
             );
@@ -303,7 +303,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
 
         if self.prev_block_check(&mut result).is_err() {
             debug!(
-                "HeadersProcess reject invalid-parent header: {} {}",
+                "HeadersProcess rejected invalid-parent header: {} {}",
                 self.header.number(),
                 self.header.hash(),
             );
@@ -313,7 +313,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
 
         if let Some(is_invalid) = self.non_contextual_check(&mut result).err() {
             debug!(
-                "HeadersProcess reject non-contextual header: {} {}",
+                "HeadersProcess rejected non-contextual header: {} {}",
                 self.header.number(),
                 self.header.hash(),
             );
@@ -325,7 +325,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
 
         if self.version_check(&mut result).is_err() {
             debug!(
-                "HeadersProcess reject invalid-version header {} {}",
+                "HeadersProcess rejected invalid-version header: {} {}",
                 self.header.number(),
                 self.header.hash(),
             );

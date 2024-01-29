@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## [v0.113.0](https://github.com/nervosnetwork/ckb/compare/v0.112.1...v0.113.0) (2024-01-09)
+
+### Features
+
+-   #4185: Tweak `SendBlocksProof` message to support ckb2023 (@quake)
+
+### Bug Fixes
+
+-   #4192: Incorrect and inadequate checks of sync message (@yangby-cryptape)
+-   #4199: Fix orphan pool for long pending tx issues (@chenyukang)
+-   #4221: Fix typos (@xiaolou86)
+-   #4218: Fix VM version select (@driftluo)
+
+    This is a breaking change: b:consensus
+
+-   #4255: No chain_root in 1st block of the MMR activated epoch (@yangby-cryptape)
+-   #4258: Fix concurrency issue for RBF (@chenyukang)
+-   #4270: Resolve empty filter related message bug (@quake)
+
+### Improvements
+
+-   #4191: Tuning rocksdb bloom filter (@quake)
+-   #4203: Persistence softfork cache (@zhangsoledad)
+-   #4235: Move `util/launcher/src/migrate.rs` to an independent crate (@eval-exec)
+-   #4236: Break `ckb-launcher` and `ckb-chain`'s cycle  dependency by moving `SharedPackage` and `SharedBuilder` from `ckb-launcher` to `ckb-shared` (@eval-exec)
+-   #4170: Use jsonrpc-utils to replace jsonrpc (@chenyukang)
+
+    This is a breaking change: b:rpc
+
+-   #4256: Add aarch64 docker image  for ckb (@chenyukang)
+-   #4288: `get_pool_tx_detail_info`: Change `score_sortkey`'s type from `String` to `struct AncestorsScoreSortKey`
+
+    This is a breaking change: b:rpc
+
 ## [v0.112.1](https://github.com/nervosnetwork/ckb/compare/v0.111.0...v0.112.1) (2023-11-14)
 
 ### Features

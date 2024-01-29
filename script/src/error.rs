@@ -2,6 +2,7 @@ use crate::types::{ScriptGroup, ScriptGroupType};
 use ckb_error::{prelude::*, Error, ErrorKind};
 use ckb_types::core::{Cycle, ScriptHashType};
 use ckb_types::packed::{Byte32, Script};
+use ckb_vm::Error as VMInternalError;
 use std::{error::Error as StdError, fmt};
 
 /// Script execution error.
@@ -24,7 +25,7 @@ pub enum ScriptError {
     MultipleMatches,
 
     /// Non-zero exit code returns by script
-    #[error("ValidationFailure: see the error code {1} in the page https://nervosnetwork.github.io/ckb-script-error-codes/{0}.html#{1}")]
+    #[error("ValidationFailure: see error code {1} on page https://nervosnetwork.github.io/ckb-script-error-codes/{0}.html#{1}")]
     ValidationFailure(String, i8),
 
     /// Known bugs are detected in transaction script outputs
@@ -39,9 +40,13 @@ pub enum ScriptError {
     #[error("Invalid VM Version: {0}")]
     InvalidVmVersion(u8),
 
-    /// Known bugs are detected in transaction script outputs
-    #[error("VM Internal Error: {0}")]
-    VMInternalError(String),
+    /// Errors thrown by ckb-vm
+    #[error("VM Internal Error: {0:?}")]
+    VMInternalError(VMInternalError),
+
+    /// Other errors raised in script execution process
+    #[error("Other Error: {0}")]
+    Other(String),
 }
 
 /// Locate the script using the first input index if possible, otherwise the first output index.
@@ -83,6 +88,30 @@ pub struct TransactionScriptError {
     cause: ScriptError,
 }
 
+impl TransactionScriptError {
+    /// Orginating script for the generated error
+    pub fn originating_script(&self) -> &TransactionScriptErrorSource {
+        &self.source
+    }
+
+    /// Actual error generated when verifying script
+    pub fn script_error(&self) -> &ScriptError {
+        &self.cause
+    }
+}
+
+/// It is a delibrate choice here to implement StdError directly, instead of
+/// implementing thiserror::Error on TransactionScriptError. This way, calling
+/// root_cause() on ckb_error::Error would return TransactionScriptError structure,
+/// providing us enough information to inspect on all kinds of errors generated when
+/// verifying a script.
+///
+/// This also means calling source() or cause() from std::error::Error on
+/// TransactionScriptError would return None values. One is expected to cast
+/// a value of `std::error::Error` type(possibly returned from root_cause) into
+/// concrete TransactionScriptError type, then use the defined methods to fetch
+/// originating script, as well as the actual script error. See the unit test defined
+/// at the end of this file for an example.
 impl StdError for TransactionScriptError {}
 
 impl fmt::Display for TransactionScriptError {
@@ -154,5 +183,38 @@ impl ScriptError {
 impl From<TransactionScriptError> for Error {
     fn from(error: TransactionScriptError) -> Self {
         ErrorKind::Script.because(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_downcast_error_to_vm_error() {
+        let vm_error = VMInternalError::ElfParseError("Foo bar baz".to_string());
+        let script_error = ScriptError::VMInternalError(vm_error.clone());
+        let error: Error = script_error.output_type_script(177).into();
+
+        let recovered_transaction_error: TransactionScriptError = error
+            .root_cause()
+            .downcast_ref()
+            .cloned()
+            .expect("downcasting transaction error");
+        assert_eq!(
+            recovered_transaction_error.originating_script(),
+            &TransactionScriptErrorSource::Outputs(177, ScriptGroupType::Type),
+        );
+
+        if let ScriptError::VMInternalError(recovered_vm_error) =
+            recovered_transaction_error.script_error()
+        {
+            assert_eq!(recovered_vm_error, &vm_error);
+        } else {
+            panic!(
+                "Invalid script type: {}",
+                recovered_transaction_error.script_error()
+            );
+        }
     }
 }

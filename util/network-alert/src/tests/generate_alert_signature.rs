@@ -47,7 +47,7 @@ fn test_signing_alert_using_dummy_keypair() {
         .build();
     let alert_json = Alert::from(alert.clone());
     println!(
-        "alert:\n{}",
+        "Alert:\n{}",
         serde_json::to_string_pretty(&alert_json).unwrap()
     );
     println!("raw hash: 0x{hash:x}");
@@ -86,7 +86,7 @@ fn test_alert_20230001() {
         .build();
     let alert_json = Alert::from(alert.clone());
     println!(
-        "alert:\n{}",
+        "Alert:\n{}",
         serde_json::to_string_pretty(&alert_json).unwrap()
     );
     assert!(verifier.verify_signatures(&alert).is_ok());

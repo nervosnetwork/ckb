@@ -206,8 +206,8 @@ pub(crate) fn read_secret_key(path: PathBuf) -> Result<Option<secio::SecioKeyPai
     let warn = |m: bool, d: &str| {
         if m {
             ckb_logger::warn!(
-                "Your network secret file's permission is not {}, path: {:?}, \
-                please fix it as soon as possible",
+                "Your network secret file's permission is not {}, path: {:?}. \
+                Please fix it as soon as possible",
                 d,
                 path
             )

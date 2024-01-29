@@ -19,7 +19,7 @@ fn test_add_connected_peer() {
         0
     );
     peer_store.add_connected_peer(addr.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
+    peer_store.add_outbound_addr(addr, Flags::COMPATIBILITY);
     assert_eq!(
         peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
         1
@@ -314,14 +314,14 @@ fn test_fetch_random_addrs() {
         .is_empty());
     // get peer addr from outbound
     peer_store.add_connected_peer(addr1.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr1, Flags::COMPATIBILITY).unwrap();
+    peer_store.add_outbound_addr(addr1, Flags::COMPATIBILITY);
     assert_eq!(
         peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
         1
     );
     // get peer addrs by limit
     peer_store.add_connected_peer(addr2.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr2, Flags::COMPATIBILITY).unwrap();
+    peer_store.add_outbound_addr(addr2, Flags::COMPATIBILITY);
     assert_eq!(
         peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
         2
@@ -345,7 +345,7 @@ fn test_fetch_random_addrs() {
         .mark_connected(0);
     assert_eq!(
         peer_store.fetch_random_addrs(3, Flags::COMPATIBILITY).len(),
-        3
+        2
     );
     peer_store.remove_disconnected_peer(&addr3);
     assert_eq!(
@@ -424,11 +424,52 @@ fn test_get_random_restrict_addrs_from_same_ip() {
         .unwrap();
     peer_store.add_connected_peer(addr1.clone(), SessionType::Outbound);
     peer_store.add_connected_peer(addr2.clone(), SessionType::Outbound);
-    peer_store.add_addr(addr1, Flags::COMPATIBILITY).unwrap();
-    peer_store.add_addr(addr2, Flags::COMPATIBILITY).unwrap();
+    peer_store.add_outbound_addr(addr1, Flags::COMPATIBILITY);
+    peer_store.add_outbound_addr(addr2, Flags::COMPATIBILITY);
     assert_eq!(
         peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
         1
+    );
+}
+
+#[test]
+fn test_get_random_with_connected_peer_and_same_peerid() {
+    let mut peer_store: PeerStore = Default::default();
+
+    let peer_id = PeerId::random().to_base58();
+    let addr1: Multiaddr = format!("/ip4/225.0.0.1/tcp/1867/p2p/{}", peer_id)
+        .parse()
+        .unwrap();
+    let addr2: Multiaddr = format!("/ip4/225.0.0.2/tcp/43/p2p/{}", peer_id)
+        .parse()
+        .unwrap();
+
+    peer_store
+        .add_addr(addr1.clone(), Flags::COMPATIBILITY)
+        .unwrap();
+    peer_store.add_outbound_addr(addr2, Flags::COMPATIBILITY);
+
+    // Node information that has not been connected must not be selected.
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        1
+    );
+
+    // add remains connected node info
+    peer_store.add_connected_peer(addr1.clone(), SessionType::Outbound);
+
+    // Even if the node remains connected, node's info without connection information cannot be selected.
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        1
+    );
+
+    peer_store.update_outbound_addr_last_connected_ms(addr1);
+
+    // Set connected info to address, it can be selected
+    assert_eq!(
+        peer_store.fetch_random_addrs(2, Flags::COMPATIBILITY).len(),
+        2
     );
 }
 

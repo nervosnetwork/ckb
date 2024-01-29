@@ -47,7 +47,7 @@ pub(crate) fn check_tx_fee(
     if fee < min_fee {
         let reject =
             Reject::LowFeeRate(tx_pool.config.min_fee_rate, min_fee.as_u64(), fee.as_u64());
-        ckb_logger::debug!("reject tx {}", reject);
+        ckb_logger::debug!("Reject tx {}", reject);
         return Err(reject);
     }
     Ok(fee)

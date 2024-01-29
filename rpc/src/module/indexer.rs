@@ -51,10 +51,13 @@ pub trait IndexerRpc {
     ///
     /// * search_key:
     ///     - script - Script, supports prefix search
-    ///     - scrip_type - enum, lock | type
+    ///     - script_type - enum, lock | type
+    ///     - script_search_mode - enum, prefix | exact
     ///     - filter - filter cells by following conditions, all conditions are optional
     ///          - script: if search script type is lock, filter cells by type script prefix, and vice versa
     ///          - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+    ///          - output_data: filter cells by output data
+    ///          - output_data_filter_mode: enum, prefix | exact | partial
     ///          - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
     ///          - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
     ///          - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
@@ -403,7 +406,8 @@ pub trait IndexerRpc {
     ///
     /// * search_key:
     ///     - script - Script, supports prefix search when group_by_transaction is false
-    ///     - scrip_type - enum, lock | type
+    ///     - script_type - enum, lock | type
+    ///     - script_search_mode - enum, prefix | exact
     ///     - filter - filter cells by following conditions, all conditions are optional
     ///         - script: if search script type is lock, filter cells by type script, and vice versa
     ///         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
@@ -820,9 +824,13 @@ pub trait IndexerRpc {
     ///
     /// * search_key:
     ///     - script - Script
-    ///     - scrip_type - enum, lock | type
+    ///     - script_type - enum, lock | type
+    ///     - script_search_mode - enum, prefix | exact
     ///     - filter - filter cells by following conditions, all conditions are optional
     ///         - script: if search script type is lock, filter cells by type script prefix, and vice versa
+    ///         - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+    ///         - output_data: filter cells by output data
+    ///         - output_data_filter_mode: enum, prefix | exact | partial
     ///         - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
     ///         - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
     ///         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]

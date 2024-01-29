@@ -32,7 +32,8 @@ pub const CMD_GEN_SECRET: &str = "gen";
 pub const CMD_FROM_SECRET: &str = "from-secret";
 /// Subcommand `migrate`.
 pub const CMD_MIGRATE: &str = "migrate";
-
+/// Subcommand `daemon`
+pub const CMD_DAEMON: &str = "daemon";
 /// Command line argument `--config-dir`.
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 /// Command line argument `--format`.
@@ -73,6 +74,8 @@ pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
 pub const ARG_BA_MESSAGE: &str = "ba-message";
 /// Command line argument `--ba-advanced`.
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
+/// Command line argument `--daemon`
+pub const ARG_DAEMON: &str = "daemon";
 /// Command line argument `--indexer`.
 pub const ARG_INDEXER: &str = "indexer";
 /// Command line argument `--from`.
@@ -111,13 +114,17 @@ pub const ARG_OVERWRITE_CHAIN_SPEC: &str = "overwrite-spec";
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 /// Command line argument `--check`.
 pub const ARG_MIGRATE_CHECK: &str = "check";
+/// Command line argument `daemon --check`
+pub const ARG_DAEMON_CHECK: &str = "check";
+/// Command line argument `daemon --stop`
+pub const ARG_DAEMON_STOP: &str = "stop";
 
 /// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
 
 /// return root clap Command
 pub fn basic_app() -> Command {
-    Command::new(BIN_NAME)
+    let command = Command::new(BIN_NAME)
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")
         .subcommand_required(true)
@@ -130,7 +137,7 @@ pub fn basic_app() -> Command {
                 .value_name("path")
                 .action(clap::ArgAction::Set)
                 .help(
-                    "Runs as if ckb was started in <path> instead of the current working directory.",
+                    "Run as if CKB was started in <path>, instead of the current working directory.",
                 ),
         )
         .subcommand(run())
@@ -143,7 +150,12 @@ pub fn basic_app() -> Command {
         .subcommand(stats())
         .subcommand(reset_data())
         .subcommand(peer_id())
-        .subcommand(migrate())
+        .subcommand(migrate());
+
+    #[cfg(not(target_os = "windows"))]
+    let command = command.subcommand(daemon());
+
+    command
 }
 
 /// Parse the command line arguments by supplying the version information.
@@ -161,44 +173,56 @@ pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches) {
 }
 
 fn run() -> Command {
-    Command::new(CMD_RUN)
-        .about("Runs ckb node")
+    let command = Command::new(CMD_RUN)
+        .about("Run CKB node")
         .arg(
             Arg::new(ARG_BA_ADVANCED)
                 .long(ARG_BA_ADVANCED)
                 .action(clap::ArgAction::SetTrue)
-                .help("Allows any block assembler code hash and args"),
+                .help("Allow any block assembler code hash and args"),
         )
         .arg(
             Arg::new(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .long(ARG_SKIP_CHAIN_SPEC_CHECK)
                 .action(clap::ArgAction::SetTrue)
-                .help("Skips checking the chain spec with the hash stored in the database"),
+                .help("Skip checking the chain spec with the hash stored in the database"),
         ).arg(
             Arg::new(ARG_OVERWRITE_CHAIN_SPEC)
                 .long(ARG_OVERWRITE_CHAIN_SPEC)
                 .action(clap::ArgAction::SetTrue)
-                .help("Overwrites the chain spec in the database with the present configured chain spec")
+                .help("Overwrite the chain spec in the database with the present configured chain spec")
         ).arg(
         Arg::new(ARG_ASSUME_VALID_TARGET)
             .long(ARG_ASSUME_VALID_TARGET)
             .action(clap::ArgAction::Set)
             .value_parser(is_h256)
             .help("This parameter specifies the hash of a block. \
-            When the height does not reach this block's height, the execution of the script will be disabled, \
-            that is, skip verifying the script content. \
-            \n\nIt should be noted that when this option is enabled, the header is first synchronized to \
-            the highest currently found. During this period, if the assume valid target is found, \
-            the download of the block starts; If the assume valid target is not found or it's \
-            timestamp within 24 hours of the current time, the target will automatically become invalid, \
-            and the download of the block will be started with verify")
-        )
-        .arg(
+            When the current height does not reach this block's height, script execution will be disabled, \
+            meaning it will skip the verification of the script content. \
+            \
+            Please note that when this option is enabled, the header will be synchronized to \
+            the highest block currently found. During this period, if the assume valid target is found, \
+            the block download starts; \
+            if the assume valid target is either absent or has a timestamp within 24 hours of the current time, \
+            the target is considered invalid, and the block download proceeds with verification.")
+        ).arg(
             Arg::new(ARG_INDEXER)
             .long(ARG_INDEXER)
             .action(clap::ArgAction::SetTrue)
             .help("Start the built-in indexer service"),
-        )
+        );
+
+    #[cfg(not(target_os = "windows"))]
+    let command = command.arg(
+        Arg::new(ARG_DAEMON)
+            .long(ARG_DAEMON)
+            .action(clap::ArgAction::SetTrue)
+            .help(
+                "Starts ckb as a daemon, \
+                which will run in the background and output logs to the specified log file",
+            ),
+    );
+    command
 }
 
 fn miner() -> Command {
@@ -210,7 +234,7 @@ fn miner() -> Command {
             .value_parser(clap::value_parser!(u128))
             .default_value("0")
             .help(
-                "Exit after how many nonces found; \
+                "Exit after finding this specific number of nonces; \
             0 means the miner will never exit. [default: 0]",
             ),
     )
@@ -243,6 +267,12 @@ fn reset_data() -> Command {
                 .help("Delete only `data/db`"),
         )
         .arg(
+            Arg::new(ARG_INDEXER)
+                .long(ARG_INDEXER)
+                .action(clap::ArgAction::SetTrue)
+                .help("Delete only `data/indexer/store`"),
+        )
+        .arg(
             Arg::new(ARG_NETWORK)
                 .long(ARG_NETWORK)
                 .action(clap::ArgAction::SetTrue)
@@ -271,7 +301,7 @@ fn reset_data() -> Command {
 pub(crate) fn stats() -> Command {
     Command::new(CMD_STATS)
         .about(
-            "Statics chain information\n\
+            "Chain stats\n\
              Example:\n\
              ckb -C <dir> stats --from 1 --to 500",
         )
@@ -280,26 +310,26 @@ pub(crate) fn stats() -> Command {
                 .long(ARG_FROM)
                 .value_parser(clap::value_parser!(u64))
                 .action(clap::ArgAction::Set)
-                .help("Specifies from block number."),
+                .help("Specify from block number"),
         )
         .arg(
             Arg::new(ARG_TO)
                 .long(ARG_TO)
                 .value_parser(clap::value_parser!(u64))
                 .action(clap::ArgAction::Set)
-                .help("Specifies to block number."),
+                .help("Specify to block number"),
         )
 }
 
 fn replay() -> Command {
     Command::new(CMD_REPLAY)
-        .about("replay ckb process block")
+        .about("Replay CKB process block")
         .override_help("
             --tmp-target <tmp> --profile 1 10,\n
             --tmp-target <tmp> --sanity-check,\n
         ")
         .arg(Arg::new(ARG_TMP_TARGET).long(ARG_TMP_TARGET).value_parser(clap::builder::PathBufValueParser::new()).action(clap::ArgAction::Set).required(true).help(
-            "Specifies a target path, prof command make a temporary directory inside of target and the directory will be automatically deleted when finished",
+            "Specify a target path. The profile command makes a temporary directory within the specified target path. This temporary directory will be automatically deleted when the command completes.",
         ))
         .arg(Arg::new(ARG_PROFILE).long(ARG_PROFILE).action(clap::ArgAction::SetTrue).help(
             "Enable profile",
@@ -307,12 +337,12 @@ fn replay() -> Command {
         .arg(
             Arg::new(ARG_FROM)
             .value_parser(clap::value_parser!(u64))
-              .help("Specifies profile from block number."),
+              .help("Specify profile from block number"),
         )
         .arg(
             Arg::new(ARG_TO)
             .value_parser(clap::value_parser!(u64))
-              .help("Specifies profile to block number."),
+              .help("Specify profile to block number"),
         )
         .arg(
             Arg::new(ARG_SANITY_CHECK).long(ARG_SANITY_CHECK).action(clap::ArgAction::SetTrue).help("Enable sanity check")
@@ -328,38 +358,38 @@ fn replay() -> Command {
 }
 
 fn export() -> Command {
-    Command::new(CMD_EXPORT).about("Exports ckb data").arg(
+    Command::new(CMD_EXPORT).about("Export CKB data").arg(
         Arg::new(ARG_TARGET)
             .short('t')
             .long(ARG_TARGET)
             .value_name("path")
             .value_parser(clap::builder::PathBufValueParser::new())
             .required(true)
-            .help("Specifies the export target path."),
+            .help("Specify the export target path"),
     )
 }
 
 fn import() -> Command {
-    Command::new(CMD_IMPORT).about("Imports ckb data").arg(
+    Command::new(CMD_IMPORT).about("Import CKB data").arg(
         Arg::new(ARG_SOURCE)
             .index(1)
             .value_name("path")
             .value_parser(clap::builder::PathBufValueParser::new())
             .required(true)
-            .help("Specifies the exported data path."),
+            .help("Specify the exported data path"),
     )
 }
 
 fn migrate() -> Command {
     Command::new(CMD_MIGRATE)
-        .about("Runs ckb migration")
+        .about("Run CKB migration")
         .arg(
             Arg::new(ARG_MIGRATE_CHECK)
                 .long(ARG_MIGRATE_CHECK)
                 .action(clap::ArgAction::SetTrue)
                 .help(
-                    "Perform database version check without migrating, \
-                    if migration is in need ExitCode(0) is returned，\
+                    "Perform database version check without migrating. \
+                    If migration is in need, ExitCode(0) is returned; \
                     otherwise ExitCode(64) is returned",
                 ),
         )
@@ -368,20 +398,39 @@ fn migrate() -> Command {
                 .long(ARG_FORCE)
                 .action(clap::ArgAction::SetTrue)
                 .conflicts_with(ARG_MIGRATE_CHECK)
-                .help("Do migration without interactive prompt"),
+                .help("Migrate without interactive prompt"),
+        )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn daemon() -> Command {
+    Command::new(CMD_DAEMON)
+        .about("Runs ckb daemon command")
+        .arg(
+            Arg::new(ARG_DAEMON_CHECK)
+                .long(ARG_DAEMON_CHECK)
+                .action(clap::ArgAction::SetTrue)
+                .help("Check the daemon status"),
+        )
+        .arg(
+            Arg::new(ARG_DAEMON_STOP)
+                .long(ARG_DAEMON_STOP)
+                .action(clap::ArgAction::SetTrue)
+                .conflicts_with(ARG_DAEMON_CHECK)
+                .help("Stop the daemon process, both the miner and the node"),
         )
 }
 
 fn list_hashes() -> Command {
     Command::new(CMD_LIST_HASHES)
-        .about("Lists well known hashes")
+        .about("List well known hashes")
         .arg(
             Arg::new(ARG_BUNDLED)
                 .short('b')
                 .long(ARG_BUNDLED)
                 .action(clap::ArgAction::SetTrue)
                 .help(
-                    "Lists hashes of the bundled chain specs instead of the current effective one.",
+                    "List hashes of the bundled chain specs, instead of the current effective ones.",
                 ),
         )
         .arg(
@@ -390,13 +439,13 @@ fn list_hashes() -> Command {
                 .long(ARG_FORMAT)
                 .value_parser(["json", "toml"])
                 .default_value("toml")
-                .help("Set the format of the printed hashes."),
+                .help("Set the format of the printed hashes"),
         )
 }
 
 fn init() -> Command {
     Command::new(CMD_INIT)
-        .about("Creates a CKB directory or re-initializes an existing one")
+        .about("Create a CKB directory or re-initialize an existing one")
         .arg(
             Arg::new(ARG_INTERACTIVE)
                 .short('i')
@@ -409,7 +458,7 @@ fn init() -> Command {
                 .short('l')
                 .long(ARG_LIST_CHAINS)
                 .action(clap::ArgAction::SetTrue)
-                .help("Lists available options for --chain"),
+                .help("List available options for --chain"),
         )
         .arg(
             Arg::new(ARG_CHAIN)
@@ -422,14 +471,14 @@ fn init() -> Command {
                         .collect::<Vec<_>>(),
                 )
                 .default_value(DEFAULT_SPEC)
-                .help("Initializes CKB directory for <chain>"),
+                .help("Initialize CKB directory for <chain>"),
         )
         .arg(
             Arg::new(ARG_IMPORT_SPEC)
                 .long(ARG_IMPORT_SPEC)
                 .action(clap::ArgAction::Set)
                 .help(
-                    "Uses the specifies file as chain spec. Specially, \
+                    "Use the specified file as the chain spec. Specially, \
                      The dash \"-\" denotes importing the spec from stdin encoded in base64",
                 ),
         )
@@ -438,26 +487,26 @@ fn init() -> Command {
                 .long(ARG_LOG_TO)
                 .value_parser(["file", "stdout", "both"])
                 .default_value("both")
-                .help("Configures where the logs should print"),
+                .help("Configure where the logs should be printed"),
         )
         .arg(
             Arg::new(ARG_FORCE)
                 .short('f')
                 .long(ARG_FORCE)
                 .action(clap::ArgAction::SetTrue)
-                .help("Forces overwriting existing files"),
+                .help("Enforce overwriting existing files"),
         )
         .arg(
             Arg::new(ARG_RPC_PORT)
                 .long(ARG_RPC_PORT)
                 .default_value(DEFAULT_RPC_PORT)
-                .help("Replaces CKB RPC port in the created config file"),
+                .help("Replace CKB RPC port in the created config file"),
         )
         .arg(
             Arg::new(ARG_P2P_PORT)
                 .long(ARG_P2P_PORT)
                 .default_value(DEFAULT_P2P_PORT)
-                .help("Replaces CKB P2P port in the created config file"),
+                .help("Replace CKB P2P port in the created config file"),
         )
         .arg(
             Arg::new(ARG_BA_CODE_HASH)
@@ -466,7 +515,7 @@ fn init() -> Command {
                 .value_parser(is_h256)
                 .action(clap::ArgAction::Set)
                 .help(
-                    "Sets code_hash in [block_assembler] \
+                    "Set code_hash in [block_assembler] \
                      [default: secp256k1 if --ba-arg is present]",
                 ),
         )
@@ -476,7 +525,7 @@ fn init() -> Command {
                 .value_name("arg")
                 .action(clap::ArgAction::Append)
                 .value_parser(is_hex)
-                .help("Sets args in [block_assembler]"),
+                .help("Set args in [block_assembler]"),
         )
         .arg(
             Arg::new(ARG_BA_HASH_TYPE)
@@ -485,7 +534,7 @@ fn init() -> Command {
                 .action(clap::ArgAction::Set)
                 .value_parser(["data", "type", "data1"])
                 .default_value("type")
-                .help("Sets hash type in [block_assembler]"),
+                .help("Set hash type in [block_assembler]"),
         )
         .group(
             ArgGroup::new(GROUP_BA)
@@ -498,7 +547,7 @@ fn init() -> Command {
                 .value_name("message")
                 .value_parser(is_hex)
                 .requires(GROUP_BA)
-                .help("Sets message in [block_assembler]"),
+                .help("Set message in [block_assembler]"),
         )
         .arg(Arg::new("export-specs").long("export-specs").hide(true))
         .arg(Arg::new("list-specs").long("list-specs").hide(true))
@@ -516,8 +565,8 @@ fn init() -> Command {
                 .action(clap::ArgAction::Set)
                 .help(
                     "Specify a string as the genesis message. \
-                     Only works for dev chains. \
-                     If no message is provided, use current timestamp.",
+                     This only works for dev chains. \
+                     If no message is provided, use the current timestamp.",
                 ),
         )
 }

@@ -609,7 +609,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let tx_hash = tx.hash();
         if let Err(e) = tx_pool.notify_txs(vec![tx]) {
-            error!("send notify_txs request error {}", e);
+            error!("Send notify_txs request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         }
         Ok(tx_hash.unpack())
@@ -651,7 +651,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 )
                 .map_err(|err| {
                     error!(
-                        "resolve transactions error when generating block \
+                        "Resolve transactions error when generating block \
                          with block template, error: {:?}",
                         err
                     );

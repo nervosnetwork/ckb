@@ -35,6 +35,7 @@ use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
+use std::time::Instant;
 use std::{cmp, thread};
 
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
@@ -236,9 +237,17 @@ impl ChainService {
                 select! {
                     recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (block, verify) }) => {
+                            let instant = Instant::now();
+
                             let _ = tx_control.suspend_chunk_process();
                             let _ = responder.send(self.process_block(block, verify));
                             let _ = tx_control.continue_chunk_process();
+
+                            if let Some(metrics) = ckb_metrics::handle() {
+                                metrics
+                                    .ckb_block_process_duration
+                                    .observe(instant.elapsed().as_secs_f64());
+                            }
                         },
                         _ => {
                             error!("process_block_receiver closed");
@@ -345,13 +354,13 @@ impl ChainService {
         let block_number = block.number();
         let block_hash = block.hash();
 
-        debug!("begin processing block: {}-{}", block_number, block_hash);
+        debug!("Begin processing block: {}-{}", block_number, block_hash);
         if block_number < 1 {
-            warn!("receive 0 number block: 0-{}", block_hash);
+            warn!("Receive 0 number block: 0-{}", block_hash);
         }
 
         self.insert_block(block, switch).map(|ret| {
-            debug!("finish processing block");
+            debug!("Finish processing block");
             ret
         })
     }
@@ -444,7 +453,7 @@ impl ChainService {
 
         let current_total_difficulty = shared_snapshot.total_difficulty().to_owned();
         debug!(
-            "difficulty current = {:#x}, cannon = {:#x}",
+            "Current difficulty = {:#x}, cannon = {:#x}",
             current_total_difficulty, cannon_total_difficulty,
         );
 
@@ -453,7 +462,7 @@ impl ChainService {
 
         if new_best_block {
             debug!(
-                "new best block found: {} => {:#x}, difficulty diff = {:#x}",
+                "Newly found best block : {} => {:#x}, difficulty diff = {:#x}",
                 block.header().number(),
                 block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
@@ -506,7 +515,7 @@ impl ChainService {
                     fork.detached_proposal_id().clone(),
                     new_snapshot,
                 ) {
-                    error!("notify update_tx_pool_for_reorg error {}", e);
+                    error!("Notify update_tx_pool_for_reorg error {}", e);
                 }
             }
 
@@ -535,7 +544,7 @@ impl ChainService {
             if tx_pool_controller.service_started() {
                 let block_ref: &BlockView = &block;
                 if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
-                    error!("notify new_uncle error {}", e);
+                    error!("Notify new_uncle error {}", e);
                 }
             }
         }
@@ -576,7 +585,7 @@ impl ChainService {
             let proposal_start =
                 cmp::max(1, (new_tip + 1).saturating_sub(proposal_window.farthest()));
 
-            debug!("reload_proposal_table [{}, {}]", proposal_start, common);
+            debug!("Reload_proposal_table [{}, {}]", proposal_start, common);
             for bn in proposal_start..=common {
                 let blk = self
                     .shared
@@ -930,13 +939,13 @@ impl ChainService {
 
     fn print_error(&self, b: &BlockView, err: &Error) {
         error!(
-            "block verify error, block number: {}, hash: {}, error: {:?}",
+            "Block verify error. Block number: {}, hash: {}, error: {:?}",
             b.header().number(),
             b.header().hash(),
             err
         );
         if log_enabled!(ckb_logger::Level::Trace) {
-            trace!("block {}", b.data());
+            trace!("Block {}", b.data());
         }
     }
 

@@ -623,6 +623,7 @@ pub trait ChainRpc {
     ///     "min_replace_fee": "0x16923f7f6a",
     ///     "tx_status": {
     ///       "block_hash": null,
+    ///       "block_number": null,
     ///       "status": "pending",
     ///       "reason": null
     ///     }
@@ -642,6 +643,7 @@ pub trait ChainRpc {
     ///     "cycles": "0x219",
     ///     "tx_status": {
     ///       "block_hash": null,
+    ///       "block_number": null,
     ///       "status": "pending",
     ///       "reason": null
     ///     }
@@ -2138,6 +2140,7 @@ impl ChainRpcImpl {
             };
             return Ok(TransactionWithStatus::with_committed(
                 None,
+                tx_info.block_number,
                 tx_info.block_hash.unpack(),
                 cycles,
                 None,
@@ -2151,7 +2154,7 @@ impl ChainRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let tx_status = tx_pool.get_tx_status(tx_hash);
         if let Err(e) = tx_status {
-            error!("send get_tx_status request error {}", e);
+            error!("Send get_tx_status request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
         let tx_status = tx_status.unwrap();
@@ -2185,6 +2188,7 @@ impl ChainRpcImpl {
 
             return Ok(TransactionWithStatus::with_committed(
                 Some(tx),
+                tx_info.block_number,
                 tx_info.block_hash.unpack(),
                 cycles,
                 None,
@@ -2198,13 +2202,13 @@ impl ChainRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let transaction_with_status = tx_pool.get_transaction_with_status(tx_hash);
         if let Err(e) = transaction_with_status {
-            error!("send get_transaction_with_status request error {}", e);
+            error!("Send get_transaction_with_status request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
         let transaction_with_status = transaction_with_status.unwrap();
 
         if let Err(e) = transaction_with_status {
-            error!("get transaction_with_status from db error {}", e);
+            error!("Get transaction_with_status from db error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
         let transaction_with_status = transaction_with_status.unwrap();

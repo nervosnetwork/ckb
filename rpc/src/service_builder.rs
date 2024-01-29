@@ -246,7 +246,7 @@ impl<'a> ServiceBuilder<'a> {
         rpc_methods.into_iter().for_each(|(name, _method)| {
             let error = Err(RPCError::rpc_module_is_disabled(module));
             self.io_handler.add_sync_method(
-                name.split("deprecated.")
+                name.split(DEPRECATED_RPC_PREFIX)
                     .collect::<Vec<&str>>()
                     .last()
                     .unwrap(),

@@ -306,7 +306,8 @@ impl RpcClient {
     }
 }
 
-jsonrpc!(pub struct Inner {
+jsonrpc!(
+    pub struct Inner {
     pub fn get_block(&self, _hash: H256) -> Option<BlockView>;
     pub fn get_fork_block(&self, _hash: H256) -> Option<BlockView>;
     pub fn get_block_by_number(&self, _number: BlockNumber) -> Option<BlockView>;

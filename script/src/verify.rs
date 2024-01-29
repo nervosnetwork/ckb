@@ -641,10 +641,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         for (idx, (_hash, group)) in groups.iter().enumerate() {
             // vm should early return invalid cycles
             let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {limit_cycles} {cycles}"
-                ))
-                .source(group)
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
             })?;
 
             match self.verify_group_with_chunk(group, remain_cycles, &[]) {
@@ -690,7 +688,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         let mut current_used = 0;
 
         let (_hash, current_group) = self.groups().nth(snap.current).ok_or_else(|| {
-            ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
+            ScriptError::Other(format!("snapshot group missing {:?}", snap.current))
                 .unknown_source()
         })?;
 
@@ -719,10 +717,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         let skip = snap.current + 1;
         for (idx, (_hash, group)) in self.groups().enumerate().skip(skip) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
-                ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {limit_cycles} {cycles}"
-                ))
-                .source(group)
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
             })?;
 
             match self.verify_group_with_chunk(group, remain_cycles, &[]) {
@@ -776,8 +772,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         let mut cycles = current_cycles;
 
         let (_hash, current_group) = self.groups().nth(current).ok_or_else(|| {
-            ScriptError::VMInternalError(format!("snapshot group missing {current:?}"))
-                .unknown_source()
+            ScriptError::Other(format!("snapshot group missing {current:?}")).unknown_source()
         })?;
 
         let resumed_script_result = if vms.is_empty() {
@@ -805,10 +800,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         for (idx, (_hash, group)) in self.groups().enumerate().skip(current + 1) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
-                ScriptError::VMInternalError(format!(
-                    "expect invalid cycles {limit_cycles} {cycles}"
-                ))
-                .source(group)
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
             })?;
 
             match self.verify_group_with_chunk(group, remain_cycles, &[]) {
@@ -848,7 +841,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         let mut cycles = snap.current_cycles;
 
         let (_hash, current_group) = self.groups().nth(snap.current).ok_or_else(|| {
-            ScriptError::VMInternalError(format!("snapshot group missing {:?}", snap.current))
+            ScriptError::Other(format!("snapshot group missing {:?}", snap.current))
                 .unknown_source()
         })?;
 
@@ -878,7 +871,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         for (_hash, group) in self.groups().skip(snap.current + 1) {
             let remain_cycles = max_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::VMInternalError(format!("expect invalid cycles {max_cycles} {cycles}"))
+                ScriptError::Other(format!("expect invalid cycles {max_cycles} {cycles}"))
                     .source(group)
             })?;
 
@@ -1019,14 +1012,20 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         Ok(machine)
     }
 
-    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+    /// Runs a single program, then returns the exit code together with the entire
+    /// machine to the caller for more inspections.
+    pub fn detailed_run(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<(i8, Machine), ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let context = Default::default();
         let mut machine = self.build_machine(script_group, max_cycles, context)?;
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            _ => ScriptError::VMInternalError(format!("{error:?}")),
+            _ => ScriptError::VMInternalError(error),
         };
 
         let bytes = machine
@@ -1037,6 +1036,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             .add_cycles_no_checking(transferred_byte_cycles(bytes))
             .map_err(map_vm_internal_error)?;
         let code = machine.run().map_err(map_vm_internal_error)?;
+
+        Ok((code, machine))
+    }
+
+    fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+        let (code, machine) = self.detailed_run(script_group, max_cycles)?;
+
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
@@ -1054,7 +1060,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            _ => ScriptError::VMInternalError(format!("{error:?}")),
+            _ => ScriptError::VMInternalError(error),
         };
 
         let machines = if !snaps.is_empty() {
@@ -1144,7 +1150,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             machine
                 .machine
                 .add_cycles_no_checking(program_bytes_cycles)
-                .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")))?;
+                .map_err(ScriptError::VMInternalError)?;
             vec![ResumableMachine::initial(machine)]
         };
 
@@ -1162,14 +1168,14 @@ fn run_vms(
     let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
 
     if machines.is_empty() {
-        return Err(ScriptError::VMInternalError(
+        return Err(ScriptError::Other(
             "To resume VMs, at least one VM must be available!".to_string(),
         ));
     }
 
     let map_vm_internal_error = |error: VMInternalError| match error {
         VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-        _ => ScriptError::VMInternalError(format!("{error:?}")),
+        _ => ScriptError::VMInternalError(error),
     };
 
     while let Some(mut machine) = machines.pop() {
@@ -1197,7 +1203,7 @@ fn run_vms(
                 VMInternalError::CyclesExceeded => {
                     let mut new_suspended_machines: Vec<_> = {
                         let mut context = context.lock().map_err(|e| {
-                            ScriptError::VMInternalError(format!("Failed to acquire lock: {}", e))
+                            ScriptError::Other(format!("Failed to acquire lock: {}", e))
                         })?;
                         context.suspended_machines.drain(..).collect()
                     };
@@ -1208,7 +1214,7 @@ fn run_vms(
                     machines.append(&mut new_suspended_machines);
                     return Ok(ChunkState::suspended(machines, Arc::clone(context)));
                 }
-                _ => return Err(ScriptError::VMInternalError(format!("{error:?}"))),
+                _ => return Err(ScriptError::VMInternalError(error)),
             },
         };
     }

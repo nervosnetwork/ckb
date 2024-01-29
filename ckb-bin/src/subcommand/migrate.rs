@@ -6,11 +6,11 @@ use std::cmp::Ordering;
 use crate::helper::prompt;
 
 pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
-    let migrate = Migrate::new(&args.config.db.path);
+    let migrate = Migrate::new(&args.config.db.path, args.consensus.hardfork_switch);
 
     {
         let read_only_db = migrate.open_read_only_db().map_err(|e| {
-            eprintln!("migrate error {e}");
+            eprintln!("Migration error {e}");
             ExitCode::Failure
         })?;
 
@@ -18,8 +18,8 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
             let db_status = migrate.check(&db);
             if matches!(db_status, Ordering::Greater) {
                 eprintln!(
-                    "The database is created by a higher version CKB executable binary, \n\
-                     so that the current CKB executable binary couldn't open this database.\n\
+                    "The database was created by a higher version CKB executable binary \n\
+                     and cannot be opened by the current binary.\n\
                      Please download the latest CKB executable binary."
                 );
                 return Err(ExitCode::Failure);
@@ -42,15 +42,16 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                     let input = prompt("\
                     \n\
                     Doing migration will take quite a long time before CKB could work again.\n\
-                    Another choice is to delete all data, then synchronize them again.\n\
                     \n\
                     Once the migration started, the data will be no longer compatible with all older versions CKB,\n\
                     so we strongly recommended you to backup the old data before migrating.\n\
+                    \n\
+                    If the migration failed, try to delete all data and sync from scratch.\n\
                     \nIf you want to migrate the data, please input YES, otherwise, the current process will exit.\n\
                     > ",
                     );
                     if input.trim().to_lowercase() != "yes" {
-                        eprintln!("The migration was declined since the user didn't confirm.");
+                        eprintln!("Migration was declined since the user didn't confirm.");
                         return Err(ExitCode::Failure);
                     }
                 } else {
@@ -62,12 +63,12 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
     }
 
     let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-        eprintln!("migrate error {e}");
+        eprintln!("Migration error {e}");
         ExitCode::Failure
     })?;
 
     if let Some(db) = bulk_load_db_db {
-        migrate.migrate(db).map_err(|err| {
+        migrate.migrate(db, false).map_err(|err| {
             eprintln!("Run error: {err:?}");
             ExitCode::Failure
         })?;

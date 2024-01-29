@@ -103,9 +103,8 @@ impl BlockFetchCMD {
                 if number != self.number && (number - self.number) % 10000 == 0 {
                     self.number = number;
                     info!(
-                            "best known header number: {}, total difficulty: {:#x}, \
-                                 require min header number on 500_000, min total difficulty: {:#x}, \
-                                 then start to download block",
+                            "The current best known header number: {}, total difficulty: {:#x}. \
+                                 Block download minimum requirements: header number: 500_000, total difficulty: {:#x}.",
                             number,
                             best_known.total_difficulty(),
                             self.sync_shared.state().min_chain_work()
@@ -126,8 +125,8 @@ impl BlockFetchCMD {
                     self.number = number;
                     info!(
                         "best known header number: {}, hash: {:#?}, \
-                                 can't find assume valid target temporarily, hash: {:#?} \
-                                 please wait",
+                                 temporarily can't find assume valid target, hash: {:#?} \
+                                 Please wait",
                         number,
                         best_known.hash(),
                         assume_valid_target
@@ -221,7 +220,7 @@ impl BlockFetchCMD {
             SupportProtocols::Sync.protocol_id(),
             message.as_bytes(),
         ) {
-            debug!("synchronizer send GetBlocks error: {:?}", err);
+            debug!("synchronizer sending GetBlocks error: {:?}", err);
         }
     }
 }
@@ -298,14 +297,14 @@ impl Synchronizer {
 
         if let Some(ban_time) = status.should_ban() {
             error!(
-                "receive {} from {}, ban {:?} for {}",
+                "Receive {} from {}. Ban {:?} for {}",
                 item_name, peer, ban_time, status
             );
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
-            warn!("receive {} from {}, {}", item_name, peer, status);
+            warn!("Receive {} from {}, {}", item_name, peer, status);
         } else if !status.is_ok() {
-            debug!("receive {} from {}, {}", item_name, peer, status);
+            debug!("Receive {} from {}, {}", item_name, peer, status);
         }
     }
 
@@ -339,7 +338,7 @@ impl Synchronizer {
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_STORED) {
-            debug!("block {} already stored", block_hash);
+            debug!("Block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared.insert_new_block(&self.chain, Arc::new(block))
@@ -484,7 +483,7 @@ impl Synchronizer {
             }
         }
         for peer in eviction {
-            info!("timeout eviction peer={}", peer);
+            info!("Timeout eviction peer={}", peer);
             if let Err(err) = nc.disconnect(peer, "sync timeout eviction") {
                 debug!("synchronizer disconnect error: {:?}", err);
             }
@@ -532,7 +531,7 @@ impl Synchronizer {
                 }
             }
 
-            debug!("start sync peer={}", peer);
+            debug!("Start sync peer={}", peer);
             active_chain.send_getheaders_to_peer(nc, peer, tip.number_and_hash());
         }
     }
@@ -542,7 +541,7 @@ impl Synchronizer {
         ibd: IBDState,
         disconnect_list: &HashSet<PeerIndex>,
     ) -> Vec<PeerIndex> {
-        trace!("poll find_blocks_to_fetch select peers");
+        trace!("Poll find_blocks_to_fetch selecting peers");
         let state = &self
             .shared
             .state()
@@ -721,8 +720,8 @@ impl CKBProtocolHandler for Synchronizer {
                 if let packed::SyncMessageUnionReader::SendBlock(ref reader) = item {
                     if reader.has_extra_fields() || reader.block().count_extra_fields() > 1 {
                         info!(
-                            "Peer {} sends us a malformed message: \
-                             too many fields in SendBlock",
+                            "A malformed message from peer {}: \
+                             excessive fields detected in SendBlock",
                             peer_index
                         );
                         nc.ban_peer(
@@ -742,8 +741,8 @@ impl CKBProtocolHandler for Synchronizer {
                         Ok(msg) => msg.to_enum(),
                         _ => {
                             info!(
-                                "Peer {} sends us a malformed message: \
-                                 too many fields",
+                                "A malformed message from peer {}: \
+                                 excessive fields",
                                 peer_index
                             );
                             nc.ban_peer(
@@ -760,7 +759,7 @@ impl CKBProtocolHandler for Synchronizer {
                 }
             }
             _ => {
-                info!("Peer {} sends us a malformed message", peer_index);
+                info!("A malformed message from peer {}", peer_index);
                 nc.ban_peer(
                     peer_index,
                     BAD_MESSAGE_BAN_TIME,
@@ -770,7 +769,7 @@ impl CKBProtocolHandler for Synchronizer {
             }
         };
 
-        debug!("received msg {} from {}", msg.item_name(), peer_index);
+        debug!("Received msg {} from {}", msg.item_name(), peer_index);
         #[cfg(feature = "with_sentry")]
         {
             let sentry_hub = sentry::Hub::current();
@@ -784,7 +783,7 @@ impl CKBProtocolHandler for Synchronizer {
         let start_time = Instant::now();
         tokio::task::block_in_place(|| self.process(nc.as_ref(), peer_index, msg));
         debug!(
-            "process message={}, peer={}, cost={:?}",
+            "Process message={}, peer={}, cost={:?}",
             msg.item_name(),
             peer_index,
             Instant::now().saturating_duration_since(start_time),
@@ -813,7 +812,7 @@ impl CKBProtocolHandler for Synchronizer {
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         if !self.peers().state.is_empty() {
             let start_time = Instant::now();
-            trace!("start notify token={}", token);
+            trace!("Start notify token={}", token);
             match token {
                 SEND_GET_HEADERS_TOKEN => {
                     self.start_sync_headers(nc.as_ref());
@@ -827,7 +826,7 @@ impl CKBProtocolHandler for Synchronizer {
                         }
                         self.shared.state().peers().clear_unknown_list();
                         if nc.remove_notify(IBD_BLOCK_FETCH_TOKEN).await.is_err() {
-                            trace!("remove ibd block fetch fail");
+                            trace!("Ibd block fetch token removal failed");
                         }
                     }
                 }
@@ -844,12 +843,12 @@ impl CKBProtocolHandler for Synchronizer {
             }
 
             trace!(
-                "finished notify token={} cost={:?}",
+                "Finished notify token={} cost={:?}",
                 token,
                 Instant::now().saturating_duration_since(start_time)
             );
         } else if token == NO_PEER_CHECK_TOKEN {
-            debug!("no peers connected");
+            debug!("No peers connected");
         }
     }
 }

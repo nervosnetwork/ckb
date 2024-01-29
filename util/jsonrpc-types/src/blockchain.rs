@@ -589,6 +589,8 @@ pub enum Status {
 pub struct TxStatus {
     /// The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
     pub status: Status,
+    /// The block number of the block which has committed this transaction in the canonical chain.
+    pub block_number: Option<BlockNumber>,
     /// The block hash of the block which has committed this transaction in the canonical chain.
     pub block_hash: Option<H256>,
     /// The reason why the transaction is rejected
@@ -600,7 +602,7 @@ impl From<tx_pool::TxStatus> for TxStatus {
         match tx_pool_status {
             tx_pool::TxStatus::Pending => TxStatus::pending(),
             tx_pool::TxStatus::Proposed => TxStatus::proposed(),
-            tx_pool::TxStatus::Committed(hash) => TxStatus::committed(hash),
+            tx_pool::TxStatus::Committed(number, hash) => TxStatus::committed(number.into(), hash),
             tx_pool::TxStatus::Rejected(reason) => TxStatus::rejected(reason),
             tx_pool::TxStatus::Unknown => TxStatus::unknown(),
         }
@@ -612,6 +614,7 @@ impl TxStatus {
     pub fn pending() -> Self {
         Self {
             status: Status::Pending,
+            block_number: None,
             block_hash: None,
             reason: None,
         }
@@ -621,6 +624,7 @@ impl TxStatus {
     pub fn proposed() -> Self {
         Self {
             status: Status::Proposed,
+            block_number: None,
             block_hash: None,
             reason: None,
         }
@@ -631,9 +635,10 @@ impl TxStatus {
     /// ## Params
     ///
     /// * `hash` - the block hash in which the transaction is committed.
-    pub fn committed(hash: H256) -> Self {
+    pub fn committed(number: BlockNumber, hash: H256) -> Self {
         Self {
             status: Status::Committed,
+            block_number: Some(number),
             block_hash: Some(hash),
             reason: None,
         }
@@ -647,6 +652,7 @@ impl TxStatus {
     pub fn rejected(reason: String) -> Self {
         Self {
             status: Status::Rejected,
+            block_number: None,
             block_hash: None,
             reason: Some(reason),
         }
@@ -656,6 +662,7 @@ impl TxStatus {
     pub fn unknown() -> Self {
         Self {
             status: Status::Unknown,
+            block_number: None,
             block_hash: None,
             reason: None,
         }

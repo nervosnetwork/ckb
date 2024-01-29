@@ -80,14 +80,14 @@ impl CKBProtocolHandler for LightClientProtocol {
         let status = self.try_process(nc.as_ref(), peer, msg);
         if let Some(ban_time) = status.should_ban() {
             error!(
-                "process {} from {}, ban {:?} since result is {}",
+                "process {} from {}; ban {:?} since result is {}",
                 item_name, peer, ban_time, status
             );
             nc.ban_peer(peer, ban_time, status.to_string());
         } else if status.should_warn() {
-            warn!("process {} from {}, result is {}", item_name, peer, status);
+            warn!("process {} from {}; result is {}", item_name, peer, status);
         } else if !status.is_ok() {
-            debug!("process {} from {}, result is {}", item_name, peer, status);
+            debug!("process {} from {}; result is {}", item_name, peer, status);
         }
     }
 }

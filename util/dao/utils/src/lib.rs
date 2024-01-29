@@ -122,12 +122,13 @@ pub fn pack_dao_data(ar: u64, c: Capacity, s: Capacity, u: Capacity) -> Byte32 {
     Byte32::from_slice(&buf).expect("impossible: fail to read array")
 }
 
+#[cfg(test)]
 mod tests {
     pub use super::{extract_dao_data, pack_dao_data};
     pub use ckb_types::core::Capacity;
+    pub use ckb_types::h256;
     pub use ckb_types::packed::Byte32;
     pub use ckb_types::prelude::Pack;
-    pub use ckb_types::{h256, H256};
 
     #[test]
     #[allow(clippy::unreadable_literal)]

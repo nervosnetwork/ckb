@@ -275,7 +275,7 @@ pub struct InvalidParentError {
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum PowError {
     /// Error occurs during PoW verification.
-    #[error("InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" to see detailed PoW verification information in the log")]
+    #[error("InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" for detailed PoW verification information")]
     InvalidNonce,
 }
 

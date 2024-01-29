@@ -102,15 +102,22 @@ impl TxPoolService {
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         mut status: TxStatus,
-        conflicts: HashSet<ProposalShortId>,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
+                // here we double confirm RBF rules before insert entry
+                // check_rbf must be invoked in `write` lock to avoid concurrent issues.
+                let conflicts = if tx_pool.enable_rbf() {
+                    tx_pool.check_rbf(&snapshot, &entry)?
+                } else {
+                    HashSet::new()
+                };
+
                 // if snapshot changed by context switch we need redo time_relative verify
                 let tip_hash = snapshot.tip_hash();
                 if pre_resolve_tip != tip_hash {
                     debug!(
-                        "submit_entry {} context changed previous:{} now:{}",
+                        "submit_entry {} context changed. previous:{} now:{}",
                         entry.proposal_short_id(),
                         pre_resolve_tip,
                         tip_hash
@@ -231,21 +238,26 @@ impl TxPoolService {
                 match res {
                     Ok((rtx, status)) => {
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                        Ok((tip_hash, rtx, status, fee, tx_size, HashSet::new()))
+                        Ok((tip_hash, rtx, status, fee, tx_size))
                     }
                     Err(err) => {
                         if tx_pool.enable_rbf()
                             && matches!(err, Reject::Resolve(OutPointError::Dead(_)))
                         {
-                            // Try RBF check
-                            let conflicts = tx_pool.pool_map.find_conflict_tx(tx);
-                            if conflicts.is_empty() {
-                                return Err(err);
-                            }
                             let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
                             let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                            tx_pool.check_rbf(&snapshot, &rtx, &conflicts, fee, tx_size)?;
-                            Ok((tip_hash, rtx, status, fee, tx_size, conflicts))
+                            // Try an RBF cheap check, here if the tx is resolved as Dead,
+                            // we assume there must be conflicted happened in txpool now,
+                            // if there is no conflicted transactions reject it
+                            let conflicts = tx_pool.pool_map.find_conflict_tx(&rtx.transaction);
+                            if conflicts.is_empty() {
+                                error!(
+                                    "{} is resolved as Dead, but there is no conflicted tx",
+                                    rtx.transaction.proposal_short_id()
+                                );
+                                return Err(err);
+                            }
+                            Ok((tip_hash, rtx, status, fee, tx_size))
                         } else {
                             Err(err)
                         }
@@ -338,7 +350,10 @@ impl TxPoolService {
         let mut tx_pool = self.tx_pool.write().await;
         if let Some(ref mut recent_reject) = tx_pool.recent_reject {
             if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
-                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+                error!(
+                    "Failed to record recent_reject {} {} {}",
+                    tx_hash, reject, e
+                );
             }
         }
     }
@@ -508,7 +523,7 @@ impl TxPoolService {
             for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
                     debug!(
-                        "process_orphan {} add to chunk, find previous from {}",
+                        "process_orphan {} added to chunk; find previous from {}",
                         orphan.tx.hash(),
                         tx.hash(),
                     );
@@ -621,8 +636,7 @@ impl TxPoolService {
         let tx_hash = tx.hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
-            try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
@@ -715,7 +729,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status, conflicts).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -760,8 +774,7 @@ impl TxPoolService {
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
-        let (tip_hash, rtx, status, fee, tx_size, conflicts) =
-            try_or_return_with_snapshot!(ret, snapshot);
+        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
         if self.is_in_delay_window(&snapshot) {
             let mut delay = self.delay.write().await;
@@ -797,7 +810,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status, conflicts).await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -1004,7 +1017,7 @@ impl TxPoolService {
         if let Err(err) = tx_pool.save_into_file() {
             error!("failed to save pool, error: {:?}", err)
         } else {
-            info!("TxPool save successfully")
+            info!("TxPool saved successfully")
         }
     }
 
@@ -1025,7 +1038,7 @@ impl TxPoolService {
             }
         }
         if count != 0 {
-            info!("{}/{} transactions are failed to process", count, total);
+            info!("{}/{} transaction process failed.", count, total);
         }
     }
 
@@ -1041,9 +1054,6 @@ type PreCheckedTx = (
     TxStatus,                 // status
     Capacity,                 // tx fee
     usize,                    // tx size
-    // the conflicted txs, used for latter `check_rbf`
-    // the root txs for removing from `tx-pool` when RBF is checked
-    HashSet<ProposalShortId>,
 );
 
 type ResolveResult = Result<(Arc<ResolvedTransaction>, TxStatus), Reject>;
@@ -1092,19 +1102,19 @@ fn _submit_entry(
         TxStatus::Fresh => {
             if tx_pool.add_pending(entry.clone())? {
                 debug!("submit_entry pending {}", tx_hash);
-                callbacks.call_pending(tx_pool, &entry);
+                callbacks.call_pending(&entry);
             }
         }
         TxStatus::Gap => {
             if tx_pool.add_gap(entry.clone())? {
                 debug!("submit_entry gap {}", tx_hash);
-                callbacks.call_pending(tx_pool, &entry);
+                callbacks.call_pending(&entry);
             }
         }
         TxStatus::Proposed => {
             if tx_pool.add_proposed(entry.clone())? {
                 debug!("submit_entry proposed {}", tx_hash);
-                callbacks.call_proposed(tx_pool, &entry, true);
+                callbacks.call_proposed(&entry);
             }
         }
     }
@@ -1164,7 +1174,7 @@ fn _update_tx_pool_for_reorg(
                 );
                 callbacks.call_reject(tx_pool, &entry, e);
             } else {
-                callbacks.call_proposed(tx_pool, &entry, false)
+                callbacks.call_proposed(&entry)
             }
         }
 

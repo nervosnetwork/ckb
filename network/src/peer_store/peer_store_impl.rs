@@ -185,19 +185,15 @@ impl PeerStore {
     /// Return valid addrs that success connected, used for discovery.
     pub fn fetch_random_addrs(&mut self, count: usize, required_flags: Flags) -> Vec<AddrInfo> {
         // Get info:
-        // 1. Already connected or Connected within 7 days
+        // 1. Connected within 7 days
 
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TIMEOUT_MS);
-        let peers = &self.connected_peers;
         // get success connected addrs.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
                 required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
-                    && (extract_peer_id(&peer_addr.addr)
-                        .map(|peer_id| peers.contains_key(&peer_id))
-                        .unwrap_or_default()
-                        || peer_addr.connected(|t| t > addr_expired_ms))
+                    && peer_addr.connected(|t| t > addr_expired_ms)
             })
     }
 

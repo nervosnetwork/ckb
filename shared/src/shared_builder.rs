@@ -23,6 +23,7 @@ use ckb_logger::{error, info};
 use ckb_migrate::migrate::Migrate;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_store::{ChainDB, ChainStore, Freezer};
+use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::service::PoolTransactionEntry;
 use ckb_types::core::tx_pool::Reject;
 use ckb_types::core::EpochExt;
@@ -38,7 +39,7 @@ use tempfile::TempDir;
 pub struct SharedBuilder {
     db: RocksDB,
     ancient_path: Option<PathBuf>,
-    consensus: Option<Consensus>,
+    consensus: Consensus,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
     block_assembler_config: Option<BlockAssemblerConfig>,
@@ -51,11 +52,12 @@ pub fn open_or_create_db(
     bin_name: &str,
     root_dir: &Path,
     config: &DBConfig,
+    hardforks: HardForks,
 ) -> Result<RocksDB, ExitCode> {
-    let migrate = Migrate::new(&config.path);
+    let migrate = Migrate::new(&config.path, hardforks);
 
     let read_only_db = migrate.open_read_only_db().map_err(|e| {
-        eprintln!("migrate error {e}");
+        eprintln!("Migration error {e}");
         ExitCode::Failure
     })?;
 
@@ -63,36 +65,45 @@ pub fn open_or_create_db(
         match migrate.check(&db) {
             Ordering::Greater => {
                 eprintln!(
-                    "The database is created by a higher version CKB executable binary, \n\
-                     so that the current CKB executable binary couldn't open this database.\n\
+                    "The database was created by a higher version CKB executable binary \n\
+                     and cannot be opened by the current binary.\n\
                      Please download the latest CKB executable binary."
                 );
                 Err(ExitCode::Failure)
             }
             Ordering::Equal => Ok(RocksDB::open(config, COLUMNS)),
             Ordering::Less => {
-                if migrate.require_expensive(&db) {
+                let can_run_in_background = migrate.can_run_in_background(&db);
+                eprintln!("can_run_in_background: {}", can_run_in_background);
+                if migrate.require_expensive(&db) && !can_run_in_background {
                     eprintln!(
-                        "For optimal performance, CKB wants to migrate the data into new format.\n\
-                        You can use the old version CKB if you don't want to do the migration.\n\
-                        We strongly recommended you to use the latest stable version of CKB, \
-                        since the old versions may have unfixed vulnerabilities.\n\
-                        Run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\" to migrate the data.\n\
-                        We strongly recommend that you backup the data directory before migration.",
+                        "For optimal performance, CKB recommends migrating your data into a new format.\n\
+                        If you prefer to stick with the older version, \n\
+                        it's important to note that they may have unfixed vulnerabilities.\n\
+                        Before migrating, we strongly recommend backuping your data directory.\n\
+                        To migrate, run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\".",
                         bin_name,
                         root_dir.display()
                     );
                     Err(ExitCode::Failure)
+                } else if can_run_in_background {
+                    info!("process migrations in background ...");
+                    let db = RocksDB::open(config, COLUMNS);
+                    migrate.migrate(db.clone(), true).map_err(|err| {
+                        eprintln!("Run error: {err:?}");
+                        ExitCode::Failure
+                    })?;
+                    Ok(db)
                 } else {
-                    info!("process fast migrations ...");
+                    info!("Processing fast migrations ...");
 
                     let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-                        eprintln!("migrate error {e}");
+                        eprintln!("Migration error {e}");
                         ExitCode::Failure
                     })?;
 
                     if let Some(db) = bulk_load_db_db {
-                        migrate.migrate(db).map_err(|err| {
+                        migrate.migrate(db, false).map_err(|err| {
                             eprintln!("Run error: {err:?}");
                             ExitCode::Failure
                         })?;
@@ -105,7 +116,7 @@ pub fn open_or_create_db(
     } else {
         let db = RocksDB::open(config, COLUMNS);
         migrate.init_db_version(&db).map_err(|e| {
-            eprintln!("migrate init_db_version error {e}");
+            eprintln!("Migrate init_db_version error {e}");
             ExitCode::Failure
         })?;
         Ok(db)
@@ -120,13 +131,19 @@ impl SharedBuilder {
         db_config: &DBConfig,
         ancient: Option<PathBuf>,
         async_handle: Handle,
+        consensus: Consensus,
     ) -> Result<SharedBuilder, ExitCode> {
-        let db = open_or_create_db(bin_name, root_dir, db_config)?;
+        let db = open_or_create_db(
+            bin_name,
+            root_dir,
+            db_config,
+            consensus.hardfork_switch.clone(),
+        )?;
 
         Ok(SharedBuilder {
             db,
             ancient_path: ancient,
-            consensus: None,
+            consensus,
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
@@ -171,7 +188,7 @@ impl SharedBuilder {
         RUNTIME_HANDLE.with(|runtime| SharedBuilder {
             db,
             ancient_path: None,
-            consensus: None,
+            consensus: Consensus::default(),
             tx_pool_config: None,
             notify_config: None,
             store_config: None,
@@ -184,7 +201,7 @@ impl SharedBuilder {
 impl SharedBuilder {
     /// TODO(doc): @quake
     pub fn consensus(mut self, value: Consensus) -> Self {
-        self.consensus = Some(value);
+        self.consensus = value;
         self
     }
 
@@ -317,7 +334,7 @@ impl SharedBuilder {
         let tx_pool_config = tx_pool_config.unwrap_or_default();
         let notify_config = notify_config.unwrap_or_default();
         let store_config = store_config.unwrap_or_default();
-        let consensus = Arc::new(consensus.unwrap_or_default());
+        let consensus = Arc::new(consensus);
 
         let notify_controller = start_notify_service(notify_config, async_handle.clone());
 
@@ -382,39 +399,22 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
         fee: entry.fee,
         timestamp: entry.timestamp,
     };
-    tx_pool_builder.register_pending(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
-        // update statics
-        tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
-
+    tx_pool_builder.register_pending(Box::new(move |entry: &TxEntry| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_pending.notify_new_transaction(notify_tx_entry);
     }));
 
     let notify_proposed = notify.clone();
-    tx_pool_builder.register_proposed(Box::new(
-        move |tx_pool: &mut TxPool, entry: &TxEntry, new: bool| {
-            // update statics
-            if new {
-                tx_pool.update_statics_for_add_tx(entry.size, entry.cycles);
-            }
-
-            // notify
-            let notify_tx_entry = create_notify_entry(entry);
-            notify_proposed.notify_proposed_transaction(notify_tx_entry);
-        },
-    ));
-
-    tx_pool_builder.register_committed(Box::new(move |tx_pool: &mut TxPool, entry: &TxEntry| {
-        tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
+    tx_pool_builder.register_proposed(Box::new(move |entry: &TxEntry| {
+        // notify
+        let notify_tx_entry = create_notify_entry(entry);
+        notify_proposed.notify_proposed_transaction(notify_tx_entry);
     }));
 
     let notify_reject = notify;
     tx_pool_builder.register_reject(Box::new(
         move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
-            // update statics
-            tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles);
-
             let tx_hash = entry.transaction().hash();
             // record recent reject
             if matches!(reject, Reject::Resolve(..) | Reject::RBFRejected(..)) {

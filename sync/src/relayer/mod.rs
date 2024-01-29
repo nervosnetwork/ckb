@@ -667,7 +667,10 @@ impl Relayer {
                 let message = packed::RelayMessage::new_builder().set(content).build();
                 let status = send_message_to(nc, peer, &message);
                 if !status.is_ok() {
-                    ckb_logger::error!("break asking for transactions, status: {:?}", status);
+                    ckb_logger::error!(
+                        "interrupted request for transactions, status: {:?}",
+                        status
+                    );
                 }
             }
         }

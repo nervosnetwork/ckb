@@ -247,11 +247,11 @@ impl MinerRpc for MinerRpcImpl {
         self.shared
             .get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into))
             .map_err(|err| {
-                error!("send get_block_template request error {}", err);
+                error!("Send get_block_template request error {}", err);
                 RPCError::ckb_internal_error(err)
             })?
             .map_err(|err| {
-                error!("get_block_template result error {}", err);
+                error!("Get_block_template result error {}", err);
                 RPCError::from_any_error(err)
             })
     }

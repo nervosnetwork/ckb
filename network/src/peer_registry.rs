@@ -181,7 +181,7 @@ impl PeerRegistry {
         // randomly evict a peer
         let mut rng = thread_rng();
         evict_group.choose(&mut rng).map(|peer| {
-            debug!("evict inbound peer {:?}", peer.connected_addr);
+            debug!("Disconnect inbound peer {:?}", peer.connected_addr);
             peer.session_id
         })
     }

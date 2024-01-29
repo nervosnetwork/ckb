@@ -27,7 +27,7 @@ pub trait PoolRpc {
     /// ## Params
     ///
     /// * `transaction` - The transaction.
-    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "well_known_scripts_only").
+    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
     ///
     /// ## Errors
     ///
@@ -289,7 +289,12 @@ pub trait PoolRpc {
     ///        "pending_count": "0x1",
     ///        "proposed_count": "0x0",
     ///        "rank_in_pending": "0x1",
-    ///        "score_sortkey": "fee: 0x16923F7DCF, ancestors_fee: 0x16923F7DCF, weight: 0x112, ancestors_weight: 0x112",
+    ///        "score_sortkey": {
+    ///            "ancestors_fee": "0x16923f7dcf",
+    ///            "ancestors_weight": "0x112",
+    ///            "fee": "0x16923f7dcf",
+    ///            "weight": "0x112"
+    ///        },
     ///        "timestamp": "0x18aa1baa54c"
     ///    },
     ///    "id": 42
@@ -470,7 +475,7 @@ impl PoolRpc for PoolRpcImpl {
         let submit_tx = tx_pool.submit_local_tx(tx.clone());
 
         if let Err(e) = submit_tx {
-            error!("send submit_tx request error {}", e);
+            error!("Send submit_tx request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         }
 
@@ -485,7 +490,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
 
         tx_pool.remove_local_tx(tx_hash.pack()).map_err(|e| {
-            error!("send remove_tx request error {}", e);
+            error!("Send remove_tx request error {}", e);
             RPCError::ckb_internal_error(e)
         })
     }
@@ -494,7 +499,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         let get_tx_pool_info = tx_pool.get_tx_pool_info();
         if let Err(e) = get_tx_pool_info {
-            error!("send get_tx_pool_info request error {}", e);
+            error!("Send get_tx_pool_info request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         };
 
