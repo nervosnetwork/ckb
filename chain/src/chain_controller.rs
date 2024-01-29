@@ -3,8 +3,7 @@
 
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
-    LonelyBlock, LonelyBlockWithCallback, ProcessBlockRequest, TruncateRequest, VerifyCallback,
-    VerifyResult,
+    LonelyBlock, LonelyBlockWithCallback, ProcessBlockRequest, TruncateRequest, VerifyResult,
 };
 use ckb_channel::Sender;
 use ckb_error::{Error, InternalErrorKind};
@@ -43,50 +42,6 @@ impl ChainController {
         }
     }
 
-    pub fn asynchronous_process_block_with_switch(&self, block: Arc<BlockView>, switch: Switch) {
-        self.asynchronous_process_lonely_block(LonelyBlock {
-            block,
-            peer_id_with_msg_bytes: None,
-            switch: Some(switch),
-        })
-    }
-
-    pub fn asynchronous_process_block(&self, block: Arc<BlockView>) {
-        self.asynchronous_process_lonely_block_with_callback(
-            LonelyBlock {
-                block,
-                peer_id_with_msg_bytes: None,
-                switch: None,
-            }
-            .without_callback(),
-        )
-    }
-
-    pub fn asynchronous_process_block_with_callback(
-        &self,
-        block: Arc<BlockView>,
-        verify_callback: VerifyCallback,
-    ) {
-        self.asynchronous_process_lonely_block_with_callback(
-            LonelyBlock {
-                block,
-                peer_id_with_msg_bytes: None,
-                switch: None,
-            }
-            .with_callback(Some(verify_callback)),
-        )
-    }
-
-    pub fn asynchronous_process_lonely_block(&self, lonely_block: LonelyBlock) {
-        let lonely_block_without_callback: LonelyBlockWithCallback =
-            lonely_block.without_callback();
-
-        self.asynchronous_process_lonely_block_with_callback(lonely_block_without_callback);
-    }
-
-    /// Internal method insert block for test
-    ///
-    /// switch bit flags for particular verify, make easier to generating test data
     pub fn asynchronous_process_lonely_block_with_callback(
         &self,
         lonely_block_with_callback: LonelyBlockWithCallback,
@@ -96,6 +51,7 @@ impl ChainController {
         }
     }
 
+    /// MinerRpc::submit_block and `ckb import` need this blocking way to process block
     pub fn blocking_process_block(&self, block: Arc<BlockView>) -> VerifyResult {
         self.blocking_process_lonely_block(LonelyBlock {
             block,
@@ -104,6 +60,7 @@ impl ChainController {
         })
     }
 
+    /// `IntegrationTestRpcImpl::process_block_without_verify` need this
     pub fn blocking_process_block_with_switch(
         &self,
         block: Arc<BlockView>,
@@ -151,11 +108,12 @@ impl ChainController {
         })
     }
 
-    // Relay need this
+    /// `Relayer::reconstruct_block` need this
     pub fn get_orphan_block(&self, hash: &Byte32) -> Option<Arc<BlockView>> {
         self.orphan_block_broker.get_block(hash)
     }
 
+    /// `NetRpcImpl::sync_state` rpc need this
     pub fn orphan_blocks_len(&self) -> usize {
         self.orphan_block_broker.len()
     }
