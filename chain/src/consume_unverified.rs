@@ -150,7 +150,11 @@ impl ConsumeUnverifiedBlockProcessor {
     ) {
         let unverified_block = self.load_full_unverified_block(lonely_block_hash);
         // process this unverified block
-        let verify_result = self.verify_block(&unverified_block);
+        let verify_result = self.verify_block(
+            unverified_block.block(),
+            &unverified_block.parent_header,
+            unverified_block.unverified_block.switch(),
+        );
         match &verify_result {
             Ok(_) => {
                 let log_now = std::time::Instant::now();
@@ -215,21 +219,12 @@ impl ConsumeUnverifiedBlockProcessor {
         unverified_block.execute_callback(verify_result);
     }
 
-    fn verify_block(&mut self, unverified_block: &UnverifiedBlock) -> VerifyResult {
-        let UnverifiedBlock {
-            unverified_block:
-                LonelyBlockWithCallback {
-                    lonely_block:
-                        LonelyBlock {
-                            block,
-                            peer_id_with_msg_bytes: _peer_id_with_msg_bytes,
-                            switch,
-                        },
-                    verify_callback: _verify_callback,
-                },
-            parent_header,
-        } = unverified_block;
-
+    fn verify_block(
+        &mut self,
+        block: &BlockView,
+        parent_header: &HeaderView,
+        switch: Option<Switch>,
+    ) -> VerifyResult {
         let switch: Switch = switch.unwrap_or_else(|| {
             let mut assume_valid_target = self.shared.assume_valid_target();
             match *assume_valid_target {
@@ -322,7 +317,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 &cannon_total_difficulty - &current_total_difficulty,
                 self.shared.get_unverified_tip().number(),
             );
-            self.find_fork(&mut fork, current_tip_header.number(), block, ext);
+            self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
             self.rollback(&fork, &db_txn)?;
 
             // update and verify chain root
@@ -378,7 +373,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 }
             }
 
-            let block_ref: &BlockView = block;
+            let block_ref: &BlockView = &block;
             self.shared
                 .notify_controller()
                 .notify_new_block(block_ref.clone());
@@ -401,7 +396,7 @@ impl ConsumeUnverifiedBlockProcessor {
 
             let tx_pool_controller = self.shared.tx_pool_controller();
             if tx_pool_controller.service_started() {
-                let block_ref: &BlockView = block;
+                let block_ref: &BlockView = &block;
                 if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
                     error!("[verify block] notify new_uncle error {}", e);
                 }
