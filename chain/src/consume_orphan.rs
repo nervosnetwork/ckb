@@ -307,6 +307,14 @@ impl ConsumeOrphan {
                 lonely_block.block().hash()
             );
             self.descendant_processor.process_descendant(lonely_block);
+        } else if parent_status.eq(&BlockStatus::BLOCK_INVALID) {
+            // ignore this block, because parent block is invalid
+            info!(
+                "parent: {} is INVALID, ignore this block {}-{}",
+                parent_hash,
+                lonely_block.block().number(),
+                lonely_block.block().hash()
+            );
         } else {
             self.orphan_blocks_broker.insert(lonely_block);
         }
