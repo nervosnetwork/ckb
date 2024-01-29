@@ -48,6 +48,13 @@ make_static_metric! {
             proposed,
         },
     }
+
+    struct CkbHeaderMapMemoryHitMissStatistics: IntCounter{
+        "type" => {
+            hit,
+            miss,
+        },
+    }
 }
 
 pub struct Metrics {
@@ -75,6 +82,10 @@ pub struct Metrics {
     pub ckb_header_map_limit_memory_duration: Histogram,
     // ckb_header_map_limit_memory operation duration (seconds)
     pub ckb_header_map_ops_duration: HistogramVec,
+    // how many headers in the HeaderMap's memory map?
+    pub ckb_header_map_memory_count: IntGauge,
+    // how many times the HeaderMap's memory map is hit?
+    pub ckb_header_map_memory_hit_miss_count: CkbHeaderMapMemoryHitMissStatistics,
     /// Gauge for tracking the size of all frozen data
     pub ckb_freezer_size: IntGauge,
     /// Counter for measuring the effective amount of data read
@@ -162,6 +173,18 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
             "The CKB header map operation duration (seconds)",
             &["operation"],
         ).unwrap(),
+        ckb_header_map_memory_count: register_int_gauge!(
+            "ckb_header_map_memory_count",
+            "The CKB HeaderMap memory count",
+        ).unwrap(),
+        ckb_header_map_memory_hit_miss_count: CkbHeaderMapMemoryHitMissStatistics::from(
+            &register_int_counter_vec!(
+            "ckb_header_map_memory_hit_miss_count",
+            "The CKB HeaderMap memory hit count",
+            &["type"]
+        )
+            .unwrap()
+        ),
         ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
         ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
         ckb_relay_transaction_short_id_collide: register_int_counter!(
