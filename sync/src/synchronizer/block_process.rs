@@ -7,7 +7,6 @@ pub struct BlockProcess<'a> {
     message: packed::SendBlockReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    message_bytes: u64,
 }
 
 impl<'a> BlockProcess<'a> {
@@ -15,17 +14,15 @@ impl<'a> BlockProcess<'a> {
         message: packed::SendBlockReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        message_bytes: u64,
     ) -> Self {
         BlockProcess {
             message,
             synchronizer,
             peer,
-            message_bytes,
         }
     }
 
-    pub fn execute(self) {
+    pub fn execute(self) -> crate::Status {
         let block = self.message.block().to_entity().into_view();
         debug!(
             "BlockProcess received block {} {}",
@@ -35,12 +32,12 @@ impl<'a> BlockProcess<'a> {
         let shared = self.synchronizer.shared();
 
         if shared.new_block_received(&block) {
-            self.synchronizer.asynchronous_process_new_block(
-                block.clone(),
-                self.peer,
-                self.message_bytes,
-            );
+            self.synchronizer
+                .asynchronous_process_new_block(block.clone(), self.peer);
         }
+
+        // block process is asynchronous, so we only return ignored here
+        crate::Status::ignored()
     }
 
     #[cfg(test)]

@@ -345,9 +345,7 @@ impl Synchronizer {
             }
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 if reader.check_data() {
-                    BlockProcess::new(reader, self, peer, message.as_slice().len() as u64)
-                        .execute();
-                    Status::ignored()
+                    BlockProcess::new(reader, self, peer).execute()
                 } else {
                     StatusCode::ProtocolMessageIsMalformed.with_context("SendBlock is invalid")
                 }
@@ -366,16 +364,6 @@ impl Synchronizer {
         let item_bytes = message.as_slice().len() as u64;
         let status = self.try_process(nc, peer, message);
 
-        Self::post_sync_process(nc, peer, item_name, item_bytes, status);
-    }
-
-    fn post_sync_process(
-        nc: &dyn CKBProtocolContext,
-        peer: PeerIndex,
-        item_name: &str,
-        item_bytes: u64,
-        status: Status,
-    ) {
         metric_ckb_message_bytes(
             MetricDirection::In,
             &SupportProtocols::Sync.name(),
@@ -384,6 +372,15 @@ impl Synchronizer {
             item_bytes,
         );
 
+        Self::post_sync_process(nc, peer, item_name, status);
+    }
+
+    fn post_sync_process(
+        nc: &dyn CKBProtocolContext,
+        peer: PeerIndex,
+        item_name: &str,
+        status: Status,
+    ) {
         if let Some(ban_time) = status.should_ban() {
             error!(
                 "Receive {} from {}. Ban {:?} for {}",
@@ -421,12 +418,7 @@ impl Synchronizer {
 
     /// Process a new block sync from other peer
     //TODO: process block which we don't request
-    pub fn asynchronous_process_new_block(
-        &self,
-        block: core::BlockView,
-        peer_id: PeerIndex,
-        message_bytes: u64,
-    ) {
+    pub fn asynchronous_process_new_block(&self, block: core::BlockView, peer_id: PeerIndex) {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
@@ -435,7 +427,7 @@ impl Synchronizer {
             error!("Block {} already stored", block_hash);
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared
-                .insert_new_block(&self.chain, Arc::new(block), peer_id, message_bytes);
+                .insert_new_block(&self.chain, Arc::new(block), peer_id);
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
@@ -995,7 +987,6 @@ impl CKBProtocolHandler for Synchronizer {
                 nc.as_ref(),
                 malformed_peer_info.peer_id,
                 "SendBlock",
-                malformed_peer_info.msg_bytes,
                 StatusCode::BlockIsInvalid.with_context(format!(
                     "block {} is invalid, reason: {}",
                     malformed_peer_info.block_hash, malformed_peer_info.reason
