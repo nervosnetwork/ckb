@@ -1,14 +1,14 @@
 use crate::chain::ChainController;
-use crate::tests::util::{
-    create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
-    create_transaction, create_transaction_with_out_point, dao_data, start_chain, MockChain,
-    MockStore,
-};
+use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
+use ckb_test_chain_utils::{
+    create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
+    create_transaction, create_transaction_with_out_point, dao_data, MockChain, MockStore,
+};
 use ckb_types::core::error::OutPointError;
 use ckb_types::prelude::*;
 use ckb_types::{

@@ -1,7 +1,9 @@
-use crate::tests::util::{create_always_success_out_point, create_always_success_tx, start_chain};
+use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_test_chain_utils::always_success_cell;
+use ckb_test_chain_utils::{
+    always_success_cell, create_always_success_out_point, create_always_success_tx,
+};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,

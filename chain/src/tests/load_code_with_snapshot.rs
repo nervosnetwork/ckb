@@ -1,4 +1,5 @@
-use crate::tests::util::{start_chain, start_chain_with_tx_pool_config};
+use crate::tests::util::start_chain;
+use crate::tests::util::start_chain_with_tx_pool_config;
 use ckb_app_config::TxPoolConfig;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;

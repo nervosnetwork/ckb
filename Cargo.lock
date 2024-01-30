@@ -1506,6 +1506,7 @@ name = "ckb-test-chain-utils"
 version = "0.114.0-pre"
 dependencies = [
  "ckb-chain-spec",
+ "ckb-dao",
  "ckb-dao-utils",
  "ckb-db",
  "ckb-db-schema",
