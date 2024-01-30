@@ -647,7 +647,7 @@ impl TxPoolService {
             return None;
         }
 
-        let completed = match self.fetch_tx_verify_cache(&tx_hash).await {
+        match self.fetch_tx_verify_cache(&tx_hash).await {
             Some(completed) => {
                 let tip_header = snapshot.tip_header();
                 let tx_env = Arc::new(status.with_env(tip_header));
@@ -662,7 +662,14 @@ impl TxPoolService {
                 .verify()
                 .map_err(Reject::Verification);
                 try_or_return_with_snapshot!(ret, snapshot);
-                completed
+                let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
+                let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+                try_or_return_with_snapshot!(ret, submit_snapshot);
+
+                self.notify_block_assembler(status).await;
+                // if tx is not in cache, it's added into verify queue and won't run into here
+                // the cache will be updated in `verify_mgr`, so we don't update cache here
+                Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
             }
             None => {
                 // for remote transaction with decleard cycles, we enqueue it to verify queue directly
@@ -673,18 +680,9 @@ impl TxPoolService {
                     .await;
                 try_or_return_with_snapshot!(ret, snapshot);
                 error!("added to verify queue: {:?}", tx.proposal_short_id());
-                return Some((Ok(ProcessResult::Suspended), snapshot));
+                Some((Ok(ProcessResult::Suspended), snapshot))
             }
-        };
-
-        let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
-        try_or_return_with_snapshot!(ret, submit_snapshot);
-
-        self.notify_block_assembler(status).await;
-        // if tx is not in cache, it's added into verify queue and won't run into here
-        // the cache will be updated in `verify_mgr`, so we don't update cache here
-        Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
+        }
     }
 
     async fn enqueue_verify_queue(
