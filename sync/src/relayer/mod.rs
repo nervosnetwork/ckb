@@ -22,7 +22,9 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{ActiveChain, BlockNumberAndHash, SyncShared};
-use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
+use crate::utils::{
+    is_internal_db_error, metric_ckb_message_bytes, send_message_to, MetricDirection,
+};
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
@@ -284,23 +286,36 @@ impl Relayer {
         nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block: core::BlockView,
-    ) {
+    ) -> Status {
         if self
             .shared()
             .active_chain()
             .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
         {
-            return;
+            return Status::ok();
         }
 
         let boxed = Arc::new(block);
-        if self
+        match self
             .shared()
             .insert_new_block(&self.chain, Arc::clone(&boxed))
-            .unwrap_or(false)
         {
-            self.broadcast_compact_block(nc, peer, &boxed)
+            Ok(true) => self.broadcast_compact_block(nc, peer, &boxed),
+            Ok(false) => debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "Relayer accept_block received an uncle block, don't broadcast compact block"
+            ),
+            Err(err) => {
+                if !is_internal_db_error(&err) {
+                    return StatusCode::BlockIsInvalid.with_context(format!(
+                        "{}, error: {}",
+                        block.hash(),
+                        err,
+                    ));
+                }
+            }
         }
+        Status::ok()
     }
 
     fn broadcast_compact_block(
