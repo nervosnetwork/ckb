@@ -295,7 +295,7 @@ impl Relayer {
             return Status::ok();
         }
 
-        let boxed = Arc::new(block);
+        let boxed: Arc<BlockView> = Arc::new(block);
         match self
             .shared()
             .insert_new_block(&self.chain, Arc::clone(&boxed))
@@ -309,7 +309,7 @@ impl Relayer {
                 if !is_internal_db_error(&err) {
                     return StatusCode::BlockIsInvalid.with_context(format!(
                         "{}, error: {}",
-                        block.hash(),
+                        boxed.hash(),
                         err,
                     ));
                 }
@@ -332,7 +332,7 @@ impl Relayer {
         );
         let block_hash = boxed.hash();
         self.shared().state().remove_header_view(&block_hash);
-        let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
+        let cb = packed::CompactBlock::build_from_block(boxed, &HashSet::new());
         let message = packed::RelayMessage::new_builder().set(cb).build();
 
         let selected_peers: Vec<PeerIndex> = nc
