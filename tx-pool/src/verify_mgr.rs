@@ -109,7 +109,10 @@ impl VerifyMgr {
         command_rx: watch::Receiver<ChunkCommand>,
         signal_exit: CancellationToken,
     ) -> Self {
-        let workers: Vec<_> = (0..num_cpus::get())
+        // `num_cpus::get()` will always return at least 1,
+        // minus 1 to avoid high workload on the system
+        let worker_num = std::cmp::max(num_cpus::get() - 1, 1);
+        let workers: Vec<_> = (0..worker_num)
             .map({
                 let tasks = Arc::clone(&service.verify_queue);
                 let signal_exit = signal_exit.clone();
