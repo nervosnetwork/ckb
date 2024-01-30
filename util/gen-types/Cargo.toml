@@ -1,6 +1,6 @@
 [package]
 name = "ckb-gen-types"
-version = "0.113.1-rc1"
+version = "0.113.1-rc2"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dev-dependencies]
-ckb-hash = { path = "../hash", version = "= 0.113.1-rc1" }
+ckb-hash = { path = "../hash", version = "= 0.113.1-rc2" }
 
 [features]
 default = ["std"]
@@ -25,8 +25,8 @@ std = ["molecule/std", "ckb-hash/default", "ckb-fixed-hash", "ckb-error", "ckb-o
 [dependencies]
 cfg-if = "1.0"
 molecule = { version = "0.7.5", default-features = false }
-ckb-hash = { path = "../hash", version = "= 0.113.1-rc1", default-features = false, optional = true }
-ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.113.1-rc1", optional = true }
-ckb-error = { path = "../../error", version = "= 0.113.1-rc1", optional = true }
-ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.113.1-rc1", optional = true }
+ckb-hash = { path = "../hash", version = "= 0.113.1-rc2", default-features = false, optional = true }
+ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.113.1-rc2", optional = true }
+ckb-error = { path = "../../error", version = "= 0.113.1-rc2", optional = true }
+ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.113.1-rc2", optional = true }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"], optional = true }
