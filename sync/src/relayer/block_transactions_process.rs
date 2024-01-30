@@ -116,9 +116,10 @@ impl<'a> BlockTransactionsProcess<'a> {
                 match ret {
                     ReconstructionResult::Block(block) => {
                         pending.remove();
-                        self.relayer
+                        let status = self
+                            .relayer
                             .accept_block(self.nc.as_ref(), self.peer, block);
-                        return Status::ok();
+                        return status;
                     }
                     ReconstructionResult::Missing(transactions, uncles) => {
                         // We need to get all transactions and uncles that do not exist locally
