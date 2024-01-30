@@ -87,8 +87,13 @@ where
             self.stats().tick_primary_contain();
         }
         if self.memory.contains_key(hash) {
+            ckb_metrics::handle()
+                .map(|metrics| metrics.ckb_header_map_memory_hit_miss_count.hit.inc());
             return true;
         }
+        ckb_metrics::handle()
+            .map(|metrics| metrics.ckb_header_map_memory_hit_miss_count.miss.inc());
+
         if self.backend.is_empty() {
             return false;
         }
