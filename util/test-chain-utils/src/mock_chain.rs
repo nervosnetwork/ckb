@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(missing_docs)]
 
 use crate::mock_utils::{create_cellbase, dao_data};
 use crate::MockStore;

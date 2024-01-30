@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-
+#![allow(missing_docs)]
 use crate::MockStore;
 use crate::{always_success_cell, load_input_data_hash_cell, load_input_one_byte_cell};
 use ckb_chain_spec::consensus::Consensus;
