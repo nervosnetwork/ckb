@@ -27,7 +27,7 @@ pub use chain_controller::ChainController;
 pub use chain_service::start_chain_services;
 pub use consume_orphan::store_unverified_block;
 
-type ProcessBlockRequest = Request<LonelyBlockWithCallback, ()>;
+type ProcessBlockRequest = Request<LonelyBlock, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;
 
 /// VerifyResult is the result type to represent the result of block verification
@@ -40,8 +40,16 @@ pub type VerifyResult = Result<bool, Error>;
 /// VerifyCallback is the callback type to be called after block verification
 pub type VerifyCallback = Box<dyn FnOnce(VerifyResult) + Send + Sync>;
 
+/// RemoteBlock is received from ckb-sync and ckb-relayer
+pub struct RemoteBlock {
+    /// block
+    pub block: Arc<BlockView>,
+
+    /// This block is received from which peer
+    pub peer_id: PeerIndex,
+}
+
 /// LonelyBlock is the block which we have not check weather its parent is stored yet
-#[derive(Clone)]
 pub struct LonelyBlock {
     /// block
     pub block: Arc<BlockView>,
@@ -51,25 +59,12 @@ pub struct LonelyBlock {
 
     /// The Switch to control the verification process
     pub switch: Option<Switch>,
-}
 
-impl LonelyBlock {
-    /// Combine with verify_callback, convert it to LonelyBlockWithCallback
-    pub fn with_callback(self, verify_callback: Option<VerifyCallback>) -> LonelyBlockWithCallback {
-        LonelyBlockWithCallback {
-            lonely_block: self,
-            verify_callback,
-        }
-    }
-
-    /// Combine with empty verify_callback, convert it to LonelyBlockWithCallback
-    pub fn without_callback(self) -> LonelyBlockWithCallback {
-        self.with_callback(None)
-    }
+    /// The optional verify_callback
+    pub verify_callback: Option<VerifyCallback>,
 }
 
 /// LonelyBlock is the block which we have not check weather its parent is stored yet
-#[derive(Clone)]
 pub struct LonelyBlockHash {
     /// block
     pub block_number_and_hash: BlockNumberAndHash,
@@ -79,17 +74,12 @@ pub struct LonelyBlockHash {
 
     /// The Switch to control the verification process
     pub switch: Option<Switch>,
-}
 
-/// LonelyBlockWithCallback Combine LonelyBlock with an optional verify_callback
-pub struct LonelyBlockHashWithCallback {
-    /// The LonelyBlock
-    pub lonely_block: LonelyBlockHash,
     /// The optional verify_callback
     pub verify_callback: Option<VerifyCallback>,
 }
 
-impl LonelyBlockHashWithCallback {
+impl LonelyBlockHash {
     pub(crate) fn execute_callback(self, verify_result: VerifyResult) {
         if let Some(verify_callback) = self.verify_callback {
             verify_callback(verify_result);
@@ -97,77 +87,60 @@ impl LonelyBlockHashWithCallback {
     }
 }
 
-impl From<LonelyBlockWithCallback> for LonelyBlockHashWithCallback {
-    fn from(val: LonelyBlockWithCallback) -> Self {
-        LonelyBlockHashWithCallback {
-            lonely_block: LonelyBlockHash {
-                block_number_and_hash: BlockNumberAndHash {
-                    number: val.lonely_block.block.number(),
-                    hash: val.lonely_block.block.hash(),
-                },
-                peer_id: val.lonely_block.peer_id,
-                switch: val.lonely_block.switch,
+impl From<LonelyBlock> for LonelyBlockHash {
+    fn from(val: LonelyBlock) -> Self {
+        LonelyBlockHash {
+            block_number_and_hash: BlockNumberAndHash {
+                number: val.block.number(),
+                hash: val.block.hash(),
             },
+            peer_id: val.peer_id,
+            switch: val.switch,
             verify_callback: val.verify_callback,
         }
     }
 }
 
-/// LonelyBlockWithCallback Combine LonelyBlock with an optional verify_callback
-pub struct LonelyBlockWithCallback {
-    /// The LonelyBlock
-    pub lonely_block: LonelyBlock,
-    /// The optional verify_callback
-    pub verify_callback: Option<VerifyCallback>,
-}
-
-impl LonelyBlockWithCallback {
-    pub(crate) fn execute_callback(self, verify_result: VerifyResult) {
-        if let Some(verify_callback) = self.verify_callback {
-            let _trace_now = minstant::Instant::now();
-
-            verify_callback(verify_result);
-
-            if let Some(handle) = ckb_metrics::handle() {
-                handle
-                    .ckb_chain_execute_callback_duration
-                    .observe(_trace_now.elapsed().as_secs_f64())
-            }
-        }
+impl LonelyBlock {
+    pub(crate) fn block(&self) -> &Arc<BlockView> {
+        &self.block
     }
 
-    /// Get reference to block
-    pub fn block(&self) -> &Arc<BlockView> {
-        &self.lonely_block.block
-    }
-
-    /// get peer_id and msg_bytes
     pub fn peer_id(&self) -> Option<PeerIndex> {
-        self.lonely_block.peer_id
+        self.peer_id
     }
 
-    /// get switch param
     pub fn switch(&self) -> Option<Switch> {
-        self.lonely_block.switch
+        self.switch
+    }
+
+    pub fn execute_callback(self, verify_result: VerifyResult) {
+        if let Some(verify_callback) = self.verify_callback {
+            verify_callback(verify_result);
+        }
     }
 }
 
 pub(crate) struct UnverifiedBlock {
-    pub unverified_block: LonelyBlockWithCallback,
+    pub lonely_block: LonelyBlock,
     pub parent_header: HeaderView,
 }
 
 impl UnverifiedBlock {
     pub(crate) fn block(&self) -> &Arc<BlockView> {
-        self.unverified_block.block()
+        self.lonely_block.block()
     }
 
     pub fn peer_id(&self) -> Option<PeerIndex> {
-        self.unverified_block.peer_id()
+        self.lonely_block.peer_id()
+    }
+
+    pub fn switch(&self) -> Option<Switch> {
+        self.lonely_block.switch()
     }
 
     pub fn execute_callback(self, verify_result: VerifyResult) {
-        self.unverified_block.execute_callback(verify_result)
+        self.lonely_block.execute_callback(verify_result)
     }
 }
 
