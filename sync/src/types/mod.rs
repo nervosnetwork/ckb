@@ -1,9 +1,9 @@
 use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
-use ckb_chain::ChainController;
+use ckb_chain::VerifyCallback;
 #[cfg(test)]
 use ckb_chain::VerifyResult;
-use ckb_chain::{LonelyBlock, VerifyCallback};
+use ckb_chain::{ChainController, RemoteBlock};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
 use ckb_channel::Receiver;
 use ckb_constant::sync::{
@@ -1059,37 +1059,6 @@ impl SyncShared {
         self.shared.consensus()
     }
 
-    /// Insert new block with callback
-    pub fn insert_new_block_with_callback(
-        &self,
-        chain: &ChainController,
-        block: Arc<core::BlockView>,
-        peer_id: PeerIndex,
-        verify_success_callback: VerifyCallback,
-    ) {
-        self.accept_block(
-            chain,
-            Arc::clone(&block),
-            Some(peer_id),
-            Some(verify_success_callback),
-        )
-    }
-
-    /// Insert new block to chain store
-    pub fn insert_new_block(
-        &self,
-        chain: &ChainController,
-        block: Arc<core::BlockView>,
-        peer_id: PeerIndex,
-    ) {
-        self.accept_block(
-            chain,
-            Arc::clone(&block),
-            Some(peer_id),
-            None::<VerifyCallback>,
-        );
-    }
-
     // Only used by unit test
     // Blocking insert a new block, return the verify result
     #[cfg(test)]
@@ -1116,31 +1085,23 @@ impl SyncShared {
         chain.blocking_process_lonely_block(lonely_block)
     }
 
-    pub(crate) fn accept_block(
+    pub(crate) fn accept_remote_block(
         &self,
         chain: &ChainController,
-        block: Arc<core::BlockView>,
-        peer_id: Option<PeerIndex>,
+        remote_block: RemoteBlock,
         verify_callback: Option<VerifyCallback>,
     ) {
         {
             let entry = self
                 .shared()
                 .block_status_map()
-                .entry(block.header().hash());
+                .entry(remote_block.block.header().hash());
             if let dashmap::mapref::entry::Entry::Vacant(entry) = entry {
                 entry.insert(BlockStatus::BLOCK_RECEIVED);
             }
         }
 
-        let lonely_block_with_callback = LonelyBlock {
-            block,
-            peer_id,
-            switch: None,
-        }
-        .with_callback(verify_callback);
-
-        chain.asynchronous_process_lonely_block_with_callback(lonely_block_with_callback);
+        chain.asynchronous_process_remote_block(remote_block, verify_callback)
     }
 
     /// Sync a new valid header, try insert to sync state
