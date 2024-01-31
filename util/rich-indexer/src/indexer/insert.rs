@@ -27,6 +27,14 @@ use std::collections::HashSet;
 // which should be within the above limits.
 pub(crate) const BATCH_SIZE_THRESHOLD: usize = 1_000;
 
+type OutputCellRow = (
+    i32,
+    i64,
+    (Vec<u8>, i16, Vec<u8>),
+    Option<(Vec<u8>, i16, Vec<u8>)>,
+    Vec<u8>,
+);
+
 enum FieldValue {
     Binary(Vec<u8>),
     BigInt(i64),
@@ -269,13 +277,7 @@ async fn bulk_insert_block_association_uncle_table(
 
 pub(crate) async fn bulk_insert_output_table(
     tx_id: i64,
-    output_cell_rows: Vec<(
-        i32,
-        i64,
-        (Vec<u8>, i16, Vec<u8>),
-        Option<(Vec<u8>, i16, Vec<u8>)>,
-        Vec<u8>,
-    )>,
+    output_cell_rows: Vec<OutputCellRow>,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let mut new_rows: Vec<Vec<FieldValue>> = Vec::new();
@@ -359,11 +361,9 @@ pub(crate) async fn bulk_insert_tx_association_header_dep_table(
 ) -> Result<(), Error> {
     let mut tx_association_header_dep_rows = Vec::new();
     for header_dep in tx_view.header_deps_iter() {
-        query_block_id(&header_dep.raw_data().to_vec(), tx)
-            .await?
-            .map(|block_id| {
-                tx_association_header_dep_rows.push(vec![tx_id.into(), block_id.into()]);
-            });
+        if let Some(block_id) = query_block_id(&header_dep.raw_data(), tx).await? {
+            tx_association_header_dep_rows.push(vec![tx_id.into(), block_id.into()]);
+        }
     }
     bulk_insert(
         "tx_association_header_dep",
@@ -382,17 +382,14 @@ pub(crate) async fn bulk_insert_tx_association_cell_dep_table(
 ) -> Result<(), Error> {
     let mut tx_association_cell_dep_rows = Vec::new();
     for cell_dep in tx_view.cell_deps_iter() {
-        query_output_id(&cell_dep.out_point(), tx)
-            .await?
-            .map(|output_id| {
-                tx_association_cell_dep_rows.push(vec![
-                    tx_id.into(),
-                    output_id.into(),
-                    (u8::try_from(cell_dep.dep_type()).expect("cell_dep to u8 should be OK")
-                        as i16)
-                        .into(),
-                ]);
-            });
+        if let Some(output_id) = query_output_id(&cell_dep.out_point(), tx).await? {
+            tx_association_cell_dep_rows.push(vec![
+                tx_id.into(),
+                output_id.into(),
+                (u8::try_from(cell_dep.dep_type()).expect("cell_dep to u8 should be OK") as i16)
+                    .into(),
+            ]);
+        }
     }
     bulk_insert(
         "tx_association_cell_dep",
@@ -516,13 +513,7 @@ pub(crate) fn build_output_cell_rows(
     cell: &CellOutput,
     output_index: usize,
     data: &Bytes,
-    output_cell_rows: &mut Vec<(
-        i32,
-        i64,
-        (Vec<u8>, i16, Vec<u8>),
-        Option<(Vec<u8>, i16, Vec<u8>)>,
-        Vec<u8>,
-    )>,
+    output_cell_rows: &mut Vec<OutputCellRow>,
 ) {
     let cell_capacity: u64 = cell.capacity().unpack();
     let cell_row = (

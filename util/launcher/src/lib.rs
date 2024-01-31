@@ -243,6 +243,7 @@ impl Launcher {
         config
     }
 
+    /// Check indexer config
     pub fn check_indexer_config(&self) -> Result<(), ExitCode> {
         // check if indexer and rich-indexer are both set
         if (self.args.indexer || self.args.config.rpc.indexer_enable())
