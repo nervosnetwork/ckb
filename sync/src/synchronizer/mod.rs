@@ -41,6 +41,9 @@ use ckb_network::{
 use ckb_shared::types::{HeaderIndexView, VerifyFailedBlockInfo};
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
+
+#[cfg(test)]
+use ckb_types::core;
 use ckb_types::{
     core::BlockNumber,
     packed::{self, Byte32},
@@ -393,11 +396,11 @@ impl Synchronizer {
             error!("block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared.blocking_insert_new_block_with_verbose_info(
-                &self.chain,
-                Arc::new(block),
+            let remote_block = RemoteBlock {
+                block: Arc::new(block),
                 peer_id,
-            )
+            };
+            self.chain.blocking_process_remote_block(remote_block)
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",

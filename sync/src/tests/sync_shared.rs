@@ -3,7 +3,7 @@
 
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
-use ckb_chain::{start_chain_services, store_unverified_block};
+use ckb_chain::{start_chain_services, store_unverified_block, RemoteBlock};
 use ckb_logger::info;
 use ckb_logger_service::LoggerInitGuard;
 use ckb_shared::block_status::BlockStatus;
@@ -108,8 +108,22 @@ fn test_insert_parent_unknown_block() {
     let valid_hash = valid_orphan.header().hash();
     let invalid_hash = invalid_orphan.header().hash();
     let parent_hash = parent.header().hash();
-    shared.accept_block(&chain, Arc::clone(&valid_orphan), None, None);
-    shared.accept_block(&chain, Arc::clone(&invalid_orphan), None, None);
+    shared.accept_remote_block(
+        &chain,
+        RemoteBlock {
+            block: Arc::clone(&valid_orphan),
+            peer_id: Default::default(),
+        },
+        None,
+    );
+    shared.accept_remote_block(
+        &chain,
+        RemoteBlock {
+            block: Arc::clone(&invalid_orphan),
+            peer_id: Default::default(),
+        },
+        None,
+    );
 
     let wait_for_block_status_match = |hash: &Byte32, expect_status: BlockStatus| -> bool {
         let mut status_match = false;
