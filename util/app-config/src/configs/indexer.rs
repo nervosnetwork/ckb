@@ -1,4 +1,4 @@
-use super::rich_indexer::{DBDriver, RichIndexerConfig};
+use super::rich_indexer::RichIndexerConfig;
 
 use ckb_types::H256;
 use serde::{Deserialize, Serialize};
