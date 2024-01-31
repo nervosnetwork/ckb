@@ -8,6 +8,7 @@ use crate::{
 use ckb_channel::Sender;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, error};
+use ckb_network::PeerIndex;
 use ckb_types::{
     core::{service::Request, BlockView},
     packed::Byte32,
@@ -64,7 +65,11 @@ impl ChainController {
 
     /// MinerRpc::submit_block and `ckb import` need this blocking way to process block
     pub fn blocking_process_block(&self, block: Arc<BlockView>) -> VerifyResult {
-        self.blocking_process_block_with_opt_switch(block, None)
+        self.blocking_process_block_internal(block, None, None)
+    }
+
+    pub fn blocking_process_remote_block(&self, remote_block: RemoteBlock) -> VerifyResult {
+        self.blocking_process_block_internal(remote_block.block, Some(remote_block.peer_id), None)
     }
 
     /// `IntegrationTestRpcImpl::process_block_without_verify` need this
@@ -73,12 +78,13 @@ impl ChainController {
         block: Arc<BlockView>,
         switch: Switch,
     ) -> VerifyResult {
-        self.blocking_process_block_with_opt_switch(block, Some(switch))
+        self.blocking_process_block_internal(block, None, Some(switch))
     }
 
-    pub fn blocking_process_block_with_opt_switch(
+    fn blocking_process_block_internal(
         &self,
         block: Arc<BlockView>,
+        peer_id: Option<PeerIndex>,
         switch: Option<Switch>,
     ) -> VerifyResult {
         let (verify_result_tx, verify_result_rx) = ckb_channel::oneshot::channel::<VerifyResult>();
@@ -96,7 +102,7 @@ impl ChainController {
 
         let lonely_block = LonelyBlock {
             block,
-            peer_id: None,
+            peer_id,
             switch,
             verify_callback: Some(Box::new(verify_callback)),
         };
