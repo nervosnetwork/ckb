@@ -1,8 +1,5 @@
 use crate::utils::orphan_block_pool::OrphanBlockPool;
-use crate::{
-    tell_synchronizer_to_punish_the_bad_peer, LonelyBlockHashWithCallback, LonelyBlockWithCallback,
-    VerifyResult,
-};
+use crate::{tell_synchronizer_to_punish_the_bad_peer, LonelyBlock, LonelyBlockHash, VerifyResult};
 use ckb_channel::{select, Receiver, SendError, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::internal::trace;
@@ -19,7 +16,7 @@ use std::sync::Arc;
 
 pub(crate) struct ConsumeDescendantProcessor {
     pub shared: Shared,
-    pub unverified_blocks_tx: Sender<LonelyBlockHashWithCallback>,
+    pub unverified_blocks_tx: Sender<LonelyBlockHash>,
 
     pub verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
@@ -96,13 +93,9 @@ pub fn store_unverified_block(
 }
 
 impl ConsumeDescendantProcessor {
-    fn send_unverified_block(
-        &self,
-        lonely_block: LonelyBlockHashWithCallback,
-        total_difficulty: U256,
-    ) {
-        let block_number = lonely_block.lonely_block.block_number_and_hash.number();
-        let block_hash = lonely_block.lonely_block.block_number_and_hash.hash();
+    fn send_unverified_block(&self, lonely_block: LonelyBlockHash, total_difficulty: U256) {
+        let block_number = lonely_block.block_number_and_hash.number();
+        let block_hash = lonely_block.block_number_and_hash.hash();
 
         match self.unverified_blocks_tx.send(lonely_block) {
             Ok(_) => {
@@ -151,13 +144,13 @@ impl ConsumeDescendantProcessor {
         }
     }
 
-    pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockWithCallback) {
+    pub(crate) fn process_descendant(&self, lonely_block: LonelyBlock) {
         match store_unverified_block(&self.shared, lonely_block.block().to_owned()) {
             Ok((_parent_header, total_difficulty)) => {
                 self.shared
                     .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
 
-                let lonely_block_hash: LonelyBlockHashWithCallback = lonely_block.into();
+                let lonely_block_hash: LonelyBlockHash = lonely_block.into();
 
                 self.send_unverified_block(lonely_block_hash, total_difficulty)
             }
@@ -181,7 +174,7 @@ impl ConsumeDescendantProcessor {
         }
     }
 
-    fn accept_descendants(&self, descendants: Vec<LonelyBlockWithCallback>) {
+    fn accept_descendants(&self, descendants: Vec<LonelyBlock>) {
         for descendant_block in descendants {
             self.process_descendant(descendant_block);
         }
@@ -194,7 +187,7 @@ pub(crate) struct ConsumeOrphan {
     descendant_processor: ConsumeDescendantProcessor,
 
     orphan_blocks_broker: Arc<OrphanBlockPool>,
-    lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
+    lonely_blocks_rx: Receiver<LonelyBlock>,
 
     stop_rx: Receiver<()>,
 }
@@ -203,8 +196,8 @@ impl ConsumeOrphan {
     pub(crate) fn new(
         shared: Shared,
         orphan_block_pool: Arc<OrphanBlockPool>,
-        unverified_blocks_tx: Sender<LonelyBlockHashWithCallback>,
-        lonely_blocks_rx: Receiver<LonelyBlockWithCallback>,
+        unverified_blocks_tx: Sender<LonelyBlockHash>,
+        lonely_blocks_rx: Receiver<LonelyBlock>,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
         stop_rx: Receiver<()>,
     ) -> ConsumeOrphan {
@@ -279,7 +272,7 @@ impl ConsumeOrphan {
                 continue;
             }
 
-            let descendants: Vec<LonelyBlockWithCallback> = self
+            let descendants: Vec<LonelyBlock> = self
                 .orphan_blocks_broker
                 .remove_blocks_by_parent(&leader_hash);
             if descendants.is_empty() {
@@ -293,7 +286,7 @@ impl ConsumeOrphan {
         }
     }
 
-    fn process_lonely_block(&self, lonely_block: LonelyBlockWithCallback) {
+    fn process_lonely_block(&self, lonely_block: LonelyBlock) {
         let parent_hash = lonely_block.block().parent_hash();
         let parent_status = self
             .shared

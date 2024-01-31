@@ -1,7 +1,7 @@
-use crate::LonelyBlockHashWithCallback;
+use crate::LonelyBlockHash;
 use crate::{
     tell_synchronizer_to_punish_the_bad_peer, utils::forkchanges::ForkChanges, GlobalIndex,
-    LonelyBlock, LonelyBlockWithCallback, TruncateRequest, UnverifiedBlock, VerifyResult,
+    LonelyBlock, TruncateRequest, UnverifiedBlock, VerifyResult,
 };
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
@@ -40,7 +40,7 @@ pub(crate) struct ConsumeUnverifiedBlockProcessor {
 pub(crate) struct ConsumeUnverifiedBlocks {
     tx_pool_controller: TxPoolController,
 
-    unverified_block_rx: Receiver<LonelyBlockHashWithCallback>,
+    unverified_block_rx: Receiver<LonelyBlockHash>,
     truncate_block_rx: Receiver<TruncateRequest>,
 
     stop_rx: Receiver<()>,
@@ -50,7 +50,7 @@ pub(crate) struct ConsumeUnverifiedBlocks {
 impl ConsumeUnverifiedBlocks {
     pub(crate) fn new(
         shared: Shared,
-        unverified_blocks_rx: Receiver<LonelyBlockHashWithCallback>,
+        unverified_blocks_rx: Receiver<LonelyBlockHash>,
         truncate_block_rx: Receiver<TruncateRequest>,
         proposal_table: ProposalTable,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
@@ -116,14 +116,11 @@ impl ConsumeUnverifiedBlocks {
 }
 
 impl ConsumeUnverifiedBlockProcessor {
-    fn load_full_unverified_block(
-        &self,
-        lonely_block: LonelyBlockHashWithCallback,
-    ) -> UnverifiedBlock {
+    fn load_full_unverified_block(&self, lonely_block: LonelyBlockHash) -> UnverifiedBlock {
         let block_view = self
             .shared
             .store()
-            .get_block(&lonely_block.lonely_block.block_number_and_hash.hash())
+            .get_block(&lonely_block.block_number_and_hash.hash())
             .expect("block stored");
         let parent_header_view = self
             .shared
@@ -132,28 +129,23 @@ impl ConsumeUnverifiedBlockProcessor {
             .expect("parent header stored");
 
         UnverifiedBlock {
-            unverified_block: LonelyBlockWithCallback {
-                lonely_block: LonelyBlock {
-                    block: Arc::new(block_view),
-                    peer_id: lonely_block.lonely_block.peer_id,
-                    switch: lonely_block.lonely_block.switch,
-                },
+            lonely_block: LonelyBlock {
+                block: Arc::new(block_view),
+                peer_id: lonely_block.peer_id,
+                switch: lonely_block.switch,
                 verify_callback: lonely_block.verify_callback,
             },
             parent_header: parent_header_view,
         }
     }
 
-    pub(crate) fn consume_unverified_blocks(
-        &mut self,
-        lonely_block_hash: LonelyBlockHashWithCallback,
-    ) {
+    pub(crate) fn consume_unverified_blocks(&mut self, lonely_block_hash: LonelyBlockHash) {
         let unverified_block = self.load_full_unverified_block(lonely_block_hash);
         // process this unverified block
         let verify_result = self.verify_block(
             unverified_block.block(),
             &unverified_block.parent_header,
-            unverified_block.unverified_block.switch(),
+            unverified_block.switch(),
         );
         match &verify_result {
             Ok(_) => {

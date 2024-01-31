@@ -4,8 +4,8 @@
 use crate::consume_unverified::ConsumeUnverifiedBlocks;
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
-    tell_synchronizer_to_punish_the_bad_peer, ChainController, LonelyBlockHashWithCallback,
-    LonelyBlockWithCallback, ProcessBlockRequest,
+    tell_synchronizer_to_punish_the_bad_peer, ChainController, LonelyBlock, LonelyBlockHash,
+    ProcessBlockRequest,
 };
 use ckb_channel::{self as channel, select, Receiver, SendError, Sender};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
@@ -32,7 +32,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
 
     let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
     let (unverified_tx, unverified_rx) =
-        channel::bounded::<LonelyBlockHashWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
+        channel::bounded::<LonelyBlockHash>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
 
     let consumer_unverified_thread = thread::Builder::new()
         .name("consume_unverified_blocks".into())
@@ -55,7 +55,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
         .expect("start unverified_queue consumer thread should ok");
 
     let (lonely_block_tx, lonely_block_rx) =
-        channel::bounded::<LonelyBlockWithCallback>(BLOCK_DOWNLOAD_WINDOW as usize);
+        channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
 
     let (search_orphan_pool_stop_tx, search_orphan_pool_stop_rx) = ckb_channel::bounded::<()>(1);
 
@@ -118,7 +118,7 @@ pub(crate) struct ChainService {
 
     process_block_rx: Receiver<ProcessBlockRequest>,
 
-    lonely_block_tx: Sender<LonelyBlockWithCallback>,
+    lonely_block_tx: Sender<LonelyBlock>,
     verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 impl ChainService {
@@ -127,7 +127,7 @@ impl ChainService {
         shared: Shared,
         process_block_rx: Receiver<ProcessBlockRequest>,
 
-        lonely_block_tx: Sender<LonelyBlockWithCallback>,
+        lonely_block_tx: Sender<LonelyBlock>,
         verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
     ) -> ChainService {
         ChainService {
@@ -188,7 +188,7 @@ impl ChainService {
     }
 
     // `self.non_contextual_verify` is very fast.
-    fn asynchronous_process_block(&self, lonely_block: LonelyBlockWithCallback) {
+    fn asynchronous_process_block(&self, lonely_block: LonelyBlock) {
         let block_number = lonely_block.block().number();
         let block_hash = lonely_block.block().hash();
         // Skip verifying a genesis block if its hash is equal to our genesis hash,
