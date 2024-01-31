@@ -1,7 +1,9 @@
 use crate::synchronizer::Synchronizer;
+use ckb_chain::RemoteBlock;
 use ckb_logger::debug;
 use ckb_network::PeerIndex;
 use ckb_types::{packed, prelude::*};
+use std::sync::Arc;
 
 pub struct BlockProcess<'a> {
     message: packed::SendBlockReader<'a>,
@@ -32,8 +34,12 @@ impl<'a> BlockProcess<'a> {
         let shared = self.synchronizer.shared();
 
         if shared.new_block_received(&block) {
+            let remote_block = RemoteBlock {
+                block: Arc::new(block),
+                peer_id: self.peer,
+            };
             self.synchronizer
-                .asynchronous_process_new_block(block.clone(), self.peer);
+                .asynchronous_process_remote_block(remote_block);
         }
 
         // block process is asynchronous, so we only return ignored here

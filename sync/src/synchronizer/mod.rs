@@ -25,7 +25,7 @@ use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
 
-use ckb_chain::ChainController;
+use ckb_chain::{ChainController, RemoteBlock};
 use ckb_channel as channel;
 use ckb_channel::{select, Receiver};
 use ckb_constant::sync::{
@@ -42,7 +42,7 @@ use ckb_shared::types::{HeaderIndexView, VerifyFailedBlockInfo};
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
-    core::{self, BlockNumber},
+    core::BlockNumber,
     packed::{self, Byte32},
     prelude::*,
 };
@@ -360,8 +360,8 @@ impl Synchronizer {
 
     /// Process a new block sync from other peer
     //TODO: process block which we don't request
-    pub fn asynchronous_process_new_block(&self, block: core::BlockView, peer_id: PeerIndex) {
-        let block_hash = block.hash();
+    pub fn asynchronous_process_remote_block(&self, remote_block: RemoteBlock) {
+        let block_hash = remote_block.block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
@@ -369,7 +369,7 @@ impl Synchronizer {
             error!("Block {} already stored", block_hash);
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared
-                .insert_new_block(&self.chain, Arc::new(block), peer_id);
+                .accept_remote_block(&self.chain, remote_block, None);
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",

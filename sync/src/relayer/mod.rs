@@ -25,8 +25,8 @@ use crate::utils::{
     is_internal_db_error, metric_ckb_message_bytes, send_message_to, MetricDirection,
 };
 use crate::{Status, StatusCode};
-use ckb_chain::ChainController;
 use ckb_chain::VerifyResult;
+use ckb_chain::{ChainController, RemoteBlock};
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{
     debug, debug_target, error, error_target, info_target, trace_target, warn_target,
@@ -301,7 +301,7 @@ impl Relayer {
     pub fn accept_block(
         &self,
         _nc: &dyn CKBProtocolContext,
-        peer: PeerIndex,
+        peer_id: PeerIndex,
         block: core::BlockView,
     ) -> Status {
         if self
@@ -313,6 +313,10 @@ impl Relayer {
         }
 
         let block = Arc::new(block);
+        let remote_block = RemoteBlock {
+            block: Arc::clone(&block),
+            peer_id,
+        };
 
         let verify_success_callback = {
             let broadcast_compact_block_tx = self.broadcast_compact_block_tx.clone();
@@ -328,7 +332,7 @@ impl Relayer {
                         return;
                     }
 
-                    if broadcast_compact_block_tx.send((block, peer)).is_err() {
+                    if broadcast_compact_block_tx.send((block, peer_id)).is_err() {
                         error!(
                         "send block to broadcast_compact_block_tx failed, this shouldn't happen",
                     );
@@ -345,11 +349,10 @@ impl Relayer {
             }
         };
 
-        self.shared().insert_new_block_with_callback(
+        self.shared.accept_remote_block(
             &self.chain,
-            Arc::clone(&block),
-            peer,
-            Box::new(verify_success_callback),
+            remote_block,
+            Some(Box::new(verify_success_callback)),
         );
     }
 
