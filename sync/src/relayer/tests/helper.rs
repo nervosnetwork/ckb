@@ -2,30 +2,36 @@ use crate::{Relayer, SyncShared};
 use ckb_app_config::NetworkConfig;
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
+use ckb_dao::DaoCalculator;
+use ckb_dao_utils::genesis_dao_data;
 use ckb_network::{
     async_trait, bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Flags,
     NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId, SupportProtocols,
     TargetSession,
 };
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_reward_calculator::RewardCalculator;
+use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_systemtime::{self, unix_time_as_millis};
-use ckb_test_chain_utils::always_success_cell;
+use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
+use ckb_types::core::cell::resolve_transaction;
+use ckb_types::core::{capacity_bytes, BlockView, UncleBlockView};
+use ckb_types::packed::Script;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction,
-        HeaderBuilder, HeaderView, TransactionBuilder, TransactionView,
+        BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, HeaderBuilder, HeaderView,
+        TransactionBuilder, TransactionView,
     },
     packed::{
         CellDep, CellInput, CellOutputBuilder, IndexTransaction, IndexTransactionBuilder, OutPoint,
-        Script,
     },
     utilities::difficulty_to_compact,
     U256,
 };
 use ckb_verification_traits::Switch;
+use std::collections::HashSet;
 use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
@@ -83,8 +89,8 @@ pub(crate) fn new_transaction(
         .input(CellInput::new(previous_output, 0))
         .output(
             CellOutputBuilder::default()
-            .capacity(Capacity::bytes(500 + index).unwrap().pack()) // use capacity to identify transactions
-            .build(),
+                .capacity(Capacity::bytes(500 + index).unwrap().pack()) // use capacity to identify transactions
+                .build(),
         )
         .output_data(Bytes::new().pack())
         .cell_dep(
@@ -138,8 +144,10 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let always_success_out_point = OutPoint::new(always_success_tx.hash(), 0);
 
     let (shared, mut pack) = {
+        let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
         let genesis = BlockBuilder::default()
             .timestamp(unix_time_as_millis().pack())
+            .dao(dao)
             .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
             .transaction(always_success_tx)
             .build();
@@ -187,8 +195,20 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .witness(Script::default().into_witness())
             .build();
         let header = new_header_builder(&shared, &parent.header()).build();
+
+        let dao = {
+            let snapshot: &Snapshot = &shared.snapshot();
+            let resolved_cellbase =
+                resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
+                    .unwrap();
+            let data_loader = snapshot.borrow_as_data_loader();
+            DaoCalculator::new(shared.consensus(), &data_loader)
+                .dao_field([resolved_cellbase].iter(), &parent.header())
+                .unwrap()
+        };
         let block = BlockBuilder::default()
             .header(header)
+            .dao(dao)
             .transaction(cellbase)
             .build();
         chain_controller
@@ -207,6 +227,74 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     )
 }
 
+pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> TransactionView {
+    let parent_header = {
+        let parent_hash = snapshot
+            .get_block_hash(parent_number)
+            .expect("parent exist");
+        snapshot
+            .get_block_header(&parent_hash)
+            .expect("parent exist")
+    };
+    let (_, reward) = RewardCalculator::new(snapshot.consensus(), snapshot)
+        .block_reward_to_finalize(&parent_header)
+        .unwrap();
+    always_success_cellbase(parent_number + 1, reward.total, snapshot.consensus())
+}
+
+pub(crate) fn gen_block(
+    parent_header: &HeaderView,
+    shared: &Shared,
+    target_delta: i32,
+    timestamp_delta: i64,
+    uncle_opt: Option<UncleBlockView>,
+) -> BlockView {
+    let snapshot: &Snapshot = &shared.snapshot();
+    let number = parent_header.number() + 1;
+    let cellbase = inherit_cellbase(snapshot, parent_header.number());
+    let txs = vec![cellbase.clone()];
+
+    let dao = {
+        let resolved_cellbase =
+            resolve_transaction(cellbase, &mut HashSet::new(), snapshot, snapshot).unwrap();
+        let data_loader = snapshot.borrow_as_data_loader();
+        DaoCalculator::new(shared.consensus(), &data_loader)
+            .dao_field([resolved_cellbase].iter(), parent_header)
+            .unwrap()
+    };
+
+    let epoch = shared
+        .consensus()
+        .next_epoch_ext(parent_header, &shared.store().borrow_as_data_loader())
+        .unwrap()
+        .epoch();
+
+    let mut block_builder = BlockBuilder::default()
+        .parent_hash(parent_header.hash())
+        .timestamp(
+            (parent_header
+                .timestamp()
+                .checked_add_signed(timestamp_delta)
+                .unwrap())
+            .pack(),
+        )
+        .number(number.pack())
+        .compact_target(
+            (epoch
+                .compact_target()
+                .checked_add_signed(target_delta)
+                .unwrap())
+            .pack(),
+        )
+        .dao(dao)
+        .epoch(epoch.number_with_fraction(number).pack())
+        .transactions(txs);
+    if let Some(uncle) = uncle_opt {
+        block_builder = block_builder.uncle(uncle)
+    }
+    block_builder.build()
+}
+
 pub(crate) struct MockProtocolContext {
     protocol: SupportProtocols,
     sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
@@ -214,6 +302,7 @@ pub(crate) struct MockProtocolContext {
 
 // test mock context with single thread
 unsafe impl Send for MockProtocolContext {}
+
 unsafe impl Sync for MockProtocolContext {}
 
 impl MockProtocolContext {
@@ -318,7 +407,7 @@ impl CKBProtocolContext for MockProtocolContext {
         unimplemented!();
     }
     fn quick_filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
-        unimplemented!();
+        Ok(())
     }
     fn future_task(
         &self,
@@ -356,7 +445,7 @@ impl CKBProtocolContext for MockProtocolContext {
         unimplemented!();
     }
     fn connected_peers(&self) -> Vec<PeerIndex> {
-        unimplemented!();
+        vec![]
     }
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
         unimplemented!();
