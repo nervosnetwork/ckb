@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::{LonelyBlock, LonelyBlockWithCallback};
+use crate::LonelyBlock;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};
@@ -23,11 +23,8 @@ fn gen_lonely_block(parent_header: &HeaderView) -> LonelyBlock {
         block: Arc::new(block),
         peer_id: None,
         switch: None,
+        verify_callback: None,
     }
-}
-
-fn gen_lonely_block_with_callback(parent_header: &HeaderView) -> LonelyBlockWithCallback {
-    gen_lonely_block(parent_header).without_callback()
 }
 
 #[test]
@@ -39,8 +36,13 @@ fn test_remove_blocks_by_parent() {
     let pool = OrphanBlockPool::with_capacity(200);
     for _ in 1..block_number {
         let lonely_block = gen_lonely_block(&parent);
-        let new_block_clone = lonely_block.clone().without_callback();
-        let new_block = lonely_block.without_callback();
+        let new_block_clone = lonely_block.block().clone();
+        let new_block = LonelyBlock {
+            block: new_block_clone.clone(),
+            peer_id: None,
+            switch: None,
+            verify_callback: None,
+        };
         blocks.push(new_block_clone);
 
         parent = new_block.block().header();
@@ -48,8 +50,8 @@ fn test_remove_blocks_by_parent() {
     }
 
     let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
-    let orphan_set: HashSet<_> = orphan.into_iter().map(|b| b.lonely_block.block).collect();
-    let blocks_set: HashSet<_> = blocks.into_iter().map(|b| b.lonely_block.block).collect();
+    let orphan_set: HashSet<_> = orphan.into_iter().map(|b| b.block).collect();
+    let blocks_set: HashSet<_> = blocks.into_iter().map(|b| b.to_owned()).collect();
     assert_eq!(orphan_set, blocks_set)
 }
 
@@ -61,10 +63,15 @@ fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
     let mut hashes = Vec::new();
     for _ in 1..1024 {
         let lonely_block = gen_lonely_block(&header);
-        let new_block = lonely_block.clone().without_callback();
-        let new_block_clone = lonely_block.without_callback();
+        let new_block = lonely_block.block();
+        let new_block_clone = LonelyBlock {
+            block: Arc::clone(new_block),
+            peer_id: None,
+            switch: None,
+            verify_callback: None,
+        };
         pool.insert(new_block_clone);
-        header = new_block.block().header();
+        header = new_block.header();
         hashes.push(header.hash());
     }
 
@@ -91,7 +98,12 @@ fn test_leaders() {
     let pool = OrphanBlockPool::with_capacity(20);
     for i in 0..block_number - 1 {
         let lonely_block = gen_lonely_block(&parent);
-        let new_block = lonely_block.clone().without_callback();
+        let new_block = LonelyBlock {
+            block: Arc::clone(lonely_block.block()),
+            peer_id: None,
+            switch: None,
+            verify_callback: None,
+        };
         blocks.push(lonely_block);
         parent = new_block.block().header();
         if i % 5 != 0 {
@@ -102,11 +114,21 @@ fn test_leaders() {
     assert_eq!(pool.len(), 15);
     assert_eq!(pool.leaders_len(), 4);
 
-    pool.insert(blocks[5].clone().without_callback());
+    pool.insert(LonelyBlock {
+        block: blocks[5].block().clone(),
+        peer_id: None,
+        switch: None,
+        verify_callback: None,
+    });
     assert_eq!(pool.len(), 16);
     assert_eq!(pool.leaders_len(), 3);
 
-    pool.insert(blocks[10].clone().without_callback());
+    pool.insert(LonelyBlock {
+        block: blocks[10].block().clone(),
+        peer_id: None,
+        switch: None,
+        verify_callback: None,
+    });
     assert_eq!(pool.len(), 17);
     assert_eq!(pool.leaders_len(), 2);
 
@@ -116,7 +138,12 @@ fn test_leaders() {
     assert_eq!(pool.len(), 17);
     assert_eq!(pool.leaders_len(), 2);
 
-    pool.insert(blocks[0].clone().without_callback());
+    pool.insert(LonelyBlock {
+        block: blocks[0].block().clone(),
+        peer_id: None,
+        switch: None,
+        verify_callback: None,
+    });
     assert_eq!(pool.len(), 18);
     assert_eq!(pool.leaders_len(), 2);
 
@@ -124,7 +151,12 @@ fn test_leaders() {
     assert_eq!(pool.len(), 3);
     assert_eq!(pool.leaders_len(), 1);
 
-    pool.insert(blocks[15].clone().without_callback());
+    pool.insert(LonelyBlock {
+        block: blocks[15].block().clone(),
+        peer_id: None,
+        switch: None,
+        verify_callback: None,
+    });
     assert_eq!(pool.len(), 4);
     assert_eq!(pool.leaders_len(), 1);
 
@@ -132,8 +164,8 @@ fn test_leaders() {
 
     let orphan_set: HashSet<Arc<BlockView>> = orphan
         .into_iter()
-        .map(|b| b.lonely_block.block)
-        .chain(orphan_1.into_iter().map(|b| b.lonely_block.block))
+        .map(|b| b.block)
+        .chain(orphan_1.into_iter().map(|b| b.block))
         .collect();
     let blocks_set: HashSet<Arc<BlockView>> = blocks.into_iter().map(|b| b.block).collect();
     assert_eq!(orphan_set, blocks_set);
@@ -160,15 +192,13 @@ fn test_remove_expired_blocks() {
             .build();
 
         parent = new_block.header();
-        let lonely_block_with_callback = LonelyBlockWithCallback {
-            lonely_block: LonelyBlock {
-                block: Arc::new(new_block),
-                peer_id: None,
-                switch: None,
-            },
+        let lonely_block = LonelyBlock {
+            block: Arc::new(new_block),
+            peer_id: None,
+            switch: None,
             verify_callback: None,
         };
-        pool.insert(lonely_block_with_callback);
+        pool.insert(lonely_block);
     }
     assert_eq!(pool.leaders_len(), 1);
 
