@@ -377,16 +377,18 @@ fn test_accept_block() {
         );
     }
 
-    let uncle_hash = uncle.hash();
     {
-        let db_txn = relayer.shared().shared().store().begin_transaction();
-        db_txn.insert_block(&uncle).unwrap();
-        db_txn.attach_block(&uncle).unwrap();
-        db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
-        db_txn.commit().unwrap();
+        let chain_controller = {
+            let proposal_window = ckb_proposal_table::ProposalTable::new(
+                relayer.shared().shared().consensus().tx_proposal_window(),
+            );
+            let chain_service =
+                ChainService::new(relayer.shared().shared().to_owned(), proposal_window);
+            chain_service.start::<&str>(None)
+        };
+        chain_controller.process_block(Arc::new(uncle)).unwrap();
     }
 
-    relayer.shared().shared().refresh_snapshot();
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
     let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
