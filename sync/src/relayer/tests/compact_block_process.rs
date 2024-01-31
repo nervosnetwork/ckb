@@ -1,11 +1,15 @@
 use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
-use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocolContext};
+use crate::relayer::tests::helper::{
+    build_chain, gen_block, new_header_builder, MockProtocolContext,
+};
 use crate::{Status, StatusCode};
+use ckb_chain::chain::ChainService;
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{PlugTarget, TxEntry};
+use ckb_types::core::{BlockView, HeaderView};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -152,25 +156,36 @@ fn test_unknow_parent() {
 #[test]
 fn test_accept_not_a_better_block() {
     let (relayer, _) = build_chain(5);
-    let header = {
+    let tip_header = {
         let active_chain = relayer.shared.active_chain();
         active_chain.tip_header()
     };
+    let second_to_last_header: HeaderView = {
+        let tip_header: HeaderView = relayer.shared().store().get_tip_header().unwrap();
+        let second_to_last_header = relayer
+            .shared()
+            .store()
+            .get_block_header(&tip_header.data().raw().parent_hash())
+            .unwrap();
+        second_to_last_header
+    };
 
-    // The timestamp is random, so it may be not a better block.
-    let not_sure_a_better_header = header
-        .as_advanced_builder()
-        .timestamp((header.timestamp() + 1).pack())
-        .build();
-
-    let block = BlockBuilder::default()
-        .header(not_sure_a_better_header)
-        .transaction(TransactionBuilder::default().build())
-        .build();
+    let uncle_block: BlockView = gen_block(
+        &second_to_last_header,
+        relayer.shared().shared(),
+        1,
+        1,
+        None,
+    );
+    //uncle_block's block_hash must not equal to tip's block_hash
+    assert_ne!(uncle_block.header().hash(), tip_header.hash());
+    // uncle_block's difficulty must less than tip's difficulty
+    assert!(uncle_block.difficulty().lt(&tip_header.difficulty()));
 
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
-    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+    let compact_block =
+        CompactBlock::build_from_block(&uncle_block, &prefilled_transactions_indexes);
 
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);
@@ -182,7 +197,7 @@ fn test_accept_not_a_better_block() {
         Arc::<MockProtocolContext>::clone(&nc),
         peer_index,
     );
-    assert_eq!(compact_block_process.execute(), Status::ok(),);
+    assert_eq!(compact_block_process.execute(), Status::ok());
 }
 
 #[test]
@@ -323,18 +338,15 @@ fn test_accept_block() {
         active_chain.tip_header()
     };
 
-    let header = new_header_builder(relayer.shared.shared(), &parent).build();
+    let uncle = gen_block(&parent, relayer.shared().shared(), 0, 1, None);
 
-    let uncle = BlockBuilder::default().build();
-    let ext = packed::BlockExtBuilder::default()
-        .verified(Some(true).pack())
-        .build();
-
-    let block = BlockBuilder::default()
-        .header(header)
-        .transaction(TransactionBuilder::default().build())
-        .uncle(uncle.as_uncle())
-        .build();
+    let block = gen_block(
+        &parent,
+        relayer.shared().shared(),
+        0,
+        1,
+        Some(uncle.as_uncle()),
+    );
 
     let mock_block_1 = BlockBuilder::default()
         .number(4.pack())
