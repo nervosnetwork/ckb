@@ -3,7 +3,7 @@
 
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{
-    LonelyBlock, LonelyBlockWithCallback, ProcessBlockRequest, TruncateRequest, VerifyResult,
+    LonelyBlock, ProcessBlockRequest, RemoteBlock, TruncateRequest, VerifyCallback, VerifyResult,
 };
 use ckb_channel::Sender;
 use ckb_error::{Error, InternalErrorKind};
@@ -42,22 +42,29 @@ impl ChainController {
         }
     }
 
-    pub fn asynchronous_process_lonely_block_with_callback(
+    pub fn asynchronous_process_remote_block(
         &self,
-        lonely_block_with_callback: LonelyBlockWithCallback,
+        remote_block: RemoteBlock,
+        verify_callback: Option<VerifyCallback>,
     ) {
-        if Request::call(&self.process_block_sender, lonely_block_with_callback).is_none() {
+        let lonely_block = LonelyBlock {
+            block: remote_block.block,
+            peer_id: Some(remote_block.peer_id),
+            switch: None,
+            verify_callback,
+        };
+        self.asynchronous_process_lonely_block(lonely_block);
+    }
+
+    fn asynchronous_process_lonely_block(&self, lonely_block: LonelyBlock) {
+        if Request::call(&self.process_block_sender, lonely_block).is_none() {
             error!("Chain service has gone")
         }
     }
 
     /// MinerRpc::submit_block and `ckb import` need this blocking way to process block
     pub fn blocking_process_block(&self, block: Arc<BlockView>) -> VerifyResult {
-        self.blocking_process_lonely_block(LonelyBlock {
-            block,
-            peer_id: None,
-            switch: None,
-        })
+        self.blocking_process_block_with_opt_switch(block, None)
     }
 
     /// `IntegrationTestRpcImpl::process_block_without_verify` need this
@@ -66,14 +73,14 @@ impl ChainController {
         block: Arc<BlockView>,
         switch: Switch,
     ) -> VerifyResult {
-        self.blocking_process_lonely_block(LonelyBlock {
-            block,
-            peer_id: None,
-            switch: Some(switch),
-        })
+        self.blocking_process_block_with_opt_switch(block, Some(switch))
     }
 
-    pub fn blocking_process_lonely_block(&self, lonely_block: LonelyBlock) -> VerifyResult {
+    pub fn blocking_process_block_with_opt_switch(
+        &self,
+        block: Arc<BlockView>,
+        switch: Option<Switch>,
+    ) -> VerifyResult {
         let (verify_result_tx, verify_result_rx) = ckb_channel::oneshot::channel::<VerifyResult>();
 
         let verify_callback = {
@@ -87,9 +94,14 @@ impl ChainController {
             }
         };
 
-        let lonely_block_with_callback =
-            lonely_block.with_callback(Some(Box::new(verify_callback)));
-        self.asynchronous_process_lonely_block_with_callback(lonely_block_with_callback);
+        let lonely_block = LonelyBlock {
+            block,
+            peer_id: None,
+            switch,
+            verify_callback: Some(Box::new(verify_callback)),
+        };
+
+        self.asynchronous_process_lonely_block(lonely_block);
         verify_result_rx.recv().unwrap_or_else(|err| {
             Err(InternalErrorKind::System
                 .other(format!("blocking recv verify_result failed: {}", err))
