@@ -78,6 +78,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `generate_block_with_template`](#method-generate_block_with_template)
         * [Method `calculate_dao_field`](#method-calculate_dao_field)
         * [Method `send_test_transaction`](#method-send_test_transaction)
+        * [Method `send_test_verify_operation`](#method-send_test_verify_operation)
     * [Module Miner](#module-miner)
         * [Method `get_block_template`](#method-get_block_template)
         * [Method `submit_block`](#method-submit_block)
@@ -3591,6 +3592,46 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+}
+```
+
+
+#### Method `send_test_verify_operation`
+* `send_test_verify_operation(action)`
+    * `action`: `string`
+* result: `string`
+
+A test RPC which send verify suspend/resume to tx-pool.
+
+###### Params
+
+*   `action` - specified action suspend/resume
+
+###### Examples
+
+Request
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "send_test_verify_operation",
+  "params": [
+    "suspend"
+  ]
+}
+```
+
+
+Response
+
+
+```
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
 }
 ```
 
