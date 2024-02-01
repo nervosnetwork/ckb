@@ -23,7 +23,7 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use lru::LruCache;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
@@ -99,17 +99,28 @@ impl TxPool {
         if !self.enable_rbf() {
             return None;
         }
-        let entry = vec![self.get_pool_entry(&tx.proposal_short_id()).unwrap()];
-        self.calculate_min_replace_fee(&entry, tx.size)
+
+        let mut conflicts = vec![self.get_pool_entry(&tx.proposal_short_id()).unwrap()];
+        let descendants = self.pool_map.calc_descendants(&tx.proposal_short_id());
+        let descendants = descendants
+            .iter()
+            .filter_map(|id| self.get_pool_entry(id))
+            .collect::<Vec<_>>();
+        conflicts.extend(descendants);
+        self.calculate_min_replace_fee(&conflicts, tx.size)
     }
 
     /// min_replace_fee = sum(replaced_txs.fee) + extra_rbf_fee
     fn calculate_min_replace_fee(&self, conflicts: &[&PoolEntry], size: usize) -> Option<Capacity> {
         let extra_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
-        let replaced_sum_fee = conflicts
+        // don't account for duplicate txs
+        let replaced_fees: HashMap<_, _> = conflicts
             .iter()
-            .map(|c| c.inner.fee)
-            .try_fold(Capacity::zero(), |acc, x| acc.safe_add(x));
+            .map(|c| (c.id.clone(), c.inner.fee))
+            .collect();
+        let replaced_sum_fee = replaced_fees
+            .values()
+            .try_fold(Capacity::zero(), |acc, x| acc.safe_add(*x));
         let res = replaced_sum_fee.map_or(Err(CapacityError::Overflow), |sum| {
             sum.safe_add(extra_rbf_fee)
         });
@@ -551,28 +562,10 @@ impl TxPool {
             .collect::<Vec<_>>();
         assert!(conflicts.len() == conflict_ids.len());
 
-        // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
-        // Rule #3, new tx's fee need to higher than conflicts, here we only check the root tx
-        let fee = entry.fee;
-        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&conflicts, entry.size) {
-            if fee < min_replace_fee {
-                return Err(Reject::RBFRejected(format!(
-                    "Tx's current fee is {}, expect it to >= {} to replace old txs",
-                    fee, min_replace_fee,
-                )));
-            }
-        } else {
-            return Err(Reject::RBFRejected(
-                "calculate_min_replace_fee failed".to_string(),
-            ));
-        }
-
         // Rule #2, new tx don't contain any new unconfirmed inputs
         let mut inputs = HashSet::new();
-        let mut outputs = HashSet::new();
         for c in conflicts.iter() {
             inputs.extend(c.inner.transaction().input_pts_iter());
-            outputs.extend(c.inner.transaction().output_pts_iter());
         }
 
         if tx_inputs
@@ -584,23 +577,18 @@ impl TxPool {
             ));
         }
 
-        if tx_cells_deps.iter().any(|dep| outputs.contains(dep)) {
-            return Err(Reject::RBFRejected(
-                "new Tx contains cell deps from conflicts".to_string(),
-            ));
-        }
-
         // Rule #5, the replaced tx's descendants can not more than 100
         // and the ancestor of the new tx don't have common set with the replaced tx's descendants
         let mut replace_count: usize = 0;
+        let mut all_conflicted = conflicts.clone();
         let ancestors = self.pool_map.calc_ancestors(&short_id);
         for conflict in conflicts.iter() {
             let descendants = self.pool_map.calc_descendants(&conflict.id);
             replace_count += descendants.len() + 1;
             if replace_count > MAX_REPLACEMENT_CANDIDATES {
                 return Err(Reject::RBFRejected(format!(
-                    "Tx conflict too many txs, conflict txs count: {}",
-                    replace_count,
+                    "Tx conflict with too many txs, conflict txs count: {}, expect <= {}",
+                    replace_count, MAX_REPLACEMENT_CANDIDATES,
                 )));
             }
 
@@ -623,6 +611,32 @@ impl TxPool {
                     ));
                 }
             }
+            all_conflicted.extend(entries);
+        }
+
+        for entry in all_conflicted.iter() {
+            let hash = entry.inner.transaction().hash();
+            if tx_cells_deps.iter().any(|pt| pt.tx_hash() == hash) {
+                return Err(Reject::RBFRejected(
+                    "new Tx contains cell deps from conflicts".to_string(),
+                ));
+            }
+        }
+
+        // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
+        // Rule #3, new tx's fee need to higher than conflicts, here we only check the all conflicted txs fee
+        let fee = entry.fee;
+        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&all_conflicted, entry.size) {
+            if fee < min_replace_fee {
+                return Err(Reject::RBFRejected(format!(
+                    "Tx's current fee is {}, expect it to >= {} to replace old txs",
+                    fee, min_replace_fee,
+                )));
+            }
+        } else {
+            return Err(Reject::RBFRejected(
+                "calculate_min_replace_fee failed".to_string(),
+            ));
         }
 
         Ok(conflict_ids)
