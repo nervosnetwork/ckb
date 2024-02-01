@@ -13,8 +13,9 @@ use ckb_types::{
 };
 
 use std::sync::{Arc, RwLock};
+use tokio::test;
 
-#[tokio::test]
+#[test]
 async fn test_query_tip() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
@@ -30,7 +31,7 @@ async fn test_query_tip() {
     );
 }
 
-#[tokio::test]
+#[test]
 async fn get_cells() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
@@ -163,7 +164,7 @@ async fn get_cells() {
     assert_eq!(cells.objects.len(), 1);
 }
 
-#[tokio::test]
+#[test]
 async fn get_cells_filter_data() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
@@ -222,7 +223,7 @@ async fn get_cells_filter_data() {
     assert_eq!(cell.output_data, None);
 }
 
-#[tokio::test]
+#[test]
 async fn get_cells_by_cursor() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
@@ -284,7 +285,7 @@ async fn get_cells_by_cursor() {
     assert_eq!(second_query_cells.objects.len(), 4);
 }
 
-#[tokio::test]
+#[test]
 async fn get_transactions_ungrouped() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
@@ -413,7 +414,7 @@ async fn get_transactions_ungrouped() {
     assert_eq!(2, txs.objects.len());
 }
 
-#[tokio::test]
+#[test]
 async fn get_transactions_grouped() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
@@ -496,7 +497,7 @@ async fn get_transactions_grouped() {
     }
 }
 
-#[tokio::test]
+#[test]
 async fn get_cells_capacity() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
@@ -573,7 +574,7 @@ async fn get_cells_capacity() {
     assert_eq!(1600000000000, capacity.capacity.value());
 }
 
-#[tokio::test]
+#[test]
 async fn rpc() {
     let store = connect_sqlite(MEMORY_DB).await;
     let pool = Arc::new(RwLock::new(Pool::default()));
@@ -1182,7 +1183,7 @@ async fn rpc() {
     );
 }
 
-#[tokio::test]
+#[test]
 async fn script_search_mode_rpc() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));
@@ -1431,7 +1432,7 @@ async fn script_search_mode_rpc() {
     );
 }
 
-#[tokio::test]
+#[test]
 async fn output_data_filter_mode_rpc() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));

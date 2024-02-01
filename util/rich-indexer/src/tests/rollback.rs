@@ -1,6 +1,8 @@
 use super::*;
 
-#[tokio::test]
+use tokio::test;
+
+#[test]
 async fn test_rollback_block_0() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
@@ -56,7 +58,7 @@ async fn test_rollback_block_0() {
     );
 }
 
-#[tokio::test]
+#[test]
 async fn test_rollback_block_9() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
@@ -140,7 +142,7 @@ async fn test_rollback_block_9() {
     );
 }
 
-#[tokio::test]
+#[test]
 async fn test_block_filter_and_rollback_block() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(

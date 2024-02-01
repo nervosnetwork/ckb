@@ -9,8 +9,9 @@ use ckb_types::{
     packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
     H256,
 };
+use tokio::test;
 
-#[tokio::test]
+#[test]
 async fn test_append_block_0() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
@@ -64,7 +65,7 @@ async fn test_append_block_0() {
     );
 }
 
-#[tokio::test]
+#[test]
 async fn with_custom_block_filter() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
@@ -278,7 +279,7 @@ async fn with_custom_block_filter() {
     );
 }
 
-#[tokio::test]
+#[test]
 async fn with_custom_cell_filter() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
