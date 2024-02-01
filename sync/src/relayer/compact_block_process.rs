@@ -116,7 +116,8 @@ impl<'a> CompactBlockProcess<'a> {
                         >= block.epoch().number()
                 });
                 shrink_to_fit!(pending_compact_blocks, 20);
-                self.relayer
+                let status = self
+                    .relayer
                     .accept_block(self.nc.as_ref(), self.peer, block);
 
                 if let Some(metrics) = ckb_metrics::handle() {
@@ -124,7 +125,7 @@ impl<'a> CompactBlockProcess<'a> {
                         .ckb_relay_cb_verify_duration
                         .observe(instant.elapsed().as_secs_f64());
                 }
-                Status::ok()
+                status
             }
             ReconstructionResult::Missing(transactions, uncles) => {
                 let missing_transactions: Vec<u32> =
