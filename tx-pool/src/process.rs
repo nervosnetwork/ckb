@@ -639,11 +639,7 @@ impl TxPoolService {
         let (ret, snapshot) = self.pre_check(&tx).await;
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
-        if self.is_in_delay_window(&snapshot) {
-            let mut delay = self.delay.write().await;
-            if delay.len() < DELAY_LIMIT {
-                delay.insert(tx.proposal_short_id(), tx);
-            }
+        if self.handle_delay_window(&tx, &snapshot).await {
             return None;
         }
 
@@ -685,15 +681,6 @@ impl TxPoolService {
         }
     }
 
-    async fn enqueue_verify_queue(
-        &self,
-        tx: TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<bool, Reject> {
-        let mut queue = self.verify_queue.write().await;
-        queue.add_tx(tx, remote)
-    }
-
     pub(crate) async fn _process_tx(
         &self,
         tx: TransactionView,
@@ -705,12 +692,7 @@ impl TxPoolService {
         let (ret, snapshot) = self.pre_check(&tx).await;
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
-
-        if self.is_in_delay_window(&snapshot) {
-            let mut delay = self.delay.write().await;
-            if delay.len() < DELAY_LIMIT {
-                delay.insert(tx.proposal_short_id(), tx);
-            }
+        if self.handle_delay_window(&tx, &snapshot).await {
             return None;
         }
 
@@ -884,6 +866,26 @@ impl TxPoolService {
             let mut queue = self.verify_queue.write().await;
             queue.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
+    }
+
+    async fn enqueue_verify_queue(
+        &self,
+        tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<bool, Reject> {
+        let mut queue = self.verify_queue.write().await;
+        queue.add_tx(tx, remote)
+    }
+
+    async fn handle_delay_window(&self, tx: &TransactionView, snapshot: &Arc<Snapshot>) -> bool {
+        if self.is_in_delay_window(snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx.clone());
+            }
+            return true;
+        }
+        false
     }
 
     async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
