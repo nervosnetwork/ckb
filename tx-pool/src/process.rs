@@ -108,7 +108,17 @@ impl TxPoolService {
                 // here we double confirm RBF rules before insert entry
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                 let conflicts = if tx_pool.enable_rbf() {
-                    tx_pool.check_rbf(&snapshot, &entry)?
+                    let rbf_res = tx_pool.check_rbf(&snapshot, &entry);
+                    if rbf_res.is_err() {
+                        // here if RBF is enabled, but `check_rbf` returned an Err,
+                        // means RBF check failed with conflicts, we put old entry into conflicts before return Err
+                        // if RBF is disabled and there is conflict happened, `pre_check` will handle it
+                        tx_pool.record_conflict(
+                            entry.proposal_short_id(),
+                            entry.transaction().clone(),
+                        );
+                    }
+                    rbf_res?
                 } else {
                     HashSet::new()
                 };
@@ -144,9 +154,10 @@ impl TxPoolService {
                             "replaced by tx {}",
                             entry.transaction().hash()
                         ));
-                        // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
-                        // here we call them manually
-                        self.callbacks.call_reject(tx_pool, &old, reject)
+                        // RBF replace successfully, put old transactions into conflicts pool
+                        tx_pool.record_conflict(old.proposal_short_id(), old.transaction().clone());
+                        // after removing old tx from tx_pool, we call reject callbacks manually
+                        self.callbacks.call_reject(tx_pool, &old, reject);
                     }
                 }
                 let evicted = _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
@@ -230,6 +241,7 @@ impl TxPoolService {
     ) -> (Result<PreCheckedTx, Reject>, Arc<Snapshot>) {
         // Acquire read lock for cheap check
         let tx_size = tx.data().serialized_size_in_block();
+        let mut conflicted = None;
 
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
@@ -248,9 +260,7 @@ impl TxPoolService {
                         Ok((tip_hash, rtx, status, fee, tx_size))
                     }
                     Err(err) => {
-                        if tx_pool.enable_rbf()
-                            && matches!(err, Reject::Resolve(OutPointError::Dead(_)))
-                        {
+                        if matches!(err, Reject::Resolve(OutPointError::Dead(_))) {
                             let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
                             let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
                             // Try an RBF cheap check, here if the tx is resolved as Dead,
@@ -264,7 +274,12 @@ impl TxPoolService {
                                 );
                                 return Err(err);
                             }
-                            Ok((tip_hash, rtx, status, fee, tx_size))
+                            if tx_pool.enable_rbf() {
+                                Ok((tip_hash, rtx, status, fee, tx_size))
+                            } else {
+                                conflicted = Some(rtx.transaction.clone());
+                                Err(err)
+                            }
                         } else {
                             Err(err)
                         }
@@ -272,7 +287,14 @@ impl TxPoolService {
                 }
             })
             .await;
-
+        if let Some(transaction) = conflicted {
+            // If RBF is disabled, but there is a double-spending tx in txpool
+            // we reject the new tx directly but record it in conflicts pool
+            self.with_tx_pool_write_lock(|tx_pool, _snapshot| {
+                tx_pool.record_conflict(transaction.proposal_short_id(), transaction.clone());
+            })
+            .await;
+        }
         (ret, snapshot)
     }
 

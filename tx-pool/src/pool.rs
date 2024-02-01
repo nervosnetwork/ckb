@@ -27,6 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+const CONFLICTES_CACHE_SIZE: usize = 1000;
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 
 /// Tx-pool implementation
@@ -41,6 +42,8 @@ pub struct TxPool {
     pub recent_reject: Option<RecentReject>,
     // expiration milliseconds,
     pub(crate) expiry: u64,
+    // conflicted transaction cache
+    pub(crate) conflicts_cache: lru::LruCache<ProposalShortId, TransactionView>,
 }
 
 impl TxPool {
@@ -55,6 +58,7 @@ impl TxPool {
             snapshot,
             recent_reject,
             expiry,
+            conflicts_cache: LruCache::new(CONFLICTES_CACHE_SIZE),
         }
     }
 
@@ -159,6 +163,10 @@ impl TxPool {
 
     pub(crate) fn set_entry_gap(&mut self, short_id: &ProposalShortId) {
         self.pool_map.set_entry(short_id, Status::Gap)
+    }
+
+    pub(crate) fn record_conflict(&mut self, short_id: ProposalShortId, tx: TransactionView) {
+        self.conflicts_cache.put(short_id, tx);
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -386,11 +394,14 @@ impl TxPool {
         &self,
         proposal_id: &ProposalShortId,
     ) -> Option<TransactionView> {
-        self.get_tx_from_pool(proposal_id).cloned().or_else(|| {
-            self.committed_txs_hash_cache
-                .peek(proposal_id)
-                .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
-        })
+        self.get_tx_from_pool(proposal_id)
+            .cloned()
+            .or_else(|| self.conflicts_cache.peek(proposal_id).cloned())
+            .or_else(|| {
+                self.committed_txs_hash_cache
+                    .peek(proposal_id)
+                    .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
+            })
     }
 
     pub(crate) fn get_ids(&self) -> TxPoolIds {
