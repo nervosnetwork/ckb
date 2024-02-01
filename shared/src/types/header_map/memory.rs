@@ -93,23 +93,27 @@ impl MemoryMap {
     }
 
     pub(crate) fn insert(&self, header: HeaderIndexView) -> Option<()> {
-        ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.inc());
-
         let mut guard = self.0.write();
         let (key, value) = header.into();
-        guard.insert(key, value).map(|_| ())
+        let ret = guard.insert(key, value);
+        if ret.is_none() {
+            ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.inc());
+        }
+        ret.map(|_| ())
     }
 
     pub(crate) fn remove(&self, key: &Byte32, shrink_to_fit: bool) -> Option<HeaderIndexView> {
-        ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.dec());
-
         let mut guard = self.0.write();
         let ret = guard.remove(key);
 
         if shrink_to_fit {
             shrink_to_fit!(guard, SHRINK_THRESHOLD);
         }
-        ret.map(|inner| (key.clone(), inner).into())
+        ret.map(|inner| {
+            ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.dec());
+
+            (key.clone(), inner).into()
+        })
     }
 
     pub(crate) fn front_n(&self, size_limit: usize) -> Option<Vec<HeaderIndexView>> {
@@ -133,8 +137,9 @@ impl MemoryMap {
         let mut guard = self.0.write();
         let mut keys_count = 0;
         for key in keys {
-            guard.remove(&key);
-            keys_count += 1;
+            if let Some(_old_value) = guard.remove(&key) {
+                keys_count += 1;
+            }
         }
 
         ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.sub(keys_count));
