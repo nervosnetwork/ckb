@@ -1,13 +1,13 @@
-use crate::tests::util::{
-    calculate_reward, create_always_success_out_point, create_always_success_tx, dao_data,
-    start_chain, MockStore,
-};
+use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use ckb_test_chain_utils::always_success_cell;
+use ckb_test_chain_utils::{
+    always_success_cell, calculate_reward, create_always_success_out_point,
+    create_always_success_tx, dao_data, MockStore,
+};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,

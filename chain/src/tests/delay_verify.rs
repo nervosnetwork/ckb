@@ -1,9 +1,10 @@
-use crate::tests::util::{
-    create_cellbase, create_multi_outputs_transaction, create_transaction,
-    create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
-};
+use crate::tests::util::start_chain;
 use ckb_error::assert_error_eq;
 use ckb_store::ChainStore;
+use ckb_test_chain_utils::{
+    create_cellbase, create_multi_outputs_transaction, create_transaction,
+    create_transaction_with_out_point, dao_data, MockChain, MockStore,
+};
 use ckb_types::core::error::OutPointError;
 use ckb_types::prelude::*;
 use ckb_types::{core::BlockBuilder, packed::OutPoint};

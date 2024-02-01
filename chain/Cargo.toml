@@ -20,7 +20,6 @@ ckb-verification-contextual = { path = "../verification/contextual", version = "
 ckb-verification-traits = { path = "../verification/traits", version = "= 0.114.0-pre" }
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.114.0-pre" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.114.0-pre" }
-ckb-dao = { path = "../util/dao", version = "= 0.114.0-pre" }
 ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.114.0-pre" }
 ckb-error = { path = "../error", version = "= 0.114.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.114.0-pre" }

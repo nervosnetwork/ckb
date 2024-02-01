@@ -1,9 +1,9 @@
 use crate::chain::{ChainService, ForkChanges};
-use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
+use ckb_test_chain_utils::{MockChain, MockStore};
 use ckb_types::{
     core::{BlockBuilder, BlockExt, BlockView},
     packed,

@@ -1,9 +1,10 @@
-use crate::tests::util::{
-    create_load_input_one_byte_cell_tx, create_load_input_one_byte_out_point, start_chain,
-};
+use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_test_chain_utils::load_input_one_byte_cell;
+use ckb_test_chain_utils::{
+    create_load_input_one_byte_cell_tx, create_load_input_one_byte_out_point,
+    load_input_one_byte_cell,
+};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
