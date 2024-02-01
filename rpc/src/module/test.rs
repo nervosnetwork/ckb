@@ -591,6 +591,39 @@ pub trait IntegrationTestRpc {
         tx: Transaction,
         outputs_validator: Option<OutputsValidator>,
     ) -> Result<H256>;
+
+    /// A test RPC which send verify suspend/resume to tx-pool.
+    ///
+    /// ## Params
+    ///
+    /// * `action` - specified action suspend/resume
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "send_test_verify_operation",
+    ///   "params": [
+    ///     "suspend"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": null
+    /// }
+    /// ```
+    #[rpc(name = "send_test_verify_operation")]
+    fn send_test_verify_operation(&self, action: String) -> Result<String>;
 }
 
 #[derive(Clone)]
@@ -803,6 +836,30 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         match submit_tx.unwrap() {
             Ok(_) => Ok(tx_hash.unpack()),
             Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
+        }
+    }
+
+    fn send_test_verify_operation(&self, action: String) -> Result<String> {
+        let tx_pool = self.shared.tx_pool_controller();
+        match action.as_str() {
+            "suspend" => {
+                if let Err(err) = tx_pool.suspend_chunk_process() {
+                    error!("suspend_chunk_process error {}", err);
+                    return Err(RPCError::ckb_internal_error(err));
+                }
+                Ok("suspend".to_string())
+            }
+            "resume" => {
+                if let Err(err) = tx_pool.continue_chunk_process() {
+                    error!("continue_chunk_process error {}", err);
+                    return Err(RPCError::ckb_internal_error(err));
+                }
+                Ok("resume".to_string())
+            }
+            _ => Err(RPCError::custom(
+                RPCError::Invalid,
+                "invalid action".to_string(),
+            )),
         }
     }
 }
