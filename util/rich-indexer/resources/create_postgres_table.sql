@@ -57,7 +57,7 @@ CREATE TABLE output(
     output_index INTEGER NOT NULL,
     capacity BIGINT NOT NULL,
     lock_script_id BIGINT,
-    type_script_id BIGINT, 
+    type_script_id BIGINT,
     data BYTEA
 );
 

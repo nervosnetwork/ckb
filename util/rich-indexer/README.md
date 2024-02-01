@@ -2,7 +2,7 @@
 
 CKB Rich-Indexer is a new built-in indexing implementation in CKB. It is based on a relational database and supports more flexible SQL queries.
 
-Currently, Rich-Indexer supports two types of database drivers. 
+Currently, Rich-Indexer supports two types of database drivers.
 
 1. One is the embedded SQLite, which users can start using without any configuration.
 2. The other is PostgreSQL, which can undergo independent, customized configurations for both software and hardware. Additionally, it allows users to engage in secondary development based on it.
@@ -29,7 +29,7 @@ In addition to full indexing, the Rich-Indexer can reuse all configurations from
 ckb.toml:
 
 ```toml
-# CKB built-in indexer/rich-indexer settings. 
+# CKB built-in indexer/rich-indexer settings.
 # Utilize the `ckb reset-data --indexer` and `ckb reset-data --rich-indexer` subcommands to efficiently clean existing indexes.
 [indexer_v2]
 # # Indexing the pending txs in the ckb tx-pool
@@ -59,7 +59,7 @@ Note that CKB starting options `--indexer` and `--rich-indexer` can only be used
 
 To enable PostgreSQL, you must first set up a functional PostgreSQL service on your own. Please refer to [Server Administration](https://www.postgresql.org/docs/16/admin.html) for guidance. It is recommended to install version 12 or above.
 
-For hardware with 4 cores and 8 GB of RAM, it is recommended to make the following two configuration parameter adjustments in PostgreSQL to achieve optimal query performance. 
+For hardware with 4 cores and 8 GB of RAM, it is recommended to make the following two configuration parameter adjustments in PostgreSQL to achieve optimal query performance.
 
 postgresql.conf:
 
@@ -90,7 +90,7 @@ ckb.toml:
 ```toml
 # CKB rich-indexer has its unique configuration.
 [indexer_v2.rich_indexer]
-# By default, it uses an embedded SQLite database. 
+# By default, it uses an embedded SQLite database.
 # Alternatively, you can set up a PostgreSQL database service and provide the connection parameters.
 db_type = "postgres"
 db_name = "ckb-rich-indexer"

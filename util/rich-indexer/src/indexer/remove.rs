@@ -86,7 +86,7 @@ async fn query_uncle_id_list_by_block_id(
 ) -> Result<Vec<i64>, Error> {
     SQLXPool::new_query(
         r#"
-            SELECT DISTINCT uncle_id 
+            SELECT DISTINCT uncle_id
             FROM block_association_uncle
             WHERE block_id = $1
             "#,
@@ -183,8 +183,8 @@ async fn script_exists_in_output(
     let row_lock = sqlx::query(
         r#"
         SELECT EXISTS (
-            SELECT 1 
-            FROM output 
+            SELECT 1
+            FROM output
             WHERE lock_script_id = $1
         )
         "#,
@@ -197,8 +197,8 @@ async fn script_exists_in_output(
     let row_type = sqlx::query(
         r#"
         SELECT EXISTS (
-            SELECT 1 
-            FROM output 
+            SELECT 1
+            FROM output
             WHERE type_script_id = $1
         )
         "#,

@@ -196,7 +196,7 @@ block_uncles_cache_size    = 30
 # # Or you may want use more flexible scripts, block template as arg.
 # notify_scripts = ["{cmd} {blocktemplate}"]
 #
-# # CKB built-in indexer/rich-indexer settings. 
+# # CKB built-in indexer/rich-indexer settings.
 # # Utilize the `ckb reset-data --indexer` and `ckb reset-data --rich-indexer` subcommands to efficiently clean existing indexes.
 # [indexer_v2]
 # # Indexing the pending txs in the ckb tx-pool
@@ -210,7 +210,7 @@ block_uncles_cache_size    = 30
 #
 # # CKB rich-indexer has its unique configuration.
 # [indexer_v2.rich_indexer]
-# # By default, it uses an embedded SQLite database. 
+# # By default, it uses an embedded SQLite database.
 # # Alternatively, you can set up a PostgreSQL database service and provide the connection parameters.
 # db_type = "postgres"
 # db_name = "ckb-rich-indexer"

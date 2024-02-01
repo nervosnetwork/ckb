@@ -57,7 +57,7 @@ CREATE TABLE output(
     output_index INTEGER NOT NULL,
     capacity INTEGER NOT NULL,
     lock_script_id INTEGER,
-    type_script_id INTEGER, 
+    type_script_id INTEGER,
     data BLOB
 );
 
