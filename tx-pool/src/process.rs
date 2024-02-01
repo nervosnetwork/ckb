@@ -18,7 +18,6 @@ use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
-use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
@@ -28,7 +27,7 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    TimeRelativeTransactionVerifier, TxVerifyEnv,
+    TxVerifyEnv,
 };
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
@@ -51,12 +50,6 @@ pub enum TxStatus {
     Fresh,
     Gap,
     Proposed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProcessResult {
-    Suspended,
-    Completed(Completed),
 }
 
 impl TxStatus {
@@ -289,7 +282,7 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<(), Reject> {
+    ) -> Result<bool, Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
 
@@ -301,25 +294,7 @@ impl TxPoolService {
         if self.verify_queue_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
-
-        if let Some((ret, snapshot)) = self._resumeble_process_tx(tx.clone(), remote).await {
-            match ret {
-                Ok(processed) => {
-                    if let ProcessResult::Completed(completed) = processed {
-                        self.after_process(tx, remote, &snapshot, &Ok(completed))
-                            .await;
-                    }
-                    Ok(())
-                }
-                Err(e) => {
-                    self.after_process(tx, remote, &snapshot, &Err(e.clone()))
-                        .await;
-                    Err(e)
-                }
-            }
-        } else {
-            Ok(())
-        }
+        self.enqueue_verify_queue(tx.clone(), remote).await
     }
 
     pub(crate) async fn process_tx(
@@ -629,58 +604,6 @@ impl TxPoolService {
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
     }
 
-    async fn _resumeble_process_tx(
-        &self,
-        tx: TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
-    ) -> Option<(Result<ProcessResult, Reject>, Arc<Snapshot>)> {
-        let tx_hash = tx.hash();
-
-        let (ret, snapshot) = self.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
-
-        if self.handle_delay_window(&tx, &snapshot).await {
-            return None;
-        }
-
-        match self.fetch_tx_verify_cache(&tx_hash).await {
-            Some(completed) => {
-                let tip_header = snapshot.tip_header();
-                let tx_env = Arc::new(status.with_env(tip_header));
-                let data_loader = snapshot.as_data_loader();
-
-                let ret = TimeRelativeTransactionVerifier::new(
-                    Arc::clone(&rtx),
-                    Arc::clone(&self.consensus),
-                    data_loader,
-                    tx_env,
-                )
-                .verify()
-                .map_err(Reject::Verification);
-                try_or_return_with_snapshot!(ret, snapshot);
-                let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-                let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
-                try_or_return_with_snapshot!(ret, submit_snapshot);
-
-                self.notify_block_assembler(status).await;
-                // if tx is not in cache, it's added into verify queue and won't run into here
-                // the cache will be updated in `verify_mgr`, so we don't update cache here
-                Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
-            }
-            None => {
-                // for remote transaction with decleard cycles, we enqueue it to verify queue directly
-                // notified transaction now don't have decleard cycles, we may need to fix it in future,
-                // now we also enqueue it to verify queue directly
-                let ret = self
-                    .enqueue_verify_queue(rtx.transaction.clone(), remote)
-                    .await;
-                try_or_return_with_snapshot!(ret, snapshot);
-                error!("added to verify queue: {:?}", tx.proposal_short_id());
-                Some((Ok(ProcessResult::Suspended), snapshot))
-            }
-        }
-    }
-
     pub(crate) async fn _process_tx(
         &self,
         tx: TransactionView,
@@ -692,7 +615,12 @@ impl TxPoolService {
         let (ret, snapshot) = self.pre_check(&tx).await;
 
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
-        if self.handle_delay_window(&tx, &snapshot).await {
+
+        if self.is_in_delay_window(&snapshot) {
+            let mut delay = self.delay.write().await;
+            if delay.len() < DELAY_LIMIT {
+                delay.insert(tx.proposal_short_id(), tx);
+            }
             return None;
         }
 
@@ -875,17 +803,6 @@ impl TxPoolService {
     ) -> Result<bool, Reject> {
         let mut queue = self.verify_queue.write().await;
         queue.add_tx(tx, remote)
-    }
-
-    async fn handle_delay_window(&self, tx: &TransactionView, snapshot: &Arc<Snapshot>) -> bool {
-        if self.is_in_delay_window(snapshot) {
-            let mut delay = self.delay.write().await;
-            if delay.len() < DELAY_LIMIT {
-                delay.insert(tx.proposal_short_id(), tx.clone());
-            }
-            return true;
-        }
-        false
     }
 
     async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
