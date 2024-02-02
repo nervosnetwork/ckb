@@ -67,3 +67,17 @@ pub(crate) fn checkout_tag_branch(version: &str) {
         run_command("git", &["checkout", "-b", version], dir);
     }
 }
+
+pub(crate) fn is_git_repo_dirty() -> bool {
+    let res = run_command("git", &["status", "--porcelain"], Some(OPENRPC_DIR));
+    res.map(|s| !s.is_empty()).unwrap_or(false)
+}
+
+pub(crate) fn get_git_remote_url() -> String {
+    run_command(
+        "git",
+        &["config", "--get", "remote.origin.url"],
+        Some(OPENRPC_DIR),
+    )
+    .map_or("".to_string(), |s| s.trim().to_string())
+}

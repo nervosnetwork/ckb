@@ -22,18 +22,22 @@ fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
         "finished dump openrpc json for version: {:?} at dir: {:?}",
         version, json_dir
     );
-    // run git commit all changes before generate rpc readme
-    run_command("git", &["add", "."], Some(OPENRPC_DIR));
-    run_command(
-        "git",
-        &[
-            "commit",
-            "-m",
-            &format!("update openrpc json for version: {:?}", version),
-        ],
-        Some(OPENRPC_DIR),
-    );
-    run_command("git", &["push"], Some(OPENRPC_DIR));
+
+    if is_git_repo_dirty() {
+        // run git commit all changes before generate rpc readme
+        eprintln!("commit OpenRPC changes to repo: {}", get_git_remote_url());
+        run_command("git", &["add", "."], Some(OPENRPC_DIR));
+        run_command(
+            "git",
+            &[
+                "commit",
+                "-m",
+                &format!("update openrpc json for version: {:?}", version),
+            ],
+            Some(OPENRPC_DIR),
+        );
+        run_command("git", &["push"], Some(OPENRPC_DIR));
+    }
     Ok(())
 }
 

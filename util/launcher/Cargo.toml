@@ -34,7 +34,6 @@ ckb-light-client-protocol-server = { path = "../light-client-protocol-server", v
 ckb-block-filter = { path = "../../block-filter", version = "= 0.114.0-pre" }
 
 
-
 [features]
 with_sentry = [ "ckb-sync/with_sentry", "ckb-network/with_sentry", "ckb-app-config/with_sentry" ]
 portable = ["ckb-shared/portable"]

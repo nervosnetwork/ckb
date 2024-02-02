@@ -43,7 +43,7 @@ use std::sync::Arc;
 /// ## Chain Reorganization
 ///
 /// Chain Reorganization happens when CKB found a chain that has accumulated more work than the
-/// canonical chain. The reorganization reverts the blocks in the current canonical chain if needed,
+/// canonical chain. The reorganization revert the blocks in the current canonical chain if needed,
 /// and switch the canonical chain to that better chain.
 ///
 /// ## Live Cell

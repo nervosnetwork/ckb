@@ -104,9 +104,8 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 .PHONY: gen-rpc-doc
 gen-rpc-doc: submodule-init ## Generate rpc documentation
 	cd devtools/doc/rpc-gen && cargo build
-	cd docs/ckb_rpc_openrpc/ && git reset --hard && git clean -fd
-	./target/debug/ckb-rpc-gen rpc/README.md
 	./target/debug/ckb-rpc-gen --json
+	./target/debug/ckb-rpc-gen rpc/README.md
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml
