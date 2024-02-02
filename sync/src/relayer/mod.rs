@@ -21,9 +21,7 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::types::{ActiveChain, SyncShared};
-use crate::utils::{
-    is_internal_db_error, metric_ckb_message_bytes, send_message_to, MetricDirection,
-};
+use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_chain::VerifyResult;
 use ckb_chain::{ChainController, RemoteBlock};
@@ -303,13 +301,13 @@ impl Relayer {
         _nc: &dyn CKBProtocolContext,
         peer_id: PeerIndex,
         block: core::BlockView,
-    ) -> Status {
+    ) {
         if self
             .shared()
             .active_chain()
             .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
         {
-            return Status::ok();
+            return;
         }
 
         let block = Arc::new(block);
