@@ -111,7 +111,6 @@ pub(crate) enum Message {
     PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
     #[cfg(feature = "internal")]
     PackageTxs(Request<Option<u64>, Vec<TxEntry>>),
-    SubmitLocalTestTx(Request<TransactionView, SubmitTxResult>),
 }
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -366,11 +365,6 @@ impl TxPoolController {
     #[cfg(feature = "internal")]
     pub fn package_txs(&self, bytes_limit: Option<u64>) -> Result<Vec<TxEntry>, AnyError> {
         send_message!(self, PackageTxs, bytes_limit)
-    }
-
-    /// Submit local test tx to tx-pool, this tx will be put into verify queue directly.
-    pub fn submit_local_test_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
-        send_message!(self, SubmitLocalTestTx, tx)
     }
 }
 
@@ -687,15 +681,6 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: tx,
         }) => {
             let result = service.process_tx(tx, None).await.map(|_| ());
-            if let Err(e) = responder.send(result) {
-                error!("Responder sending submit_tx result failed {:?}", e);
-            };
-        }
-        Message::SubmitLocalTestTx(Request {
-            responder,
-            arguments: tx,
-        }) => {
-            let result = service.resumeble_process_tx(tx, None).await.map(|_| ());
             if let Err(e) = responder.send(result) {
                 error!("Responder sending submit_tx result failed {:?}", e);
             };

@@ -697,7 +697,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         limit_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<VerifyResult, Error> {
+    ) -> Result<Cycle, Error> {
         let mut cycles = 0;
 
         let groups: Vec<_> = self.groups().collect();
@@ -712,12 +712,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .verify_group_with_signal(group, remain_cycles, command_rx)
                 .await
             {
-                Ok(ChunkState::Completed(used_cycles)) => {
+                Ok(used_cycles) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
-                }
-                Ok(ChunkState::Suspended(_vms, _context)) => {
-                    // FIXME(yukang): we need to cleanup this later, state will not contain snapshot
-                    unreachable!("unexpect suspend in resumable_verify_with_signal");
                 }
                 Err(e) => {
                     #[cfg(feature = "logging")]
@@ -727,7 +723,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             }
         }
 
-        Ok(VerifyResult::Completed(cycles))
+        Ok(cycles)
     }
 
     /// Resuming an suspended verify from snapshot
@@ -1040,7 +1036,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         group: &ScriptGroup,
         max_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<ChunkState, ScriptError> {
+    ) -> Result<Cycle, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
@@ -1049,7 +1045,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 script_group: group,
                 max_cycles,
             };
-            verifier.verify().map(ChunkState::Completed)
+            verifier.verify()
         } else {
             self.chunk_run_with_signal(group, max_cycles, command_rx)
                 .await
@@ -1141,7 +1137,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         script_group: &ScriptGroup,
         max_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<ChunkState, ScriptError> {
+    ) -> Result<Cycle, ScriptError> {
         let context: Arc<Mutex<MachineContext>> = Default::default();
 
         let map_vm_internal_error = |error: VMInternalError| match error {
@@ -1384,7 +1380,7 @@ async fn run_vms_with_signal(
     machines: Vec<ResumableMachine>,
     context: Arc<Mutex<MachineContext>>,
     signal: &mut Receiver<ChunkCommand>,
-) -> Result<ChunkState, ScriptError> {
+) -> Result<Cycle, ScriptError> {
     if machines.is_empty() {
         return Err(ScriptError::Other(
             "To resume VMs, at least one VM must be available!".to_string(),
@@ -1412,7 +1408,7 @@ async fn run_vms_with_signal(
                     }
                     ChunkCommand::Resume | ChunkCommand::Stop => {
                         pause.free();
-                        let _res = child_tx.send(command);
+                        let _ = child_tx.send(command);
                     }
                 }
             }
@@ -1420,7 +1416,7 @@ async fn run_vms_with_signal(
                 let _ = jh.await;
                 match res {
                     (Ok(0), cycles) => {
-                        return Ok(ChunkState::Completed(cycles));
+                        return Ok(cycles);
                     }
                     (Ok(exit_code), _) => {
                         return Err(ScriptError::validation_failure(
@@ -1445,8 +1441,7 @@ async fn run_vms_child(
     context: Arc<Mutex<MachineContext>>,
 ) {
     let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
-    // mark changed to make sure we can receive initial command
-    // and start to run immediately
+    // mark changed to make sure child start to run verification immediately
     child_rx.mark_changed();
     loop {
         let _ = child_rx.changed().await;
@@ -1511,7 +1506,8 @@ async fn run_vms_child(
                     new_suspended_machines.reverse();
                     machines.push(machine);
                     machines.append(&mut new_suspended_machines);
-                    // break to wait for Resume command to begin next loop iteration
+                    // break run machines iteration loop
+                    // wait for Resume command to begin next iteration
                     info!("[verify-test] run_vms_child: suspend at {:?}", cycles);
                     break;
                 }

@@ -196,14 +196,9 @@ impl TransactionScriptsVerifierWithEnv {
         );
 
         let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
-        let res = verifier
+        verifier
             .resumable_verify_with_signal(u64::MAX, &mut command_rx)
-            .await;
-        match res {
-            Ok(VerifyResult::Completed(cycle)) => Ok(cycle),
-            Ok(VerifyResult::Suspended(_)) => unreachable!(),
-            Err(err) => Err(err),
-        }
+            .await
     }
 
     pub(crate) async fn verify_complete_async(
@@ -233,14 +228,9 @@ impl TransactionScriptsVerifierWithEnv {
         if skip_debug_pause {
             verifier.set_skip_pause(true);
         }
-        let res = verifier
+        verifier
             .resumable_verify_with_signal(Cycle::MAX, command_rx)
-            .await;
-        match res {
-            Ok(VerifyResult::Completed(cycle)) => Ok(cycle),
-            Ok(VerifyResult::Suspended(_)) => unreachable!(),
-            Err(err) => Err(err),
-        }
+            .await
     }
 
     // If the max cycles is meaningless, please use `verify_without_limit`,
