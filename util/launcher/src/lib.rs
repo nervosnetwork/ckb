@@ -400,21 +400,7 @@ impl Launcher {
             .enable_net(network_controller.clone(), sync_shared)
             .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
             .enable_experiment(shared.clone())
-            .enable_integration_test(
-                shared.clone(),
-                network_controller.clone(),
-                chain_controller,
-                rpc_config
-                    .extra_well_known_lock_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-                rpc_config
-                    .extra_well_known_type_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-            )
+            .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
             .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
             .enable_indexer(
                 shared.clone(),

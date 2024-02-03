@@ -181,15 +181,10 @@ where
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
-        let ret = self
+        let cycles = self
             .script
             .resumable_verify_with_signal(max_cycles, command_rx)
             .await?;
-        let cycles = if let VerifyResult::Completed(cycles) = ret {
-            cycles
-        } else {
-            unimplemented!("should not in suspend here");
-        };
         Ok(Completed { cycles, fee })
     }
 
