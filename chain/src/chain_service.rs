@@ -242,6 +242,12 @@ impl ChainService {
             }
         }
 
+        ckb_metrics::handle().map(|metrics| {
+            metrics
+                .ckb_chain_lonely_block_ch_len
+                .set(self.lonely_block_tx.len() as i64)
+        });
+
         match self.lonely_block_tx.send(lonely_block) {
             Ok(_) => {}
             Err(SendError(lonely_block)) => {
