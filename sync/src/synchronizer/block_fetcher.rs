@@ -269,6 +269,13 @@ impl BlockFetcher {
                 .mark_slow_block(unverified_tip);
         }
 
+        let inflight_total_count = state.read_inflight_blocks().total_inflight_count();
+        ckb_metrics::handle().map(|metrics| {
+            metrics
+                .ckb_inflight_blocks_count
+                .set(inflight_total_count as i64);
+        });
+
         if fetch.is_empty() {
             debug!(
                 "[block fetch empty] peer-{}, fixed_last_common_header = {} \
@@ -278,7 +285,7 @@ impl BlockFetcher {
                 best_known.number(),
                 tip,
                 unverified_tip,
-                state.read_inflight_blocks().total_inflight_count(),
+                inflight_total_count,
             );
             trace!(
                 "[block fetch empty] peer-{}, inflight_state = {:?}",
@@ -289,7 +296,6 @@ impl BlockFetcher {
             let fetch_head = fetch.first().map_or(0_u64, |v| v.number());
             let fetch_last = fetch.last().map_or(0_u64, |v| v.number());
             let inflight_peer_count = state.read_inflight_blocks().peer_inflight_count(self.peer);
-            let inflight_total_count = state.read_inflight_blocks().total_inflight_count();
             debug!(
                 "request peer-{} for batch blocks: [{}-{}], batch len:{}, [tip/unverified_tip]: [{}/{}], [peer/total inflight count]: [{} / {}], blocks: {}",
                 self.peer,
