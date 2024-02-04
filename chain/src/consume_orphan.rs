@@ -96,6 +96,11 @@ impl ConsumeDescendantProcessor {
     fn send_unverified_block(&self, lonely_block: LonelyBlockHash, total_difficulty: U256) {
         let block_number = lonely_block.block_number_and_hash.number();
         let block_hash = lonely_block.block_number_and_hash.hash();
+        ckb_metrics::handle().map(|metrics| {
+            metrics
+                .ckb_chain_unverified_block_ch_len
+                .set(self.unverified_blocks_tx.len() as i64)
+        });
 
         match self.unverified_blocks_tx.send(lonely_block) {
             Ok(_) => {
