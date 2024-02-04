@@ -118,6 +118,8 @@ pub struct Metrics {
     pub ckb_sys_mem_rocksdb: IntGaugeVec,
     /// Counter for CKB network ban peers
     pub ckb_network_ban_peer: IntCounter,
+    pub ckb_inflight_blocks_count: IntGauge,
+    pub ckb_inflight_timeout_count: IntCounter,
 }
 
 static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
@@ -183,7 +185,7 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
             "The CKB HeaderMap memory hit count",
             &["type"]
         )
-            .unwrap()
+                .unwrap()
         ),
         ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
         ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
@@ -270,6 +272,16 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
         ckb_network_ban_peer: register_int_counter!(
         "ckb_network_ban_peer",
         "CKB network baned peer count"
+    )
+            .unwrap(),
+        ckb_inflight_blocks_count: register_int_gauge!(
+            "ckb_inflight_blocks_count",
+            "The CKB inflight blocks count"
+    )
+            .unwrap(),
+        ckb_inflight_timeout_count: register_int_counter!(
+            "ckb_inflight_timeout_count",
+            "The CKB inflight timeout count"
     )
             .unwrap(),
     }
