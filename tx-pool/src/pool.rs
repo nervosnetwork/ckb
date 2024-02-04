@@ -27,7 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
-const CONFLICTES_CACHE_SIZE: usize = 1000;
+const CONFLICTES_CACHE_SIZE: usize = 150_000;
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 
 /// Tx-pool implementation
