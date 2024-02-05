@@ -50,6 +50,28 @@ fn test_remove_blocks_by_parent() {
     }
 
     let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
+
+    let mut parent_hash = consensus.genesis_block().hash();
+    assert_eq!(orphan[0].block.header().parent_hash(), parent_hash);
+    let mut windows = orphan.windows(2);
+    // Orphans are sorted in a BFS manner. We iterate through them and check that this is the case.
+    // The `parent_or_sibling` may be a sibling or child of current `parent_hash`,
+    // and `child_or_sibling` may be a sibling or child of `parent_or_sibling`.
+    while let Some([parent_or_sibling, child_or_sibling]) = windows.next() {
+        // `parent_or_sibling` is a child of the block with current `parent_hash`.
+        // Make `parent_or_sibling`'s parent the current `parent_hash`.
+        if parent_or_sibling.block.header().parent_hash() != parent_hash {
+            parent_hash = parent_or_sibling.block.header().parent_hash();
+        }
+
+        // If `child_or_sibling`'s parent is not the current `parent_hash`, i.e. it is not a sibling of
+        // `parent_or_sibling`, then it must be a child of `parent_or_sibling`.
+        if child_or_sibling.block.header().parent_hash() != parent_hash {
+            // Move `parent_hash` forward.
+            parent_hash = child_or_sibling.block.header().parent_hash();
+            assert_eq!(child_or_sibling.block.header().parent_hash(), parent_hash);
+        }
+    }
     let orphan_set: HashSet<_> = orphan.into_iter().map(|b| b.block).collect();
     let blocks_set: HashSet<_> = blocks.into_iter().map(|b| b.to_owned()).collect();
     assert_eq!(orphan_set, blocks_set)
