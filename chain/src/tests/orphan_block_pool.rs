@@ -42,7 +42,8 @@ fn assert_leaders_have_children(pool: &OrphanBlockPool) {
 fn assert_blocks_are_sorted(blocks: &[LonelyBlock]) {
     let mut parent_hash = blocks[0].block.header().parent_hash();
     let mut windows = blocks.windows(2);
-    // Orphans are sorted in a BFS manner. We iterate through them and check that this is the case.
+    // Orphans are sorted in a breadth-first search manner. We iterate through them and
+    // check that this is the case.
     // The `parent_or_sibling` may be a sibling or child of current `parent_hash`,
     // and `child_or_sibling` may be a sibling or child of `parent_or_sibling`.
     while let Some([parent_or_sibling, child_or_sibling]) = windows.next() {
@@ -55,9 +56,9 @@ fn assert_blocks_are_sorted(blocks: &[LonelyBlock]) {
         // If `child_or_sibling`'s parent is not the current `parent_hash`, i.e. it is not a sibling of
         // `parent_or_sibling`, then it must be a child of `parent_or_sibling`.
         if child_or_sibling.block.header().parent_hash() != parent_hash {
+            assert_eq!(child_or_sibling.block.header().parent_hash(), parent_or_sibling.block.header().hash());
             // Move `parent_hash` forward.
             parent_hash = child_or_sibling.block.header().parent_hash();
-            assert_eq!(child_or_sibling.block.header().parent_hash(), parent_hash);
         }
     }
 }
