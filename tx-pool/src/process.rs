@@ -112,10 +112,7 @@ impl TxPoolService {
                     if rbf_res.is_err() {
                         // here if RBF is enabled, but `check_rbf` returned an Err,
                         // means RBF check failed with conflicts, we put old entry into conflicts before return Err
-                        tx_pool.record_conflict(
-                            entry.proposal_short_id(),
-                            entry.transaction().clone(),
-                        );
+                        tx_pool.record_conflict(entry.transaction().clone());
                     }
                     rbf_res?
                 } else {
@@ -123,10 +120,7 @@ impl TxPoolService {
                     let conflicted_outpoints =
                         tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
                     if !conflicted_outpoints.is_empty() {
-                        tx_pool.record_conflict(
-                            entry.proposal_short_id(),
-                            entry.transaction().clone(),
-                        );
+                        tx_pool.record_conflict(entry.transaction().clone());
                         return Err(Reject::Resolve(OutPointError::Dead(
                             conflicted_outpoints.into_iter().next().unwrap(),
                         )));
@@ -166,7 +160,7 @@ impl TxPoolService {
                             entry.transaction().hash()
                         ));
                         // RBF replace successfully, put old transactions into conflicts pool
-                        tx_pool.record_conflict(old.proposal_short_id(), old.transaction().clone());
+                        tx_pool.record_conflict(old.transaction().clone());
                         // after removing old tx from tx_pool, we call reject callbacks manually
                         self.callbacks.call_reject(tx_pool, &old, reject);
                     }
@@ -179,6 +173,8 @@ impl TxPoolService {
                     ));
                     self.callbacks.call_reject(tx_pool, &evict, reject);
                 }
+                tx_pool.remove_conflict(entry.transaction());
+
                 Ok(())
             })
             .await;

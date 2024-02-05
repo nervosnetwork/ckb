@@ -2,7 +2,9 @@ use crate::{
     rpc::RpcClient,
     util::{
         cell::gen_spendable,
-        transaction::{always_success_transaction, always_success_transactions},
+        transaction::{
+            always_success_transaction, always_success_transactions, get_tx_pool_conflicts,
+        },
     },
     utils::wait_until,
     Node, Spec,
@@ -13,6 +15,7 @@ use ckb_types::{
     core::{capacity_bytes, cell::CellMetaBuilder, Capacity, DepType, TransactionView},
     packed::{Byte32, CellDep, CellDepBuilder, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
+    H256,
 };
 
 pub struct RbfEnable;
@@ -85,7 +88,8 @@ impl Spec for RbfBasic {
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
-        assert!(res.is_ok(), "tx2 should replace old tx");
+        assert!(res.is_ok(), "tx2 should replace with old tx");
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx1.hash().unpack()]);
 
         let ret = node0
             .rpc_client()
@@ -138,6 +142,7 @@ impl Spec for RbfBasic {
         assert!(ret.transaction.is_none());
         assert!(matches!(ret.tx_status.status, Status::Rejected));
         assert!(ret.tx_status.reason.unwrap().contains("RBFRejected"));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx1.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -165,6 +170,7 @@ impl Spec for RbfSameInput {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
+        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -200,6 +206,7 @@ impl Spec for RbfOnlyForResolveDead {
             .send_transaction_result(tx2.data().into());
         let message = res.err().unwrap().to_string();
         assert!(message.contains("TransactionFailedToResolve: Resolve failed Unknown"));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -246,6 +253,7 @@ impl Spec for RbfSameInputwithLessFee {
         assert!(message.contains(
             "Tx's current fee is 1000000000, expect it to >= 2000000363 to replace old txs"
         ));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -306,6 +314,7 @@ impl Spec for RbfTooManyDescendants {
             .unwrap()
             .to_string()
             .contains("Tx conflict with too many txs"));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -378,6 +387,7 @@ impl Spec for RbfContainNewTx {
             .unwrap()
             .to_string()
             .contains("new Tx contains unconfirmed inputs"));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -450,6 +460,7 @@ impl Spec for RbfContainInvalidInput {
             .unwrap()
             .to_string()
             .contains("new Tx contains inputs in descendants of to be replaced Tx"));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -502,12 +513,12 @@ impl Spec for RbfChildPayForParent {
         }
 
         let clone_tx = txs[2].clone();
-        // Set tx2 fee to a higher value, but not enough to pay for tx5
+        // Set tx2 fee to a higher value, but not enough to pay for tx4
         let output2 = CellOutputBuilder::default()
             .capacity(capacity_bytes!(70).pack())
             .build();
 
-        let tx2 = clone_tx
+        let new_tx = clone_tx
             .as_advanced_builder()
             .set_inputs(vec![{
                 CellInput::new_builder()
@@ -519,19 +530,20 @@ impl Spec for RbfChildPayForParent {
 
         let res = node0
             .rpc_client()
-            .send_transaction_result(tx2.data().into());
+            .send_transaction_result(new_tx.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
         assert!(res
             .err()
             .unwrap()
             .to_string()
             .contains("RBF rejected: Tx's current fee is 3000000000, expect it to >= 5000000363 to replace old txs"));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().unpack()]);
 
         // let's try a new transaction with new higher fee
         let output2 = CellOutputBuilder::default()
             .capacity(capacity_bytes!(45).pack())
             .build();
-        let tx2 = clone_tx
+        let new_tx_ok = clone_tx
             .as_advanced_builder()
             .set_inputs(vec![{
                 CellInput::new_builder()
@@ -542,8 +554,19 @@ impl Spec for RbfChildPayForParent {
             .build();
         let res = node0
             .rpc_client()
-            .send_transaction_result(tx2.data().into());
+            .send_transaction_result(new_tx_ok.data().into());
         assert!(res.is_ok());
+
+        // replaced txs are in conflicts pool
+        // tx2 tx3 tx4 is replaced, old `new_tx` is still in conflicts pool
+        let mut expected: Vec<ckb_types::H256> = txs[2..=max_count - 1]
+            .iter()
+            .map(|tx| tx.hash().unpack())
+            .collect::<Vec<_>>();
+        expected.push(new_tx.hash().unpack());
+        expected.sort_unstable();
+        let conflicts = get_tx_pool_conflicts(node0);
+        assert_eq!(conflicts, expected);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -592,6 +615,8 @@ impl Spec for RbfContainInvalidCells {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
+        // script verification failed because of invalid cell dep, will not in conflicts pool
+        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -840,8 +865,8 @@ impl Spec for RbfConcurrency {
         let tx1 = node0.new_transaction(tx_hash_0.clone());
 
         let mut conflicts = vec![tx1];
-        // tx1 capacity is 100, set other txs to higer fee
-        let fees = [
+        // tx1 capacity is 100, set other txs to higher fee
+        let fees = vec![
             capacity_bytes!(83),
             capacity_bytes!(82),
             capacity_bytes!(81),
@@ -886,6 +911,13 @@ impl Spec for RbfConcurrency {
         for s in status.iter().take(4) {
             assert_eq!(*s, Status::Rejected);
         }
+        let mut expected_conflicts: Vec<H256> = conflicts
+            .iter()
+            .take(4)
+            .map(|tx| tx.hash().unpack())
+            .collect();
+        expected_conflicts.sort_unstable();
+        assert_eq!(get_tx_pool_conflicts(node0), expected_conflicts);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

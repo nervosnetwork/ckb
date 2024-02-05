@@ -165,8 +165,14 @@ impl TxPool {
         self.pool_map.set_entry(short_id, Status::Gap)
     }
 
-    pub(crate) fn record_conflict(&mut self, short_id: ProposalShortId, tx: TransactionView) {
+    pub(crate) fn record_conflict(&mut self, tx: TransactionView) {
+        let short_id = tx.proposal_short_id();
         self.conflicts_cache.put(short_id, tx);
+    }
+
+    pub(crate) fn remove_conflict(&mut self, tx: &TransactionView) {
+        let short_id = tx.proposal_short_id();
+        self.conflicts_cache.pop(&short_id);
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -476,6 +482,7 @@ impl TxPool {
         self.pool_map.clear();
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
+        self.conflicts_cache = LruCache::new(CONFLICTES_CACHE_SIZE);
     }
 
     pub(crate) fn package_proposals(
