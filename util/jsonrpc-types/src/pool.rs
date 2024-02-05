@@ -184,11 +184,17 @@ pub struct TxPoolEntries {
     pub pending: HashMap<H256, TxPoolEntry>,
     /// Proposed tx verbose info
     pub proposed: HashMap<H256, TxPoolEntry>,
+    /// Conflicted tx hash vec
+    pub conflicted: Vec<H256>,
 }
 
 impl From<TxPoolEntryInfo> for TxPoolEntries {
     fn from(info: TxPoolEntryInfo) -> Self {
-        let TxPoolEntryInfo { pending, proposed } = info;
+        let TxPoolEntryInfo {
+            pending,
+            proposed,
+            conflicted,
+        } = info;
 
         TxPoolEntries {
             pending: pending
@@ -199,6 +205,7 @@ impl From<TxPoolEntryInfo> for TxPoolEntries {
                 .into_iter()
                 .map(|(hash, entry)| (hash.unpack(), entry.into()))
                 .collect(),
+            conflicted: conflicted.iter().map(Unpack::unpack).collect(),
         }
     }
 }

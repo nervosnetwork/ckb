@@ -433,7 +433,16 @@ impl TxPool {
             .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 
-        TxPoolEntryInfo { pending, proposed }
+        let conflicted = self
+            .conflicts_cache
+            .iter()
+            .map(|(_id, tx)| tx.hash())
+            .collect();
+        TxPoolEntryInfo {
+            pending,
+            proposed,
+            conflicted,
+        }
     }
 
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {

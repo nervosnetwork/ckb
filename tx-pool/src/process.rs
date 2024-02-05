@@ -105,14 +105,13 @@ impl TxPoolService {
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                // here we double confirm RBF rules before insert entry
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                 let conflicts = if tx_pool.enable_rbf() {
+                    // here we double confirm RBF rules before insert entry
                     let rbf_res = tx_pool.check_rbf(&snapshot, &entry);
                     if rbf_res.is_err() {
                         // here if RBF is enabled, but `check_rbf` returned an Err,
                         // means RBF check failed with conflicts, we put old entry into conflicts before return Err
-                        // if RBF is disabled and there is conflict happened, `pre_check` will handle it
                         tx_pool.record_conflict(
                             entry.proposal_short_id(),
                             entry.transaction().clone(),
@@ -120,6 +119,18 @@ impl TxPoolService {
                     }
                     rbf_res?
                 } else {
+                    // RBF is disabled, but we found conflicts, we put old entry into conflicts before return Err
+                    let conflicted_outpoints =
+                        tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
+                    if !conflicted_outpoints.is_empty() {
+                        tx_pool.record_conflict(
+                            entry.proposal_short_id(),
+                            entry.transaction().clone(),
+                        );
+                        return Err(Reject::Resolve(OutPointError::Dead(
+                            conflicted_outpoints.into_iter().next().unwrap(),
+                        )));
+                    }
                     HashSet::new()
                 };
 
@@ -241,7 +252,6 @@ impl TxPoolService {
     ) -> (Result<PreCheckedTx, Reject>, Arc<Snapshot>) {
         // Acquire read lock for cheap check
         let tx_size = tx.data().serialized_size_in_block();
-        let mut conflicted = None;
 
         let (ret, snapshot) = self
             .with_tx_pool_read_lock(|tx_pool, snapshot| {
@@ -259,42 +269,28 @@ impl TxPoolService {
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
                         Ok((tip_hash, rtx, status, fee, tx_size))
                     }
-                    Err(err) => {
-                        if matches!(err, Reject::Resolve(OutPointError::Dead(_))) {
-                            let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
-                            let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                            // Try an RBF cheap check, here if the tx is resolved as Dead,
-                            // we assume there must be conflicted happened in txpool now,
-                            // if there is no conflicted transactions reject it
-                            let conflicts = tx_pool.pool_map.find_conflict_tx(&rtx.transaction);
-                            if conflicts.is_empty() {
-                                error!(
-                                    "{} is resolved as Dead, but there is no conflicted tx",
-                                    rtx.transaction.proposal_short_id()
-                                );
-                                return Err(err);
-                            }
-                            if tx_pool.enable_rbf() {
-                                Ok((tip_hash, rtx, status, fee, tx_size))
-                            } else {
-                                conflicted = Some(rtx.transaction.clone());
-                                Err(err)
-                            }
-                        } else {
-                            Err(err)
+                    Err(Reject::Resolve(OutPointError::Dead(out))) => {
+                        let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
+                        let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                        let conflicts = tx_pool.pool_map.find_conflict_tx(&rtx.transaction);
+                        if conflicts.is_empty() {
+                            // this mean one input's outpoint is dead, but there is no direct conflicted tx in tx_pool
+                            // we should reject it directly and we don't need to put it into conflicts pool
+                            error!(
+                                "{} is resolved as Dead, but there is no conflicted tx",
+                                rtx.transaction.proposal_short_id()
+                            );
+                            return Err(Reject::Resolve(OutPointError::Dead(out.clone())));
                         }
+                        // we also return Ok here, so that the entry will be continue to be verified before submit
+                        // we only want to put it into conflicts pool after the verification stage passed
+                        // then we will handle the conflicted txs in `submit_entry`
+                        Ok((tip_hash, rtx, status, fee, tx_size))
                     }
+                    Err(err) => Err(err),
                 }
             })
             .await;
-        if let Some(transaction) = conflicted {
-            // If RBF is disabled, but there is a double-spending tx in txpool
-            // we reject the new tx directly but record it in conflicts pool
-            self.with_tx_pool_write_lock(|tx_pool, _snapshot| {
-                tx_pool.record_conflict(transaction.proposal_short_id(), transaction.clone());
-            })
-            .await;
-        }
         (ret, snapshot)
     }
 
