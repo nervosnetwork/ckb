@@ -27,6 +27,41 @@ fn gen_lonely_block(parent_header: &HeaderView) -> LonelyBlock {
     }
 }
 
+fn assert_leaders_have_children(pool: &OrphanBlockPool) {
+    for leader in pool.clone_leaders() {
+        let children = pool.remove_blocks_by_parent(&leader);
+        assert!(!children.is_empty());
+        // `remove_blocks_by_parent` will remove all children from the pool,
+        // so we need to put them back here.
+        for child in children {
+            pool.insert(child);
+        }
+    }
+}
+
+fn assert_blocks_are_sorted(blocks: &[LonelyBlock]) {
+    let mut parent_hash = blocks[0].block.header().parent_hash();
+    let mut windows = blocks.windows(2);
+    // Orphans are sorted in a BFS manner. We iterate through them and check that this is the case.
+    // The `parent_or_sibling` may be a sibling or child of current `parent_hash`,
+    // and `child_or_sibling` may be a sibling or child of `parent_or_sibling`.
+    while let Some([parent_or_sibling, child_or_sibling]) = windows.next() {
+        // `parent_or_sibling` is a child of the block with current `parent_hash`.
+        // Make `parent_or_sibling`'s parent the current `parent_hash`.
+        if parent_or_sibling.block.header().parent_hash() != parent_hash {
+            parent_hash = parent_or_sibling.block.header().parent_hash();
+        }
+
+        // If `child_or_sibling`'s parent is not the current `parent_hash`, i.e. it is not a sibling of
+        // `parent_or_sibling`, then it must be a child of `parent_or_sibling`.
+        if child_or_sibling.block.header().parent_hash() != parent_hash {
+            // Move `parent_hash` forward.
+            parent_hash = child_or_sibling.block.header().parent_hash();
+            assert_eq!(child_or_sibling.block.header().parent_hash(), parent_hash);
+        }
+    }
+}
+
 #[test]
 fn test_remove_blocks_by_parent() {
     let consensus = ConsensusBuilder::default().build();
@@ -51,27 +86,12 @@ fn test_remove_blocks_by_parent() {
 
     let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
 
-    let mut parent_hash = consensus.genesis_block().hash();
-    assert_eq!(orphan[0].block.header().parent_hash(), parent_hash);
-    let mut windows = orphan.windows(2);
-    // Orphans are sorted in a BFS manner. We iterate through them and check that this is the case.
-    // The `parent_or_sibling` may be a sibling or child of current `parent_hash`,
-    // and `child_or_sibling` may be a sibling or child of `parent_or_sibling`.
-    while let Some([parent_or_sibling, child_or_sibling]) = windows.next() {
-        // `parent_or_sibling` is a child of the block with current `parent_hash`.
-        // Make `parent_or_sibling`'s parent the current `parent_hash`.
-        if parent_or_sibling.block.header().parent_hash() != parent_hash {
-            parent_hash = parent_or_sibling.block.header().parent_hash();
-        }
+    assert_eq!(
+        orphan[0].block.header().parent_hash(),
+        consensus.genesis_block().hash()
+    );
+    assert_blocks_are_sorted(orphan.as_slice());
 
-        // If `child_or_sibling`'s parent is not the current `parent_hash`, i.e. it is not a sibling of
-        // `parent_or_sibling`, then it must be a child of `parent_or_sibling`.
-        if child_or_sibling.block.header().parent_hash() != parent_hash {
-            // Move `parent_hash` forward.
-            parent_hash = child_or_sibling.block.header().parent_hash();
-            assert_eq!(child_or_sibling.block.header().parent_hash(), parent_hash);
-        }
-    }
     let orphan_set: HashSet<_> = orphan.into_iter().map(|b| b.block).collect();
     let blocks_set: HashSet<_> = blocks.into_iter().map(|b| b.to_owned()).collect();
     assert_eq!(orphan_set, blocks_set)
@@ -132,7 +152,7 @@ fn test_leaders() {
             pool.insert(new_block);
         }
     }
-
+    assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 15);
     assert_eq!(pool.leaders_len(), 4);
 
@@ -142,6 +162,7 @@ fn test_leaders() {
         switch: None,
         verify_callback: None,
     });
+    assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 16);
     assert_eq!(pool.leaders_len(), 3);
 
@@ -151,6 +172,7 @@ fn test_leaders() {
         switch: None,
         verify_callback: None,
     });
+    assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 17);
     assert_eq!(pool.leaders_len(), 2);
 
@@ -166,6 +188,7 @@ fn test_leaders() {
         switch: None,
         verify_callback: None,
     });
+    assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 18);
     assert_eq!(pool.leaders_len(), 2);
 
@@ -179,6 +202,7 @@ fn test_leaders() {
         switch: None,
         verify_callback: None,
     });
+    assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 4);
     assert_eq!(pool.leaders_len(), 1);
 
