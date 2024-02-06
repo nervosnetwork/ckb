@@ -27,14 +27,12 @@ fn process_block(
     switch: Switch,
 ) {
     let lonely_block_hash = LonelyBlockHash {
-        peer_id: None,
         switch: Some(switch),
         block_number_and_hash: BlockNumberAndHash::new(blk.number(), blk.hash()),
         verify_callback: None,
     };
 
     let lonely_block = LonelyBlock {
-        peer_id: None,
         switch: Some(switch),
         block: Arc::new(blk.to_owned()),
         verify_callback: None,
