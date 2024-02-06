@@ -35,7 +35,7 @@ use std::time::Instant;
 pub struct CompactBlockProcess<'a> {
     message: packed::CompactBlockReader<'a>,
     relayer: &'a Relayer,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -43,7 +43,7 @@ impl<'a> CompactBlockProcess<'a> {
     pub fn new(
         message: packed::CompactBlockReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         CompactBlockProcess {
@@ -118,7 +118,7 @@ impl<'a> CompactBlockProcess<'a> {
                 });
                 shrink_to_fit!(pending_compact_blocks, 20);
                 self.relayer
-                    .accept_block(self.nc.as_ref(), self.peer, block);
+                    .accept_block(Arc::clone(&self.nc), self.peer, block, "CompactBlock");
 
                 if let Some(metrics) = ckb_metrics::handle() {
                     metrics
@@ -231,7 +231,7 @@ fn contextual_check(
     compact_block_header: &HeaderView,
     shared: &Arc<SyncShared>,
     active_chain: &ActiveChain,
-    nc: &Arc<dyn CKBProtocolContext>,
+    nc: &Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 ) -> Status {
     let block_hash = compact_block_header.hash();

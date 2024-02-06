@@ -20,7 +20,7 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{post_sync_process, HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
@@ -32,7 +32,7 @@ use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
-use ckb_logger::{debug, error, info, trace, warn};
+use ckb_logger::{debug, error, info, trace};
 use ckb_metrics::HistogramTimer;
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
@@ -265,7 +265,7 @@ impl Synchronizer {
 
     fn try_process(
         &self,
-        nc: &dyn CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'_>,
     ) -> Status {
@@ -280,34 +280,36 @@ impl Synchronizer {
 
         match message {
             packed::SyncMessageUnionReader::GetHeaders(reader) => {
-                GetHeadersProcess::new(reader, self, peer, nc).execute()
+                GetHeadersProcess::new(reader, self, peer, nc.as_ref()).execute()
             }
             packed::SyncMessageUnionReader::SendHeaders(reader) => {
-                HeadersProcess::new(reader, self, peer, nc).execute()
+                HeadersProcess::new(reader, self, peer, nc.as_ref()).execute()
             }
             packed::SyncMessageUnionReader::GetBlocks(reader) => {
-                GetBlocksProcess::new(reader, self, peer, nc).execute()
+                GetBlocksProcess::new(reader, self, peer, nc.as_ref()).execute()
             }
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 if reader.check_data() {
-                    BlockProcess::new(reader, self, peer).execute()
+                    BlockProcess::new(reader, self, peer, nc).execute()
                 } else {
                     StatusCode::ProtocolMessageIsMalformed.with_context("SendBlock is invalid")
                 }
             }
-            packed::SyncMessageUnionReader::InIBD(_) => InIBDProcess::new(self, peer, nc).execute(),
+            packed::SyncMessageUnionReader::InIBD(_) => {
+                InIBDProcess::new(self, peer, nc.as_ref()).execute()
+            }
         }
     }
 
     fn process(
         &self,
-        nc: &dyn CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'_>,
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;
-        let status = self.try_process(nc, peer, message);
+        let status = self.try_process(Arc::clone(&nc), peer, message);
 
         metric_ckb_message_bytes(
             MetricDirection::In,
@@ -317,26 +319,7 @@ impl Synchronizer {
             item_bytes,
         );
 
-        Self::post_sync_process(nc, peer, item_name, status);
-    }
-
-    fn post_sync_process(
-        nc: &dyn CKBProtocolContext,
-        peer: PeerIndex,
-        item_name: &str,
-        status: Status,
-    ) {
-        if let Some(ban_time) = status.should_ban() {
-            error!(
-                "Receive {} from {}. Ban {:?} for {}",
-                item_name, peer, ban_time, status
-            );
-            nc.ban_peer(peer, ban_time, status.to_string());
-        } else if status.should_warn() {
-            warn!("Receive {} from {}, {}", item_name, peer, status);
-        } else if !status.is_ok() {
-            debug!("Receive {} from {}, {}", item_name, peer, status);
-        }
+        post_sync_process(nc.as_ref(), peer, item_name, status);
     }
 
     /// Get peers info
@@ -371,8 +354,7 @@ impl Synchronizer {
         if status.contains(BlockStatus::BLOCK_STORED) {
             error!("Block {} already stored", block_hash);
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared
-                .accept_remote_block(&self.chain, remote_block, None);
+            self.shared.accept_remote_block(&self.chain, remote_block);
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
@@ -396,11 +378,7 @@ impl Synchronizer {
             error!("block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            let remote_block = RemoteBlock {
-                block: Arc::new(block),
-                peer_id,
-            };
-            self.chain.blocking_process_remote_block(remote_block)
+            self.chain.blocking_process_block(Arc::new(block))
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
@@ -844,7 +822,7 @@ impl CKBProtocolHandler for Synchronizer {
         }
 
         let start_time = Instant::now();
-        tokio::task::block_in_place(|| self.process(nc.as_ref(), peer_index, msg));
+        tokio::task::block_in_place(|| self.process(nc, peer_index, msg));
         debug!(
             "Process message={}, peer={}, cost={:?}",
             msg.item_name(),
@@ -914,31 +892,5 @@ impl CKBProtocolHandler for Synchronizer {
         } else if token == NO_PEER_CHECK_TOKEN {
             debug!("No peers connected");
         }
-    }
-
-    async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
-        let mut have_malformed_peers = false;
-        while let Some(malformed_peer_info) = self.verify_failed_blocks_rx.recv().await {
-            have_malformed_peers = true;
-            if malformed_peer_info.is_internal_db_error {
-                // we shouldn't ban that peer if it's an internal db error
-                continue;
-            }
-
-            Self::post_sync_process(
-                nc.as_ref(),
-                malformed_peer_info.peer_id,
-                "SendBlock",
-                StatusCode::BlockIsInvalid.with_context(format!(
-                    "block {} is invalid, reason: {}",
-                    malformed_peer_info.block_hash, malformed_peer_info.reason
-                )),
-            );
-        }
-
-        if have_malformed_peers {
-            return Some(());
-        }
-        None
     }
 }

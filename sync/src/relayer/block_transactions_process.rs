@@ -23,7 +23,7 @@ use std::sync::Arc;
 pub struct BlockTransactionsProcess<'a> {
     message: packed::BlockTransactionsReader<'a>,
     relayer: &'a Relayer,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -31,7 +31,7 @@ impl<'a> BlockTransactionsProcess<'a> {
     pub fn new(
         message: packed::BlockTransactionsReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         BlockTransactionsProcess {
@@ -117,7 +117,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     ReconstructionResult::Block(block) => {
                         pending.remove();
                         self.relayer
-                            .accept_block(self.nc.as_ref(), self.peer, block);
+                            .accept_block(self.nc, self.peer, block, "BlockTransactions");
                         return Status::ok();
                     }
                     ReconstructionResult::Missing(transactions, uncles) => {
