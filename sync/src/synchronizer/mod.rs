@@ -361,7 +361,7 @@ impl Synchronizer {
     pub fn blocking_process_new_block(
         &self,
         block: core::BlockView,
-        peer_id: PeerIndex,
+        _peer_id: PeerIndex,
     ) -> Result<bool, ckb_error::Error> {
         let block_hash = block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
