@@ -1,7 +1,7 @@
 use crate::utils::orphan_block_pool::OrphanBlockPool;
-use crate::{LonelyBlock, LonelyBlockHash, VerifyResult};
-use ckb_channel::{select, Receiver, SendError, Sender};
-use ckb_error::{Error, InternalErrorKind};
+use crate::{LonelyBlock, LonelyBlockHash};
+use ckb_channel::{select, Receiver, Sender};
+use ckb_error::Error;
 use ckb_logger::internal::trace;
 use ckb_logger::{debug, error, info};
 use ckb_shared::block_status::BlockStatus;
@@ -106,16 +106,8 @@ impl ConsumeDescendantProcessor {
                     block_number, block_hash
                 );
             }
-            Err(SendError(lonely_block)) => {
+            Err(_) => {
                 error!("send unverified_block_tx failed, the receiver has been closed");
-                let err: Error = InternalErrorKind::System
-                    .other(
-                        "send unverified_block_tx failed, the receiver have been close".to_string(),
-                    )
-                    .into();
-
-                let verify_result: VerifyResult = Err(err);
-                lonely_block.execute_callback(verify_result);
                 return;
             }
         };
