@@ -1,6 +1,6 @@
 use crate::LonelyBlockHash;
 use crate::{
-    utils::forkchanges::ForkChanges, GlobalIndex, LonelyBlock, TruncateRequest, UnverifiedBlock,
+    utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest,
     VerifyResult,
 };
 use ckb_channel::{select, Receiver};
@@ -112,11 +112,14 @@ impl ConsumeUnverifiedBlocks {
 }
 
 impl ConsumeUnverifiedBlockProcessor {
-    fn load_full_unverified_block(&self, lonely_block: LonelyBlockHash) -> UnverifiedBlock {
+    fn load_unverified_block_and_parent_header(
+        &self,
+        block_hash: &Byte32,
+    ) -> (BlockView, HeaderView) {
         let block_view = self
             .shared
             .store()
-            .get_block(&lonely_block.block_number_and_hash.hash())
+            .get_block(block_hash)
             .expect("block stored");
         let parent_header_view = self
             .shared
@@ -124,35 +127,28 @@ impl ConsumeUnverifiedBlockProcessor {
             .get_block_header(&block_view.data().header().raw().parent_hash())
             .expect("parent header stored");
 
-        UnverifiedBlock {
-            lonely_block: LonelyBlock {
-                block: Arc::new(block_view),
-                switch: lonely_block.switch,
-                verify_callback: lonely_block.verify_callback,
-            },
-            parent_header: parent_header_view,
-        }
+        (block_view, parent_header_view)
     }
 
     pub(crate) fn consume_unverified_blocks(&mut self, lonely_block_hash: LonelyBlockHash) {
-        let unverified_block = self.load_full_unverified_block(lonely_block_hash);
+        let LonelyBlockHash {
+            block_number_and_hash,
+            switch,
+            verify_callback,
+        } = lonely_block_hash;
+        let (unverified_block, parent_header) =
+            self.load_unverified_block_and_parent_header(&block_number_and_hash.hash);
         // process this unverified block
-        let verify_result = self.verify_block(
-            unverified_block.block(),
-            &unverified_block.parent_header,
-            unverified_block.switch(),
-        );
+        let verify_result = self.verify_block(&unverified_block, &parent_header, switch);
         match &verify_result {
             Ok(_) => {
                 let log_now = std::time::Instant::now();
-                self.shared
-                    .remove_block_status(&unverified_block.block().hash());
+                self.shared.remove_block_status(&block_number_and_hash.hash);
                 let log_elapsed_remove_block_status = log_now.elapsed();
-                self.shared
-                    .remove_header_view(&unverified_block.block().hash());
+                self.shared.remove_header_view(&block_number_and_hash.hash);
                 debug!(
                     "block {} remove_block_status cost: {:?}, and header_view cost: {:?}",
-                    unverified_block.block().hash(),
+                    block_number_and_hash.hash,
                     log_elapsed_remove_block_status,
                     log_now.elapsed()
                 );
@@ -160,8 +156,7 @@ impl ConsumeUnverifiedBlockProcessor {
             Err(err) => {
                 error!(
                     "verify block {} failed: {}",
-                    unverified_block.block().hash(),
-                    err
+                    block_number_and_hash.hash, err
                 );
 
                 let tip = self
@@ -181,21 +176,21 @@ impl ConsumeUnverifiedBlockProcessor {
                     tip_ext.total_difficulty,
                 ));
 
-                self.shared.insert_block_status(
-                    unverified_block.block().hash(),
-                    BlockStatus::BLOCK_INVALID,
-                );
+                self.shared
+                    .insert_block_status(block_number_and_hash.hash(), BlockStatus::BLOCK_INVALID);
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
                     tip.hash(),
-                    unverified_block.block().hash(),
+                    block_number_and_hash.hash,
                     err
                 );
             }
         }
 
-        unverified_block.execute_callback(verify_result);
+        if let Some(callback) = verify_callback {
+            callback(verify_result);
+        }
     }
 
     fn verify_block(
