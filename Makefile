@@ -102,15 +102,10 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 	cargo doc --workspace
 
 .PHONY: gen-rpc-doc
-gen-rpc-doc:  ## Generate rpc documentation
-	rm -f ${CARGO_TARGET_DIR}/doc/ckb_rpc/module/trait.*.html
-	cargo doc --workspace
-	ln -nsf "${CARGO_TARGET_DIR}" "target"
-	if command -v python3 &> /dev/null; then \
-		python3 ./devtools/doc/rpc.py > rpc/README.md; \
-	else \
-		python ./devtools/doc/rpc.py > rpc/README.md; \
-	fi
+gen-rpc-doc: submodule-init ## Generate rpc documentation
+	cd devtools/doc/rpc-gen && cargo build
+	./target/debug/ckb-rpc-gen --json
+	./target/debug/ckb-rpc-gen rpc/README.md
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml

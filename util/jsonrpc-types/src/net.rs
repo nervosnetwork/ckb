@@ -1,4 +1,5 @@
 use crate::{BlockNumber, Byte32, Timestamp, Uint64};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The information of the node itself.
@@ -41,7 +42,7 @@ use serde::{Deserialize, Serialize};
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct LocalNode {
     /// CKB node version.
     ///
@@ -66,7 +67,7 @@ pub struct LocalNode {
 }
 
 /// The information of a P2P protocol that is supported by the local node.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct LocalNodeProtocol {
     /// Unique protocol ID.
     pub id: Uint64,
@@ -148,7 +149,7 @@ pub struct LocalNodeProtocol {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct RemoteNode {
     /// The remote node version.
     pub version: String,
@@ -178,7 +179,7 @@ pub struct RemoteNode {
 }
 
 /// The information about an active running protocol.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct RemoteNodeProtocol {
     /// Unique protocol ID.
     pub id: Uint64,
@@ -187,7 +188,7 @@ pub struct RemoteNodeProtocol {
 }
 
 /// The chain synchronization state between the local node and a remote node.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct PeerSyncState {
     /// Best known header hash of remote peer.
     ///
@@ -217,7 +218,7 @@ pub struct PeerSyncState {
 }
 
 /// Node P2P address and score.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct NodeAddress {
     /// P2P address.
     ///
@@ -232,7 +233,7 @@ pub struct NodeAddress {
 }
 
 /// A banned P2P address.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BannedAddr {
     /// The P2P address.
     ///
@@ -247,7 +248,7 @@ pub struct BannedAddr {
 }
 
 /// The overall chain synchronization state of this local node.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct SyncState {
     /// Whether the local node is in IBD, Initial Block Download.
     ///

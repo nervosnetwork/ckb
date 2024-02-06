@@ -19,7 +19,7 @@ use std::sync::Arc;
 ///
 /// A miner gets a template from CKB, optionally selects transactions, resolves the PoW puzzle, and
 /// submits the found new block.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait MinerRpc {
     /// Returns block template for miners.

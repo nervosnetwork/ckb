@@ -1,9 +1,10 @@
 use crate::{BlockNumber, Capacity, CellOutput, JsonBytes, OutPoint, Script, Uint32, Uint64};
 use ckb_types::H256;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Indexer tip information
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct IndexerTip {
     /// indexed tip block hash
     pub block_hash: H256,
@@ -12,7 +13,7 @@ pub struct IndexerTip {
 }
 
 /// Live cell
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct IndexerCell {
     /// the fields of an output cell
     pub output: CellOutput,
@@ -27,7 +28,7 @@ pub struct IndexerCell {
 }
 
 /// IndexerPagination wraps objects array and last_cursor to provide paging
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct IndexerPagination<T> {
     /// objects collection
     pub objects: Vec<T>,
@@ -46,7 +47,7 @@ impl<T> IndexerPagination<T> {
 }
 
 /// SearchKey represent indexer support params
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 pub struct IndexerSearchKey {
     /// Script
     pub script: Script,
@@ -76,7 +77,7 @@ impl Default for IndexerSearchKey {
 }
 
 /// IndexerSearchMode represent search mode, default is prefix search
-#[derive(Deserialize, PartialEq, Eq)]
+#[derive(Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerSearchMode {
     /// Mode `prefix` search with prefix
@@ -102,7 +103,7 @@ impl Default for IndexerSearchMode {
 /// | ["0x0", "0x2"]           |          [0, 2)              |
 /// | ["0x0", "0x174876e801"]  |          [0, 100000000001)   |
 ///
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, JsonSchema)]
 #[serde(transparent)]
 pub struct IndexerRange {
     inner: [Uint64; 2],
@@ -131,7 +132,7 @@ impl IndexerRange {
 }
 
 /// IndexerSearchKeyFilter represent indexer params `filter`
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, JsonSchema)]
 pub struct IndexerSearchKeyFilter {
     /// if search script type is lock, filter cells by type script prefix, and vice versa
     pub script: Option<Script>,
@@ -150,7 +151,7 @@ pub struct IndexerSearchKeyFilter {
 }
 
 /// ScriptType `Lock` | `Type`
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerScriptType {
     /// Lock
@@ -160,7 +161,7 @@ pub enum IndexerScriptType {
 }
 
 /// Order Desc | Asc
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerOrder {
     /// Descending order
@@ -170,7 +171,7 @@ pub enum IndexerOrder {
 }
 
 /// Cells capacity
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct IndexerCellsCapacity {
     /// total capacity
     pub capacity: Capacity,
@@ -181,7 +182,7 @@ pub struct IndexerCellsCapacity {
 }
 
 /// Indexer Transaction Object
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum IndexerTx {
     /// # Ungrouped format represent as `IndexerTxWithCell`
@@ -224,7 +225,7 @@ impl IndexerTx {
 }
 
 /// Ungrouped Tx inner type
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct IndexerTxWithCell {
     /// transaction hash
     pub tx_hash: H256,
@@ -239,7 +240,7 @@ pub struct IndexerTxWithCell {
 }
 
 /// Grouped Tx inner type
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 pub struct IndexerTxWithCells {
     /// transaction hash
     pub tx_hash: H256,
@@ -247,12 +248,12 @@ pub struct IndexerTxWithCells {
     pub block_number: BlockNumber,
     /// the position index of the transaction committed in the block
     pub tx_index: Uint32,
-    /// Array [[io_type, io_index]]
+    /// Array [(io_type, io_index)]
     pub cells: Vec<(IndexerCellType, Uint32)>,
 }
 
 /// Cell type
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerCellType {
     /// Input

@@ -15,7 +15,7 @@ const MAX_ADDRS: usize = 50;
 const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
 
 /// RPC Module Net for P2P network.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait NetRpc {
     /// Returns the local node information.

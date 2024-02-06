@@ -8,17 +8,17 @@ use jsonrpc_core::Result;
 use jsonrpc_utils::{pub_sub::PublishMsg, rpc};
 use tokio::sync::broadcast;
 
-/// RPC Module Subscription that CKB node will push new messages to subscribers.
+/// RPC Module Subscription that CKB node will push new messages to subscribers, support with WebSocket or TCP.
 ///
 /// RPC subscriptions require a full duplex connection. CKB offers such connections in the form of
-/// TCP (enable with rpc.tcp_listen_address configuration option) and WebSocket (enable with
-/// rpc.ws_listen_address).
+/// TCP (enable with `rpc.tcp_listen_address` configuration option) and WebSocket (enable with
+/// `rpc.ws_listen_address`).
 ///
-/// ## Examples
+/// ###### Examples
 ///
 /// TCP RPC subscription:
 ///
-/// ```text
+/// ```bash
 /// telnet localhost 18114
 /// > {"id": 2, "jsonrpc": "2.0", "method": "subscribe", "params": ["new_tip_header"]}
 /// < {"jsonrpc":"2.0","result":"0x0","id":2}
@@ -45,20 +45,21 @@ use tokio::sync::broadcast;
 /// socket.send(`{"id": 2, "jsonrpc": "2.0", "method": "unsubscribe", "params": ["0x0"]}`)
 /// ```
 #[allow(clippy::needless_return)]
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait SubscriptionRpc {
     /// Context to implement the subscription RPC.
 
     /// The stream of subscription messages.
     type S: Stream<Item = PublishMsg<String>> + Send + 'static;
+    /// #### Method `subscribe`
     /// Subscribes to a topic.
     ///
-    /// ## Params
+    /// ###### Params
     ///
     /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
     ///
-    /// ## Returns
+    /// ###### Returns
     ///
     /// This RPC returns the subscription ID as the result. CKB node will push messages in the subscribed
     /// topics to the current RPC connection. The subscript ID is also attached as
@@ -77,35 +78,35 @@ pub trait SubscriptionRpc {
     /// }
     /// ```
     ///
-    /// ## Topics
+    /// ##### Topics
     ///
-    /// ### `new_tip_header`
+    /// ###### `new_tip_header`
     ///
     /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
     /// block header to subscribers.
     ///
     /// The type of the `params.result` in the push message is [`HeaderView`](../../ckb_jsonrpc_types/struct.HeaderView.html).
     ///
-    /// ### `new_tip_block`
+    /// ###### `new_tip_block`
     ///
     /// Whenever there's a block that is appended to the canonical chain, the CKB node will publish the
     /// whole block to subscribers.
     ///
     /// The type of the `params.result` in the push message is [`BlockView`](../../ckb_jsonrpc_types/struct.BlockView.html).
     ///
-    /// ### `new_transaction`
+    /// ###### `new_transaction`
     ///
     /// Subscribers will get notified when a new transaction is submitted to the pool.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///
-    /// ### `proposed_transaction`
+    /// ###### `proposed_transaction`
     ///
     /// Subscribers will get notified when an in-pool transaction is proposed by chain.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///
-    /// ### `rejected_transaction`
+    /// ###### `rejected_transaction`
     ///
     /// Subscribers will get notified when a pending transaction is rejected by tx-pool.
     ///
@@ -116,7 +117,7 @@ pub trait SubscriptionRpc {
     /// -   the first item type is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html), and
     /// -   the second item type is [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
     ///
-    /// ## Examples
+    /// ###### Examples
     ///
     /// Subscribe Request
     ///
@@ -141,6 +142,18 @@ pub trait SubscriptionRpc {
     /// }
     /// ```
     ///
+    /// #### Method `unsubscribe`
+    /// * `unsubscribe(id)`
+    ///     * `id`: `string`
+    /// * result: `boolean`
+    ///
+    /// Unsubscribes from a subscribed topic.
+    ///
+    /// ###### Params
+    /// *   `id` - Subscription ID
+    ///
+    /// ###### Examples
+    ///
     /// Unsubscribe Request
     ///
     /// ```json
@@ -158,9 +171,9 @@ pub trait SubscriptionRpc {
     ///
     /// ```json
     /// {
-    ///   "id": 42,
-    ///   "jsonrpc": "2.0",
-    ///   "result": true
+    ///  "id": 42,
+    ///  "jsonrpc": "2.0",
+    ///  "result": true
     /// }
     /// ```
     ///

@@ -1,11 +1,13 @@
 use crate::{bytes::JsonBytes, Timestamp, Uint32};
 use ckb_types::{packed, prelude::*};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The alert identifier that is used to filter duplicated alerts.
 ///
 /// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
 pub type AlertId = Uint32;
+
 /// Alerts are sorted by priority. Greater integers mean higher priorities.
 ///
 /// This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
@@ -34,7 +36,7 @@ pub type AlertPriority = Uint32;
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct Alert {
     /// The identifier of the alert. Clients use id to filter duplicated alerts.
     pub id: AlertId,
@@ -59,7 +61,7 @@ pub struct Alert {
 }
 
 /// An alert sent by RPC `send_alert`.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct AlertMessage {
     /// The unique alert ID.
     pub id: AlertId,

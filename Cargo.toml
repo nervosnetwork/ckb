@@ -90,6 +90,7 @@ members = [
     "rpc",
     "util/light-client-protocol-server",
     "util/launcher",
+    "devtools/doc/rpc-gen",
     "ckb-bin"
 ]
 

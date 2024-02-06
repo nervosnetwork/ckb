@@ -10,6 +10,8 @@
 //!
 //! [`ckb_fixed_hash`]: ../ckb_fixed_hash/index.html
 
+use schemars::JsonSchema;
+
 pub mod error;
 
 mod impls;
@@ -37,7 +39,7 @@ pub struct H160(pub [u8; 20]);
 /// The name comes from the number of bits in the data.
 ///
 /// In JSONRPC, it is encoded as a 0x-prefixed hex string.
-#[derive(Clone)]
+#[derive(Clone, JsonSchema)]
 pub struct H256(pub [u8; 32]);
 
 /// The 64-byte fixed-length binary data.

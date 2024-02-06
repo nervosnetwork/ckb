@@ -7,6 +7,7 @@ use crate::{
 use ckb_types::core::tx_pool;
 use ckb_types::utilities::MerkleProof as RawMerkleProof;
 use ckb_types::{core, packed, prelude::*, H256};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -24,7 +25,7 @@ use std::fmt;
 /// when the low 1 bit is 0, it indicates the data,
 /// and then it relies on the high 7 bits to indicate
 /// that the data actually corresponds to the version.
-#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
@@ -84,7 +85,7 @@ impl fmt::Display for ScriptHashType {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
     /// The hash used to match the script code.
@@ -140,7 +141,7 @@ impl From<packed::Script> for Script {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CellOutput {
     /// The cell capacity.
@@ -200,7 +201,7 @@ impl From<CellOutput> for packed::CellOutput {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OutPoint {
     /// Transaction hash in which the cell is an output.
@@ -245,7 +246,7 @@ impl From<OutPoint> for packed::OutPoint {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CellInput {
     /// Restrict when the transaction can be committed into the chain.
@@ -279,7 +280,7 @@ impl From<CellInput> for packed::CellInput {
 }
 
 /// The dep cell type. Allowed values: "code" and "dep_group".
-#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DepType {
     /// Type "code".
@@ -330,7 +331,7 @@ impl From<core::DepType> for DepType {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CellDep {
     /// Reference to the cell.
@@ -367,7 +368,7 @@ impl From<CellDep> for packed::CellDep {
 /// The transaction.
 ///
 /// Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Transaction {
     /// Reserved for future usage. It must equal 0 in current version.
@@ -456,7 +457,7 @@ pub struct Transaction {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TransactionView {
     /// All the fields in `Transaction` are included in `TransactionView` in JSON.
     #[serde(flatten)]
@@ -520,7 +521,7 @@ impl From<Transaction> for packed::Transaction {
 }
 
 /// The JSON view of a transaction as well as its status.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TransactionWithStatusResponse {
     /// The transaction.
     pub transaction: Option<ResponseFormat<TransactionView>>,
@@ -566,7 +567,7 @@ impl TransactionWithStatusResponse {
 }
 
 /// Status for transaction
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     /// Status "pending". The transaction is in the pool, and not proposed yet.
@@ -584,7 +585,7 @@ pub enum Status {
 }
 
 /// Transaction status and the block hash if it is committed.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TxStatus {
     /// The transaction status, allowed values: "pending", "proposed" "committed" "unknown" and "rejected".
     pub status: Status,
@@ -676,7 +677,7 @@ impl TxStatus {
 /// The block header.
 ///
 /// Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0027-block-structure/0027-block-structure.md).
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Header {
     /// The block version.
@@ -720,7 +721,7 @@ pub struct Header {
     /// The extension hash is the hash of the extension.
     /// The extra hash is the hash on uncles hash and extension hash concatenated together.
     ///
-    /// # Notice
+    /// **Notice**
     ///
     /// This field is renamed from `uncles_hash` since 0.100.0.
     /// More details can be found in [CKB RFC 0031].
@@ -761,7 +762,7 @@ pub struct Header {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct HeaderView {
     /// All the fields in `Header` are included in `HeaderView` in JSON.
     #[serde(flatten)]
@@ -851,7 +852,7 @@ impl From<Header> for packed::Header {
 /// 2. B2 block number is larger than B1;
 /// 3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
 /// 4. B2 is the first block in its chain to refer to B1.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UncleBlock {
     /// The uncle block header.
@@ -872,7 +873,7 @@ pub struct UncleBlock {
 /// 2. B2 block number is larger than B1;
 /// 3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.
 /// 4. B2 is the first block in its chain to refer to B1.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct UncleBlockView {
     /// The uncle block header.
     pub header: HeaderView,
@@ -918,7 +919,7 @@ impl From<UncleBlock> for packed::UncleBlock {
 }
 
 /// The JSON view of a Block used as a parameter in the RPC.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Block {
     /// The block header.
@@ -942,7 +943,7 @@ pub struct Block {
 }
 
 /// The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum BlockResponse {
     /// The block response regular format
@@ -970,7 +971,7 @@ impl BlockResponse {
 }
 
 /// BlockResponse with cycles format wrapper
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockWithCyclesResponse {
     /// The block structure
     pub block: ResponseFormat<BlockView>,
@@ -980,7 +981,7 @@ pub struct BlockWithCyclesResponse {
 }
 
 /// The JSON view of a Block including header and body.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockView {
     /// The block header.
     pub header: HeaderView,
@@ -1131,7 +1132,7 @@ impl From<BlockView> for core::BlockView {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct EpochView {
     /// Consecutive epoch number starting from 0.
     pub number: EpochNumber,
@@ -1159,7 +1160,7 @@ impl EpochView {
 }
 
 /// Block base rewards.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockIssuance {
     /// The primary base rewards.
     pub primary: Capacity,
@@ -1186,7 +1187,7 @@ impl From<BlockIssuance> for core::BlockIssuance {
 }
 
 /// Block rewards for miners.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct MinerReward {
     /// The primary base block reward allocated to miners.
     pub primary: Capacity,
@@ -1229,7 +1230,7 @@ impl From<MinerReward> for core::MinerReward {
 /// Block Economic State.
 ///
 /// It includes the rewards details and when it is finalized.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockEconomicState {
     /// Block base rewards.
     pub issuance: BlockIssuance,
@@ -1264,7 +1265,7 @@ impl From<BlockEconomicState> for core::BlockEconomicState {
 }
 
 /// Merkle proof for transactions in a block.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TransactionProof {
     /// Block hash
     pub block_hash: H256,
@@ -1275,7 +1276,7 @@ pub struct TransactionProof {
 }
 
 /// Merkle proof for transactions' witnesses in a block.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TransactionAndWitnessProof {
     /// Block hash
     pub block_hash: H256,
@@ -1288,7 +1289,7 @@ pub struct TransactionAndWitnessProof {
 /// Proof of CKB Merkle Tree.
 ///
 /// CKB Merkle Tree is a [CBMT](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0006-merkle-tree/0006-merkle-tree.md) using CKB blake2b hash as the merge function.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct MerkleProof {
     /// Leaves indices in the CBMT that are proved present in the block.
     ///
@@ -1312,7 +1313,7 @@ impl From<RawMerkleProof> for MerkleProof {
 }
 
 /// Block filter data and hash.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockFilter {
     /// The the hex-encoded filter data of the block
     pub data: JsonBytes,
@@ -1338,7 +1339,7 @@ pub struct BlockFilter {
 ///                               \
 ///                             commit
 /// ```
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, JsonSchema)]
 pub struct ProposalWindow {
     /// The closest distance between the proposal and the commitment.
     pub closest: BlockNumber,
@@ -1347,7 +1348,7 @@ pub struct ProposalWindow {
 }
 
 /// Consensus defines various parameters that influence chain consensus
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Consensus {
     /// Names the network.
     pub id: String,
@@ -1366,12 +1367,14 @@ pub struct Consensus {
     /// The maximum amount of uncles allowed for a block
     pub max_uncles_num: Uint64,
     /// The expected orphan_rate
+    #[schemars(schema_with = "crate::json_schema::rational_u256")]
     pub orphan_rate_target: core::RationalU256,
     /// The expected epoch_duration
     pub epoch_duration_target: Uint64,
     /// The two-step-transaction-confirmation proposal window
     pub tx_proposal_window: ProposalWindow,
     /// The two-step-transaction-confirmation proposer reward ratio
+    #[schemars(schema_with = "crate::json_schema::rational_u256")]
     pub proposer_reward_ratio: core::RationalU256,
     /// The Cellbase maturity
     pub cellbase_maturity: EpochNumberWithFraction,
@@ -1400,7 +1403,7 @@ pub struct Consensus {
 }
 
 /// Hardfork information
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(transparent)]
 pub struct HardForks {
     inner: Vec<HardForkFeature>,
@@ -1426,7 +1429,7 @@ impl HardForks {
 }
 
 /// The information about one hardfork feature.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub struct HardForkFeature {
     /// The related RFC ID.
     pub rfc: String,
@@ -1437,7 +1440,7 @@ pub struct HardForkFeature {
 /// SoftForkStatus which is either `buried` (for soft fork deployments where the activation epoch is
 /// hard-coded into the client implementation), or `rfc0043` (for soft fork deployments
 /// where activation is controlled by rfc0043 signaling).
-#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SoftForkStatus {
     /// the activation epoch is hard-coded into the client implementation
@@ -1447,7 +1450,7 @@ pub enum SoftForkStatus {
 }
 
 /// SoftFork information
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum SoftFork {
     /// buried - the activation epoch is hard-coded into the client implementation
@@ -1468,7 +1471,7 @@ impl SoftFork {
 
 /// Represent soft fork deployments where the activation epoch is
 /// hard-coded into the client implementation
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Buried {
     /// SoftFork status
     pub status: SoftForkStatus,
@@ -1480,7 +1483,7 @@ pub struct Buried {
 
 /// Represent soft fork deployments
 /// where activation is controlled by rfc0043 signaling
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Rfc0043 {
     /// SoftFork status
     pub status: SoftForkStatus,
@@ -1490,7 +1493,7 @@ pub struct Rfc0043 {
 
 /// Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
 /// unsigned 64-bit integers.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Ratio {
     /// Numerator.
     pub numer: Uint64,
@@ -1508,7 +1511,7 @@ impl From<core::Ratio> for Ratio {
 }
 
 /// RFC0043 deployment params
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 pub struct Deployment {
     /// Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
     /// It is chosen from the set {0,1,2,...,28}.
@@ -1547,7 +1550,7 @@ impl HardForkFeature {
 }
 
 /// The fee_rate statistics information, includes mean and median, unit: shannons per kilo-weight
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, JsonSchema)]
 pub struct FeeRateStatistics {
     /// mean
     pub mean: Uint64,

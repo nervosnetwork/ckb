@@ -1,0 +1,7 @@
+### Module `{{name}}`
+- {{link}}
+
+{{desc}}
+{% for method in methods %}
+{{method}}
+{%- endfor %}

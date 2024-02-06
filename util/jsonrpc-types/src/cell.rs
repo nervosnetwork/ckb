@@ -4,6 +4,7 @@ use ckb_types::{
     prelude::Unpack,
     H256,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The JSON view of a cell with its status information.
@@ -41,7 +42,7 @@ use serde::{Deserialize, Serialize};
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CellWithStatus {
     /// The cell information.
     ///
@@ -85,7 +86,7 @@ pub struct CellWithStatus {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CellInfo {
     /// Cell fields appears in the transaction `outputs` array.
     pub output: CellOutput,
@@ -107,7 +108,7 @@ pub struct CellInfo {
 /// }
 /// # "#).unwrap();
 /// ```
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CellData {
     /// Cell content.
     pub content: JsonBytes,

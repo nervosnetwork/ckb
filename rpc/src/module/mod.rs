@@ -134,14 +134,16 @@ pub(crate) use self::stats::StatsRpcImpl;
 pub(crate) use self::subscription::SubscriptionRpcImpl;
 pub(crate) use self::test::IntegrationTestRpcImpl;
 
-pub use self::alert::{add_alert_rpc_methods, AlertRpc};
-pub use self::chain::{add_chain_rpc_methods, ChainRpc};
-pub use self::debug::{add_debug_rpc_methods, DebugRpc};
-pub use self::experiment::{add_experiment_rpc_methods, ExperimentRpc};
-pub use self::indexer::{add_indexer_rpc_methods, IndexerRpc};
-pub use self::miner::{add_miner_rpc_methods, MinerRpc};
-pub use self::net::{add_net_rpc_methods, NetRpc};
-pub use self::pool::{add_pool_rpc_methods, PoolRpc};
-pub use self::stats::{add_stats_rpc_methods, StatsRpc};
-pub use self::subscription::{add_subscription_rpc_methods, SubscriptionRpc};
-pub use self::test::{add_integration_test_rpc_methods, IntegrationTestRpc};
+pub use self::alert::{add_alert_rpc_methods, alert_rpc_doc, AlertRpc};
+pub use self::chain::{add_chain_rpc_methods, chain_rpc_doc, ChainRpc};
+pub use self::debug::{add_debug_rpc_methods, debug_rpc_doc, DebugRpc};
+pub use self::experiment::{add_experiment_rpc_methods, experiment_rpc_doc, ExperimentRpc};
+pub use self::indexer::{add_indexer_rpc_methods, indexer_rpc_doc, IndexerRpc};
+pub use self::miner::{add_miner_rpc_methods, miner_rpc_doc, MinerRpc};
+pub use self::net::{add_net_rpc_methods, net_rpc_doc, NetRpc};
+pub use self::pool::{add_pool_rpc_methods, pool_rpc_doc, PoolRpc};
+pub use self::stats::{add_stats_rpc_methods, stats_rpc_doc, StatsRpc};
+pub use self::subscription::{add_subscription_rpc_methods, subscription_rpc_doc, SubscriptionRpc};
+pub use self::test::{
+    add_integration_test_rpc_methods, integration_test_rpc_doc, IntegrationTestRpc,
+};

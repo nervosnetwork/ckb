@@ -6,11 +6,12 @@ use ckb_types::core::tx_pool::{
 };
 use ckb_types::prelude::Unpack;
 use ckb_types::H256;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Transaction pool information.
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TxPoolInfo {
     /// The associated chain tip block hash.
     ///
@@ -41,7 +42,9 @@ pub struct TxPoolInfo {
     ///
     /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
     pub min_fee_rate: Uint64,
-    /// RBF rate threshold. The pool reject to replace for transactions which fee rate is below this threshold.
+    /// RBF rate threshold.
+    ///
+    /// The pool reject to replace for transactions which fee rate is below this threshold.
     /// if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
     ///
     /// The unit is Shannons per 1000 bytes transaction serialization size in the block.
@@ -105,7 +108,7 @@ impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
 }
 
 /// Transaction output validators that prevent common mistakes.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputsValidator {
     /// "passthrough": the default validator, bypass output checking, thus allow any kind of transaction outputs.
@@ -123,7 +126,7 @@ impl OutputsValidator {
 }
 
 /// Array of transaction ids
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TxPoolIds {
     /// Pending transaction ids
     pub pending: Vec<H256>,
@@ -142,7 +145,7 @@ impl From<CoreTxPoolIds> for TxPoolIds {
 }
 
 /// Transaction entry info
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct TxPoolEntry {
     /// Consumed cycles.
     pub cycles: Uint64,
@@ -175,7 +178,7 @@ impl From<TxEntryInfo> for TxPoolEntry {
 }
 
 /// Tx-pool entries object
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, JsonSchema)]
 pub struct TxPoolEntries {
     /// Pending tx verbose info
     pub pending: HashMap<H256, TxPoolEntry>,
@@ -206,7 +209,7 @@ impl From<TxPoolEntryInfo> for TxPoolEntries {
 ///
 /// [`TxPoolIds`]: struct.TxPoolIds.html
 /// [`TxPoolEntries`]: struct.TxPoolEntries.html
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum RawTxPool {
     /// verbose = false
@@ -216,7 +219,7 @@ pub enum RawTxPool {
 }
 
 /// A struct as a sorted key for tx-pool
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, JsonSchema)]
 pub struct AncestorsScoreSortKey {
     /// Fee
     pub fee: Uint64,
@@ -240,7 +243,7 @@ impl From<CoreAncestorsScoreSortKey> for AncestorsScoreSortKey {
 }
 
 /// A Tx details info in tx-pool.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, JsonSchema)]
 pub struct PoolTxDetailInfo {
     /// The time added into tx-pool
     pub timestamp: Uint64,
@@ -276,7 +279,7 @@ impl From<CorePoolTxDetailInfo> for PoolTxDetailInfo {
 }
 
 /// TX reject message
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "description")]
 pub enum PoolTransactionReject {
     /// Transaction fee lower than config
