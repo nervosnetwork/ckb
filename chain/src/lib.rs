@@ -5,9 +5,7 @@
 //!
 //! [`ChainService`]: chain/struct.ChainService.html
 //! [`ChainController`]: chain/struct.ChainController.html
-use ckb_error::{is_internal_db_error, Error};
-use ckb_logger::{debug, error};
-use ckb_network::PeerIndex;
+use ckb_error::Error;
 use ckb_shared::types::{BlockNumberAndHash, VerifyFailedBlockInfo};
 use ckb_types::core::service::Request;
 use ckb_types::core::{BlockNumber, BlockView, HeaderView};
@@ -45,17 +43,14 @@ pub struct RemoteBlock {
     /// block
     pub block: Arc<BlockView>,
 
-    /// This block is received from which peer
-    pub peer_id: PeerIndex,
+    /// Relayer and Synchronizer will have callback to ban peer
+    pub verify_callback: VerifyCallback,
 }
 
 /// LonelyBlock is the block which we have not check weather its parent is stored yet
 pub struct LonelyBlock {
     /// block
     pub block: Arc<BlockView>,
-
-    /// This block is received from which peer
-    pub peer_id: Option<PeerIndex>,
 
     /// The Switch to control the verification process
     pub switch: Option<Switch>,
@@ -68,9 +63,6 @@ pub struct LonelyBlock {
 pub struct LonelyBlockHash {
     /// block
     pub block_number_and_hash: BlockNumberAndHash,
-
-    /// This block is received from which peer
-    pub peer_id: Option<PeerIndex>,
 
     /// The Switch to control the verification process
     pub switch: Option<Switch>,
@@ -94,7 +86,6 @@ impl From<LonelyBlock> for LonelyBlockHash {
                 number: val.block.number(),
                 hash: val.block.hash(),
             },
-            peer_id: val.peer_id,
             switch: val.switch,
             verify_callback: val.verify_callback,
         }
@@ -104,10 +95,6 @@ impl From<LonelyBlock> for LonelyBlockHash {
 impl LonelyBlock {
     pub(crate) fn block(&self) -> &Arc<BlockView> {
         &self.block
-    }
-
-    pub fn peer_id(&self) -> Option<PeerIndex> {
-        self.peer_id
     }
 
     pub fn switch(&self) -> Option<Switch> {
@@ -129,10 +116,6 @@ pub(crate) struct UnverifiedBlock {
 impl UnverifiedBlock {
     pub(crate) fn block(&self) -> &Arc<BlockView> {
         self.lonely_block.block()
-    }
-
-    pub fn peer_id(&self) -> Option<PeerIndex> {
-        self.lonely_block.peer_id()
     }
 
     pub fn switch(&self) -> Option<Switch> {
@@ -162,30 +145,5 @@ impl GlobalIndex {
     pub(crate) fn forward(&mut self, hash: Byte32) {
         self.number -= 1;
         self.hash = hash;
-    }
-}
-
-pub(crate) fn tell_synchronizer_to_punish_the_bad_peer(
-    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
-    peer_id: Option<PeerIndex>,
-    block_hash: Byte32,
-    err: &Error,
-) {
-    let is_internal_db_error = is_internal_db_error(err);
-    match peer_id {
-        Some(peer_id) => {
-            let verify_failed_block_info = VerifyFailedBlockInfo {
-                block_hash,
-                peer_id,
-                reason: err.to_string(),
-                is_internal_db_error,
-            };
-            if let Err(_err) = verify_failed_blocks_tx.send(verify_failed_block_info) {
-                error!("ChainService failed to send verify failed block info to Synchronizer, the receiver side may have been closed, this shouldn't happen")
-            }
-        }
-        _ => {
-            debug!("Don't know which peer to punish, or don't have a channel Sender to Synchronizer, skip it")
-        }
     }
 }

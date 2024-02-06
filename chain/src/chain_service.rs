@@ -3,10 +3,7 @@
 
 use crate::consume_unverified::ConsumeUnverifiedBlocks;
 use crate::utils::orphan_block_pool::OrphanBlockPool;
-use crate::{
-    tell_synchronizer_to_punish_the_bad_peer, ChainController, LonelyBlock, LonelyBlockHash,
-    ProcessBlockRequest,
-};
+use crate::{ChainController, LonelyBlock, LonelyBlockHash, ProcessBlockRequest};
 use ckb_channel::{self as channel, select, Receiver, SendError, Sender};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_error::{Error, InternalErrorKind};
@@ -205,12 +202,6 @@ impl ChainService {
                 let error = InternalErrorKind::System
                     .other("Invalid genesis block received")
                     .into();
-                tell_synchronizer_to_punish_the_bad_peer(
-                    self.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id(),
-                    lonely_block.block().hash(),
-                    &error,
-                );
                 lonely_block.execute_callback(Err(error));
             } else {
                 warn!("receive 0 number block: 0-{}", block_hash);
@@ -230,13 +221,6 @@ impl ChainService {
                 );
                 self.shared
                     .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_INVALID);
-                tell_synchronizer_to_punish_the_bad_peer(
-                    self.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id(),
-                    lonely_block.block().hash(),
-                    &err,
-                );
-
                 lonely_block.execute_callback(Err(err));
                 return;
             }
