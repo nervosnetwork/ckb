@@ -72,19 +72,12 @@ pub enum ReconstructionResult {
     Error(Status),
 }
 
-type BroadcastCompactBlockType = (Arc<BlockView>, PeerIndex);
-
 /// Relayer protocol handle
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
     rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
     v3: bool,
-
-    pub(crate) broadcast_compact_block_tx:
-        tokio::sync::mpsc::UnboundedSender<BroadcastCompactBlockType>,
-    pub(crate) broadcast_compact_block_rx:
-        tokio::sync::mpsc::UnboundedReceiver<BroadcastCompactBlockType>,
 }
 
 impl Relayer {
@@ -97,17 +90,11 @@ impl Relayer {
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
         let rate_limiter = Arc::new(Mutex::new(RateLimiter::keyed(quota)));
 
-        let (broadcast_compact_block_tx, broadcast_compact_block_rx) =
-            tokio::sync::mpsc::unbounded_channel::<BroadcastCompactBlockType>();
-
         Relayer {
             chain,
             shared,
             rate_limiter,
             v3: false,
-
-            broadcast_compact_block_tx,
-            broadcast_compact_block_rx,
         }
     }
 
