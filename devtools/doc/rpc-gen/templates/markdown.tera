@@ -6,7 +6,7 @@
   {%- set methods = menu["methods"] %}
     * [Module {{ menu["title"] }}](#module-{{ menu["name"] }}) {{ menu["link"] }}
     {%- for method in methods %}
-        * [Method `{{method}}`](#method-{{method}})
+        * [Method `{{method}}`](#{{ menu["name"] }}-{{method}})
     {%- endfor %}
 {%- endfor %}
 * [RPC Types](#rpc-types)

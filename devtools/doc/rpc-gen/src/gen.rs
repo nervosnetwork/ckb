@@ -73,7 +73,11 @@ impl RpcModule {
                     .unwrap()
                     .replace("##", "######");
                 desc = strip_prefix_space(&desc);
-                format!("#### Method `{}`\n{}\n\n{}\n", name, signatures, desc,)
+                let link = format!("<a id=\"{}-{}\"></a>", capitlized.to_lowercase(), name);
+                format!(
+                    "{}\n#### Method `{}`\n{}\n\n{}\n",
+                    link, name, signatures, desc,
+                )
             })
             .collect::<Vec<_>>();
 
