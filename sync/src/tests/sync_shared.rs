@@ -3,7 +3,7 @@
 
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
-use ckb_chain::{start_chain_services, store_unverified_block, RemoteBlock};
+use ckb_chain::{start_chain_services, store_unverified_block, RemoteBlock, VerifyResult};
 use ckb_logger::info;
 use ckb_logger_service::LoggerInitGuard;
 use ckb_shared::block_status::BlockStatus;
@@ -112,17 +112,16 @@ fn test_insert_parent_unknown_block() {
         &chain,
         RemoteBlock {
             block: Arc::clone(&valid_orphan),
-            peer_id: Default::default(),
+
+            verify_callback: Box::new(|_: VerifyResult| {}),
         },
-        None,
     );
     shared.accept_remote_block(
         &chain,
         RemoteBlock {
             block: Arc::clone(&invalid_orphan),
-            peer_id: Default::default(),
+            verify_callback: Box::new(|_: VerifyResult| {}),
         },
-        None,
     );
 
     let wait_for_block_status_match = |hash: &Byte32, expect_status: BlockStatus| -> bool {

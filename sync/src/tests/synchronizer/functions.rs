@@ -5,7 +5,7 @@ use ckb_dao::DaoCalculator;
 use ckb_error::InternalErrorKind;
 use ckb_network::{
     async_trait, bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
-    SessionType, TargetSession,
+    SessionType, SupportProtocols, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::types::HeaderIndex;
@@ -662,8 +662,10 @@ fn test_sync_process() {
 
     for block in &fetched_blocks {
         let block = SendBlockBuilder::default().block(block.data()).build();
+
+        let nc = Arc::new(mock_network_context(1));
         assert_eq!(
-            BlockProcess::new(block.as_reader(), &synchronizer1, peer1).blocking_execute(),
+            BlockProcess::new(block.as_reader(), &synchronizer1, peer1, nc).blocking_execute(),
             Status::ok(),
         );
     }

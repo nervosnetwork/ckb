@@ -21,7 +21,6 @@ fn gen_lonely_block(parent_header: &HeaderView) -> LonelyBlock {
         .build();
     LonelyBlock {
         block: Arc::new(block),
-        peer_id: None,
         switch: None,
         verify_callback: None,
     }
@@ -75,7 +74,6 @@ fn test_remove_blocks_by_parent() {
         let new_block_clone = lonely_block.block().clone();
         let new_block = LonelyBlock {
             block: new_block_clone.clone(),
-            peer_id: None,
             switch: None,
             verify_callback: None,
         };
@@ -109,7 +107,6 @@ fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
         let new_block = lonely_block.block();
         let new_block_clone = LonelyBlock {
             block: Arc::clone(new_block),
-            peer_id: None,
             switch: None,
             verify_callback: None,
         };
@@ -143,7 +140,6 @@ fn test_leaders() {
         let lonely_block = gen_lonely_block(&parent);
         let new_block = LonelyBlock {
             block: Arc::clone(lonely_block.block()),
-            peer_id: None,
             switch: None,
             verify_callback: None,
         };
@@ -159,7 +155,6 @@ fn test_leaders() {
 
     pool.insert(LonelyBlock {
         block: blocks[5].block().clone(),
-        peer_id: None,
         switch: None,
         verify_callback: None,
     });
@@ -169,7 +164,6 @@ fn test_leaders() {
 
     pool.insert(LonelyBlock {
         block: blocks[10].block().clone(),
-        peer_id: None,
         switch: None,
         verify_callback: None,
     });
@@ -185,7 +179,6 @@ fn test_leaders() {
 
     pool.insert(LonelyBlock {
         block: blocks[0].block().clone(),
-        peer_id: None,
         switch: None,
         verify_callback: None,
     });
@@ -199,7 +192,6 @@ fn test_leaders() {
 
     pool.insert(LonelyBlock {
         block: blocks[15].block().clone(),
-        peer_id: None,
         switch: None,
         verify_callback: None,
     });
@@ -241,7 +233,6 @@ fn test_remove_expired_blocks() {
         parent = new_block.header();
         let lonely_block = LonelyBlock {
             block: Arc::new(new_block),
-            peer_id: None,
             switch: None,
             verify_callback: None,
         };
