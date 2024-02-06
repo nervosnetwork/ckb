@@ -1,6 +1,6 @@
 //! shared_builder provide SharedBuilder and SharedPacakge
 use crate::ChainServicesBuilder;
-use crate::{types::VerifyFailedBlockInfo, HeaderMap, Shared};
+use crate::{HeaderMap, Shared};
 use ckb_app_config::{
     BlockAssemblerConfig, DBConfig, ExitCode, HeaderMapConfig, NotifyConfig, StoreConfig,
     SyncConfig, TxPoolConfig,
@@ -422,17 +422,12 @@ impl SharedBuilder {
             block_status_map,
         );
 
-        let (verify_failed_block_tx, verify_failed_block_rx) =
-            tokio::sync::mpsc::unbounded_channel::<VerifyFailedBlockInfo>();
-
-        let chain_services_builder =
-            ChainServicesBuilder::new(shared.clone(), table, verify_failed_block_tx);
+        let chain_services_builder = ChainServicesBuilder::new(shared.clone(), table);
 
         let pack = SharedPackage {
             chain_services_builder: Some(chain_services_builder),
             tx_pool_builder: Some(tx_pool_builder),
             relay_tx_receiver: Some(receiver),
-            verify_failed_block_rx: Some(verify_failed_block_rx),
         };
 
         Ok((shared, pack))
@@ -445,8 +440,6 @@ pub struct SharedPackage {
     chain_services_builder: Option<ChainServicesBuilder>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
     relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
-
-    verify_failed_block_rx: Option<tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>>,
 }
 
 impl SharedPackage {
@@ -467,15 +460,6 @@ impl SharedPackage {
         self.relay_tx_receiver
             .take()
             .expect("take relay_tx_receiver")
-    }
-
-    /// Takes the verify_failed_block_rx out of the package, leaving a None in its place.
-    pub fn take_verify_failed_block_rx(
-        &mut self,
-    ) -> tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo> {
-        self.verify_failed_block_rx
-            .take()
-            .expect("take verify_failed_block_rx")
     }
 }
 

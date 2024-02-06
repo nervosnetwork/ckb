@@ -51,7 +51,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
         chain_controller.clone(),
         miner_enable,
         pack.take_relay_tx_receiver(),
-        pack.take_verify_failed_block_rx(),
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();

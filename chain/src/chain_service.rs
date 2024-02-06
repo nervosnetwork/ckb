@@ -8,10 +8,8 @@ use ckb_channel::{self as channel, select, Receiver, SendError, Sender};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, warn};
-use ckb_network::tokio;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
-use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::ChainServicesBuilder;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_types::core::{service::Request, BlockView};
@@ -35,14 +33,12 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
         .name("consume_unverified_blocks".into())
         .spawn({
             let shared = builder.shared.clone();
-            let verify_failed_blocks_tx = builder.verify_failed_blocks_tx.clone();
             move || {
                 let consume_unverified = ConsumeUnverifiedBlocks::new(
                     shared,
                     unverified_rx,
                     truncate_block_rx,
                     builder.proposal_table,
-                    verify_failed_blocks_tx,
                     unverified_queue_stop_rx,
                 );
 
@@ -62,14 +58,12 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
             let orphan_blocks_broker = Arc::clone(&orphan_blocks_broker);
             let shared = builder.shared.clone();
             use crate::consume_orphan::ConsumeOrphan;
-            let verify_failed_block_tx = builder.verify_failed_blocks_tx.clone();
             move || {
                 let consume_orphan = ConsumeOrphan::new(
                     shared,
                     orphan_blocks_broker,
                     unverified_tx,
                     lonely_block_rx,
-                    verify_failed_block_tx,
                     search_orphan_pool_stop_rx,
                 );
                 consume_orphan.start();
@@ -79,12 +73,8 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
 
     let (process_block_tx, process_block_rx) = channel::bounded(BLOCK_DOWNLOAD_WINDOW as usize);
 
-    let chain_service: ChainService = ChainService::new(
-        builder.shared,
-        process_block_rx,
-        lonely_block_tx,
-        builder.verify_failed_blocks_tx,
-    );
+    let chain_service: ChainService =
+        ChainService::new(builder.shared, process_block_rx, lonely_block_tx);
     let chain_service_thread = thread::Builder::new()
         .name("ChainService".into())
         .spawn({
@@ -116,7 +106,6 @@ pub(crate) struct ChainService {
     process_block_rx: Receiver<ProcessBlockRequest>,
 
     lonely_block_tx: Sender<LonelyBlock>,
-    verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 impl ChainService {
     /// Create a new ChainService instance with shared.
@@ -125,13 +114,11 @@ impl ChainService {
         process_block_rx: Receiver<ProcessBlockRequest>,
 
         lonely_block_tx: Sender<LonelyBlock>,
-        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
     ) -> ChainService {
         ChainService {
             shared,
             process_block_rx,
             lonely_block_tx,
-            verify_failed_blocks_tx,
         }
     }
 

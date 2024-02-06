@@ -23,7 +23,6 @@ use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::{ChainServicesBuilder, Shared};
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
-use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
@@ -264,7 +263,6 @@ impl Launcher {
         chain_controller: ChainController,
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
-        verify_failed_block_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
     ) -> NetworkController {
         let sync_shared = Arc::new(SyncShared::new(
             shared.clone(),
@@ -286,11 +284,7 @@ impl Launcher {
         );
 
         // Sync is a core protocol, user cannot disable it via config
-        let synchronizer = Synchronizer::new(
-            chain_controller.clone(),
-            Arc::clone(&sync_shared),
-            verify_failed_block_rx,
-        );
+        let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared));
         let mut protocols = vec![CKBProtocol::new_with_support_protocol(
             SupportProtocols::Sync,
             Box::new(synchronizer),

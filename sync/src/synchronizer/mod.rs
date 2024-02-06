@@ -38,7 +38,7 @@ use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
-use ckb_shared::types::{HeaderIndexView, VerifyFailedBlockInfo};
+use ckb_shared::types::HeaderIndexView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
 
@@ -237,24 +237,17 @@ pub struct Synchronizer {
     /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
-
-    pub(crate) verify_failed_blocks_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
 }
 
 impl Synchronizer {
     /// Init sync protocol handle
     ///
     /// This is a runtime sync protocol shared state, and any Sync protocol messages will be processed and forwarded by it
-    pub fn new(
-        chain: ChainController,
-        shared: Arc<SyncShared>,
-        verify_failed_blocks_rx: tokio::sync::mpsc::UnboundedReceiver<VerifyFailedBlockInfo>,
-    ) -> Synchronizer {
+    pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
         Synchronizer {
             chain,
             shared,
             fetch_channel: None,
-            verify_failed_blocks_rx,
         }
     }
 

@@ -5,7 +5,7 @@ use ckb_dao::DaoCalculator;
 use ckb_error::InternalErrorKind;
 use ckb_network::{
     async_trait, bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
-    SessionType, SupportProtocols, TargetSession,
+    SessionType, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::types::HeaderIndex;
@@ -56,11 +56,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchr
         Default::default(),
         pack.take_relay_tx_receiver(),
     ));
-    let synchronizer = Synchronizer::new(
-        chain_controller.clone(),
-        sync_shared,
-        pack.take_verify_failed_block_rx(),
-    );
+    let synchronizer = Synchronizer::new(chain_controller.clone(), sync_shared);
 
     (chain_controller, shared, synchronizer)
 }
@@ -1228,11 +1224,7 @@ fn test_internal_db_error() {
         InternalErrorKind::Database.other("mocked db error").into(),
     ));
 
-    let synchronizer = Synchronizer::new(
-        chain_controller,
-        sync_shared,
-        pack.take_verify_failed_block_rx(),
-    );
+    let synchronizer = Synchronizer::new(chain_controller, sync_shared);
 
     let status = synchronizer
         .shared()

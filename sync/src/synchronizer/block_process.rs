@@ -3,7 +3,7 @@ use crate::types::post_sync_process;
 use crate::StatusCode;
 use ckb_chain::RemoteBlock;
 use ckb_error::is_internal_db_error;
-use ckb_logger::{debug, info};
+use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::packed::Byte32;
 use ckb_types::{packed, prelude::*};
