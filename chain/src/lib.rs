@@ -71,14 +71,6 @@ pub struct LonelyBlockHash {
     pub verify_callback: Option<VerifyCallback>,
 }
 
-impl LonelyBlockHash {
-    pub(crate) fn execute_callback(self, verify_result: VerifyResult) {
-        if let Some(verify_callback) = self.verify_callback {
-            verify_callback(verify_result);
-        }
-    }
-}
-
 impl From<LonelyBlock> for LonelyBlockHash {
     fn from(val: LonelyBlock) -> Self {
         LonelyBlockHash {

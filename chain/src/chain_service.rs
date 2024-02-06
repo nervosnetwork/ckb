@@ -220,25 +220,18 @@ impl ChainService {
         });
 
         match self.lonely_block_tx.send(lonely_block) {
-            Ok(_) => {}
-            Err(SendError(lonely_block)) => {
+            Ok(_) => {
+                debug!(
+                    "processing block: {}-{}, (tip:unverified_tip):({}:{})",
+                    block_number,
+                    block_hash,
+                    self.shared.snapshot().tip_number(),
+                    self.shared.get_unverified_tip().number(),
+                );
+            }
+            Err(_) => {
                 error!("Failed to notify new block to orphan pool, It seems that the orphan pool has exited.");
-
-                let err: Error = InternalErrorKind::System
-                    .other("OrphanBlock broker disconnected")
-                    .into();
-
-                let verify_result = Err(err);
-                lonely_block.execute_callback(verify_result);
-                return;
             }
         }
-        debug!(
-            "processing block: {}-{}, (tip:unverified_tip):({}:{})",
-            block_number,
-            block_hash,
-            self.shared.snapshot().tip_number(),
-            self.shared.get_unverified_tip().number(),
-        );
     }
 }
