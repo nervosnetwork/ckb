@@ -167,12 +167,22 @@ impl TxPool {
 
     pub(crate) fn record_conflict(&mut self, tx: TransactionView) {
         let short_id = tx.proposal_short_id();
-        self.conflicts_cache.put(short_id, tx);
+        self.conflicts_cache.put(short_id.clone(), tx);
+        debug!(
+            "record_conflict {:?} now cache size: {}",
+            short_id,
+            self.conflicts_cache.len()
+        );
     }
 
     pub(crate) fn remove_conflict(&mut self, tx: &TransactionView) {
         let short_id = tx.proposal_short_id();
         self.conflicts_cache.pop(&short_id);
+        debug!(
+            "remove_conflict {:?} now cache size: {}",
+            short_id,
+            self.conflicts_cache.len()
+        );
     }
 
     /// Returns tx with cycles corresponding to the id.
