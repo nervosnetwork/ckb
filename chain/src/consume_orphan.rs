@@ -5,7 +5,6 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::internal::trace;
 use ckb_logger::{debug, error, info};
 use ckb_shared::block_status::BlockStatus;
-use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
@@ -17,8 +16,6 @@ use std::sync::Arc;
 pub(crate) struct ConsumeDescendantProcessor {
     pub shared: Shared,
     pub unverified_blocks_tx: Sender<LonelyBlockHash>,
-
-    pub verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 // Store the an unverified block to the database. We may usually do this
@@ -196,7 +193,6 @@ impl ConsumeOrphan {
         orphan_block_pool: Arc<OrphanBlockPool>,
         unverified_blocks_tx: Sender<LonelyBlockHash>,
         lonely_blocks_rx: Receiver<LonelyBlock>,
-        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
         stop_rx: Receiver<()>,
     ) -> ConsumeOrphan {
         ConsumeOrphan {
@@ -204,7 +200,6 @@ impl ConsumeOrphan {
             descendant_processor: ConsumeDescendantProcessor {
                 shared,
                 unverified_blocks_tx,
-                verify_failed_blocks_tx,
             },
             orphan_blocks_broker: orphan_block_pool,
             lonely_blocks_rx,

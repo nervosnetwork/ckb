@@ -11,7 +11,6 @@ use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::block_status::BlockStatus;
-use ckb_shared::types::VerifyFailedBlockInfo;
 use ckb_shared::Shared;
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
 use ckb_systemtime::unix_time_as_millis;
@@ -34,7 +33,6 @@ use std::sync::Arc;
 pub(crate) struct ConsumeUnverifiedBlockProcessor {
     pub(crate) shared: Shared,
     pub(crate) proposal_table: ProposalTable,
-    pub(crate) verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
 }
 
 pub(crate) struct ConsumeUnverifiedBlocks {
@@ -53,7 +51,6 @@ impl ConsumeUnverifiedBlocks {
         unverified_blocks_rx: Receiver<LonelyBlockHash>,
         truncate_block_rx: Receiver<TruncateRequest>,
         proposal_table: ProposalTable,
-        verify_failed_blocks_tx: tokio::sync::mpsc::UnboundedSender<VerifyFailedBlockInfo>,
         stop_rx: Receiver<()>,
     ) -> Self {
         ConsumeUnverifiedBlocks {
@@ -64,7 +61,6 @@ impl ConsumeUnverifiedBlocks {
             processor: ConsumeUnverifiedBlockProcessor {
                 shared,
                 proposal_table,
-                verify_failed_blocks_tx,
             },
         }
     }

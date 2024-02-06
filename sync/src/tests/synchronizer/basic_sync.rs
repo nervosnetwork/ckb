@@ -189,11 +189,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         Default::default(),
         pack.take_relay_tx_receiver(),
     ));
-    let synchronizer = Synchronizer::new(
-        chain_controller,
-        sync_shared,
-        pack.take_verify_failed_block_rx(),
-    );
+    let synchronizer = Synchronizer::new(chain_controller, sync_shared);
     let mut node = TestNode::new();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;
     node.add_protocol(
