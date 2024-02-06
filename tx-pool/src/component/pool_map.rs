@@ -225,6 +225,7 @@ impl PoolMap {
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
+            self.track_entry_statics();
             self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
             entry.inner
         })
