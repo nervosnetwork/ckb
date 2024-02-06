@@ -55,7 +55,10 @@ fn assert_blocks_are_sorted(blocks: &[LonelyBlock]) {
         // If `child_or_sibling`'s parent is not the current `parent_hash`, i.e. it is not a sibling of
         // `parent_or_sibling`, then it must be a child of `parent_or_sibling`.
         if child_or_sibling.block.header().parent_hash() != parent_hash {
-            assert_eq!(child_or_sibling.block.header().parent_hash(), parent_or_sibling.block.header().hash());
+            assert_eq!(
+                child_or_sibling.block.header().parent_hash(),
+                parent_or_sibling.block.header().hash()
+            );
             // Move `parent_hash` forward.
             parent_hash = child_or_sibling.block.header().parent_hash();
         }
