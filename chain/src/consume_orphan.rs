@@ -1,5 +1,5 @@
 use crate::utils::orphan_block_pool::OrphanBlockPool;
-use crate::{tell_synchronizer_to_punish_the_bad_peer, LonelyBlock, LonelyBlockHash, VerifyResult};
+use crate::{LonelyBlock, LonelyBlockHash, VerifyResult};
 use ckb_channel::{select, Receiver, SendError, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::internal::trace;
@@ -161,13 +161,6 @@ impl ConsumeDescendantProcessor {
             }
 
             Err(err) => {
-                tell_synchronizer_to_punish_the_bad_peer(
-                    self.verify_failed_blocks_tx.clone(),
-                    lonely_block.peer_id(),
-                    lonely_block.block().hash(),
-                    &err,
-                );
-
                 error!(
                     "accept block {} failed: {}",
                     lonely_block.block().hash(),

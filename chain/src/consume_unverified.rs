@@ -1,7 +1,7 @@
 use crate::LonelyBlockHash;
 use crate::{
-    tell_synchronizer_to_punish_the_bad_peer, utils::forkchanges::ForkChanges, GlobalIndex,
-    LonelyBlock, TruncateRequest, UnverifiedBlock, VerifyResult,
+    utils::forkchanges::ForkChanges, GlobalIndex, LonelyBlock, TruncateRequest, UnverifiedBlock,
+    VerifyResult,
 };
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
@@ -131,7 +131,6 @@ impl ConsumeUnverifiedBlockProcessor {
         UnverifiedBlock {
             lonely_block: LonelyBlock {
                 block: Arc::new(block_view),
-                peer_id: lonely_block.peer_id,
                 switch: lonely_block.switch,
                 verify_callback: lonely_block.verify_callback,
             },
@@ -164,8 +163,7 @@ impl ConsumeUnverifiedBlockProcessor {
             }
             Err(err) => {
                 error!(
-                    "verify [{:?}]'s block {} failed: {}",
-                    unverified_block.peer_id(),
+                    "verify block {} failed: {}",
                     unverified_block.block().hash(),
                     err
                 );
@@ -197,13 +195,6 @@ impl ConsumeUnverifiedBlockProcessor {
                     tip.hash(),
                     unverified_block.block().hash(),
                     err
-                );
-
-                tell_synchronizer_to_punish_the_bad_peer(
-                    self.verify_failed_blocks_tx.clone(),
-                    unverified_block.peer_id(),
-                    unverified_block.block().hash(),
-                    err,
                 );
             }
         }
