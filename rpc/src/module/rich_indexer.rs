@@ -9,7 +9,7 @@ use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 
 /// RPC Module Rich Indexer.
-#[rpc]
+#[rpc(openrpc)]
 #[async_trait]
 pub trait RichIndexerRpc {
     /// Returns the indexed tip
