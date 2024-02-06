@@ -49,7 +49,7 @@ tower-http = { version = "0.3.5", features = ["timeout", "cors"] }
 async-stream = "0.3.3"
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.114.0-pre" }
 # issue tracking: https://github.com/GREsau/schemars/pull/251
-schemars = { git = "https://github.com/chenyukang/schemars", branch = "fix-derive" }
+schemars = { version = "0.8.16", package = "ckb_schemars" }
 
 [dev-dependencies]
 reqwest = { version = "=0.11.20", features = ["blocking", "json"] }

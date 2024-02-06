@@ -848,8 +848,8 @@ dependencies = [
 name = "ckb-fixed-hash-core"
 version = "0.114.0-pre"
 dependencies = [
+ "ckb_schemars",
  "faster-hex",
- "schemars",
  "serde",
  "serde_json",
  "thiserror",
@@ -944,11 +944,11 @@ name = "ckb-jsonrpc-types"
 version = "0.114.0-pre"
 dependencies = [
  "ckb-types",
+ "ckb_schemars",
  "faster-hex",
  "lazy_static",
  "proptest",
  "regex",
- "schemars",
  "serde",
  "serde_json",
 ]
@@ -1373,13 +1373,13 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
+ "ckb_schemars",
  "futures-util",
  "itertools 0.11.0",
  "jsonrpc-core",
  "jsonrpc-utils",
  "pretty_assertions",
  "reqwest",
- "schemars",
  "serde",
  "serde_json",
  "tempfile",
@@ -1393,7 +1393,7 @@ name = "ckb-rpc-gen"
 version = "0.114.0-pre"
 dependencies = [
  "ckb-rpc",
- "schemars",
+ "ckb_schemars",
  "serde_json",
  "tera",
 ]
@@ -1751,6 +1751,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4ced3ff9d79b53d93c106720f6c1f855694290e33581850e05c859500eee83f"
 dependencies = [
  "paste",
+]
+
+[[package]]
+name = "ckb_schemars"
+version = "0.8.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "160bd7cb5051a4bd6fe80a3c3e794cd26864dba70360d0e5ea34e21a71d7e4a3"
+dependencies = [
+ "ckb_schemars_derive",
+ "dyn-clone",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ckb_schemars_derive"
+version = "0.8.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4003e04a097903cf2d96d20f5c587c5f744cdef972ce8029bd30a4674634c9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -4378,28 +4402,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c3733bf4cf7ea0880754e19cb5a462007c4a8c1914bff372ccc95b464f1df88"
 dependencies = [
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "schemars"
-version = "0.8.15"
-source = "git+https://github.com/chenyukang/schemars?branch=fix-derive#14f903b40cd7ae1e6e3c707179af7e82d6ae8ae1"
-dependencies = [
- "dyn-clone",
- "schemars_derive",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "schemars_derive"
-version = "0.8.15"
-source = "git+https://github.com/chenyukang/schemars?branch=fix-derive#14f903b40cd7ae1e6e3c707179af7e82d6ae8ae1"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_derive_internals",
- "syn 1.0.109",
 ]
 
 [[package]]
