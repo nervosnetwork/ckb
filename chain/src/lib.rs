@@ -8,7 +8,7 @@
 use ckb_error::Error;
 use ckb_shared::types::BlockNumberAndHash;
 use ckb_types::core::service::Request;
-use ckb_types::core::{BlockNumber, BlockView, HeaderView};
+use ckb_types::core::{BlockNumber, BlockView};
 use ckb_types::packed::Byte32;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -97,25 +97,6 @@ impl LonelyBlock {
         if let Some(verify_callback) = self.verify_callback {
             verify_callback(verify_result);
         }
-    }
-}
-
-pub(crate) struct UnverifiedBlock {
-    pub lonely_block: LonelyBlock,
-    pub parent_header: HeaderView,
-}
-
-impl UnverifiedBlock {
-    pub(crate) fn block(&self) -> &Arc<BlockView> {
-        self.lonely_block.block()
-    }
-
-    pub fn switch(&self) -> Option<Switch> {
-        self.lonely_block.switch()
-    }
-
-    pub fn execute_callback(self, verify_result: VerifyResult) {
-        self.lonely_block.execute_callback(verify_result)
     }
 }
 
