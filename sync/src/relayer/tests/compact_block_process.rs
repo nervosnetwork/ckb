@@ -379,8 +379,6 @@ fn test_accept_block() {
         );
     }
 
-    let (verify_failed_blocks_tx, _verify_failed_blocks_rx) =
-        tokio::sync::mpsc::unbounded_channel();
     {
         let proposal_table = ckb_proposal_table::ProposalTable::new(
             relayer.shared().shared().consensus().tx_proposal_window(),
@@ -388,7 +386,6 @@ fn test_accept_block() {
         let chain_service_builder = ChainServicesBuilder {
             shared: relayer.shared().shared().to_owned(),
             proposal_table,
-            verify_failed_blocks_tx,
         };
 
         let chain_controller = start_chain_services(chain_service_builder);
