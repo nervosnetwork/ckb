@@ -202,6 +202,14 @@ impl BlockFetcher {
                         .get_ancestor(&best_known.hash(), start + span - 1),
                 }
             }?;
+            debug!(
+                "get_ancestor({}, {}) -> {}-{}; IBD: {:?}",
+                best_known.hash(),
+                start + span - 1,
+                header.number(),
+                header.hash(),
+                self.ibd,
+            );
 
             let mut status = self
                 .sync_shared
