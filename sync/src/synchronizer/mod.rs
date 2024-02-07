@@ -32,7 +32,7 @@ use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
-use ckb_logger::{debug, error, info, trace};
+use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::HistogramTimer;
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,

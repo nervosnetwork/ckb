@@ -61,8 +61,7 @@ impl<'a> BlockProcess<'a> {
                                 "SendBlock",
                                 StatusCode::BlockIsInvalid.with_context(format!(
                                     "block {} is invalid, reason: {}",
-                                    block_hash,
-                                    err.to_string()
+                                    block_hash, err
                                 )),
                             );
                         }

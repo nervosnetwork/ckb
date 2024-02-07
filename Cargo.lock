@@ -721,6 +721,8 @@ dependencies = [
  "ckb-channel",
  "ckb-constant",
  "ckb-dao-utils",
+ "ckb-db",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-jsonrpc-types",
  "ckb-logger",
@@ -744,8 +746,8 @@ dependencies = [
  "faux",
  "is_sorted",
  "lazy_static",
+ "minstant",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
@@ -1014,7 +1016,6 @@ dependencies = [
  "ckb-logger",
  "ckb-network",
  "ckb-network-alert",
- "ckb-proposal-table",
  "ckb-resource",
  "ckb-rpc",
  "ckb-shared",
@@ -1024,7 +1025,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "tokio",
 ]
 
 [[package]]
@@ -1417,7 +1417,6 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
- "ckb-channel",
  "ckb-constant",
  "ckb-dao",
  "ckb-dao-utils",
@@ -1514,8 +1513,8 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-logger",
+ "ckb-metrics",
  "ckb-migrate",
- "ckb-network",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",
@@ -1592,7 +1591,6 @@ name = "ckb-sync"
 version = "0.116.0-pre"
 dependencies = [
  "ckb-app-config",
- "ckb-async-runtime",
  "ckb-chain",
  "ckb-chain-spec",
  "ckb-channel",
@@ -1601,6 +1599,7 @@ dependencies = [
  "ckb-dao-utils",
  "ckb-error",
  "ckb-logger",
+ "ckb-logger-service",
  "ckb-metrics",
  "ckb-network",
  "ckb-proposal-table",
@@ -2157,8 +2156,8 @@ version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d2301688392eb071b0bf1a37be05c469d3cc4dbbd95df672fe28ab021e6a096"
 dependencies = [
-  "quote",
-  "syn 1.0.109",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -3564,9 +3563,9 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8dfc09c8abbe145769b6d51fd03f84fdd459906cbd6ac54e438708f016b40bd"
 dependencies = [
-  "ctor",
-  "libc",
-  "wasi 0.7.0",
+ "ctor",
+ "libc",
+ "wasi 0.7.0",
 ]
 
 [[package]]
