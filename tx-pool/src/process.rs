@@ -101,18 +101,19 @@ impl TxPoolService {
         &self,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
+        remote: bool,
         mut status: TxStatus,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                 let conflicts = if tx_pool.enable_rbf() {
-                    // here we double confirm RBF rules before insert entry
                     let rbf_res = tx_pool.check_rbf(&snapshot, &entry);
-                    if rbf_res.is_err() {
-                        // here if RBF is enabled, but `check_rbf` returned an Err,
-                        // means RBF check failed with conflicts, we put old entry into conflicts before return Err
+                    if rbf_res.is_err() && remote {
+                        // if RBF is enabled, but `check_rbf` returned an Err,
+                        // means RBF check failed with conflicts, we record remote tx into conflicts pool
                         tx_pool.record_conflict(entry.transaction().clone());
+                        return Ok(());
                     }
                     rbf_res?
                 } else {
@@ -120,10 +121,14 @@ impl TxPoolService {
                     let conflicted_outpoints =
                         tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
                     if !conflicted_outpoints.is_empty() {
-                        tx_pool.record_conflict(entry.transaction().clone());
-                        return Err(Reject::Resolve(OutPointError::Dead(
-                            conflicted_outpoints.into_iter().next().unwrap(),
-                        )));
+                        if remote {
+                            tx_pool.record_conflict(entry.transaction().clone());
+                            return Ok(());
+                        } else {
+                            return Err(Reject::Resolve(OutPointError::Dead(
+                                conflicted_outpoints.into_iter().next().unwrap(),
+                            )));
+                        }
                     }
                     HashSet::new()
                 };
@@ -150,7 +155,7 @@ impl TxPoolService {
                 for id in conflicts.iter() {
                     let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
                     for old in removed {
-                        debug!(
+                        eprintln!(
                             "remove conflict tx {} for RBF by new tx {}",
                             old.transaction().hash(),
                             entry.transaction().hash()
@@ -753,7 +758,9 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self
+            .submit_entry(tip_hash, entry, remote.is_some(), status)
+            .await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -834,7 +841,9 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
+        let (ret, submit_snapshot) = self
+            .submit_entry(tip_hash, entry, declared_cycles.is_some(), status)
+            .await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;

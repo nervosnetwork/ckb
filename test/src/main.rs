@@ -415,6 +415,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(LongForks),
         Box::new(ForksContainSameTransactions),
         Box::new(ForksContainSameUncle),
+        Box::new(SendConflictTxToRelay),
+        Box::new(SendConflictTxToRelayRBF),
         Box::new(WithdrawDAO),
         Box::new(WithdrawDAOWithOverflowCapacity),
         Box::new(DAOWithSatoshiCellOccupied),
