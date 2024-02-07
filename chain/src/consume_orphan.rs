@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{LonelyBlock, LonelyBlockHash};
 use ckb_channel::{select, Receiver, Sender};
@@ -93,11 +95,11 @@ impl ConsumeDescendantProcessor {
     fn send_unverified_block(&self, lonely_block: LonelyBlockHash, total_difficulty: U256) {
         let block_number = lonely_block.block_number_and_hash.number();
         let block_hash = lonely_block.block_number_and_hash.hash();
-        ckb_metrics::handle().map(|metrics| {
+        if let Some(metrics) = ckb_metrics::handle() {
             metrics
                 .ckb_chain_unverified_block_ch_len
                 .set(self.unverified_blocks_tx.len() as i64)
-        });
+        };
 
         match self.unverified_blocks_tx.send(lonely_block) {
             Ok(_) => {
@@ -298,10 +300,10 @@ impl ConsumeOrphan {
         }
         self.search_orphan_pool();
 
-        ckb_metrics::handle().map(|handle| {
-            handle
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
                 .ckb_chain_orphan_count
                 .set(self.orphan_blocks_broker.len() as i64)
-        });
+        };
     }
 }

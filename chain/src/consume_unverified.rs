@@ -1,8 +1,5 @@
 use crate::LonelyBlockHash;
-use crate::{
-    utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest,
-    VerifyResult,
-};
+use crate::{utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest, VerifyResult};
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::internal::{log_enabled, trace};
@@ -291,7 +288,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 &cannon_total_difficulty - &current_total_difficulty,
                 self.shared.get_unverified_tip().number(),
             );
-            self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
+            self.find_fork(&mut fork, current_tip_header.number(), block, ext);
             self.rollback(&fork, &db_txn)?;
 
             // update and verify chain root
@@ -347,10 +344,9 @@ impl ConsumeUnverifiedBlockProcessor {
                 }
             }
 
-            let block_ref: &BlockView = &block;
             self.shared
                 .notify_controller()
-                .notify_new_block(block_ref.clone());
+                .notify_new_block(block.to_owned());
             if log_enabled!(ckb_logger::Level::Trace) {
                 self.print_chain(10);
             }
@@ -370,8 +366,7 @@ impl ConsumeUnverifiedBlockProcessor {
 
             let tx_pool_controller = self.shared.tx_pool_controller();
             if tx_pool_controller.service_started() {
-                let block_ref: &BlockView = &block;
-                if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
+                if let Err(e) = tx_pool_controller.notify_new_uncle(block.as_uncle()) {
                     error!("[verify block] notify new_uncle error {}", e);
                 }
             }
