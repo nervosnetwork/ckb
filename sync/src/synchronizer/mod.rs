@@ -666,6 +666,13 @@ impl Synchronizer {
     }
 
     fn find_blocks_to_fetch(&mut self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
+        if self.chain.is_verifying_unverified_blocks_on_startup() {
+            trace!(
+                "skip find_blocks_to_fetch, ckb_chain is verifying unverified blocks on startup"
+            );
+            return;
+        }
+
         let unverified_tip = self.shared.active_chain().unverified_tip_number();
 
         let disconnect_list = {
