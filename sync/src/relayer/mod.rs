@@ -340,7 +340,7 @@ impl Relayer {
                         StatusCode::BlockIsInvalid.with_context(format!(
                             "block {} is invalid, reason: {}",
                             block.hash(),
-                            err.to_string()
+                            err
                         )),
                     );
                 }

@@ -278,11 +278,11 @@ impl BlockFetcher {
         }
 
         let inflight_total_count = state.read_inflight_blocks().total_inflight_count();
-        ckb_metrics::handle().map(|metrics| {
+        if let Some(metrics) = ckb_metrics::handle() {
             metrics
                 .ckb_inflight_blocks_count
                 .set(inflight_total_count as i64);
-        });
+        }
 
         if fetch.is_empty() {
             debug!(

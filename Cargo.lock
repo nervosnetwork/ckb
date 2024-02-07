@@ -719,7 +719,6 @@ dependencies = [
  "lazy_static",
  "minstant",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
@@ -984,7 +983,6 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "tokio",
 ]
 
 [[package]]
@@ -1454,7 +1452,6 @@ dependencies = [
  "ckb-logger",
  "ckb-metrics",
  "ckb-migrate",
- "ckb-network",
  "ckb-notify",
  "ckb-proposal-table",
  "ckb-snapshot",

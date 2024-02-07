@@ -74,9 +74,9 @@ fn test_remove_blocks_by_parent() {
     let pool = OrphanBlockPool::with_capacity(200);
     for _ in 1..block_number {
         let lonely_block = gen_lonely_block(&parent);
-        let new_block_clone = lonely_block.block().clone();
+        let new_block_clone = Arc::clone(lonely_block.block());
         let new_block = LonelyBlock {
-            block: new_block_clone.clone(),
+            block: Arc::clone(&new_block_clone),
             switch: None,
             verify_callback: None,
         };
@@ -157,7 +157,7 @@ fn test_leaders() {
     assert_eq!(pool.leaders_len(), 4);
 
     pool.insert(LonelyBlock {
-        block: blocks[5].block().clone(),
+        block: Arc::clone(blocks[5].block()),
         switch: None,
         verify_callback: None,
     });
@@ -166,7 +166,7 @@ fn test_leaders() {
     assert_eq!(pool.leaders_len(), 3);
 
     pool.insert(LonelyBlock {
-        block: blocks[10].block().clone(),
+        block: Arc::clone(blocks[10].block()),
         switch: None,
         verify_callback: None,
     });
@@ -181,7 +181,7 @@ fn test_leaders() {
     assert_eq!(pool.leaders_len(), 2);
 
     pool.insert(LonelyBlock {
-        block: blocks[0].block().clone(),
+        block: Arc::clone(blocks[0].block()),
         switch: None,
         verify_callback: None,
     });
@@ -194,7 +194,7 @@ fn test_leaders() {
     assert_eq!(pool.leaders_len(), 1);
 
     pool.insert(LonelyBlock {
-        block: blocks[15].block().clone(),
+        block: Arc::clone(blocks[15].block()),
         switch: None,
         verify_callback: None,
     });

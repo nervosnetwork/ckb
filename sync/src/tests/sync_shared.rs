@@ -29,7 +29,7 @@ fn wait_for_expected_block_status(
         }
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
-    return false;
+    false
 }
 
 #[test]

@@ -97,7 +97,9 @@ impl MemoryMap {
         let (key, value) = header.into();
         let ret = guard.insert(key, value);
         if ret.is_none() {
-            ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.inc());
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics.ckb_header_map_memory_count.inc();
+            }
         }
         ret.map(|_| ())
     }
@@ -110,7 +112,9 @@ impl MemoryMap {
             shrink_to_fit!(guard, SHRINK_THRESHOLD);
         }
         ret.map(|inner| {
-            ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.dec());
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics.ckb_header_map_memory_count.dec();
+            }
 
             (key.clone(), inner).into()
         })
@@ -142,7 +146,9 @@ impl MemoryMap {
             }
         }
 
-        ckb_metrics::handle().map(|metrics| metrics.ckb_header_map_memory_count.sub(keys_count));
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_header_map_memory_count.sub(keys_count)
+        }
 
         if shrink_to_fit {
             shrink_to_fit!(guard, SHRINK_THRESHOLD);

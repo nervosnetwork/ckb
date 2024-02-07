@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! CKB chain service.
 //!
 //! [`ChainService`] background base on database, handle block importing,
