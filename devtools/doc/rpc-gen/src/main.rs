@@ -12,6 +12,8 @@ fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
     checkout_tag_branch(&version);
     fs::create_dir_all(&json_dir)?;
 
+    run_command("git", &["pull", "--force"], Some(OPENRPC_DIR));
+
     for (name, mut doc) in all_rpc_docs() {
         doc["info"]["version"] = serde_json::Value::String(version.clone());
         let obj = json!(doc);
