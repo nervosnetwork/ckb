@@ -24,6 +24,8 @@ ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.115.0-pre
 ckb-error = { path = "../error", version = "= 0.115.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.115.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.115.0-pre" }
+ckb-db = { path = "../db", version = "= 0.115.0-pre" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.115.0-pre" }
 faux = { version = "^0.1", optional = true }
 ckb-merkle-mountain-range = "0.5.2"
 is_sorted = "0.1.1"

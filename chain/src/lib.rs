@@ -17,13 +17,15 @@ mod chain_controller;
 mod chain_service;
 mod consume_orphan;
 mod consume_unverified;
+mod init;
+mod init_load_unverified;
 #[cfg(test)]
 mod tests;
 mod utils;
 
 pub use chain_controller::ChainController;
-pub use chain_service::start_chain_services;
 pub use consume_orphan::store_unverified_block;
+pub use init::start_chain_services;
 
 type ProcessBlockRequest = Request<LonelyBlock, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;

@@ -11,6 +11,7 @@ use ckb_types::{
     packed::Byte32,
 };
 use ckb_verification_traits::Switch;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 /// Controller to the chain service.
@@ -24,6 +25,8 @@ pub struct ChainController {
     process_block_sender: Sender<ProcessBlockRequest>,
     truncate_sender: Sender<TruncateRequest>,
     orphan_block_broker: Arc<OrphanBlockPool>,
+
+    is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
 }
 
 #[cfg_attr(feature = "mock", faux::methods)]
@@ -32,12 +35,19 @@ impl ChainController {
         process_block_sender: Sender<ProcessBlockRequest>,
         truncate_sender: Sender<TruncateRequest>,
         orphan_block_broker: Arc<OrphanBlockPool>,
+        is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
     ) -> Self {
         ChainController {
             process_block_sender,
             truncate_sender,
             orphan_block_broker,
+            is_verifying_unverified_blocks_on_startup,
         }
+    }
+
+    pub fn is_verifying_unverified_blocks_on_startup(&self) -> bool {
+        self.is_verifying_unverified_blocks_on_startup
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn asynchronous_process_remote_block(&self, remote_block: RemoteBlock) {
@@ -49,7 +59,7 @@ impl ChainController {
         self.asynchronous_process_lonely_block(lonely_block);
     }
 
-    fn asynchronous_process_lonely_block(&self, lonely_block: LonelyBlock) {
+    pub fn asynchronous_process_lonely_block(&self, lonely_block: LonelyBlock) {
         if Request::call(&self.process_block_sender, lonely_block).is_none() {
             error!("Chain service has gone")
         }
