@@ -9,10 +9,9 @@ use std::{fs, path::PathBuf};
 fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
     let json_dir = PathBuf::from(OPENRPC_DIR).join("json");
     let version = get_version();
-    checkout_tag_branch(&version);
+    let branch = get_current_git_branch();
+    checkout_openrpc_branch(&branch);
     fs::create_dir_all(&json_dir)?;
-
-    run_command("git", &["pull", "--force"], Some(OPENRPC_DIR));
 
     for (name, mut doc) in all_rpc_docs() {
         doc["info"]["version"] = serde_json::Value::String(version.clone());
