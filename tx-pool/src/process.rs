@@ -400,7 +400,6 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!("after_process {} remote reject: {} ", tx_hash, reject);
                     if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
