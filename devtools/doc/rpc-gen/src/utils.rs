@@ -54,13 +54,18 @@ pub(crate) fn get_version() -> String {
     version
 }
 
+pub(crate) fn get_current_git_branch() -> String {
+    run_command("git", &["rev-parse", "--abbrev-ref", "HEAD"], None)
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 pub(crate) fn get_commit_sha() -> String {
     let res = run_command("git", &["rev-parse", "HEAD"], Some(OPENRPC_DIR)).unwrap();
     eprintln!("commit sha: {:?}", res);
     res
 }
 
-pub(crate) fn checkout_tag_branch(version: &str) {
+pub(crate) fn checkout_openrpc_branch(version: &str) {
     let dir = Some(OPENRPC_DIR);
     let res = run_command("git", &["checkout", version], dir);
     if res.is_none() {

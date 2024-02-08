@@ -157,7 +157,7 @@ pub trait MinerRpc {
     ///   "jsonrpc": "2.0",
     ///   "method": "submit_block",
     ///   "params": [
-    ///     "example",
+    ///     "work_id_example",
     ///     {
     ///       "header": {
     ///         "compact_target": "0x1e083126",
