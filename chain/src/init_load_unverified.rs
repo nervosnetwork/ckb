@@ -86,7 +86,7 @@ impl InitLoadUnverified {
         self.find_and_verify_unverified_blocks();
 
         self.is_verifying_unverified_blocks_on_startup
-            .store(false, std::sync::atomic::Ordering::Relaxed);
+            .store(false, std::sync::atomic::Ordering::Release);
     }
 
     fn find_and_verify_unverified_blocks(&self) {

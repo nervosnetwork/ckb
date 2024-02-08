@@ -47,7 +47,7 @@ impl ChainController {
 
     pub fn is_verifying_unverified_blocks_on_startup(&self) -> bool {
         self.is_verifying_unverified_blocks_on_startup
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     pub fn asynchronous_process_remote_block(&self, remote_block: RemoteBlock) {
