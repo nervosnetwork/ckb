@@ -15,7 +15,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
         })?;
 
         if let Some(db) = read_only_db {
-            let db_status = migrate.check(&db);
+            let db_status = migrate.check(&db, args.include_background);
             if matches!(db_status, Ordering::Greater) {
                 eprintln!(
                     "The database was created by a higher version CKB executable binary \n\
@@ -37,14 +37,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                 return Ok(());
             }
 
-            if migrate.can_run_in_background(&db) && !args.force {
-                eprintln!("The pending migrations are all background migrations.\n\
-                           You can skip migration and start CKB directly, the migration will be done in the background.\n\
-                           If you want to migrate the data manually, please use --force to migrate without interactive prompt.");
-                return Ok(());
-            }
-
-            if migrate.require_expensive(&db) && !args.force {
+            if migrate.require_expensive(&db, args.include_background) && !args.force {
                 if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
                     let input = prompt("\
                     \n\
