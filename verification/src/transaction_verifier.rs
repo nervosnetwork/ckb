@@ -5,7 +5,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
-use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, VerifyResult};
+use ckb_script::{ChunkCommand, TransactionScriptsVerifier, TransactionSnapshot};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -143,7 +143,7 @@ where
                 data_loader.clone(),
                 Arc::clone(&tx_env),
             ),
-            script: ScriptVerifier::new(
+            script: TransactionScriptsVerifier::new(
                 Arc::clone(&rtx),
                 data_loader.clone(),
                 Arc::clone(&consensus),
