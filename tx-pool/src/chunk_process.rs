@@ -352,7 +352,6 @@ fn exceeded_maximum_cycles_error<
     current: usize,
 ) -> Error {
     verifier
-        .inner()
         .groups()
         .nth(current)
         .map(|(_hash, group)| ScriptError::ExceededMaximumCycles(max_cycles).source(group))

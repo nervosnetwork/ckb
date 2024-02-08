@@ -5,7 +5,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
-use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, TransactionState, VerifyResult};
+use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot, VerifyResult};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -322,77 +322,7 @@ impl<'a> SizeVerifier<'a> {
 /// See:
 /// - [ckb-vm](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0003-ckb-vm/0003-ckb-vm.md)
 /// - [vm-cycle-limits](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0014-vm-cycle-limits/0014-vm-cycle-limits.md)
-pub struct ScriptVerifier<DL> {
-    inner: TransactionScriptsVerifier<DL>,
-}
-
-impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
-    ScriptVerifier<DL>
-{
-    /// Creates a new ScriptVerifier
-    pub fn new(
-        resolved_transaction: Arc<ResolvedTransaction>,
-        data_loader: DL,
-        consensus: Arc<Consensus>,
-        tx_env: Arc<TxVerifyEnv>,
-    ) -> Self {
-        ScriptVerifier {
-            inner: TransactionScriptsVerifier::new(
-                resolved_transaction,
-                data_loader,
-                consensus,
-                tx_env,
-            ),
-        }
-    }
-
-    /// Perform script verification
-    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
-        let cycle = self.inner.verify(max_cycles)?;
-        Ok(cycle)
-    }
-
-    /// Perform resumable script verification
-    pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
-        let ret = self.inner.resumable_verify(limit_cycles)?;
-        Ok(ret)
-    }
-
-    /// Perform verification resume from snapshot
-    pub fn resume_from_snap(
-        &self,
-        snapshot: &TransactionSnapshot,
-        limit_cycles: Cycle,
-    ) -> Result<VerifyResult, Error> {
-        let ret = self.inner.resume_from_snap(snapshot, limit_cycles)?;
-        Ok(ret)
-    }
-
-    /// Perform verification resume from snapshot
-    pub fn resume_from_state(
-        &self,
-        state: TransactionState,
-        limit_cycles: Cycle,
-    ) -> Result<VerifyResult, Error> {
-        let ret = self.inner.resume_from_state(state, limit_cycles)?;
-        Ok(ret)
-    }
-
-    /// Perform complete verification
-    pub fn complete(
-        &self,
-        snapshot: &TransactionSnapshot,
-        max_cycles: Cycle,
-    ) -> Result<Cycle, Error> {
-        let ret = self.inner.complete(snapshot, max_cycles)?;
-        Ok(ret)
-    }
-
-    /// Explicitly dereferencing operation
-    pub fn inner(&self) -> &TransactionScriptsVerifier<DL> {
-        &self.inner
-    }
-}
+pub type ScriptVerifier<DL> = TransactionScriptsVerifier<DL>;
 
 pub struct EmptyVerifier<'a> {
     transaction: &'a TransactionView,
