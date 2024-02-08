@@ -202,6 +202,8 @@ pub struct MigrateArgs {
     pub check: bool,
     /// Do migration without interactive prompt.
     pub force: bool,
+    /// Whether include background migrations
+    pub include_background: bool,
 }
 
 impl CustomizeSpec {

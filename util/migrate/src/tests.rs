@@ -161,5 +161,5 @@ fn test_mock_migration() {
 
     let rdb = mg2.open_read_only_db().unwrap().unwrap();
 
-    assert_eq!(mg2.check(&rdb), std::cmp::Ordering::Equal)
+    assert_eq!(mg2.check(&rdb, false), std::cmp::Ordering::Equal)
 }

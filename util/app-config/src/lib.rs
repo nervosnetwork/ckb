@@ -109,12 +109,14 @@ impl Setup {
         let config = self.config.into_ckb()?;
         let check = matches.get_flag(cli::ARG_MIGRATE_CHECK);
         let force = matches.get_flag(cli::ARG_FORCE);
+        let include_background = matches.get_flag(cli::ARG_INCLUDE_BACKGROUND);
 
         Ok(MigrateArgs {
             config,
             consensus,
             check,
             force,
+            include_background,
         })
     }
 

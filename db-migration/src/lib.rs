@@ -115,7 +115,7 @@ impl Migrations {
     /// - Equal: The database version is matched with the executable binary version.
     /// - Greater: The database version is greater than the matched version of the executable binary.
     ///   Requires upgrade the executable binary.
-    pub fn check(&self, db: &ReadOnlyDB) -> Ordering {
+    pub fn check(&self, db: &ReadOnlyDB, include_background: bool) -> Ordering {
         let db_version = match db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("get the version of database")
@@ -135,9 +135,12 @@ impl Migrations {
         };
         debug!("Current database version [{}]", db_version);
 
-        let latest_version = self
+        let migrations = self
             .migrations
             .values()
+            .filter(|m| include_background || !m.run_in_background());
+
+        let latest_version = migrations
             .last()
             .unwrap_or_else(|| panic!("should have at least one version"))
             .version();
@@ -147,7 +150,7 @@ impl Migrations {
     }
 
     /// Check if the migrations will consume a lot of time.
-    pub fn expensive(&self, db: &ReadOnlyDB) -> bool {
+    pub fn expensive(&self, db: &ReadOnlyDB, include_background: bool) -> bool {
         let db_version = match db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("get the version of database")
@@ -162,8 +165,12 @@ impl Migrations {
             }
         };
 
-        self.migrations
+        let migrations = self
+            .migrations
             .values()
+            .filter(|m| include_background || !m.run_in_background());
+
+        migrations
             .skip_while(|m| m.version() <= db_version.as_str())
             .any(|m| m.expensive())
     }
