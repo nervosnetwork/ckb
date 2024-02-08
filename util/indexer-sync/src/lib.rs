@@ -19,7 +19,7 @@ use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_INDEX, COLUMN_META,
 };
-use ckb_logger::{debug, error, info};
+use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
@@ -227,7 +227,7 @@ impl IndexerSyncService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        debug!("{} received exit signal, exit now", indexer_service.get_identity());
+                        info!("{} received exit signal, exit now", indexer_service.get_identity());
                         break
                     },
                 }

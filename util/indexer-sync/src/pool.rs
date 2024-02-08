@@ -4,7 +4,7 @@ use ckb_async_runtime::{
     tokio::{self},
     Handle,
 };
-use ckb_logger::debug;
+use ckb_logger::info;
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
 use ckb_types::{core::TransactionView, packed::OutPoint};
@@ -123,7 +123,7 @@ impl PoolService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        debug!("Indexer received exit signal, exit now");
+                        info!("Indexer received exit signal, exit now");
                         break
                     },
                     else => break,
