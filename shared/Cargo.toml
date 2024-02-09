@@ -9,6 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
+
 ckb-types = { path = "../util/types", version = "= 0.115.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.115.0-pre" }
 ckb-store = { path = "../store", version = "= 0.115.0-pre" }
