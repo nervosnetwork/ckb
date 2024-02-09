@@ -1004,76 +1004,79 @@ impl Spec for RbfCellDepsCheck {
     }
 }
 
+fn run_spec_send_conflict_relay(nodes: &mut Vec<Node>) {
+    let node0 = &nodes[0];
+    let node1 = &nodes[1];
+
+    node1.mine_until_out_bootstrap_period();
+    node0.connect(node1);
+    info!("Generate large cycles tx");
+
+    node0.mine_until_out_bootstrap_period();
+    node0.new_block_with_blocking(|template| template.number.value() != 13);
+    let tx_hash_0 = node0.generate_transaction();
+    info!("Generate 2 txs with same input");
+    let tx1 = node0.new_transaction(tx_hash_0.clone());
+
+    //let tx2_temp = node0.new_transaction(tx_hash_0);
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(90).pack())
+        .build();
+
+    let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
+    node0.rpc_client().send_transaction(tx1.data().into());
+
+    let result = wait_until(60, || {
+        node1.get_tip_block_number() == node0.get_tip_block_number()
+    });
+    assert!(result, "node0 can't sync with node1");
+
+    let result = wait_until(60, || {
+        node1
+            .rpc_client()
+            .get_transaction(tx1.hash())
+            .transaction
+            .is_some()
+    });
+    assert!(result, "Node0 should accept tx");
+    // node0 remove tx1 from tx_pool
+    node0.remove_transaction(tx1.hash());
+
+    // a new tx with same input and lower fee
+    // node0 will accept it and node1 will reject it and put it in conflicts pool
+    let tx2_temp = node0.new_transaction(tx_hash_0);
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(95).pack())
+        .build();
+
+    let tx2 = tx2_temp
+        .as_advanced_builder()
+        .set_outputs(vec![output])
+        .build();
+    let res = node0
+        .rpc_client()
+        .send_transaction_result(tx2.data().into());
+    assert!(res.is_ok(), "tx2 should be accepted by node0");
+
+    let _ = wait_until(60, || {
+        node1.get_tip_block_number() == node0.get_tip_block_number()
+    });
+
+    let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
+
+    let res = node1.get_transaction(tx2.hash());
+    assert_eq!(res.status, Status::Unknown);
+    let res = node1.get_transaction(tx1.hash());
+    assert_eq!(res.status, Status::Pending);
+    assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().unpack()]);
+}
+
 pub struct SendConflictTxToRelay;
 impl Spec for SendConflictTxToRelay {
     crate::setup!(num_nodes: 2, retry_failed: 5);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        let node0 = &nodes[0];
-        let node1 = &nodes[1];
-
-        node1.mine_until_out_bootstrap_period();
-        node0.connect(node1);
-        info!("Generate large cycles tx");
-
-        node0.mine_until_out_bootstrap_period();
-        node0.new_block_with_blocking(|template| template.number.value() != 13);
-        let tx_hash_0 = node0.generate_transaction();
-        info!("Generate 2 txs with same input");
-        let tx1 = node0.new_transaction(tx_hash_0.clone());
-
-        //let tx2_temp = node0.new_transaction(tx_hash_0);
-        let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(90).pack())
-            .build();
-
-        let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
-        node0.rpc_client().send_transaction(tx1.data().into());
-
-        let result = wait_until(60, || {
-            node1.get_tip_block_number() == node0.get_tip_block_number()
-        });
-        assert!(result, "node0 can't sync with node1");
-
-        let result = wait_until(60, || {
-            node1
-                .rpc_client()
-                .get_transaction(tx1.hash())
-                .transaction
-                .is_some()
-        });
-        assert!(result, "Node0 should accept tx");
-        // node0 remove tx1 from tx_pool
-        node0.remove_transaction(tx1.hash());
-
-        // a new tx with same input and lower fee
-        // node0 will accept it and node1 will reject it and put it in conflicts pool
-        let tx2_temp = node0.new_transaction(tx_hash_0);
-        let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(95).pack())
-            .build();
-
-        let tx2 = tx2_temp
-            .as_advanced_builder()
-            .set_outputs(vec![output])
-            .build();
-        let res = node0
-            .rpc_client()
-            .send_transaction_result(tx2.data().into());
-        assert!(res.is_ok(), "tx2 should be accepted by node0");
-
-        let _ = wait_until(60, || {
-            node1.get_tip_block_number() == node0.get_tip_block_number()
-        });
-
-        let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
-
-        let res = node1.get_transaction(tx2.hash());
-        assert_eq!(res.status, Status::Unknown);
-        let res = node1.get_transaction(tx1.hash());
-        assert_eq!(res.status, Status::Pending);
-        eprintln!("res: {:?}", res);
-        assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().unpack()]);
+        run_spec_send_conflict_relay(nodes);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -1087,69 +1090,7 @@ impl Spec for SendConflictTxToRelayRBF {
     crate::setup!(num_nodes: 2, retry_failed: 5);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        let node0 = &nodes[0];
-        let node1 = &nodes[1];
-
-        node1.mine_until_out_bootstrap_period();
-        node0.connect(node1);
-
-        node0.mine_until_out_bootstrap_period();
-        node0.new_block_with_blocking(|template| template.number.value() != 13);
-        let tx_hash_0 = node0.generate_transaction();
-        info!("Generate 2 txs with same input");
-        let tx1 = node0.new_transaction(tx_hash_0.clone());
-
-        //let tx2_temp = node0.new_transaction(tx_hash_0);
-        let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(90).pack())
-            .build();
-
-        let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
-        node0.rpc_client().send_transaction(tx1.data().into());
-
-        let result = wait_until(60, || {
-            node1.get_tip_block_number() == node0.get_tip_block_number()
-        });
-        assert!(result, "node0 can't sync with node1");
-
-        let result = wait_until(60, || {
-            node1
-                .rpc_client()
-                .get_transaction(tx1.hash())
-                .transaction
-                .is_some()
-        });
-        assert!(result, "Node0 should accept tx");
-        // node0 remove tx1 from tx_pool
-        node0.remove_transaction(tx1.hash());
-
-        // a new tx with same input and lower fee
-        // node0 will accept it and node1 will reject it and put it in conflicts pool
-        let tx2_temp = node0.new_transaction(tx_hash_0);
-        let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(95).pack())
-            .build();
-
-        let tx2 = tx2_temp
-            .as_advanced_builder()
-            .set_outputs(vec![output])
-            .build();
-        let res = node0
-            .rpc_client()
-            .send_transaction_result(tx2.data().into());
-        assert!(res.is_ok(), "tx2 should be accepted by node0");
-
-        let _ = wait_until(60, || {
-            node1.get_tip_block_number() == node0.get_tip_block_number()
-        });
-
-        let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
-
-        let res = node1.get_transaction(tx2.hash());
-        assert_eq!(res.status, Status::Unknown);
-        let res = node1.get_transaction(tx1.hash());
-        assert_eq!(res.status, Status::Pending);
-        assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().unpack()]);
+        run_spec_send_conflict_relay(nodes);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
