@@ -13,6 +13,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 ckb-app-config = { path = "../app-config", version = "= 0.115.0-pre" }
 ckb-async-runtime = { path = "../runtime", version = "= 0.115.0-pre" }
+ckb-channel = { path = "../channel", version = "= 0.115.0-pre" }
 ckb-db-schema = { path = "../../db-schema", version = "= 0.115.0-pre" }
 ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.115.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.115.0-pre" }
