@@ -238,13 +238,9 @@ impl IndexerService {
         self.async_handle.spawn(async move {
             let _initial_finished = initial_syncing.await;
             info!("initial_syncing finished");
-
-            tokio::select! {
-                _ = stop.cancelled() => {
-                    info!("Indexer received exit signal, cancel new_block_watcher task, exit now");
-                    return;
-                },
-                else => {},
+            if stop.is_cancelled() {
+                info!("Indexer received exit signal, cancel new_block_watcher task, exit now");
+                return;
             }
 
             let mut new_block_watcher = notify_controller
