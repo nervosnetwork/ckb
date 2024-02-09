@@ -116,49 +116,65 @@ impl Spec for TransactionRelayTimeout {
     }
 }
 
-pub struct RelayInvalidTransaction;
+fn run_relay_malformed_tx_with_cycle(spec: &dyn Spec, nodes: &mut Vec<Node>, cycle: u64) {
+    let node = &nodes.pop().unwrap();
+    node.mine(4);
+    let mut net = Net::new(
+        spec.name(),
+        node.consensus(),
+        vec![SupportProtocols::Sync, SupportProtocols::RelayV3],
+    );
+    net.connect(node);
+    let dummy_tx = TransactionBuilder::default().build();
+    info!("Sending RelayTransactionHashes to node");
+    net.send(
+        node,
+        SupportProtocols::RelayV3,
+        build_relay_tx_hashes(&[dummy_tx.hash()]),
+    );
+    info!("Receiving GetRelayTransactions message from node");
+    assert!(
+        wait_get_relay_txs(&net, node),
+        "timeout to wait GetRelayTransactions"
+    );
 
+    assert!(
+        node.rpc_client().get_banned_addresses().is_empty(),
+        "Banned addresses list should empty"
+    );
+    info!("Sending RelayTransactions to node");
+    net.send(
+        node,
+        SupportProtocols::RelayV3,
+        build_relay_txs(&[(dummy_tx, cycle)]),
+    );
+
+    wait_until(20, || node.rpc_client().get_banned_addresses().len() == 1);
+    let banned_addrs = node.rpc_client().get_banned_addresses();
+    assert_eq!(
+        banned_addrs.len(),
+        1,
+        "Net should be banned: {banned_addrs:?}"
+    );
+}
+
+pub struct RelayInvalidTransaction;
 impl Spec for RelayInvalidTransaction {
     fn run(&self, nodes: &mut Vec<Node>) {
-        let node = &nodes.pop().unwrap();
-        node.mine(4);
-        let mut net = Net::new(
-            self.name(),
-            node.consensus(),
-            vec![SupportProtocols::Sync, SupportProtocols::RelayV3],
-        );
-        net.connect(node);
-        let dummy_tx = TransactionBuilder::default().build();
-        info!("Sending RelayTransactionHashes to node");
-        net.send(
-            node,
-            SupportProtocols::RelayV3,
-            build_relay_tx_hashes(&[dummy_tx.hash()]),
-        );
-        info!("Receiving GetRelayTransactions message from node");
-        assert!(
-            wait_get_relay_txs(&net, node),
-            "timeout to wait GetRelayTransactions"
-        );
+        run_relay_malformed_tx_with_cycle(self, nodes, 444);
+    }
+}
 
-        assert!(
-            node.rpc_client().get_banned_addresses().is_empty(),
-            "Banned addresses list should empty"
-        );
-        info!("Sending RelayTransactions to node");
-        net.send(
-            node,
-            SupportProtocols::RelayV3,
-            build_relay_txs(&[(dummy_tx, 333)]),
-        );
+pub struct RelayInvalidTransactionResumable;
+impl Spec for RelayInvalidTransactionResumable {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        // when a tx with large cycle is processed by resumeble_process_tx
+        // a peer send manlformed tx will also be banned
+        run_relay_malformed_tx_with_cycle(self, nodes, 102);
+    }
 
-        wait_until(20, || node.rpc_client().get_banned_addresses().len() == 1);
-        let banned_addrs = node.rpc_client().get_banned_addresses();
-        assert_eq!(
-            banned_addrs.len(),
-            1,
-            "Net should be banned: {banned_addrs:?}"
-        );
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.max_tx_verify_cycles = 100;
     }
 }
 
