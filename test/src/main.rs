@@ -444,6 +444,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         // TODO failed on poor CI server
         // Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
+        Box::new(RelayInvalidTransactionResumable),
         Box::new(TransactionRelayTimeout),
         Box::new(TransactionRelayEmptyPeers),
         Box::new(TransactionRelayConflict),
