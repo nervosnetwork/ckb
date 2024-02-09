@@ -18,6 +18,7 @@ use crate::{
     verify_env::TxVerifyEnv,
     ChunkCommand,
 };
+use arc_swap::ArcSwap;
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
 #[cfg(feature = "logging")]
@@ -38,7 +39,6 @@ use ckb_vm::{
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
 use std::collections::{BTreeMap, HashMap};
-use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{
     oneshot,
@@ -73,51 +73,48 @@ enum DataGuard {
 }
 
 /// LazyData wrapper make sure not-loaded data will be loaded only after one access
-#[derive(Debug, Clone)]
-struct LazyData(Arc<RwLock<DataGuard>>);
+#[derive(Debug)]
+struct LazyData(ArcSwap<DataGuard>);
 
 impl LazyData {
     fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
         match &cell_meta.mem_cell_data {
-            Some(data) => LazyData(Arc::new(RwLock::new(DataGuard::Loaded(data.to_owned())))),
-            None => LazyData(Arc::new(RwLock::new(DataGuard::NotLoaded(
-                cell_meta.out_point.clone(),
-            )))),
+            Some(data) => LazyData(ArcSwap::new(DataGuard::Loaded(data.to_owned()).into())),
+            None => LazyData(ArcSwap::new(
+                DataGuard::NotLoaded(cell_meta.out_point.clone()).into(),
+            )),
         }
     }
 
     fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Bytes {
-        let guard = self.0.read().unwrap().to_owned();
-        match guard {
+        match self.0.load().as_ref() {
             DataGuard::NotLoaded(out_point) => {
-                let data = data_loader.get_cell_data(&out_point).expect("cell data");
-                *self.0.write().unwrap() = DataGuard::Loaded(data.to_owned());
+                let data = data_loader.get_cell_data(out_point).expect("cell data");
+                self.0.store(DataGuard::Loaded(data.to_owned()).into());
                 data
             }
-            DataGuard::Loaded(bytes) => bytes,
+            DataGuard::Loaded(bytes) => bytes.to_owned(),
         }
     }
 }
 
 impl PartialEq for LazyData {
     fn eq(&self, other: &Self) -> bool {
-        let self_guard = self.0.read().unwrap();
-        let other_guard = other.0.read().unwrap();
-
-        match (&*self_guard, &*other_guard) {
-            (DataGuard::Loaded(ref self_bytes), DataGuard::Loaded(ref other_bytes)) => {
-                self_bytes == other_bytes
-            }
-            (
-                DataGuard::NotLoaded(ref self_out_point),
-                DataGuard::NotLoaded(ref other_out_point),
-            ) => self_out_point == other_out_point,
+        match (self.0.load().as_ref(), other.0.load().as_ref()) {
+            (DataGuard::NotLoaded(o1), DataGuard::NotLoaded(o2)) => o1 == o2,
+            (DataGuard::Loaded(b1), DataGuard::Loaded(b2)) => b1 == b2,
             _ => false,
         }
     }
 }
 
 impl Eq for LazyData {}
+
+impl Clone for LazyData {
+    fn clone(&self) -> Self {
+        LazyData(Arc::clone(&self.0.load()).into())
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum Binaries {
