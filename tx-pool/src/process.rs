@@ -291,7 +291,7 @@ impl TxPoolService {
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<(), Reject> {
         // non contextual verify first
-        self.non_contextual_verify(&tx, None)?;
+        self.non_contextual_verify(&tx, remote)?;
 
         if self.chunk_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
