@@ -238,11 +238,12 @@ impl IndexerService {
         let poll_service = self.clone();
         self.async_handle.spawn(async move {
             let _initial_finished = initial_syncing.await;
-            info!("initial_syncing finished");
             if stop.is_cancelled() {
                 info!("Indexer received exit signal, cancel new_block_watcher task, exit now");
                 return;
             }
+
+            info!("initial_syncing finished");
 
             let mut new_block_watcher = notify_controller
                 .watch_new_block(SUBSCRIBER_NAME.to_string())
