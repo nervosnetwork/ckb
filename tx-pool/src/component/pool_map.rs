@@ -504,6 +504,8 @@ impl PoolMap {
         }
         entry.direct_ancestors_count = direct_ancestors.len() + 1;
         if entry.direct_ancestors_count > self.max_ancestors_count {
+            // here we still does not changed anything in pool_map,
+            // so return Err is safe and we don't need to rollback anything.
             return Err(Reject::ExceededMaximumAncestorsCount);
         }
 

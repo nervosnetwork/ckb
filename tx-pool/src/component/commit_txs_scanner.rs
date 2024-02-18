@@ -153,8 +153,9 @@ impl<'a> CommitTxsScanner<'a> {
                 .cloned()
                 .collect::<Vec<TxEntry>>();
 
-            // sort ancestors by ancestors_count,
+            // sort ancestors by ancestors_count, from small to large
             // if A is an ancestor of B, B.ancestors_count must large than A
+            // so that the result in order will be A, B
             ancestors.sort_unstable_by_key(|entry| entry.ancestors_count);
             ancestors.push(tx_entry.to_owned());
 
