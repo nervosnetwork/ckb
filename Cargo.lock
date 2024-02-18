@@ -848,7 +848,6 @@ version = "0.114.0-rc1"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
- "ckb-channel",
  "ckb-db-schema",
  "ckb-jsonrpc-types",
  "ckb-logger",
