@@ -18,7 +18,9 @@ use ckb_jsonrpc_types::{
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
-use ckb_stop_handler::{new_crossbeam_exit_rx, new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{
+    has_received_stop_signal, new_crossbeam_exit_rx, new_tokio_exit_rx, CancellationToken,
+};
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{self, BlockNumber},
@@ -229,7 +231,9 @@ impl IndexerService {
         let initial_service = self.clone();
         let initial_syncing = self.async_handle.spawn_blocking(move || {
             initial_service.apply_init_tip();
-            initial_service.try_loop_sync()
+            if !has_received_stop_signal() {
+                initial_service.try_loop_sync()
+            }
         });
 
         let stop: CancellationToken = new_tokio_exit_rx();
