@@ -83,6 +83,10 @@ fn test_add_entry_from_detached() {
     let tx2_hash = tx2.hash();
     let tx3 = build_tx_with_dep(vec![(&Byte32::zero(), 0)], vec![(&tx2_hash, 0)], 1);
 
+    //        tx1
+    //       /
+    //     tx2 --->(cell dep)  tx3
+
     let entry1 = TxEntry::new(dummy_resolve(tx1.clone(), |_| None), 1, MOCK_FEE, 1);
     let entry2 = TxEntry::new(dummy_resolve(tx2, |_| None), 1, MOCK_FEE, 1);
     let entry3 = TxEntry::new(dummy_resolve(tx3, |_| None), 1, MOCK_FEE, 1);
@@ -167,12 +171,12 @@ fn test_add_entry_from_detached() {
         assert!(pool.links.get_parents(&id1).unwrap().is_empty());
         assert_eq!(
             pool.links.get_children(&id1).unwrap(),
-            &HashSet::from_iter(vec![id2.clone()].into_iter())
+            &HashSet::from_iter(vec![].into_iter())
         );
 
         assert_eq!(
             pool.links.get_parents(&id2).unwrap(),
-            &HashSet::from_iter(vec![id1].into_iter())
+            &HashSet::from_iter(vec![].into_iter())
         );
         assert_eq!(
             pool.links

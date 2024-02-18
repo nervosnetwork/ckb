@@ -176,6 +176,11 @@ impl<'a> CommitTxsScanner<'a> {
 
             self.update_modified_entries(&ancestors);
         }
+        // sort by invalid_tx_count, from small to large
+        // for A, B, if A.invalidated_tx_count < B.invalidated_tx_count
+        // then B is the tx consumed a cell dep, and A is the tx that cell dep
+        // so the result in order will be [A, B]
+        self.entries.sort_by_key(|entry| entry.invalidated_tx_count);
         (self.entries, size, cycles)
     }
 
