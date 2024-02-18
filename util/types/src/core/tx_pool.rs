@@ -376,6 +376,8 @@ pub struct PoolTxDetailInfo {
     pub descendants_count: usize,
     /// The ancestors count of tx
     pub ancestors_count: usize,
+    /// the invalidated transactions count
+    pub invalidated_tx_count: usize,
     /// The score key details, useful to debug
     pub score_sortkey: AncestorsScoreSortKey,
 }

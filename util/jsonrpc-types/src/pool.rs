@@ -259,6 +259,8 @@ pub struct PoolTxDetailInfo {
     pub descendants_count: Uint64,
     /// The ancestors count of tx
     pub ancestors_count: Uint64,
+    /// the invalidated transactions count
+    pub invalidated_tx_count: Uint64,
     /// The score key details, useful to debug
     pub score_sortkey: AncestorsScoreSortKey,
 }
@@ -272,6 +274,7 @@ impl From<CorePoolTxDetailInfo> for PoolTxDetailInfo {
             pending_count: (info.pending_count as u64).into(),
             proposed_count: (info.proposed_count as u64).into(),
             descendants_count: (info.descendants_count as u64).into(),
+            invalidated_tx_count: (info.invalidated_tx_count as u64).into(),
             ancestors_count: (info.ancestors_count as u64).into(),
             score_sortkey: info.score_sortkey.into(),
         }

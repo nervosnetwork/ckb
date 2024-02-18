@@ -373,6 +373,7 @@ impl PoolMap {
     fn update_ancestors_index_key(&mut self, child: &TxEntry, op: EntryOp) {
         let ancestors: HashSet<ProposalShortId> =
             self.links.calc_ancestors(&child.proposal_short_id());
+        let mut invalidate_count = 0;
         for anc_id in &ancestors {
             // update parent score
             self.entries.modify_by_id(anc_id, |e| {
@@ -381,7 +382,16 @@ impl PoolMap {
                     EntryOp::Add => e.inner.add_descendant_weight(child),
                 };
                 e.evict_key = e.inner.as_evict_key();
+                invalidate_count += e.inner.invalidated_tx_count;
             });
+        }
+        // update invalidate count from ancestors
+        if invalidate_count > 0 {
+            self.entries
+                .modify_by_id(&child.proposal_short_id(), |e| {
+                    e.inner.invalidated_tx_count += invalidate_count;
+                })
+                .expect("unconsistent pool");
         }
     }
 
@@ -435,6 +445,9 @@ impl PoolMap {
             if let Some(ids) = self.edges.get_deps_ref(&o).cloned() {
                 children.extend(ids);
             }
+            if let Some(id) = self.edges.get_input_ref(&o).cloned() {
+                children.insert(id.clone());
+            }
         }
         // update children
         if !children.is_empty() {
@@ -480,12 +493,14 @@ impl PoolMap {
         let ancestors = self
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
+
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
             // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
         }
+        entry.ancestors_count = ancestors.len();
         if entry.ancestors_count > self.max_ancestors_count {
             // the `ancestors_count` only account for direct ancestors now.
             // here we still does not changed anything in pool_map,
@@ -498,11 +513,11 @@ impl PoolMap {
         }
 
         // all the descendants of the invalidated tx are also invalidated
-        let all_invalidated = self
+        let invalidated = self
             .links
             .calc_relation_ids(invalidated, Relation::Children);
-        entry.invalidated_tx_count = all_invalidated.len();
 
+        entry.invalidated_tx_count = invalidated.len();
         self.links.add_link(
             short_id,
             TxLinks {

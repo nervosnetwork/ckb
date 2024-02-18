@@ -616,6 +616,7 @@ impl TxPool {
                 proposed_count: ids.proposed.len(),
                 descendants_count: self.pool_map.calc_descendants(id).len(),
                 ancestors_count: self.pool_map.calc_ancestors(id).len(),
+                invalidated_tx_count: entry.inner.invalidated_tx_count,
                 score_sortkey: entry.inner.as_score_key().into(),
             };
             Some(res)

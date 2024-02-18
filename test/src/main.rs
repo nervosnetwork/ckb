@@ -566,6 +566,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RelayTooNewBlock),
         Box::new(LastCommonHeaderForPeerWithWorseChain),
         Box::new(BlockTransactionsRelayParentOfOrphanBlock),
+        Box::new(SendTxCellRefCellConsume),
         Box::new(CellBeingSpentThenCellDepInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepThenSpentInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),

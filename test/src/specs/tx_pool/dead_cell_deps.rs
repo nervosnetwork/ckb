@@ -3,13 +3,13 @@ use crate::util::check::is_transaction_committed;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use ckb_logger::info;
+use ckb_types::packed::CellInput;
 use ckb_types::{
     core::cell::CellMetaBuilder,
     core::{Capacity, DepType},
     packed::{CellDepBuilder, OutPoint},
     prelude::*,
 };
-
 /// There are 3 transactions, A, B and C:
 ///   - A was already committed before;
 ///   - B spends A;
@@ -282,5 +282,126 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
             // B's tx-weight < C's tx-weight,
             assert!(is_transaction_committed(node0, &tx_c));
         }
+    }
+}
+
+pub struct SendTxCellRefCellConsume;
+
+/// There are 3 transactions, A, B and C:
+///   - A was already committed before;
+///   - B spends A, B2 is child of B
+///   - C1, C2 cell dep A, C3 is child of C2
+///              A
+///            / \  \
+///           /   \  \
+///          C1   C2  B
+///               /    \
+///              C3    B2
+
+impl Spec for SendTxCellRefCellConsume {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        node0.mine_until_out_bootstrap_period();
+        // build txs chain
+        let initial_inputs = gen_spendable(node0, 10);
+        let input_a = &initial_inputs[0];
+        let input_c1 = &initial_inputs[1];
+        let input_c2 = &initial_inputs[2];
+
+        // Commit transaction A
+        let tx_a = {
+            let tx_a = always_success_transaction(node0, input_a);
+            node0.submit_transaction(&tx_a);
+            node0.mine_until_bool(|| is_transaction_committed(node0, &tx_a));
+            tx_a
+        };
+
+        // Create transaction C1 which depends A
+        let tx_c1 = {
+            let tx = always_success_transaction(node0, input_c1);
+            let cell_dep_to_tx_a = CellDepBuilder::default()
+                .dep_type(DepType::Code.into())
+                .out_point(OutPoint::new(tx_a.hash(), 0))
+                .build();
+            tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
+        };
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(tx_c1.data().into());
+        assert!(ret.is_ok());
+
+        // Create transaction C2 which depends A
+        let tx_c2 = {
+            let tx = always_success_transaction(node0, input_c2);
+            let cell_dep_to_tx_a = CellDepBuilder::default()
+                .dep_type(DepType::Code.into())
+                .out_point(OutPoint::new(tx_a.hash(), 0))
+                .build();
+            tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
+        };
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(tx_c2.data().into());
+        assert!(ret.is_ok());
+
+        // Create a C2 child transaction
+        let tx_c3 = tx_c2
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(tx_c2.hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![tx_c2.output(0).unwrap()])
+            .build();
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(tx_c3.data().into());
+        assert!(ret.is_ok());
+
+        // Create transaction B which spends A
+        let tx_b = {
+            let input =
+                CellMetaBuilder::from_cell_output(tx_a.output(0).unwrap(), Default::default())
+                    .out_point(OutPoint::new(tx_a.hash(), 0))
+                    .build();
+            always_success_transaction(node0, &input)
+        };
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(tx_b.data().into());
+        assert!(ret.is_ok());
+
+        let tx_b_details = node0.get_pool_tx_detail_info(tx_b.hash());
+        let invalidated_tx_count: u64 = tx_b_details.invalidated_tx_count.into();
+        let ancestors_count: u64 = tx_b_details.ancestors_count.into();
+        assert_eq!(invalidated_tx_count, 3);
+        assert_eq!(ancestors_count, 0); // A is not in the pool now, so the ancestors_count is 0
+
+        // Create a B child transaction
+        let tx_b2 = tx_b
+            .as_advanced_builder()
+            .set_inputs(vec![{
+                CellInput::new_builder()
+                    .previous_output(OutPoint::new(tx_b.hash(), 0))
+                    .build()
+            }])
+            .set_outputs(vec![tx_b.output(0).unwrap()])
+            .build();
+        let ret = node0
+            .rpc_client()
+            .send_transaction_result(tx_b2.data().into());
+        assert!(ret.is_ok());
+
+        let details = node0.get_pool_tx_detail_info(tx_b2.hash());
+        let invalidated_tx_count: u64 = details.invalidated_tx_count.into();
+        let ancestors_count: u64 = details.ancestors_count.into();
+        assert_eq!(invalidated_tx_count, 3); // child's invalidated_tx_count >= parent tx's invalidated_tx_count
+        assert_eq!(ancestors_count, 1);
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.max_ancestors_count = 5;
     }
 }
