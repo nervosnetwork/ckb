@@ -500,7 +500,7 @@ impl PoolMap {
             // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        entry.ancestors_count = ancestors.len();
+        entry.ancestors_count = ancestors.len() + 1;
         if entry.ancestors_count > self.max_ancestors_count {
             // the `ancestors_count` only account for direct ancestors now.
             // here we still does not changed anything in pool_map,
