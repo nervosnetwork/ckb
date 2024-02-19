@@ -18,7 +18,7 @@ use ckb_jsonrpc_types::{
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
-use ckb_stop_handler::{new_crossbeam_exit_rx, new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{has_received_stop_signal, new_tokio_exit_rx, CancellationToken};
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{self, BlockNumber},
@@ -153,14 +153,10 @@ impl IndexerService {
                     }
                 }
             }
-            let stop_rx = new_crossbeam_exit_rx();
             loop {
-                ckb_channel::select! {
-                    recv(stop_rx) -> _ =>{
-                        info!("apply_init_tip received exit signal, exit now");
-                        break;
-                    },
-                    default() => {},
+                if has_received_stop_signal() {
+                    info!("apply_init_tip received exit signal, exit now");
+                    break;
                 }
 
                 if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
@@ -197,6 +193,11 @@ impl IndexerService {
             CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
         );
         loop {
+            if has_received_stop_signal() {
+                info!("try_loop_sync received exit signal, exit now");
+                break;
+            }
+
             if let Some((tip_number, tip_hash)) = indexer.tip().expect("get tip should be OK") {
                 match self.get_block_by_number(tip_number + 1) {
                     Some(block) => {
@@ -237,11 +238,12 @@ impl IndexerService {
         let poll_service = self.clone();
         self.async_handle.spawn(async move {
             let _initial_finished = initial_syncing.await;
-            info!("initial_syncing finished");
             if stop.is_cancelled() {
                 info!("Indexer received exit signal, cancel new_block_watcher task, exit now");
                 return;
             }
+
+            info!("initial_syncing finished");
 
             let mut new_block_watcher = notify_controller
                 .watch_new_block(SUBSCRIBER_NAME.to_string())
