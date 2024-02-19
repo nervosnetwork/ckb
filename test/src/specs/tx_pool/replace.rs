@@ -1004,7 +1004,7 @@ impl Spec for RbfCellDepsCheck {
     }
 }
 
-fn run_spec_send_conflict_relay(nodes: &mut Vec<Node>) {
+fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     let node0 = &nodes[0];
     let node1 = &nodes[1];
 
