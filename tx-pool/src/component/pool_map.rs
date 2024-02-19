@@ -155,6 +155,26 @@ impl PoolMap {
         self.score_sorted_iter_by(vec![Status::Proposed])
     }
 
+    pub(crate) fn can_invalidate(
+        &self,
+        invalidator: &ProposalShortId,
+        invalidatee: &ProposalShortId,
+    ) -> bool {
+        self.links
+            .get_invalidators(invalidatee)
+            .map_or(false, |invalidators| invalidators.contains(invalidator))
+    }
+
+    pub(crate) fn is_parent_child(
+        &self,
+        parent: &ProposalShortId,
+        child: &ProposalShortId,
+    ) -> bool {
+        self.links
+            .get_children(parent)
+            .map_or(false, |children| children.contains(child))
+    }
+
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.get_by_id(id).map(|entry| &entry.inner)
     }
@@ -373,7 +393,6 @@ impl PoolMap {
     fn update_ancestors_index_key(&mut self, child: &TxEntry, op: EntryOp) {
         let ancestors: HashSet<ProposalShortId> =
             self.links.calc_ancestors(&child.proposal_short_id());
-        let mut invalidate_count = 0;
         for anc_id in &ancestors {
             // update parent score
             self.entries.modify_by_id(anc_id, |e| {
@@ -382,16 +401,7 @@ impl PoolMap {
                     EntryOp::Add => e.inner.add_descendant_weight(child),
                 };
                 e.evict_key = e.inner.as_evict_key();
-                invalidate_count += e.inner.invalidated_tx_count;
             });
-        }
-        // update invalidate count from ancestors
-        if invalidate_count > 0 {
-            self.entries
-                .modify_by_id(&child.proposal_short_id(), |e| {
-                    e.inner.invalidated_tx_count += invalidate_count;
-                })
-                .expect("unconsistent pool");
         }
     }
 
@@ -516,13 +526,17 @@ impl PoolMap {
         let invalidated = self
             .links
             .calc_relation_ids(invalidated, Relation::Children);
+        for invalidate_short_id in &invalidated {
+            self.links
+                .add_invalidator(invalidate_short_id, short_id.clone());
+        }
 
         entry.invalidated_tx_count = invalidated.len();
         self.links.add_link(
             short_id,
             TxLinks {
                 parents,
-                children: Default::default(),
+                ..Default::default()
             },
         );
 

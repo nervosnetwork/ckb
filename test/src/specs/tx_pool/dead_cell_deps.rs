@@ -397,7 +397,7 @@ impl Spec for SendTxCellRefCellConsume {
         let details = node0.get_pool_tx_detail_info(tx_b2.hash());
         let invalidated_tx_count: u64 = details.invalidated_tx_count.into();
         let ancestors_count: u64 = details.ancestors_count.into();
-        assert_eq!(invalidated_tx_count, 3); // child's invalidated_tx_count >= parent tx's invalidated_tx_count
+        assert_eq!(invalidated_tx_count, 0); // child's invalidated_tx_count is not inherit from parent
         assert_eq!(ancestors_count, 1);
     }
 

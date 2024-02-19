@@ -171,12 +171,12 @@ fn test_add_entry_from_detached() {
         assert!(pool.links.get_parents(&id1).unwrap().is_empty());
         assert_eq!(
             pool.links.get_children(&id1).unwrap(),
-            &HashSet::from_iter(vec![].into_iter())
+            &HashSet::from_iter(vec![id2.clone()].into_iter())
         );
 
         assert_eq!(
             pool.links.get_parents(&id2).unwrap(),
-            &HashSet::from_iter(vec![].into_iter())
+            &HashSet::from_iter(vec![id1].into_iter())
         );
         assert_eq!(
             pool.links

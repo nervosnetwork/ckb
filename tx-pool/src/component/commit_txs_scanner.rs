@@ -4,7 +4,7 @@ use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use ckb_util::LinkedHashMap;
 use multi_index_map::MultiIndexMap;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 // A template data struct used to store modified entries when package txs
 #[derive(MultiIndexMap, Clone)]
@@ -176,11 +176,8 @@ impl<'a> CommitTxsScanner<'a> {
 
             self.update_modified_entries(&ancestors);
         }
-        // sort by invalid_tx_count, from small to large
-        // for A, B, if A.invalidated_tx_count < B.invalidated_tx_count
-        // then B is the tx consumed a cell dep, and A is the tx that cell dep
-        // so the result in order will be [A, B]
-        self.entries.sort_by_key(|entry| entry.invalidated_tx_count);
+
+        self.fix_entries_by_invalidators();
         (self.entries, size, cycles)
     }
 
@@ -188,6 +185,75 @@ impl<'a> CommitTxsScanner<'a> {
         self.modified_entries
             .get(short_id)
             .or_else(|| self.pool_map.get_proposed(short_id))
+    }
+
+    // If there is any transaction may invalidate other transactions
+    // we may need to fix the order so that manimize the number of failed transactions
+    // caused by order, for instance, B cell dep A, C consume A, the better order is
+    // [A, B, C], while the order [A, C, B] will make B failed
+    fn fix_entries_by_invalidators(&mut self) {
+        if self
+            .entries
+            .iter()
+            .all(|entry| entry.invalidated_tx_count == 0)
+        {
+            return;
+        }
+
+        let mut edges = vec![];
+        for i in 0..self.entries.len() {
+            for j in (i + 1)..self.entries.len() {
+                let a = &self.entries[i].proposal_short_id();
+                let b = &self.entries[j].proposal_short_id();
+                if self.pool_map.can_invalidate(a, b) {
+                    edges.push((j, i));
+                } else if self.pool_map.is_parent_child(a, b) {
+                    edges.push((i, j));
+                }
+            }
+        }
+
+        if let Some(order) = Self::topological_sort(self.entries.len(), edges) {
+            let mut new_entries = Vec::with_capacity(self.entries.len());
+            for i in order {
+                new_entries.push(self.entries[i].clone());
+            }
+            self.entries = new_entries;
+        }
+    }
+
+    fn topological_sort(n: usize, edges: Vec<(usize, usize)>) -> Option<Vec<usize>> {
+        let mut graph = vec![vec![]; n];
+        let mut in_degree = vec![0; n];
+
+        for (src, dst) in edges {
+            graph[src].push(dst);
+            in_degree[dst] += 1;
+        }
+
+        let mut queue = VecDeque::new();
+        for (i, &degree) in in_degree.iter().enumerate() {
+            if degree == 0 {
+                queue.push_back(i);
+            }
+        }
+
+        let mut result = Vec::new();
+        while let Some(node) = queue.pop_front() {
+            result.push(node);
+            for &neighbour in &graph[node] {
+                in_degree[neighbour] -= 1;
+                if in_degree[neighbour] == 0 {
+                    queue.push_back(neighbour);
+                }
+            }
+        }
+
+        if result.len() == n {
+            Some(result)
+        } else {
+            None // graph contains a cycle
+        }
     }
 
     // Skip entries in `proposed` that are already in a block or are present

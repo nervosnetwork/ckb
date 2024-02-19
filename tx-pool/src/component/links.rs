@@ -5,12 +5,15 @@ use std::collections::{HashMap, HashSet};
 pub struct TxLinks {
     pub parents: HashSet<ProposalShortId>,
     pub children: HashSet<ProposalShortId>,
+    pub invalidators: HashSet<ProposalShortId>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Relation {
     Parents,
     Children,
+    #[allow(dead_code)]
+    Invalidators,
 }
 
 impl TxLinks {
@@ -18,6 +21,7 @@ impl TxLinks {
         match relation {
             Relation::Parents => &self.parents,
             Relation::Children => &self.children,
+            Relation::Invalidators => &self.invalidators,
         }
     }
 }
@@ -91,6 +95,13 @@ impl TxLinksMap {
         self.inner.get(short_id).map(|link| &link.parents)
     }
 
+    pub fn get_invalidators(
+        &self,
+        short_id: &ProposalShortId,
+    ) -> Option<&HashSet<ProposalShortId>> {
+        self.inner.get(short_id).map(|link| &link.invalidators)
+    }
+
     pub fn remove(&mut self, short_id: &ProposalShortId) -> Option<TxLinks> {
         self.inner.remove(short_id)
     }
@@ -123,6 +134,16 @@ impl TxLinksMap {
         self.inner
             .get_mut(short_id)
             .map(|links| links.children.insert(child))
+    }
+
+    pub fn add_invalidator(
+        &mut self,
+        short_id: &ProposalShortId,
+        invalidator: ProposalShortId,
+    ) -> Option<bool> {
+        self.inner
+            .get_mut(short_id)
+            .map(|links| links.invalidators.insert(invalidator))
     }
 
     pub fn add_parent(
