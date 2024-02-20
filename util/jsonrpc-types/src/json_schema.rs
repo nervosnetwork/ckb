@@ -1,14 +1,5 @@
-use crate::{AlertId, Byte32, Uint128, Uint64};
+use crate::{Byte32, Uint128, Uint32, Uint64};
 use schemars::JsonSchema;
-
-impl JsonSchema for AlertId {
-    fn schema_name() -> String {
-        String::from("AlertId")
-    }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        gen.subschema_for::<u32>().into_object().into()
-    }
-}
 
 impl JsonSchema for Byte32 {
     fn schema_name() -> String {
@@ -16,6 +7,15 @@ impl JsonSchema for Byte32 {
     }
     fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
         gen.subschema_for::<[u8; 32]>().into_object().into()
+    }
+}
+
+impl JsonSchema for Uint32 {
+    fn schema_name() -> String {
+        String::from("Uint32")
+    }
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        gen.subschema_for::<u64>().into_object().into()
     }
 }
 
