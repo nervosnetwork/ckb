@@ -62,7 +62,7 @@ pub fn open_or_create_db(
     })?;
 
     if let Some(db) = read_only_db {
-        match migrate.check(&db) {
+        match migrate.check(&db, true) {
             Ordering::Greater => {
                 eprintln!(
                     "The database was created by a higher version CKB executable binary \n\
@@ -74,8 +74,7 @@ pub fn open_or_create_db(
             Ordering::Equal => Ok(RocksDB::open(config, COLUMNS)),
             Ordering::Less => {
                 let can_run_in_background = migrate.can_run_in_background(&db);
-                eprintln!("can_run_in_background: {}", can_run_in_background);
-                if migrate.require_expensive(&db) && !can_run_in_background {
+                if migrate.require_expensive(&db, false) && !can_run_in_background {
                     eprintln!(
                         "For optimal performance, CKB recommends migrating your data into a new format.\n\
                         If you prefer to stick with the older version, \n\

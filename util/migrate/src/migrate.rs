@@ -53,13 +53,13 @@ impl Migrate {
     /// - Equal: The database version is matched with the executable binary version.
     /// - Greater: The database version is greater than the matched version of the executable binary.
     ///   Requires upgrade the executable binary.
-    pub fn check(&self, db: &ReadOnlyDB) -> Ordering {
-        self.migrations.check(db)
+    pub fn check(&self, db: &ReadOnlyDB, include_background: bool) -> Ordering {
+        self.migrations.check(db, include_background)
     }
 
     /// Check whether database requires expensive migrations.
-    pub fn require_expensive(&self, db: &ReadOnlyDB) -> bool {
-        self.migrations.expensive(db)
+    pub fn require_expensive(&self, db: &ReadOnlyDB, include_background: bool) -> bool {
+        self.migrations.expensive(db, include_background)
     }
 
     /// Check whether the pending migrations are all background migrations.

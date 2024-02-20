@@ -60,6 +60,8 @@ pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
 /// Command line argument `--force`.
 pub const ARG_FORCE: &str = "force";
+/// Command line argument `--include-background`.
+pub const ARG_INCLUDE_BACKGROUND: &str = "include-background";
 /// Command line argument `--log-to`.
 pub const ARG_LOG_TO: &str = "log-to";
 /// Command line argument `--bundled`.
@@ -399,6 +401,12 @@ fn migrate() -> Command {
                 .action(clap::ArgAction::SetTrue)
                 .conflicts_with(ARG_MIGRATE_CHECK)
                 .help("Migrate without interactive prompt"),
+        )
+        .arg(
+            Arg::new(ARG_INCLUDE_BACKGROUND)
+                .long(ARG_INCLUDE_BACKGROUND)
+                .action(clap::ArgAction::SetTrue)
+                .help("Whether include background migrations"),
         )
 }
 
