@@ -15,7 +15,9 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
         })?;
 
         if let Some(db) = read_only_db {
-            let db_status = migrate.check(&db, args.include_background);
+            // if there are only pending background migrations, they will run automatically
+            // so here we check with `include_background` as true
+            let db_status = migrate.check(&db, true);
             if matches!(db_status, Ordering::Greater) {
                 eprintln!(
                     "The database was created by a higher version CKB executable binary \n\
@@ -25,8 +27,12 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                 return Err(ExitCode::Failure);
             }
 
+            // `include_background` is default to false
+            let db_status = migrate.check(&db, args.include_background);
             if args.check {
                 if matches!(db_status, Ordering::Less) {
+                    // special for bash usage, return 0 means need run migration
+                    // if ckb migrate --check; then ckb migrate --force; fi
                     return Ok(());
                 } else {
                     return Err(ExitCode::Cli);
