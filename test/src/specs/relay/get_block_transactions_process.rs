@@ -38,7 +38,7 @@ impl Spec for MissingUncleRequest {
 
         let content = packed::GetBlockTransactions::new_builder()
             .block_hash(block.hash())
-            .uncle_indexes(vec![0u32].pack())
+            .uncle_indexes([0u32].pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 
