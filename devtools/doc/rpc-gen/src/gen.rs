@@ -141,7 +141,6 @@ impl RpcDocGenerator {
 
         for (ty, desc) in pre_defined_types().iter() {
             if types.iter().any(|t| t.0 == *ty) {
-                eprintln!("we already have: {:?}", ty);
                 continue;
             }
             types.push((ty.to_owned(), Value::String(desc.into())));
@@ -332,8 +331,9 @@ fn gen_type_fields(name: &str, ty: &Value) -> String {
             "\n#### Fields\n\n`{}` is a JSON object with the following fields.\n\n{}",
             name, res
         )
+    } else if let Some(_values) = ty.get("oneOf") {
+        gen_type(ty)
     } else {
-        //format!("{:#?}", ty)
         "".to_string()
     }
 }
@@ -349,6 +349,21 @@ fn gen_type(ty: &Value) -> String {
                         format!("`Array<` {} `>`", gen_type(&map["items"]))
                     } else {
                         gen_type(&map["items"])
+                    }
+                } else if ty.as_str() == Some("string") {
+                    let mut enum_val = String::new();
+                    let mut desc = String::new();
+                    if let Some(arr) = map.get("enum") {
+                        enum_val = arr.as_array().unwrap()[0].as_str().unwrap().to_owned();
+                    }
+                    if let Some(val) = map.get("description") {
+                        desc = val.as_str().unwrap_or_default().to_owned();
+                    }
+
+                    if !enum_val.is_empty() && !desc.is_empty() {
+                        format!("  - {} : {}", enum_val, desc)
+                    } else {
+                        format!("`{}`", ty.as_str().unwrap())
                     }
                 } else if let Some(arr) = ty.as_array() {
                     let ty = arr
@@ -367,9 +382,22 @@ fn gen_type(ty: &Value) -> String {
                     .map(gen_type)
                     .collect::<Vec<_>>()
                     .join(" `|` ")
+            } else if let Some(arr) = map.get("oneOf") {
+                let res = arr
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(gen_type)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("\nIt's an enum value from one of:\n{}\n", res)
             } else {
-                let ty = map["$ref"].as_str().unwrap().split('/').last().unwrap();
-                format!("[`{}`](#type-{})", ty, ty.to_lowercase())
+                if let Some(link) = map.get("$ref") {
+                    let link = link.as_str().unwrap().split('/').last().unwrap();
+                    format!("[`{}`](#type-{})", link, link.to_lowercase())
+                } else {
+                    gen_type(ty)
+                }
             }
         }
         Value::Array(arr) => {

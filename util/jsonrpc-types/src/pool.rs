@@ -111,9 +111,9 @@ impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputsValidator {
-    /// "passthrough": the default validator, bypass output checking, thus allow any kind of transaction outputs.
+    /// the default validator, bypass output checking, thus allow any kind of transaction outputs.
     Passthrough,
-    /// "well_known_scripts_only": restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>
+    /// restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>
     WellKnownScriptsOnly,
 }
 
