@@ -138,6 +138,7 @@ impl RpcDocGenerator {
                 }
             }
         }
+        types.push(("AlertId".into(), Value::String("AlertId".into())));
         types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
 
         Self {
@@ -214,10 +215,11 @@ impl RpcDocGenerator {
                     .join("\n");
 
                 // replace only the first ``` with ```json
+                let name = capitlize(name);
                 let desc = desc.replacen("```\n", "```json\n", 1);
-                let fields = gen_type_fields(ty);
+                let fields = gen_type_fields(&name, ty);
                 gen_value(&[
-                    ("name", capitlize(name).into()),
+                    ("name", name.into()),
                     ("desc", desc.into()),
                     ("fields", fields.into()),
                 ])
@@ -302,7 +304,7 @@ fn gen_type_desc(desc: &str) -> String {
     format!(" - {}\n", desc)
 }
 
-fn gen_type_fields(ty: &Value) -> String {
+fn gen_type_fields(name: &str, ty: &Value) -> String {
     if let Some(fields) = ty.get("required") {
         let res = fields
             .as_array()
@@ -319,7 +321,10 @@ fn gen_type_fields(ty: &Value) -> String {
             .collect::<Vec<_>>()
             .join("\n");
         let res = strip_prefix_space(&res);
-        format!("\n#### Fields:\n{}", res)
+        format!(
+            "\n#### Fields\n\n`{}` is a JSON object with the following fields.\n\n{}",
+            name, res
+        )
     } else {
         "".to_string()
     }
