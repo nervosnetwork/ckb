@@ -65,7 +65,7 @@ fn before_send(mut event: Event<'static>) -> Option<Event<'static>> {
     let ex = match event
         .exception
         .values
-        .get(0)
+        .first()
         .and_then(|ex| ex.value.as_ref())
     {
         Some(ex) => ex,

@@ -175,7 +175,7 @@ fn test_block_template_message() {
             .cellbase
             .data
             .witnesses
-            .get(0)
+            .first()
             .unwrap()
             .as_bytes(),
     )

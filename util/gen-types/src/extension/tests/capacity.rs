@@ -28,9 +28,7 @@ fn min_cell_output_capacity() {
 
 #[test]
 fn min_secp256k1_cell_output_capacity() {
-    let lock = packed::Script::new_builder()
-        .args(vec![0u8; 20].pack())
-        .build();
+    let lock = packed::Script::new_builder().args([0u8; 20].pack()).build();
     let output = packed::CellOutput::new_builder().lock(lock).build();
     assert_eq!(
         output.occupied_capacity(Capacity::zero()).unwrap(),

@@ -797,10 +797,7 @@ impl InflightBlocks {
                 .insert(block.clone(), unix_time_as_millis());
         }
 
-        let download_scheduler = self
-            .download_schedulers
-            .entry(peer)
-            .or_insert_with(DownloadScheduler::default);
+        let download_scheduler = self.download_schedulers.entry(peer).or_default();
         download_scheduler.hashes.insert(block)
     }
 
@@ -1632,13 +1629,13 @@ impl UnknownTxHashPriority {
             if self.peers.len() > 1 {
                 self.request_time = Instant::now();
                 self.peers.swap_remove(0);
-                self.peers.get(0).cloned()
+                self.peers.first().cloned()
             } else {
                 None
             }
         } else {
             self.requested = true;
-            self.peers.get(0).cloned()
+            self.peers.first().cloned()
         }
     }
 
@@ -1648,7 +1645,7 @@ impl UnknownTxHashPriority {
 
     pub fn requesting_peer(&self) -> Option<PeerIndex> {
         if self.requested {
-            self.peers.get(0).cloned()
+            self.peers.first().cloned()
         } else {
             None
         }

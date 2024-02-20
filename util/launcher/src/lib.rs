@@ -78,7 +78,7 @@ impl Launcher {
                     Ok(genesis_cellbase
                         .outputs()
                         .into_iter()
-                        .zip(genesis_cellbase.outputs_data().into_iter())
+                        .zip(genesis_cellbase.outputs_data())
                         .any(|(output, data)| {
                             data.raw_data() == secp_cell_data.as_ref()
                                 && output

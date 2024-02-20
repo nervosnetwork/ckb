@@ -70,7 +70,7 @@ fn test_alert_20230001() {
         .max_version(Some("0.105.1").pack())
         .build();
 
-    let signatures = vec![
+    let signatures = [
         "8dca283684ff3cd024bd6a67efb24617e90e31dc69ac809ac6ac5e243a57b7aa6711228dfbd8a5cc89a68d3065b685e5c56c70740e8d3487fd538dc914d0c97c00",
         "4554b37824e17ea02432507e372c869301a415bf718e0a5a33b6df75cd32fbab7cf8176ca8b079c28266ce1f33c3f61fbff19e27be2a85f5a14faa2b1b474e0a01"
     ].iter().map(|hex| {
