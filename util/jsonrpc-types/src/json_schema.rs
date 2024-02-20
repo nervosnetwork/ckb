@@ -15,7 +15,7 @@ impl JsonSchema for Uint32 {
         String::from("Uint32")
     }
     fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        gen.subschema_for::<u64>().into_object().into()
+        gen.subschema_for::<u32>().into_object().into()
     }
 }
 

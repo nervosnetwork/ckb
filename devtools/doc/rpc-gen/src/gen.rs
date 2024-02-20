@@ -138,7 +138,14 @@ impl RpcDocGenerator {
                 }
             }
         }
-        types.push(("AlertId".into(), Value::String("AlertId".into())));
+
+        for (ty, desc) in pre_defined_types().iter() {
+            if types.iter().any(|t| t.0 == *ty) {
+                eprintln!("we already have: {:?}", ty);
+                continue;
+            }
+            types.push((ty.to_owned(), Value::String(desc.into())));
+        }
         types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
 
         Self {
@@ -204,7 +211,7 @@ impl RpcDocGenerator {
                 } else if let Some(desc) = ty.get("format") {
                     format!("`{}` is `{}`", name, desc.as_str().unwrap())
                 } else {
-                    "".to_string()
+                    ty.as_str().map_or_else(|| "".to_owned(), |v| v.to_owned())
                 };
                 let desc = desc.replace("##", "######");
                 // remove the inline code from comments
@@ -326,6 +333,7 @@ fn gen_type_fields(name: &str, ty: &Value) -> String {
             name, res
         )
     } else {
+        //format!("{:#?}", ty)
         "".to_string()
     }
 }
@@ -458,4 +466,17 @@ fn render_tera(template: &str, content: &[(&str, Value)]) -> String {
     let mut tera = Tera::default();
     tera.add_raw_template("template", template).unwrap();
     tera.render("template", &context).unwrap()
+}
+
+fn pre_defined_types() -> Vec<(String, String)> {
+    vec![
+        ("AlertId", "The alert identifier that is used to filter duplicated alerts.\n
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
+        ("SerializedHeader", "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`."),
+        ("SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
+        ("U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),
+        ("H256", "The 256-bit binary data encoded as a 0x-prefixed hex string in JSON."),
+        ("Byte32", "The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON."),
+        ("RationalU256", "The ratio which numerator and denominator are both 256-bit unsigned integers.")]
+    .iter().map(|x| (x.0.to_string(), x.1.to_string())).collect()
 }
