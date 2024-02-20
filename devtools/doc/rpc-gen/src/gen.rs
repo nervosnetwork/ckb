@@ -139,11 +139,11 @@ impl RpcDocGenerator {
             }
         }
 
-        for (ty, desc) in pre_defined_types().iter() {
+        for (ty, desc) in pre_defined_types() {
             if types.iter().any(|t| t.0 == *ty) {
                 continue;
             }
-            types.push((ty.to_owned(), Value::String(desc.into())));
+            types.push((ty.to_owned(), Value::String(desc)));
         }
         types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
 
@@ -220,7 +220,7 @@ impl RpcDocGenerator {
                     .collect::<Vec<_>>()
                     .join("\n");
 
-                // replace only the first ``` with ```json
+                // replace only the first code snippet ``` with ```json
                 let name = capitlize(name);
                 let desc = desc.replacen("```\n", "```json\n", 1);
                 let fields = gen_type_fields(&name, ty);
@@ -310,6 +310,13 @@ fn gen_type_desc(desc: &str) -> String {
     format!(" - {}\n", desc)
 }
 
+fn format_fields(name: &str, fields: &str) -> String {
+    format!(
+        "\n#### Fields\n\n`{}` is a JSON object with the following fields.\n\n{}",
+        name, fields
+    )
+}
+
 fn gen_type_fields(name: &str, ty: &Value) -> String {
     if let Some(fields) = ty.get("required") {
         let res = fields
@@ -327,10 +334,31 @@ fn gen_type_fields(name: &str, ty: &Value) -> String {
             .collect::<Vec<_>>()
             .join("\n");
         let res = strip_prefix_space(&res);
-        format!(
-            "\n#### Fields\n\n`{}` is a JSON object with the following fields.\n\n{}",
-            name, res
-        )
+        format_fields(name, &res)
+    } else if let Some(properties) = ty.get("properties") {
+        let properties = properties.as_object().unwrap();
+        let res = properties
+            .iter()
+            .map(|(key, value)| {
+                let ty_ref = gen_type(value.get("items").unwrap_or(value));
+                let field_desc = value.get("description").unwrap().as_str().unwrap();
+                let field_desc = field_desc
+                    .split('\n')
+                    .map(|l| {
+                        let l = l.trim();
+                        if !l.is_empty() {
+                            format!("    {}", l)
+                        } else {
+                            l.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("* `{}`: {} {}", key, ty_ref, field_desc.trim())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format_fields(name, &res)
     } else if let Some(_values) = ty.get("oneOf") {
         gen_type(ty)
     } else {
@@ -391,13 +419,11 @@ fn gen_type(ty: &Value) -> String {
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!("\nIt's an enum value from one of:\n{}\n", res)
+            } else if let Some(link) = map.get("$ref") {
+                let link = link.as_str().unwrap().split('/').last().unwrap();
+                format!("[`{}`](#type-{})", link, link.to_lowercase())
             } else {
-                if let Some(link) = map.get("$ref") {
-                    let link = link.as_str().unwrap().split('/').last().unwrap();
-                    format!("[`{}`](#type-{})", link, link.to_lowercase())
-                } else {
-                    gen_type(ty)
-                }
+                "".to_owned()
             }
         }
         Value::Array(arr) => {
@@ -496,8 +522,8 @@ fn render_tera(template: &str, content: &[(&str, Value)]) -> String {
     tera.render("template", &context).unwrap()
 }
 
-fn pre_defined_types() -> Vec<(String, String)> {
-    vec![
+fn pre_defined_types() -> impl Iterator<Item = (String, String)> {
+    [
         ("AlertId", "The alert identifier that is used to filter duplicated alerts.\n
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
         ("SerializedHeader", "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`."),
@@ -505,6 +531,6 @@ This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in 
         ("U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),
         ("H256", "The 256-bit binary data encoded as a 0x-prefixed hex string in JSON."),
         ("Byte32", "The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON."),
-        ("RationalU256", "The ratio which numerator and denominator are both 256-bit unsigned integers.")]
-    .iter().map(|x| (x.0.to_string(), x.1.to_string())).collect()
+        ("RationalU256", "The ratio which numerator and denominator are both 256-bit unsigned integers.")
+    ].iter().map(|&(x, y)| (x.to_string(), y.to_string()))
 }
