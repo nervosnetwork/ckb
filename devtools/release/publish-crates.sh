@@ -11,6 +11,7 @@ retry_cargo_publish() {
   # Ignore dev dependencies
   rm -f Cargo.toml.bak
   sed -i.bak \
+    -e 's/clap = { version = "4"/clap = { version = "=4.4.18"/' \
     -e '/^\[dev-dependencies\]/, /^\[/ { /^[^\[]/d }' \
     -e '/# dev-feature$/d' \
     Cargo.toml
