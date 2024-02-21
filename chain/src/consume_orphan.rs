@@ -34,8 +34,24 @@ pub fn store_unverified_block(
         .expect("parent already store");
 
     if let Some(ext) = shared.store().get_block_ext(&block.hash()) {
-        debug!("block {}-{} has stored BlockExt", block_number, block_hash);
-        return Ok((parent_header, ext.total_difficulty));
+        debug!(
+            "block {}-{} has stored BlockExt: {:?}",
+            block_number, block_hash, ext
+        );
+        match ext.verified {
+            Some(true) => {
+                return Ok((parent_header, ext.total_difficulty));
+            }
+            Some(false) => {
+                return Err(InvalidParentError {
+                    parent_hash: parent_header.hash(),
+                }
+                .into());
+            }
+            None => {
+                // continue to process
+            }
+        }
     }
 
     trace!("begin accept block: {}-{}", block.number(), block.hash());
@@ -140,32 +156,67 @@ impl ConsumeDescendantProcessor {
         }
     }
 
-    pub(crate) fn process_descendant(&self, lonely_block: LonelyBlock) {
-        match store_unverified_block(&self.shared, lonely_block.block().to_owned()) {
+    pub(crate) fn process_descendant(&self, lonely_block: LonelyBlock) -> Result<(), Error> {
+        return match store_unverified_block(&self.shared, lonely_block.block().to_owned()) {
             Ok((_parent_header, total_difficulty)) => {
                 self.shared
                     .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_STORED);
 
                 let lonely_block_hash: LonelyBlockHash = lonely_block.into();
 
-                self.send_unverified_block(lonely_block_hash, total_difficulty)
+                self.send_unverified_block(lonely_block_hash, total_difficulty);
+                Ok(())
             }
 
             Err(err) => {
-                error!(
-                    "accept block {} failed: {}",
-                    lonely_block.block().hash(),
-                    err
-                );
+                if let Some(_invalid_parent_err) = err.downcast_ref::<InvalidParentError>() {
+                    self.shared
+                        .block_status_map()
+                        .insert(lonely_block.block().hash(), BlockStatus::BLOCK_INVALID);
+                }
 
-                lonely_block.execute_callback(Err(err));
+                lonely_block.execute_callback(Err(err.clone()));
+                Err(err)
             }
-        }
+        };
     }
 
     fn accept_descendants(&self, descendants: Vec<LonelyBlock>) {
+        let mut has_parent_invalid_error = false;
         for descendant_block in descendants {
-            self.process_descendant(descendant_block);
+            let block_number = descendant_block.block().number();
+            let block_hash = descendant_block.block().hash();
+
+            if has_parent_invalid_error {
+                self.shared
+                    .block_status_map()
+                    .insert(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                let err = Err(InvalidParentError {
+                    parent_hash: descendant_block.block().parent_hash(),
+                }
+                .into());
+
+                error!(
+                    "process descendant {}-{}, failed {:?}",
+                    block_number,
+                    block_hash.clone(),
+                    err
+                );
+
+                descendant_block.execute_callback(err);
+                continue;
+            }
+
+            if let Err(err) = self.process_descendant(descendant_block) {
+                error!(
+                    "process descendant {}-{}, failed {:?}",
+                    block_number, block_hash, err
+                );
+
+                if let Some(_invalid_parent_err) = err.downcast_ref::<InvalidParentError>() {
+                    has_parent_invalid_error = true;
+                }
+            }
         }
     }
 }
@@ -275,26 +326,37 @@ impl ConsumeOrphan {
 
     fn process_lonely_block(&self, lonely_block: LonelyBlock) {
         let parent_hash = lonely_block.block().parent_hash();
+        let block_hash = lonely_block.block().hash();
+        let block_number = lonely_block.block().number();
         let parent_status = self
             .shared
             .get_block_status(self.shared.store(), &parent_hash);
         if parent_status.contains(BlockStatus::BLOCK_STORED) {
             debug!(
                 "parent {} has stored: {:?}, processing descendant directly {}-{}",
-                parent_hash,
-                parent_status,
-                lonely_block.block().number(),
-                lonely_block.block().hash()
+                parent_hash, parent_status, block_number, block_hash,
             );
-            self.descendant_processor.process_descendant(lonely_block);
+
+            if let Err(err) = self.descendant_processor.process_descendant(lonely_block) {
+                error!(
+                    "process descendant {}-{}, failed {:?}",
+                    block_number, block_hash, err
+                );
+            }
         } else if parent_status.eq(&BlockStatus::BLOCK_INVALID) {
-            // ignore this block, because parent block is invalid
-            info!(
-                "parent: {} is INVALID, ignore this block {}-{}",
-                parent_hash,
-                lonely_block.block().number(),
-                lonely_block.block().hash()
+            // don't accept this block, because parent block is invalid
+            error!(
+                "parent: {} is INVALID, won't accept this block {}-{}",
+                parent_hash, block_number, block_hash,
             );
+            self.shared
+                .block_status_map()
+                .insert(lonely_block.block().hash(), BlockStatus::BLOCK_INVALID);
+            let err = Err(InvalidParentError {
+                parent_hash: parent_hash.clone(),
+            }
+            .into());
+            lonely_block.execute_callback(err);
         } else {
             self.orphan_blocks_broker.insert(lonely_block);
         }
