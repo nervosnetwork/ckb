@@ -110,6 +110,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `Alert`](#type-alert)
     * [Type `AlertId`](#type-alertid)
     * [Type `AlertMessage`](#type-alertmessage)
+    * [Type `AlertPriority`](#type-alertpriority)
     * [Type `AncestorsScoreSortKey`](#type-ancestorsscoresortkey)
     * [Type `BannedAddr`](#type-bannedaddr)
     * [Type `Block`](#type-block)
@@ -4939,6 +4940,11 @@ An alert sent by RPC `send_alert`.
 * `notice_until`: [`Uint64`](#type-uint64) - The alert is expired after this timestamp.
 
 * `priority`: [`Uint32`](#type-uint32) - Alerts are sorted by priority, highest first.
+
+### Type `AlertPriority`
+Alerts are sorted by priority. Greater integers mean higher priorities.
+
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
 
 ### Type `AncestorsScoreSortKey`
 A struct as a sorted key for tx-pool

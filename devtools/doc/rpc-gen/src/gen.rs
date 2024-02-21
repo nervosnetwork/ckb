@@ -526,6 +526,8 @@ fn pre_defined_types() -> impl Iterator<Item = (String, String)> {
     [
         ("AlertId", "The alert identifier that is used to filter duplicated alerts.\n
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
+        ("AlertPriority", "Alerts are sorted by priority. Greater integers mean higher priorities.\n
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
         ("SerializedHeader", "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`."),
         ("SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
         ("U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),
