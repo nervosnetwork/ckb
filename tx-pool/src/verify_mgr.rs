@@ -139,7 +139,7 @@ impl VerifyMgr {
     }
 
     fn send_child_command(&self, command: ChunkCommand) {
-        info!("[verify-test] verify-mgr send child command: {:?}", command);
+        //info!("[verify-test] verify-mgr send child command: {:?}", command);
         for w in &self.workers {
             if let Err(err) = w.0.send(command.clone()) {
                 info!("send worker command failed, error: {}", err);

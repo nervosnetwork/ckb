@@ -15,8 +15,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
+use ckb_logger::error;
 use ckb_logger::info;
-use ckb_logger::{debug, error};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -319,7 +319,7 @@ impl TxPoolController {
 
     /// Sends suspend chunk process cmd
     pub fn suspend_chunk_process(&self) -> Result<(), AnyError> {
-        debug!("[verify-test] run suspend_chunk_process");
+        //debug!("[verify-test] run suspend_chunk_process");
         self.chunk_tx
             .send(ChunkCommand::Suspend)
             .map_err(handle_send_cmd_error)
@@ -328,7 +328,7 @@ impl TxPoolController {
 
     /// Sends continue chunk process cmd
     pub fn continue_chunk_process(&self) -> Result<(), AnyError> {
-        debug!("[verify-test] run continue_chunk_process");
+        //debug!("[verify-test] run continue_chunk_process");
         self.chunk_tx
             .send(ChunkCommand::Resume)
             .map_err(handle_send_cmd_error)
