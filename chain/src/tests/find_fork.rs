@@ -38,7 +38,9 @@ fn process_block(
         verify_callback: None,
     };
 
-    consume_descendant_processor.process_descendant(lonely_block);
+    consume_descendant_processor
+        .process_descendant(lonely_block)
+        .unwrap();
 
     consume_unverified_block_processor.consume_unverified_blocks(lonely_block_hash);
 }
