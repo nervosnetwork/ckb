@@ -1398,7 +1398,7 @@ async fn run_vms_with_signal(
         tokio::select! {
             Ok(_) = signal.changed() => {
                 let command = signal.borrow().to_owned();
-                info!("[verify-test] run_vms_with_signal: {:?}", command);
+                //info!("[verify-test] run_vms_with_signal: {:?}", command);
                 match command {
                     ChunkCommand::Suspend => {
                         pause.interrupt();
@@ -1452,7 +1452,7 @@ async fn run_vms_child(
                 continue;
             }
             ChunkCommand::Resume => {
-                info!("[verify-test] run_vms_child: resume");
+                //info!("[verify-test] run_vms_child: resume");
             }
         }
         if machines.is_empty() {
@@ -1505,7 +1505,7 @@ async fn run_vms_child(
                     machines.append(&mut new_suspended_machines);
                     // break run machines iteration loop
                     // wait for Resume command to begin next iteration
-                    info!("[verify-test] run_vms_child: suspend at {:?}", cycles);
+                    // info!("[verify-test] run_vms_child: suspend at {:?}", cycles);
                     break;
                 }
                 _ => {
