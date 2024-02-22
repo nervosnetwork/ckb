@@ -1,15 +1,8 @@
-use crate::{
-    util::{cell::gen_spendable, transaction::always_success_transaction},
-    Node, Spec,
-};
-use ckb_logger::info;
-use ckb_types::{
-    core::{cell::CellMetaBuilder, DepType, FeeRate},
-    packed::CellDepBuilder,
-};
-use std::{thread::sleep, time::Duration};
+use crate::{Node, Spec};
 
-use ckb_types::{packed::OutPoint, prelude::*};
+use ckb_logger::info;
+use ckb_types::core::FeeRate;
+use std::{thread::sleep, time::Duration};
 
 pub struct SizeLimit;
 
