@@ -1,5 +1,6 @@
 //! this is a tool to generate rpc doc
 mod gen;
+mod syn;
 mod utils;
 use crate::gen::RpcDocGenerator;
 use crate::utils::*;

@@ -1,4 +1,5 @@
 extern crate tera;
+use crate::syn::*;
 use ckb_rpc::RPCError;
 use schemars::schema_for;
 use serde_json::{Map, Value};
@@ -139,14 +140,15 @@ impl RpcDocGenerator {
             }
         }
 
-        for (ty, desc) in pre_defined_types() {
+        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
+        pre_defined.extend(visit_for_types());
+        for (ty, desc) in pre_defined {
             if types.iter().any(|t| t.0 == *ty) {
                 continue;
             }
             types.push((ty.to_owned(), Value::String(desc)));
         }
         types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
-
         Self {
             rpc_methods,
             types,
@@ -400,6 +402,10 @@ fn gen_type(ty: &Value) -> String {
                         .collect::<Vec<_>>()
                         .join(" `|` ");
                     ty.to_string()
+                } else if ty.as_str() == Some("object") {
+                    // json schemars bug!
+                    // type is `HashMap` here
+                    "".to_string()
                 } else {
                     format!("`{}`", ty.as_str().unwrap())
                 }
@@ -528,6 +534,8 @@ fn pre_defined_types() -> impl Iterator<Item = (String, String)> {
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
         ("AlertPriority", "Alerts are sorted by priority. Greater integers mean higher priorities.\n
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
+        ("EpochNumber", "Consecutive epoch number starting from 0.\n
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64)."),
         ("SerializedHeader", "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`."),
         ("SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
         ("U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),

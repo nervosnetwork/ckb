@@ -41,6 +41,7 @@ pub struct DeploymentsInfo {
     pub hash: H256,
     /// requested block epoch
     pub epoch: EpochNumber,
+    /// `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`DeploymentInfo`](#type-deploymentinfo) `}`
     /// deployments info
     pub deployments: BTreeMap<DeploymentPos, DeploymentInfo>,
 }
