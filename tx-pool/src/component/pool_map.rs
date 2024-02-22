@@ -458,11 +458,13 @@ impl PoolMap {
         let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
             entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
         );
+        let mut invalidate_candidates: HashSet<ProposalShortId> = Default::default();
         let short_id = entry.proposal_short_id();
 
         for input in entry.transaction().inputs() {
             let input_pt = input.previous_output();
             if let Some(deps) = self.edges.deps.get(&input_pt) {
+                invalidate_candidates.extend(deps.iter().cloned());
                 parents.extend(deps.iter().cloned());
             }
 
@@ -480,19 +482,38 @@ impl PoolMap {
             }
         }
 
-        let ancestors = self
+        let mut ancestors = self
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
+
+        let mut cur_ancestors_count = entry.ancestors_count.saturating_add(ancestors.len());
+        if cur_ancestors_count > self.max_ancestors_count {
+            if !invalidate_candidates.is_empty() {
+                // begin to invalidate some entries,
+                // so that we can make sure entry.ancestors_count is in range
+                let invalidates = self.invalidate_cell_ref_candidates(
+                    &invalidate_candidates,
+                    self.max_ancestors_count - entry.ancestors_count,
+                );
+                for e in invalidates.iter() {
+                    ancestors.remove(e);
+                    parents.remove(e);
+                }
+                cur_ancestors_count = ancestors.len().saturating_add(1);
+            }
+
+            if cur_ancestors_count > self.max_ancestors_count {
+                debug!("debug: exceeded maximum ancestors count");
+                return Err(Reject::ExceededMaximumAncestorsCount);
+            }
+        }
 
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        if entry.ancestors_count > self.max_ancestors_count {
-            debug!("debug: exceeded maximum ancestors count");
-            return Err(Reject::ExceededMaximumAncestorsCount);
-        }
+        assert!(entry.ancestors_count <= self.max_ancestors_count);
 
         for parent in &parents {
             self.links.add_child(parent, short_id.clone());
@@ -508,6 +529,34 @@ impl PoolMap {
         );
 
         Ok(true)
+    }
+
+    fn invalidate_cell_ref_candidates(
+        &mut self,
+        candidates: &HashSet<ProposalShortId>,
+        minimal_count: usize,
+    ) -> HashSet<ProposalShortId> {
+        let mut invalidated: HashSet<ProposalShortId> = Default::default();
+        let sorted_candidates: Vec<ProposalShortId> = self
+            .entries
+            .iter_by_score()
+            .filter(move |entry| candidates.contains(&entry.id))
+            .map(|entry| entry.id.clone())
+            .collect();
+        let mut iter = sorted_candidates.iter();
+        let mut count = 0;
+        while count < minimal_count {
+            if let Some(next) = iter.next() {
+                let removed = self.remove_entry_and_descendants(next);
+                let ids: Vec<ProposalShortId> =
+                    removed.iter().map(|e| e.proposal_short_id()).collect();
+                invalidated.extend(ids);
+                count += removed.len();
+            } else {
+                break;
+            }
+        }
+        invalidated
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
