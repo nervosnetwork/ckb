@@ -1,41 +1,23 @@
 use crate::{Byte32, Uint128, Uint32, Uint64};
 use schemars::JsonSchema;
 
-impl JsonSchema for Byte32 {
-    fn schema_name() -> String {
-        String::from("Byte32")
-    }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        gen.subschema_for::<[u8; 32]>().into_object().into()
-    }
+macro_rules! impl_json_schema_for_type {
+    ($type:ty, $inner_ty:ty, $name:expr) => {
+        impl JsonSchema for $type {
+            fn schema_name() -> String {
+                String::from($name)
+            }
+            fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+                gen.subschema_for::<$inner_ty>().into_object().into()
+            }
+        }
+    };
 }
 
-impl JsonSchema for Uint32 {
-    fn schema_name() -> String {
-        String::from("Uint32")
-    }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        gen.subschema_for::<u32>().into_object().into()
-    }
-}
-
-impl JsonSchema for Uint64 {
-    fn schema_name() -> String {
-        String::from("Uint64")
-    }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        gen.subschema_for::<u64>().into_object().into()
-    }
-}
-
-impl JsonSchema for Uint128 {
-    fn schema_name() -> String {
-        String::from("Uint128")
-    }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        gen.subschema_for::<u128>().into_object().into()
-    }
-}
+impl_json_schema_for_type!(Byte32, [u8; 32], "Byte32");
+impl_json_schema_for_type!(Uint32, u32, "Uint32");
+impl_json_schema_for_type!(Uint64, u64, "Uint64");
+impl_json_schema_for_type!(Uint128, u128, "Uint128");
 
 pub fn u256_json_schema(
     _schemars: &mut schemars::gen::SchemaGenerator,

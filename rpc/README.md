@@ -109,7 +109,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
     * [Type `Alert`](#type-alert)
     * [Type `AlertId`](#type-alertid)
+    * [Type `AlertId`](#type-alertid)
     * [Type `AlertMessage`](#type-alertmessage)
+    * [Type `AlertPriority`](#type-alertpriority)
     * [Type `AlertPriority`](#type-alertpriority)
     * [Type `AncestorsScoreSortKey`](#type-ancestorsscoresortkey)
     * [Type `BannedAddr`](#type-bannedaddr)
@@ -141,9 +143,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `DeploymentInfo`](#type-deploymentinfo)
     * [Type `DeploymentState`](#type-deploymentstate)
     * [Type `DeploymentsInfo`](#type-deploymentsinfo)
-    * [Type `Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes)
-    * [Type `Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes)
-    * [Type `Either_for_TransactionView_and_JsonBytes`](#type-either_for_transactionview_and_jsonbytes)
+    * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
@@ -4933,6 +4933,12 @@ The alert identifier that is used to filter duplicated alerts.
 
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
 
+### Type `AlertId`
+
+The alert identifier that is used to filter duplicated alerts.
+
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
+
 ### Type `AlertMessage`
 An alert sent by RPC `send_alert`.
 
@@ -4952,6 +4958,12 @@ An alert sent by RPC `send_alert`.
 Alerts are sorted by priority. Greater integers mean higher priorities.
 
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32).
+
+### Type `AlertPriority`
+
+Alerts are sorted by priority. Greater integers mean higher priorities.
+
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
 
 ### Type `AncestorsScoreSortKey`
 A struct as a sorted key for tx-pool
@@ -5162,7 +5174,7 @@ Represent soft fork deployments where the activation epoch is hard-coded into th
 * `status`: [`SoftForkStatus`](#type-softforkstatus) - SoftFork status
 
 ### Type `Byte32`
-
+The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON.
 
 ### Type `Capacity`
 
@@ -5527,19 +5539,16 @@ Chain information.
 
 * `hash`: [`H256`](#type-h256) - requested block hash
 
-### Type `Either_for_BlockView_and_JsonBytes`
-The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
-
-### Type `Either_for_HeaderView_and_JsonBytes`
-The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
-
-### Type `Either_for_TransactionView_and_JsonBytes`
-The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.
-
 ### Type `EpochNumber`
 Consecutive epoch number starting from 0.
 
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64).
+
+### Type `EpochNumber`
+
+Consecutive epoch number starting from 0.
+
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](type.Uint64.html#examples).
 
 ### Type `EpochNumberWithFraction`
 
@@ -5635,11 +5644,7 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 * `median`: [`Uint64`](#type-uint64) - median
 
 ### Type `H256`
-The 32-byte fixed-length binary data.
-
-The name comes from the number of bits in the data.
-
-In JSONRPC, it is encoded as a 0x-prefixed hex string.
+The 256-bit binary data encoded as a 0x-prefixed hex string in JSON.
 
 ### Type `HardForkFeature`
 The information about one hardfork feature.
@@ -5940,6 +5945,17 @@ Grouped Tx inner type
 
 ### Type `JsonBytes`
 
+Variable-length binary encoded as a 0x-prefixed hex string in JSON.
+
+###### Example
+
+| JSON       | Binary                               |
+| ---------- | ------------------------------------ |
+| "0x"       | Empty binary                         |
+| "0x00"     | Single byte 0                        |
+| "0x636b62" | 3 bytes, UTF-8 encoding of ckb       |
+| "00"       | Invalid, 0x is required              |
+| "0x0"      | Invalid, each byte requires 2 digits |
 
 ### Type `LocalNode`
 The information of the node itself.

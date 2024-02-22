@@ -74,7 +74,7 @@ pub(crate) fn visit_for_types() -> Vec<(String, String)> {
     let mut finder = CommentFinder {
         type_comments: Default::default(),
         current_type: None,
-        types: vec![],
+        types: vec!["JsonBytes".to_string()],
     };
     let dir = "util/jsonrpc-types";
     for entry in WalkDir::new(dir).follow_links(true).into_iter() {

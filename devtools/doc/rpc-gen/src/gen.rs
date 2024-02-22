@@ -131,22 +131,21 @@ impl RpcDocGenerator {
         // sort rpc_methods accoring to title
         rpc_methods.sort_by(|a, b| a.title.cmp(&b.title));
 
-        let mut types: Vec<(String, Value)> = vec![];
-        for map in all_types.iter() {
+        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
+        pre_defined.extend(visit_for_types());
+
+        let mut types: Vec<(String, Value)> = pre_defined
+            .iter()
+            .map(|(name, desc)| (name.clone(), Value::String(desc.clone())))
+            .collect();
+        for map in all_types {
             for (name, ty) in map.iter() {
-                if !types.iter().any(|(n, _)| *n == *name) {
+                if !(types.iter().any(|(n, _)| *n == *name)
+                    || (name.starts_with("Either_for_") && name.ends_with("_JsonBytes")))
+                {
                     types.push((name.to_string(), ty.to_owned()));
                 }
             }
-        }
-
-        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
-        pre_defined.extend(visit_for_types());
-        for (ty, desc) in pre_defined {
-            if types.iter().any(|t| t.0 == *ty) {
-                continue;
-            }
-            types.push((ty.to_owned(), Value::String(desc)));
         }
         types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
         Self {
