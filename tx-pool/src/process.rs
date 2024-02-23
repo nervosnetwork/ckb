@@ -112,7 +112,7 @@ impl TxPoolService {
                 } else {
                     tx_pool
                         .pool_map
-                        .cell_ref_conflicted_candidates(entry.transaction())
+                        .check_entry_ancestors_limit(entry.transaction())?
                         .iter()
                         .map(|e| e.id.clone())
                         .collect()

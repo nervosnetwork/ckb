@@ -494,15 +494,17 @@ impl TxPool {
         let tx_inputs: Vec<OutPoint> = entry.transaction().input_pts_iter().collect();
         let mut conflict_ids = self.pool_map.find_conflict_tx(entry.transaction());
 
-        if conflict_ids.is_empty() {
-            return Ok(conflict_ids);
+        // If current new transaction is a cell consuming transaction,
+        // find out old transactions maybe invalidated by this new transaction,
+        // we need to evict them before inserting new transaction.
+        let conflicted_cell_ref_txs = self
+            .pool_map
+            .check_entry_ancestors_limit(entry.transaction())?;
+
+        if conflict_ids.is_empty() && conflicted_cell_ref_txs.is_empty() {
+            return Ok(HashSet::new());
         }
 
-        let tx_cells_deps: Vec<OutPoint> = entry
-            .transaction()
-            .cell_deps_iter()
-            .map(|c| c.out_point())
-            .collect();
         let short_id = entry.proposal_short_id();
 
         // Rule #1, the node has enabled RBF, which is checked by caller
@@ -564,6 +566,11 @@ impl TxPool {
             all_conflicted.extend(entries);
         }
 
+        let tx_cells_deps: Vec<OutPoint> = entry
+            .transaction()
+            .cell_deps_iter()
+            .map(|c| c.out_point())
+            .collect();
         for entry in all_conflicted.iter() {
             let hash = entry.inner.transaction().hash();
             if tx_cells_deps.iter().any(|pt| pt.tx_hash() == hash) {
@@ -573,14 +580,8 @@ impl TxPool {
             }
         }
 
-        // If current new transaction is a cell consuming transaction,
-        // find out old transactions maybe invalidated by this new transaction,
-        // we need to evict them before inserting new transaction. But we also want to
-        // make sure new transaction's fee is higher than those transactions, so we extend them
-        // to `all_conflicted` so that fee rules check applied.
-        let conflicted_cell_ref_txs = self
-            .pool_map
-            .cell_ref_conflicted_candidates(entry.transaction());
+        // we want to make sure new transaction's fee is higher than those ref cell transactions
+        // so we extend them to `all_conflicted` so that fee rules check applied.
         conflict_ids.extend(conflicted_cell_ref_txs.iter().map(|e| e.id.clone()));
         all_conflicted.extend(conflicted_cell_ref_txs);
 
