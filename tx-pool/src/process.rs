@@ -110,7 +110,12 @@ impl TxPoolService {
                 let conflicts = if tx_pool.enable_rbf() {
                     tx_pool.check_rbf(&snapshot, &entry)?
                 } else {
-                    HashSet::new()
+                    tx_pool
+                        .pool_map
+                        .cell_ref_conflicted_candidates(entry.transaction())
+                        .iter()
+                        .map(|e| e.id.clone())
+                        .collect()
                 };
 
                 // if snapshot changed by context switch we need redo time_relative verify

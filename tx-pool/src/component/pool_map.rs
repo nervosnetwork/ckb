@@ -453,18 +453,26 @@ impl PoolMap {
         self.update_ancestors_index_key(entry, EntryOp::Add);
     }
 
-    /// Check ancestors and record for entry
-    fn check_and_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
-        let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
-            entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
-        );
-        let mut invalidate_candidates: HashSet<ProposalShortId> = Default::default();
-        let short_id = entry.proposal_short_id();
+    // return (ancestors, parents, cell_ref_ancestors)
+    // `cell_ref_ancestors` may be invalidate when the tx consuming the cell is submitted
+    // FIXME(yukang): submit an Entry to invoking this function 2 times, how to optimize it?
+    fn get_tx_ancenstors(
+        &self,
+        entry: &TransactionView,
+    ) -> (
+        HashSet<ProposalShortId>,
+        HashSet<ProposalShortId>,
+        HashSet<ProposalShortId>,
+    ) {
+        //eprintln!("call get_tx_ancenstors: {:?}", entry.proposal_short_id());
+        let mut parents: HashSet<ProposalShortId> =
+            HashSet::with_capacity(entry.inputs().len() + entry.cell_deps().len());
+        let mut cell_ref_ancestors: HashSet<ProposalShortId> = Default::default();
 
-        for input in entry.transaction().inputs() {
+        for input in entry.inputs() {
             let input_pt = input.previous_output();
             if let Some(deps) = self.edges.deps.get(&input_pt) {
-                invalidate_candidates.extend(deps.iter().cloned());
+                cell_ref_ancestors.extend(deps.iter().cloned());
                 parents.extend(deps.iter().cloned());
             }
 
@@ -474,7 +482,7 @@ impl PoolMap {
                 parents.insert(id);
             }
         }
-        for cell_dep in entry.transaction().cell_deps() {
+        for cell_dep in entry.cell_deps() {
             let dep_pt = cell_dep.out_point();
             let id = ProposalShortId::from_tx_hash(&dep_pt.tx_hash());
             if self.links.inner.contains_key(&id) {
@@ -482,81 +490,75 @@ impl PoolMap {
             }
         }
 
-        let mut ancestors = self
+        let ancestors = self
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
 
-        let mut cur_ancestors_count = entry.ancestors_count.saturating_add(ancestors.len());
-        if cur_ancestors_count > self.max_ancestors_count {
-            if !invalidate_candidates.is_empty() {
-                // begin to invalidate some entries,
-                // so that we can make sure entry.ancestors_count is in range
-                let invalidates = self.invalidate_cell_ref_candidates(
-                    &invalidate_candidates,
-                    self.max_ancestors_count - entry.ancestors_count,
-                );
-                for e in invalidates.iter() {
-                    ancestors.remove(e);
-                    parents.remove(e);
-                }
-                cur_ancestors_count = ancestors.len().saturating_add(1);
-            }
+        (ancestors, parents, cell_ref_ancestors)
+    }
 
-            if cur_ancestors_count > self.max_ancestors_count {
-                debug!("debug: exceeded maximum ancestors count");
-                return Err(Reject::ExceededMaximumAncestorsCount);
-            }
-        }
-
+    /// Check ancestors and record for entry
+    fn check_and_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
+        let (ancestors, parents, _) = self.get_tx_ancenstors(entry.transaction());
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
+            // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        assert!(entry.ancestors_count <= self.max_ancestors_count);
+        if entry.ancestors_count > self.max_ancestors_count {
+            return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+        let short_id = entry.proposal_short_id();
 
         for parent in &parents {
             self.links.add_child(parent, short_id.clone());
         }
-
         self.links.add_link(
             short_id,
             TxLinks {
                 parents,
-
                 children: Default::default(),
             },
         );
-
         Ok(true)
     }
 
-    fn invalidate_cell_ref_candidates(
-        &mut self,
-        candidates: &HashSet<ProposalShortId>,
-        minimal_count: usize,
-    ) -> HashSet<ProposalShortId> {
-        let mut invalidated: HashSet<ProposalShortId> = Default::default();
-        let sorted_candidates: Vec<ProposalShortId> = self
+    pub(crate) fn cell_ref_conflicted_candidates(&self, tx: &TransactionView) -> Vec<&PoolEntry> {
+        let (ancestors, _, cell_ref_ancestors) = self.get_tx_ancenstors(tx);
+
+        if ancestors.len() + 1 < self.max_ancestors_count {
+            return vec![];
+        }
+        let mut all_cell_ref_txs: HashSet<ProposalShortId> = Default::default();
+        // find out their descendants
+        for short_id in cell_ref_ancestors.iter() {
+            let descendants = self.calc_descendants(short_id);
+            all_cell_ref_txs.extend(descendants);
+        }
+        all_cell_ref_txs.extend(cell_ref_ancestors);
+
+        // sort them to find out the transactions with lowest fees
+        let sorted_candidates: Vec<&PoolEntry> = self
             .entries
-            .iter_by_score()
-            .filter(move |entry| candidates.contains(&entry.id))
-            .map(|entry| entry.id.clone())
+            .iter_by_evict_key()
+            .filter(move |entry| all_cell_ref_txs.contains(&entry.id))
             .collect();
+
         let mut iter = sorted_candidates.iter();
-        let mut count = 0;
-        while count < minimal_count {
-            if let Some(next) = iter.next() {
-                let removed = self.remove_entry_and_descendants(next);
-                let ids: Vec<ProposalShortId> =
-                    removed.iter().map(|e| e.proposal_short_id()).collect();
-                invalidated.extend(ids);
-                count += removed.len();
+        let mut ancestors_count = ancestors.len() + 1;
+        let mut evict_candiates = vec![];
+        while ancestors_count > self.max_ancestors_count {
+            if let Some(&next) = iter.next() {
+                let will_evict = self.calc_descendants(&next.id);
+                ancestors_count = ancestors_count.saturating_sub(will_evict.len() + 1);
+                evict_candiates.push(next);
+                evict_candiates.extend(will_evict.iter().map(|id| self.get_by_id_checked(id)));
             } else {
                 break;
             }
         }
-        invalidated
+        evict_candiates
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {

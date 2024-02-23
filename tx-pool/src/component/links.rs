@@ -7,7 +7,7 @@ pub struct TxLinks {
     pub children: HashSet<ProposalShortId>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Relation {
     Parents,
     Children,
