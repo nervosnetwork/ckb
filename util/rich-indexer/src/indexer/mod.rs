@@ -135,7 +135,15 @@ impl AsyncRichIndexer {
             let block_headers = vec![(block.hash().raw_data().to_vec(), block.number() as i64)];
             bulk_insert_blocks_simple(block_headers, &mut tx).await?;
         }
-        tx.commit().await.map_err(|err| Error::DB(err.to_string()))
+        tx.commit()
+            .await
+            .map_err(|err| Error::DB(err.to_string()))?;
+
+        if let Some(mut pool) = self.pool.as_ref().map(|p| p.write().expect("acquire lock")) {
+            pool.transactions_committed(&block.transactions());
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn rollback(&self) -> Result<(), Error> {
@@ -159,9 +167,6 @@ impl AsyncRichIndexer {
         for (tx_index, tx_view) in block_view.transactions().into_iter().enumerate() {
             self.insert_transaction(block_id, tx_index, tx_view, tx)
                 .await?;
-        }
-        if let Some(mut pool) = self.pool.as_ref().map(|p| p.write().expect("acquire lock")) {
-            pool.transactions_committed(&block_view.transactions());
         }
         Ok(())
     }

@@ -316,16 +316,21 @@ where
     /// Parse the block, store the Cell Transaction etc. contained in the block with the designed index
     fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut batch = self.store.batch()?;
+        let transactions = block.transactions();
+        let pool = self.pool.as_ref().map(|p| p.write().expect("acquire lock"));
         if !self.custom_filters.is_block_filter_match(block) {
             batch.put_kv(Key::Header(block.number(), &block.hash(), true), vec![])?;
             batch.commit()?;
+
+            if let Some(mut pool) = pool {
+                pool.transactions_committed(&transactions);
+            }
+
             return Ok(());
         }
 
         let block_number = block.number();
-        let transactions = block.transactions();
         let mut matched_txs = vec![];
-        let pool = self.pool.as_ref().map(|p| p.write().expect("acquire lock"));
         for (tx_index, tx) in transactions.iter().enumerate() {
             let tx_index = tx_index as u32;
             let tx_hash = tx.hash();

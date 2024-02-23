@@ -123,7 +123,7 @@ impl PoolService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        info!("Indexer received exit signal, exit now");
+                        info!("index-tx-pool received exit signal, exit now");
                         break
                     },
                     else => break,
