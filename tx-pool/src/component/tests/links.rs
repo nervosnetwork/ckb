@@ -20,13 +20,14 @@ fn test_link_map() {
     let expect: HashSet<ProposalShortId> = vec![id2.clone()].into_iter().collect();
     assert_eq!(map.get_parents(&id1).unwrap(), &expect);
 
-    map.add_direct_parent(&id1, id2.clone());
-    map.add_direct_parent(&id2, id3.clone());
-    map.add_direct_parent(&id3, id4.clone());
-    let direct_parents = map.calc_relation_ids([id1.clone()].into(), Relation::DirectParents);
-    assert_eq!(direct_parents.len(), 4);
+    map.add_parent(&id1, id2.clone());
+    map.add_parent(&id2, id3.clone());
+    map.add_parent(&id3, id4.clone());
+    let parents = map.calc_relation_ids([id1.clone()].into(), Relation::Parents);
+    assert_eq!(parents.len(), 4);
 
     map.remove(&id3);
-    let direct_parents = map.calc_relation_ids([id1.clone()].into(), Relation::DirectParents);
-    assert_eq!(direct_parents.len(), 2);
+    map.remove_parent(&id2, &id3);
+    let parents = map.calc_relation_ids([id1.clone()].into(), Relation::Parents);
+    assert_eq!(parents.len(), 2);
 }
