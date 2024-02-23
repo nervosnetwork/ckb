@@ -119,6 +119,7 @@ impl PoolMap {
 
     #[cfg(test)]
     pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+        self.check_entry_ancestors_limit(entry.transaction())?;
         self.add_entry(entry, Status::Proposed)
     }
 
@@ -195,7 +196,7 @@ impl PoolMap {
             return Ok(false);
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
-        self.check_and_record_ancestors(&mut entry)?;
+        self.record_ancestors(&mut entry);
         self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
@@ -464,7 +465,6 @@ impl PoolMap {
         HashSet<ProposalShortId>,
         HashSet<ProposalShortId>,
     ) {
-        //eprintln!("call get_tx_ancenstors: {:?}", entry.proposal_short_id());
         let mut parents: HashSet<ProposalShortId> =
             HashSet::with_capacity(entry.inputs().len() + entry.cell_deps().len());
         let mut cell_ref_ancestors: HashSet<ProposalShortId> = Default::default();
@@ -498,16 +498,12 @@ impl PoolMap {
     }
 
     /// Check ancestors and record for entry
-    fn check_and_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
+    fn record_ancestors(&mut self, entry: &mut TxEntry) {
         let (ancestors, parents, _) = self.get_tx_ancenstors(entry.transaction());
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
-            // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
-        }
-        if entry.ancestors_count > self.max_ancestors_count {
-            return Err(Reject::ExceededMaximumAncestorsCount);
         }
         let short_id = entry.proposal_short_id();
 
@@ -521,44 +517,64 @@ impl PoolMap {
                 children: Default::default(),
             },
         );
-        Ok(true)
     }
 
-    pub(crate) fn cell_ref_conflicted_candidates(&self, tx: &TransactionView) -> Vec<&PoolEntry> {
+    pub(crate) fn check_entry_ancestors_limit(
+        &self,
+        tx: &TransactionView,
+    ) -> Result<Vec<&PoolEntry>, Reject> {
         let (ancestors, _, cell_ref_ancestors) = self.get_tx_ancenstors(tx);
 
-        if ancestors.len() + 1 < self.max_ancestors_count {
-            return vec![];
-        }
-        let mut all_cell_ref_txs: HashSet<ProposalShortId> = Default::default();
-        // find out their descendants
-        for short_id in cell_ref_ancestors.iter() {
-            let descendants = self.calc_descendants(short_id);
-            all_cell_ref_txs.extend(descendants);
-        }
-        all_cell_ref_txs.extend(cell_ref_ancestors);
-
-        // sort them to find out the transactions with lowest fees
-        let sorted_candidates: Vec<&PoolEntry> = self
-            .entries
-            .iter_by_evict_key()
-            .filter(move |entry| all_cell_ref_txs.contains(&entry.id))
-            .collect();
-
-        let mut iter = sorted_candidates.iter();
         let mut ancestors_count = ancestors.len() + 1;
         let mut evict_candiates = vec![];
-        while ancestors_count > self.max_ancestors_count {
-            if let Some(&next) = iter.next() {
-                let will_evict = self.calc_descendants(&next.id);
-                ancestors_count = ancestors_count.saturating_sub(will_evict.len() + 1);
-                evict_candiates.push(next);
-                evict_candiates.extend(will_evict.iter().map(|id| self.get_by_id_checked(id)));
-            } else {
-                break;
+
+        if ancestors_count <= self.max_ancestors_count {
+            return Ok(vec![]);
+        }
+
+        if !cell_ref_ancestors.is_empty() {
+            // if ancestors count exceed limitation, we try to evict some conflicted transactions
+            // due to ref cells, then if ancestors count is still larger than limitation,
+            // return ExceededMaximumAncestorsCount error directly
+            let mut all_cell_ref_txs: HashSet<ProposalShortId> = Default::default();
+            // find out their descendants
+            for short_id in cell_ref_ancestors.iter() {
+                let descendants = self.calc_descendants(short_id);
+                all_cell_ref_txs.extend(descendants);
+            }
+            all_cell_ref_txs.extend(cell_ref_ancestors);
+
+            // sort them to find out the transactions with lowest fees
+            let sorted_candidates: Vec<&PoolEntry> = self
+                .entries
+                .iter_by_evict_key()
+                .filter(move |entry| all_cell_ref_txs.contains(&entry.id))
+                .collect();
+
+            let mut iter = sorted_candidates.iter();
+            while ancestors_count > self.max_ancestors_count {
+                if let Some(&next) = iter.next() {
+                    let will_evict = self.calc_descendants(&next.id);
+                    ancestors_count = ancestors_count.saturating_sub(will_evict.len() + 1);
+                    evict_candiates.push(next);
+                    evict_candiates.extend(will_evict.iter().map(|id| self.get_by_id_checked(id)));
+                } else {
+                    break;
+                }
             }
         }
-        evict_candiates
+
+        // why we move ExceededMaximumAncestorsCount to here?
+        // in the scenario that a transaction passed all RBF rules,
+        // and then removed the conflicted transaction in txpool,
+        // then failed with max ancestor limits, we now need to rollback the removing.
+        // so it's safer to report an error before any writing kind of operation,
+        // here is the place will be invoked before commiting transaction into the pool.
+        if ancestors_count > self.max_ancestors_count {
+            return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+
+        Ok(evict_candiates)
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
