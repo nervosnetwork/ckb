@@ -120,7 +120,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
             }
         })
         .expect("start chain_service thread should ok");
-    register_thread("ChainServices", chain_service_thread);
+    register_thread("ChainService", chain_service_thread);
 
     chain_controller
 }
