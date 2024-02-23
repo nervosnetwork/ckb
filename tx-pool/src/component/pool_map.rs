@@ -456,7 +456,6 @@ impl PoolMap {
 
     // return (ancestors, parents, cell_ref_ancestors)
     // `cell_ref_ancestors` may be invalidate when the tx consuming the cell is submitted
-    // FIXME(yukang): submit an Entry to invoking this function 2 times, how to optimize it?
     fn get_tx_ancenstors(
         &self,
         entry: &TransactionView,
