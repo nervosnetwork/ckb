@@ -1,7 +1,7 @@
 //! An overlay to index the pending txs in the ckb tx pool
 
 use ckb_async_runtime::{
-    tokio::{self},
+    tokio::{self, task::JoinHandle},
     Handle,
 };
 use ckb_logger::info;
@@ -91,7 +91,11 @@ impl PoolService {
     }
 
     /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
-    pub fn index_tx_pool(&mut self, notify_controller: NotifyController) {
+    pub fn index_tx_pool(
+        &mut self,
+        notify_controller: NotifyController,
+        check_index_tx_pool_ready: JoinHandle<()>,
+    ) {
         if self.is_index_tx_pool_called {
             return;
         }
@@ -101,6 +105,14 @@ impl PoolService {
         let stop: CancellationToken = new_tokio_exit_rx();
 
         self.async_handle.spawn(async move {
+            let _check_index_tx_pool_ready = check_index_tx_pool_ready.await;
+            if stop.is_cancelled() {
+                info!("Indexer received exit signal, cancel subscribe_new_transaction task, exit now");
+                return;
+            }
+
+            info!("check_index_tx_pool_ready finished");
+
             let mut new_transaction_receiver = notify_controller
                 .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
                 .await;
@@ -123,7 +135,7 @@ impl PoolService {
                         }
                     }
                     _ = stop.cancelled() => {
-                        info!("index-tx-pool received exit signal, exit now");
+                        info!("index_tx_pool received exit signal, exit now");
                         break
                     },
                     else => break,

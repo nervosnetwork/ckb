@@ -108,6 +108,12 @@ impl IndexerService {
             self.get_indexer(),
         )
     }
+
+    /// Index tx pool
+    pub fn index_tx_pool(&mut self, notify_controller: NotifyController) {
+        self.sync
+            .index_tx_pool(self.get_indexer(), notify_controller)
+    }
 }
 
 /// Handle to the indexer.

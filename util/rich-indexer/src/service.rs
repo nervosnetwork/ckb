@@ -68,6 +68,12 @@ impl RichIndexerService {
         )
     }
 
+    /// Index tx pool
+    pub fn index_tx_pool(&mut self, notify_controller: NotifyController) {
+        self.sync
+            .index_tx_pool(self.get_indexer(), notify_controller)
+    }
+
     /// Returns a handle to the rich-indexer.
     ///
     /// The returned handle can be used to get data from rich-indexer,

@@ -38,6 +38,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
+const INDEXER_NODE_TIP_GAP: u64 = 10;
 
 /// Trait for an indexer's synchronization interface
 pub trait IndexerSync {
@@ -255,6 +256,36 @@ impl IndexerSyncService {
     /// Get index data based on transaction pool synchronization
     pub fn pool(&self) -> Option<Arc<RwLock<Pool>>> {
         self.pool_service.pool()
+    }
+
+    /// Index transaction pool
+    pub fn index_tx_pool<I>(&mut self, indexer_service: I, notify_controller: NotifyController)
+    where
+        I: IndexerSync + Clone + Send + 'static,
+    {
+        let secondary_db = self.secondary_db.clone();
+        let check_index_tx_pool_ready = self.async_handle.spawn_blocking(move || loop {
+            if has_received_stop_signal() {
+                info!("check_index_tx_pool_ready received exit signal, exit now");
+                break;
+            }
+
+            if let Err(e) = secondary_db.try_catch_up_with_primary() {
+                error!("secondary_db try_catch_up_with_primary error {}", e);
+            }
+            if let (Some(header), Ok(Some((indexer_tip, _)))) =
+                (secondary_db.get_tip_header(), indexer_service.tip())
+            {
+                let node_tip = header.number();
+                if node_tip - indexer_tip <= INDEXER_NODE_TIP_GAP {
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        });
+
+        self.pool_service
+            .index_tx_pool(notify_controller, check_index_tx_pool_ready);
     }
 
     fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
