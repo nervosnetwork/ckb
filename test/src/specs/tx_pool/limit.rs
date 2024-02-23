@@ -2,6 +2,7 @@ use crate::{
     util::{cell::gen_spendable, transaction::always_success_transaction},
     Node, Spec,
 };
+use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
     core::{cell::CellMetaBuilder, DepType, FeeRate},
@@ -72,7 +73,7 @@ impl Spec for TxPoolLimitAncestorCount {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
 
-        let initial_inputs = gen_spendable(node0, 130);
+        let initial_inputs = gen_spendable(node0, 256);
         let input_a = &initial_inputs[0];
 
         // Commit transaction root
@@ -87,11 +88,17 @@ impl Spec for TxPoolLimitAncestorCount {
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
 
-        // Create 125 transactions cell dep on tx_a
-        for i in 1..=125 {
+        // Create 250 transactions cell dep on tx_a
+        // we can have more than config.max_ancestors_count number of txs using one cell ref
+        let mut cell_ref_txs = vec![];
+        for i in 1..=250 {
             let cur = always_success_transaction(node0, initial_inputs.get(i).unwrap());
             let cur = cur.as_advanced_builder().cell_dep(cell_dep.clone()).build();
-            let _ = node0.rpc_client().send_transaction(cur.data().into());
+            let res = node0
+                .rpc_client()
+                .send_transaction_result(cur.data().into());
+            assert!(res.is_ok());
+            cell_ref_txs.push(cur.clone());
         }
 
         // Create a new transaction consume the cell dep, it will be succeed in submit
@@ -100,13 +107,27 @@ impl Spec for TxPoolLimitAncestorCount {
             .build();
         let last = always_success_transaction(node0, &input);
 
+        // now there are 252 ancestors in the pool, 252 = 250 ref cell + 1 parent + 1 for self
+        // to make sure this consume cell dep transaction submitted, we need to evict 2 cell ref transactions
         let res = node0
             .rpc_client()
             .send_transaction_result(last.data().into());
         assert!(res.is_ok());
 
+        // assert the first 127 in 250 transactions are evicated.
+        for (i, tx) in cell_ref_txs.iter().enumerate() {
+            let res = node0
+                .rpc_client()
+                .get_transaction_with_verbosity(tx.hash(), 2);
+            if i < 127 {
+                assert!(matches!(res.tx_status.status, Status::Rejected));
+            } else {
+                assert!(matches!(res.tx_status.status, Status::Pending));
+            }
+        }
+
         // create a transaction chain
-        let input_c = &initial_inputs[129];
+        let input_c = &initial_inputs[251];
         // Commit transaction root
         let tx_c = {
             let tx_c = always_success_transaction(node0, input_c);

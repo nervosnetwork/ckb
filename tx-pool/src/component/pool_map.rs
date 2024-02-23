@@ -565,10 +565,11 @@ impl PoolMap {
         }
 
         // why we move ExceededMaximumAncestorsCount to here?
-        // in the scenario that a transaction passed all RBF rules,
-        // and then removed the conflicted transaction in txpool,
-        // then failed with max ancestor limits, we now need to rollback the removing.
-        // so it's safer to report an error before any writing kind of operation,
+        // in the scenario that a transaction passed all RBF rules, and then removed the conflicted
+        // transaction in txpool, then failed with max ancestor limits, we now need to rollback the removing.
+        // this is not an issue currently, because RBF have a rule that not allow any unknown inputs except
+        // the conflicted inputs, so the new transcation can not be in a long transaction chain.
+        // but it's still safer to report an error before any writing kind of operation,
         // here is the place will be invoked before commiting transaction into the pool.
         if ancestors_count > self.max_ancestors_count {
             return Err(Reject::ExceededMaximumAncestorsCount);
