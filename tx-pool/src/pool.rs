@@ -492,16 +492,9 @@ impl TxPool {
     ) -> Result<HashSet<ProposalShortId>, Reject> {
         assert!(self.enable_rbf());
         let tx_inputs: Vec<OutPoint> = entry.transaction().input_pts_iter().collect();
-        let mut conflict_ids = self.pool_map.find_conflict_tx(entry.transaction());
+        let conflict_ids = self.pool_map.find_conflict_tx(entry.transaction());
 
-        // If current new transaction is a cell consuming transaction,
-        // find out old transactions maybe invalidated by this new transaction,
-        // we need to evict them before inserting new transaction.
-        let conflicted_cell_ref_txs = self
-            .pool_map
-            .check_entry_ancestors_limit(entry.transaction())?;
-
-        if conflict_ids.is_empty() && conflicted_cell_ref_txs.is_empty() {
+        if conflict_ids.is_empty() {
             return Ok(HashSet::new());
         }
 
@@ -579,11 +572,6 @@ impl TxPool {
                 ));
             }
         }
-
-        // we want to make sure new transaction's fee is higher than those ref cell transactions
-        // so we extend them to `all_conflicted` so that fee rules check applied.
-        conflict_ids.extend(conflicted_cell_ref_txs.iter().map(|e| e.id.clone()));
-        all_conflicted.extend(conflicted_cell_ref_txs);
 
         // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
         // Rule #3, new tx's fee need to higher than conflicts, here we only check the all conflicted txs fee

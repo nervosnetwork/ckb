@@ -107,15 +107,10 @@ impl TxPoolService {
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
                 // here we double confirm RBF rules before insert entry
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
-                let conflicts = if tx_pool.enable_rbf() {
+                let mut conflicts = if tx_pool.enable_rbf() {
                     tx_pool.check_rbf(&snapshot, &entry)?
                 } else {
-                    tx_pool
-                        .pool_map
-                        .check_entry_ancestors_limit(entry.transaction())?
-                        .iter()
-                        .map(|e| e.id.clone())
-                        .collect()
+                    HashSet::new()
                 };
 
                 // if snapshot changed by context switch we need redo time_relative verify
@@ -135,6 +130,15 @@ impl TxPoolService {
                     let tx_env = status.with_env(tip_header);
                     time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
+
+                let ref_cell_conflicts: HashSet<ProposalShortId> = tx_pool
+                    .pool_map
+                    .check_entry_ancestors_limit(entry.transaction())?
+                    .iter()
+                    .map(|e| e.id.clone())
+                    .collect();
+
+                conflicts.extend(ref_cell_conflicts);
 
                 // try to remove conflicted tx here
                 for id in conflicts.iter() {
