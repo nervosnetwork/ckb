@@ -107,8 +107,10 @@ impl Spec for TxPoolLimitAncestorCount {
             .build();
         let last = always_success_transaction(node0, &input);
 
-        // now there are 252 ancestors in the pool, 252 = 250 ref cell + 1 parent + 1 for self
-        // to make sure this consume cell dep transaction submitted, we need to evict 2 cell ref transactions
+        // now there are 252 ancestors for the last tx in the pool:
+        // 252 = 250 ref cell + 1 parent + 1 for self
+        // to make sure this consuming cell dep transaction submitted,
+        // we need to evict 127 = 252 - 125 cell ref transactions
         let res = node0
             .rpc_client()
             .send_transaction_result(last.data().into());
