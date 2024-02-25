@@ -12,7 +12,7 @@ use jsonrpc_utils::rpc;
 #[rpc(openrpc)]
 #[async_trait]
 pub trait RichIndexerRpc {
-    /// Returns the indexed tip
+    /// Returns the indexed tip.
     ///
     /// ## Returns
     ///   * block_hash - indexed tip block hash
@@ -25,6 +25,8 @@ pub trait RichIndexerRpc {
     async fn get_indexer_tip(&self) -> Result<Option<IndexerTip>>;
 
     /// Returns the live cells collection by the lock or type script.
+    ///
+    /// The difference from the original CKB Indexer is that the `script_search_mode` parameter accepts the `partial` enumeration value. This implies that a partial search can be conducted on the `args` of the `script`.
     ///
     /// ## Params
     ///
@@ -70,6 +72,8 @@ pub trait RichIndexerRpc {
     ) -> Result<IndexerPagination<IndexerCell>>;
 
     /// Returns the transactions collection by the lock or type script.
+    ///
+    /// The difference from the original CKB Indexer is that both the `script_search_mode` and `output_data_filter_mode` in `filter` can accept the `partial` enumeration value. This implies that a partial search can be conducted on both the `args` of the `script` and the cell `output_data`.
     ///
     /// * search_key:
     ///     - script - Script, supports prefix search when group_by_transaction is false
@@ -119,6 +123,8 @@ pub trait RichIndexerRpc {
     ) -> Result<IndexerPagination<IndexerTx>>;
 
     /// Returns the live cells capacity by the lock or type script.
+    ///
+    /// The difference from the original CKB Indexer is that the `script_search_mode` parameter accepts the `partial` enumeration value. This implies that a partial search can be conducted on the `args` of the `script`.
     ///
     /// ## Parameters
     ///
