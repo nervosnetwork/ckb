@@ -107,7 +107,7 @@ impl TxPoolService {
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
                 // here we double confirm RBF rules before insert entry
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
-                let mut conflicts = if tx_pool.enable_rbf() {
+                let conflicts = if tx_pool.enable_rbf() {
                     tx_pool.check_rbf(&snapshot, &entry)?
                 } else {
                     HashSet::new()
@@ -131,15 +131,6 @@ impl TxPoolService {
                     time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
-                let ref_cell_conflicts: HashSet<ProposalShortId> = tx_pool
-                    .pool_map
-                    .check_entry_ancestors_limit(entry.transaction())?
-                    .iter()
-                    .map(|e| e.id.clone())
-                    .collect();
-
-                conflicts.extend(ref_cell_conflicts);
-
                 // try to remove conflicted tx here
                 for id in conflicts.iter() {
                     let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
@@ -158,7 +149,14 @@ impl TxPoolService {
                         self.callbacks.call_reject(tx_pool, &old, reject)
                     }
                 }
-                _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
+                let evicted = _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
+                for evict in evicted {
+                    let reject = Reject::Invalidated(format!(
+                        "invalidated by tx {}",
+                        evict.transaction().hash()
+                    ));
+                    self.callbacks.call_reject(tx_pool, &evict, reject);
+                }
                 Ok(())
             })
             .await;
@@ -1105,29 +1103,22 @@ fn _submit_entry(
     status: TxStatus,
     entry: TxEntry,
     callbacks: &Callbacks,
-) -> Result<(), Reject> {
+) -> Result<HashSet<TxEntry>, Reject> {
     let tx_hash = entry.transaction().hash();
+    debug!("submit_entry {:?} {}", status, tx_hash);
+    let evicts = match status {
+        TxStatus::Fresh => tx_pool.add_pending(entry.clone())?,
+        TxStatus::Gap => tx_pool.add_gap(entry.clone())?,
+        TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
+    };
     match status {
-        TxStatus::Fresh => {
-            if tx_pool.add_pending(entry.clone())? {
-                debug!("submit_entry pending {}", tx_hash);
-                callbacks.call_pending(&entry);
-            }
-        }
-        TxStatus::Gap => {
-            if tx_pool.add_gap(entry.clone())? {
-                debug!("submit_entry gap {}", tx_hash);
-                callbacks.call_pending(&entry);
-            }
-        }
-        TxStatus::Proposed => {
-            if tx_pool.add_proposed(entry.clone())? {
-                debug!("submit_entry proposed {}", tx_hash);
-                callbacks.call_proposed(&entry);
-            }
-        }
+        TxStatus::Fresh => callbacks.call_pending(&entry),
+
+        TxStatus::Gap => callbacks.call_pending(&entry),
+
+        TxStatus::Proposed => callbacks.call_proposed(&entry),
     }
-    Ok(())
+    Ok(evicts)
 }
 
 fn _update_tx_pool_for_reorg(

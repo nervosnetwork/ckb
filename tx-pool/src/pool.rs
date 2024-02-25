@@ -128,17 +128,17 @@ impl TxPool {
 
     /// Add tx with pending status
     /// If did have this value present, false is returned.
-    pub(crate) fn add_pending(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub(crate) fn add_pending(&mut self, entry: TxEntry) -> Result<HashSet<TxEntry>, Reject> {
         self.pool_map.add_entry(entry, Status::Pending)
     }
 
     /// Add tx which proposed but still uncommittable to gap
-    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<HashSet<TxEntry>, Reject> {
         self.pool_map.add_entry(entry, Status::Gap)
     }
 
     /// Add tx with proposed status
-    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<HashSet<TxEntry>, Reject> {
         self.pool_map.add_entry(entry, Status::Proposed)
     }
 
