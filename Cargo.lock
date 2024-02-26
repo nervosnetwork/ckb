@@ -1468,7 +1468,6 @@ dependencies = [
 name = "ckb-script"
 version = "0.115.0-pre"
 dependencies = [
- "arc-swap",
  "byteorder",
  "ckb-chain-spec",
  "ckb-crypto",
