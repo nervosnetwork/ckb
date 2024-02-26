@@ -160,6 +160,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `IndexerOrder`](#type-indexerorder)
     * [Type `IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
     * [Type `IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
+    * [Type `IndexerRange`](#type-indexerrange)
     * [Type `IndexerScriptType`](#type-indexerscripttype)
     * [Type `IndexerSearchKey`](#type-indexersearchkey)
     * [Type `IndexerSearchKeyFilter`](#type-indexersearchkeyfilter)
@@ -5856,6 +5857,17 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 * `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
 * `objects`: `Array<` [`IndexerTx`](#type-indexertx) `>` - objects collection
+
+### Type `IndexerRange`
+
+A array represent (half-open) range bounded inclusively below and exclusively above [start, end).
+
+###### Examples
+
+|            JSON          |            range             |
+| -------------------------| ---------------------------- |
+| ["0x0", "0x2"]           |          [0, 2)              |
+| ["0x0", "0x174876e801"]  |          [0, 100000000001)   |
 
 ### Type `IndexerScriptType`
 ScriptType `Lock` | `Type`
