@@ -22,7 +22,7 @@ ckb-traits = { path = "../traits", version = "= 0.115.0-pre" }
 byteorder = "1.3.1"
 ckb-types = { path = "../util/types", version = "= 0.115.0-pre" }
 ckb-hash = { path = "../util/hash", version = "= 0.115.0-pre" }
-ckb-vm = { git = "https://github.com/chenyukang/ckb-vm.git", version = "=0.24.8", idefault-features = false, branch = "yukang-local-changes"}
+ckb-vm = { git = "https://github.com/chenyukang/ckb-vm.git", version = "=0.24.9", idefault-features = false, branch = "yukang-local-changes"}
 faster-hex = "0.6"
 ckb-logger = { path = "../util/logger", version = "= 0.115.0-pre", optional = true }
 serde = { version = "1.0", features = ["derive"] }

@@ -1792,8 +1792,8 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.8"
-source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#80cdef9423900ccb1f7b16d7e30006378b0825b3"
+version = "0.24.9"
+source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#9cd3c20b009ea8e74a46143cafdde0acac9e323b"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1809,8 +1809,8 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.8"
-source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#80cdef9423900ccb1f7b16d7e30006378b0825b3"
+version = "0.24.9"
+source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#9cd3c20b009ea8e74a46143cafdde0acac9e323b"
 dependencies = [
  "paste",
 ]
