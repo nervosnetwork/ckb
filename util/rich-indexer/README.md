@@ -16,7 +16,7 @@ In order to run a CKB node with the Rich-Indexer enabled, it is recommended to a
 
 ## Quick Start
 
-Running the Rich-Indexer with the default setting, which is SQLite-based, is a straightforward process, similar to the original CKB Indexer. No additional configuration is required; simply use the command-line option `--rich-indexer`.
+Running the Rich-Indexer with the default SQLite-based setting is as simple as using the original CKB Indexer. No extra configuration is needed; just apply the `--rich-indexer` command-line option.
 
 ```bash
 ckb run -C <path> --rich-indexer
@@ -50,8 +50,8 @@ Once the Rich-Indexer is activated, the CKB node's RPC based on the Rich-Indexer
 | `get_cells` cell data filter(`prefix\|exact\|partial`)     | ✔️     | ✔️      |
 | `get_transactions` script args `partial` mode search | ❌          | ✔️   |
 | `get_transactions` cell data filter(`prefix\|exact\|partial`)     | ❌         |  ✔️      |
-| `get_cells_capaciry` script args `partial` mode search        |    ❌    |    ✔️     |
-| `get_cells_capaciry` cell data filter(`prefix\|exact\|partial`)        |    ✔️    |   ✔️     |
+| `get_cells_capacity` script args `partial` mode search        |    ❌    |    ✔️     |
+| `get_cells_capacity` cell data filter(`prefix\|exact\|partial`)        |    ✔️    |   ✔️     |
 
 Note that CKB starting options `--indexer` and `--rich-indexer` can only be used exclusively; you can choose only one for startup.
 
