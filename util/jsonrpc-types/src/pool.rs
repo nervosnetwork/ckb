@@ -278,7 +278,9 @@ impl From<CorePoolTxDetailInfo> for PoolTxDetailInfo {
     }
 }
 
-/// TX reject message
+/// TX reject message, `PoolTransactionReject` is a JSON object with following fields.
+///    * `type`:  the Reject type with following enum values
+///    * `description`: `string` - Detailed description about why the transaction is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "description")]
 pub enum PoolTransactionReject {

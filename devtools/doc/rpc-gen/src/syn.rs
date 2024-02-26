@@ -14,27 +14,33 @@ struct CommentFinder {
     types: Vec<String>,
 }
 
+fn get_doc_from_attr(attr: &syn::Attribute) -> String {
+    if attr.path().is_ident("doc") {
+        if let Meta::NameValue(MetaNameValue {
+            value:
+                Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(lit),
+                    ..
+                }),
+            ..
+        }) = &attr.meta
+        {
+            let lit = lit.value();
+            return lit;
+        }
+    }
+    "".to_string()
+}
+
 impl Visit<'_> for CommentFinder {
     fn visit_attribute(&mut self, attr: &syn::Attribute) {
         if let Some(type_name) = &self.current_type {
-            if attr.path().is_ident("doc") {
-                if let Meta::NameValue(MetaNameValue {
-                    value:
-                        Expr::Lit(syn::ExprLit {
-                            lit: syn::Lit::Str(lit),
-                            ..
-                        }),
-                    ..
-                }) = &attr.meta
-                {
-                    let lit = lit.value();
-                    let current_type = type_name.clone();
-                    *self
-                        .type_comments
-                        .entry(current_type)
-                        .or_insert("".to_string()) += &format!("\n{}", lit.trim_start());
-                }
-            }
+            let doc = get_doc_from_attr(attr);
+            let current_type = type_name.clone();
+            *self
+                .type_comments
+                .entry(current_type)
+                .or_insert("".to_string()) += &format!("\n{}", doc.trim_start());
         }
     }
 
@@ -59,6 +65,32 @@ impl Visit<'_> for CommentFinder {
             self.current_type = None;
         }
     }
+
+    fn visit_item_enum(&mut self, i: &'_ syn::ItemEnum) {
+        let ident_name = i.ident.to_string();
+        if self.types.contains(&ident_name) {
+            if !i.attrs.is_empty() {
+                self.current_type = Some(ident_name);
+                for attr in &i.attrs {
+                    self.visit_attribute(attr);
+                }
+                self.current_type = None;
+            }
+            let mut variants = vec![];
+            for v in &i.variants {
+                if !v.attrs.is_empty() {
+                    let doc: Vec<String> = v.attrs.iter().map(get_doc_from_attr).collect();
+                    let doc = doc.join("\n");
+                    variants.push(format!("  - `{}` : {}", v.ident, doc));
+                }
+            }
+            let extra_doc = variants.join("\n");
+            *self
+                .type_comments
+                .entry(i.ident.to_string())
+                .or_insert("".to_string()) += &format!("An enum value from one of:\n{}", extra_doc);
+        }
+    }
 }
 
 fn visit_source_file(finder: &mut CommentFinder, file_path: &std::path::Path) {
@@ -74,7 +106,7 @@ pub(crate) fn visit_for_types() -> Vec<(String, String)> {
     let mut finder = CommentFinder {
         type_comments: Default::default(),
         current_type: None,
-        types: vec!["JsonBytes", "IndexerRange"]
+        types: vec!["JsonBytes", "IndexerRange", "PoolTransactionReject"]
             .iter()
             .map(|&s| s.to_owned())
             .collect(),

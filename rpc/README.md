@@ -179,6 +179,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `OutPoint`](#type-outpoint)
     * [Type `OutputsValidator`](#type-outputsvalidator)
     * [Type `PeerSyncState`](#type-peersyncstate)
+    * [Type `PoolTransactionReject`](#type-pooltransactionreject)
     * [Type `PoolTxDetailInfo`](#type-pooltxdetailinfo)
     * [Type `ProposalShortId`](#type-proposalshortid)
     * [Type `ProposalWindow`](#type-proposalwindow)
@@ -5869,6 +5870,8 @@ A array represent (half-open) range bounded inclusively below and exclusively ab
 | ["0x0", "0x2"]           |          [0, 2)              |
 | ["0x0", "0x174876e801"]  |          [0, 100000000001)   |
 
+
+
 ### Type `IndexerScriptType`
 ScriptType `Lock` | `Type`
 
@@ -6173,6 +6176,25 @@ The chain synchronization state between the local node and a remote node.
 * `unknown_header_list_size`: [`Uint64`](#type-uint64) - The total size of unknown header list.
 
     **Deprecated**: this is an internal state and will be removed in a future release.
+
+### Type `PoolTransactionReject`
+
+TX reject message, `PoolTransactionReject` is a JSON object with following fields.
+* `type`:  the Reject type with following enum values
+* `description`: `string` - Detailed description about why the transaction is rejected.
+
+An enum value from one of:
+  - `LowFeeRate` :  Transaction fee lower than config
+  - `ExceededMaximumAncestorsCount` :  Transaction exceeded maximum ancestors count limit
+  - `ExceededTransactionSizeLimit` :  Transaction exceeded maximum size limit
+  - `Full` :  Transaction are replaced because the pool is full
+  - `Duplicated` :  Transaction already exists in transaction_pool
+  - `Malformed` :  Malformed transaction
+  - `DeclaredWrongCycles` :  Declared wrong cycles
+  - `Resolve` :  Resolve failed
+  - `Verification` :  Verification failed
+  - `Expiry` :  Transaction expired
+  - `RBFRejected` :  RBF rejected
 
 ### Type `PoolTxDetailInfo`
 A Tx details info in tx-pool.
