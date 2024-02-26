@@ -152,7 +152,7 @@ fn test_package_txs_with_deps() {
             )
             .build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -168,7 +168,7 @@ fn test_package_txs_with_deps() {
         let block: Block = block_template.clone().into();
         let block = block.as_advanced_builder().build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -298,7 +298,7 @@ fn test_package_txs_with_deps_unstable_sort() {
             )
             .build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -314,7 +314,7 @@ fn test_package_txs_with_deps_unstable_sort() {
         let block: Block = block_template.clone().into();
         let block = block.as_advanced_builder().build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -437,7 +437,7 @@ fn test_package_txs_with_deps2() {
             )
             .build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
     // skip gap
@@ -452,7 +452,7 @@ fn test_package_txs_with_deps2() {
         let block: Block = block_template.clone().into();
         let block = block.as_advanced_builder().build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -562,7 +562,7 @@ fn test_package_txs_with_deps_priority() {
         let block: Block = block_template.clone().into();
         let block = block.as_advanced_builder().build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -578,7 +578,7 @@ fn test_package_txs_with_deps_priority() {
         let block: Block = block_template.clone().into();
         let block = block.as_advanced_builder().build();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 

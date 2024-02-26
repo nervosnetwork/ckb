@@ -1,11 +1,12 @@
-use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{
     build_chain, gen_block, new_header_builder, MockProtocolContext,
 };
 use crate::{Status, StatusCode};
-use ckb_chain::chain::ChainService;
+use ckb_chain::start_chain_services;
 use ckb_network::{PeerIndex, SupportProtocols};
+use ckb_shared::block_status::BlockStatus;
+use ckb_shared::ChainServicesBuilder;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{PlugTarget, TxEntry};
@@ -55,7 +56,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
     }
 
@@ -75,7 +76,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_STORED);
     }
 
@@ -95,7 +96,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_RECEIVED);
     }
 
@@ -378,15 +379,19 @@ fn test_accept_block() {
     }
 
     {
-        let chain_controller = {
-            let proposal_window = ckb_proposal_table::ProposalTable::new(
-                relayer.shared().shared().consensus().tx_proposal_window(),
-            );
-            let chain_service =
-                ChainService::new(relayer.shared().shared().to_owned(), proposal_window);
-            chain_service.start::<&str>(None)
+        let proposal_table = ckb_proposal_table::ProposalTable::new(
+            relayer.shared().shared().consensus().tx_proposal_window(),
+        );
+        let chain_service_builder = ChainServicesBuilder {
+            shared: relayer.shared().shared().to_owned(),
+            proposal_table,
         };
-        chain_controller.process_block(Arc::new(uncle)).unwrap();
+
+        let chain_controller = start_chain_services(chain_service_builder);
+
+        chain_controller
+            .blocking_process_block(Arc::new(uncle))
+            .unwrap();
     }
 
     let mut prefilled_transactions_indexes = HashSet::new();

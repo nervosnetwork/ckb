@@ -1,5 +1,5 @@
 use crate::SyncShared;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
@@ -19,10 +19,7 @@ pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let chain_controller = {
-        let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-        chain_service.start::<&str>(None)
-    };
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
     generate_blocks(&shared, &chain_controller, tip);
     let sync_shared = SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver());
     (sync_shared, chain_controller)
@@ -40,7 +37,7 @@ pub fn generate_blocks(
         let block = inherit_block(shared, &parent_hash).build();
         parent_hash = block.header().hash();
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
     }
 }

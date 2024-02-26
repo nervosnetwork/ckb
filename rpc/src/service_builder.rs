@@ -9,7 +9,7 @@ use crate::module::{
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_indexer::IndexerService;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
@@ -102,10 +102,12 @@ impl<'a> ServiceBuilder<'a> {
         mut self,
         network_controller: NetworkController,
         sync_shared: Arc<SyncShared>,
+        chain_controller: Arc<ChainController>,
     ) -> Self {
         let methods = NetRpcImpl {
             network_controller,
             sync_shared,
+            chain_controller,
         };
         set_rpc_module_methods!(self, "Net", net_enable, add_net_rpc_methods, methods)
     }

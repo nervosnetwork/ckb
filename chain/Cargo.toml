@@ -25,8 +25,16 @@ ckb-error = { path = "../error", version = "= 0.114.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.114.0-pre" }
 ckb-rust-unstable-port = { path = "../util/rust-unstable-port", version = "= 0.114.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.114.0-pre" }
+ckb-db = { path = "../db", version = "= 0.114.0-pre" }
+ckb-db-schema = { path = "../db-schema", version = "= 0.114.0-pre" }
 faux = { version = "^0.1", optional = true }
 ckb-merkle-mountain-range = "0.5.2"
+ckb-constant = { path = "../util/constant", version = "= 0.114.0-pre" }
+ckb-util = { path = "../util", version = "= 0.114.0-pre" }
+crossbeam = "0.8.2"
+ckb-network = { path = "../network", version = "= 0.114.0-pre" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.114.0-pre"}
+minstant = "0.1.4"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.114.0-pre" }

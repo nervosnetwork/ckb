@@ -32,7 +32,7 @@ fn bench(c: &mut Criterion) {
                         (0..20).for_each(|_| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared2);
                             chain2
-                                .internal_process_block(
+                                .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
                                 )
@@ -44,7 +44,7 @@ fn bench(c: &mut Criterion) {
                     |(chain, blocks)| {
                         blocks.into_iter().skip(1).for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .blocking_process_block(Arc::new(block))
                                 .expect("process block OK");
                         });
                     },
@@ -77,14 +77,14 @@ fn bench(c: &mut Criterion) {
                         (0..5).for_each(|i| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared2);
                             chain2
-                                .internal_process_block(
+                                .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
                                 )
                                 .expect("process block OK");
                             if i < 2 {
                                 chain3
-                                    .internal_process_block(
+                                    .blocking_process_block_with_switch(
                                         Arc::new(block.clone()),
                                         Switch::DISABLE_ALL,
                                     )
@@ -96,7 +96,7 @@ fn bench(c: &mut Criterion) {
                         (0..2).for_each(|_| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared3);
                             chain3
-                                .internal_process_block(
+                                .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
                                 )
@@ -110,7 +110,10 @@ fn bench(c: &mut Criterion) {
                             .take(5)
                             .for_each(|block| {
                                 chain1
-                                    .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+                                    .blocking_process_block_with_switch(
+                                        Arc::new(block),
+                                        Switch::DISABLE_ALL,
+                                    )
                                     .expect("process block OK");
                             });
                         (chain1.clone(), blocks)
@@ -118,7 +121,7 @@ fn bench(c: &mut Criterion) {
                     |(chain, blocks)| {
                         blocks.into_iter().skip(6).for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .blocking_process_block(Arc::new(block))
                                 .expect("process block OK");
                         });
                     },
@@ -152,11 +155,17 @@ fn bench(c: &mut Criterion) {
                             let block = gen_always_success_block(&mut blocks, &parent, shared2);
                             let arc_block = Arc::new(block.clone());
                             chain2
-                                .internal_process_block(Arc::clone(&arc_block), Switch::DISABLE_ALL)
+                                .blocking_process_block_with_switch(
+                                    Arc::clone(&arc_block),
+                                    Switch::DISABLE_ALL,
+                                )
                                 .expect("process block OK");
                             if i < 2 {
                                 chain3
-                                    .internal_process_block(arc_block, Switch::DISABLE_ALL)
+                                    .blocking_process_block_with_switch(
+                                        arc_block,
+                                        Switch::DISABLE_ALL,
+                                    )
                                     .expect("process block OK");
                             }
                             parent = block;
@@ -165,7 +174,7 @@ fn bench(c: &mut Criterion) {
                         (0..4).for_each(|_| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared3);
                             chain3
-                                .internal_process_block(
+                                .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
                                 )
@@ -179,7 +188,10 @@ fn bench(c: &mut Criterion) {
                             .take(7)
                             .for_each(|block| {
                                 chain1
-                                    .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+                                    .blocking_process_block_with_switch(
+                                        Arc::new(block),
+                                        Switch::DISABLE_ALL,
+                                    )
                                     .expect("process block OK");
                             });
                         (chain1.clone(), blocks)
@@ -187,7 +199,7 @@ fn bench(c: &mut Criterion) {
                     |(chain, blocks)| {
                         blocks.into_iter().skip(8).for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .blocking_process_block(Arc::new(block))
                                 .expect("process block OK");
                         });
                     },

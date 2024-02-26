@@ -8,7 +8,8 @@ use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
-use ckb_logger::{debug, error};
+use ckb_logger::{debug, error, info};
+use ckb_network::multiaddr::Multiaddr;
 use ckb_resource::Resource;
 use ckb_types::{
     bytes,
@@ -19,16 +20,17 @@ use ckb_types::{
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
-use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::borrow::{Borrow, BorrowMut};
+use std::collections::{HashMap, HashSet};
 use std::convert::Into;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-struct ProcessGuard {
+pub(crate) struct ProcessGuard {
     pub name: String,
     pub child: Child,
     pub killed: bool,
@@ -46,7 +48,12 @@ impl Drop for ProcessGuard {
     }
 }
 
+#[derive(Clone)]
 pub struct Node {
+    inner: Arc<InnerNode>,
+}
+
+pub struct InnerNode {
     spec_node_name: String,
     working_dir: PathBuf,
     consensus: Consensus,
@@ -54,8 +61,8 @@ pub struct Node {
     rpc_client: RpcClient,
     rpc_listen: String,
 
-    node_id: Option<String>,     // initialize when starts node
-    guard: Option<ProcessGuard>, // initialize when starts node
+    node_id: RwLock<Option<String>>, // initialize when starts node
+    guard: RwLock<Option<ProcessGuard>>, // initialize when starts node
 }
 
 impl Node {
@@ -105,7 +112,7 @@ impl Node {
         modifier(&mut app_config);
         fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
+        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
     }
 
     pub fn modify_chain_spec<M>(&mut self, modifier: M)
@@ -118,7 +125,7 @@ impl Node {
         modifier(&mut chain_spec);
         fs::write(&chain_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.spec_node_name.clone());
+        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
     }
 
     // Initialize Node instance based on working directory
@@ -150,44 +157,51 @@ impl Node {
             chain_spec.build_consensus().unwrap()
         };
         Self {
-            spec_node_name,
-            working_dir,
-            consensus,
-            p2p_listen,
-            rpc_client,
-            rpc_listen,
-            node_id: None,
-            guard: None,
+            inner: Arc::new(InnerNode {
+                spec_node_name,
+                working_dir,
+                consensus,
+                p2p_listen,
+                rpc_client,
+                rpc_listen,
+                node_id: RwLock::new(None),
+                guard: RwLock::new(None),
+            }),
         }
     }
 
     pub fn rpc_client(&self) -> &RpcClient {
-        &self.rpc_client
+        &self.inner.rpc_client
     }
 
     pub fn working_dir(&self) -> PathBuf {
-        self.working_dir.clone()
+        self.inner.working_dir.clone()
     }
 
     pub fn log_path(&self) -> PathBuf {
         self.working_dir().join("data/logs/run.log")
     }
 
-    pub fn node_id(&self) -> &str {
+    pub fn node_id(&self) -> String {
         // peer_id.to_base58()
-        self.node_id.as_ref().expect("uninitialized node_id")
+        self.inner
+            .node_id
+            .read()
+            .expect("read locked node_id")
+            .clone()
+            .expect("uninitialized node_id")
     }
 
     pub fn consensus(&self) -> &Consensus {
-        &self.consensus
+        &self.inner.consensus
     }
 
     pub fn p2p_listen(&self) -> String {
-        self.p2p_listen.clone()
+        self.inner.p2p_listen.clone()
     }
 
     pub fn rpc_listen(&self) -> String {
-        self.rpc_listen.clone()
+        self.inner.rpc_listen.clone()
     }
 
     pub fn p2p_address(&self) -> String {
@@ -678,21 +692,37 @@ impl Node {
 
         self.wait_tx_pool_ready();
 
-        self.guard = Some(ProcessGuard {
-            name: self.spec_node_name.clone(),
+        self.set_process_guard(ProcessGuard {
+            name: self.inner.spec_node_name.clone(),
             child: child_process,
             killed: false,
         });
-        self.node_id = Some(node_info.node_id);
+        self.set_node_id(node_info.node_id.as_str());
+    }
+
+    pub(crate) fn set_process_guard(&mut self, guard: ProcessGuard) {
+        let mut g = self.inner.guard.write().unwrap();
+        *g = Some(guard);
+    }
+
+    pub(crate) fn set_node_id(&mut self, node_id: &str) {
+        let mut n = self.inner.node_id.write().unwrap();
+        *n = Some(node_id.to_owned());
+    }
+
+    pub(crate) fn take_guard(&mut self) -> Option<ProcessGuard> {
+        let mut g = self.inner.guard.write().unwrap();
+        g.take()
     }
 
     pub fn stop(&mut self) {
-        drop(self.guard.take())
+        drop(self.take_guard());
     }
 
     #[cfg(not(target_os = "windows"))]
     pub fn stop_gracefully(&mut self) {
-        if let Some(mut guard) = self.guard.take() {
+        let guard = self.take_guard();
+        if let Some(mut guard) = guard {
             if !guard.killed {
                 // send SIGINT to the child
                 nix::sys::signal::kill(
@@ -749,11 +779,11 @@ pub fn connect_all(nodes: &[Node]) {
 }
 
 // TODO it will be removed out later, in another PR
-pub fn disconnect_all(nodes: &[Node]) {
+pub fn disconnect_all<N: Borrow<Node>>(nodes: &[N]) {
     for node_a in nodes.iter() {
         for node_b in nodes.iter() {
-            if node_a.p2p_address() != node_b.p2p_address() {
-                node_a.disconnect(node_b);
+            if node_a.borrow().p2p_address() != node_b.borrow().p2p_address() {
+                node_a.borrow().disconnect(node_b.borrow());
             }
         }
     }
@@ -777,5 +807,41 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
     }
     for node in nodes {
         node.borrow().wait_for_tx_pool();
+    }
+}
+
+pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
+    let node_multiaddrs: HashMap<String, Multiaddr> = nodes
+        .iter()
+        .map(|n| {
+            (
+                n.borrow().node_id().to_owned(),
+                n.borrow().p2p_address().try_into().unwrap(),
+            )
+        })
+        .collect();
+    let other_node_addrs: Vec<Vec<Multiaddr>> = node_multiaddrs
+        .keys()
+        .map(|id| {
+            let addrs = node_multiaddrs
+                .iter()
+                .filter(|(other_id, _)| other_id.as_str() != id.as_str())
+                .map(|(_, addr)| addr.to_owned())
+                .collect::<Vec<_>>();
+            addrs
+        })
+        .collect();
+    for (i, node) in nodes.iter_mut().enumerate() {
+        node.borrow_mut()
+            .modify_app_config(|config: &mut CKBAppConfig| {
+                info!("Setting bootnodes to {:?}", other_node_addrs[i]);
+                config.network.bootnodes = other_node_addrs[i].clone();
+            })
+    }
+    // Restart nodes to make bootnodes work
+    for node in nodes.iter_mut() {
+        node.borrow_mut().stop();
+        node.borrow_mut().start();
+        info!("Restarted node {:?}", node.borrow_mut().node_id());
     }
 }

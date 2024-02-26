@@ -1,10 +1,10 @@
-use crate::chain::{ChainController, ChainService};
 use crate::tests::util::dummy_network;
+use crate::{start_chain_services, ChainController};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{ChainServicesBuilder, Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_tx_pool::{block_assembler::CandidateUncles, PlugTarget, TxEntry};
 use ckb_types::{
@@ -47,8 +47,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_services_builder: ChainServicesBuilder = pack.take_chain_services_builder();
+    let chain_controller: ChainController = start_chain_services(chain_services_builder);
+
     (chain_controller, shared)
 }
 
@@ -142,7 +143,7 @@ fn test_block_template_timestamp() {
     let block = gen_block(&genesis, 0, &epoch);
 
     chain_controller
-        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let mut block_template = shared
@@ -209,13 +210,13 @@ fn test_prepare_uncles() {
     let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
 
     chain_controller
-        .internal_process_block(Arc::new(block0_1), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block0_1), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .internal_process_block(Arc::new(block0_0.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block0_0.clone()), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .internal_process_block(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let mut block_template = shared
@@ -239,7 +240,7 @@ fn test_prepare_uncles() {
 
     let block2_1 = gen_block(&block1_1.header(), 10, &epoch);
     chain_controller
-        .internal_process_block(Arc::new(block2_1.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block2_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     let mut block_template = shared
@@ -263,7 +264,7 @@ fn test_prepare_uncles() {
 
     let block3_1 = gen_block(&block2_1.header(), 10, &epoch);
     chain_controller
-        .internal_process_block(Arc::new(block3_1), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block3_1), Switch::DISABLE_ALL)
         .unwrap();
 
     let mut block_template = shared
@@ -299,13 +300,13 @@ fn test_candidate_uncles_retain() {
     let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
 
     chain_controller
-        .internal_process_block(Arc::new(block0_1), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block0_1), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .internal_process_block(Arc::new(block0_0.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block0_0.clone()), Switch::DISABLE_ALL)
         .unwrap();
     chain_controller
-        .internal_process_block(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block1_1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     candidate_uncles.insert(block0_0.as_uncle());
@@ -326,7 +327,7 @@ fn test_candidate_uncles_retain() {
     let block2_0 = gen_block(&block1_0.header(), 13, &epoch);
     for block in vec![block1_0, block2_0.clone()] {
         chain_controller
-            .internal_process_block(Arc::new(block), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -346,7 +347,7 @@ fn test_candidate_uncles_retain() {
 
     let block3_0 = gen_block(&block2_0.header(), 10, &epoch);
     chain_controller
-        .internal_process_block(Arc::new(block3_0.clone()), Switch::DISABLE_ALL)
+        .blocking_process_block_with_switch(Arc::new(block3_0.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     {
@@ -413,7 +414,7 @@ fn test_package_basic() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);
@@ -520,7 +521,7 @@ fn test_package_multi_best_scores() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);
@@ -636,7 +637,7 @@ fn test_package_low_fee_descendants() {
     for _i in 0..4 {
         let block = gen_block(&parent_header, 11, &epoch);
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block");
         parent_header = block.header().to_owned();
         blocks.push(block);

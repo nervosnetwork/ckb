@@ -1,11 +1,13 @@
-use crate::block_status::BlockStatus;
-use crate::types::{ActiveChain, BlockNumberAndHash, HeaderIndex, HeaderIndexView, IBDState};
+use crate::types::{ActiveChain, IBDState};
 use crate::SyncShared;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
 };
 use ckb_logger::{debug, trace};
+use ckb_metrics::HistogramTimer;
 use ckb_network::PeerIndex;
+use ckb_shared::block_status::BlockStatus;
+use ckb_shared::types::{BlockNumberAndHash, HeaderIndex, HeaderIndexView};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::packed;
 use std::cmp::min;
@@ -65,9 +67,20 @@ impl BlockFetcher {
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current tip anymore. Go back enough to fix that.
-        last_common = self
-            .active_chain
-            .last_common_ancestor(&last_common, best_known)?;
+        last_common = {
+            let now = std::time::Instant::now();
+            let last_common_ancestor = self
+                .active_chain
+                .last_common_ancestor(&last_common, best_known)?;
+            debug!(
+                "last_common_ancestor({:?}, {:?})->{:?} cost {:?}",
+                last_common,
+                best_known,
+                last_common_ancestor,
+                now.elapsed()
+            );
+            last_common_ancestor
+        };
 
         self.sync_shared
             .state()
@@ -78,6 +91,10 @@ impl BlockFetcher {
     }
 
     pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
+        let _trace_timecost: Option<HistogramTimer> = {
+            ckb_metrics::handle().map(|handle| handle.ckb_sync_block_fetch_duration.start_timer())
+        };
+
         if self.reached_inflight_limit() {
             trace!(
                 "[block_fetcher] inflight count has reached the limit, preventing further downloads from peer {}",
@@ -138,25 +155,66 @@ impl BlockFetcher {
             return None;
         }
 
+        if matches!(self.ibd, IBDState::In)
+            && best_known.number() <= self.active_chain.unverified_tip_number()
+        {
+            debug!("In IBD mode, Peer {}'s best_known: {} is less or equal than unverified_tip : {}, won't request block from this peer",
+                        self.peer,
+                        best_known.number(),
+                        self.active_chain.unverified_tip_number()
+                    );
+            return None;
+        };
+
         let state = self.sync_shared.state();
-        let mut inflight = state.write_inflight_blocks();
-        let mut start = last_common.number() + 1;
+
+        let mut start = {
+            match self.ibd {
+                IBDState::In => self.sync_shared.shared().get_unverified_tip().number() + 1,
+                IBDState::Out => last_common.number() + 1,
+            }
+        };
         let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
-            inflight.peer_can_fetch_count(self.peer),
+            state.read_inflight_blocks().peer_can_fetch_count(self.peer),
         );
         let mut fetch = Vec::with_capacity(n_fetch);
         let now = unix_time_as_millis();
+        debug!(
+            "finding which blocks to fetch, start: {}, end: {}, best_known: {}",
+            start,
+            end,
+            best_known.number(),
+        );
 
         while fetch.len() < n_fetch && start <= end {
             let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
 
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
-            let mut header = self
-                .active_chain
-                .get_ancestor(&best_known.hash(), start + span - 1)?;
-            let mut status = self.active_chain.get_block_status(&header.hash());
+            let mut header: HeaderIndexView = {
+                match self.ibd {
+                    IBDState::In => self
+                        .active_chain
+                        .get_ancestor_with_unverified(&best_known.hash(), start + span - 1),
+                    IBDState::Out => self
+                        .active_chain
+                        .get_ancestor(&best_known.hash(), start + span - 1),
+                }
+            }?;
+            debug!(
+                "get_ancestor({}, {}) -> {}-{}; IBD: {:?}",
+                best_known.hash(),
+                start + span - 1,
+                header.number(),
+                header.hash(),
+                self.ibd,
+            );
+
+            let mut status = self
+                .sync_shared
+                .active_chain()
+                .get_block_status(&header.hash());
 
             // Judge whether we should fetch the target block, neither stored nor in-flighted
             for _ in 0..span {
@@ -164,24 +222,38 @@ impl BlockFetcher {
                 let hash = header.hash();
 
                 if status.contains(BlockStatus::BLOCK_STORED) {
-                    // If the block is stored, its ancestor must on store
-                    // So we can skip the search of this space directly
-                    self.sync_shared
-                        .state()
-                        .peers()
-                        .set_last_common_header(self.peer, header.number_and_hash());
+                    if status.contains(BlockStatus::BLOCK_VALID) {
+                        // If the block is stored, its ancestor must on store
+                        // So we can skip the search of this space directly
+                        self.sync_shared
+                            .state()
+                            .peers()
+                            .set_last_common_header(self.peer, header.number_and_hash());
+                    }
+
                     end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
                 } else if (matches!(self.ibd, IBDState::In)
                     || state.compare_with_pending_compact(&hash, now))
-                    && inflight.insert(self.peer, (header.number(), hash).into())
+                    && state
+                        .write_inflight_blocks()
+                        .insert(self.peer, (header.number(), hash).into())
                 {
+                    debug!(
+                        "block: {}-{} added to inflight, block_status: {:?}",
+                        header.number(),
+                        header.hash(),
+                        status
+                    );
                     fetch.push(header)
                 }
 
-                status = self.active_chain.get_block_status(&parent_hash);
+                status = self
+                    .sync_shared
+                    .active_chain()
+                    .get_block_status(&parent_hash);
                 header = self
                     .sync_shared
                     .get_header_index_view(&parent_hash, false)?;
@@ -195,24 +267,55 @@ impl BlockFetcher {
         fetch.sort_by_key(|header| header.number());
 
         let tip = self.active_chain.tip_number();
+        let unverified_tip = self.active_chain.unverified_tip_number();
         let should_mark = fetch.last().map_or(false, |header| {
-            header.number().saturating_sub(CHECK_POINT_WINDOW) > tip
+            header.number().saturating_sub(CHECK_POINT_WINDOW) > unverified_tip
         });
         if should_mark {
-            inflight.mark_slow_block(tip);
+            state
+                .write_inflight_blocks()
+                .mark_slow_block(unverified_tip);
+        }
+
+        let inflight_total_count = state.read_inflight_blocks().total_inflight_count();
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_inflight_blocks_count
+                .set(inflight_total_count as i64);
         }
 
         if fetch.is_empty() {
             debug!(
-                "[block fetch empty] fixed_last_common_header = {} \
-                best_known_header = {}, tip = {}, inflight_len = {}, \
-                inflight_state = {:?}",
+                "[block fetch empty] peer-{}, fixed_last_common_header = {} \
+                best_known_header = {}, [tip/unverified_tip]: [{}/{}], inflight_len = {}",
+                self.peer,
                 last_common.number(),
                 best_known.number(),
                 tip,
-                inflight.total_inflight_count(),
-                *inflight
-            )
+                unverified_tip,
+                inflight_total_count,
+            );
+            trace!(
+                "[block fetch empty] peer-{}, inflight_state = {:?}",
+                self.peer,
+                *state.read_inflight_blocks()
+            );
+        } else {
+            let fetch_head = fetch.first().map_or(0_u64, |v| v.number());
+            let fetch_last = fetch.last().map_or(0_u64, |v| v.number());
+            let inflight_peer_count = state.read_inflight_blocks().peer_inflight_count(self.peer);
+            debug!(
+                "request peer-{} for batch blocks: [{}-{}], batch len:{}, [tip/unverified_tip]: [{}/{}], [peer/total inflight count]: [{} / {}], blocks: {}",
+                self.peer,
+                fetch_head,
+                fetch_last,
+                fetch.len(),
+                tip,
+                self.sync_shared.shared().get_unverified_tip().number(),
+                inflight_peer_count,
+                inflight_total_count,
+                fetch.iter().map(|h| h.number().to_string()).collect::<Vec<_>>().join(","),
+                );
         }
 
         Some(

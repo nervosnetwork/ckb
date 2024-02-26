@@ -4,6 +4,7 @@ use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
+
 use ckb_stop_handler::{broadcast_exit_signals, wait_all_ckb_services_exit};
 
 use ckb_types::core::cell::setup_system_cell_cache;
@@ -40,7 +41,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     launcher.check_assume_valid_target(&shared);
 
-    let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
+    let chain_controller =
+        launcher.start_chain_service(&shared, pack.take_chain_services_builder());
 
     launcher.start_block_filter(&shared);
 

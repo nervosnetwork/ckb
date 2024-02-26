@@ -21,7 +21,7 @@ function ckb_graceful_shutdown { #@test
   [ "$status" -eq 0 ]
 
   assert_output --regexp "INFO ckb_bin::subcommand::run  Trapped exit signal, exiting..."
-  assert_output --regexp "INFO ckb_chain::chain  ChainService received exit signal, exit now"
+  assert_output --regexp "INFO ckb_chain::chain_service  ChainService received exit signal, exit now"
   assert_output --regexp "INFO ckb_sync::synchronizer  BlockDownload received exit signal, exit now"
   assert_output --regexp "INFO ckb_tx_pool::chunk_process  TxPool chunk_command service received exit signal, exit now"
   assert_output --regexp "INFO ckb_tx_pool::service  TxPool is saving, please wait..."
@@ -29,7 +29,7 @@ function ckb_graceful_shutdown { #@test
   assert_output --regexp "INFO ckb_indexer::service  Indexer received exit signal, exit now"
   assert_output --regexp "INFO ckb_notify  NotifyService received exit signal, exit now"
   assert_output --regexp "INFO ckb_block_filter::filter  BlockFilter received exit signal, exit now"
-  assert_output --regexp "INFO ckb_sync::types::header_map  HeaderMap limit_memory received exit signal, exit now"
+  assert_output --regexp "INFO ckb_shared::types::header_map  HeaderMap limit_memory received exit signal, exit now"
   assert_output --regexp "INFO ckb_network::network  NetworkService receive exit signal, start shutdown..."
   assert_output --regexp "INFO ckb_network::network  NetworkService shutdown now"
   assert_output --regexp "INFO ckb_tx_pool::process  TxPool saved successfully"

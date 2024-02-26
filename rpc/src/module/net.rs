@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
+use ckb_chain::ChainController;
 use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState, Timestamp,
@@ -7,6 +8,7 @@ use ckb_jsonrpc_types::{
 use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::prelude::Unpack;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 use std::sync::Arc;
@@ -368,7 +370,11 @@ pub trait NetRpc {
     ///     "inflight_blocks_count": "0x0",
     ///     "low_time": "0x5dc",
     ///     "normal_time": "0x4e2",
-    ///     "orphan_blocks_count": "0x0"
+    ///     "orphan_blocks_count": "0x0",
+    ///     "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "tip_number": "0x400",
+    ///     "unverified_tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "unverified_tip_number": "0x400"
     ///   }
     /// }
     /// ```
@@ -537,6 +543,7 @@ pub trait NetRpc {
 pub(crate) struct NetRpcImpl {
     pub network_controller: NetworkController,
     pub sync_shared: Arc<SyncShared>,
+    pub chain_controller: Arc<ChainController>,
 }
 
 #[async_trait]
@@ -715,16 +722,22 @@ impl NetRpc for NetRpcImpl {
 
     fn sync_state(&self) -> Result<SyncState> {
         let chain = self.sync_shared.active_chain();
-        let state = chain.shared().state();
+        let shared = chain.shared();
+        let state = chain.state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
         let best_known = state.shared_best_header();
+        let unverified_tip = shared.get_unverified_tip();
         let sync_state = SyncState {
             ibd: chain.is_initial_block_download(),
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
-            orphan_blocks_count: (state.orphan_pool().len() as u64).into(),
+            orphan_blocks_count: (self.chain_controller.orphan_blocks_len() as u64).into(),
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
+            unverified_tip_number: unverified_tip.number().into(),
+            unverified_tip_hash: unverified_tip.hash().unpack(),
+            tip_number: chain.tip_number().into(),
+            tip_hash: chain.tip_hash().unpack(),
             fast_time: fast_time.into(),
             normal_time: normal_time.into(),
             low_time: low_time.into(),

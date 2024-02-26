@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error, info, warn};
 use ckb_network::{NetworkController, PeerIndex, SupportProtocols, TargetSession};
@@ -278,7 +278,7 @@ impl MinerRpc for MinerRpcImpl {
         // Verify and insert block
         let is_new = self
             .chain
-            .process_block(Arc::clone(&block))
+            .blocking_process_block(Arc::clone(&block))
             .map_err(|err| handle_submit_error(&work_id, &err))?;
         info!(
             "end to submit block, work_id = {}, is_new = {}, block = #{}({})",
