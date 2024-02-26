@@ -5,7 +5,6 @@
 use crate::core::{Capacity, Cycle, TransactionView};
 use ckb_channel::Sender;
 use std::sync::mpsc;
-
 /// Default channel size to send control signals.
 pub const SIGNAL_CHANNEL_SIZE: usize = 1;
 /// Default channel size to send messages.

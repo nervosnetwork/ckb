@@ -1398,7 +1398,7 @@ pub struct Consensus {
     pub permanent_difficulty_in_dummy: bool,
     /// Hardfork features
     pub hardfork_features: HardForks,
-    /// Softforks
+    /// `HashMap<DeploymentPos, SoftFork>` - Softforks
     pub softforks: HashMap<DeploymentPos, SoftFork>,
 }
 
