@@ -29,7 +29,6 @@ serde = { version = "1.0", features = ["derive"] }
 ckb-error = { path = "../error", version = "= 0.114.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.114.0-pre" }
 tokio = { version = "1.35.0", features = ["rt-multi-thread"] }
-arc-swap = "1.6.0"
 
 [dev-dependencies]
 proptest = "1.0"
