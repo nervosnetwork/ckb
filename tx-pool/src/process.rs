@@ -1106,17 +1106,17 @@ fn _submit_entry(
 ) -> Result<HashSet<TxEntry>, Reject> {
     let tx_hash = entry.transaction().hash();
     debug!("submit_entry {:?} {}", status, tx_hash);
-    let evicts = match status {
+    let (succ, evicts) = match status {
         TxStatus::Fresh => tx_pool.add_pending(entry.clone())?,
         TxStatus::Gap => tx_pool.add_gap(entry.clone())?,
         TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
     };
-    match status {
-        TxStatus::Fresh => callbacks.call_pending(&entry),
-
-        TxStatus::Gap => callbacks.call_pending(&entry),
-
-        TxStatus::Proposed => callbacks.call_proposed(&entry),
+    if succ {
+        match status {
+            TxStatus::Fresh => callbacks.call_pending(&entry),
+            TxStatus::Gap => callbacks.call_pending(&entry),
+            TxStatus::Proposed => callbacks.call_proposed(&entry),
+        }
     }
     Ok(evicts)
 }

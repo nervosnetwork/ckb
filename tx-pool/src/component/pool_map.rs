@@ -119,7 +119,8 @@ impl PoolMap {
 
     #[cfg(test)]
     pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
-        self.add_entry(entry, Status::Proposed).map(|_| true)
+        self.add_entry(entry, Status::Proposed)
+            .map(|(succ, _)| succ)
     }
 
     pub(crate) fn get_max_update_time(&self) -> u64 {
@@ -189,15 +190,23 @@ impl PoolMap {
             })
     }
 
+    /// Inesrt a `TxEntry` into pool_map.
+    ///
+    /// ## Returns
+    ///
+    /// Returns `Reject` when any error happened, otherwise return `Ok((succ, evicts))`
+    /// - succ  : means whether the entry is insertted actually into pool,
+    /// - evicts: is the evicted transactions before inserting this `TxEntry`,
+    ///           Currently, evicts when inserting is only due to reffering cell dep will be consumed by this new transaction.
     pub(crate) fn add_entry(
         &mut self,
         mut entry: TxEntry,
         status: Status,
-    ) -> Result<HashSet<TxEntry>, Reject> {
+    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
         let tx_short_id = entry.proposal_short_id();
         let mut evicts = Default::default();
         if self.entries.get_by_id(&tx_short_id).is_some() {
-            return Ok(evicts);
+            return Ok((false, evicts));
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         evicts = self.check_and_record_ancestors(&mut entry)?;
@@ -206,7 +215,7 @@ impl PoolMap {
         self.record_entry_descendants(&entry);
         self.track_entry_statics();
         self.update_stat_for_add_tx(entry.size, entry.cycles);
-        Ok(evicts)
+        Ok((true, evicts))
     }
 
     /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
