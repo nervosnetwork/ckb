@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## [v0.114.0](https://github.com/nervosnetwork/ckb/compare/v0.113.0...v0.114.0) (2024-02-29)
+
+### Features
+
+* Package ckb-cli v1.7.0
+* #4361: Update ckb-vm to v0.24.8 (@mohanson)
+* #4358: Add `--include-background` to include background migrations in migrate subcommand (@chenyukang)
+
+### Bug Fixes
+
+* #4330: Don't account for cell dep for `MAX_ANCESTORS_COUNT` (@chenyukang)
+* #4332: Fix the websockets terminate issue (@chenyukang)
+* #4308: Fix RPC cors issue of preflight request (@chenyukang)
+* #4323: Fix error message when sent HTTP GET to RPC  (@chenyukang)
+* #4324: Fix RBF fee and celldeps check rule issue with replaced txs and their descendants (@chenyukang)
+* #4325: Fix the regex expression for ckb's version test  (@chenyukang)
+* #4349: A peer send manlformed tx with large cycles will also be banned (@chenyukang)
+
 ## [v0.113.0](https://github.com/nervosnetwork/ckb/compare/v0.112.1...v0.113.0) (2024-01-09)
 
 ### Features
