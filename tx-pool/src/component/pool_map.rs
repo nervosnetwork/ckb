@@ -569,16 +569,17 @@ impl PoolMap {
                     break;
                 }
             }
+        } else {
+            return Err(Reject::ExceededMaximumAncestorsCount);
         }
 
-        // if ancestors count is still larger than limitation,
-        // return ExceededMaximumAncestorsCount error directly
+        // some txs in `parents` are removed, now `ancestors` need to re-caculate,
         let ancestors = self
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
-        if ancestors.len() + 1 > self.max_ancestors_count {
-            return Err(Reject::ExceededMaximumAncestorsCount);
-        }
+
+        // we can assume the number now is less than `max_ancestors_count`
+        assert!(ancestors.len() < self.max_ancestors_count);
 
         self._record_ancestors(entry, ancestors, parents);
         Ok(evicted)
