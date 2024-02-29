@@ -6218,6 +6218,7 @@ An enum value from one of:
   - `Verification` :  Verification failed
   - `Expiry` :  Transaction expired
   - `RBFRejected` :  RBF rejected
+  - `Invalidated` :  Invalidated rejected
 
 ### Type `PoolTxDetailInfo`
 A Tx details info in tx-pool.
