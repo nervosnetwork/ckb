@@ -109,6 +109,12 @@ impl TxPoolService {
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                 let conflicts = if tx_pool.enable_rbf() {
                     let rbf_res = tx_pool.check_rbf(&snapshot, &entry);
+                    debug!(
+                        "rbf_res is error: {}, remote: {}, tx: {}",
+                        rbf_res.is_err(),
+                        remote,
+                        entry.proposal_short_id()
+                    );
                     if rbf_res.is_err() && remote {
                         // if RBF is enabled, but `check_rbf` returned an Err,
                         // means RBF check failed with conflicts, we record remote tx into conflicts pool
@@ -120,6 +126,12 @@ impl TxPoolService {
                     // RBF is disabled, but we found conflicts, we put old entry into conflicts before return Err
                     let conflicted_outpoints =
                         tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
+                    debug!(
+                        "conflicted_outpoints count: {}, remote: {}, tx: {}",
+                        conflicted_outpoints.len(),
+                        remote,
+                        entry.proposal_short_id()
+                    );
                     if !conflicted_outpoints.is_empty() {
                         if remote {
                             tx_pool.record_conflict(entry.transaction().clone());
@@ -274,6 +286,11 @@ impl TxPoolService {
                         let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
                         let conflicts = tx_pool.pool_map.find_conflict_tx(&rtx.transaction);
+                        debug!(
+                            "conflicts in pre_check: {}, tx: {}",
+                            conflicts.len(),
+                            rtx.transaction.proposal_short_id()
+                        );
                         if conflicts.is_empty() {
                             // this mean one input's outpoint is dead, but there is no direct conflicted tx in tx_pool
                             // we should reject it directly and we don't need to put it into conflicts pool
