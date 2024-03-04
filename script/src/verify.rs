@@ -1,5 +1,7 @@
 #[cfg(test)]
 use crate::syscalls::Pause;
+use crate::v2_scheduler::Scheduler;
+use crate::v2_types::{RunMode, TxData};
 use crate::{
     cost_model::transferred_byte_cycles,
     error::{ScriptError, TransactionScriptError},
@@ -1092,33 +1094,47 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-    ) -> Result<(i8, Machine), ScriptError> {
+    ) -> Result<(i8, Cycle), ScriptError> {
         let program = self.extract_script(&script_group.script)?;
-        let context = Default::default();
-        let mut machine = self.build_machine(script_group, max_cycles, context)?;
+
+        let tx_data = TxData {
+            rtx: self.rtx.clone(),
+            data_loader: self.data_loader.clone(),
+            program,
+            script_group: Arc::new(script_group.clone()),
+        };
+        let version = self.select_version(&script_group.script)?;
+        let mut scheduler = Scheduler::new(tx_data.clone(), version, self.generator.clone());
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(error),
         };
 
-        let bytes = machine
-            .load_program(&program, &[])
-            .map_err(map_vm_internal_error)?;
-        machine
-            .machine
-            .add_cycles_no_checking(transferred_byte_cycles(bytes))
-            .map_err(map_vm_internal_error)?;
-        let code = machine.run().map_err(map_vm_internal_error)?;
+        scheduler
+            .run(RunMode::LimitCycles(max_cycles))
+            .map_err(map_vm_internal_error)
 
-        Ok((code, machine))
+        // let context = Default::default();
+        // let mut machine = self.build_machine(script_group, max_cycles, context)?;
+
+        // let bytes = machine
+        //     .load_program(&program, &[])
+        //     .map_err(map_vm_internal_error)?;
+        // machine
+        //     .machine
+        //     .add_cycles_no_checking(transferred_byte_cycles(bytes))
+        //     .map_err(map_vm_internal_error)?;
+        // let code = machine.run().map_err(map_vm_internal_error)?;
+
+        // Ok((code, machine))
     }
 
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
-        let (code, machine) = self.detailed_run(script_group, max_cycles)?;
+        let (code, cycles) = self.detailed_run(script_group, max_cycles)?;
 
         if code == 0 {
-            Ok(machine.machine.cycles())
+            Ok(cycles)
         } else {
             Err(ScriptError::validation_failure(&script_group.script, code))
         }

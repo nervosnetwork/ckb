@@ -1,7 +1,10 @@
 // Syscall implementation
 
-use crate::v2_types::{
-    DataPieceId, JoinArgs, Message, PipeArgs, PipeId, PipeIoArgs, SpawnArgs, TxData, VmId,
+use crate::{
+    v2_types::{
+        DataPieceId, JoinArgs, Message, PipeArgs, PipeId, PipeIoArgs, SpawnArgs, TxData, VmId,
+    },
+    ScriptVersion,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
@@ -23,17 +26,24 @@ pub struct MachineContext<
     base_cycles: Arc<Mutex<u64>>,
     message_box: Arc<Mutex<Vec<Message>>>,
     snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+    script_version: ScriptVersion,
 }
 
 impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
     MachineContext<DL>
 {
-    pub fn new(id: VmId, message_box: Arc<Mutex<Vec<Message>>>, tx_data: TxData<DL>) -> Self {
+    pub fn new(
+        id: VmId,
+        message_box: Arc<Mutex<Vec<Message>>>,
+        tx_data: TxData<DL>,
+        script_version: ScriptVersion,
+    ) -> Self {
         Self {
             id,
             base_cycles: Arc::new(Mutex::new(0)),
             message_box,
             snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(tx_data))),
+            script_version,
         }
     }
 
@@ -470,7 +480,13 @@ impl<
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, Error> {
         let code = machine.registers()[A7].to_u64();
         match code {
-            2042 => self.current_cycles(machine),
+            2042 => {
+                if self.script_version >= ScriptVersion::V1 {
+                    self.current_cycles(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
             2091 => self.load_cell_data_as_code(machine),
             2092 => self.load_cell_data(machine),
             2177 => self.debug(machine),

@@ -4,11 +4,11 @@ mod error;
 mod syscalls;
 mod type_id;
 mod types;
-mod verify;
-mod verify_env;
 mod v2_scheduler;
 mod v2_syscalls;
 mod v2_types;
+mod verify;
+mod verify_env;
 
 pub use crate::error::{ScriptError, TransactionScriptError};
 pub use crate::syscalls::spawn::update_caller_machine;

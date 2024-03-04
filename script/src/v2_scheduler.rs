@@ -1,5 +1,7 @@
+use crate::types::CoreMachine as ICoreMachine;
 use crate::v2_syscalls::INDEX_OUT_OF_BOUND;
 use crate::v2_types::PipeIoArgs;
+use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::{
     v2_syscalls::{
         transferred_byte_cycles, MachineContext, INVALID_PIPE, JOIN_FAILURE, OTHER_END_CLOSED,
@@ -24,7 +26,7 @@ use ckb_vm::{
     memory::Memory,
     registers::A0,
     snapshot2::{DataSource, Snapshot2},
-    Error, Register,
+    Error, Register, Syscalls,
 };
 use std::sync::{Arc, Mutex};
 use std::{
@@ -49,7 +51,8 @@ pub struct Scheduler<
     // TransactionScriptsVerifier, nonetheless much of current syscall
     // implementation is strictly tied to TransactionScriptsVerifier, we
     // are using it here to save some extra code.
-    verifier: TransactionScriptsVerifier<DL>,
+    script_version: ScriptVersion,
+    syscalls: TransactionScriptsSyscallsGenerator<DL>,
 
     total_cycles: Cycle,
     next_vm_id: VmId,
@@ -70,10 +73,15 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     Scheduler<DL>
 {
     /// Create a new scheduler from empty state
-    pub fn new(tx_data: TxData<DL>, verifier: TransactionScriptsVerifier<DL>) -> Self {
+    pub fn new(
+        tx_data: TxData<DL>,
+        script_version: ScriptVersion,
+        syscalls: TransactionScriptsSyscallsGenerator<DL>,
+    ) -> Self {
         Self {
             tx_data,
-            verifier,
+            script_version,
+            syscalls,
             total_cycles: 0,
             next_vm_id: FIRST_VM_ID,
             next_pipe_slot: FIRST_PIPE_SLOT,
@@ -94,12 +102,14 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     /// Resume a previously suspended scheduler state
     pub fn resume(
         tx_data: TxData<DL>,
-        verifier: TransactionScriptsVerifier<DL>,
+        script_version: ScriptVersion,
+        syscalls: TransactionScriptsSyscallsGenerator<DL>,
         full: FullSuspendedState,
     ) -> Self {
         Self {
             tx_data,
-            verifier,
+            script_version,
+            syscalls,
             total_cycles: full.total_cycles,
             next_vm_id: full.next_vm_id,
             next_pipe_slot: full.next_pipe_slot,
@@ -739,10 +749,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         // The code here looks slightly weird, since I don't want to copy over all syscall
         // impls here again. Ideally, this scheduler package should be merged with ckb-script,
         // or simply replace ckb-script. That way, the quirks here will be eliminated.
-        let version = self
-            .verifier
-            .select_version(&self.tx_data.script_group.script)
-            .map_err(|e| Error::Unexpected(format!("Select version error: {:?}", e)))?;
+        let version = self.script_version;
         // log::debug!("Creating VM {} using version {:?}", id, version);
         let core_machine = AsmCoreMachine::new(
             version.vm_isa(),
@@ -751,7 +758,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             u64::max_value(),
         );
         let machine_context =
-            MachineContext::new(*id, self.message_box.clone(), self.tx_data.clone());
+            MachineContext::new(*id, self.message_box.clone(), self.tx_data.clone(), version);
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles))
             // ckb-vm iterates syscalls in insertion order, by putting
@@ -759,17 +766,9 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             // syscalls with implementations from MachineContext. For example,
             // we can override load_cell_data syscall with a new implementation.
             .syscall(Box::new(machine_context.clone()));
-        let syscalls = self.verifier.generate_syscalls(
-            // Skip current spawn implementation
-            if version == ScriptVersion::V2 {
-                ScriptVersion::V1
-            } else {
-                version
-            },
-            &self.tx_data.script_group,
-            Default::default(),
-        );
-        let machine_builder = syscalls
+        let machine_builder = self
+            .syscalls
+            .generate_root_syscalls(version, &self.tx_data.script_group, Default::default())
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
