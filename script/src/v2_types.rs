@@ -100,6 +100,7 @@ pub enum Message {
     PipeRead(VmId, PipeIoArgs),
     PipeWrite(VmId, PipeIoArgs),
     InheritedFileDescriptor(VmId, PipeIoArgs),
+    Close(VmId, PipeId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

@@ -492,6 +492,16 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         .store64(&length_addr, &actual_length)?;
                     machine.machine.set_register(A0, SUCCESS as u64);
                 }
+                Message::Close(vm_id, fd) => {
+                    self.ensure_vms_instantiated(&[vm_id])?;
+                    let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                    if self.pipes.get(&fd) != Some(&vm_id) {
+                        machine.machine.set_register(A0, INVALID_PIPE as u64);
+                    } else {
+                        self.pipes.remove(&fd);
+                        machine.machine.set_register(A0, SUCCESS as u64);
+                    }
+                }
             }
         }
         Ok(())

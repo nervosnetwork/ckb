@@ -474,8 +474,12 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     }
 
     fn close<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        // TODO
-        unimplemented!()
+        let pipe = PipeId(machine.registers()[A0].to_u64());
+        self.message_box
+            .lock()
+            .expect("lock")
+            .push(Message::Close(self.id, pipe));
+        Err(Error::External("YIELD".to_string()))
     }
 }
 
