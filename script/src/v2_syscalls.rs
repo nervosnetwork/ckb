@@ -11,7 +11,7 @@ use ckb_vm::{
     bytes::Bytes,
     machine::SupportMachine,
     memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
-    registers::{A0, A1, A2, A3, A4, A5, A7},
+    registers::{A0, A1, A2, A3, A4, A5, A6, A7},
     snapshot2::{DataSource, Snapshot2Context},
     syscalls::Syscalls,
     Error, Register,
@@ -220,6 +220,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     fn spawn<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
         let index = machine.registers()[A0].to_u64();
         let source = machine.registers()[A1].to_u64();
+        let place = machine.registers()[A2].to_u64(); // TODO: support reading data from witness
 
         let data_piece_id = match DataPieceId::try_from((source, index)) {
             Ok(id) => id,
@@ -235,13 +236,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             }
         };
 
-        let bounds = machine.registers()[A2].to_u64();
+        let bounds = machine.registers()[A3].to_u64();
         let offset = bounds >> 32;
         let length = bounds as u32 as u64;
 
         let argv = {
-            let argc = machine.registers()[A3].to_u64();
-            let mut argv_addr = machine.registers()[A4].to_u64();
+            let argc = machine.registers()[A4].to_u64();
+            let mut argv_addr = machine.registers()[A5].to_u64();
             let mut argv_vec = Vec::with_capacity(argc as usize);
             for _ in 0..argc {
                 let target_addr = machine
@@ -256,7 +257,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         };
 
         let (instance_id_addr, pipes) = {
-            let spgs_addr = machine.registers()[A5].to_u64();
+            let spgs_addr = machine.registers()[A6].to_u64();
             let instance_id_addr_addr = spgs_addr;
             let instance_id_addr = machine
                 .memory_mut()
