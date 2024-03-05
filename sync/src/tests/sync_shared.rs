@@ -181,6 +181,11 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
             .build()
             .unwrap();
         let chain_controller = start_chain_services(pack.take_chain_services_builder());
+
+        while chain_controller.is_verifying_unverified_blocks_on_startup() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
         (
             SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
             chain_controller,
