@@ -108,39 +108,19 @@ impl TxPoolService {
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                 let conflicts = if tx_pool.enable_rbf() {
-                    let rbf_res = tx_pool.check_rbf(&snapshot, &entry);
-                    debug!(
-                        "rbf_res is error: {}, remote: {}, tx: {}",
-                        rbf_res.is_err(),
-                        remote,
-                        entry.proposal_short_id()
-                    );
-                    if rbf_res.is_err() && remote {
-                        // if RBF is enabled, but `check_rbf` returned an Err,
-                        // means RBF check failed with conflicts, we record remote tx into conflicts pool
-                        tx_pool.record_conflict(entry.transaction().clone());
-                        return Ok(());
-                    }
-                    rbf_res?
+                    tx_pool.check_rbf(&snapshot, &entry)?
                 } else {
                     // RBF is disabled, but we found conflicts, we put old entry into conflicts before return Err
-                    let conflicted_outpoints =
+                    let conflicted_outpoint =
                         tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
                     debug!(
                         "conflicted_outpoints count: {}, remote: {}, tx: {}",
-                        conflicted_outpoints.len(),
+                        conflicted_outpoint.is_some(),
                         remote,
                         entry.proposal_short_id()
                     );
-                    if !conflicted_outpoints.is_empty() {
-                        if remote {
-                            tx_pool.record_conflict(entry.transaction().clone());
-                            return Ok(());
-                        } else {
-                            return Err(Reject::Resolve(OutPointError::Dead(
-                                conflicted_outpoints.into_iter().next().unwrap(),
-                            )));
-                        }
+                    if let Some(outpoint) = conflicted_outpoint {
+                        return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
                     }
                     HashSet::new()
                 };
@@ -293,7 +273,7 @@ impl TxPoolService {
                         );
                         if conflicts.is_empty() {
                             // this mean one input's outpoint is dead, but there is no direct conflicted tx in tx_pool
-                            // we should reject it directly and we don't need to put it into conflicts pool
+                            // we should reject it directly and don't need to put it into conflicts pool
                             error!(
                                 "{} is resolved as Dead, but there is no conflicted tx",
                                 rtx.transaction.proposal_short_id()
@@ -302,7 +282,8 @@ impl TxPoolService {
                         }
                         // we also return Ok here, so that the entry will be continue to be verified before submit
                         // we only want to put it into conflicts pool after the verification stage passed
-                        // then we will handle the conflicted txs in `submit_entry`
+                        // then we will double-check conflicts txs in `submit_entry`
+
                         Ok((tip_hash, rtx, status, fee, tx_size))
                     }
                     Err(err) => Err(err),
@@ -486,6 +467,16 @@ impl TxPoolService {
                                 | Reject::RBFRejected(..)
                         ) {
                             self.put_recent_reject(&tx_hash, reject).await;
+                        }
+
+                        if matches!(
+                            reject,
+                            Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_))
+                        ) {
+                            let mut tx_pool = self.tx_pool.write().await;
+                            if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
+                                tx_pool.record_conflict(tx);
+                            }
                         }
                     }
                 }

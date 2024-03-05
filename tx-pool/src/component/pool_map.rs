@@ -292,10 +292,9 @@ impl PoolMap {
             .collect()
     }
 
-    pub(crate) fn find_conflict_outpoint(&self, tx: &TransactionView) -> HashSet<OutPoint> {
+    pub(crate) fn find_conflict_outpoint(&self, tx: &TransactionView) -> Option<OutPoint> {
         tx.input_pts_iter()
-            .filter_map(|out_point| self.edges.get_input_ref(&out_point).map(|_| out_point))
-            .collect()
+            .find_map(|out_point| self.edges.get_input_ref(&out_point).map(|_| out_point))
     }
 
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {

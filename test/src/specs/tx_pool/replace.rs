@@ -1018,7 +1018,6 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     info!("Generate 2 txs with same input");
     let tx1 = node0.new_transaction(tx_hash_0.clone());
 
-    //let tx2_temp = node0.new_transaction(tx_hash_0);
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(90).pack())
         .build();
@@ -1065,7 +1064,7 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
 
     let res = node1.get_transaction(tx2.hash());
-    assert_eq!(res.status, Status::Unknown);
+    assert_eq!(res.status, Status::Rejected);
     let res = node1.get_transaction(tx1.hash());
     assert_eq!(res.status, Status::Pending);
     assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().unpack()]);

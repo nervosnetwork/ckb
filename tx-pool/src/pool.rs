@@ -175,16 +175,6 @@ impl TxPool {
         );
     }
 
-    pub(crate) fn remove_conflict(&mut self, tx: &TransactionView) {
-        let short_id = tx.proposal_short_id();
-        self.conflicts_cache.pop(&short_id);
-        debug!(
-            "remove_conflict {:?} now cache size: {}",
-            short_id,
-            self.conflicts_cache.len()
-        );
-    }
-
     /// Returns tx with cycles corresponding to the id.
     pub(crate) fn get_tx_with_cycles(
         &self,
