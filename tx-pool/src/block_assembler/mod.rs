@@ -193,6 +193,9 @@ impl BlockAssembler {
             let max_block_cycles = consensus.max_block_cycles();
             let (txs, _txs_size, _cycles) =
                 tx_pool_reader.package_txs(max_block_cycles, txs_size_limit);
+            for tx in txs.iter() {
+                debug!("package tx: {:?}", tx.proposal_short_id());
+            }
             (proposals, txs, basic_size)
         };
 

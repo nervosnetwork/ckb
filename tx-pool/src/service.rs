@@ -818,7 +818,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: short_ids,
         }) => {
-            debug!("Receive fetch_txs for short_ids: {:?}", short_ids);
+            //debug!("Receive fetch_txs for short_ids: {:?}", short_ids);
             let tx_pool = service.tx_pool.read().await;
             let txs = short_ids
                 .into_iter()
@@ -836,10 +836,10 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: short_ids,
         }) => {
-            debug!(
-                "Receive fetch_txs_with_cycles for short_ids: {:?}",
-                short_ids
-            );
+            // debug!(
+            //     "Receive fetch_txs_with_cycles for short_ids: {:?}",
+            //     short_ids
+            // );
             let tx_pool = service.tx_pool.read().await;
             let txs = short_ids
                 .into_iter()
