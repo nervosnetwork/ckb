@@ -17,9 +17,9 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
         &args.config.db,
         None,
         async_handle.clone(),
+        args.consensus.clone(),
     )?;
     let (shared, _) = shared_builder
-        .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool.clone())
         .build()?;
 
@@ -44,11 +44,9 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
             &tmp_db_config,
             None,
             async_handle,
+            args.consensus,
         )?;
-        let (tmp_shared, mut pack) = shared_builder
-            .consensus(args.consensus)
-            .tx_pool_config(args.config.tx_pool)
-            .build()?;
+        let (tmp_shared, mut pack) = shared_builder.tx_pool_config(args.config.tx_pool).build()?;
         let chain = ChainService::new(tmp_shared, pack.take_proposal_table());
 
         if let Some((from, to)) = args.profile {

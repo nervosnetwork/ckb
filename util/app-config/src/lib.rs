@@ -15,7 +15,7 @@ pub use app_config::{
     AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
 };
 pub use args::{
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
+    DaemonArgs, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
     ResetDataArgs, RunArgs, StatsArgs,
 };
 pub use configs::*;
@@ -98,6 +98,8 @@ impl Setup {
             overwrite_chain_spec: matches.get_flag(cli::ARG_OVERWRITE_CHAIN_SPEC),
             chain_spec_hash,
             indexer: matches.get_flag(cli::ARG_INDEXER),
+            #[cfg(not(target_os = "windows"))]
+            daemon: matches.get_flag(cli::ARG_DAEMON),
         })
     }
 
@@ -107,12 +109,14 @@ impl Setup {
         let config = self.config.into_ckb()?;
         let check = matches.get_flag(cli::ARG_MIGRATE_CHECK);
         let force = matches.get_flag(cli::ARG_FORCE);
+        let include_background = matches.get_flag(cli::ARG_INCLUDE_BACKGROUND);
 
         Ok(MigrateArgs {
             config,
             consensus,
             check,
             force,
+            include_background,
         })
     }
 
@@ -218,6 +222,18 @@ impl Setup {
         })
     }
 
+    /// Executes `ckb daemon`.
+    pub fn daemon(self, matches: &ArgMatches) -> Result<DaemonArgs, ExitCode> {
+        let check = matches.get_flag(cli::ARG_DAEMON_CHECK);
+        let stop = matches.get_flag(cli::ARG_DAEMON_STOP);
+        let pid_file = Setup::daemon_pid_file_path(matches)?;
+        Ok(DaemonArgs {
+            check,
+            stop,
+            pid_file,
+        })
+    }
+
     /// Executes `ckb init`.
     pub fn init(matches: &ArgMatches) -> Result<InitArgs, ExitCode> {
         if matches.contains_id("list-specs") {
@@ -306,6 +322,7 @@ impl Setup {
         let config = self.config.into_ckb()?;
         let data_dir = config.data_dir;
         let db_path = config.db.path;
+        let indexer_path = config.indexer.store;
         let network_config = config.network;
         let network_dir = network_config.path.clone();
         let network_peer_store_path = network_config.peer_store_path();
@@ -315,6 +332,7 @@ impl Setup {
         let force = matches.get_flag(cli::ARG_FORCE);
         let all = matches.get_flag(cli::ARG_ALL);
         let database = matches.get_flag(cli::ARG_DATABASE);
+        let indexer = matches.get_flag(cli::ARG_INDEXER);
         let network = matches.get_flag(cli::ARG_NETWORK);
         let network_peer_store = matches.get_flag(cli::ARG_NETWORK_PEER_STORE);
         let network_secret_key = matches.get_flag(cli::ARG_NETWORK_SECRET_KEY);
@@ -324,12 +342,14 @@ impl Setup {
             force,
             all,
             database,
+            indexer,
             network,
             network_peer_store,
             network_secret_key,
             logs,
             data_dir,
             db_path,
+            indexer_path,
             network_dir,
             network_peer_store_path,
             network_secret_key_path,
@@ -345,6 +365,12 @@ impl Setup {
         };
         std::fs::create_dir_all(&config_dir)?;
         Ok(config_dir)
+    }
+
+    /// Resolves the pid file path for ckb from the command line arguments.
+    pub fn daemon_pid_file_path(matches: &ArgMatches) -> Result<PathBuf, ExitCode> {
+        let root_dir = Self::root_dir_from_matches(matches)?;
+        Ok(root_dir.join("data/daemon/ckb-run.pid"))
     }
 
     /// Loads the chain spec.

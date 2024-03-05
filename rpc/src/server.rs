@@ -88,10 +88,8 @@ impl RpcServer {
     ) -> Result<SocketAddr, AnyError> {
         let stream_config = StreamServerConfig::default()
             .with_keep_alive(true)
-            .with_pipeline_size(4)
-            .with_shutdown(async move {
-                new_tokio_exit_rx().cancelled().await;
-            });
+            .with_channel_size(4)
+            .with_pipeline_size(4);
 
         // HTTP and WS server.
         let post_router = post(handle_jsonrpc::<Option<Session>>);
@@ -102,14 +100,24 @@ impl RpcServer {
         };
         let method_router = post_router.merge(get_router);
 
-        let app = Router::new()
+        let mut app = Router::new()
             .route("/", method_router.clone())
             .route("/*path", method_router)
             .route("/ping", get(ping_handler))
             .layer(Extension(Arc::clone(rpc)))
             .layer(CorsLayer::permissive())
             .layer(TimeoutLayer::new(Duration::from_secs(30)))
-            .layer(Extension(stream_config));
+            .layer(Extension(stream_config.clone()));
+
+        if enable_websocket {
+            let ws_config: StreamServerConfig =
+                stream_config
+                    .with_keep_alive(true)
+                    .with_shutdown(async move {
+                        new_tokio_exit_rx().cancelled().await;
+                    });
+            app = app.layer(Extension(ws_config));
+        }
 
         let (tx_addr, rx_addr) = tokio::sync::oneshot::channel::<SocketAddr>();
 

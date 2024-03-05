@@ -57,7 +57,7 @@ impl AddrManager {
             let addr_info: AddrInfo = self.id_to_info[&self.random_ids[i]].to_owned();
             if let Some(socket_addr) = multiaddr_to_socketaddr(&addr_info.addr) {
                 let ip = socket_addr.ip();
-                let is_unique_ip = duplicate_ips.insert(ip);
+                let is_unique_ip = !duplicate_ips.contains(&ip);
                 // A trick to make our tests work
                 // TODO remove this after fix the network tests.
                 let is_test_ip = ip.is_unspecified() || ip.is_loopback();
@@ -65,6 +65,7 @@ impl AddrManager {
                     && addr_info.is_connectable(now_ms)
                     && filter(&addr_info)
                 {
+                    duplicate_ips.insert(ip);
                     addr_infos.push(addr_info);
                 }
                 if addr_infos.len() == count {

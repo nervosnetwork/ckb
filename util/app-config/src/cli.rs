@@ -32,7 +32,8 @@ pub const CMD_GEN_SECRET: &str = "gen";
 pub const CMD_FROM_SECRET: &str = "from-secret";
 /// Subcommand `migrate`.
 pub const CMD_MIGRATE: &str = "migrate";
-
+/// Subcommand `daemon`
+pub const CMD_DAEMON: &str = "daemon";
 /// Command line argument `--config-dir`.
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 /// Command line argument `--format`.
@@ -59,6 +60,8 @@ pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
 /// Command line argument `--force`.
 pub const ARG_FORCE: &str = "force";
+/// Command line argument `--include-background`.
+pub const ARG_INCLUDE_BACKGROUND: &str = "include-background";
 /// Command line argument `--log-to`.
 pub const ARG_LOG_TO: &str = "log-to";
 /// Command line argument `--bundled`.
@@ -73,6 +76,8 @@ pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
 pub const ARG_BA_MESSAGE: &str = "ba-message";
 /// Command line argument `--ba-advanced`.
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
+/// Command line argument `--daemon`
+pub const ARG_DAEMON: &str = "daemon";
 /// Command line argument `--indexer`.
 pub const ARG_INDEXER: &str = "indexer";
 /// Command line argument `--from`.
@@ -111,13 +116,17 @@ pub const ARG_OVERWRITE_CHAIN_SPEC: &str = "overwrite-spec";
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 /// Command line argument `--check`.
 pub const ARG_MIGRATE_CHECK: &str = "check";
+/// Command line argument `daemon --check`
+pub const ARG_DAEMON_CHECK: &str = "check";
+/// Command line argument `daemon --stop`
+pub const ARG_DAEMON_STOP: &str = "stop";
 
 /// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
 
 /// return root clap Command
 pub fn basic_app() -> Command {
-    Command::new(BIN_NAME)
+    let command = Command::new(BIN_NAME)
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")
         .subcommand_required(true)
@@ -143,7 +152,12 @@ pub fn basic_app() -> Command {
         .subcommand(stats())
         .subcommand(reset_data())
         .subcommand(peer_id())
-        .subcommand(migrate())
+        .subcommand(migrate());
+
+    #[cfg(not(target_os = "windows"))]
+    let command = command.subcommand(daemon());
+
+    command
 }
 
 /// Parse the command line arguments by supplying the version information.
@@ -161,7 +175,7 @@ pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches) {
 }
 
 fn run() -> Command {
-    Command::new(CMD_RUN)
+    let command = Command::new(CMD_RUN)
         .about("Run CKB node")
         .arg(
             Arg::new(ARG_BA_ADVANCED)
@@ -198,11 +212,23 @@ fn run() -> Command {
             .long(ARG_INDEXER)
             .action(clap::ArgAction::SetTrue)
             .help("Start the built-in indexer service"),
-        )
+        );
+
+    #[cfg(not(target_os = "windows"))]
+    let command = command.arg(
+        Arg::new(ARG_DAEMON)
+            .long(ARG_DAEMON)
+            .action(clap::ArgAction::SetTrue)
+            .help(
+                "Starts ckb as a daemon, \
+                which will run in the background and output logs to the specified log file",
+            ),
+    );
+    command
 }
 
 fn miner() -> Command {
-    Command::new(CMD_MINER).about("Run CKB miner").arg(
+    Command::new(CMD_MINER).about("Runs ckb miner").arg(
         Arg::new(ARG_LIMIT)
             .short('l')
             .long(ARG_LIMIT)
@@ -241,6 +267,12 @@ fn reset_data() -> Command {
                 .long(ARG_DATABASE)
                 .action(clap::ArgAction::SetTrue)
                 .help("Delete only `data/db`"),
+        )
+        .arg(
+            Arg::new(ARG_INDEXER)
+                .long(ARG_INDEXER)
+                .action(clap::ArgAction::SetTrue)
+                .help("Delete only `data/indexer/store`"),
         )
         .arg(
             Arg::new(ARG_NETWORK)
@@ -369,6 +401,31 @@ fn migrate() -> Command {
                 .action(clap::ArgAction::SetTrue)
                 .conflicts_with(ARG_MIGRATE_CHECK)
                 .help("Migrate without interactive prompt"),
+        )
+        .arg(
+            Arg::new(ARG_INCLUDE_BACKGROUND)
+                .long(ARG_INCLUDE_BACKGROUND)
+                .action(clap::ArgAction::SetTrue)
+                .help("Whether include background migrations"),
+        )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn daemon() -> Command {
+    Command::new(CMD_DAEMON)
+        .about("Runs ckb daemon command")
+        .arg(
+            Arg::new(ARG_DAEMON_CHECK)
+                .long(ARG_DAEMON_CHECK)
+                .action(clap::ArgAction::SetTrue)
+                .help("Check the daemon status"),
+        )
+        .arg(
+            Arg::new(ARG_DAEMON_STOP)
+                .long(ARG_DAEMON_STOP)
+                .action(clap::ArgAction::SetTrue)
+                .conflicts_with(ARG_DAEMON_CHECK)
+                .help("Stop the daemon process, both the miner and the node"),
         )
 }
 

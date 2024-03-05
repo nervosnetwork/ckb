@@ -9,7 +9,9 @@ use ckb_db_schema::{
 };
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
-    core::{capacity_bytes, BlockBuilder, BlockExt, Capacity, TransactionBuilder},
+    core::{
+        capacity_bytes, hardfork::HardForks, BlockBuilder, BlockExt, Capacity, TransactionBuilder,
+    },
     packed::{self, Bytes},
     prelude::*,
     utilities::DIFF_TWO,
@@ -149,15 +151,15 @@ fn test_mock_migration() {
     drop(db_txn);
     drop(db);
 
-    let mg = Migrate::new(tmp_dir.as_ref().to_path_buf());
+    let mg = Migrate::new(tmp_dir.as_ref().to_path_buf(), HardForks::new_mirana());
 
     let db = mg.open_bulk_load_db().unwrap().unwrap();
 
-    mg.migrate(db).unwrap();
+    mg.migrate(db, false).unwrap();
 
-    let mg2 = Migrate::new(tmp_dir.as_ref().to_path_buf());
+    let mg2 = Migrate::new(tmp_dir.as_ref().to_path_buf(), HardForks::new_mirana());
 
     let rdb = mg2.open_read_only_db().unwrap().unwrap();
 
-    assert_eq!(mg2.check(&rdb), std::cmp::Ordering::Equal)
+    assert_eq!(mg2.check(&rdb, true), std::cmp::Ordering::Equal)
 }

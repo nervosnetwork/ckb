@@ -1,7 +1,7 @@
 //! Tx-pool background service
 
 use crate::block_assembler::{self, BlockAssembler};
-use crate::callback::{Callback, Callbacks, ProposedCallback, RejectCallback};
+use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
 use crate::component::pool_map::{PoolEntry, Status};
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
@@ -437,7 +437,7 @@ impl TxPoolServiceBuilder {
     }
 
     /// Register new pending callback
-    pub fn register_pending(&mut self, callback: Callback) {
+    pub fn register_pending(&mut self, callback: PendingCallback) {
         self.callbacks.register_pending(callback);
     }
 
@@ -449,11 +449,6 @@ impl TxPoolServiceBuilder {
     /// Register new proposed callback
     pub fn register_proposed(&mut self, callback: ProposedCallback) {
         self.callbacks.register_proposed(callback);
-    }
-
-    /// Register new committed callback
-    pub fn register_committed(&mut self, callback: Callback) {
-        self.callbacks.register_committed(callback);
     }
 
     /// Register new abandon callback
@@ -932,8 +927,8 @@ impl TxPoolService {
             pending_size: tx_pool.pool_map.pending_size(),
             proposed_size: tx_pool.pool_map.proposed_size(),
             orphan_size: orphan.len(),
-            total_tx_size: tx_pool.total_tx_size,
-            total_tx_cycles: tx_pool.total_tx_cycles,
+            total_tx_size: tx_pool.pool_map.total_tx_size,
+            total_tx_cycles: tx_pool.pool_map.total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
             min_rbf_rate: self.tx_pool_config.min_rbf_rate,
             last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
@@ -998,44 +993,29 @@ impl TxPoolService {
             match target {
                 PlugTarget::Pending => {
                     for entry in entries {
-                        if let Err(err) = tx_pool.add_pending(entry) {
-                            error!("Plug entry add_pending error {}", err);
-                        }
+                        tx_pool
+                            .add_pending(entry)
+                            .expect("Plug entry add_pending error");
                     }
                 }
                 PlugTarget::Proposed => {
                     for entry in entries {
-                        if let Err(err) = tx_pool.add_proposed(entry) {
-                            error!("Plug entry add_proposed error {}", err);
-                        }
+                        tx_pool
+                            .add_proposed(entry)
+                            .expect("Plug entry add_proposed error");
                     }
                 }
             };
         }
 
         if self.should_notify_block_assembler() {
-            match target {
-                PlugTarget::Pending => {
-                    if self
-                        .block_assembler_sender
-                        .send(BlockAssemblerMessage::Pending)
-                        .await
-                        .is_err()
-                    {
-                        error!("block_assembler receiver dropped");
-                    }
-                }
-                PlugTarget::Proposed => {
-                    if self
-                        .block_assembler_sender
-                        .send(BlockAssemblerMessage::Proposed)
-                        .await
-                        .is_err()
-                    {
-                        error!("block_assembler receiver dropped");
-                    }
-                }
+            let msg = match target {
+                PlugTarget::Pending => BlockAssemblerMessage::Pending,
+                PlugTarget::Proposed => BlockAssemblerMessage::Proposed,
             };
+            if self.block_assembler_sender.send(msg).await.is_err() {
+                error!("block_assembler receiver dropped");
+            }
         }
     }
 

@@ -7,8 +7,9 @@ use crate::component::links::{Relation, TxLinksMap};
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use crate::TxEntry;
-use ckb_logger::{debug, trace};
+use ckb_logger::{debug, error, trace};
 use ckb_types::core::error::OutPointError;
+use ckb_types::core::Cycle;
 use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -66,6 +67,10 @@ pub struct PoolMap {
     /// All the parent/children relationships
     pub(crate) links: TxLinksMap,
     pub(crate) max_ancestors_count: usize,
+    // sum of all tx_pool tx's virtual sizes.
+    pub(crate) total_tx_size: usize,
+    // sum of all tx_pool tx's cycles.
+    pub(crate) total_tx_cycles: Cycle,
 }
 
 impl PoolMap {
@@ -75,6 +80,8 @@ impl PoolMap {
             edges: Edges::default(),
             links: TxLinksMap::new(),
             max_ancestors_count,
+            total_tx_size: 0,
+            total_tx_cycles: 0,
         }
     }
 
@@ -193,6 +200,7 @@ impl PoolMap {
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
         self.track_entry_statics();
+        self.update_stat_for_add_tx(entry.size, entry.cycles);
         Ok(true)
     }
 
@@ -217,6 +225,7 @@ impl PoolMap {
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
+            self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
             entry.inner
         })
     }
@@ -332,6 +341,8 @@ impl PoolMap {
         self.entries = MultiIndexPoolEntryMap::default();
         self.edges.clear();
         self.links.clear();
+        self.total_tx_size = 0;
+        self.total_tx_cycles = 0;
     }
 
     pub(crate) fn score_sorted_iter_by(
@@ -513,8 +524,7 @@ impl PoolMap {
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
-        let inputs = entry.transaction().input_pts_iter();
-        for i in inputs {
+        for i in entry.transaction().input_pts_iter() {
             // release input record
             self.edges.remove_input(&i);
         }
@@ -554,5 +564,46 @@ impl PoolMap {
                 .proposed
                 .set(self.proposed_size() as i64);
         }
+    }
+
+    /// Update size and cycles statistics for add tx
+    fn update_stat_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
+        let total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
+            error!(
+                "total_tx_size {} overflown by add {}",
+                self.total_tx_size, tx_size
+            );
+            self.total_tx_size
+        });
+        let total_tx_cycles = self.total_tx_cycles.checked_add(cycles).unwrap_or_else(|| {
+            error!(
+                "total_tx_cycles {} overflown by add {}",
+                self.total_tx_cycles, cycles
+            );
+            self.total_tx_cycles
+        });
+        self.total_tx_size = total_tx_size;
+        self.total_tx_cycles = total_tx_cycles;
+    }
+
+    /// Update size and cycles statistics for remove tx
+    /// cycles overflow is possible, currently obtaining cycles is not accurate
+    fn update_stat_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
+        let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
+            error!(
+                "total_tx_size {} overflown by sub {}",
+                self.total_tx_size, tx_size
+            );
+            0
+        });
+        let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
+            error!(
+                "total_tx_cycles {} overflown by sub {}",
+                self.total_tx_cycles, cycles
+            );
+            0
+        });
+        self.total_tx_size = total_tx_size;
+        self.total_tx_cycles = total_tx_cycles;
     }
 }

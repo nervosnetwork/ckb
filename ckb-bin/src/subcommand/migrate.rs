@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use crate::helper::prompt;
 
 pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
-    let migrate = Migrate::new(&args.config.db.path);
+    let migrate = Migrate::new(&args.config.db.path, args.consensus.hardfork_switch);
 
     {
         let read_only_db = migrate.open_read_only_db().map_err(|e| {
@@ -15,7 +15,9 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
         })?;
 
         if let Some(db) = read_only_db {
-            let db_status = migrate.check(&db);
+            // if there are only pending background migrations, they will run automatically
+            // so here we check with `include_background` as true
+            let db_status = migrate.check(&db, true);
             if matches!(db_status, Ordering::Greater) {
                 eprintln!(
                     "The database was created by a higher version CKB executable binary \n\
@@ -25,8 +27,12 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                 return Err(ExitCode::Failure);
             }
 
+            // `include_background` is default to false
+            let db_status = migrate.check(&db, args.include_background);
             if args.check {
                 if matches!(db_status, Ordering::Less) {
+                    // special for bash usage, return 0 means need run migration
+                    // if ckb migrate --check; then ckb migrate --force; fi
                     return Ok(());
                 } else {
                     return Err(ExitCode::Cli);
@@ -37,15 +43,16 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                 return Ok(());
             }
 
-            if migrate.require_expensive(&db) && !args.force {
+            if migrate.require_expensive(&db, args.include_background) && !args.force {
                 if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
                     let input = prompt("\
                     \n\
                     Doing migration will take quite a long time before CKB could work again.\n\
-                    Another choice is to delete all data, then synchronize them again.\n\
                     \n\
                     Once the migration started, the data will be no longer compatible with all older versions CKB,\n\
                     so we strongly recommended you to backup the old data before migrating.\n\
+                    \n\
+                    If the migration failed, try to delete all data and sync from scratch.\n\
                     \nIf you want to migrate the data, please input YES, otherwise, the current process will exit.\n\
                     > ",
                     );
@@ -67,7 +74,7 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
     })?;
 
     if let Some(db) = bulk_load_db_db {
-        migrate.migrate(db).map_err(|err| {
+        migrate.migrate(db, false).map_err(|err| {
             eprintln!("Run error: {err:?}");
             ExitCode::Failure
         })?;

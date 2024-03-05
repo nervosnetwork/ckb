@@ -35,6 +35,7 @@ use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
+use std::time::Instant;
 use std::{cmp, thread};
 
 type ProcessBlockRequest = Request<(Arc<BlockView>, Switch), Result<bool, Error>>;
@@ -236,9 +237,17 @@ impl ChainService {
                 select! {
                     recv(process_block_receiver) -> msg => match msg {
                         Ok(Request { responder, arguments: (block, verify) }) => {
+                            let instant = Instant::now();
+
                             let _ = tx_control.suspend_chunk_process();
                             let _ = responder.send(self.process_block(block, verify));
                             let _ = tx_control.continue_chunk_process();
+
+                            if let Some(metrics) = ckb_metrics::handle() {
+                                metrics
+                                    .ckb_block_process_duration
+                                    .observe(instant.elapsed().as_secs_f64());
+                            }
                         },
                         _ => {
                             error!("process_block_receiver closed");

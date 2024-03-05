@@ -623,6 +623,7 @@ pub trait ChainRpc {
     ///     "min_replace_fee": "0x16923f7f6a",
     ///     "tx_status": {
     ///       "block_hash": null,
+    ///       "block_number": null,
     ///       "status": "pending",
     ///       "reason": null
     ///     }
@@ -642,6 +643,7 @@ pub trait ChainRpc {
     ///     "cycles": "0x219",
     ///     "tx_status": {
     ///       "block_hash": null,
+    ///       "block_number": null,
     ///       "status": "pending",
     ///       "reason": null
     ///     }
@@ -2138,6 +2140,7 @@ impl ChainRpcImpl {
             };
             return Ok(TransactionWithStatus::with_committed(
                 None,
+                tx_info.block_number,
                 tx_info.block_hash.unpack(),
                 cycles,
                 None,
@@ -2185,6 +2188,7 @@ impl ChainRpcImpl {
 
             return Ok(TransactionWithStatus::with_committed(
                 Some(tx),
+                tx_info.block_number,
                 tx_info.block_hash.unpack(),
                 cycles,
                 None,

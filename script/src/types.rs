@@ -391,13 +391,13 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
         let mut snaps = Vec::with_capacity(vms.len());
         for mut vm in vms {
             let snapshot = make_snapshot(&mut vm.machine_mut().machine)
-                .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?;
+                .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?;
             let cycles = vm.cycles();
             let resume_point = match vm {
                 ResumableMachine::Initial(_) => ResumePoint::Initial,
                 ResumableMachine::Spawn(_, data) => (&data)
                     .try_into()
-                    .map_err(|e| ScriptError::VMInternalError(format!("{e:?}")).unknown_source())?,
+                    .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?,
             };
             snaps.push((snapshot, cycles, resume_point));
         }

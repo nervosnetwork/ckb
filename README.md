@@ -1,6 +1,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
-[![Version](https://img.shields.io/badge/version-0.113.1-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
+[![Version](https://img.shields.io/badge/version-0.114.0-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/t/where-to-discuss-ckb-and-how-to-ask-for-support/6024)
 
 master | develop
@@ -37,8 +37,6 @@ Nervos CKB is released under the terms of the MIT license. See [COPYING](COPYING
 - Testnet Pudge: Use the [latest release](https://github.com/nervosnetwork/ckb/releases/latest) and run `ckb init --chain testnet` to initialize the node.
     - Pudge is active since the epoch 3113.
 
-See more networks to join in the [wiki](https://github.com/nervosnetwork/ckb/wiki/Chains).
-
 
 ## Mining
 
@@ -70,5 +68,6 @@ Mainnet Mirana or Testnet Pudge, switch to the branch [master].
 - [Platform Support](docs/platform-support.md)
 - [How to Download or Build CKB Binary](https://docs.nervos.org/docs/basics/guides/get-ckb)
 - [How to Download or Build CKB Binary on Windows](https://docs.nervos.org/docs/basics/guides/ckb-on-windows)
+- [How to test miner on dev chain](docs/dev-miner.md)
 
 You can find a more comprehensive document website at [https://docs.nervos.org](https://docs.nervos.org).

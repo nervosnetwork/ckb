@@ -10,8 +10,9 @@ pub fn export(args: ExportArgs, async_handle: Handle) -> Result<(), ExitCode> {
         &args.config.db,
         None,
         async_handle,
+        args.consensus,
     )?;
-    let (shared, _) = builder.consensus(args.consensus).build()?;
+    let (shared, _) = builder.build()?;
     Export::new(shared, args.target).execute().map_err(|err| {
         eprintln!("Export error: {err:?}");
         ExitCode::Failure

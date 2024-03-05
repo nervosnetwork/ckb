@@ -54,6 +54,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let tx_pool_builder = pack.take_tx_pool_builder();
     tx_pool_builder.start(network_controller.clone());
 
+    info!("CKB service started ...");
     ctrlc::set_handler(|| {
         info!("Trapped exit signal, exiting...");
         broadcast_exit_signals();

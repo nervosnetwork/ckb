@@ -17,6 +17,17 @@ pub struct ExportArgs {
     pub target: PathBuf,
 }
 
+#[derive(Debug)]
+/// Parsed command line arguments for `ckb daemon`.
+pub struct DaemonArgs {
+    /// Check the daemon status
+    pub check: bool,
+    /// Stop daemon process
+    pub stop: bool,
+    /// The pid file path
+    pub pid_file: PathBuf,
+}
+
 /// Parsed command line arguments for `ckb import`.
 pub struct ImportArgs {
     /// Parsed `ckb.toml`.
@@ -45,6 +56,9 @@ pub struct RunArgs {
     pub chain_spec_hash: Byte32,
     /// Whether start indexer, default false
     pub indexer: bool,
+    /// Whether start in daemon mode
+    #[cfg(not(target_os = "windows"))]
+    pub daemon: bool,
 }
 
 /// Enable profile on blocks in the range `[from, to]`.
@@ -146,6 +160,8 @@ pub struct ResetDataArgs {
     pub all: bool,
     /// Reset database.
     pub database: bool,
+    /// Reset indexer.
+    pub indexer: bool,
     /// Reset all network data, including the secret key and peer store.
     pub network: bool,
     /// Reset network peer store.
@@ -158,6 +174,8 @@ pub struct ResetDataArgs {
     pub data_dir: PathBuf,
     /// The path to the database directory.
     pub db_path: PathBuf,
+    /// The path to the indexer directory.
+    pub indexer_path: PathBuf,
     /// The path to the network data directory.
     pub network_dir: PathBuf,
     /// The path to the network peer store directory.
@@ -184,6 +202,8 @@ pub struct MigrateArgs {
     pub check: bool,
     /// Do migration without interactive prompt.
     pub force: bool,
+    /// Whether include background migrations
+    pub include_background: bool,
 }
 
 impl CustomizeSpec {

@@ -1,6 +1,7 @@
 use ckb_channel::TrySendError;
 use ckb_logger::{debug, info, trace, warn};
 use ckb_util::Mutex;
+use std::sync::atomic::AtomicBool;
 use tokio_util::sync::CancellationToken;
 
 struct CkbServiceHandles {
@@ -34,6 +35,9 @@ static CKB_HANDLES: once_cell::sync::Lazy<Mutex<CkbServiceHandles>> =
         })
     });
 
+static RECEIVED_STOP_SIGNAL: once_cell::sync::Lazy<AtomicBool> =
+    once_cell::sync::Lazy::new(AtomicBool::default);
+
 static TOKIO_EXIT: once_cell::sync::Lazy<CancellationToken> =
     once_cell::sync::Lazy::new(CancellationToken::new);
 
@@ -52,9 +56,15 @@ pub fn new_crossbeam_exit_rx() -> ckb_channel::Receiver<()> {
     rx
 }
 
+/// Check if the ckb process has received stop signal
+pub fn has_received_stop_signal() -> bool {
+    RECEIVED_STOP_SIGNAL.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Broadcast exit signals to all threads and all tokio tasks
 pub fn broadcast_exit_signals() {
     debug!("Received exit signal; broadcasting exit signal to all threads");
+    RECEIVED_STOP_SIGNAL.store(true, std::sync::atomic::Ordering::SeqCst);
     TOKIO_EXIT.cancel();
     CROSSBEAM_EXIT_SENDERS
         .lock()
@@ -68,7 +78,7 @@ pub fn broadcast_exit_signals() {
         });
 }
 
-/// Register a thread `JoinHandle` to  `CKB_HANDLES`
+/// Register a thread `JoinHandle` to `CKB_HANDLES`
 pub fn register_thread(name: &str, thread_handle: std::thread::JoinHandle<()>) {
     trace!("Registering thread {}", name);
     CKB_HANDLES

@@ -30,12 +30,12 @@ cli-test: prod # Run ckb command line usage bats test
 
 .PHONY: test
 test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
-	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
+	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --no-fail-fast --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
 	$(MAKE) doc-test
 
 .PHONY: quick-test
 quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
-	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored default
+	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --no-fail-fast --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored default
 	$(MAKE) doc-test
 
 .PHONY: cov-install-tools
