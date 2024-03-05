@@ -32,8 +32,8 @@ tokio = { version = "1.35.0", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 proptest = "1.0"
-ckb-db = { path = "../db", version = "= 0.114.0-pre" }
-ckb-store = { path = "../store", version = "= 0.114.0-pre" }
+ckb-db = { path = "../db", version = "= 0.114.0-pre", features = ["portable"] }
+ckb-store = { path = "../store", version = "= 0.114.0-pre", features = ["portable"] }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.114.0-pre" }
 tiny-keccak = { version = "2.0", features = ["sha3"] }
 ckb-crypto = { path = "../util/crypto", version = "= 0.114.0-pre" }
