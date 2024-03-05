@@ -328,7 +328,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         machine
                             .machine
                             .memory_mut()
-                            .store64(&args.instance_id_addr, &spawned_vm_id)?;
+                            .store64(&args.process_id_addr, &spawned_vm_id)?;
                         machine.machine.set_register(A0, SUCCESS as u64);
                     }
                 }

@@ -1,5 +1,3 @@
-// Syscall implementation
-
 use crate::{
     v2_types::{
         DataPieceId, Message, PipeArgs, PipeId, PipeIoArgs, SpawnArgs, TxData, VmId, WaitArgs,
@@ -261,11 +259,11 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             argv_addr = argv_addr.wrapping_add(8);
         }
 
-        let (instance_id_addr, pipes) = {
-            let instance_id_addr_addr = spgs_addr.wrapping_add(16);
-            let instance_id_addr = machine
+        let (process_id_addr, pipes) = {
+            let process_id_addr_addr = spgs_addr.wrapping_add(16);
+            let process_id_addr = machine
                 .memory_mut()
-                .load64(&Mac::REG::from_u64(instance_id_addr_addr))?
+                .load64(&Mac::REG::from_u64(process_id_addr_addr))?
                 .to_u64();
             let pipes_addr_addr = spgs_addr.wrapping_add(24);
             let mut pipes_addr = machine
@@ -287,7 +285,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                     pipes_addr += 8;
                 }
             }
-            (instance_id_addr, pipes)
+            (process_id_addr, pipes)
         };
 
         // We are fetching the actual cell here for some in-place validation
@@ -325,7 +323,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 length,
                 argv,
                 pipes,
-                instance_id_addr,
+                process_id_addr,
             },
         ));
 
@@ -357,7 +355,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     }
 
     // Fetch current instance ID
-    fn instance_id<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
+    fn process_id<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
         // TODO: charge cycles
         machine.set_register(A0, Mac::REG::from_u64(self.id));
         Ok(())
@@ -509,7 +507,7 @@ impl<
             // than currently assigned syscall numbers for spawn calls
             2601 => self.spawn(machine),
             2602 => self.wait(machine),
-            2603 => self.instance_id(machine),
+            2603 => self.process_id(machine),
             2604 => self.pipe(machine),
             2605 => self.pipe_write(machine),
             2606 => self.pipe_read(machine),

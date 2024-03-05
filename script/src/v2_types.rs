@@ -1,5 +1,3 @@
-// Core data structures here
-
 use crate::ScriptGroup;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::{cell::ResolvedTransaction, Cycle};
@@ -69,7 +67,7 @@ pub struct SpawnArgs {
     pub length: u64,
     pub argv: Vec<Bytes>,
     pub pipes: Vec<PipeId>,
-    pub instance_id_addr: u64,
+    pub process_id_addr: u64,
 }
 
 #[derive(Clone, Debug)]
