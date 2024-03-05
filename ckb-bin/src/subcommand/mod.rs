@@ -11,6 +11,7 @@ mod replay;
 mod reset_data;
 mod run;
 mod stats;
+mod truncate_block;
 
 #[cfg(not(target_os = "windows"))]
 pub use self::daemon::{check_process, daemon};

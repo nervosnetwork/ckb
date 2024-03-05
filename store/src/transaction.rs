@@ -253,6 +253,10 @@ impl StoreTransaction {
         )
     }
 
+    pub fn delete_block_ext(&self, block_hash: &packed::Byte32) -> Result<(), Error> {
+        self.delete(COLUMN_BLOCK_EXT, block_hash.as_slice())
+    }
+
     /// TODO(doc): @quake
     pub fn attach_block(&self, block: &BlockView) -> Result<(), Error> {
         let header = block.data().header();

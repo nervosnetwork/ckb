@@ -643,6 +643,7 @@ dependencies = [
  "ckb-migrate",
  "ckb-miner",
  "ckb-network",
+ "ckb-proposal-table",
  "ckb-resource",
  "ckb-shared",
  "ckb-stop-handler",

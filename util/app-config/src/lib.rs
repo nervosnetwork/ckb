@@ -16,7 +16,7 @@ pub use app_config::{
 };
 pub use args::{
     DaemonArgs, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
-    ResetDataArgs, RunArgs, StatsArgs,
+    ResetDataArgs, RunArgs, StatsArgs, TruncateBlockArgs,
 };
 pub use configs::*;
 pub use exit_code::ExitCode;
