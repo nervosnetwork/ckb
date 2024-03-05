@@ -378,13 +378,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
     // Write to pipe
     fn pipe_write<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let buffer_addr = machine.registers()[A0].to_u64();
-        let length_addr = machine.registers()[A1].to_u64();
+        let pipe = PipeId(machine.registers()[A0].to_u64());
+        let buffer_addr = machine.registers()[A1].to_u64();
+        let length_addr = machine.registers()[A2].to_u64();
         let length = machine
             .memory_mut()
             .load64(&Mac::REG::from_u64(length_addr))?
             .to_u64();
-        let pipe = PipeId(machine.registers()[A2].to_u64());
 
         // We can only do basic checks here, when the message is actually processed,
         // more complete checks will be performed.
@@ -414,13 +414,13 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
     // Read from pipe
     fn pipe_read<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let buffer_addr = machine.registers()[A0].to_u64();
-        let length_addr = machine.registers()[A1].to_u64();
+        let pipe = PipeId(machine.registers()[A0].to_u64());
+        let buffer_addr = machine.registers()[A1].to_u64();
+        let length_addr = machine.registers()[A2].to_u64();
         let length = machine
             .memory_mut()
             .load64(&Mac::REG::from_u64(length_addr))?
             .to_u64();
-        let pipe = PipeId(machine.registers()[A2].to_u64());
 
         // We can only do basic checks here, when the message is actually processed,
         // more complete checks will be performed.
@@ -447,6 +447,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         // A0 will be updated once the read operation is fulfilled
         Err(Error::External("YIELD".to_string()))
     }
+
     fn inherited_file_descriptors<Mac: SupportMachine>(
         &mut self,
         machine: &mut Mac,
