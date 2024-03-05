@@ -28,9 +28,7 @@ use crate::utils::{
 use crate::{Status, StatusCode};
 use ckb_chain::chain::ChainController;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
-use ckb_logger::{
-    debug, debug_target, error_target, info_target, log_enabled, trace_target, warn_target,
-};
+use ckb_logger::{debug_target, error_target, info_target, trace_target, warn_target};
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     SupportProtocols, TargetSession,
@@ -449,27 +447,7 @@ impl Relayer {
 
         if !short_ids_set.is_empty() {
             let tx_pool = self.shared.shared().tx_pool_controller();
-            // FIXME: clean this up after stablized
-            let short_ids_set_clone = if log_enabled!(ckb_logger::Level::Debug) {
-                short_ids_set.clone()
-            } else {
-                HashSet::default()
-            };
             let fetch_txs = tx_pool.fetch_txs(short_ids_set);
-            if log_enabled!(ckb_logger::Level::Debug) {
-                if let Ok(res) = fetch_txs.clone() {
-                    if res.len() != short_ids_set_clone.len() {
-                        for short_id in short_ids_set_clone {
-                            if !res.contains_key(&short_id) {
-                                debug!(
-                                    "reconstruct_block fetch_txs missing short_id: {:?}",
-                                    short_id
-                                );
-                            }
-                        }
-                    }
-                }
-            }
             if let Err(e) = fetch_txs {
                 return ReconstructionResult::Error(StatusCode::TxPool.with_context(e));
             }

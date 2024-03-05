@@ -113,13 +113,12 @@ impl TxPoolService {
                     // RBF is disabled, but we found conflicts, we put old entry into conflicts before return Err
                     let conflicted_outpoint =
                         tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
-                    debug!(
-                        "conflicted_outpoints count: {}, remote: {}, tx: {}",
-                        conflicted_outpoint.is_some(),
-                        remote,
-                        entry.proposal_short_id()
-                    );
                     if let Some(outpoint) = conflicted_outpoint {
+                        debug!(
+                            "conflicted_outpoint remote: {}, tx: {}",
+                            remote,
+                            entry.proposal_short_id()
+                        );
                         return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
                     }
                     HashSet::new()
@@ -265,13 +264,8 @@ impl TxPoolService {
                     Err(Reject::Resolve(OutPointError::Dead(out))) => {
                         let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                        let conflicts = tx_pool.pool_map.find_conflict_tx(&rtx.transaction);
-                        debug!(
-                            "conflicts in pre_check: {}, tx: {}",
-                            conflicts.len(),
-                            rtx.transaction.proposal_short_id()
-                        );
-                        if conflicts.is_empty() {
+                        let conflicts = tx_pool.pool_map.find_conflict_outpoint(tx);
+                        if conflicts.is_none() {
                             // this mean one input's outpoint is dead, but there is no direct conflicted tx in tx_pool
                             // we should reject it directly and don't need to put it into conflicts pool
                             error!(

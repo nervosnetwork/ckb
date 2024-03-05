@@ -783,10 +783,6 @@ impl Spec for RbfReplaceProposedSuccess {
             "tx1 should be pending"
         );
 
-        for tx in txs.iter() {
-            eprintln!("tx: {}", tx.hash());
-        }
-
         node0.mine_with_blocking(|template| template.number.value() != (proposed + 1));
 
         let rpc_client0 = node0.rpc_client();

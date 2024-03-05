@@ -400,19 +400,6 @@ impl TxPool {
         &self,
         proposal_id: &ProposalShortId,
     ) -> Option<TransactionView> {
-        if let Some(_) = self.get_tx_from_pool(proposal_id) {
-            debug!("{} in pool", proposal_id);
-        }
-        if let Some(_) = self.conflicts_cache.peek(proposal_id) {
-            debug!("{} in conflicted cache", proposal_id);
-        }
-        if let Some(tx_hash) = self.committed_txs_hash_cache.peek(proposal_id) {
-            debug!("{} in committed_txs_hash_cache", proposal_id);
-            if let Some(_) = self.snapshot().get_transaction(tx_hash) {
-                debug!("{} in snapshot", proposal_id);
-            }
-        }
-
         self.get_tx_from_pool(proposal_id)
             .cloned()
             .or_else(|| self.conflicts_cache.peek(proposal_id).cloned())

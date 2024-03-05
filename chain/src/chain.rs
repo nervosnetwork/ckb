@@ -495,10 +495,6 @@ impl ChainService {
                 block.transactions().len()
             );
 
-            for tx in block.transactions().iter() {
-                debug!("insert block tx: {:?}", tx.proposal_short_id());
-            }
-
             self.update_proposal_table(&fork);
             let (detached_proposal_id, new_proposals) = self
                 .proposal_table
