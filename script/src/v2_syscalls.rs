@@ -11,7 +11,7 @@ use ckb_vm::{
     bytes::Bytes,
     machine::SupportMachine,
     memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
-    registers::{A0, A1, A2, A3, A4, A5, A6, A7},
+    registers::{A0, A1, A2, A3, A4, A5, A7},
     snapshot2::{DataSource, Snapshot2Context},
     syscalls::Syscalls,
     Error, Register,
@@ -240,30 +240,34 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         let offset = bounds >> 32;
         let length = bounds as u32 as u64;
 
-        let argv = {
-            let argc = machine.registers()[A4].to_u64();
-            let mut argv_addr = machine.registers()[A5].to_u64();
-            let mut argv_vec = Vec::with_capacity(argc as usize);
-            for _ in 0..argc {
-                let target_addr = machine
-                    .memory_mut()
-                    .load64(&Mac::REG::from_u64(argv_addr))?
-                    .to_u64();
-                let cstr = load_c_string(machine, target_addr)?;
-                argv_vec.push(cstr);
-                argv_addr += 8;
-            }
-            argv_vec
-        };
+        let spgs_addr = machine.registers()[A4].to_u64();
+        let argc_addr = spgs_addr;
+        let argc = machine
+            .memory_mut()
+            .load64(&Mac::REG::from_u64(argc_addr))?
+            .to_u64();
+        let mut argv_addr = machine
+            .memory_mut()
+            .load64(&Mac::REG::from_u64(spgs_addr.wrapping_add(8)))?
+            .to_u64();
+        let mut argv = Vec::new();
+        for _ in 0..argc {
+            let target_addr = machine
+                .memory_mut()
+                .load64(&Mac::REG::from_u64(argv_addr))?
+                .to_u64();
+            let cstr = load_c_string(machine, target_addr)?;
+            argv.push(cstr);
+            argv_addr = argv_addr.wrapping_add(8);
+        }
 
         let (instance_id_addr, pipes) = {
-            let spgs_addr = machine.registers()[A6].to_u64();
-            let instance_id_addr_addr = spgs_addr;
+            let instance_id_addr_addr = spgs_addr.wrapping_add(16);
             let instance_id_addr = machine
                 .memory_mut()
                 .load64(&Mac::REG::from_u64(instance_id_addr_addr))?
                 .to_u64();
-            let pipes_addr_addr = spgs_addr.wrapping_add(8);
+            let pipes_addr_addr = spgs_addr.wrapping_add(24);
             let mut pipes_addr = machine
                 .memory_mut()
                 .load64(&Mac::REG::from_u64(pipes_addr_addr))?
