@@ -2,7 +2,7 @@
 
 use crate::{
     v2_types::{
-        DataPieceId, JoinArgs, Message, PipeArgs, PipeId, PipeIoArgs, SpawnArgs, TxData, VmId,
+        DataPieceId, Message, PipeArgs, PipeId, PipeIoArgs, SpawnArgs, TxData, VmId, WaitArgs,
     },
     ScriptVersion,
 };
@@ -335,14 +335,14 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
     // Join syscall blocks till the specified VM finishes execution, then
     // returns with its exit code
-    fn join<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
+    fn wait<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
         let target_id = machine.registers()[A0].to_u64();
         let exit_code_addr = machine.registers()[A1].to_u64();
 
         // TODO: charge cycles
-        self.message_box.lock().expect("lock").push(Message::Join(
+        self.message_box.lock().expect("lock").push(Message::Wait(
             self.id,
-            JoinArgs {
+            WaitArgs {
                 target_id,
                 exit_code_addr,
             },
@@ -499,7 +499,7 @@ impl<
             // The syscall numbers here are picked intentionally to be different
             // than currently assigned syscall numbers for spawn calls
             2601 => self.spawn(machine),
-            2602 => self.join(machine),
+            2602 => self.wait(machine),
             2603 => self.instance_id(machine),
             2604 => self.pipe(machine),
             2605 => self.pipe_write(machine),
@@ -528,7 +528,7 @@ pub(crate) fn transferred_byte_cycles(bytes: u64) -> u64 {
 pub(crate) const SUCCESS: u8 = 0;
 pub(crate) const INDEX_OUT_OF_BOUND: u8 = 1;
 pub(crate) const SLICE_OUT_OF_BOUND: u8 = 3;
-pub(crate) const JOIN_FAILURE: u8 = 5;
+pub(crate) const WAIT_FAILURE: u8 = 5;
 pub(crate) const INVALID_PIPE: u8 = 6;
 pub(crate) const OTHER_END_CLOSED: u8 = 7;
 

@@ -43,7 +43,7 @@ impl PipeId {
 pub enum VmState {
     Runnable,
     Terminated,
-    Join {
+    Wait {
         target_vm_id: VmId,
         exit_code_addr: u64,
     },
@@ -73,7 +73,7 @@ pub struct SpawnArgs {
 }
 
 #[derive(Clone, Debug)]
-pub struct JoinArgs {
+pub struct WaitArgs {
     pub target_id: VmId,
     pub exit_code_addr: u64,
 }
@@ -95,7 +95,7 @@ pub struct PipeIoArgs {
 #[derive(Clone, Debug)]
 pub enum Message {
     Spawn(VmId, SpawnArgs),
-    Join(VmId, JoinArgs),
+    Wait(VmId, WaitArgs),
     Pipe(VmId, PipeArgs),
     PipeRead(VmId, PipeIoArgs),
     PipeWrite(VmId, PipeIoArgs),

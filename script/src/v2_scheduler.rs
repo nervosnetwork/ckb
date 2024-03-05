@@ -4,8 +4,8 @@ use crate::v2_types::PipeIoArgs;
 use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::{
     v2_syscalls::{
-        transferred_byte_cycles, MachineContext, INVALID_PIPE, JOIN_FAILURE, OTHER_END_CLOSED,
-        SUCCESS,
+        transferred_byte_cycles, MachineContext, INVALID_PIPE, OTHER_END_CLOSED, SUCCESS,
+        WAIT_FAILURE,
     },
     v2_types::{
         DataPieceId, FullSuspendedState, Message, PipeId, RunMode, TxData, VmId, VmState,
@@ -256,7 +256,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 } else {
                     let mut joining_vms: Vec<(VmId, u64)> = Vec::new();
                     self.states.iter().for_each(|(vm_id, state)| {
-                        if let VmState::Join {
+                        if let VmState::Wait {
                             target_vm_id,
                             exit_code_addr,
                         } = state
@@ -332,7 +332,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         machine.machine.set_register(A0, SUCCESS as u64);
                     }
                 }
-                Message::Join(vm_id, args) => {
+                Message::Wait(vm_id, args) => {
                     if let Some(exit_code) = self.terminated_vms.get(&args.target_id).copied() {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
@@ -350,14 +350,14 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
                             let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
-                            machine.machine.set_register(A0, JOIN_FAILURE as u64);
+                            machine.machine.set_register(A0, WAIT_FAILURE as u64);
                         }
                         continue;
                     }
                     // Return code will be updated when the joining VM exits
                     self.states.insert(
                         vm_id,
-                        VmState::Join {
+                        VmState::Wait {
                             target_vm_id: args.target_id,
                             exit_code_addr: args.exit_code_addr,
                         },
