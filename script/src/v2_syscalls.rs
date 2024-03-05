@@ -467,6 +467,11 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             ));
         Err(Error::External("YIELD".to_string()))
     }
+
+    fn close<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
+        // TODO
+        unimplemented!()
+    }
 }
 
 impl<
@@ -500,6 +505,7 @@ impl<
             2605 => self.pipe_write(machine),
             2606 => self.pipe_read(machine),
             2607 => self.inherited_file_descriptors(machine),
+            2608 => self.close(machine),
             _ => return Ok(false),
         }?;
         Ok(true)
