@@ -435,6 +435,16 @@ impl TxPoolService {
             }
         }
 
+        if matches!(
+            ret,
+            Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
+        ) {
+            let mut tx_pool = self.tx_pool.write().await;
+            if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
+                tx_pool.record_conflict(tx.clone());
+            }
+        }
+
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(_) => {
@@ -467,16 +477,6 @@ impl TxPoolService {
                                 | Reject::RBFRejected(..)
                         ) {
                             self.put_recent_reject(&tx_hash, reject).await;
-                        }
-
-                        if matches!(
-                            reject,
-                            Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_))
-                        ) {
-                            let mut tx_pool = self.tx_pool.write().await;
-                            if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
-                                tx_pool.record_conflict(tx);
-                            }
                         }
                     }
                 }
