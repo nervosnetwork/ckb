@@ -3,7 +3,7 @@
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{LonelyBlock, LonelyBlockHash};
 use ckb_channel::{select, Receiver, Sender};
-use ckb_error::Error;
+use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::internal::trace;
 use ckb_logger::{debug, error, info};
 use ckb_shared::block_status::BlockStatus;
@@ -14,6 +14,7 @@ use ckb_types::core::{BlockExt, BlockView, EpochNumber, EpochNumberWithFraction,
 use ckb_types::U256;
 use ckb_verification::InvalidParentError;
 use std::sync::Arc;
+use dashmap::mapref::entry::Entry;
 
 pub(crate) struct ConsumeDescendantProcessor {
     pub shared: Shared,
@@ -328,6 +329,22 @@ impl ConsumeOrphan {
         let parent_hash = lonely_block.block().parent_hash();
         let block_hash = lonely_block.block().hash();
         let block_number = lonely_block.block().number();
+        
+        {
+            // Is this block still verifying by ConsumeUnverified?
+            // If yes, skip it.
+            if let Entry::Occupied(entry) = self.shared.block_status_map().entry(block_hash.clone())
+            {
+                if entry.get().eq(&BlockStatus::BLOCK_STORED) {
+                    debug!(
+                        "in process_lonely_block, {} is BLOCK_STORED in block_status_map, it is still verifying by ConsumeUnverified thread",
+                        block_hash, 
+                    );
+                    return;
+                }
+            }
+        }
+
         let parent_status = self
             .shared
             .get_block_status(self.shared.store(), &parent_hash);
