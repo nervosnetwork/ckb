@@ -51,7 +51,8 @@ pub(crate) fn get_version() -> String {
         .nth(1)
         .unwrap_or("0.0.0")
         .to_owned();
-    version
+    let stripped = version.split('@').nth(1).unwrap_or(&version).trim();
+    stripped.to_string()
 }
 
 pub(crate) fn get_current_git_branch() -> String {
