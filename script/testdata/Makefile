@@ -57,9 +57,19 @@ ALL_BINS := jalr_zero \
             load_arithmetic \
             debugger \
 			spawn_caller_strcat \
-			spawn_callee_strcat
-			
-			            
+			spawn_callee_strcat \
+            spawn_caller_exec \
+            spawn_callee_exec_caller \
+            spawn_callee_exec_callee \
+            spawn_caller_strcat_wrap \
+            spawn_recursive \
+            spawn_callee_out_of_cycles \
+            spawn_caller_out_of_cycles \
+            spawn_caller_out_of_cycles_wrap \
+            spawn_caller_current_cycles \
+            spawn_callee_current_cycles \
+            spawn_times
+
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
 
@@ -126,4 +136,15 @@ load_arithmetic: load_arithmetic.c
 
 spawn_caller_strcat: spawn_caller_strcat.c utils.h
 spawn_callee_strcat: spawn_callee_strcat.c utils.h
+spawn_caller_exec: spawn_caller_exec.c
+spawn_callee_exec_caller: spawn_callee_exec_caller.c
+spawn_callee_exec_callee: spawn_callee_exec_callee.c
+spawn_caller_strcat_wrap: spawn_caller_strcat_wrap.c utils.h
+spawn_recursive: spawn_recursive.c utils.h
+spawn_caller_out_of_cycles: spawn_caller_out_of_cycles.c
+spawn_callee_out_of_cycles: spawn_callee_out_of_cycles.c
+spawn_caller_out_of_cycles_wrap: spawn_caller_out_of_cycles_wrap.c
+spawn_caller_current_cycles: spawn_caller_current_cycles.c
+spawn_callee_current_cycles: spawn_callee_current_cycles.c
+spawn_times: spawn_times.c
 

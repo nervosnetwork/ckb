@@ -313,8 +313,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 }
             }
         }
-
-        // TODO: charge spawn base cycles
+        // TODO: update spawn base cycles
+        machine.add_cycles_no_checking(100_000)?;
         self.message_box.lock().expect("lock").push(Message::Spawn(
             self.id,
             SpawnArgs {

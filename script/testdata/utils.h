@@ -2,7 +2,10 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
+#include "ckb_consts.h"
 #include <stdio.h>
+#include "ckb_consts.h"
+#include "ckb_syscalls.h"
 
 enum CkbSpawnError {
     ErrorCommon = 31,
@@ -59,6 +62,40 @@ int create_std_pipes(uint64_t* fds, uint64_t* inherited_fds) {
     fds[CKB_STDIN] = to_parent[0];
     fds[CKB_STDOUT] = to_child[1];
 
+exit:
+    return err;
+}
+
+// spawn script at `index` in cell_deps without any argc, argv
+int simple_spawn(size_t index) {
+    int err = 0;
+    int8_t spawn_exit_code = 255;
+    const char* argv[1] = {0};
+    uint64_t pid = 0;
+    uint64_t fds[1] = {0};
+    spawn_args_t spgs = {.argc = 0, .argv = argv, .process_id = &pid, .inherited_fds = fds};
+    err = ckb_spawn(index, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
+    CHECK(err);
+    err = ckb_wait(pid, &spawn_exit_code);
+    CHECK(err);
+    CHECK(spawn_exit_code);
+
+exit:
+    return err;
+}
+
+// spawn script at `index` in cell_deps with argv
+int simple_spawn_args(size_t index, int argc, const char* argv[]) {
+    int err = 0;
+    int8_t spawn_exit_code = 255;
+    uint64_t pid = 0;
+    uint64_t fds[1] = {0};
+    spawn_args_t spgs = {.argc = argc, .argv = argv, .process_id = &pid, .inherited_fds = fds};
+    err = ckb_spawn(index, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
+    CHECK(err);
+    err = ckb_wait(pid, &spawn_exit_code);
+    CHECK(err);
+    CHECK(spawn_exit_code);
 exit:
     return err;
 }
