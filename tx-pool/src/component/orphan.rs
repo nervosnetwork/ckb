@@ -147,7 +147,7 @@ impl OrphanPool {
         for out_point in tx.input_pts_iter() {
             self.by_out_point
                 .entry(out_point)
-                .or_insert_with(HashSet::default)
+                .or_default()
                 .insert(tx.proposal_short_id());
         }
 

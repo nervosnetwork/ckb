@@ -63,7 +63,7 @@ fn test_get_block_template_cache() {
         let store = suite.shared.store();
         let tip = store.get_tip_header().unwrap();
         let tip_block = store.get_block(&tip.hash()).unwrap();
-        let previous_output = OutPoint::new(tip_block.transactions().get(0).unwrap().hash(), 0);
+        let previous_output = OutPoint::new(tip_block.transactions().first().unwrap().hash(), 0);
 
         let input = CellInput::new(previous_output, 0);
         let output = CellOutputBuilder::default()

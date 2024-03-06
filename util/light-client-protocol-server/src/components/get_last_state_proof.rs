@@ -256,7 +256,7 @@ impl<'a> GetLastStateProofProcess<'a> {
                 return StatusCode::InvalidRequest.with_context(errmsg);
             }
             // The first difficulty should be greater than the total difficulty before the start block.
-            if let Some(start_difficulty) = difficulties.get(0) {
+            if let Some(start_difficulty) = difficulties.first() {
                 if start_block_number > 0 {
                     let previous_block_number = start_block_number - 1;
                     if let Some(total_difficulty) =

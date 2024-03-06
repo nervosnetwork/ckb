@@ -1025,7 +1025,7 @@ impl From<core::BlockView> for BlockView {
         let uncles = block
             .uncles()
             .into_iter()
-            .zip(input.uncle_hashes().into_iter())
+            .zip(input.uncle_hashes())
             .map(|(uncle, hash)| {
                 let header = HeaderView {
                     inner: uncle.header().into(),

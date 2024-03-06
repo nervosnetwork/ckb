@@ -111,7 +111,7 @@ fn always_success_script_hash() {
 
 #[test]
 fn one_arg_script_hash() {
-    let script = packed::Script::new_builder().args(vec![1].pack()).build();
+    let script = packed::Script::new_builder().args([1].pack()).build();
     let expect = h256!("0x67951b34bce20cb71b7e235c1f8cda259628d99d94825bffe549c23b4dd2930f");
     assert_eq!(script.calc_script_hash(), expect.pack());
 }

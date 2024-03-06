@@ -625,7 +625,7 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
                     .ok_or_else(|| String::from("Can not get cell data"))?;
                 let sub_out_points =
                     parse_dep_group_data(&data).map_err(|err| format!("Invalid data: {err}"))?;
-                out_points.extend(sub_out_points.into_iter());
+                out_points.extend(sub_out_points);
             }
             out_points.push(out_point);
             Ok(out_points)

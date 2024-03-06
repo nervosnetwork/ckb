@@ -151,10 +151,10 @@ impl SeedRecord {
         peer_id: Option<&PeerId>,
         valid_until: u64,
     ) -> String {
-        vec![
+        [
             ip.to_string(),
             port.to_string(),
-            peer_id.map(PeerId::to_base58).unwrap_or_else(String::new),
+            peer_id.map(PeerId::to_base58).unwrap_or_default(),
             valid_until.to_string(),
         ]
         .join(&SEP.to_string())

@@ -106,7 +106,7 @@ pub(crate) fn visit_for_types() -> Vec<(String, String)> {
     let mut finder = CommentFinder {
         type_comments: Default::default(),
         current_type: None,
-        types: vec!["JsonBytes", "IndexerRange", "PoolTransactionReject"]
+        types: ["JsonBytes", "IndexerRange", "PoolTransactionReject"]
             .iter()
             .map(|&s| s.to_owned())
             .collect(),

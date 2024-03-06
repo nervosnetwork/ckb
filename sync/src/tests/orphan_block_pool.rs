@@ -113,7 +113,7 @@ fn test_leaders() {
 
     let orphan_1 = pool.remove_blocks_by_parent(&blocks[14].hash());
 
-    let orphan_set: HashSet<BlockView> = orphan.into_iter().chain(orphan_1.into_iter()).collect();
+    let orphan_set: HashSet<BlockView> = orphan.into_iter().chain(orphan_1).collect();
     let blocks_set: HashSet<BlockView> = blocks.into_iter().collect();
     assert_eq!(orphan_set, blocks_set);
     assert_eq!(pool.len(), 0);

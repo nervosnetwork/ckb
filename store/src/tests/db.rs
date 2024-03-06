@@ -131,7 +131,7 @@ fn freeze_blockv1_with_extension() {
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
 
-    let extension: packed::Bytes = vec![1u8; 96].pack();
+    let extension: packed::Bytes = [1u8; 96].pack();
     let raw = packed::RawHeader::new_builder().number(1u64.pack()).build();
     let block = packed::BlockV1::new_builder()
         .header(packed::Header::new_builder().raw(raw).build())

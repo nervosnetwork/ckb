@@ -452,7 +452,7 @@ impl Relayer {
             if let Err(e) = fetch_txs {
                 return ReconstructionResult::Error(StatusCode::TxPool.with_context(e));
             }
-            txs_map.extend(fetch_txs.unwrap().into_iter());
+            txs_map.extend(fetch_txs.unwrap());
         }
 
         let txs_len = compact_block.txs_len();
