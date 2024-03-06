@@ -504,14 +504,62 @@ impl<
             2177 => self.debug(machine),
             // The syscall numbers here are picked intentionally to be different
             // than currently assigned syscall numbers for spawn calls
-            2601 => self.spawn(machine),
-            2602 => self.wait(machine),
-            2603 => self.process_id(machine),
-            2604 => self.pipe(machine),
-            2605 => self.pipe_write(machine),
-            2606 => self.pipe_read(machine),
-            2607 => self.inherited_file_descriptors(machine),
-            2608 => self.close(machine),
+            2601 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.spawn(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
+            2602 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.wait(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
+            2603 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.process_id(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
+            2604 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.pipe(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
+            2605 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.pipe_write(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
+            2606 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.pipe_read(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
+            2607 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.inherited_file_descriptors(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
+            2608 => {
+                if self.script_version >= ScriptVersion::V2 {
+                    self.close(machine)
+                } else {
+                    return Ok(false);
+                }
+            }
             _ => return Ok(false),
         }?;
         Ok(true)
