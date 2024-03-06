@@ -365,7 +365,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     fn pipe<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
         let pipe1_addr = machine.registers()[A0].to_u64();
         let pipe2_addr = pipe1_addr.wrapping_add(8);
-
         // TODO: charge cycles
         self.message_box.lock().expect("lock").push(Message::Pipe(
             self.id,

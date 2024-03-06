@@ -102,7 +102,7 @@ fn test_b_extension() {
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V1 {
         let vm_error = VmError::InvalidInstruction {
-            pc: 0x10182,
+            pc: 65866,
             instruction: 0x60291913,
         };
         let script_error = ScriptError::VMInternalError(vm_error);
@@ -334,6 +334,7 @@ fn check_exec_from_cell_data() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
+    println!("result = {:?}", result);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
 }
 

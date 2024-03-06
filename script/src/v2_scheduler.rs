@@ -183,7 +183,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         while self.states[&ROOT_VM_ID] != VmState::Terminated {
             let consumed_cycles = self.iterate(pause.clone(), limit_cycles)?;
-            limit_cycles = consumed_cycles
+            limit_cycles = limit_cycles
                 .checked_sub(consumed_cycles)
                 .ok_or(Error::CyclesExceeded)?;
         }

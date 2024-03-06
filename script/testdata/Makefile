@@ -11,8 +11,11 @@ LIB_OBJCOPY := $(LIB_TARGET)-objcopy
 
 COMMON_CFLAGS := -O3 \
                  -I deps/ckb-c-stdlib \
+                 -I deps/ckb-c-stdlib/libc \
                  -I deps/ckb-c-stdlib/molecule \
-                 -Wall -Werror
+                 -Wall -Werror \
+				 -fno-builtin -nostdinc -nostartfiles \
+				 -Wno-stringop-overflow
 # enable log
 COMMON_CFLAGS += -DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
 # enable debug
@@ -52,13 +55,16 @@ ALL_BINS := jalr_zero \
             load_is_even_into_global \
             load_is_even_with_snapshot \
             load_arithmetic \
-            debugger
-            
+            debugger \
+			spawn_caller_strcat \
+			spawn_callee_strcat
+			
+			            
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
 
-all-bins: clean-bins $(ALL_BINS)
-all-libs: clean-libs $(ALL_LIBS)
+all-bins: $(ALL_BINS)
+all-libs: $(ALL_LIBS)
 
 bins-in-docker:
 	docker run --rm -v `pwd`:/code $(BIN_BUILDER_DOCKER) bash -c "cd /code && make all-bins"
@@ -72,6 +78,9 @@ clean-bins:
 
 clean-libs:
 	-rm -f $(ALL_LIBS)
+
+fmt:
+	clang-format -i *.c *.h
 
 clean: clean-bins clean-libs
 
@@ -114,3 +123,7 @@ sub1.lib: sub1.c
 mul2.lib: mul2.c
 div2.lib: div2.c
 load_arithmetic: load_arithmetic.c
+
+spawn_caller_strcat: spawn_caller_strcat.c utils.h
+spawn_callee_strcat: spawn_callee_strcat.c utils.h
+

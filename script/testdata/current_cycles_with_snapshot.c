@@ -7,13 +7,9 @@
 #define sprintf(...)
 #endif
 
-void try_pause() {
-    syscall(2178, 0, 0, 0, 0, 0, 0);
-}
+void try_pause() { syscall(2178, 0, 0, 0, 0, 0, 0); }
 
-int current_cycles() {
-    return syscall(2042, 0, 0, 0, 0, 0, 0);
-}
+int current_cycles() { return syscall(2042, 0, 0, 0, 0, 0, 0); }
 
 int main() {
 #ifdef DEBUG
@@ -21,9 +17,10 @@ int main() {
 #endif
     int prev = current_cycles();
     int curr;
-    for (int i=0; i<4096; i++) {
+    for (int i = 0; i < 4096; i++) {
         curr = current_cycles();
-        sprintf(message, "prev = %d, curr = %d", prev, curr); ckb_debug(message);
+        sprintf(message, "prev = %d, curr = %d", prev, curr);
+        ckb_debug(message);
         if (i > 16) {
             try_pause();
         }
