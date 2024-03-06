@@ -6,6 +6,8 @@ Allowing arbitrary machines to access the JSON-RPC port (using the `rpc.listen_a
 
 CKB JSON-RPC only supports HTTP now. If you need SSL, please set up a proxy via Nginx or other HTTP servers.
 
+See [list of projects](https://github.com/topics/ckb-rpc-proxy) to setup the proxy for the RPC server.
+
 Subscriptions require a full duplex connection. CKB offers such connections in the form of TCP (enable with `rpc.tcp_listen_address` configuration option) and WebSockets (enable with `rpc.ws_listen_address`).
 
 ## JSONRPC Deprecation Process
