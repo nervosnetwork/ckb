@@ -33,7 +33,6 @@ members = [
     "util/metrics-config",
     "util/hash",
     "util/rational",
-    "util/rust-unstable-port",
     "benches",
     "db-schema",
     "util/spawn",

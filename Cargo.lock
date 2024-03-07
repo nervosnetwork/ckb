@@ -698,7 +698,6 @@ dependencies = [
  "ckb-network",
  "ckb-proposal-table",
  "ckb-reward-calculator",
- "ckb-rust-unstable-port",
  "ckb-shared",
  "ckb-stop-handler",
  "ckb-store",
@@ -710,6 +709,7 @@ dependencies = [
  "ckb-verification-contextual",
  "ckb-verification-traits",
  "faux",
+ "is_sorted",
  "lazy_static",
  "tempfile",
 ]
@@ -1397,13 +1397,6 @@ dependencies = [
  "syn 2.0.52",
  "tera",
  "walkdir",
-]
-
-[[package]]
-name = "ckb-rust-unstable-port"
-version = "0.115.0-pre"
-dependencies = [
- "is_sorted",
 ]
 
 [[package]]
