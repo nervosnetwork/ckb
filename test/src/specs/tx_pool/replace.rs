@@ -882,7 +882,7 @@ impl Spec for RbfConcurrency {
 
         let mut conflicts = vec![tx1];
         // tx1 capacity is 100, set other txs to higher fee
-        let fees = vec![
+        let fees = [
             capacity_bytes!(83),
             capacity_bytes!(82),
             capacity_bytes!(81),
