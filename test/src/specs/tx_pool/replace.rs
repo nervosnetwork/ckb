@@ -169,6 +169,8 @@ impl Spec for RbfSameInput {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
+        let message = res.err().unwrap().to_string();
+        assert!(message.contains("PoolRejectedDuplicatedTransaction"));
         assert_eq!(get_tx_pool_conflicts(node0), vec![]);
     }
 
@@ -253,8 +255,8 @@ impl Spec for RbfSameInputwithLessFee {
             "Tx's current fee is 1000000000, expect it to >= 2000000363 to replace old txs"
         ));
 
-        // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
+        // local submit tx RBF check failed, will be added into conflicts pool
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -317,7 +319,7 @@ impl Spec for RbfTooManyDescendants {
             .contains("Tx conflict with too many txs"));
 
         // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -391,8 +393,8 @@ impl Spec for RbfContainNewTx {
             .to_string()
             .contains("new Tx contains unconfirmed inputs"));
 
-        // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
+        // local submit tx RBF check failed, will be in conflicts pool
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -467,7 +469,7 @@ impl Spec for RbfContainInvalidInput {
             .contains("new Tx contains inputs in descendants of to be replaced Tx"));
 
         // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -545,8 +547,8 @@ impl Spec for RbfChildPayForParent {
             .to_string()
             .contains("RBF rejected: Tx's current fee is 3000000000, expect it to >= 5000000363 to replace old txs"));
 
-        // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![]);
+        // local submit tx RBF check failed, will be in conflicts pool
+        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().unpack()]);
 
         // let's try a new transaction with new higher fee
         let output2 = CellOutputBuilder::default()
@@ -572,6 +574,7 @@ impl Spec for RbfChildPayForParent {
             .iter()
             .map(|tx| tx.hash().unpack())
             .collect::<Vec<_>>();
+        expected.push(new_tx.hash().unpack());
         expected.sort_unstable();
         let conflicts = get_tx_pool_conflicts(node0);
         assert_eq!(conflicts, expected);
@@ -927,6 +930,14 @@ impl Spec for RbfConcurrency {
         for s in status.iter().take(4) {
             assert_eq!(*s, Status::Rejected);
         }
+
+        let mut expected: Vec<ckb_types::H256> = conflicts
+            .iter()
+            .take(4)
+            .map(|x| x.hash().unpack())
+            .collect();
+        expected.sort_unstable();
+        assert_eq!(get_tx_pool_conflicts(node0), expected);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -993,6 +1004,7 @@ impl Spec for RbfCellDepsCheck {
             .unwrap()
             .to_string()
             .contains("new Tx contains cell deps from conflicts"));
+        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().unpack()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

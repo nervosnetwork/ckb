@@ -101,7 +101,6 @@ impl TxPoolService {
         &self,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
-        remote: bool,
         mut status: TxStatus,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
@@ -110,15 +109,11 @@ impl TxPoolService {
                 let conflicts = if tx_pool.enable_rbf() {
                     tx_pool.check_rbf(&snapshot, &entry)?
                 } else {
-                    // RBF is disabled, but we found conflicts, we put old entry into conflicts before return Err
+                    // RBF is disabled but we found conflicts, return error here
+                    // after_process will put this tx into conflicts_pool
                     let conflicted_outpoint =
                         tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
                     if let Some(outpoint) = conflicted_outpoint {
-                        debug!(
-                            "conflicted_outpoint remote: {}, tx: {}",
-                            remote,
-                            entry.proposal_short_id()
-                        );
                         return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
                     }
                     HashSet::new()
@@ -169,7 +164,7 @@ impl TxPoolService {
                     ));
                     self.callbacks.call_reject(tx_pool, &evict, reject);
                 }
-                tx_pool.remove_conflict(entry.transaction());
+                tx_pool.remove_conflict(&entry.proposal_short_id());
 
                 Ok(())
             })
@@ -760,9 +755,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self
-            .submit_entry(tip_hash, entry, remote.is_some(), status)
-            .await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
@@ -843,9 +836,7 @@ impl TxPoolService {
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self
-            .submit_entry(tip_hash, entry, declared_cycles.is_some(), status)
-            .await;
+        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
         self.notify_block_assembler(status).await;
