@@ -1,0 +1,100 @@
+{
+  "components": {
+    "schemas": {
+      "Alert": {
+        "description": "An alert is a message about critical problems to be broadcast to all nodes via the p2p network.\n\n## Examples\n\nAn example in JSON\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::Alert>(r#\"\n {\n   \"id\": \"0x1\",\n   \"cancel\": \"0x0\",\n   \"min_version\": \"0.1.0\",\n   \"max_version\": \"1.0.0\",\n   \"priority\": \"0x1\",\n   \"message\": \"An example alert message!\",\n   \"notice_until\": \"0x24bcca57c00\",\n   \"signatures\": [\n     \"0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0\",\n     \"0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453\"\n   ]\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "cancel": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "Cancel a previous sent alert."
+          },
+          "id": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "The identifier of the alert. Clients use id to filter duplicated alerts."
+          },
+          "max_version": {
+            "description": "Optionally set the maximal version of the target clients.\n\nSee [Semantic Version](https://semver.org/) about how to specify a version.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "Alert message.",
+            "type": "string"
+          },
+          "min_version": {
+            "description": "Optionally set the minimal version of the target clients.\n\nSee [Semantic Version](https://semver.org/) about how to specify a version.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notice_until": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The alert is expired after this timestamp."
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "Alerts are sorted by priority, highest first."
+          },
+          "signatures": {
+            "description": "The list of required signatures.",
+            "items": {
+              "$ref": "#/components/schemas/JsonBytes"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cancel",
+          "id",
+          "message",
+          "notice_until",
+          "priority",
+          "signatures"
+        ],
+        "type": "object"
+      },
+      "JsonBytes": {
+        "type": "string"
+      },
+      "Uint32": {
+        "format": "uint32",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "Uint64": {
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": "integer"
+      }
+    }
+  },
+  "info": {
+    "description": " RPC Module Alert for network alerts.\n\n An alert is a message about critical problems to be broadcast to all nodes via the p2p network.\n\n The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code\n and belong to early CKB developers.",
+    "title": "alert_rpc",
+    "version": "0.115.0-pre"
+  },
+  "methods": [
+    {
+      "description": " Sends an alert.\n\n This RPC returns `null` on success.\n\n ## Errors\n\n * [`AlertFailedToVerifySignatures (-1000)`](../enum.RPCError.html#variant.AlertFailedToVerifySignatures) - Some signatures in the request are invalid.\n * [`P2PFailedToBroadcast (-101)`](../enum.RPCError.html#variant.P2PFailedToBroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.\n * `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"send_alert\",\n   \"params\": [\n     {\n       \"id\": \"0x1\",\n       \"cancel\": \"0x0\",\n       \"priority\": \"0x1\",\n       \"message\": \"An example alert message!\",\n       \"notice_until\": \"0x24bcca57c00\",\n       \"signatures\": [\n         \"0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0\",\n         \"0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453\"\n       ]\n     }\n   ],\n   \"id\": 42\n }\n ```\n\n Response\n\n ```json\n {\n   \"error\": {\n     \"code\": -1000,\n     \"data\": \"SigNotEnough\",\n     \"message\":\"AlertFailedToVerifySignatures: The count of sigs is less than threshold.\"\n   },\n   \"jsonrpc\": \"2.0\",\n   \"result\": null,\n   \"id\": 42\n }\n ```",
+      "name": "send_alert",
+      "params": [
+        {
+          "name": "alert",
+          "schema": {
+            "$ref": "#/components/schemas/Alert"
+          }
+        }
+      ],
+      "result": {
+        "name": "send_alert",
+        "schema": {
+          "type": "null"
+        }
+      }
+    }
+  ],
+  "openrpc": "1.2.6"
+}

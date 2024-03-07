@@ -1,0 +1,659 @@
+{
+  "components": {
+    "schemas": {
+      "AncestorsScoreSortKey": {
+        "description": "A struct as a sorted key for tx-pool",
+        "properties": {
+          "ancestors_fee": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Ancestors fee"
+          },
+          "ancestors_weight": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Ancestors weight"
+          },
+          "fee": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Fee"
+          },
+          "weight": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Weight"
+          }
+        },
+        "required": [
+          "ancestors_fee",
+          "ancestors_weight",
+          "fee",
+          "weight"
+        ],
+        "type": "object"
+      },
+      "CellDep": {
+        "additionalProperties": false,
+        "description": "The cell dependency of a transaction.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::CellDep>(r#\"\n {\n   \"dep_type\": \"code\",\n   \"out_point\": {\n     \"index\": \"0x0\",\n     \"tx_hash\": \"0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3\"\n   }\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "dep_type": {
+            "$ref": "#/components/schemas/DepType",
+            "description": "Dependency type."
+          },
+          "out_point": {
+            "$ref": "#/components/schemas/OutPoint",
+            "description": "Reference to the cell."
+          }
+        },
+        "required": [
+          "dep_type",
+          "out_point"
+        ],
+        "type": "object"
+      },
+      "CellInput": {
+        "additionalProperties": false,
+        "description": "The input cell of a transaction.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::CellInput>(r#\"\n {\n   \"previous_output\": {\n     \"index\": \"0x0\",\n     \"tx_hash\": \"0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17\"\n   },\n   \"since\": \"0x0\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "previous_output": {
+            "$ref": "#/components/schemas/OutPoint",
+            "description": "Reference to the input cell."
+          },
+          "since": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Restrict when the transaction can be committed into the chain.\n\nSee the RFC [Transaction valid since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md)."
+          }
+        },
+        "required": [
+          "previous_output",
+          "since"
+        ],
+        "type": "object"
+      },
+      "CellOutput": {
+        "additionalProperties": false,
+        "description": "The fields of an output cell except the cell data.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::CellOutput>(r#\"\n {\n   \"capacity\": \"0x2540be400\",\n   \"lock\": {\n     \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n     \"hash_type\": \"data\",\n     \"args\": \"0x\"\n   },\n   \"type\": null\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The cell capacity.\n\nThe capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage."
+          },
+          "lock": {
+            "$ref": "#/components/schemas/Script",
+            "description": "The lock script."
+          },
+          "type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Script"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The optional type script.\n\nThe JSON field name is \"type\"."
+          }
+        },
+        "required": [
+          "capacity",
+          "lock"
+        ],
+        "type": "object"
+      },
+      "DepType": {
+        "description": "The dep cell type. Allowed values: \"code\" and \"dep_group\".",
+        "oneOf": [
+          {
+            "description": "Type \"code\".\n\nUse the cell itself as the dep cell.",
+            "enum": [
+              "code"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"dep_group\".\n\nThe cell is a dep group which members are cells. These members are used as dep cells instead of the group itself.\n\nThe dep group stores the array of `OutPoint`s serialized via molecule in the cell data. Each `OutPoint` points to one cell member.",
+            "enum": [
+              "dep_group"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "H256": {
+        "description": "The 32-byte fixed-length binary data.\n\nThe name comes from the number of bits in the data.\n\nIn JSONRPC, it is encoded as a 0x-prefixed hex string.",
+        "items": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "JsonBytes": {
+        "type": "string"
+      },
+      "OutPoint": {
+        "additionalProperties": false,
+        "description": "Reference to a cell via transaction hash and output index.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::OutPoint>(r#\"\n {\n   \"index\": \"0x0\",\n   \"tx_hash\": \"0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "index": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "The output index of the cell in the transaction specified by `tx_hash`."
+          },
+          "tx_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "Transaction hash in which the cell is an output."
+          }
+        },
+        "required": [
+          "index",
+          "tx_hash"
+        ],
+        "type": "object"
+      },
+      "OutputsValidator": {
+        "description": "Transaction output validators that prevent common mistakes.",
+        "oneOf": [
+          {
+            "description": "the default validator, bypass output checking, thus allow any kind of transaction outputs.",
+            "enum": [
+              "passthrough"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>",
+            "enum": [
+              "well_known_scripts_only"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "PoolTxDetailInfo": {
+        "description": "A Tx details info in tx-pool.",
+        "properties": {
+          "ancestors_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The ancestors count of tx"
+          },
+          "descendants_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The descendants count of tx"
+          },
+          "entry_status": {
+            "description": "The detailed status in tx-pool, `pending`, `gap`, `proposed`",
+            "type": "string"
+          },
+          "pending_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The pending(`pending` and `gap`) count"
+          },
+          "proposed_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The proposed count"
+          },
+          "rank_in_pending": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The rank in pending, starting from 0"
+          },
+          "score_sortkey": {
+            "$ref": "#/components/schemas/AncestorsScoreSortKey",
+            "description": "The score key details, useful to debug"
+          },
+          "timestamp": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The time added into tx-pool"
+          }
+        },
+        "required": [
+          "ancestors_count",
+          "descendants_count",
+          "entry_status",
+          "pending_count",
+          "proposed_count",
+          "rank_in_pending",
+          "score_sortkey",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      "RawTxPool": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/TxPoolIds",
+            "description": "verbose = false"
+          },
+          {
+            "$ref": "#/components/schemas/TxPoolEntries",
+            "description": "verbose = true"
+          }
+        ],
+        "description": "All transactions in tx-pool.\n\n`RawTxPool` is equivalent to [`TxPoolIds`][] `|` [`TxPoolEntries`][].\n\n[`TxPoolIds`]: struct.TxPoolIds.html\n[`TxPoolEntries`]: struct.TxPoolEntries.html"
+      },
+      "Script": {
+        "additionalProperties": false,
+        "description": "Describes the lock script and type script for a cell.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::Script>(r#\"\n {\n   \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n   \"hash_type\": \"data\",\n   \"args\": \"0x\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/JsonBytes",
+            "description": "Arguments for script."
+          },
+          "code_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The hash used to match the script code."
+          },
+          "hash_type": {
+            "$ref": "#/components/schemas/ScriptHashType",
+            "description": "Specifies how to use the `code_hash` to match the script code."
+          }
+        },
+        "required": [
+          "args",
+          "code_hash",
+          "hash_type"
+        ],
+        "type": "object"
+      },
+      "ScriptHashType": {
+        "description": "Specifies how the script `code_hash` is used to match the script code and how to run the code.\n\nAllowed kinds: \"data\", \"type\", \"data1\" and \"data2\"\n\nRefer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.\n\nThe hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.",
+        "oneOf": [
+          {
+            "description": "Type \"data\" matches script code via cell data hash, and run the script code in v0 CKB VM.",
+            "enum": [
+              "data"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"type\" matches script code via cell type script hash.",
+            "enum": [
+              "type"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"data1\" matches script code via cell data hash, and run the script code in v1 CKB VM.",
+            "enum": [
+              "data1"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"data2\" matches script code via cell data hash, and run the script code in v2 CKB VM.",
+            "enum": [
+              "data2"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "Transaction": {
+        "additionalProperties": false,
+        "description": "The transaction.\n\nRefer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).",
+        "properties": {
+          "cell_deps": {
+            "description": "An array of cell deps.\n\nCKB locates lock script and type script code via cell deps. The script also can use syscalls to read the cells here.\n\nUnlike inputs, the live cells can be used as cell deps in multiple transactions.",
+            "items": {
+              "$ref": "#/components/schemas/CellDep"
+            },
+            "type": "array"
+          },
+          "header_deps": {
+            "description": "An array of header deps.\n\nThe block must already be in the canonical chain.\n\nLock script and type script can read the header information of blocks listed here.",
+            "items": {
+              "$ref": "#/components/schemas/H256"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "description": "An array of input cells.\n\nIn the canonical chain, any cell can only appear as an input once.",
+            "items": {
+              "$ref": "#/components/schemas/CellInput"
+            },
+            "type": "array"
+          },
+          "outputs": {
+            "description": "An array of output cells.",
+            "items": {
+              "$ref": "#/components/schemas/CellOutput"
+            },
+            "type": "array"
+          },
+          "outputs_data": {
+            "description": "Output cells data.\n\nThis is a parallel array of outputs. The cell capacity, lock, and type of the output i is `outputs[i]` and its data is `outputs_data[i]`.",
+            "items": {
+              "$ref": "#/components/schemas/JsonBytes"
+            },
+            "type": "array"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "Reserved for future usage. It must equal 0 in current version."
+          },
+          "witnesses": {
+            "description": "An array of variable-length binaries.\n\nLock script and type script can read data here to verify the transaction.\n\nFor example, the bundled secp256k1 lock script requires storing the signature in `witnesses`.",
+            "items": {
+              "$ref": "#/components/schemas/JsonBytes"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cell_deps",
+          "header_deps",
+          "inputs",
+          "outputs",
+          "outputs_data",
+          "version",
+          "witnesses"
+        ],
+        "type": "object"
+      },
+      "TxPoolEntries": {
+        "description": "Tx-pool entries object",
+        "properties": {
+          "conflicted": {
+            "description": "Conflicted tx hash vec",
+            "items": {
+              "$ref": "#/components/schemas/H256"
+            },
+            "type": "array"
+          },
+          "pending": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TxPoolEntry"
+            },
+            "description": "Pending tx verbose info",
+            "type": "object"
+          },
+          "proposed": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TxPoolEntry"
+            },
+            "description": "Proposed tx verbose info",
+            "type": "object"
+          }
+        },
+        "required": [
+          "conflicted",
+          "pending",
+          "proposed"
+        ],
+        "type": "object"
+      },
+      "TxPoolEntry": {
+        "description": "Transaction entry info",
+        "properties": {
+          "ancestors_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Number of in-tx-pool ancestor transactions"
+          },
+          "ancestors_cycles": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Cycles of in-tx-pool ancestor transactions"
+          },
+          "ancestors_size": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Size of in-tx-pool ancestor transactions"
+          },
+          "cycles": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Consumed cycles."
+          },
+          "fee": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The transaction fee."
+          },
+          "size": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The transaction serialized size in block."
+          },
+          "timestamp": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The unix timestamp when entering the Txpool, unit: Millisecond"
+          }
+        },
+        "required": [
+          "ancestors_count",
+          "ancestors_cycles",
+          "ancestors_size",
+          "cycles",
+          "fee",
+          "size",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      "TxPoolIds": {
+        "description": "Array of transaction ids",
+        "properties": {
+          "pending": {
+            "description": "Pending transaction ids",
+            "items": {
+              "$ref": "#/components/schemas/H256"
+            },
+            "type": "array"
+          },
+          "proposed": {
+            "description": "Proposed transaction ids",
+            "items": {
+              "$ref": "#/components/schemas/H256"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "pending",
+          "proposed"
+        ],
+        "type": "object"
+      },
+      "TxPoolInfo": {
+        "description": "Transaction pool information.",
+        "properties": {
+          "last_txs_updated_at": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Last updated time. This is the Unix timestamp in milliseconds."
+          },
+          "max_tx_pool_size": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Total limit on the size of transactions in the tx-pool"
+          },
+          "min_fee_rate": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.\n\nThe unit is Shannons per 1000 bytes transaction serialization size in the block."
+          },
+          "min_rbf_rate": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "RBF rate threshold.\n\nThe pool reject to replace for transactions which fee rate is below this threshold. if min_rbf_rate > min_fee_rate then RBF is enabled on the node.\n\nThe unit is Shannons per 1000 bytes transaction serialization size in the block."
+          },
+          "orphan": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Count of orphan transactions.\n\nAn orphan transaction has an input cell from the transaction which is neither in the chain nor in the transaction pool."
+          },
+          "pending": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Count of transactions in the pending state.\n\nThe pending transactions must be proposed in a new block first."
+          },
+          "proposed": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Count of transactions in the proposed state.\n\nThe proposed transactions are ready to be committed in the new block after the block `tip_hash`."
+          },
+          "tip_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The associated chain tip block hash.\n\nThe transaction pool is stateful. It manages the transactions which are valid to be committed after this block."
+          },
+          "tip_number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The block number of the block `tip_hash`."
+          },
+          "total_tx_cycles": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions)."
+          },
+          "total_tx_size": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Total count of transactions in the pool of all the different kinds of states (excluding orphan transactions)."
+          },
+          "tx_size_limit": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Limiting transactions to tx_size_limit\n\nTransactions with a large size close to the block size limit may not be packaged, because the block header and cellbase are occupied, so the tx-pool is limited to accepting transaction up to tx_size_limit."
+          }
+        },
+        "required": [
+          "last_txs_updated_at",
+          "max_tx_pool_size",
+          "min_fee_rate",
+          "min_rbf_rate",
+          "orphan",
+          "pending",
+          "proposed",
+          "tip_hash",
+          "tip_number",
+          "total_tx_cycles",
+          "total_tx_size",
+          "tx_size_limit"
+        ],
+        "type": "object"
+      },
+      "Uint32": {
+        "format": "uint32",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "Uint64": {
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": "integer"
+      }
+    }
+  },
+  "info": {
+    "description": " RPC Module Pool for transaction memory pool.",
+    "title": "pool_rpc",
+    "version": "0.115.0-pre"
+  },
+  "methods": [
+    {
+      "description": " Submits a new transaction into the transaction pool. If the transaction is already in the\n pool, rebroadcast it to peers.\n\n Please note that `send_transaction` is an asynchronous process.\n The return of `send_transaction` does NOT indicate that the transaction have been fully verified.\n If you want to track the status of the transaction, please use the `get_transaction`rpc.\n\n ## Params\n\n * `transaction` - The transaction.\n * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is \"passthrough\").\n\n ## Errors\n\n * [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to \"passthrough\".\n * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.\n * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.\n * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.\n * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.\n * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.\n * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"send_transaction\",\n   \"params\": [\n     {\n       \"cell_deps\": [\n         {\n           \"dep_type\": \"code\",\n           \"out_point\": {\n             \"index\": \"0x0\",\n             \"tx_hash\": \"0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3\"\n           }\n         }\n       ],\n       \"header_deps\": [\n         \"0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed\"\n       ],\n       \"inputs\": [\n         {\n           \"previous_output\": {\n             \"index\": \"0x0\",\n             \"tx_hash\": \"0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17\"\n           },\n           \"since\": \"0x0\"\n         }\n       ],\n       \"outputs\": [\n         {\n           \"capacity\": \"0x2540be400\",\n           \"lock\": {\n             \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n             \"hash_type\": \"data\",\n             \"args\": \"0x\"\n           },\n           \"type\": null\n         }\n       ],\n       \"outputs_data\": [\n         \"0x\"\n       ],\n       \"version\": \"0x0\",\n       \"witnesses\": []\n     },\n     \"passthrough\"\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": \"0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3\"\n }\n ```",
+      "name": "send_transaction",
+      "params": [
+        {
+          "name": "tx",
+          "schema": {
+            "$ref": "#/components/schemas/Transaction"
+          }
+        },
+        {
+          "name": "outputs_validator",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OutputsValidator"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "send_transaction",
+        "schema": {
+          "$ref": "#/components/schemas/H256"
+        }
+      }
+    },
+    {
+      "description": " Removes a transaction and all transactions which depends on it from tx pool if it exists.\n\n ## Params\n\n * `tx_hash` - Hash of a transaction.\n\n ## Returns\n\n If the transaction exists, return true; otherwise, return false.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"remove_transaction\",\n   \"params\": [\n     \"0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3\"\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": true\n }\n ```",
+      "name": "remove_transaction",
+      "params": [
+        {
+          "name": "tx_hash",
+          "schema": {
+            "$ref": "#/components/schemas/H256"
+          }
+        }
+      ],
+      "result": {
+        "name": "remove_transaction",
+        "schema": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "description": " Returns the transaction pool information.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"tx_pool_info\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": {\n     \"last_txs_updated_at\": \"0x0\",\n     \"min_fee_rate\": \"0x3e8\",\n     \"min_rbf_rate\": \"0x5dc\",\n     \"max_tx_pool_size\": \"0xaba9500\",\n     \"orphan\": \"0x0\",\n     \"pending\": \"0x1\",\n     \"proposed\": \"0x0\",\n     \"tip_hash\": \"0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40\",\n     \"tip_number\": \"0x400\",\n     \"total_tx_cycles\": \"0x219\",\n     \"total_tx_size\": \"0x112\",\n     \"tx_size_limit\": \"0x7d000\"\n   }\n }\n ```",
+      "name": "tx_pool_info",
+      "params": [],
+      "result": {
+        "name": "tx_pool_info",
+        "schema": {
+          "$ref": "#/components/schemas/TxPoolInfo"
+        }
+      }
+    },
+    {
+      "description": " Removes all transactions from the transaction pool.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"clear_tx_pool\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "clear_tx_pool",
+      "params": [],
+      "result": {
+        "name": "clear_tx_pool",
+        "schema": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "description": " Returns all transaction ids in tx pool as a json array of string transaction ids.\n ## Params\n\n * `verbose` - True for a json object, false for array of transaction ids, default=false\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"get_raw_tx_pool\",\n   \"params\": [true]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\":\n    {\n        \"pending\": {\n            \"0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3\": {\n                \"cycles\": \"0x219\",\n                \"size\": \"0x112\",\n                \"fee\": \"0x16923f7dcf\",\n                \"ancestors_size\": \"0x112\",\n                \"ancestors_cycles\": \"0x219\",\n                \"ancestors_count\": \"0x1\",\n                \"timestamp\": \"0x17c983e6e44\"\n            }\n        },\n        \"conflicted\": [],\n        \"proposed\": {}\n    }\n }\n ```",
+      "name": "get_raw_tx_pool",
+      "params": [
+        {
+          "name": "verbose",
+          "schema": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "get_raw_tx_pool",
+        "schema": {
+          "$ref": "#/components/schemas/RawTxPool"
+        }
+      }
+    },
+    {
+      "description": " Query and returns the details of a transaction in the pool, only for trouble shooting\n ## Params\n\n * `tx_hash` - Hash of a transaction\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"get_pool_tx_detail_info\",\n   \"params\": [\n     \"0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3\"\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n    \"jsonrpc\": \"2.0\",\n    \"result\": {\n        \"ancestors_count\": \"0x0\",\n        \"descendants_count\": \"0x0\",\n        \"entry_status\": \"pending\",\n        \"pending_count\": \"0x1\",\n        \"proposed_count\": \"0x0\",\n        \"rank_in_pending\": \"0x1\",\n        \"score_sortkey\": {\n            \"ancestors_fee\": \"0x16923f7dcf\",\n            \"ancestors_weight\": \"0x112\",\n            \"fee\": \"0x16923f7dcf\",\n            \"weight\": \"0x112\"\n        },\n        \"timestamp\": \"0x18aa1baa54c\"\n    },\n    \"id\": 42\n }\n ```",
+      "name": "get_pool_tx_detail_info",
+      "params": [
+        {
+          "name": "tx_hash",
+          "schema": {
+            "$ref": "#/components/schemas/H256"
+          }
+        }
+      ],
+      "result": {
+        "name": "get_pool_tx_detail_info",
+        "schema": {
+          "$ref": "#/components/schemas/PoolTxDetailInfo"
+        }
+      }
+    },
+    {
+      "description": " Returns whether tx-pool service is started, ready for request.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"tx_pool_ready\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": true\n }\n ```",
+      "name": "tx_pool_ready",
+      "params": [],
+      "result": {
+        "name": "tx_pool_ready",
+        "schema": {
+          "type": "boolean"
+        }
+      }
+    }
+  ],
+  "openrpc": "1.2.6"
+}

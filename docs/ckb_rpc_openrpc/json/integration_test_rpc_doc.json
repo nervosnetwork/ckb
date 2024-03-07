@@ -1,0 +1,764 @@
+{
+  "components": {
+    "schemas": {
+      "Block": {
+        "additionalProperties": false,
+        "description": "The JSON view of a Block used as a parameter in the RPC.",
+        "properties": {
+          "extension": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonBytes"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The extension in the block body.\n\nThis is a field introduced in [CKB RFC 0031]. Since the activation of [CKB RFC 0044], this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.\n\n[CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md\n[CKB RFC 0044]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md"
+          },
+          "header": {
+            "$ref": "#/components/schemas/Header",
+            "description": "The block header."
+          },
+          "proposals": {
+            "description": "The proposal IDs in the block body.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalShortId"
+            },
+            "type": "array"
+          },
+          "transactions": {
+            "description": "The transactions in the block body.",
+            "items": {
+              "$ref": "#/components/schemas/Transaction"
+            },
+            "type": "array"
+          },
+          "uncles": {
+            "description": "The uncles blocks in the block body.",
+            "items": {
+              "$ref": "#/components/schemas/UncleBlock"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "header",
+          "proposals",
+          "transactions",
+          "uncles"
+        ],
+        "type": "object"
+      },
+      "BlockTemplate": {
+        "description": "A block template for miners.\n\nMiners optional pick transactions and then assemble the final block.",
+        "properties": {
+          "bytes_limit": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The block serialized size limit.\n\nMiners must keep the block size below this limit, otherwise, the CKB node will reject the block submission.\n\nIt is guaranteed that the block does not exceed the limit if miners do not add new transaction commitments."
+          },
+          "cellbase": {
+            "$ref": "#/components/schemas/CellbaseTemplate",
+            "description": "Provided cellbase transaction template.\n\nMiners must use it as the cellbase transaction without changes in the assembled block."
+          },
+          "compact_target": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "The compacted difficulty target for the new block.\n\nMiners must use it unchanged in the assembled block."
+          },
+          "current_time": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The timestamp for the new block.\n\nCKB node guarantees that this timestamp is larger than the median of the previous 37 blocks.\n\nMiners can increase it to the current time. It is not recommended to decrease it, since it may violate the median block timestamp consensus rule."
+          },
+          "cycles_limit": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The cycles limit.\n\nMiners must keep the total cycles below this limit, otherwise, the CKB node will reject the block submission.\n\nIt is guaranteed that the block does not exceed the limit if miners do not add new transactions to the block."
+          },
+          "dao": {
+            "$ref": "#/components/schemas/Byte32",
+            "description": "Reference DAO field.\n\nThis field is only valid when miners use all and only use the provided transactions in the template. Two fields must be updated when miners want to select transactions:\n\n* `S_i`, bytes 16 to 23\n* `U_i`, bytes 24 to 31\n\nSee RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation)."
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The epoch progress information for the new block.\n\nMiners must use it unchanged in the assembled block."
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonBytes"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The extension for the new block.\n\nThis is a field introduced in [CKB RFC 0031]. Since the activation of [CKB RFC 0044], this field is at least 32 bytes, and at most 96 bytes. The consensus rule of first 32 bytes is defined in the RFC 0044.\n\n[CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md\n[CKB RFC 0044]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md"
+          },
+          "number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The block number for the new block.\n\nMiners must use it unchanged in the assembled block."
+          },
+          "parent_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The parent block hash of the new block.\n\nMiners must use it unchanged in the assembled block."
+          },
+          "proposals": {
+            "description": "Provided proposal ids list of transactions for the new block.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalShortId"
+            },
+            "type": "array"
+          },
+          "transactions": {
+            "description": "Provided valid transactions which can be committed in the new block.\n\nMiners must include the transactions marked as `required` in the assembled new block.",
+            "items": {
+              "$ref": "#/components/schemas/TransactionTemplate"
+            },
+            "type": "array"
+          },
+          "uncles": {
+            "description": "Provided valid uncle blocks candidates for the new block.\n\nMiners must include the uncles marked as `required` in the assembled new block.",
+            "items": {
+              "$ref": "#/components/schemas/UncleTemplate"
+            },
+            "type": "array"
+          },
+          "uncles_count_limit": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The uncle count limit.\n\nMiners must keep the uncles count below this limit, otherwise, the CKB node will reject the block submission."
+          },
+          "version": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "Block version.\n\nMiners must use it unchanged in the assembled block."
+          },
+          "work_id": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Work ID. The miner must submit the new assembled and resolved block using the same work ID."
+          }
+        },
+        "required": [
+          "bytes_limit",
+          "cellbase",
+          "compact_target",
+          "current_time",
+          "cycles_limit",
+          "dao",
+          "epoch",
+          "number",
+          "parent_hash",
+          "proposals",
+          "transactions",
+          "uncles",
+          "uncles_count_limit",
+          "version",
+          "work_id"
+        ],
+        "type": "object"
+      },
+      "Byte32": {
+        "items": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "CellDep": {
+        "additionalProperties": false,
+        "description": "The cell dependency of a transaction.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::CellDep>(r#\"\n {\n   \"dep_type\": \"code\",\n   \"out_point\": {\n     \"index\": \"0x0\",\n     \"tx_hash\": \"0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3\"\n   }\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "dep_type": {
+            "$ref": "#/components/schemas/DepType",
+            "description": "Dependency type."
+          },
+          "out_point": {
+            "$ref": "#/components/schemas/OutPoint",
+            "description": "Reference to the cell."
+          }
+        },
+        "required": [
+          "dep_type",
+          "out_point"
+        ],
+        "type": "object"
+      },
+      "CellInput": {
+        "additionalProperties": false,
+        "description": "The input cell of a transaction.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::CellInput>(r#\"\n {\n   \"previous_output\": {\n     \"index\": \"0x0\",\n     \"tx_hash\": \"0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17\"\n   },\n   \"since\": \"0x0\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "previous_output": {
+            "$ref": "#/components/schemas/OutPoint",
+            "description": "Reference to the input cell."
+          },
+          "since": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Restrict when the transaction can be committed into the chain.\n\nSee the RFC [Transaction valid since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md)."
+          }
+        },
+        "required": [
+          "previous_output",
+          "since"
+        ],
+        "type": "object"
+      },
+      "CellOutput": {
+        "additionalProperties": false,
+        "description": "The fields of an output cell except the cell data.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::CellOutput>(r#\"\n {\n   \"capacity\": \"0x2540be400\",\n   \"lock\": {\n     \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n     \"hash_type\": \"data\",\n     \"args\": \"0x\"\n   },\n   \"type\": null\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The cell capacity.\n\nThe capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage."
+          },
+          "lock": {
+            "$ref": "#/components/schemas/Script",
+            "description": "The lock script."
+          },
+          "type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Script"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The optional type script.\n\nThe JSON field name is \"type\"."
+          }
+        },
+        "required": [
+          "capacity",
+          "lock"
+        ],
+        "type": "object"
+      },
+      "CellbaseTemplate": {
+        "description": "The cellbase transaction template of the new block for miners.",
+        "properties": {
+          "cycles": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uint64"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The hint of how many cycles this transaction consumes.\n\nMiners can utilize this field to ensure that the total cycles do not exceed the limit while selecting transactions."
+          },
+          "data": {
+            "$ref": "#/components/schemas/Transaction",
+            "description": "The cellbase transaction."
+          },
+          "hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The cellbase transaction hash."
+          }
+        },
+        "required": [
+          "data",
+          "hash"
+        ],
+        "type": "object"
+      },
+      "DepType": {
+        "description": "The dep cell type. Allowed values: \"code\" and \"dep_group\".",
+        "oneOf": [
+          {
+            "description": "Type \"code\".\n\nUse the cell itself as the dep cell.",
+            "enum": [
+              "code"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"dep_group\".\n\nThe cell is a dep group which members are cells. These members are used as dep cells instead of the group itself.\n\nThe dep group stores the array of `OutPoint`s serialized via molecule in the cell data. Each `OutPoint` points to one cell member.",
+            "enum": [
+              "dep_group"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "H256": {
+        "description": "The 32-byte fixed-length binary data.\n\nThe name comes from the number of bits in the data.\n\nIn JSONRPC, it is encoded as a 0x-prefixed hex string.",
+        "items": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "Header": {
+        "additionalProperties": false,
+        "description": "The block header.\n\nRefer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0027-block-structure/0027-block-structure.md).",
+        "properties": {
+          "compact_target": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "The block difficulty target.\n\nIt can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is within the target."
+          },
+          "dao": {
+            "$ref": "#/components/schemas/Byte32",
+            "description": "DAO fields.\n\nSee RFC [Deposit and Withdraw in Nervos DAO](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md#calculation)."
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The epoch information of this block.\n\nSee `EpochNumberWithFraction` for details."
+          },
+          "extra_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The hash on `uncles` and extension in the block body.\n\nThe uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together. The extension hash is the hash of the extension. The extra hash is the hash on uncles hash and extension hash concatenated together.\n\n**Notice**\n\nThis field is renamed from `uncles_hash` since 0.100.0. More details can be found in [CKB RFC 0031].\n\n[CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Uint128",
+            "description": "Miner can modify this field to find a proper value such that the Eaglesong of the header is within the target encoded from `compact_target`."
+          },
+          "number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The consecutive block number starting from 0."
+          },
+          "parent_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The header hash of the parent block."
+          },
+          "proposals_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The hash on `proposals` in the block body.\n\nIt is all zeros when `proposals` is empty, or the hash on all the bytes concatenated together."
+          },
+          "timestamp": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The block timestamp.\n\nIt is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).\n\nMiners should put the time when the block is created in the header, however, the precision is not guaranteed. A block with a higher block number may even have a smaller timestamp."
+          },
+          "transactions_root": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The commitment to all the transactions in the block.\n\nIt is a hash on two Merkle Tree roots:\n\n* The root of a CKB Merkle Tree, which items are the transaction hashes of all the transactions in the block.\n* The root of a CKB Merkle Tree, but the items are the transaction witness hashes of all the transactions in the block."
+          },
+          "version": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "The block version.\n\nIt must equal to 0 now and is reserved for future upgrades."
+          }
+        },
+        "required": [
+          "compact_target",
+          "dao",
+          "epoch",
+          "extra_hash",
+          "nonce",
+          "number",
+          "parent_hash",
+          "proposals_hash",
+          "timestamp",
+          "transactions_root",
+          "version"
+        ],
+        "type": "object"
+      },
+      "JsonBytes": {
+        "type": "string"
+      },
+      "OutPoint": {
+        "additionalProperties": false,
+        "description": "Reference to a cell via transaction hash and output index.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::OutPoint>(r#\"\n {\n   \"index\": \"0x0\",\n   \"tx_hash\": \"0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "index": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "The output index of the cell in the transaction specified by `tx_hash`."
+          },
+          "tx_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "Transaction hash in which the cell is an output."
+          }
+        },
+        "required": [
+          "index",
+          "tx_hash"
+        ],
+        "type": "object"
+      },
+      "ProposalShortId": {
+        "description": "The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.\n\n## Example\n\n```text\n 0xa0ef4eb5f4ceeb08a4c8\n```",
+        "items": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxItems": 10,
+        "minItems": 10,
+        "type": "array"
+      },
+      "Script": {
+        "additionalProperties": false,
+        "description": "Describes the lock script and type script for a cell.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::Script>(r#\"\n {\n   \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n   \"hash_type\": \"data\",\n   \"args\": \"0x\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/JsonBytes",
+            "description": "Arguments for script."
+          },
+          "code_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The hash used to match the script code."
+          },
+          "hash_type": {
+            "$ref": "#/components/schemas/ScriptHashType",
+            "description": "Specifies how to use the `code_hash` to match the script code."
+          }
+        },
+        "required": [
+          "args",
+          "code_hash",
+          "hash_type"
+        ],
+        "type": "object"
+      },
+      "ScriptHashType": {
+        "description": "Specifies how the script `code_hash` is used to match the script code and how to run the code.\n\nAllowed kinds: \"data\", \"type\", \"data1\" and \"data2\"\n\nRefer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.\n\nThe hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.",
+        "oneOf": [
+          {
+            "description": "Type \"data\" matches script code via cell data hash, and run the script code in v0 CKB VM.",
+            "enum": [
+              "data"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"type\" matches script code via cell type script hash.",
+            "enum": [
+              "type"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"data1\" matches script code via cell data hash, and run the script code in v1 CKB VM.",
+            "enum": [
+              "data1"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"data2\" matches script code via cell data hash, and run the script code in v2 CKB VM.",
+            "enum": [
+              "data2"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "Transaction": {
+        "additionalProperties": false,
+        "description": "The transaction.\n\nRefer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md).",
+        "properties": {
+          "cell_deps": {
+            "description": "An array of cell deps.\n\nCKB locates lock script and type script code via cell deps. The script also can use syscalls to read the cells here.\n\nUnlike inputs, the live cells can be used as cell deps in multiple transactions.",
+            "items": {
+              "$ref": "#/components/schemas/CellDep"
+            },
+            "type": "array"
+          },
+          "header_deps": {
+            "description": "An array of header deps.\n\nThe block must already be in the canonical chain.\n\nLock script and type script can read the header information of blocks listed here.",
+            "items": {
+              "$ref": "#/components/schemas/H256"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "description": "An array of input cells.\n\nIn the canonical chain, any cell can only appear as an input once.",
+            "items": {
+              "$ref": "#/components/schemas/CellInput"
+            },
+            "type": "array"
+          },
+          "outputs": {
+            "description": "An array of output cells.",
+            "items": {
+              "$ref": "#/components/schemas/CellOutput"
+            },
+            "type": "array"
+          },
+          "outputs_data": {
+            "description": "Output cells data.\n\nThis is a parallel array of outputs. The cell capacity, lock, and type of the output i is `outputs[i]` and its data is `outputs_data[i]`.",
+            "items": {
+              "$ref": "#/components/schemas/JsonBytes"
+            },
+            "type": "array"
+          },
+          "version": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "Reserved for future usage. It must equal 0 in current version."
+          },
+          "witnesses": {
+            "description": "An array of variable-length binaries.\n\nLock script and type script can read data here to verify the transaction.\n\nFor example, the bundled secp256k1 lock script requires storing the signature in `witnesses`.",
+            "items": {
+              "$ref": "#/components/schemas/JsonBytes"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cell_deps",
+          "header_deps",
+          "inputs",
+          "outputs",
+          "outputs_data",
+          "version",
+          "witnesses"
+        ],
+        "type": "object"
+      },
+      "TransactionTemplate": {
+        "description": "Transaction template which is ready to be committed in the new block.",
+        "properties": {
+          "cycles": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uint64"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The hint of how many cycles this transaction consumes.\n\nMiners can utilize this field to ensure that the total cycles do not exceed the limit while selecting transactions."
+          },
+          "data": {
+            "$ref": "#/components/schemas/Transaction",
+            "description": "The transaction.\n\nMiners must keep it unchanged when including it in the new block."
+          },
+          "depends": {
+            "description": "Transaction dependencies.\n\nThis is a hint to help miners selecting transactions.\n\nThis transaction can only be committed if its dependencies are also committed in the new block.\n\nThis field is a list of indices into the array `transactions` in the block template.\n\nFor example, `depends = [1, 2]` means this transaction depends on `block_template.transactions[1]` and `block_template.transactions[2]`.",
+            "items": {
+              "$ref": "#/components/schemas/Uint64"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "Transaction hash."
+          },
+          "required": {
+            "description": "Whether miner must include this transaction in the new block.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "hash",
+          "required"
+        ],
+        "type": "object"
+      },
+      "Uint128": {
+        "format": "uint128",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "Uint32": {
+        "format": "uint32",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "Uint64": {
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "UncleBlock": {
+        "additionalProperties": false,
+        "description": "The uncle block used as a parameter in the RPC.\n\nThe chain stores only the uncle block header and proposal IDs. The header ensures the block is covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because a block can commit transactions proposed in an uncle.\n\nA block B1 is considered to be the uncle of another block B2 if all the following conditions are met:\n\n1. They are in the same epoch, sharing the same difficulty;\n2. B2 block number is larger than B1;\n3. B1's parent is either B2's ancestor or an uncle embedded in B2 or any of B2's ancestors.\n4. B2 is the first block in its chain to refer to B1.",
+        "properties": {
+          "header": {
+            "$ref": "#/components/schemas/Header",
+            "description": "The uncle block header."
+          },
+          "proposals": {
+            "description": "Proposal IDs in the uncle block body.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalShortId"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "header",
+          "proposals"
+        ],
+        "type": "object"
+      },
+      "UncleTemplate": {
+        "description": "The uncle block template of the new block for miners.",
+        "properties": {
+          "hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The uncle block hash."
+          },
+          "header": {
+            "$ref": "#/components/schemas/Header",
+            "description": "The header of the uncle block.\n\nMiners must keep this unchanged when including this uncle in the new block."
+          },
+          "proposals": {
+            "description": "The proposals of the uncle block.\n\nMiners must keep this unchanged when including this uncle in the new block.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalShortId"
+            },
+            "type": "array"
+          },
+          "required": {
+            "description": "Whether miners must include this uncle in the submit block.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hash",
+          "header",
+          "proposals",
+          "required"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": " RPC for Integration Test.",
+    "title": "integration_test_rpc",
+    "version": "0.115.0-pre"
+  },
+  "methods": [
+    {
+      "description": " process block without any block verification.\n\n ## Params\n\n * `data` - block data(in binary).\n\n * `broadcast` - true to enable broadcast(relay) the block to other peers.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"process_block_without_verify\",\n   \"params\": [\n    {\n \t\"header\": {\n \t\t\"compact_target\": \"0x1e083126\",\n \t\t\"dao\": \"0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000\",\n \t\t\"epoch\": \"0x7080018000001\",\n \t\t\"extra_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\",\n \t\t\"nonce\": \"0x0\",\n \t\t\"number\": \"0x400\",\n \t\t\"parent_hash\": \"0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d\",\n \t\t\"proposals_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\",\n \t\t\"timestamp\": \"0x5cd2b117\",\n \t\t\"transactions_root\": \"0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c\",\n \t\t\"version\": \"0x0\"\n \t},\n \t\"proposals\": [],\n \t\"transactions\": [{\n \t\t\"cell_deps\": [],\n \t\t\"header_deps\": [],\n \t\t\"inputs\": [{\n \t\t\t\"previous_output\": {\n \t\t\t\t\"index\": \"0xffffffff\",\n \t\t\t\t\"tx_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\"\n \t\t\t},\n \t\t\t\"since\": \"0x400\"\n \t\t}],\n \t\t\"outputs\": [{\n \t\t\t\"capacity\": \"0x18e64b61cf\",\n \t\t\t\"lock\": {\n \t\t\t\t\"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n \t\t\t\t\"hash_type\": \"data\",\n \t\t\t\t\"args\": \"0x\"\n \t\t\t},\n \t\t\t\"type\": null\n \t\t}],\n \t\t\"outputs_data\": [\n \t\t\t\"0x\"\n \t\t],\n \t\t\"version\": \"0x0\",\n \t\t\"witnesses\": [\n \t\t\t\"0x450000000c000000410000003500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5000000000000000000\"\n \t\t]\n \t}],\n \t\"uncles\": []\n     },\n     true\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": \"0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40\"\n }\n ```",
+      "name": "process_block_without_verify",
+      "params": [
+        {
+          "name": "data",
+          "schema": {
+            "$ref": "#/components/schemas/Block"
+          }
+        },
+        {
+          "name": "broadcast",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "process_block_without_verify",
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/H256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": " Truncate chain to specified tip hash, can only truncate less then 50000 blocks each time.\n\n ## Params\n\n * `target_tip_hash` - specified header hash\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"truncate\",\n   \"params\": [\n     \"0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40\"\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "truncate",
+      "params": [
+        {
+          "name": "target_tip_hash",
+          "schema": {
+            "$ref": "#/components/schemas/H256"
+          }
+        }
+      ],
+      "result": {
+        "name": "truncate",
+        "schema": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "description": " Generate block(with verification) and broadcast the block.\n\n Note that if called concurrently, it may return the hash of the same block.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"generate_block\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": \"0x60dd3fa0e81db3ee3ad41cf4ab956eae7e89eb71cd935101c26c4d0652db3029\"\n }\n ```",
+      "name": "generate_block",
+      "params": [],
+      "result": {
+        "name": "generate_block",
+        "schema": {
+          "$ref": "#/components/schemas/H256"
+        }
+      }
+    },
+    {
+      "description": " Generate epochs during development, can be useful for scenarios\n like testing DAO-related functionalities.\n\n Returns the updated epoch number after generating the specified number of epochs.\n\n ## Params\n\n * `num_epochs` - The number of epochs to generate.\n\n ## Examples\n\n Request\n\n Generating 2 epochs:\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"generate_epochs\",\n   \"params\": [\"0x2\"]\n }\n ```\n\n The input parameter \"0x2\" will be normalized to \"0x10000000002\"(the correct\n [`EpochNumberWithFraction`](#type-epochnumberwithfraction) type) within the method.\n Therefore, if you want to generate epochs as integers, you can simply pass an integer\n as long as it does not exceed 16777215 (24 bits).\n\n Generating 1/2 epoch:\n\n ```text\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"generate_epochs\",\n   \"params\": [\"0x20001000000\"]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": \"0xa0001000003\"\n }\n ```",
+      "name": "generate_epochs",
+      "params": [
+        {
+          "name": "num_epochs",
+          "schema": {
+            "$ref": "#/components/schemas/Uint64"
+          }
+        }
+      ],
+      "result": {
+        "name": "generate_epochs",
+        "schema": {
+          "$ref": "#/components/schemas/Uint64"
+        }
+      }
+    },
+    {
+      "description": " Add transaction to tx-pool.\n\n ## Params\n\n * `transaction` - specified transaction to add\n\n ## Examples\n\n Request\n\n ```json\n {\n \t\"id\": 42,\n \t\"jsonrpc\": \"2.0\",\n \t\"method\": \"notify_transaction\",\n \t\"params\":\n     [\n          {\n \t\t\t\"cell_deps\": [{\n \t\t\t\t\"dep_type\": \"code\",\n \t\t\t\t\"out_point\": {\n \t\t\t\t\t\"index\": \"0x0\",\n \t\t\t\t\t\"tx_hash\": \"0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3\"\n \t\t\t\t}\n \t\t\t}],\n \t\t\t\"header_deps\": [\n \t\t\t\t\"0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed\"\n \t\t\t],\n \t\t\t\"inputs\": [{\n \t\t\t\t\"previous_output\": {\n \t\t\t\t\t\"index\": \"0x0\",\n \t\t\t\t\t\"tx_hash\": \"0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17\"\n \t\t\t\t},\n \t\t\t\t\"since\": \"0x0\"\n \t\t\t}],\n \t\t\t\"outputs\": [{\n \t\t\t\t\"capacity\": \"0x2540be400\",\n \t\t\t\t\"lock\": {\n \t\t\t\t\t\"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n \t\t\t\t\t\"hash_type\": \"data\",\n \t\t\t\t\t\"args\": \"0x\"\n \t\t\t\t},\n \t\t\t\t\"type\": null\n \t\t\t}],\n \t\t\t\"outputs_data\": [\n \t\t\t\t\"0x\"\n \t\t\t],\n \t\t\t\"version\": \"0x0\",\n \t\t\t\"witnesses\": []\n \t\t}\n \t]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": \"0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3\"\n }\n ```",
+      "name": "notify_transaction",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/Transaction"
+          }
+        }
+      ],
+      "result": {
+        "name": "notify_transaction",
+        "schema": {
+          "$ref": "#/components/schemas/H256"
+        }
+      }
+    },
+    {
+      "description": " Generate block with block template, attach calculated dao field to build new block,\n\n then process block and broadcast the block.\n\n ## Params\n\n * `block_template` - specified transaction to add\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"generate_block_with_template\",\n   \"params\": [\n    {\n     \"bytes_limit\": \"0x91c08\",\n     \"cellbase\": {\n       \"cycles\": null,\n       \"data\": {\n         \"cell_deps\": [],\n         \"header_deps\": [],\n         \"inputs\": [\n           {\n             \"previous_output\": {\n               \"index\": \"0xffffffff\",\n               \"tx_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\"\n             },\n             \"since\": \"0x401\"\n           }\n         ],\n        \"outputs\": [\n          {\n            \"capacity\": \"0x18e64efc04\",\n             \"lock\": {\n               \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n               \"hash_type\": \"data\",\n               \"args\": \"0x\"\n             },\n             \"type\": null\n           }\n         ],\n         \"outputs_data\": [\n           \"0x\"\n         ],\n         \"version\": \"0x0\",\n         \"witnesses\": [\n           \"0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765\"\n         ]\n       },\n       \"hash\": \"0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab\"\n     },\n     \"compact_target\": \"0x1e083126\",\n     \"current_time\": \"0x174c45e17a3\",\n     \"cycles_limit\": \"0xd09dc300\",\n     \"dao\": \"0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000\",\n     \"epoch\": \"0x7080019000001\",\n     \"extension\": null,\n     \"number\": \"0x401\",\n     \"parent_hash\": \"0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40\",\n     \"proposals\": [\"0xa0ef4eb5f4ceeb08a4c8\"],\n     \"transactions\": [],\n     \"uncles\": [\n       {\n         \"hash\": \"0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94\",\n         \"header\": {\n           \"compact_target\": \"0x1e083126\",\n           \"dao\": \"0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000\",\n           \"epoch\": \"0x7080018000001\",\n           \"extra_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\",\n           \"nonce\": \"0x0\",\n           \"number\": \"0x400\",\n           \"parent_hash\": \"0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d\",\n           \"proposals_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\",\n           \"timestamp\": \"0x5cd2b118\",\n           \"transactions_root\": \"0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c\",\n           \"version\":\"0x0\"\n         },\n         \"proposals\": [],\n         \"required\": false\n       }\n     ],\n     \"uncles_count_limit\": \"0x2\",\n     \"version\": \"0x0\",\n     \"work_id\": \"0x0\"\n    }\n  ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": \"0x899541646ae412a99fdbefc081e1a782605a7815998a096af16e51d4df352c75\"\n }\n ```",
+      "name": "generate_block_with_template",
+      "params": [
+        {
+          "name": "block_template",
+          "schema": {
+            "$ref": "#/components/schemas/BlockTemplate"
+          }
+        }
+      ],
+      "result": {
+        "name": "generate_block_with_template",
+        "schema": {
+          "$ref": "#/components/schemas/H256"
+        }
+      }
+    },
+    {
+      "description": " Return calculated dao field according to specified block template.\n\n ## Params\n\n * `block_template` - specified block template\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"calculate_dao_field\",\n   \"params\": [\n    {\n     \"bytes_limit\": \"0x91c08\",\n     \"cellbase\": {\n       \"cycles\": null,\n       \"data\": {\n         \"cell_deps\": [],\n         \"header_deps\": [],\n         \"inputs\": [\n           {\n             \"previous_output\": {\n               \"index\": \"0xffffffff\",\n               \"tx_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\"\n             },\n             \"since\": \"0x401\"\n           }\n         ],\n        \"outputs\": [\n          {\n            \"capacity\": \"0x18e64efc04\",\n             \"lock\": {\n               \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n               \"hash_type\": \"data\",\n               \"args\": \"0x\"\n             },\n             \"type\": null\n           }\n         ],\n         \"outputs_data\": [\n           \"0x\"\n         ],\n         \"version\": \"0x0\",\n         \"witnesses\": [\n           \"0x650000000c00000055000000490000001000000030000000310000001892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df20114000000b2e61ff569acf041b3c2c17724e2379c581eeac30c00000054455354206d657373616765\"\n         ]\n       },\n       \"hash\": \"0xbaf7e4db2fd002f19a597ca1a31dfe8cfe26ed8cebc91f52b75b16a7a5ec8bab\"\n     },\n     \"compact_target\": \"0x1e083126\",\n     \"current_time\": \"0x174c45e17a3\",\n     \"cycles_limit\": \"0xd09dc300\",\n     \"dao\": \"0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000\",\n     \"epoch\": \"0x7080019000001\",\n     \"extension\": null,\n     \"number\": \"0x401\",\n     \"parent_hash\": \"0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40\",\n     \"proposals\": [\"0xa0ef4eb5f4ceeb08a4c8\"],\n     \"transactions\": [],\n     \"uncles\": [\n       {\n         \"hash\": \"0xdca341a42890536551f99357612cef7148ed471e3b6419d0844a4e400be6ee94\",\n         \"header\": {\n           \"compact_target\": \"0x1e083126\",\n           \"dao\": \"0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000\",\n           \"epoch\": \"0x7080018000001\",\n           \"extra_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\",\n           \"nonce\": \"0x0\",\n           \"number\": \"0x400\",\n           \"parent_hash\": \"0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d\",\n           \"proposals_hash\": \"0x0000000000000000000000000000000000000000000000000000000000000000\",\n           \"timestamp\": \"0x5cd2b118\",\n           \"transactions_root\": \"0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c\",\n           \"version\":\"0x0\"\n         },\n         \"proposals\": [],\n         \"required\": false\n       }\n     ],\n     \"uncles_count_limit\": \"0x2\",\n     \"version\": \"0x0\",\n     \"work_id\": \"0x0\"\n    }\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": \"0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000\"\n }\n ```",
+      "name": "calculate_dao_field",
+      "params": [
+        {
+          "name": "block_template",
+          "schema": {
+            "$ref": "#/components/schemas/BlockTemplate"
+          }
+        }
+      ],
+      "result": {
+        "name": "calculate_dao_field",
+        "schema": {
+          "$ref": "#/components/schemas/Byte32"
+        }
+      }
+    }
+  ],
+  "openrpc": "1.2.6"
+}

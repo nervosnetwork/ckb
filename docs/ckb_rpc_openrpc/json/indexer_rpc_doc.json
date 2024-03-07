@@ -1,0 +1,708 @@
+{
+  "components": {
+    "schemas": {
+      "CellOutput": {
+        "additionalProperties": false,
+        "description": "The fields of an output cell except the cell data.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::CellOutput>(r#\"\n {\n   \"capacity\": \"0x2540be400\",\n   \"lock\": {\n     \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n     \"hash_type\": \"data\",\n     \"args\": \"0x\"\n   },\n   \"type\": null\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The cell capacity.\n\nThe capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage."
+          },
+          "lock": {
+            "$ref": "#/components/schemas/Script",
+            "description": "The lock script."
+          },
+          "type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Script"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The optional type script.\n\nThe JSON field name is \"type\"."
+          }
+        },
+        "required": [
+          "capacity",
+          "lock"
+        ],
+        "type": "object"
+      },
+      "H256": {
+        "description": "The 32-byte fixed-length binary data.\n\nThe name comes from the number of bits in the data.\n\nIn JSONRPC, it is encoded as a 0x-prefixed hex string.",
+        "items": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "IndexerCell": {
+        "description": "Live cell",
+        "properties": {
+          "block_number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "the number of the transaction committed in the block"
+          },
+          "out_point": {
+            "$ref": "#/components/schemas/OutPoint",
+            "description": "reference to a cell via transaction hash and output index"
+          },
+          "output": {
+            "$ref": "#/components/schemas/CellOutput",
+            "description": "the fields of an output cell"
+          },
+          "output_data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonBytes"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the cell data"
+          },
+          "tx_index": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "the position index of the transaction committed in the block"
+          }
+        },
+        "required": [
+          "block_number",
+          "out_point",
+          "output",
+          "tx_index"
+        ],
+        "type": "object"
+      },
+      "IndexerCellType": {
+        "description": "Cell type",
+        "oneOf": [
+          {
+            "description": "Input",
+            "enum": [
+              "input"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Output",
+            "enum": [
+              "output"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "IndexerCellsCapacity": {
+        "description": "Cells capacity",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "indexed tip block hash"
+          },
+          "block_number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "indexed tip block number"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "total capacity"
+          }
+        },
+        "required": [
+          "block_hash",
+          "block_number",
+          "capacity"
+        ],
+        "type": "object"
+      },
+      "IndexerOrder": {
+        "description": "Order Desc | Asc",
+        "oneOf": [
+          {
+            "description": "Descending order",
+            "enum": [
+              "desc"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Ascending order",
+            "enum": [
+              "asc"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "IndexerPagination_for_IndexerCell": {
+        "description": "IndexerPagination wraps objects array and last_cursor to provide paging",
+        "properties": {
+          "last_cursor": {
+            "$ref": "#/components/schemas/JsonBytes",
+            "description": "pagination parameter"
+          },
+          "objects": {
+            "description": "objects collection",
+            "items": {
+              "$ref": "#/components/schemas/IndexerCell"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "last_cursor",
+          "objects"
+        ],
+        "type": "object"
+      },
+      "IndexerPagination_for_IndexerTx": {
+        "description": "IndexerPagination wraps objects array and last_cursor to provide paging",
+        "properties": {
+          "last_cursor": {
+            "$ref": "#/components/schemas/JsonBytes",
+            "description": "pagination parameter"
+          },
+          "objects": {
+            "description": "objects collection",
+            "items": {
+              "$ref": "#/components/schemas/IndexerTx"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "last_cursor",
+          "objects"
+        ],
+        "type": "object"
+      },
+      "IndexerScriptType": {
+        "description": "ScriptType `Lock` | `Type`",
+        "oneOf": [
+          {
+            "description": "Lock",
+            "enum": [
+              "lock"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type",
+            "enum": [
+              "type"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "IndexerSearchKey": {
+        "description": "SearchKey represent indexer support params",
+        "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndexerSearchKeyFilter"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "filter cells by following conditions, all conditions are optional"
+          },
+          "group_by_transaction": {
+            "description": "bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "script": {
+            "$ref": "#/components/schemas/Script",
+            "description": "Script"
+          },
+          "script_search_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndexerSearchMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Script search mode, optional default is `prefix`, means search script with prefix"
+          },
+          "script_type": {
+            "$ref": "#/components/schemas/IndexerScriptType",
+            "description": "Script Type"
+          },
+          "with_data": {
+            "description": "bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "script",
+          "script_type"
+        ],
+        "type": "object"
+      },
+      "IndexerSearchKeyFilter": {
+        "description": "IndexerSearchKeyFilter represent indexer params `filter`",
+        "properties": {
+          "block_range": {
+            "description": "filter cells by block number range",
+            "items": {
+              "$ref": "#/components/schemas/Uint64"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "output_capacity_range": {
+            "description": "filter cells by output capacity range",
+            "items": {
+              "$ref": "#/components/schemas/Uint64"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "output_data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonBytes"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "filter cells by output data"
+          },
+          "output_data_filter_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndexerSearchMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "output data filter mode, optional default is `prefix`"
+          },
+          "output_data_len_range": {
+            "description": "filter cells by output data len range",
+            "items": {
+              "$ref": "#/components/schemas/Uint64"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Script"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "if search script type is lock, filter cells by type script prefix, and vice versa"
+          },
+          "script_len_range": {
+            "description": "filter cells by script len range",
+            "items": {
+              "$ref": "#/components/schemas/Uint64"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "IndexerSearchMode": {
+        "description": "IndexerSearchMode represent search mode, default is prefix search",
+        "oneOf": [
+          {
+            "description": "Mode `prefix` search with prefix",
+            "enum": [
+              "prefix"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Mode `exact` search with exact match",
+            "enum": [
+              "exact"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Mode `partial` search with partial match",
+            "enum": [
+              "partial"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "IndexerTip": {
+        "description": "Indexer tip information",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "indexed tip block hash"
+          },
+          "block_number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "indexed tip block number"
+          }
+        },
+        "required": [
+          "block_hash",
+          "block_number"
+        ],
+        "type": "object"
+      },
+      "IndexerTx": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/IndexerTxWithCell",
+            "description": "## Fields\n\n`IndexerCellType` is equivalent to `\"input\" | \"output\"`.\n\n`IndexerTxWithCell` is a JSON object with the following fields.\n*   `tx_hash`: [`H256`] - transaction hash\n*   `block_number`: [`BlockNumber`] - the number of the transaction committed in the block\n*   `tx_index`: [`Uint32`] - the position index of the transaction committed in the block\n*   `io_index`: [`Uint32`] - the position index of the cell in the transaction inputs or outputs\n*   `io_type`: [`IndexerCellType`] - io type",
+            "title": "Ungrouped format represent as `IndexerTxWithCell`"
+          },
+          {
+            "$ref": "#/components/schemas/IndexerTxWithCells",
+            "description": "## Fields\n\n`IndexerCellType` is equivalent to `\"input\" | \"output\"`.\n\n`IndexerTxWithCells` is a JSON object with the following fields.\n*   `tx_hash`: [`H256`] - transaction hash\n*   `block_number`: [`BlockNumber`] - the number of the transaction committed in the block\n*   `tx_index`: [`Uint32`]- the position index of the transaction committed in the block\n*   `cells`: Array <(IndexerCellType, Uint32)>",
+            "title": "Grouped format represent as `IndexerTxWithCells`"
+          }
+        ],
+        "description": "Indexer Transaction Object"
+      },
+      "IndexerTxWithCell": {
+        "description": "Ungrouped Tx inner type",
+        "properties": {
+          "block_number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "the number of the transaction committed in the block"
+          },
+          "io_index": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "the position index of the cell in the transaction inputs or outputs"
+          },
+          "io_type": {
+            "$ref": "#/components/schemas/IndexerCellType",
+            "description": "io type"
+          },
+          "tx_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "transaction hash"
+          },
+          "tx_index": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "the position index of the transaction committed in the block"
+          }
+        },
+        "required": [
+          "block_number",
+          "io_index",
+          "io_type",
+          "tx_hash",
+          "tx_index"
+        ],
+        "type": "object"
+      },
+      "IndexerTxWithCells": {
+        "description": "Grouped Tx inner type",
+        "properties": {
+          "block_number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "the number of the transaction committed in the block"
+          },
+          "cells": {
+            "description": "Array [(io_type, io_index)]",
+            "items": {
+              "items": [
+                {
+                  "$ref": "#/components/schemas/IndexerCellType"
+                },
+                {
+                  "$ref": "#/components/schemas/Uint32"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "tx_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "transaction hash"
+          },
+          "tx_index": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "the position index of the transaction committed in the block"
+          }
+        },
+        "required": [
+          "block_number",
+          "cells",
+          "tx_hash",
+          "tx_index"
+        ],
+        "type": "object"
+      },
+      "JsonBytes": {
+        "type": "string"
+      },
+      "OutPoint": {
+        "additionalProperties": false,
+        "description": "Reference to a cell via transaction hash and output index.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::OutPoint>(r#\"\n {\n   \"index\": \"0x0\",\n   \"tx_hash\": \"0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "index": {
+            "$ref": "#/components/schemas/Uint32",
+            "description": "The output index of the cell in the transaction specified by `tx_hash`."
+          },
+          "tx_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "Transaction hash in which the cell is an output."
+          }
+        },
+        "required": [
+          "index",
+          "tx_hash"
+        ],
+        "type": "object"
+      },
+      "Script": {
+        "additionalProperties": false,
+        "description": "Describes the lock script and type script for a cell.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::Script>(r#\"\n {\n   \"code_hash\": \"0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5\",\n   \"hash_type\": \"data\",\n   \"args\": \"0x\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "args": {
+            "$ref": "#/components/schemas/JsonBytes",
+            "description": "Arguments for script."
+          },
+          "code_hash": {
+            "$ref": "#/components/schemas/H256",
+            "description": "The hash used to match the script code."
+          },
+          "hash_type": {
+            "$ref": "#/components/schemas/ScriptHashType",
+            "description": "Specifies how to use the `code_hash` to match the script code."
+          }
+        },
+        "required": [
+          "args",
+          "code_hash",
+          "hash_type"
+        ],
+        "type": "object"
+      },
+      "ScriptHashType": {
+        "description": "Specifies how the script `code_hash` is used to match the script code and how to run the code.\n\nAllowed kinds: \"data\", \"type\", \"data1\" and \"data2\"\n\nRefer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.\n\nThe hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.",
+        "oneOf": [
+          {
+            "description": "Type \"data\" matches script code via cell data hash, and run the script code in v0 CKB VM.",
+            "enum": [
+              "data"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"type\" matches script code via cell type script hash.",
+            "enum": [
+              "type"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"data1\" matches script code via cell data hash, and run the script code in v1 CKB VM.",
+            "enum": [
+              "data1"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Type \"data2\" matches script code via cell data hash, and run the script code in v2 CKB VM.",
+            "enum": [
+              "data2"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "Uint32": {
+        "format": "uint32",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "Uint64": {
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": "integer"
+      }
+    }
+  },
+  "info": {
+    "description": " RPC Module Indexer.",
+    "title": "indexer_rpc",
+    "version": "0.115.0-pre"
+  },
+  "methods": [
+    {
+      "description": " Returns the indexed tip\n\n ## Returns\n   * block_hash - indexed tip block hash\n   * block_number - indexed tip block number\n\n ## Examples\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_indexer_tip\"\n }\n ```\n\n Response\n\n ```json\n {\n   \"jsonrpc\": \"2.0\",\n   \"result\": {\n     \"block_hash\": \"0x4959d6e764a2edc6038dbf03d61ebcc99371115627b186fdcccb2161fbd26edc\",\n     \"block_number\": \"0x5b513e\"\n   },\n   \"id\": 2\n }\n ```",
+      "name": "get_indexer_tip",
+      "params": [],
+      "result": {
+        "name": "get_indexer_tip",
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/IndexerTip"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": " Returns the live cells collection by the lock or type script.\n\n ## Params\n\n * search_key:\n     - script - Script, supports prefix search\n     - script_type - enum, lock | type\n     - script_search_mode - enum, prefix | exact\n     - filter - filter cells by following conditions, all conditions are optional\n          - script: if search script type is lock, filter cells by type script prefix, and vice versa\n          - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]\n          - output_data: filter cells by output data\n          - output_data_filter_mode: enum, prefix | exact | partial\n          - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]\n          - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]\n          - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]\n     - with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result\n * order: enum, asc | desc\n * limit: result size limit\n * after: pagination parameter, optional\n\n ## Returns\n\n If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_cells.\n\n * objects:\n     - output: the fields of an output cell\n     - output_data: the cell data\n     - out_point: reference to a cell via transaction hash and output index\n     - block_number: the number of the transaction committed in the block\n     - tx_index: the position index of the transaction committed in the block\n * last_cursor: pagination parameter\n\n ## Examples\n\n * get cells by lock script\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_cells\",\n     \"params\": [\n         {\n             \"script\": {\n                 \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n                 \"hash_type\": \"type\",\n                 \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\"\n             },\n             \"script_type\": \"lock\"\n         },\n         \"asc\",\n         \"0x64\"\n     ]\n }\n ```\n\n Response\n\n ```json\n    {\n     \"jsonrpc\": \"2.0\",\n     \"result\": {\n       \"last_cursor\": \"0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b0f8c0000000100000000\",\n       \"objects\": [\n         {\n           \"block_number\": \"0x5b0e6d\",\n           \"out_point\": {\n             \"index\": \"0x0\",\n             \"tx_hash\": \"0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9\"\n           },\n           \"output\": {\n             \"capacity\": \"0x189640200\",\n             \"lock\": {\n               \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\",\n               \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": null\n           },\n           \"output_data\": \"0x\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0e90\",\n           \"out_point\": {\n             \"index\": \"0x0\",\n             \"tx_hash\": \"0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6\"\n           },\n           \"output\": {\n             \"capacity\": \"0x189640200\",\n             \"lock\": {\n               \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\",\n               \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": null\n           },\n           \"output_data\": \"0x\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0ead\",\n           \"out_point\": {\n             \"index\": \"0x1\",\n             \"tx_hash\": \"0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581\"\n           },\n           \"output\": {\n             \"capacity\": \"0xe36dceec20\",\n             \"lock\": {\n               \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\",\n               \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": null\n           },\n           \"output_data\": \"0x\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0eeb\",\n           \"out_point\": {\n             \"index\": \"0x0\",\n             \"tx_hash\": \"0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48\"\n           },\n           \"output\": {\n             \"capacity\": \"0x174876e800\",\n             \"lock\": {\n               \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\",\n               \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": null\n           },\n           \"output_data\": \"0x\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0f8c\",\n           \"out_point\": {\n             \"index\": \"0x0\",\n             \"tx_hash\": \"0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c\"\n           },\n           \"output\": {\n             \"capacity\": \"0x189640200\",\n             \"lock\": {\n               \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\",\n               \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": null\n           },\n           \"output_data\": \"0x\",\n           \"tx_index\": \"0x1\"\n         }\n       ]\n     },\n     \"id\": 2\n   }\n ```\n\n * get cells by lock script and filter by type script\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_cells\",\n     \"params\": [\n         {\n             \"script\": {\n                 \"code_hash\": \"0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63\",\n                 \"hash_type\": \"type\",\n                 \"args\": \"0x2a49720e721553d0614dff29454ee4e1f07d0707\"\n             },\n             \"script_type\": \"lock\",\n             \"filter\": {\n                 \"script\": {\n                     \"code_hash\": \"0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4\",\n                     \"hash_type\": \"type\",\n                     \"args\": \"0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b\"\n                 }\n             }\n         },\n         \"asc\",\n         \"0x64\"\n     ]\n }\n ```\n\n Response\n\n ```json\n {\n     \"jsonrpc\": \"2.0\",\n     \"result\": {\n       \"last_cursor\": \"0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf870000000100000001\",\n       \"objects\": [\n         {\n           \"block_number\": \"0x2adf87\",\n           \"out_point\": {\n             \"index\": \"0x1\",\n             \"tx_hash\": \"0x04ecbc2df39e3682326a3b23c1bd2465e07eae2379ac0cc713834a1f79753779\"\n           },\n           \"output\": {\n             \"capacity\": \"0x436d81500\",\n             \"lock\": {\n               \"args\": \"0x2a49720e721553d0614dff29454ee4e1f07d0707\",\n               \"code_hash\": \"0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": {\n               \"args\": \"0x8462b20277bcbaa30d821790b852fb322d55c2b12e750ea91ad7059bc98dda4b\",\n               \"code_hash\": \"0xc5e5dcf215925f7ef4dfaf5f4b4f105bc321c02776d6e7d52a1db3fcd9d011a4\",\n               \"hash_type\": \"type\"\n             }\n           },\n           \"output_data\": \"0x0040d20853d746000000000000000000\",\n           \"tx_index\": \"0x1\"\n         }\n       ]\n     },\n     \"id\": 2\n }\n ```\n\n * get cells by lock script and filter empty type script by setting script_len_range to\n [0, 1), script_len is caculated by (code_hash + hash_type + args).len\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_cells\",\n     \"params\": [\n         {\n             \"script\": {\n                 \"code_hash\": \"0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63\",\n                 \"hash_type\": \"type\",\n                 \"args\": \"0x2a49720e721553d0614dff29454ee4e1f07d0707\"\n             },\n             \"script_type\": \"lock\",\n             \"filter\": {\n                 \"script_len_range\": [\"0x0\", \"0x1\"]\n             }\n         },\n         \"asc\",\n         \"0x64\"\n     ]\n }\n ```\n\n Response\n\n ```json\n {\n     \"jsonrpc\": \"2.0\",\n     \"result\": {\n       \"last_cursor\": \"0x4058c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63012a49720e721553d0614dff29454ee4e1f07d070700000000002adf830000000200000001\",\n       \"objects\": [\n         {\n           \"block_number\": \"0x2adf83\",\n           \"out_point\": {\n             \"index\": \"0x1\",\n             \"tx_hash\": \"0x23ec897027c1d2a2b39e2446162bac182f18581be048cb3896ad695559b6839e\"\n           },\n           \"output\": {\n             \"capacity\": \"0x54b42b70b4\",\n             \"lock\": {\n               \"args\": \"0x2a49720e721553d0614dff29454ee4e1f07d0707\",\n               \"code_hash\": \"0x58c5f491aba6d61678b7cf7edf4910b1f5e00ec0cde2f42e0abb4fd9aff25a63\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": null\n           },\n           \"output_data\": \"0x\",\n           \"tx_index\": \"0x2\"\n         }\n       ]\n     },\n     \"id\": 2\n }\n ```\n\n * get cells by lock script and filter capacity range\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_cells\",\n     \"params\": [\n         {\n             \"script\": {\n                 \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n                 \"hash_type\": \"type\",\n                 \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\"\n             },\n             \"script_type\": \"lock\",\n             \"filter\": {\n                 \"output_capacity_range\": [\"0x0\", \"0x174876e801\"]\n             }\n         },\n         \"asc\",\n         \"0x64\"\n     ]\n }\n ```\n\n Response\n\n ```json\n {\n     \"jsonrpc\": \"2.0\",\n     \"result\": {\n       \"last_cursor\": \"0x409bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df0000000100000001\",\n       \"objects\": [\n         {\n           \"block_number\": \"0x5b59df\",\n           \"out_point\": {\n             \"index\": \"0x1\",\n             \"tx_hash\": \"0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194\"\n           },\n           \"output\": {\n             \"capacity\": \"0xe815b81c0\",\n             \"lock\": {\n               \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\",\n               \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n               \"hash_type\": \"type\"\n             },\n             \"type\": null\n           },\n           \"output_data\": \"0x\",\n           \"tx_index\": \"0x1\"\n         }\n       ]\n     },\n     \"id\": 2\n }\n ```",
+      "name": "get_cells",
+      "params": [
+        {
+          "name": "search_key",
+          "schema": {
+            "$ref": "#/components/schemas/IndexerSearchKey"
+          }
+        },
+        {
+          "name": "order",
+          "schema": {
+            "$ref": "#/components/schemas/IndexerOrder"
+          }
+        },
+        {
+          "name": "limit",
+          "schema": {
+            "$ref": "#/components/schemas/Uint32"
+          }
+        },
+        {
+          "name": "after",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonBytes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "get_cells",
+        "schema": {
+          "$ref": "#/components/schemas/IndexerPagination_for_IndexerCell"
+        }
+      }
+    },
+    {
+      "description": " Returns the transactions collection by the lock or type script.\n\n * search_key:\n     - script - Script, supports prefix search when group_by_transaction is false\n     - script_type - enum, lock | type\n     - script_search_mode - enum, prefix | exact\n     - filter - filter cells by following conditions, all conditions are optional\n         - script: if search script type is lock, filter cells by type script, and vice versa\n         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]\n     - group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash\n * order: enum, asc | desc\n * limit: result size limit\n * after: pagination parameter, optional\n\n ## Returns\n\n If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_transactions.\n\n  * objects - enum, ungrouped TxWithCell | grouped TxWithCells\n     - TxWithCell:\n         - tx_hash: transaction hash,\n         - block_number: the number of the transaction committed in the block\n         - tx_index: the position index of the transaction committed in the block\n         - io_type: enum, input | output\n         - io_index: the position index of the cell in the transaction inputs or outputs\n     - TxWithCells:\n         - tx_hash: transaction hash,\n         - block_number: the number of the transaction committed in the block\n         - tx_index: the position index of the transaction committed in the block\n         - cells: Array [[io_type, io_index]]\n  * last_cursor - pagination parameter\n\n ## Examples\n\n * get transactions by lock script\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_transactions\",\n     \"params\": [\n         {\n             \"script\": {\n                 \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n                 \"hash_type\": \"type\",\n                 \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\"\n             },\n             \"script_type\": \"lock\"\n         },\n         \"asc\",\n         \"0x64\"\n     ]\n }\n ```\n\n Response\n\n ```json\n {\n     \"jsonrpc\": \"2.0\",\n     \"result\": {\n       \"last_cursor\": \"0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101\",\n       \"objects\": [\n         {\n           \"block_number\": \"0x5b033a\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1\",\n           \"tx_index\": \"0x4\"\n         },\n         {\n           \"block_number\": \"0x5b0671\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0671\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0e6d\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0e90\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0ead\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0ead\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0eeb\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0f8c\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b5638\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b5638\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b5638\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b5638\",\n           \"io_index\": \"0x2\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59c2\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59c2\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59cc\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59cc\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59cc\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59df\",\n           \"io_index\": \"0x0\",\n           \"io_type\": \"input\",\n           \"tx_hash\": \"0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59df\",\n           \"io_index\": \"0x1\",\n           \"io_type\": \"output\",\n           \"tx_hash\": \"0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194\",\n           \"tx_index\": \"0x1\"\n         }\n       ]\n     },\n     \"id\": 2\n }\n ```\n\n * get transactions by lock script and group by tx hash\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_transactions\",\n     \"params\": [\n         {\n             \"script\": {\n                 \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n                 \"hash_type\": \"type\",\n                 \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\"\n             },\n             \"script_type\": \"lock\",\n             \"group_by_transaction\": true\n         },\n         \"asc\",\n         \"0x64\"\n     ]\n }\n ```\n\n Response\n\n ```json\n {\n     \"jsonrpc\": \"2.0\",\n     \"result\": {\n       \"last_cursor\": \"0x809bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8015989ae415bb667931a99896e5fbbfad9ba53a22300000000005b59df000000010000000101\",\n       \"objects\": [\n         {\n           \"block_number\": \"0x5b033a\",\n           \"cells\": [\n             [\n               \"output\",\n               \"0x0\"\n             ]\n           ],\n           \"tx_hash\": \"0x556060b62d16386da53f8a4b458314dfa2d1988a7bcc5c96c3bb2a350a3453a1\",\n           \"tx_index\": \"0x4\"\n         },\n         {\n           \"block_number\": \"0x5b0671\",\n           \"cells\": [\n             [\n               \"input\",\n               \"0x0\"\n             ],\n             [\n               \"output\",\n               \"0x1\"\n             ]\n           ],\n           \"tx_hash\": \"0x8205b2b4cd6380d7e332c7a5b49bf776a0322ba19f46dc6ca1f8c59f7daee08d\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0e6d\",\n           \"cells\": [\n             [\n               \"output\",\n               \"0x0\"\n             ]\n           ],\n           \"tx_hash\": \"0xe8f2180dfba0cb15b45f771d520834515a5f8d7aa07f88894da88c22629b79e9\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0e90\",\n           \"cells\": [\n             [\n               \"output\",\n               \"0x0\"\n             ]\n           ],\n           \"tx_hash\": \"0xece3a27409bde2914fb7a1555d6bfca453ee46af73e665149ef549fd46ec1fc6\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0ead\",\n           \"cells\": [\n             [\n               \"input\",\n               \"0x0\"\n             ],\n             [\n               \"output\",\n               \"0x1\"\n             ]\n           ],\n           \"tx_hash\": \"0x5c48768f91e3795b418c53211c76fd038c464a24c4aa7e35bbbb6ac5b219f581\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0eeb\",\n           \"cells\": [\n             [\n               \"output\",\n               \"0x0\"\n             ]\n           ],\n           \"tx_hash\": \"0x90e6981d6a5692d92e54344dc0e12d213447710fa069cc19ddea874619b9ba48\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b0f8c\",\n           \"cells\": [\n             [\n               \"output\",\n               \"0x0\"\n             ]\n           ],\n           \"tx_hash\": \"0x9ea14510219ae97afa0275215fa77c3c015905281c953a3917a7fd036767429c\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b5638\",\n           \"cells\": [\n             [\n               \"input\",\n               \"0x0\"\n             ],\n             [\n               \"input\",\n               \"0x1\"\n             ],\n             [\n               \"output\",\n               \"0x1\"\n             ],\n             [\n               \"input\",\n               \"0x2\"\n             ]\n           ],\n           \"tx_hash\": \"0x9346da4caa846cc035c182ecad0c17326a587983d25fb1e12a388f1a9c5c56b4\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59c2\",\n           \"cells\": [\n             [\n               \"input\",\n               \"0x0\"\n             ],\n             [\n               \"output\",\n               \"0x1\"\n             ]\n           ],\n           \"tx_hash\": \"0x5b58f90fb3309333bf0bec878f3a05038c7fe816747300ecdac37a9da76c4128\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59cc\",\n           \"cells\": [\n             [\n               \"input\",\n               \"0x0\"\n             ],\n             [\n               \"input\",\n               \"0x1\"\n             ],\n             [\n               \"output\",\n               \"0x1\"\n             ]\n           ],\n           \"tx_hash\": \"0x57ca2822c28e02b199424a731b2efd2c9bf752f07b7309f555f2e71abe83ba26\",\n           \"tx_index\": \"0x1\"\n         },\n         {\n           \"block_number\": \"0x5b59df\",\n           \"cells\": [\n             [\n               \"input\",\n               \"0x0\"\n             ],\n             [\n               \"output\",\n               \"0x1\"\n             ]\n           ],\n           \"tx_hash\": \"0x21c4632a41140b828e9347ff80480b3e07be4e0a0b8d577565e7421fd5473194\",\n           \"tx_index\": \"0x1\"\n         }\n       ]\n     },\n     \"id\": 2\n }\n ```",
+      "name": "get_transactions",
+      "params": [
+        {
+          "name": "search_key",
+          "schema": {
+            "$ref": "#/components/schemas/IndexerSearchKey"
+          }
+        },
+        {
+          "name": "order",
+          "schema": {
+            "$ref": "#/components/schemas/IndexerOrder"
+          }
+        },
+        {
+          "name": "limit",
+          "schema": {
+            "$ref": "#/components/schemas/Uint32"
+          }
+        },
+        {
+          "name": "after",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonBytes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "get_transactions",
+        "schema": {
+          "$ref": "#/components/schemas/IndexerPagination_for_IndexerTx"
+        }
+      }
+    },
+    {
+      "description": " Returns the live cells capacity by the lock or type script.\n\n ## Parameters\n\n * search_key:\n     - script - Script\n     - script_type - enum, lock | type\n     - script_search_mode - enum, prefix | exact\n     - filter - filter cells by following conditions, all conditions are optional\n         - script: if search script type is lock, filter cells by type script prefix, and vice versa\n         - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]\n         - output_data: filter cells by output data\n         - output_data_filter_mode: enum, prefix | exact | partial\n         - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]\n         - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]\n         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]\n\n ## Returns\n\n  * capacity - total capacity\n  * block_hash - indexed tip block hash\n  * block_number - indexed tip block number\n\n ## Examples\n\n Request\n\n ```json\n {\n     \"id\": 2,\n     \"jsonrpc\": \"2.0\",\n     \"method\": \"get_cells_capacity\",\n     \"params\": [\n         {\n             \"script\": {\n                 \"code_hash\": \"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8\",\n                 \"hash_type\": \"type\",\n                 \"args\": \"0x5989ae415bb667931a99896e5fbbfad9ba53a223\"\n             },\n             \"script_type\": \"lock\"\n         }\n     ]\n }\n ```\n\n Response\n\n ```json\n {\n     \"jsonrpc\": \"2.0\",\n     \"result\": {\n       \"block_hash\": \"0xbc52444952dc5eb01a7826aaf6bb1b660db01797414e259e7a6e6d636de8fc7c\",\n       \"block_number\": \"0x5b727a\",\n       \"capacity\": \"0xf0e8e4b4a0\"\n     },\n     \"id\": 2\n }\n ```",
+      "name": "get_cells_capacity",
+      "params": [
+        {
+          "name": "search_key",
+          "schema": {
+            "$ref": "#/components/schemas/IndexerSearchKey"
+          }
+        }
+      ],
+      "result": {
+        "name": "get_cells_capacity",
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/IndexerCellsCapacity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "openrpc": "1.2.6"
+}

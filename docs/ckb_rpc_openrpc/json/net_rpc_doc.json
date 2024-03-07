@@ -1,0 +1,531 @@
+{
+  "components": {
+    "schemas": {
+      "BannedAddr": {
+        "description": "A banned P2P address.",
+        "properties": {
+          "address": {
+            "description": "The P2P address.\n\nExample: \"/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\"",
+            "type": "string"
+          },
+          "ban_reason": {
+            "description": "The reason.",
+            "type": "string"
+          },
+          "ban_until": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The address is banned until this time."
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "When this address is banned."
+          }
+        },
+        "required": [
+          "address",
+          "ban_reason",
+          "ban_until",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "Byte32": {
+        "items": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "maxItems": 32,
+        "minItems": 32,
+        "type": "array"
+      },
+      "LocalNode": {
+        "description": "The information of the node itself.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::LocalNode>(r#\"\n {\n   \"active\": true,\n   \"addresses\": [\n     {\n       \"address\": \"/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\",\n       \"score\": \"0xff\"\n     },\n     {\n       \"address\": \"/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\",\n       \"score\": \"0x1\"\n     }\n   ],\n   \"connections\": \"0xb\",\n   \"node_id\": \"QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\",\n   \"protocols\": [\n     {\n       \"id\": \"0x0\",\n       \"name\": \"/ckb/ping\",\n       \"support_versions\": [\n         \"0.0.1\"\n       ]\n     },\n     {\n       \"id\": \"0x1\",\n       \"name\": \"/ckb/discovery\",\n       \"support_versions\": [\n         \"0.0.1\"\n       ]\n     }\n   ],\n   \"version\": \"0.34.0 (f37f598 2020-07-17)\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "active": {
+            "description": "Whether this node is active.\n\nAn inactive node ignores incoming p2p messages and drops outgoing messages.",
+            "type": "boolean"
+          },
+          "addresses": {
+            "description": "P2P addresses of this node.\n\nA node can have multiple addresses.",
+            "items": {
+              "$ref": "#/components/schemas/NodeAddress"
+            },
+            "type": "array"
+          },
+          "connections": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Count of currently connected peers."
+          },
+          "node_id": {
+            "description": "The unique node ID derived from the p2p private key.\n\nThe private key is generated randomly on the first boot.",
+            "type": "string"
+          },
+          "protocols": {
+            "description": "Supported protocols.",
+            "items": {
+              "$ref": "#/components/schemas/LocalNodeProtocol"
+            },
+            "type": "array"
+          },
+          "version": {
+            "description": "CKB node version.\n\nExample: \"version\": \"0.34.0 (f37f598 2020-07-17)\"",
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "addresses",
+          "connections",
+          "node_id",
+          "protocols",
+          "version"
+        ],
+        "type": "object"
+      },
+      "LocalNodeProtocol": {
+        "description": "The information of a P2P protocol that is supported by the local node.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Unique protocol ID."
+          },
+          "name": {
+            "description": "Readable protocol name.",
+            "type": "string"
+          },
+          "support_versions": {
+            "description": "Supported versions.\n\nSee [Semantic Version](https://semver.org/) about how to specify a version.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "support_versions"
+        ],
+        "type": "object"
+      },
+      "NodeAddress": {
+        "description": "Node P2P address and score.",
+        "properties": {
+          "address": {
+            "description": "P2P address.\n\nThis is the same address used in the whitelist in ckb.toml.\n\nExample: \"/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\"",
+            "type": "string"
+          },
+          "score": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Address score.\n\nA higher score means a higher probability of a successful connection."
+          }
+        },
+        "required": [
+          "address",
+          "score"
+        ],
+        "type": "object"
+      },
+      "PeerSyncState": {
+        "description": "The chain synchronization state between the local node and a remote node.",
+        "properties": {
+          "best_known_header_hash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Byte32"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Best known header hash of remote peer.\n\nThis is the observed tip of the remote node's canonical chain."
+          },
+          "best_known_header_number": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uint64"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Best known header number of remote peer\n\nThis is the block number of the block with the hash `best_known_header_hash`."
+          },
+          "can_fetch_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The count of blocks are available for concurrency download."
+          },
+          "inflight_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The count of concurrency downloading blocks."
+          },
+          "last_common_header_hash": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Byte32"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last common header hash of remote peer.\n\nThis is the common ancestor of the local node canonical chain tip and the block `best_known_header_hash`."
+          },
+          "last_common_header_number": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uint64"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last common header number of remote peer.\n\nThis is the block number of the block with the hash `last_common_header_hash`."
+          },
+          "unknown_header_list_size": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The total size of unknown header list.\n\n**Deprecated**: this is an internal state and will be removed in a future release."
+          }
+        },
+        "required": [
+          "can_fetch_count",
+          "inflight_count",
+          "unknown_header_list_size"
+        ],
+        "type": "object"
+      },
+      "RemoteNode": {
+        "description": "Information of a remote node.\n\nA remote node connects to the local node via the P2P network. It is often called a peer.\n\n## Examples\n\n```\n # serde_json::from_str::<ckb_jsonrpc_types::RemoteNode>(r#\"\n {\n   \"addresses\": [\n     {\n       \"address\": \"/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN\",\n       \"score\": \"0x64\"\n     },\n     {\n       \"address\": \"/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN\",\n       \"score\": \"0x64\"\n     }\n   ],\n   \"connected_duration\": \"0x2f\",\n   \"is_outbound\": true,\n   \"last_ping_duration\": \"0x1a\",\n   \"node_id\": \"QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN\",\n   \"protocols\": [\n     {\n       \"id\": \"0x4\",\n       \"version\": \"0.0.1\"\n     },\n     {\n       \"id\": \"0x2\",\n       \"version\": \"0.0.1\"\n     },\n     {\n       \"id\": \"0x1\",\n       \"version\": \"0.0.1\"\n     },\n     {\n       \"id\": \"0x64\",\n       \"version\": \"1\"\n     },\n     {\n       \"id\": \"0x6e\",\n       \"version\": \"1\"\n     },\n     {\n       \"id\": \"0x66\",\n       \"version\": \"1\"\n     },\n     {\n       \"id\": \"0x65\",\n       \"version\": \"1\"\n     },\n     {\n       \"id\": \"0x0\",\n       \"version\": \"0.0.1\"\n     }\n   ],\n   \"sync_state\": {\n     \"best_known_header_hash\": null,\n     \"best_known_header_number\": null,\n     \"can_fetch_count\": \"0x80\",\n     \"inflight_count\": \"0xa\",\n     \"last_common_header_hash\": null,\n     \"last_common_header_number\": null,\n     \"unknown_header_list_size\": \"0x20\"\n   },\n   \"version\": \"0.34.0 (f37f598 2020-07-17)\"\n }\n # \"#).unwrap();\n```",
+        "properties": {
+          "addresses": {
+            "description": "The remote node addresses.",
+            "items": {
+              "$ref": "#/components/schemas/NodeAddress"
+            },
+            "type": "array"
+          },
+          "connected_duration": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Elapsed time in milliseconds since the remote node is connected."
+          },
+          "is_outbound": {
+            "description": "Whether this is an outbound remote node.\n\nIf the connection is established by the local node, `is_outbound` is true.",
+            "type": "boolean"
+          },
+          "last_ping_duration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uint64"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Elapsed time in milliseconds since receiving the ping response from this remote node.\n\nNull means no ping responses have been received yet."
+          },
+          "node_id": {
+            "description": "The remote node ID which is derived from its P2P private key.",
+            "type": "string"
+          },
+          "protocols": {
+            "description": "Active protocols.\n\nCKB uses Tentacle multiplexed network framework. Multiple protocols are running simultaneously in the connection.",
+            "items": {
+              "$ref": "#/components/schemas/RemoteNodeProtocol"
+            },
+            "type": "array"
+          },
+          "sync_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PeerSyncState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Chain synchronization state.\n\nNull means chain sync has not started with this remote node yet."
+          },
+          "version": {
+            "description": "The remote node version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "addresses",
+          "connected_duration",
+          "is_outbound",
+          "node_id",
+          "protocols",
+          "version"
+        ],
+        "type": "object"
+      },
+      "RemoteNodeProtocol": {
+        "description": "The information about an active running protocol.",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Unique protocol ID."
+          },
+          "version": {
+            "description": "Active protocol version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "type": "object"
+      },
+      "SyncState": {
+        "description": "The overall chain synchronization state of this local node.",
+        "properties": {
+          "best_known_block_number": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "This is the best known block number observed by the local node from the P2P network.\n\nThe best here means that the block leads a chain which has the best known accumulated difficulty.\n\nThis can be used to estimate the synchronization progress. If this RPC returns B, and the RPC `get_tip_block_number` returns T, the node has already synchronized T/B blocks."
+          },
+          "best_known_block_timestamp": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "This is timestamp of the same block described in `best_known_block_number`."
+          },
+          "fast_time": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms"
+          },
+          "ibd": {
+            "description": "Whether the local node is in IBD, Initial Block Download.\n\nWhen a node starts and its chain tip timestamp is far behind the wall clock, it will enter the IBD until it catches up the synchronization.\n\nDuring IBD, the local node only synchronizes the chain with one selected remote node and stops responding to most P2P requests.",
+            "type": "boolean"
+          },
+          "inflight_blocks_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Count of downloading blocks."
+          },
+          "low_time": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms"
+          },
+          "normal_time": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms"
+          },
+          "orphan_blocks_count": {
+            "$ref": "#/components/schemas/Uint64",
+            "description": "Count of orphan blocks the local node has downloaded.\n\nThe local node downloads multiple blocks simultaneously but blocks must be connected consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan block.\n\nIf this number is too high, it indicates that block download has stuck at some block."
+          }
+        },
+        "required": [
+          "best_known_block_number",
+          "best_known_block_timestamp",
+          "fast_time",
+          "ibd",
+          "inflight_blocks_count",
+          "low_time",
+          "normal_time",
+          "orphan_blocks_count"
+        ],
+        "type": "object"
+      },
+      "Uint64": {
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": "integer"
+      }
+    }
+  },
+  "info": {
+    "description": " RPC Module Net for P2P network.",
+    "title": "net_rpc",
+    "version": "0.115.0-pre"
+  },
+  "methods": [
+    {
+      "description": " Returns the local node information.\n\n The local node means the node itself which is serving the RPC.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"local_node_info\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": {\n     \"active\": true,\n     \"addresses\": [\n       {\n         \"address\": \"/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\",\n         \"score\": \"0xff\"\n       },\n       {\n         \"address\": \"/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\",\n         \"score\": \"0x1\"\n       }\n     ],\n     \"connections\": \"0xb\",\n     \"node_id\": \"QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS\",\n     \"protocols\": [\n       {\n         \"id\": \"0x0\",\n         \"name\": \"/ckb/ping\",\n         \"support_versions\": [\n           \"0.0.1\"\n         ]\n       },\n       {\n         \"id\": \"0x1\",\n         \"name\": \"/ckb/discovery\",\n         \"support_versions\": [\n           \"0.0.1\"\n         ]\n       }\n     ],\n     \"version\": \"0.34.0 (f37f598 2020-07-17)\"\n   }\n }\n ```",
+      "name": "local_node_info",
+      "params": [],
+      "result": {
+        "name": "local_node_info",
+        "schema": {
+          "$ref": "#/components/schemas/LocalNode"
+        }
+      }
+    },
+    {
+      "description": " Returns the connected peers' information.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"get_peers\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": [\n     {\n       \"addresses\": [\n         {\n           \"address\": \"/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN\",\n           \"score\": \"0x64\"\n         },\n         {\n           \"address\": \"/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN\",\n           \"score\": \"0x64\"\n         }\n       ],\n       \"connected_duration\": \"0x2f\",\n       \"is_outbound\": true,\n       \"last_ping_duration\": \"0x1a\",\n       \"node_id\": \"QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN\",\n       \"protocols\": [\n         {\n           \"id\": \"0x4\",\n           \"version\": \"0.0.1\"\n         },\n         {\n           \"id\": \"0x2\",\n           \"version\": \"0.0.1\"\n         },\n         {\n           \"id\": \"0x1\",\n           \"version\": \"0.0.1\"\n         },\n         {\n           \"id\": \"0x64\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x6e\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x66\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x65\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x0\",\n           \"version\": \"0.0.1\"\n         }\n       ],\n       \"sync_state\": {\n         \"best_known_header_hash\": null,\n         \"best_known_header_number\": null,\n         \"can_fetch_count\": \"0x80\",\n         \"inflight_count\": \"0xa\",\n         \"last_common_header_hash\": null,\n         \"last_common_header_number\": null,\n         \"unknown_header_list_size\": \"0x20\"\n       },\n       \"version\": \"0.34.0 (f37f598 2020-07-17)\"\n     },\n     {\n       \"addresses\": [\n         {\n           \"address\": \"/ip4/174.80.182.60/tcp/52965/p2p/QmVTMd7SEXfxS5p4EEM5ykTe1DwWWVewEM3NwjLY242vr2\",\n           \"score\": \"0x1\"\n         }\n       ],\n       \"connected_duration\": \"0x95\",\n       \"is_outbound\": true,\n       \"last_ping_duration\": \"0x41\",\n       \"node_id\": \"QmSrkzhdBMmfCGx8tQGwgXxzBg8kLtX8qMcqECMuKWsxDV\",\n       \"protocols\": [\n         {\n           \"id\": \"0x0\",\n           \"version\": \"0.0.1\"\n         },\n         {\n           \"id\": \"0x2\",\n           \"version\": \"0.0.1\"\n         },\n         {\n           \"id\": \"0x6e\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x66\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x1\",\n           \"version\": \"0.0.1\"\n         },\n         {\n           \"id\": \"0x65\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x64\",\n           \"version\": \"1\"\n         },\n         {\n           \"id\": \"0x4\",\n           \"version\": \"0.0.1\"\n         }\n       ],\n       \"sync_state\": {\n         \"best_known_header_hash\": \"0x2157c72b3eddd41a7a14c361173cd22ef27d7e0a29eda2e511ee0b3598c0b895\",\n         \"best_known_header_number\": \"0xdb835\",\n         \"can_fetch_count\": \"0x80\",\n         \"inflight_count\": \"0xa\",\n         \"last_common_header_hash\": \"0xc63026bd881d880bb142c855dc8153187543245f0a94391c831c75df31f263c4\",\n         \"last_common_header_number\": \"0x4dc08\",\n         \"unknown_header_list_size\": \"0x1f\"\n       },\n       \"version\": \"0.30.1 (5cc1b75 2020-03-23)\"\n     }\n   ]\n }\n ```",
+      "name": "get_peers",
+      "params": [],
+      "result": {
+        "name": "get_peers",
+        "schema": {
+          "items": {
+            "$ref": "#/components/schemas/RemoteNode"
+          },
+          "type": "array"
+        }
+      }
+    },
+    {
+      "description": " Returns all banned IPs/Subnets.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"get_banned_addresses\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": [\n     {\n       \"address\": \"192.168.0.2/32\",\n       \"ban_reason\": \"\",\n       \"ban_until\": \"0x1ac89236180\",\n       \"created_at\": \"0x16bde533338\"\n     }\n   ]\n }\n ```",
+      "name": "get_banned_addresses",
+      "params": [],
+      "result": {
+        "name": "get_banned_addresses",
+        "schema": {
+          "items": {
+            "$ref": "#/components/schemas/BannedAddr"
+          },
+          "type": "array"
+        }
+      }
+    },
+    {
+      "description": " Clears all banned IPs/Subnets.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"clear_banned_addresses\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "clear_banned_addresses",
+      "params": [],
+      "result": {
+        "name": "clear_banned_addresses",
+        "schema": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "description": " Inserts or deletes an IP/Subnet from the banned list\n\n ## Params\n\n * `address` - The IP/Subnet with an optional netmask (default is /32 = single IP). Examples:\n     * \"192.168.0.2\" bans a single IP\n     * \"192.168.0.0/24\" bans IP from \"192.168.0.0\" to \"192.168.0.255\".\n * `command` - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list.\n * `ban_time` - Time in milliseconds how long (or until when if \\[absolute\\] is set) the IP is banned, optional parameter, null means using the default time of 24h\n * `absolute` - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter.\n * `reason` - Ban reason, optional parameter.\n\n ## Errors\n\n * [`InvalidParams (-32602)`](../enum.RPCError.html#variant.InvalidParams)\n     * Expected `address` to be a valid IP address with an optional netmask.\n     * Expected `command` to be in the list [insert, delete].\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"set_ban\",\n   \"params\": [\n     \"192.168.0.2\",\n     \"insert\",\n     \"0x1ac89236180\",\n     true,\n     \"set_ban example\"\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "set_ban",
+      "params": [
+        {
+          "name": "address",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "command",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "ban_time",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Uint64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "absolute",
+          "schema": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        {
+          "name": "reason",
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "set_ban",
+        "schema": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "description": " Returns chain synchronization state of this node.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"sync_state\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": {\n     \"best_known_block_number\": \"0x400\",\n     \"best_known_block_timestamp\": \"0x5cd2b117\",\n     \"fast_time\": \"0x3e8\",\n     \"ibd\": true,\n     \"inflight_blocks_count\": \"0x0\",\n     \"low_time\": \"0x5dc\",\n     \"normal_time\": \"0x4e2\",\n     \"orphan_blocks_count\": \"0x0\"\n   }\n }\n ```",
+      "name": "sync_state",
+      "params": [],
+      "result": {
+        "name": "sync_state",
+        "schema": {
+          "$ref": "#/components/schemas/SyncState"
+        }
+      }
+    },
+    {
+      "description": " Disable/enable all p2p network activity\n\n ## Params\n\n * `state` - true to enable networking, false to disable\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"set_network_active\",\n   \"params\": [\n     false\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "set_network_active",
+      "params": [
+        {
+          "name": "state",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "set_network_active",
+        "schema": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "description": " Attempts to add a node to the peers list and try connecting to it.\n\n ## Params\n\n * `peer_id` - The node id of the node.\n * `address` - The address of the node.\n\n The full P2P address is usually displayed as `address/peer_id`, for example in the log\n\n ```text\n 2020-09-16 15:31:35.191 +08:00 NetworkRuntime INFO ckb_network::network\n   Listen on address: /ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS\n ```\n\n And in RPC `local_node_info`:\n\n ```json\n {\n   \"addresses\": [\n     {\n       \"address\": \"/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS\",\n       \"score\": \"0xff\"\n     }\n   ]\n }\n ```\n\n In both of these examples,\n\n * `peer_id` is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`,\n * and `address` is `/ip4/192.168.2.100/tcp/8114`\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"add_node\",\n   \"params\": [\n     \"QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS\",\n     \"/ip4/192.168.2.100/tcp/8114\"\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "add_node",
+      "params": [
+        {
+          "name": "peer_id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "address",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "add_node",
+        "schema": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "description": " Attempts to remove a node from the peers list and try disconnecting from it.\n\n ## Params\n\n * `peer_id` - The peer id of the node.\n\n This is the last part of a full P2P address. For example, in address\n \"/ip4/192.168.2.100/tcp/8114/QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS\", the `peer_id`\n is `QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS`.\n\n ## Examples\n\n Request\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"remove_node\",\n   \"params\": [\n     \"QmUsZHPbjjzU627UZFt4k8j6ycEcNvXRnVGxCPKqwbAfQS\"\n   ]\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "remove_node",
+      "params": [
+        {
+          "name": "peer_id",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "remove_node",
+        "schema": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "description": " Requests that a ping is sent to all connected peers, to measure ping time.\n\n ## Examples\n\n Requests\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"method\": \"ping_peers\",\n   \"params\": []\n }\n ```\n\n Response\n\n ```json\n {\n   \"id\": 42,\n   \"jsonrpc\": \"2.0\",\n   \"result\": null\n }\n ```",
+      "name": "ping_peers",
+      "params": [],
+      "result": {
+        "name": "ping_peers",
+        "schema": {
+          "type": "null"
+        }
+      }
+    }
+  ],
+  "openrpc": "1.2.6"
+}
