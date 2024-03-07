@@ -45,12 +45,11 @@ fn dump_openrpc_json() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Generate rpc readme
 fn gen_rpc_readme(readme_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let commit_sha = get_commit_sha();
     let rpc_docs = all_rpc_docs()
         .iter()
         .map(|(_, doc)| doc.clone())
         .collect::<Vec<_>>();
-    let generator = RpcDocGenerator::new(&rpc_docs, readme_path.to_owned(), commit_sha);
+    let generator = RpcDocGenerator::new(&rpc_docs, readme_path.to_owned());
     fs::write(readme_path, generator.gen_markdown())?;
 
     Ok(())
