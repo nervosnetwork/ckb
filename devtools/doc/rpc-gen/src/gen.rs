@@ -13,7 +13,7 @@ struct RpcModule {
 }
 
 impl RpcModule {
-    pub fn gen_menu(&self, commit: &str) -> Value {
+    pub fn gen_menu(&self) -> Value {
         let capitlized = self.title.to_string();
         let mut method_names = self
             .methods
@@ -29,14 +29,11 @@ impl RpcModule {
             ("title", capitlized.clone().into()),
             ("name", self.title.to_lowercase().into()),
             ("methods", method_names.into()),
-            (
-                "link",
-                gen_module_openrpc_playground(&capitlized, commit).into(),
-            ),
+            ("link", gen_module_openrpc_playground(&capitlized).into()),
         ])
     }
 
-    pub fn gen_module_content(&self, commit: &str) -> String {
+    pub fn gen_module_content(&self) -> String {
         if self.title == "Subscription" {
             return gen_subscription_rpc_doc();
         }
@@ -86,10 +83,7 @@ impl RpcModule {
             include_str!("../templates/module.tera"),
             &[
                 ("name", capitlized.clone().into()),
-                (
-                    "link",
-                    gen_module_openrpc_playground(&capitlized, commit).into(),
-                ),
+                ("link", gen_module_openrpc_playground(&capitlized).into()),
                 ("desc", description.into()),
                 ("methods", methods.into()),
             ],
@@ -101,11 +95,10 @@ pub(crate) struct RpcDocGenerator {
     rpc_methods: Vec<RpcModule>,
     types: Vec<(String, Value)>,
     file_path: String,
-    commit: String,
 }
 
 impl RpcDocGenerator {
-    pub fn new(all_rpc: &Vec<Value>, readme_path: String, commit: String) -> Self {
+    pub fn new(all_rpc: &Vec<Value>, readme_path: String) -> Self {
         let mut rpc_methods = vec![];
         let mut all_types: Vec<&Map<String, Value>> = vec![];
         for rpc in all_rpc {
@@ -152,7 +145,6 @@ impl RpcDocGenerator {
             rpc_methods,
             types,
             file_path: readme_path,
-            commit,
         }
     }
 
@@ -171,7 +163,7 @@ impl RpcDocGenerator {
         let module_menus = self
             .rpc_methods
             .iter()
-            .map(|r| r.gen_menu(&self.commit))
+            .map(|r| r.gen_menu())
             .collect::<Vec<_>>();
 
         let type_menus: Value = self
@@ -185,7 +177,7 @@ impl RpcDocGenerator {
         let modules: Vec<Value> = self
             .rpc_methods
             .iter()
-            .map(|r| r.gen_module_content(&self.commit).into())
+            .map(|r| r.gen_module_content().into())
             .collect::<Vec<_>>();
 
         let types = self.gen_type_contents();
@@ -494,14 +486,13 @@ fn gen_subscription_rpc_doc() -> String {
 }
 
 /// generate openrpc playground urls
-fn gen_module_openrpc_playground(module: &str, commit: &str) -> String {
+fn gen_module_openrpc_playground(module: &str) -> String {
     let title = format!("CKB-{}", capitlize(module));
     render_tera(
         include_str!("../templates/link.tera"),
         &[
             ("title", title.into()),
             ("module", module.to_lowercase().into()),
-            ("commit", commit.into()),
         ],
     )
 }
