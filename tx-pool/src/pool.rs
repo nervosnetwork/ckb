@@ -128,17 +128,23 @@ impl TxPool {
 
     /// Add tx with pending status
     /// If did have this value present, false is returned.
-    pub(crate) fn add_pending(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub(crate) fn add_pending(
+        &mut self,
+        entry: TxEntry,
+    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
         self.pool_map.add_entry(entry, Status::Pending)
     }
 
     /// Add tx which proposed but still uncommittable to gap
-    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub(crate) fn add_gap(&mut self, entry: TxEntry) -> Result<(bool, HashSet<TxEntry>), Reject> {
         self.pool_map.add_entry(entry, Status::Gap)
     }
 
     /// Add tx with proposed status
-    pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
+    pub(crate) fn add_proposed(
+        &mut self,
+        entry: TxEntry,
+    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
         self.pool_map.add_entry(entry, Status::Proposed)
     }
 
@@ -495,14 +501,9 @@ impl TxPool {
         let conflict_ids = self.pool_map.find_conflict_tx(entry.transaction());
 
         if conflict_ids.is_empty() {
-            return Ok(conflict_ids);
+            return Ok(HashSet::new());
         }
 
-        let tx_cells_deps: Vec<OutPoint> = entry
-            .transaction()
-            .cell_deps_iter()
-            .map(|c| c.out_point())
-            .collect();
         let short_id = entry.proposal_short_id();
 
         // Rule #1, the node has enabled RBF, which is checked by caller
@@ -564,6 +565,11 @@ impl TxPool {
             all_conflicted.extend(entries);
         }
 
+        let tx_cells_deps: Vec<OutPoint> = entry
+            .transaction()
+            .cell_deps_iter()
+            .map(|c| c.out_point())
+            .collect();
         for entry in all_conflicted.iter() {
             let hash = entry.inner.transaction().hash();
             if tx_cells_deps.iter().any(|pt| pt.tx_hash() == hash) {

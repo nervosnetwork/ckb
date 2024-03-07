@@ -6218,6 +6218,7 @@ An enum value from one of:
   - `Verification` :  Verification failed
   - `Expiry` :  Transaction expired
   - `RBFRejected` :  RBF rejected
+  - `Invalidated` :  Invalidated rejected
 
 ### Type `PoolTxDetailInfo`
 A Tx details info in tx-pool.
@@ -6971,5 +6972,7 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 (-1110): The transaction exceeded maximum size limit.
 ### ERROR `PoolRejectedRBF`
 (-1111): The transaction is rejected for RBF checking.
+### ERROR `PoolRejectedInvalidated`
+(-1112): The transaction is rejected for ref cell consuming.
 ### ERROR `Indexer`
 (-1200): The indexer error.

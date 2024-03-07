@@ -149,7 +149,14 @@ impl TxPoolService {
                         self.callbacks.call_reject(tx_pool, &old, reject)
                     }
                 }
-                _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
+                let evicted = _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
+                for evict in evicted {
+                    let reject = Reject::Invalidated(format!(
+                        "invalidated by tx {}",
+                        evict.transaction().hash()
+                    ));
+                    self.callbacks.call_reject(tx_pool, &evict, reject);
+                }
                 Ok(())
             })
             .await;
@@ -1096,29 +1103,22 @@ fn _submit_entry(
     status: TxStatus,
     entry: TxEntry,
     callbacks: &Callbacks,
-) -> Result<(), Reject> {
+) -> Result<HashSet<TxEntry>, Reject> {
     let tx_hash = entry.transaction().hash();
-    match status {
-        TxStatus::Fresh => {
-            if tx_pool.add_pending(entry.clone())? {
-                debug!("submit_entry pending {}", tx_hash);
-                callbacks.call_pending(&entry);
-            }
-        }
-        TxStatus::Gap => {
-            if tx_pool.add_gap(entry.clone())? {
-                debug!("submit_entry gap {}", tx_hash);
-                callbacks.call_pending(&entry);
-            }
-        }
-        TxStatus::Proposed => {
-            if tx_pool.add_proposed(entry.clone())? {
-                debug!("submit_entry proposed {}", tx_hash);
-                callbacks.call_proposed(&entry);
-            }
+    debug!("submit_entry {:?} {}", status, tx_hash);
+    let (succ, evicts) = match status {
+        TxStatus::Fresh => tx_pool.add_pending(entry.clone())?,
+        TxStatus::Gap => tx_pool.add_gap(entry.clone())?,
+        TxStatus::Proposed => tx_pool.add_proposed(entry.clone())?,
+    };
+    if succ {
+        match status {
+            TxStatus::Fresh => callbacks.call_pending(&entry),
+            TxStatus::Gap => callbacks.call_pending(&entry),
+            TxStatus::Proposed => callbacks.call_proposed(&entry),
         }
     }
-    Ok(())
+    Ok(evicts)
 }
 
 fn _update_tx_pool_for_reorg(

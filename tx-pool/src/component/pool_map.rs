@@ -120,6 +120,7 @@ impl PoolMap {
     #[cfg(test)]
     pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         self.add_entry(entry, Status::Proposed)
+            .map(|(succ, _)| succ)
     }
 
     pub(crate) fn get_max_update_time(&self) -> u64 {
@@ -189,19 +190,32 @@ impl PoolMap {
             })
     }
 
-    pub(crate) fn add_entry(&mut self, mut entry: TxEntry, status: Status) -> Result<bool, Reject> {
+    /// Inesrt a `TxEntry` into pool_map.
+    ///
+    /// ## Returns
+    ///
+    /// Returns `Reject` when any error happened, otherwise return `Ok((succ, evicts))`
+    /// - succ  : means whether the entry is insertted actually into pool,
+    /// - evicts: is the evicted transactions before inserting this `TxEntry`,
+    ///           Currently, evicts when inserting is only due to reffering cell dep will be consumed by this new transaction.
+    pub(crate) fn add_entry(
+        &mut self,
+        mut entry: TxEntry,
+        status: Status,
+    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
         let tx_short_id = entry.proposal_short_id();
+        let mut evicts = Default::default();
         if self.entries.get_by_id(&tx_short_id).is_some() {
-            return Ok(false);
+            return Ok((false, evicts));
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
-        self.check_and_record_ancestors(&mut entry)?;
+        evicts = self.check_and_record_ancestors(&mut entry)?;
         self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
         self.track_entry_statics();
         self.update_stat_for_add_tx(entry.size, entry.cycles);
-        Ok(true)
+        Ok((true, evicts))
     }
 
     /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
@@ -429,7 +443,6 @@ impl PoolMap {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let outputs = entry.transaction().output_pts();
         let mut children = HashSet::new();
-        let mut direct_children = HashSet::new();
 
         // collect children
         for o in outputs {
@@ -437,17 +450,13 @@ impl PoolMap {
                 children.extend(ids);
             }
             if let Some(id) = self.edges.get_input_ref(&o).cloned() {
-                children.insert(id.clone());
-                direct_children.insert(id);
+                children.insert(id);
             }
         }
         // update children
         if !children.is_empty() {
             for child in &children {
                 self.links.add_parent(child, tx_short_id.clone());
-            }
-            for child in &direct_children {
-                self.links.add_direct_parent(child, tx_short_id.clone());
             }
             if let Some(links) = self.links.inner.get_mut(&tx_short_id) {
                 links.children.extend(children);
@@ -458,29 +467,33 @@ impl PoolMap {
         self.update_ancestors_index_key(entry, EntryOp::Add);
     }
 
-    /// Check ancestors and record for entry
-    fn check_and_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
-        let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
-            entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
-        );
-        let mut direct_parents: HashSet<ProposalShortId> =
-            HashSet::with_capacity(entry.transaction().inputs().len());
+    // return (ancestors, parents, cell_ref_parents)
+    // `cell_ref_parents` may be invalidate when the tx consuming the cell is submitted
+    fn get_tx_ancenstors(
+        &self,
+        entry: &TransactionView,
+    ) -> (
+        HashSet<ProposalShortId>,
+        HashSet<ProposalShortId>,
+        HashSet<ProposalShortId>,
+    ) {
+        let mut parents: HashSet<ProposalShortId> =
+            HashSet::with_capacity(entry.inputs().len() + entry.cell_deps().len());
+        let mut cell_ref_parents: HashSet<ProposalShortId> = Default::default();
 
-        let short_id = entry.proposal_short_id();
-        for input in entry.transaction().inputs() {
+        for input in entry.inputs() {
             let input_pt = input.previous_output();
             if let Some(deps) = self.edges.deps.get(&input_pt) {
+                cell_ref_parents.extend(deps.iter().cloned());
                 parents.extend(deps.iter().cloned());
             }
 
-            let parent_hash = &input_pt.tx_hash();
-            let id = ProposalShortId::from_tx_hash(parent_hash);
+            let id = ProposalShortId::from_tx_hash(&input_pt.tx_hash());
             if self.links.inner.contains_key(&id) {
-                parents.insert(id.clone());
-                direct_parents.insert(id);
+                parents.insert(id);
             }
         }
-        for cell_dep in entry.transaction().cell_deps() {
+        for cell_dep in entry.cell_deps() {
             let dep_pt = cell_dep.out_point();
             let id = ProposalShortId::from_tx_hash(&dep_pt.tx_hash());
             if self.links.inner.contains_key(&id) {
@@ -492,35 +505,93 @@ impl PoolMap {
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
 
-        let direct_ancestors = self
-            .links
-            .calc_relation_ids(direct_parents.clone(), Relation::DirectParents);
+        (ancestors, parents, cell_ref_parents)
+    }
 
+    fn _record_ancestors(
+        &mut self,
+        entry: &mut TxEntry,
+        ancestors: HashSet<ProposalShortId>,
+        parents: HashSet<ProposalShortId>,
+    ) {
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
-            // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        entry.direct_ancestors_count = direct_ancestors.len() + 1;
-        if entry.direct_ancestors_count > self.max_ancestors_count {
-            return Err(Reject::ExceededMaximumAncestorsCount);
-        }
+
+        let short_id = entry.proposal_short_id();
 
         for parent in &parents {
             self.links.add_child(parent, short_id.clone());
         }
-
         self.links.add_link(
             short_id,
             TxLinks {
                 parents,
-                direct_parents,
                 children: Default::default(),
             },
         );
+    }
 
-        Ok(true)
+    /// Check ancestors and record for entry
+    // FIXME: In the scenario that a transaction passed all RBF rules, and then removed the conflicted
+    // transaction in txpool, then failed with max ancestor limits, we now need to rollback the removing.
+    // this is not an issue currently, because RBF have a rule that not allow any unknown inputs except
+    // the conflicted inputs, so the new transcation can not be in a long transaction chain.
+    // but it's still safer to report an error before any writing kind of operation.
+    fn check_and_record_ancestors(
+        &mut self,
+        entry: &mut TxEntry,
+    ) -> Result<HashSet<TxEntry>, Reject> {
+        let tx = entry.transaction();
+        let (ancestors, mut parents, cell_ref_parents) = self.get_tx_ancenstors(tx);
+
+        let mut ancestors_count = ancestors.len() + 1;
+        let mut evicted = Default::default();
+
+        if ancestors_count <= self.max_ancestors_count {
+            self._record_ancestors(entry, ancestors, parents);
+            return Ok(evicted);
+        }
+
+        if ancestors_count.saturating_sub(cell_ref_parents.len()) <= self.max_ancestors_count {
+            // if ancestors count exceed limitation,
+            // try to evict some conflicted transactions due to ref cells
+
+            // sort them to find out the transactions with lowest fees
+            let evict_candidates: Vec<ProposalShortId> = self
+                .entries
+                .iter_by_evict_key()
+                .filter(move |entry| cell_ref_parents.contains(&entry.id))
+                .map(|x| x.id.clone())
+                .collect();
+
+            let mut iter = evict_candidates.iter();
+            while ancestors_count > self.max_ancestors_count {
+                if let Some(next_id) = iter.next() {
+                    let removed = self.remove_entry_and_descendants(next_id);
+                    ancestors_count = ancestors_count.saturating_sub(1);
+                    parents.remove(next_id);
+                    evicted.extend(removed);
+                } else {
+                    break;
+                }
+            }
+        } else {
+            return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+
+        // some txs in `parents` are removed, now `ancestors` need to re-caculate,
+        let ancestors = self
+            .links
+            .calc_relation_ids(parents.clone(), Relation::Parents);
+
+        // we can assume the number now is less than `max_ancestors_count`
+        assert!(ancestors.len() < self.max_ancestors_count);
+
+        self._record_ancestors(entry, ancestors, parents);
+        Ok(evicted)
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
