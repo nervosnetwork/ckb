@@ -1,15 +1,16 @@
 #[cfg(test)]
 use crate::syscalls::Pause;
+use crate::syscalls::{InheritedFd, ProcessID};
 use crate::v2_scheduler::Scheduler;
-use crate::v2_types::{RunMode, TxData};
+use crate::v2_types::{Message, RunMode, TxData, VmId, FIRST_VM_ID};
 use crate::{
     cost_model::transferred_byte_cycles,
     error::{ScriptError, TransactionScriptError},
     syscalls::{
         spawn::{build_child_machine, update_caller_machine},
-        CurrentCycles, CurrentMemory, Debugger, Exec, GetMemoryLimit, LoadBlockExtension, LoadCell,
-        LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness,
-        SetContent, Spawn, VMVersion,
+        Close, CurrentCycles, CurrentMemory, Debugger, Exec, GetMemoryLimit, LoadBlockExtension,
+        LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx,
+        LoadWitness, Pipe, Read, SetContent, Spawn, VMVersion, Wait, Write,
     },
     type_id::TypeIdSystemScript,
     types::{
@@ -144,20 +145,23 @@ impl Binaries {
 /// TransactionScriptsSyscallsGenerator can be cloned.
 #[derive(Clone)]
 pub struct TransactionScriptsSyscallsGenerator<DL> {
+    pub(crate) base_cycles: Arc<Mutex<u64>>,
     pub(crate) data_loader: DL,
-    debug_printer: DebugPrinter,
+    pub(crate) debug_printer: DebugPrinter,
+    pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
     pub(crate) outputs: Arc<Vec<CellMeta>>,
     pub(crate) rtx: Arc<ResolvedTransaction>,
     #[cfg(test)]
-    skip_pause: Arc<AtomicBool>,
+    pub(crate) skip_pause: Arc<AtomicBool>,
+    pub(crate) vm_id: VmId,
 }
 
 impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
     TransactionScriptsSyscallsGenerator<DL>
 {
     /// Build syscall: current_cycles
-    pub fn build_current_cycles(&self, base: u64) -> CurrentCycles {
-        CurrentCycles::new(base)
+    pub fn build_current_cycles(&self) -> CurrentCycles {
+        CurrentCycles::new(Arc::clone(&self.base_cycles))
     }
 
     /// Build syscall: vm_version
@@ -278,6 +282,41 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         )
     }
 
+    /// Build syscall: wait
+    pub fn build_wait(&self) -> Wait {
+        Wait::new(self.vm_id, self.message_box.clone())
+    }
+
+    /// Build syscall: process_id
+    pub fn build_process_id(&self) -> ProcessID {
+        ProcessID::new(self.vm_id)
+    }
+
+    /// Build syscall: pipe
+    pub fn build_pipe(&self) -> Pipe {
+        Pipe::new(self.vm_id, self.message_box.clone())
+    }
+
+    /// Build syscall: write
+    pub fn build_write(&self) -> Write {
+        Write::new(self.vm_id, self.message_box.clone())
+    }
+
+    /// Build syscall: read
+    pub fn build_read(&self) -> Read {
+        Read::new(self.vm_id, self.message_box.clone())
+    }
+
+    /// Build syscall: inherited_fd
+    pub fn inherited_fd(&self) -> InheritedFd {
+        InheritedFd::new(self.vm_id, self.message_box.clone())
+    }
+
+    /// Build syscall: close
+    pub fn close(&self) -> Close {
+        Close::new(self.vm_id, self.message_box.clone())
+    }
+
     /// Build syscall: current_memory
     pub fn build_current_memory(&self, current_memory: u64) -> CurrentMemory {
         CurrentMemory::new(current_memory)
@@ -315,8 +354,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 Arc::clone(&self.debug_printer),
             )),
         ];
-        #[cfg(test)]
-        syscalls.push(Box::new(Pause::new(Arc::clone(&self.skip_pause))));
         if script_version >= ScriptVersion::V1 {
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),
@@ -324,14 +361,23 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                     Arc::clone(&script_group_input_indices),
                     Arc::clone(&script_group_output_indices),
                 )),
+                Box::new(self.build_current_cycles()),
             ]);
         }
-
         if script_version >= ScriptVersion::V2 {
-            syscalls.push(Box::new(
-                self.build_load_block_extension(Arc::clone(&script_group_input_indices)),
-            ));
+            syscalls.append(&mut vec![
+                Box::new(self.build_load_block_extension(Arc::clone(&script_group_input_indices))),
+                Box::new(self.build_process_id()),
+                Box::new(self.build_pipe()),
+                Box::new(self.build_wait()),
+                Box::new(self.build_write()),
+                Box::new(self.build_read()),
+                Box::new(self.inherited_fd()),
+                Box::new(self.close()),
+            ]);
         }
+        #[cfg(test)]
+        syscalls.push(Box::new(Pause::new(Arc::clone(&self.skip_pause))));
         syscalls
     }
 
@@ -343,9 +389,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         context: Arc<Mutex<MachineContext>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         let mut syscalls = self.generate_same_syscalls(script_version, script_group);
-        if script_version >= ScriptVersion::V1 {
-            syscalls.push(Box::new(self.build_current_cycles(0)));
-        }
         if script_version >= ScriptVersion::V2 {
             syscalls.append(&mut vec![
                 Box::new(self.build_get_memory_limit(8)),
@@ -385,7 +428,7 @@ pub struct TransactionScriptsVerifier<DL> {
     consensus: Arc<Consensus>,
     tx_env: Arc<TxVerifyEnv>,
 
-    generator: TransactionScriptsSyscallsGenerator<DL>,
+    syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
 }
 
 impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
@@ -481,13 +524,16 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         #[cfg(test)]
         let skip_pause = Arc::new(AtomicBool::new(false));
 
-        let generator = TransactionScriptsSyscallsGenerator {
+        let syscalls_generator = TransactionScriptsSyscallsGenerator {
+            base_cycles: Arc::new(Mutex::new(0)),
             data_loader: data_loader.clone(),
             debug_printer: Arc::clone(&debug_printer),
+            message_box: Arc::new(Mutex::new(Vec::new())),
             outputs: Arc::clone(&outputs),
             rtx: Arc::clone(&rtx),
             #[cfg(test)]
             skip_pause: Arc::clone(&skip_pause),
+            vm_id: FIRST_VM_ID,
         };
 
         TransactionScriptsVerifier {
@@ -501,7 +547,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             skip_pause,
             consensus,
             tx_env,
-            generator,
+            syscalls_generator,
         }
     }
 
@@ -515,7 +561,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     /// * `hash: &Byte32`: this is the script hash of currently running script group.
     /// * `message: &str`: message passed to the debug syscall.
     pub fn set_debug_printer<F: Fn(&Byte32, &str) + Sync + Send + 'static>(&mut self, func: F) {
-        self.generator.debug_printer = Arc::new(func);
+        self.syscalls_generator.debug_printer = Arc::new(func);
     }
 
     #[cfg(test)]
@@ -1065,7 +1111,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         script_group: &ScriptGroup,
         context: Arc<Mutex<MachineContext>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
-        self.generator
+        self.syscalls_generator
             .generate_root_syscalls(script_version, script_group, context)
     }
 
@@ -1104,7 +1150,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             script_group: Arc::new(script_group.clone()),
         };
         let version = self.select_version(&script_group.script)?;
-        let mut scheduler = Scheduler::new(tx_data.clone(), version, self.generator.clone());
+        let mut scheduler =
+            Scheduler::new(tx_data.clone(), version, self.syscalls_generator.clone());
 
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
@@ -1248,7 +1295,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         let machine = build_child_machine(
                             script_group,
                             self.select_version(&script_group.script)?,
-                            &self.generator,
+                            &self.syscalls_generator,
                             max_cycles,
                             &spawn_data,
                             &context,

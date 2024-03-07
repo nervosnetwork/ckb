@@ -291,9 +291,8 @@ pub fn build_child_machine<
     let machine_builder = machine_syscalls
         .into_iter()
         .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
-    let machine_builder = machine_builder.syscall(Box::new(
-        syscalls_generator.build_current_cycles(*cycles_base),
-    ));
+    let machine_builder =
+        machine_builder.syscall(Box::new(syscalls_generator.build_current_cycles()));
     let machine_builder = machine_builder.syscall(Box::new(
         syscalls_generator.build_get_memory_limit(*callee_memory_limit),
     ));

@@ -53,7 +53,7 @@ fn test_current_cycles() {
 
     machine.set_cycles(cycles);
 
-    let result = CurrentCycles::new(0).ecall(&mut machine);
+    let result = CurrentCycles::new(Arc::new(Mutex::new(0))).ecall(&mut machine);
 
     assert!(result.unwrap());
     assert_eq!(machine.registers()[A0], cycles);

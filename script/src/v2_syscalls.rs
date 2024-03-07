@@ -1,7 +1,5 @@
 use crate::{
-    v2_types::{
-        DataPieceId, Message, PipeArgs, PipeId, PipeIoArgs, SpawnArgs, TxData, VmId, WaitArgs,
-    },
+    v2_types::{DataPieceId, Message, PipeId, SpawnArgs, TxData, VmId},
     ScriptVersion,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -20,11 +18,11 @@ use std::sync::{Arc, Mutex};
 pub struct MachineContext<
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 > {
-    id: VmId,
-    base_cycles: Arc<Mutex<u64>>,
-    message_box: Arc<Mutex<Vec<Message>>>,
-    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
-    script_version: ScriptVersion,
+    pub(crate) id: VmId,
+    pub(crate) base_cycles: Arc<Mutex<u64>>,
+    pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
+    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+    pub(crate) script_version: ScriptVersion,
 }
 
 impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
@@ -49,23 +47,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self.snapshot2_context
     }
 
-    pub fn base_cycles(&self) -> u64 {
-        *self.base_cycles.lock().expect("lock")
-    }
-
     pub fn set_base_cycles(&mut self, base_cycles: u64) {
         *self.base_cycles.lock().expect("lock") = base_cycles;
-    }
-
-    // The different architecture here requires a re-implementation on current
-    // cycles syscall.
-    fn current_cycles<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let cycles = self
-            .base_cycles()
-            .checked_add(machine.cycles())
-            .ok_or(Error::CyclesOverflow)?;
-        machine.set_register(A0, Mac::REG::from_u64(cycles));
-        Ok(())
     }
 
     // Reimplementation of load_cell_data but keep tracks of pages that are copied from
@@ -334,150 +317,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         // here.
         Err(Error::External("YIELD".to_string()))
     }
-
-    // Join syscall blocks till the specified VM finishes execution, then
-    // returns with its exit code
-    fn wait<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let target_id = machine.registers()[A0].to_u64();
-        let exit_code_addr = machine.registers()[A1].to_u64();
-
-        // TODO: charge cycles
-        self.message_box.lock().expect("lock").push(Message::Wait(
-            self.id,
-            WaitArgs {
-                target_id,
-                exit_code_addr,
-            },
-        ));
-
-        // Like spawn, join yields control upon success
-        Err(Error::External("YIELD".to_string()))
-    }
-
-    // Fetch current instance ID
-    fn process_id<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        // TODO: charge cycles
-        machine.set_register(A0, Mac::REG::from_u64(self.id));
-        Ok(())
-    }
-
-    // Create a pair of pipes
-    fn pipe<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let pipe1_addr = machine.registers()[A0].to_u64();
-        let pipe2_addr = pipe1_addr.wrapping_add(8);
-        // TODO: charge cycles
-        self.message_box.lock().expect("lock").push(Message::Pipe(
-            self.id,
-            PipeArgs {
-                pipe1_addr,
-                pipe2_addr,
-            },
-        ));
-
-        Err(Error::External("YIELD".to_string()))
-    }
-
-    // Write to pipe
-    fn pipe_write<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let pipe = PipeId(machine.registers()[A0].to_u64());
-        let buffer_addr = machine.registers()[A1].to_u64();
-        let length_addr = machine.registers()[A2].to_u64();
-        let length = machine
-            .memory_mut()
-            .load64(&Mac::REG::from_u64(length_addr))?
-            .to_u64();
-
-        // We can only do basic checks here, when the message is actually processed,
-        // more complete checks will be performed.
-        // We will also leave to the actual write operation to test memory permissions.
-        if !pipe.is_write() {
-            machine.set_register(A0, Mac::REG::from_u8(INVALID_PIPE));
-            return Ok(());
-        }
-
-        // TODO: charge cycles
-        self.message_box
-            .lock()
-            .expect("lock")
-            .push(Message::PipeWrite(
-                self.id,
-                PipeIoArgs {
-                    pipe,
-                    length,
-                    buffer_addr,
-                    length_addr,
-                },
-            ));
-
-        // A0 will be updated once the write operation is fulfilled
-        Err(Error::External("YIELD".to_string()))
-    }
-
-    // Read from pipe
-    fn pipe_read<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let pipe = PipeId(machine.registers()[A0].to_u64());
-        let buffer_addr = machine.registers()[A1].to_u64();
-        let length_addr = machine.registers()[A2].to_u64();
-        let length = machine
-            .memory_mut()
-            .load64(&Mac::REG::from_u64(length_addr))?
-            .to_u64();
-
-        // We can only do basic checks here, when the message is actually processed,
-        // more complete checks will be performed.
-        // We will also leave to the actual write operation to test memory permissions.
-        if !pipe.is_read() {
-            machine.set_register(A0, Mac::REG::from_u8(INVALID_PIPE));
-            return Ok(());
-        }
-
-        // TODO: charge cycles
-        self.message_box
-            .lock()
-            .expect("lock")
-            .push(Message::PipeRead(
-                self.id,
-                PipeIoArgs {
-                    pipe,
-                    length,
-                    buffer_addr,
-                    length_addr,
-                },
-            ));
-
-        // A0 will be updated once the read operation is fulfilled
-        Err(Error::External("YIELD".to_string()))
-    }
-
-    fn inherited_file_descriptors<Mac: SupportMachine>(
-        &mut self,
-        machine: &mut Mac,
-    ) -> Result<(), Error> {
-        let buffer_addr = machine.registers()[A0].to_u64();
-        let length_addr = machine.registers()[A1].to_u64();
-        self.message_box
-            .lock()
-            .expect("lock")
-            .push(Message::InheritedFileDescriptor(
-                self.id,
-                PipeIoArgs {
-                    pipe: PipeId(0),
-                    length: 0,
-                    buffer_addr,
-                    length_addr,
-                },
-            ));
-        Err(Error::External("YIELD".to_string()))
-    }
-
-    fn close<Mac: SupportMachine>(&mut self, machine: &mut Mac) -> Result<(), Error> {
-        let pipe = PipeId(machine.registers()[A0].to_u64());
-        self.message_box
-            .lock()
-            .expect("lock")
-            .push(Message::Close(self.id, pipe));
-        Err(Error::External("YIELD".to_string()))
-    }
 }
 
 impl<
@@ -492,13 +331,6 @@ impl<
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, Error> {
         let code = machine.registers()[A7].to_u64();
         match code {
-            2042 => {
-                if self.script_version >= ScriptVersion::V1 {
-                    self.current_cycles(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
             2091 => self.load_cell_data_as_code(machine),
             2092 => self.load_cell_data(machine),
             2177 => self.debug(machine),
@@ -507,55 +339,6 @@ impl<
             2601 => {
                 if self.script_version >= ScriptVersion::V2 {
                     self.spawn(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
-            2602 => {
-                if self.script_version >= ScriptVersion::V2 {
-                    self.wait(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
-            2603 => {
-                if self.script_version >= ScriptVersion::V2 {
-                    self.process_id(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
-            2604 => {
-                if self.script_version >= ScriptVersion::V2 {
-                    self.pipe(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
-            2605 => {
-                if self.script_version >= ScriptVersion::V2 {
-                    self.pipe_write(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
-            2606 => {
-                if self.script_version >= ScriptVersion::V2 {
-                    self.pipe_read(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
-            2607 => {
-                if self.script_version >= ScriptVersion::V2 {
-                    self.inherited_file_descriptors(machine)
-                } else {
-                    return Ok(false);
-                }
-            }
-            2608 => {
-                if self.script_version >= ScriptVersion::V2 {
-                    self.close(machine)
                 } else {
                     return Ok(false);
                 }
