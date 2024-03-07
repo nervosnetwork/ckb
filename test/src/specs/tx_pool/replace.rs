@@ -1020,7 +1020,6 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     node0.connect(node1);
     info!("Generate large cycles tx");
 
-    node0.mine_until_out_bootstrap_period();
     node0.new_block_with_blocking(|template| template.number.value() != 13);
     let tx_hash_0 = node0.generate_transaction();
     info!("Generate 2 txs with same input");
