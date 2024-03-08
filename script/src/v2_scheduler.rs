@@ -547,7 +547,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         .machine
                         .memory_mut()
                         .store64(&length_addr, &0)?;
-                    read_machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
+                    read_machine.machine.set_register(A0, SUCCESS as u64);
                     self.states.insert(vm_id, VmState::Runnable);
                 }
                 VmState::WaitForWrite {
@@ -560,7 +560,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         .machine
                         .memory_mut()
                         .store64(&length_addr, &consumed)?;
-                    write_machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
+                    write_machine.machine.set_register(A0, SUCCESS as u64);
                     self.states.insert(vm_id, VmState::Runnable);
                 }
                 _ => (),

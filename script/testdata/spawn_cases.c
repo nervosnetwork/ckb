@@ -307,8 +307,14 @@ int child_read_then_close() {
     CHECK(err);
     uint8_t data[8];
     size_t data_len = sizeof(data);
+    // first read to return 0 byte without error
+    err = ckb_read(fds[CKB_STDIN], data, &data_len);
+    CHECK(err);
+    CHECK2(data_len == 0, -2);
+    // second read to return error(other end closed)
     err = ckb_read(fds[CKB_STDIN], data, &data_len);
     CHECK2(err == CKB_OTHER_END_CLOSED, -2);
+
     err = 0;
 exit:
     return err;
