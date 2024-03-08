@@ -109,21 +109,28 @@ pub enum DataPieceId {
     CellDep(u32),
     GroupInput(u32),
     GroupOutput(u32),
+    Witness(u32),
+    WitnessGroupInput(u32),
+    WitnessGroupOutput(u32),
 }
 
-impl TryFrom<(u64, u64)> for DataPieceId {
+impl TryFrom<(u64, u64, u64)> for DataPieceId {
     type Error = String;
 
-    fn try_from(value: (u64, u64)) -> Result<Self, Self::Error> {
-        let (source, index) = value;
+    fn try_from(value: (u64, u64, u64)) -> Result<Self, Self::Error> {
+        let (source, index, place) = value;
         let index: u32 =
             u32::try_from(index).map_err(|e| format!("Error casting index to u32: {}", e))?;
-        match source {
-            1 => Ok(DataPieceId::Input(index)),
-            2 => Ok(DataPieceId::Output(index)),
-            3 => Ok(DataPieceId::CellDep(index)),
-            0x0100000000000001 => Ok(DataPieceId::GroupInput(index)),
-            0x0100000000000002 => Ok(DataPieceId::GroupOutput(index)),
+        match (source, place) {
+            (1, 0) => Ok(DataPieceId::Input(index)),
+            (2, 0) => Ok(DataPieceId::Output(index)),
+            (3, 0) => Ok(DataPieceId::CellDep(index)),
+            (0x0100000000000001, 0) => Ok(DataPieceId::GroupInput(index)),
+            (0x0100000000000002, 0) => Ok(DataPieceId::GroupOutput(index)),
+            (1, 1) => Ok(DataPieceId::Witness(index)),
+            (2, 1) => Ok(DataPieceId::Witness(index)),
+            (0x0100000000000001, 1) => Ok(DataPieceId::WitnessGroupInput(index)),
+            (0x0100000000000002, 1) => Ok(DataPieceId::WitnessGroupOutput(index)),
             _ => Err(format!("Invalid source value: {:#x}", source)),
         }
     }
@@ -184,8 +191,9 @@ pub struct TxData<DL> {
     pub script_group: Arc<ScriptGroup>,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
-    DataSource<DataPieceId> for TxData<DL>
+impl<DL> DataSource<DataPieceId> for TxData<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     fn load_data(&self, id: &DataPieceId, offset: u64, length: u64) -> Result<(Bytes, u64), Error> {
         match id {
@@ -246,6 +254,39 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 self.rtx
                     .transaction
                     .outputs_data()
+                    .get(gi)
+                    .map(|data| data.raw_data())
+                    .ok_or_else(|| Error::External("INDEX_OUT_OF_BOUND".to_string()))
+            }
+            DataPieceId::Witness(i) => self
+                .rtx
+                .transaction
+                .witnesses()
+                .get(*i as usize)
+                .map(|data| data.raw_data())
+                .ok_or_else(|| Error::External("INDEX_OUT_OF_BOUND".to_string())),
+            DataPieceId::WitnessGroupInput(i) => {
+                let gi = *self
+                    .script_group
+                    .input_indices
+                    .get(*i as usize)
+                    .ok_or_else(|| Error::External("INDEX_OUT_OF_BOUND".to_string()))?;
+                self.rtx
+                    .transaction
+                    .witnesses()
+                    .get(gi)
+                    .map(|data| data.raw_data())
+                    .ok_or_else(|| Error::External("INDEX_OUT_OF_BOUND".to_string()))
+            }
+            DataPieceId::WitnessGroupOutput(i) => {
+                let gi = *self
+                    .script_group
+                    .output_indices
+                    .get(*i as usize)
+                    .ok_or_else(|| Error::External("INDEX_OUT_OF_BOUND".to_string()))?;
+                self.rtx
+                    .transaction
+                    .witnesses()
                     .get(gi)
                     .map(|data| data.raw_data())
                     .ok_or_else(|| Error::External("INDEX_OUT_OF_BOUND".to_string()))

@@ -11,7 +11,6 @@ mod verify;
 mod verify_env;
 
 pub use crate::error::{ScriptError, TransactionScriptError};
-pub use crate::syscalls::spawn::update_caller_machine;
 pub use crate::types::{
     ChunkCommand, CoreMachine, MachineContext, ResumableMachine, ScriptGroup, ScriptGroupType,
     ScriptVersion, TransactionSnapshot, TransactionState, VerifyResult, VmIsa, VmVersion,

@@ -15,6 +15,7 @@ use crate::{
 use crate::{ScriptVersion, TransactionScriptsVerifier};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
+use ckb_vm::snapshot2::Snapshot2Context;
 use ckb_vm::{
     bytes::Bytes,
     cost_model::estimate_cycles,
@@ -43,9 +44,10 @@ const MAX_INSTANTIATED_VMS: usize = 4;
 /// A scheduler holds & manipulates a core, the scheduler also holds
 /// all CKB-VM machines, each CKB-VM machine also gets a mutable reference
 /// of the core for IO operations.
-pub struct Scheduler<
+pub struct Scheduler<DL>
+where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
-> {
+{
     tx_data: TxData<DL>,
     // In fact, Scheduler here has the potential to totally replace
     // TransactionScriptsVerifier, nonetheless much of current syscall
@@ -69,8 +71,9 @@ pub struct Scheduler<
     message_box: Arc<Mutex<Vec<Message>>>,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
-    Scheduler<DL>
+impl<DL> Scheduler<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     /// Create a new scheduler from empty state
     pub fn new(
@@ -107,6 +110,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
         full: FullSuspendedState,
     ) -> Self {
+        let message_box = syscalls_generator.message_box.clone();
         Self {
             tx_data,
             script_version,
@@ -127,7 +131,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .into_iter()
                 .map(|(id, _, snapshot)| (id, snapshot))
                 .collect(),
-            message_box: Arc::new(Mutex::new(Vec::new())),
+            message_box: message_box,
             terminated_vms: full.terminated_vms.into_iter().collect(),
         }
     }
@@ -777,9 +781,12 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         let mut syscalls_generator = self.syscalls_generator.clone();
         syscalls_generator.vm_id = *id;
+        syscalls_generator.snapshot2_context =
+            Arc::new(Mutex::new(Snapshot2Context::new(self.tx_data.clone())));
         let mut machine_context =
             MachineContext::new(*id, self.message_box.clone(), self.tx_data.clone(), version);
         machine_context.base_cycles = Arc::clone(&self.syscalls_generator.base_cycles);
+        machine_context.snapshot2_context = syscalls_generator.snapshot2_context.clone();
 
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles))
@@ -789,7 +796,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             // we can override load_cell_data syscall with a new implementation.
             .syscall(Box::new(machine_context.clone()));
         let machine_builder = syscalls_generator
-            .generate_root_syscalls(version, &self.tx_data.script_group, Default::default())
+            .generate_same_syscalls(version, &self.tx_data.script_group)
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
