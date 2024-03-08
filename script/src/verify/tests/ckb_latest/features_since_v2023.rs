@@ -6,6 +6,96 @@ use ckb_types::{
 use super::SCRIPT_VERSION;
 use crate::verify::{tests::utils::*, *};
 
+fn simple_spawn_test(bin_path: &str, args: &[u8]) -> Result<Cycle, Error> {
+    let script_version = SCRIPT_VERSION;
+
+    let (cell, data_hash) = load_cell_from_path(bin_path);
+    let script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(data_hash)
+        .args(Bytes::copy_from_slice(args).pack())
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    result
+}
+
+#[test]
+fn check_spawn_simple_read_write() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[1]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_write_dead_lock() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[2]);
+    assert_eq!(
+        result.unwrap_err().to_string().contains("deadlock"),
+        SCRIPT_VERSION == ScriptVersion::V2
+    );
+}
+
+#[test]
+fn check_spawn_invalid_fd() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[3]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_wait_dead_lock() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[4]);
+    assert_eq!(
+        result.unwrap_err().to_string().contains("deadlock"),
+        SCRIPT_VERSION == ScriptVersion::V2
+    );
+}
+
+#[test]
+fn check_spawn_read_write_with_close() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[5]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_wait_multiple() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[6]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_inherited_fds() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[7]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_inherited_fds_without_owner() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[8]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+
+#[test]
+fn check_spawn_read_then_close() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[9]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
 #[test]
 fn check_vm_version() {
     let script_version = SCRIPT_VERSION;
@@ -225,7 +315,7 @@ fn check_spawn_out_of_cycles_wrap() {
             .to_string()
             .contains("ExceededMaximumCycles"))
     } else {
-        assert!(result.is_err())
+        assert!(result.is_err());
     }
 }
 

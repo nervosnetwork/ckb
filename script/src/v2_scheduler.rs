@@ -299,13 +299,18 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             match message {
                 Message::Spawn(vm_id, args) => {
                     // All pipes must belong to the correct owner
+                    let mut pipes_valid = true;
                     for pipe in &args.pipes {
                         if !(self.pipes.contains_key(pipe) && (self.pipes[pipe] == vm_id)) {
-                            return Err(Error::Unexpected(format!(
-                                "VM {} does not own pipe {}!",
-                                vm_id, pipe.0,
-                            )));
+                            self.ensure_vms_instantiated(&[vm_id])?;
+                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            machine.machine.set_register(A0, INVALID_PIPE as u64);
+                            pipes_valid = false;
+                            break;
                         }
+                    }
+                    if !pipes_valid {
+                        continue;
                     }
                     // TODO: spawn limits
                     let spawned_vm_id =
@@ -344,6 +349,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                                 .store8(&args.exit_code_addr, &u64::from_i8(exit_code))?;
                             machine.machine.set_register(A0, SUCCESS as u64);
                             self.states.insert(vm_id, VmState::Runnable);
+                            self.terminated_vms.retain(|id, _| id != &args.target_id);
                         }
                         continue;
                     }
@@ -541,7 +547,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         .machine
                         .memory_mut()
                         .store64(&length_addr, &0)?;
-                    read_machine.machine.set_register(A0, SUCCESS as u64);
+                    read_machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
                     self.states.insert(vm_id, VmState::Runnable);
                 }
                 VmState::WaitForWrite {
@@ -554,7 +560,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                         .machine
                         .memory_mut()
                         .store64(&length_addr, &consumed)?;
-                    write_machine.machine.set_register(A0, SUCCESS as u64);
+                    write_machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
                     self.states.insert(vm_id, VmState::Runnable);
                 }
                 _ => (),
