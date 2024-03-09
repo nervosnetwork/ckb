@@ -202,18 +202,8 @@ where
     }
 
     /// Build syscall: load_cell_data
-    pub fn build_load_cell_data(
-        &self,
-        group_inputs: Indices,
-        group_outputs: Indices,
-    ) -> LoadCellData<DL> {
-        LoadCellData::new(
-            self.data_loader.clone(),
-            Arc::clone(&self.rtx),
-            Arc::clone(&self.outputs),
-            group_inputs,
-            group_outputs,
-        )
+    pub fn build_load_cell_data(&self) -> LoadCellData<DL> {
+        LoadCellData::new(self.snapshot2_context.clone())
     }
 
     ///Build syscall: load_input
@@ -321,10 +311,7 @@ where
                 Arc::clone(&script_group_output_indices),
             )),
             Box::new(self.build_load_script(script_group.script.clone())),
-            Box::new(self.build_load_cell_data(
-                Arc::clone(&script_group_input_indices),
-                Arc::clone(&script_group_output_indices),
-            )),
+            Box::new(self.build_load_cell_data()),
             Box::new(Debugger::new(
                 current_script_hash,
                 Arc::clone(&self.debug_printer),
