@@ -1,7 +1,7 @@
-use crate::types::CoreMachine as ICoreMachine;
-use crate::v2_syscalls::INDEX_OUT_OF_BOUND;
+use crate::v2_syscalls::{INDEX_OUT_OF_BOUND, MAX_VMS_SPAWNED};
 use crate::v2_types::PipeIoArgs;
 use crate::verify::TransactionScriptsSyscallsGenerator;
+use crate::ScriptVersion;
 use crate::{
     v2_syscalls::{
         transferred_byte_cycles, MachineContext, INVALID_PIPE, OTHER_END_CLOSED, SUCCESS,
@@ -12,7 +12,6 @@ use crate::{
         FIRST_PIPE_SLOT, FIRST_VM_ID,
     },
 };
-use crate::{ScriptVersion, TransactionScriptsVerifier};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
 use ckb_vm::snapshot2::Snapshot2Context;
@@ -27,7 +26,7 @@ use ckb_vm::{
     memory::Memory,
     registers::A0,
     snapshot2::{DataSource, Snapshot2},
-    Error, Register, Syscalls,
+    Error, Register,
 };
 use std::sync::{Arc, Mutex};
 use std::{
@@ -36,6 +35,7 @@ use std::{
 };
 
 const ROOT_VM_ID: VmId = FIRST_VM_ID;
+const MAX_VMS_COUNT: u64 = 16;
 const MAX_INSTANTIATED_VMS: usize = 4;
 
 /// A single Scheduler instance is used to verify a single script
@@ -56,6 +56,7 @@ where
     script_version: ScriptVersion,
     syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
 
+    max_vms_count: u64,
     total_cycles: Cycle,
     next_vm_id: VmId,
     next_pipe_slot: u64,
@@ -86,6 +87,7 @@ where
             tx_data,
             script_version,
             syscalls_generator,
+            max_vms_count: MAX_VMS_COUNT,
             total_cycles: 0,
             next_vm_id: FIRST_VM_ID,
             next_pipe_slot: FIRST_PIPE_SLOT,
@@ -115,6 +117,7 @@ where
             tx_data,
             script_version,
             syscalls_generator,
+            max_vms_count: full.max_vms_count,
             total_cycles: full.total_cycles,
             next_vm_id: full.next_vm_id,
             next_pipe_slot: full.next_pipe_slot,
@@ -138,6 +141,7 @@ where
 
     /// Suspend current scheduler into a serializable full state
     pub fn suspend(mut self) -> Result<FullSuspendedState, Error> {
+        assert!(self.message_box.lock().expect("lock").is_empty());
         let mut vms = Vec::with_capacity(self.states.len());
         let instantiated_ids: Vec<_> = self.instantiated.keys().cloned().collect();
         for id in instantiated_ids {
@@ -148,6 +152,7 @@ where
             vms.push((id, state, snapshot));
         }
         Ok(FullSuspendedState {
+            max_vms_count: self.max_vms_count,
             total_cycles: self.total_cycles,
             next_vm_id: self.next_vm_id,
             next_pipe_slot: self.next_pipe_slot,
@@ -316,7 +321,13 @@ where
                     if !pipes_valid {
                         continue;
                     }
-                    // TODO: spawn limits
+                    if self.suspended.len() + self.instantiated.len() > self.max_vms_count as usize
+                    {
+                        self.ensure_vms_instantiated(&[vm_id])?;
+                        let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                        machine.machine.set_register(A0, MAX_VMS_SPAWNED as u64);
+                        continue;
+                    }
                     let spawned_vm_id =
                         self.boot_vm(&args.data_piece_id, args.offset, args.length, &args.argv)?;
                     // Move passed pipes from spawner to spawnee

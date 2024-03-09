@@ -320,6 +320,20 @@ exit:
     return err;
 }
 
+int parent_max_vms_count() {
+    const char* argv[2] = {"", 0};
+    return simple_spawn_args(0, 1, argv);
+}
+
+int child_max_vms_count() {
+    const char* argv[2] = {"", 0};
+    int err = simple_spawn_args(0, 1, argv);
+    CHECK2(err == 0 || err == CKB_MAX_VMS_SPAWNED, -2);
+    err = 0;
+exit:
+    return err;
+}
+
 int parent_entry(int case_id) {
     int err = 0;
     uint64_t pid = 0;
@@ -341,6 +355,9 @@ int parent_entry(int case_id) {
         err = parent_inherited_fds_without_owner(&pid);
     } else if (case_id == 9) {
         err = parent_read_then_close(&pid);
+    } else if (case_id == 10) {
+        err = parent_max_vms_count(&pid);
+        return err;
     } else {
         CHECK2(false, -2);
     }
@@ -373,6 +390,8 @@ int child_entry(int case_id) {
         return 0;
     } else if (case_id == 9) {
         return child_read_then_close();
+    } else if (case_id == 10) {
+        return child_max_vms_count();
     } else {
         return -1;
     }

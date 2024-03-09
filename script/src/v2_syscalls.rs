@@ -239,3 +239,4 @@ pub(crate) const SLICE_OUT_OF_BOUND: u8 = 3;
 pub(crate) const WAIT_FAILURE: u8 = 5;
 pub(crate) const INVALID_PIPE: u8 = 6;
 pub(crate) const OTHER_END_CLOSED: u8 = 7;
+pub(crate) const MAX_VMS_SPAWNED: u8 = 8;

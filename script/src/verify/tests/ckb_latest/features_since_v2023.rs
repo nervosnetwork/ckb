@@ -96,6 +96,12 @@ fn check_spawn_read_then_close() {
 }
 
 #[test]
+fn check_spawn_max_vms_count() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[10]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
 fn check_vm_version() {
     let script_version = SCRIPT_VERSION;
 
@@ -348,7 +354,7 @@ fn check_spawn_recursive() {
     let result = verifier.verify(script_version, &rtx, 70_000_000);
     if script_version >= ScriptVersion::V2 {
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("ExceededMaximumCycles"))
+        assert!(msg.contains("error code 8"))
     } else {
         assert!(result.is_err())
     }

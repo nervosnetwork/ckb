@@ -141,6 +141,7 @@ impl TryFrom<(u64, u64, u64)> for DataPieceId {
 /// fully recover the running environment with the full transaction environment.
 #[derive(Clone, Debug)]
 pub struct FullSuspendedState {
+    pub max_vms_count: u64,
     pub total_cycles: Cycle,
     pub next_vm_id: VmId,
     pub next_pipe_slot: u64,
