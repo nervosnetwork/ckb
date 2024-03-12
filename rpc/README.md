@@ -4562,6 +4562,7 @@ Response
                "timestamp": "0x17c983e6e44"
            }
        },
+       "conflicted": [],
        "proposed": {}
    }
 }
@@ -6701,6 +6702,8 @@ Tx-pool entries object
 #### Fields
 
 `TxPoolEntries` is a JSON object with the following fields.
+
+* `conflicted`: `Array<` [`H256`](#type-h256) `>` - Conflicted tx hash vec
 
 * `pending`:  - Pending tx verbose info
 

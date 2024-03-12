@@ -105,11 +105,17 @@ impl TxPoolService {
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                // here we double confirm RBF rules before insert entry
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                 let conflicts = if tx_pool.enable_rbf() {
                     tx_pool.check_rbf(&snapshot, &entry)?
                 } else {
+                    // RBF is disabled but we found conflicts, return error here
+                    // after_process will put this tx into conflicts_pool
+                    let conflicted_outpoint =
+                        tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
+                    if let Some(outpoint) = conflicted_outpoint {
+                        return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
+                    }
                     HashSet::new()
                 };
 
@@ -144,9 +150,10 @@ impl TxPoolService {
                             "replaced by tx {}",
                             entry.transaction().hash()
                         ));
-                        // remove old tx from tx_pool, not happened in service so we didn't call reject callbacks
-                        // here we call them manually
-                        self.callbacks.call_reject(tx_pool, &old, reject)
+                        // RBF replace successfully, put old transactions into conflicts pool
+                        tx_pool.record_conflict(old.transaction().clone());
+                        // after removing old tx from tx_pool, we call reject callbacks manually
+                        self.callbacks.call_reject(tx_pool, &old, reject);
                     }
                 }
                 let evicted = _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
@@ -157,6 +164,8 @@ impl TxPoolService {
                     ));
                     self.callbacks.call_reject(tx_pool, &evict, reject);
                 }
+                tx_pool.remove_conflict(&entry.proposal_short_id());
+
                 Ok(())
             })
             .await;
@@ -247,32 +256,29 @@ impl TxPoolService {
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
                         Ok((tip_hash, rtx, status, fee, tx_size))
                     }
-                    Err(err) => {
-                        if tx_pool.enable_rbf()
-                            && matches!(err, Reject::Resolve(OutPointError::Dead(_)))
-                        {
-                            let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
-                            let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                            // Try an RBF cheap check, here if the tx is resolved as Dead,
-                            // we assume there must be conflicted happened in txpool now,
-                            // if there is no conflicted transactions reject it
-                            let conflicts = tx_pool.pool_map.find_conflict_tx(&rtx.transaction);
-                            if conflicts.is_empty() {
-                                error!(
-                                    "{} is resolved as Dead, but there is no conflicted tx",
-                                    rtx.transaction.proposal_short_id()
-                                );
-                                return Err(err);
-                            }
-                            Ok((tip_hash, rtx, status, fee, tx_size))
-                        } else {
-                            Err(err)
+                    Err(Reject::Resolve(OutPointError::Dead(out))) => {
+                        let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
+                        let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
+                        let conflicts = tx_pool.pool_map.find_conflict_outpoint(tx);
+                        if conflicts.is_none() {
+                            // this mean one input's outpoint is dead, but there is no direct conflicted tx in tx_pool
+                            // we should reject it directly and don't need to put it into conflicts pool
+                            error!(
+                                "{} is resolved as Dead, but there is no conflicted tx",
+                                rtx.transaction.proposal_short_id()
+                            );
+                            return Err(Reject::Resolve(OutPointError::Dead(out.clone())));
                         }
+                        // we also return Ok here, so that the entry will be continue to be verified before submit
+                        // we only want to put it into conflicts pool after the verification stage passed
+                        // then we will double-check conflicts txs in `submit_entry`
+
+                        Ok((tip_hash, rtx, status, fee, tx_size))
                     }
+                    Err(err) => Err(err),
                 }
             })
             .await;
-
         (ret, snapshot)
     }
 
@@ -418,9 +424,20 @@ impl TxPoolService {
             }
         }
 
+        if matches!(
+            ret,
+            Err(Reject::RBFRejected(..) | Reject::Resolve(OutPointError::Dead(_)))
+        ) {
+            let mut tx_pool = self.tx_pool.write().await;
+            if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
+                tx_pool.record_conflict(tx.clone());
+            }
+        }
+
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(_) => {
+                    debug!("after_process remote send_result_to_relayer {}", tx_hash);
                     self.send_result_to_relayer(TxVerificationResult::Ok {
                         original_peer: Some(peer),
                         with_vm_2023,
@@ -456,6 +473,7 @@ impl TxPoolService {
             None => {
                 match ret {
                     Ok(_) => {
+                        debug!("after_process local send_result_to_relayer {}", tx_hash);
                         self.send_result_to_relayer(TxVerificationResult::Ok {
                             original_peer: None,
                             with_vm_2023,
@@ -464,6 +482,7 @@ impl TxPoolService {
                         self.process_orphan_tx(&tx).await;
                     }
                     Err(Reject::Duplicated(_)) => {
+                        debug!("after_process {} duplicated", tx_hash);
                         // re-broadcast tx when it's duplicated and submitted through local rpc
                         self.send_result_to_relayer(TxVerificationResult::Ok {
                             original_peer: None,

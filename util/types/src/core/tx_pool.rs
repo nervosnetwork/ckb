@@ -165,6 +165,8 @@ pub struct TxPoolEntryInfo {
     pub pending: HashMap<Byte32, TxEntryInfo>,
     /// Proposed transaction entry info
     pub proposed: HashMap<Byte32, TxEntryInfo>,
+    /// Conflicted transaction hash vec
+    pub conflicted: Vec<Byte32>,
 }
 
 /// The JSON view of a transaction as well as its status.

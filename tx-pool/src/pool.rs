@@ -27,6 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+const CONFLICTES_CACHE_SIZE: usize = 10_000;
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 
 /// Tx-pool implementation
@@ -41,6 +42,8 @@ pub struct TxPool {
     pub recent_reject: Option<RecentReject>,
     // expiration milliseconds,
     pub(crate) expiry: u64,
+    // conflicted transaction cache
+    pub(crate) conflicts_cache: lru::LruCache<ProposalShortId, TransactionView>,
 }
 
 impl TxPool {
@@ -55,6 +58,7 @@ impl TxPool {
             snapshot,
             recent_reject,
             expiry,
+            conflicts_cache: LruCache::new(CONFLICTES_CACHE_SIZE),
         }
     }
 
@@ -159,6 +163,25 @@ impl TxPool {
 
     pub(crate) fn set_entry_gap(&mut self, short_id: &ProposalShortId) {
         self.pool_map.set_entry(short_id, Status::Gap)
+    }
+
+    pub(crate) fn record_conflict(&mut self, tx: TransactionView) {
+        let short_id = tx.proposal_short_id();
+        self.conflicts_cache.put(short_id.clone(), tx);
+        debug!(
+            "record_conflict {:?} now cache size: {}",
+            short_id,
+            self.conflicts_cache.len()
+        );
+    }
+
+    pub(crate) fn remove_conflict(&mut self, short_id: &ProposalShortId) {
+        self.conflicts_cache.pop(short_id);
+        debug!(
+            "remove_conflict {:?} now cache size: {}",
+            short_id,
+            self.conflicts_cache.len()
+        );
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -386,11 +409,14 @@ impl TxPool {
         &self,
         proposal_id: &ProposalShortId,
     ) -> Option<TransactionView> {
-        self.get_tx_from_pool(proposal_id).cloned().or_else(|| {
-            self.committed_txs_hash_cache
-                .peek(proposal_id)
-                .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
-        })
+        self.get_tx_from_pool(proposal_id)
+            .cloned()
+            .or_else(|| self.conflicts_cache.peek(proposal_id).cloned())
+            .or_else(|| {
+                self.committed_txs_hash_cache
+                    .peek(proposal_id)
+                    .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
+            })
     }
 
     pub(crate) fn get_ids(&self) -> TxPoolIds {
@@ -422,7 +448,16 @@ impl TxPool {
             .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 
-        TxPoolEntryInfo { pending, proposed }
+        let conflicted = self
+            .conflicts_cache
+            .iter()
+            .map(|(_id, tx)| tx.hash())
+            .collect();
+        TxPoolEntryInfo {
+            pending,
+            proposed,
+            conflicted,
+        }
     }
 
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
@@ -456,6 +491,7 @@ impl TxPool {
         self.pool_map.clear();
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
+        self.conflicts_cache = LruCache::new(CONFLICTES_CACHE_SIZE);
     }
 
     pub(crate) fn package_proposals(
