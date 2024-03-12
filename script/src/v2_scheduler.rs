@@ -1,12 +1,10 @@
-use crate::v2_syscalls::{INDEX_OUT_OF_BOUND, MAX_VMS_SPAWNED};
+use crate::cost_model::transferred_byte_cycles;
+use crate::syscalls::{INDEX_OUT_OF_BOUND, INVALID_PIPE, OTHER_END_CLOSED, SUCCESS, WAIT_FAILURE};
 use crate::v2_types::PipeIoArgs;
 use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::ScriptVersion;
 use crate::{
-    v2_syscalls::{
-        transferred_byte_cycles, MachineContext, INVALID_PIPE, OTHER_END_CLOSED, SUCCESS,
-        WAIT_FAILURE,
-    },
+    v2_syscalls::MachineContext,
     v2_types::{
         DataPieceId, FullSuspendedState, Message, PipeId, RunMode, TxData, VmId, VmState,
         FIRST_PIPE_SLOT, FIRST_VM_ID,
@@ -800,12 +798,7 @@ where
         machine_context.snapshot2_context = syscalls_generator.snapshot2_context.clone();
 
         let machine_builder = DefaultMachineBuilder::new(core_machine)
-            .instruction_cycle_func(Box::new(estimate_cycles))
-            // ckb-vm iterates syscalls in insertion order, by putting
-            // MachineContext at the first place, we can override other
-            // syscalls with implementations from MachineContext. For example,
-            // we can override load_cell_data syscall with a new implementation.
-            .syscall(Box::new(machine_context.clone()));
+            .instruction_cycle_func(Box::new(estimate_cycles));
         let machine_builder = syscalls_generator
             .generate_same_syscalls(version, &self.tx_data.script_group)
             .into_iter()

@@ -311,12 +311,18 @@ impl TransactionScriptsVerifierWithEnv {
             .epoch(epoch.pack())
             .build();
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
-        let verifier = TransactionScriptsVerifier::new(
+        let mut verifier = TransactionScriptsVerifier::new(
             Arc::new(rtx.clone()),
             data_loader,
             Arc::clone(&self.consensus),
             tx_env,
         );
+        verifier.set_debug_printer(Box::new(move |_hash: &Byte32, message: &str| {
+            print!("{}", message);
+            if !message.ends_with('\n') {
+                println!("");
+            }
+        }));
         verify_func(verifier)
     }
 }

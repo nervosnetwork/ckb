@@ -63,6 +63,10 @@ pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 pub const SLICE_OUT_OF_BOUND: u8 = 3;
 pub const WRONG_FORMAT: u8 = 4;
+pub const WAIT_FAILURE: u8 = 5;
+pub const INVALID_PIPE: u8 = 6;
+pub const OTHER_END_CLOSED: u8 = 7;
+pub const MAX_VMS_SPAWNED: u8 = 8;
 
 pub const VM_VERSION: u64 = 2041;
 pub const CURRENT_CYCLES: u64 = 2042;
@@ -93,12 +97,7 @@ pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 #[cfg(test)]
 pub const DEBUG_PAUSE: u64 = 2178;
 
-pub const SPAWN_MAX_MEMORY: u64 = 8;
-pub const SPAWN_MAX_PEAK_MEMORY: u64 = 64; // 64 * 0.5M = 32M
-pub const SPAWN_MEMORY_PAGE_SIZE: u64 = 512 * 1024; // 0.5M
-pub const SPAWN_MAX_CONTENT_LENGTH: u64 = 256 * 1024; // 256K
 pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
-pub const SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE: u64 = 8192;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {

@@ -1,6 +1,5 @@
 use crate::cost_model::transferred_byte_cycles;
-use crate::syscalls::WRITE;
-use crate::v2_syscalls::INVALID_PIPE;
+use crate::syscalls::{INVALID_PIPE, WRITE};
 use crate::v2_types::{Message, PipeId, PipeIoArgs, VmId};
 use ckb_vm::{
     registers::{A0, A1, A2, A7},
