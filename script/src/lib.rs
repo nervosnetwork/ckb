@@ -12,8 +12,8 @@ mod verify_env;
 
 pub use crate::error::{ScriptError, TransactionScriptError};
 pub use crate::types::{
-    ChunkCommand, CoreMachine, MachineContext, ResumableMachine, ScriptGroup, ScriptGroupType,
-    ScriptVersion, TransactionSnapshot, TransactionState, VerifyResult, VmIsa, VmVersion,
+    ChunkCommand, CoreMachine, ScriptGroup, ScriptGroupType, ScriptVersion, TransactionSnapshot,
+    TransactionState, VerifyResult, VmIsa, VmVersion,
 };
 pub use crate::verify::{TransactionScriptsSyscallsGenerator, TransactionScriptsVerifier};
 pub use crate::verify_env::TxVerifyEnv;

@@ -1,17 +1,16 @@
-use crate::ScriptError;
+use crate::v2_types::FullSuspendedState;
 use ckb_error::Error;
 use ckb_types::{
     core::{Cycle, ScriptHashType},
     packed::{Byte32, Script},
 };
 use ckb_vm::{
-    machine::{Pause, VERSION0, VERSION1, VERSION2},
-    snapshot::{make_snapshot, Snapshot},
-    Error as VMInternalError, SupportMachine, ISA_A, ISA_B, ISA_IMC, ISA_MOP,
+    machine::{VERSION0, VERSION1, VERSION2},
+    ISA_A, ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -115,136 +114,136 @@ pub(crate) type Machine = TraceMachine<CoreMachine>;
 /// Common data that would be shared amongst multiple VM instances.
 /// One sample usage right now, is to capture suspended machines in
 /// a chain of spawned machines.
-#[derive(Default)]
-pub struct MachineContext {
-    /// A stack of ResumableMachines.
-    pub suspended_machines: Vec<ResumableMachine>,
-    /// A pause will be set for suspend machines.
-    /// The child machine will reuse parent machine's pause,
-    /// so that when parent is paused, all its children will be paused.
-    pub pause: Pause,
-}
+// #[derive(Default)]
+// pub struct MachineContext {
+//     /// A stack of ResumableMachines.
+//     pub suspended_machines: Vec<ResumableMachine>,
+//     /// A pause will be set for suspend machines.
+//     /// The child machine will reuse parent machine's pause,
+//     /// so that when parent is paused, all its children will be paused.
+//     pub pause: Pause,
+// }
 
-impl MachineContext {
-    /// Creates a new MachineContext struct
-    pub fn set_pause(&mut self, pause: Pause) {
-        self.pause = pause;
-    }
-}
+// impl MachineContext {
+//     /// Creates a new MachineContext struct
+//     pub fn set_pause(&mut self, pause: Pause) {
+//         self.pause = pause;
+//     }
+// }
 
 /// Data structure captured all environment data for a suspended machine
-#[derive(Clone, Debug)]
-pub enum ResumePoint {
-    Initial,
-    Spawn {
-        callee_peak_memory: u64,
-        callee_memory_limit: u64,
-        content: Vec<u8>,
-        content_length: u64,
-        caller_exit_code_addr: u64,
-        caller_content_addr: u64,
-        caller_content_length_addr: u64,
-        cycles_base: u64,
-    },
-}
+// #[derive(Clone, Debug)]
+// pub enum ResumePoint {
+//     Initial,
+//     Spawn {
+//         callee_peak_memory: u64,
+//         callee_memory_limit: u64,
+//         content: Vec<u8>,
+//         content_length: u64,
+//         caller_exit_code_addr: u64,
+//         caller_content_addr: u64,
+//         caller_content_length_addr: u64,
+//         cycles_base: u64,
+//     },
+// }
 
 /// Data structure captured all the required data for a spawn syscall
-#[derive(Clone, Debug)]
-pub struct SpawnData {
-    pub(crate) callee_peak_memory: u64,
-    pub(crate) callee_memory_limit: u64,
-    pub(crate) content: Arc<Mutex<Vec<u8>>>,
-    pub(crate) content_length: u64,
-    pub(crate) caller_exit_code_addr: u64,
-    pub(crate) caller_content_addr: u64,
-    pub(crate) caller_content_length_addr: u64,
-    pub(crate) cycles_base: u64,
-}
+// #[derive(Clone, Debug)]
+// pub struct SpawnData {
+//     pub(crate) callee_peak_memory: u64,
+//     pub(crate) callee_memory_limit: u64,
+//     pub(crate) content: Arc<Mutex<Vec<u8>>>,
+//     pub(crate) content_length: u64,
+//     pub(crate) caller_exit_code_addr: u64,
+//     pub(crate) caller_content_addr: u64,
+//     pub(crate) caller_content_length_addr: u64,
+//     pub(crate) cycles_base: u64,
+// }
 
-impl TryFrom<&SpawnData> for ResumePoint {
-    type Error = VMInternalError;
+// impl TryFrom<&SpawnData> for ResumePoint {
+//     type Error = VMInternalError;
 
-    fn try_from(value: &SpawnData) -> Result<Self, Self::Error> {
-        let SpawnData {
-            callee_peak_memory,
-            callee_memory_limit,
-            content,
-            content_length,
-            caller_exit_code_addr,
-            caller_content_addr,
-            caller_content_length_addr,
-            cycles_base,
-            ..
-        } = value;
-        Ok(ResumePoint::Spawn {
-            callee_peak_memory: *callee_peak_memory,
-            callee_memory_limit: *callee_memory_limit,
-            content: content
-                .lock()
-                .map_err(|e| VMInternalError::Unexpected(format!("Lock error: {}", e)))?
-                .clone(),
-            content_length: *content_length,
-            caller_exit_code_addr: *caller_exit_code_addr,
-            caller_content_addr: *caller_content_addr,
-            caller_content_length_addr: *caller_content_length_addr,
-            cycles_base: *cycles_base,
-        })
-    }
-}
+//     fn try_from(value: &SpawnData) -> Result<Self, Self::Error> {
+//         let SpawnData {
+//             callee_peak_memory,
+//             callee_memory_limit,
+//             content,
+//             content_length,
+//             caller_exit_code_addr,
+//             caller_content_addr,
+//             caller_content_length_addr,
+//             cycles_base,
+//             ..
+//         } = value;
+//         Ok(ResumePoint::Spawn {
+//             callee_peak_memory: *callee_peak_memory,
+//             callee_memory_limit: *callee_memory_limit,
+//             content: content
+//                 .lock()
+//                 .map_err(|e| VMInternalError::Unexpected(format!("Lock error: {}", e)))?
+//                 .clone(),
+//             content_length: *content_length,
+//             caller_exit_code_addr: *caller_exit_code_addr,
+//             caller_content_addr: *caller_content_addr,
+//             caller_content_length_addr: *caller_content_length_addr,
+//             cycles_base: *cycles_base,
+//         })
+//     }
+// }
 
 /// An enumerated type indicating the type of the Machine.
-pub enum ResumableMachine {
-    /// Root machine instance.
-    Initial(Machine),
-    /// A machine which created by spawn syscall.
-    Spawn(Machine, SpawnData),
-}
+// pub enum ResumableMachine {
+//     /// Root machine instance.
+//     Initial(Machine),
+//     /// A machine which created by spawn syscall.
+//     Spawn(Machine, SpawnData),
+// }
 
-impl ResumableMachine {
-    pub(crate) fn initial(machine: Machine) -> Self {
-        ResumableMachine::Initial(machine)
-    }
+// impl ResumableMachine {
+//     pub(crate) fn initial(machine: Machine) -> Self {
+//         ResumableMachine::Initial(machine)
+//     }
 
-    pub(crate) fn spawn(machine: Machine, data: SpawnData) -> Self {
-        ResumableMachine::Spawn(machine, data)
-    }
+//     pub(crate) fn spawn(machine: Machine, data: SpawnData) -> Self {
+//         ResumableMachine::Spawn(machine, data)
+//     }
 
-    pub(crate) fn machine(&self) -> &Machine {
-        match self {
-            ResumableMachine::Initial(machine) => machine,
-            ResumableMachine::Spawn(machine, _) => machine,
-        }
-    }
+//     pub(crate) fn machine(&self) -> &Machine {
+//         match self {
+//             ResumableMachine::Initial(machine) => machine,
+//             ResumableMachine::Spawn(machine, _) => machine,
+//         }
+//     }
 
-    pub(crate) fn machine_mut(&mut self) -> &mut Machine {
-        match self {
-            ResumableMachine::Initial(machine) => machine,
-            ResumableMachine::Spawn(machine, _) => machine,
-        }
-    }
+//     pub(crate) fn machine_mut(&mut self) -> &mut Machine {
+//         match self {
+//             ResumableMachine::Initial(machine) => machine,
+//             ResumableMachine::Spawn(machine, _) => machine,
+//         }
+//     }
 
-    pub(crate) fn cycles(&self) -> Cycle {
-        self.machine().machine.cycles()
-    }
+//     pub(crate) fn cycles(&self) -> Cycle {
+//         self.machine().machine.cycles()
+//     }
 
-    pub(crate) fn pause(&self) -> Pause {
-        self.machine().machine.pause()
-    }
+//     pub(crate) fn pause(&self) -> Pause {
+//         self.machine().machine.pause()
+//     }
 
-    pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
-        set_vm_max_cycles(self.machine_mut(), cycles)
-    }
+//     pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
+//         set_vm_max_cycles(self.machine_mut(), cycles)
+//     }
 
-    /// Add cycles to current machine.
-    pub fn add_cycles(&mut self, cycles: Cycle) -> Result<(), VMInternalError> {
-        self.machine_mut().machine.add_cycles(cycles)
-    }
+//     /// Add cycles to current machine.
+//     pub fn add_cycles(&mut self, cycles: Cycle) -> Result<(), VMInternalError> {
+//         self.machine_mut().machine.add_cycles(cycles)
+//     }
 
-    /// Run machine.
-    pub fn run(&mut self) -> Result<i8, VMInternalError> {
-        self.machine_mut().run()
-    }
-}
+//     /// Run machine.
+//     pub fn run(&mut self) -> Result<i8, VMInternalError> {
+//         self.machine_mut().run()
+//     }
+// }
 
 #[cfg(has_asm)]
 pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
@@ -325,7 +324,7 @@ pub struct TransactionSnapshot {
     /// current suspended script index
     pub current: usize,
     /// vm snapshots
-    pub snaps: Vec<(Snapshot, Cycle, ResumePoint)>,
+    pub state: Option<FullSuspendedState>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles when snapshot create
@@ -337,29 +336,25 @@ pub struct TransactionSnapshot {
 pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
-    /// vm states
-    pub vms: Vec<ResumableMachine>,
+    /// vm scheduler suspend state
+    pub state: FullSuspendedState,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
     pub limit_cycles: Cycle,
-    /// machine context for the vms included in this state
-    pub machine_context: Arc<Mutex<MachineContext>>,
 }
 
 impl TransactionState {
     /// Creates a new TransactionState struct
     pub fn new(
-        vms: Vec<ResumableMachine>,
-        machine_context: Arc<Mutex<MachineContext>>,
+        state: FullSuspendedState,
         current: usize,
         current_cycles: Cycle,
         limit_cycles: Cycle,
     ) -> Self {
         TransactionState {
             current,
-            vms,
-            machine_context,
+            state,
             current_cycles,
             limit_cycles,
         }
@@ -398,29 +393,29 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
     fn try_from(state: TransactionState) -> Result<Self, Self::Error> {
         let TransactionState {
             current,
-            vms,
+            state,
             current_cycles,
             limit_cycles,
             ..
         } = state;
 
-        let mut snaps = Vec::with_capacity(vms.len());
-        for mut vm in vms {
-            let snapshot = make_snapshot(&mut vm.machine_mut().machine)
-                .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?;
-            let cycles = vm.cycles();
-            let resume_point = match vm {
-                ResumableMachine::Initial(_) => ResumePoint::Initial,
-                ResumableMachine::Spawn(_, data) => (&data)
-                    .try_into()
-                    .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?,
-            };
-            snaps.push((snapshot, cycles, resume_point));
-        }
+        // let mut snaps = Vec::with_capacity(vms.len());
+        // for mut vm in vms {
+        //     let snapshot = make_snapshot(&mut vm.machine_mut().machine)
+        //         .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?;
+        //     let cycles = vm.cycles();
+        //     let resume_point = match vm {
+        //         ResumableMachine::Initial(_) => ResumePoint::Initial,
+        //         ResumableMachine::Spawn(_, data) => (&data)
+        //             .try_into()
+        //             .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?,
+        //     };
+        //     snaps.push((snapshot, cycles, resume_point));
+        // }
 
         Ok(TransactionSnapshot {
             current,
-            snaps,
+            state: Some(state),
             current_cycles,
             limit_cycles,
         })

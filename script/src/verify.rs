@@ -2,9 +2,10 @@
 use crate::syscalls::Pause;
 use crate::syscalls::{InheritedFd, ProcessID};
 use crate::v2_scheduler::Scheduler;
-use crate::v2_types::{DataPieceId, Message, RunMode, TxData, VmId, FIRST_VM_ID};
+use crate::v2_types::{
+    DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID,
+};
 use crate::{
-    cost_model::transferred_byte_cycles,
     error::{ScriptError, TransactionScriptError},
     syscalls::{
         Close, CurrentCycles, Debugger, Exec, LoadBlockExtension, LoadCell, LoadCellData,
@@ -13,9 +14,8 @@ use crate::{
     },
     type_id::TypeIdSystemScript,
     types::{
-        CoreMachine, DebugPrinter, Indices, Machine, MachineContext, ResumableMachine, ResumePoint,
-        ScriptGroup, ScriptGroupType, ScriptVersion, SpawnData, TransactionSnapshot,
-        TransactionState, VerifyResult,
+        CoreMachine, DebugPrinter, Indices, ScriptGroup, ScriptGroupType, ScriptVersion,
+        TransactionSnapshot, TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
     ChunkCommand,
@@ -35,12 +35,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_vm::machine::Pause as VMPause;
-use ckb_vm::{
-    cost_model::estimate_cycles,
-    snapshot::{resume, Snapshot},
-    snapshot2::Snapshot2Context,
-    DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
-};
+use ckb_vm::{snapshot2::Snapshot2Context, Error as VMInternalError, Syscalls};
 use std::sync::{Arc, Mutex};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -58,17 +53,18 @@ use core::sync::atomic::{AtomicBool, Ordering};
 mod tests;
 
 pub enum ChunkState {
-    Suspended(Vec<ResumableMachine>, Arc<Mutex<MachineContext>>),
+    //Suspended(Vec<ResumableMachine>, Arc<Mutex<MachineContext>>),
+    Suspended(Option<FullSuspendedState>),
     Completed(Cycle),
 }
 
 impl ChunkState {
-    pub fn suspended(machines: Vec<ResumableMachine>, context: Arc<Mutex<MachineContext>>) -> Self {
-        ChunkState::Suspended(machines, context)
+    pub fn suspended(state: FullSuspendedState) -> Self {
+        ChunkState::Suspended(Some(state))
     }
 
     pub fn suspended_type_id() -> Self {
-        ChunkState::Suspended(vec![], Default::default())
+        ChunkState::Suspended(None)
     }
 }
 
@@ -666,13 +662,14 @@ where
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
-                Ok(ChunkState::Suspended(vms, context)) => {
+                Ok(ChunkState::Suspended(state)) => {
                     let current = idx;
-                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    let state = state.unwrap();
+                    let state = TransactionState::new(state, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -740,7 +737,7 @@ where
         snap: &TransactionSnapshot,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
-        let current_group_used = snap.snaps.iter().map(|s| s.1).sum();
+        let current_group_used = snap.state.as_ref().map_or(0, |s| s.total_cycles);
         let mut cycles = snap.current_cycles;
         let mut current_used = 0;
 
@@ -750,7 +747,7 @@ where
         })?;
 
         // continue snapshot current script
-        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.snaps) {
+        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.state) {
             Ok(ChunkState::Completed(used_cycles)) => {
                 current_used = wrapping_cycles_add(
                     current_used,
@@ -759,9 +756,9 @@ where
                 )?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
-            Ok(ChunkState::Suspended(vms, context)) => {
+            Ok(ChunkState::Suspended(state)) => {
                 let current = snap.current;
-                let state = TransactionState::new(vms, context, current, cycles, limit_cycles);
+                let state = TransactionState::new(state.unwrap(), current, cycles, limit_cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -778,14 +775,15 @@ where
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
-                Ok(ChunkState::Suspended(vms, context)) => {
+                Ok(ChunkState::Suspended(state)) => {
                     let current = idx;
-                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    let state =
+                        TransactionState::new(state.unwrap(), current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -819,9 +817,8 @@ where
     ) -> Result<VerifyResult, Error> {
         let TransactionState {
             current,
-            mut vms,
+            state,
             current_cycles,
-            machine_context,
             ..
         } = state;
 
@@ -832,20 +829,16 @@ where
             ScriptError::Other(format!("snapshot group missing {current:?}")).unknown_source()
         })?;
 
-        let resumed_script_result = if vms.is_empty() {
-            self.verify_group_with_chunk(current_group, limit_cycles, &[])
-        } else {
-            vms.iter_mut()
-                .for_each(|vm| vm.set_max_cycles(limit_cycles));
-            run_vms(current_group, limit_cycles, vms, &machine_context)
-        };
+        let resumed_script_result =
+            self.verify_group_with_chunk(current_group, limit_cycles, &Some(state));
+
         match resumed_script_result {
             Ok(ChunkState::Completed(used_cycles)) => {
                 current_used = wrapping_cycles_add(current_used, used_cycles, current_group)?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
-            Ok(ChunkState::Suspended(vms, context)) => {
-                let state = TransactionState::new(vms, context, current, cycles, limit_cycles);
+            Ok(ChunkState::Suspended(state)) => {
+                let state = TransactionState::new(state.unwrap(), current, cycles, limit_cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -861,14 +854,15 @@ where
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
-                Ok(ChunkState::Suspended(vms, context)) => {
+                Ok(ChunkState::Suspended(state)) => {
                     let current = idx;
-                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    let state = state.unwrap();
+                    let state = TransactionState::new(state, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -910,11 +904,11 @@ where
 
         // continue snapshot current script
         // max_cycles - cycles checked
-        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.snaps) {
+        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.state) {
             Ok(ChunkState::Completed(used_cycles)) => {
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
-            Ok(ChunkState::Suspended(_, _)) => {
+            Ok(ChunkState::Suspended(_)) => {
                 return Err(ScriptError::ExceededMaximumCycles(max_cycles)
                     .source(current_group)
                     .into());
@@ -932,11 +926,11 @@ where
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
                 }
-                Ok(ChunkState::Suspended(_, _)) => {
+                Ok(ChunkState::Suspended(_)) => {
                     return Err(ScriptError::ExceededMaximumCycles(max_cycles)
                         .source(group)
                         .into());
@@ -1007,25 +1001,79 @@ where
         &self,
         group: &ScriptGroup,
         max_cycles: Cycle,
-        snaps: &[(Snapshot, Cycle, ResumePoint)],
+        state: &Option<FullSuspendedState>,
     ) -> Result<ChunkState, ScriptError> {
-        unimplemented!()
-        // if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
-        //     && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
-        // {
-        //     let verifier = TypeIdSystemScript {
-        //         rtx: &self.rtx,
-        //         script_group: group,
-        //         max_cycles,
-        //     };
-        //     match verifier.verify() {
-        //         Ok(cycles) => Ok(ChunkState::Completed(cycles)),
-        //         Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
-        //         Err(e) => Err(e),
-        //     }
-        // } else {
-        //     self.chunk_run(group, max_cycles, snaps)
-        // }
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: &self.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            match verifier.verify() {
+                Ok(cycles) => Ok(ChunkState::Completed(cycles)),
+                Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
+                Err(e) => Err(e),
+            }
+        } else {
+            self.chunk_run(group, max_cycles, state)
+        }
+    }
+
+    fn chunk_run(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+        state: &Option<FullSuspendedState>,
+    ) -> Result<ChunkState, ScriptError> {
+        let program = self.extract_script(&script_group.script)?;
+        let tx_data = TxData {
+            rtx: self.rtx.clone(),
+            data_loader: self.data_loader.clone(),
+            program,
+            script_group: Arc::new(script_group.clone()),
+        };
+        let version = self.select_version(&script_group.script)?;
+        let mut scheduler = if let Some(state) = state {
+            Scheduler::resume(
+                tx_data.clone(),
+                version,
+                self.syscalls_generator.clone(),
+                state.clone(),
+            )
+        } else {
+            Scheduler::new(tx_data.clone(), version, self.syscalls_generator.clone())
+        };
+        let map_vm_internal_error = |error: VMInternalError| match error {
+            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+            _ => ScriptError::VMInternalError(error),
+        };
+        let res = scheduler
+            .run(RunMode::LimitCycles(max_cycles))
+            .map_err(map_vm_internal_error);
+        match res {
+            Ok((exit_code, cycles)) => {
+                if exit_code == 0 {
+                    Ok(ChunkState::Completed(cycles))
+                } else {
+                    Err(ScriptError::validation_failure(
+                        &script_group.script,
+                        exit_code,
+                    ))
+                }
+            }
+            Err(error) => match error {
+                ScriptError::ExceededMaximumCycles(_) => {
+                    if let Ok(snapshot) = scheduler.suspend() {
+                        return Ok(ChunkState::suspended(snapshot));
+                    } else {
+                        panic!("scheduler suspend error");
+                    }
+                }
+                _ => Err(error),
+            },
+        }
     }
 
     async fn verify_group_with_signal(
@@ -1066,29 +1114,9 @@ where
         &self,
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
-        _context: Arc<Mutex<MachineContext>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         self.syscalls_generator
             .generate_same_syscalls(script_version, script_group)
-    }
-
-    fn build_machine(
-        &self,
-        script_group: &ScriptGroup,
-        max_cycles: Cycle,
-        context: Arc<Mutex<MachineContext>>,
-    ) -> Result<Machine, ScriptError> {
-        let script_version = self.select_version(&script_group.script)?;
-        let core_machine = script_version.init_core_machine(max_cycles);
-        let machine_builder = DefaultMachineBuilder::<CoreMachine>::new(core_machine)
-            .instruction_cycle_func(Box::new(estimate_cycles));
-        let syscalls = self.generate_syscalls(script_version, script_group, context);
-        let machine_builder = syscalls
-            .into_iter()
-            .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
-        let default_machine = machine_builder.build();
-        let machine = Machine::new(default_machine);
-        Ok(machine)
     }
 
     /// Runs a single program, then returns the exit code together with the entire
@@ -1234,133 +1262,76 @@ where
 }
 
 // Run a series of VMs that are just freshly resumed
-fn run_vms(
-    _script_group: &ScriptGroup,
-    _max_cycles: Cycle,
-    mut _machines: Vec<ResumableMachine>,
-    _context: &Arc<Mutex<MachineContext>>,
-) -> Result<ChunkState, ScriptError> {
-    unimplemented!()
-    // let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
-
-    // if machines.is_empty() {
-    //     return Err(ScriptError::Other(
-    //         "To resume VMs, at least one VM must be available!".to_string(),
-    //     ));
-    // }
-
-    // let map_vm_internal_error = |error: VMInternalError| match error {
-    //     VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-    //     _ => ScriptError::VMInternalError(error),
-    // };
-
-    // while let Some(mut machine) = machines.pop() {
-    //     if let Some(callee_spawn_data) = &spawn_data {
-    //         update_caller_machine(
-    //             &mut machine.machine_mut().machine,
-    //             exit_code,
-    //             cycles,
-    //             callee_spawn_data,
-    //         )
-    //         .map_err(map_vm_internal_error)?;
-    //     }
-
-    //     match machine.run() {
-    //         Ok(code) => {
-    //             exit_code = code;
-    //             cycles = machine.cycles();
-    //             if let ResumableMachine::Spawn(_, data) = machine {
-    //                 spawn_data = Some(data);
-    //             } else {
-    //                 spawn_data = None;
-    //             }
-    //         }
-    //         Err(error) => match error {
-    //             VMInternalError::CyclesExceeded | VMInternalError::Pause => {
-    //                 let mut new_suspended_machines: Vec<_> = {
-    //                     let mut context = context.lock().map_err(|e| {
-    //                         ScriptError::Other(format!("Failed to acquire lock: {}", e))
-    //                     })?;
-    //                     context.suspended_machines.drain(..).collect()
-    //                 };
-    //                 // The inner most machine lives at the top of the vector,
-    //                 // reverse the list for natural order.
-    //                 new_suspended_machines.reverse();
-    //                 machines.push(machine);
-    //                 machines.append(&mut new_suspended_machines);
-    //                 return Ok(ChunkState::suspended(machines, Arc::clone(context)));
-    //             }
-    //             _ => return Err(ScriptError::VMInternalError(error)),
-    //         },
-    //     };
-    // }
-
-    // if exit_code == 0 {
-    //     Ok(ChunkState::Completed(cycles))
-    // } else {
-    //     Err(ScriptError::validation_failure(
-    //         &script_group.script,
-    //         exit_code,
-    //     ))
-    // }
-}
-
-// Run a series of VMs with control signal, will only return when verification finished
-// Or send `Stop` command when verification is suspended
-// async fn run_vm_with_signal(
-//     script_group: &ScriptGroup,
-//     scheduler: Scheduler<DL>,
-//     context: Arc<Mutex<MachineContext>>,
-//     signal: &mut Receiver<ChunkCommand>,
-// ) -> Result<Cycle, ScriptError> {
-
+// fn run_vms(
+//     _script_group: &ScriptGroup,
+//     _max_cycles: Cycle,
+//     mut _machines: Vec<ResumableMachine>,
+//     _context: &Arc<Mutex<MachineContext>>,
+// ) -> Result<ChunkState, ScriptError> {
 //     unimplemented!()
+// let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
 
-//     let (finish_tx, mut finish_rx) = oneshot::channel::<(Result<i8, ckb_vm::Error>, u64)>();
-
-//     // send initial `Resume` command to child
-//     // it's maybe useful to set initial command to `signal.borrow().to_owned()`
-//     // so that we can control the initial state of child, which is useful for testing purpose
-//     let (child_tx, child_rx) = watch::channel(ChunkCommand::Resume);
-//     let jh =
-//         tokio::spawn(async move { run_vms_child(machines, child_rx, finish_tx, context).await });
-
-//     loop {
-//         tokio::select! {
-//             Ok(_) = signal.changed() => {
-//                 let command = signal.borrow().to_owned();
-//                 //info!("[verify-test] run_vms_with_signal: {:?}", command);
-//                 match command {
-//                     ChunkCommand::Suspend => {
-//                         pause.interrupt();
-//                     }
-//                     ChunkCommand::Resume | ChunkCommand::Stop => {
-//                         pause.free();
-//                         let _ = child_tx.send(command);
-//                     }
-//                 }
-//             }
-//             Ok(res) = &mut finish_rx => {
-//                 let _ = jh.await;
-//                 match res {
-//                     (Ok(0), cycles) => {
-//                         return Ok(cycles);
-//                     }
-//                     (Ok(exit_code), _) => {
-//                         return Err(ScriptError::validation_failure(
-//                             &script_group.script,
-//                             exit_code
-//                         ))},
-//                     (Err(err), _) => {
-//                         return Err(ScriptError::VMInternalError(err));
-//                     }
-//                 }
-
-//             }
-//             else => { break Err(ScriptError::validation_failure(&script_group.script, 0)) }
-//         }
-//     }
+// if machines.is_empty() {
+//     return Err(ScriptError::Other(
+//         "To resume VMs, at least one VM must be available!".to_string(),
+//     ));
 // }
+
+// let map_vm_internal_error = |error: VMInternalError| match error {
+//     VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+//     _ => ScriptError::VMInternalError(error),
+// };
+
+// while let Some(mut machine) = machines.pop() {
+//     if let Some(callee_spawn_data) = &spawn_data {
+//         update_caller_machine(
+//             &mut machine.machine_mut().machine,
+//             exit_code,
+//             cycles,
+//             callee_spawn_data,
+//         )
+//         .map_err(map_vm_internal_error)?;
+//     }
+
+//     match machine.run() {
+//         Ok(code) => {
+//             exit_code = code;
+//             cycles = machine.cycles();
+//             if let ResumableMachine::Spawn(_, data) = machine {
+//                 spawn_data = Some(data);
+//             } else {
+//                 spawn_data = None;
+//             }
+//         }
+//         Err(error) => match error {
+//             VMInternalError::CyclesExceeded | VMInternalError::Pause => {
+//                 let mut new_suspended_machines: Vec<_> = {
+//                     let mut context = context.lock().map_err(|e| {
+//                         ScriptError::Other(format!("Failed to acquire lock: {}", e))
+//                     })?;
+//                     context.suspended_machines.drain(..).collect()
+//                 };
+//                 // The inner most machine lives at the top of the vector,
+//                 // reverse the list for natural order.
+//                 new_suspended_machines.reverse();
+//                 machines.push(machine);
+//                 machines.append(&mut new_suspended_machines);
+//                 return Ok(ChunkState::suspended(machines, Arc::clone(context)));
+//             }
+//             _ => return Err(ScriptError::VMInternalError(error)),
+//         },
+//     };
+// }
+
+// if exit_code == 0 {
+//     Ok(ChunkState::Completed(cycles))
+// } else {
+//     Err(ScriptError::validation_failure(
+//         &script_group.script,
+//         exit_code,
+//     ))
+// }
+//}
 
 fn wrapping_cycles_add(
     lhs: Cycle,
