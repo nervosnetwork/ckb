@@ -70,10 +70,10 @@ impl SQLXPool {
             DBDriver::Postgres => {
                 let require_init = self.is_postgres_require_init(db_config).await?;
                 let uri = build_url_for_postgres(db_config);
-                log::info!("PostgreSQL is connected.");
                 let mut connection_options = AnyConnectOptions::from_str(&uri)?;
                 connection_options.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;
+                log::info!("PostgreSQL is connected.");
                 self.pool
                     .set(pool)
                     .map_err(|_| anyhow!("set pool failed"))?;
