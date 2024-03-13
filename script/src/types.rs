@@ -13,7 +13,7 @@ use std::fmt;
 use std::sync::Arc;
 
 #[cfg(has_asm)]
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
+use ckb_vm::machine::asm::AsmCoreMachine;
 
 #[cfg(not(has_asm))]
 use ckb_vm::{DefaultCoreMachine, TraceMachine, WXorXMemory};
@@ -105,11 +105,6 @@ impl ScriptVersion {
         CoreMachineType::new(isa, version, max_cycles)
     }
 }
-
-#[cfg(has_asm)]
-pub(crate) type Machine = AsmMachine;
-#[cfg(not(has_asm))]
-pub(crate) type Machine = TraceMachine<CoreMachine>;
 
 /// Common data that would be shared amongst multiple VM instances.
 /// One sample usage right now, is to capture suspended machines in
@@ -244,16 +239,6 @@ pub(crate) type Machine = TraceMachine<CoreMachine>;
 //         self.machine_mut().run()
 //     }
 // }
-
-#[cfg(has_asm)]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
-    vm.set_max_cycles(cycles)
-}
-
-#[cfg(not(has_asm))]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
-    vm.machine.inner_mut().set_max_cycles(cycles)
-}
 
 /// A script group is defined as scripts that share the same hash.
 ///
