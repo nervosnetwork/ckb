@@ -77,7 +77,7 @@ impl Default for IndexerSearchKey {
 }
 
 /// IndexerSearchMode represent search mode, default is prefix search
-#[derive(Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Deserialize, PartialEq, Eq, JsonSchema, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerSearchMode {
     /// Mode `prefix` search with prefix

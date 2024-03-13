@@ -15,7 +15,7 @@ impl AsyncRichIndexerHandle {
     /// Get transactions
     pub async fn get_transactions(
         &self,
-        search_key: IndexerSearchKey,
+        mut search_key: IndexerSearchKey,
         order: IndexerOrder,
         limit: Uint32,
         after: Option<JsonBytes>,
@@ -24,6 +24,7 @@ impl AsyncRichIndexerHandle {
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
+        search_key.filter = convert_max_values_in_search_filter(&search_key.filter);
 
         let mut tx = self
             .store
@@ -513,10 +514,10 @@ fn build_filter(
                     query_builder
                         .and_where_eq("type_script.hash_type", format!("${}", param_index));
                     *param_index += 1;
-                    query_builder
-                        .and_where_ge("type_script.args", &format!("${}", param_index))
-                        .and_where_lt("type_script.args", &format!("${}", param_index));
-                    *param_index += 2;
+                    query_builder.and_where_ge("type_script.args", &format!("${}", param_index));
+                    *param_index += 1;
+                    query_builder.and_where_lt("type_script.args", &format!("${}", param_index));
+                    *param_index += 1;
                 }
                 IndexerScriptType::Type => {
                     query_builder
@@ -525,10 +526,10 @@ fn build_filter(
                     query_builder
                         .and_where_eq("lock_script.hash_type", format!("${}", param_index));
                     *param_index += 1;
-                    query_builder
-                        .and_where_ge("lock_script.args", &format!("${}", param_index))
-                        .and_where_lt("lock_script.args", &format!("${}", param_index));
-                    *param_index += 2;
+                    query_builder.and_where_ge("lock_script.args", &format!("${}", param_index));
+                    *param_index += 1;
+                    query_builder.and_where_lt("lock_script.args", &format!("${}", param_index));
+                    *param_index += 1;
                 }
             }
         }
@@ -553,10 +554,10 @@ fn build_filter(
         if filter.output_data.is_some() {
             match filter.output_data_filter_mode {
                 Some(IndexerSearchMode::Prefix) | None => {
-                    query_builder
-                        .and_where_ge("output.data", &format!("${}", param_index))
-                        .and_where_lt("output.data", &format!("${}", param_index));
-                    *param_index += 2;
+                    query_builder.and_where_ge("output.data", &format!("${}", param_index));
+                    *param_index += 1;
+                    query_builder.and_where_lt("output.data", &format!("${}", param_index));
+                    *param_index += 1;
                 }
                 Some(IndexerSearchMode::Exact) => {
                     query_builder.and_where_eq("output.data", format!("${}", param_index));

@@ -77,16 +77,14 @@ async fn get_cells() {
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Prefix),
         filter: Some(IndexerSearchKeyFilter {
-            script: None,
             script_len_range: Some(IndexerRange::new(0, 1)),
-            output_data: None,
-            output_data_filter_mode: None,
             output_data_len_range: Some(IndexerRange::new(0u64, 10u64)),
             output_capacity_range: Some(IndexerRange::new(
                 840_000_000_000_000_000_u64,
                 840_000_000_100_000_000_u64,
             )),
             block_range: Some(IndexerRange::new(0u64, 10u64)),
+            ..Default::default()
         }),
         with_data: Some(false),
         group_by_transaction: None,
@@ -138,16 +136,14 @@ async fn get_cells() {
         script_type: IndexerScriptType::Type,
         script_search_mode: Some(IndexerSearchMode::Exact),
         filter: Some(IndexerSearchKeyFilter {
-            script: None,
+            script: Some(lock_script.into()),
             script_len_range: Some(IndexerRange::new(lock_script_len, lock_script_len + 1)),
-            output_data: None,
-            output_data_filter_mode: None,
-            output_data_len_range: None,
             output_capacity_range: Some(IndexerRange::new(
                 1_600_000_000_000_u64,
                 1_600_100_000_000_u64,
             )),
             block_range: Some(IndexerRange::new(0u64, 1u64)),
+            ..Default::default()
         }),
         with_data: Some(false),
         group_by_transaction: None,
@@ -189,13 +185,10 @@ async fn get_cells_filter_data() {
         script_type: IndexerScriptType::Type,
         script_search_mode: Some(IndexerSearchMode::Exact),
         filter: Some(IndexerSearchKeyFilter {
-            script: None,
-            script_len_range: None,
             output_data: Some(JsonBytes::from_vec(vec![127, 69, 76])),
             output_data_filter_mode: Some(IndexerSearchMode::Prefix),
-            output_data_len_range: None,
-            output_capacity_range: None,
-            block_range: None,
+            block_range: Some(IndexerRange::new(0u64, u64::MAX)),
+            ..Default::default()
         }),
         with_data: Some(false),
         group_by_transaction: None,
@@ -305,13 +298,8 @@ async fn get_transactions_ungrouped() {
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Exact),
         filter: Some(IndexerSearchKeyFilter {
-            script: None,
-            script_len_range: None,
-            output_data: None,
-            output_data_filter_mode: None,
-            output_data_len_range: None,
-            output_capacity_range: None,
             block_range: Some(IndexerRange::new(0, 1)),
+            ..Default::default()
         }),
         with_data: Some(false),
         group_by_transaction: None,
@@ -434,13 +422,8 @@ async fn get_transactions_grouped() {
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Exact),
         filter: Some(IndexerSearchKeyFilter {
-            script: None,
-            script_len_range: None,
-            output_data: None,
-            output_data_filter_mode: None,
-            output_data_len_range: None,
-            output_capacity_range: None,
             block_range: Some(IndexerRange::new(0, 1)),
+            ..Default::default()
         }),
         with_data: Some(false),
         group_by_transaction: Some(true),
@@ -455,7 +438,10 @@ async fn get_transactions_grouped() {
         script: lock_script.clone().into(),
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Exact),
-        filter: None,
+        filter: Some(IndexerSearchKeyFilter {
+            block_range: Some(IndexerRange::new(0u64, u64::MAX)),
+            ..Default::default()
+        }),
         with_data: Some(false),
         group_by_transaction: Some(true),
     };
@@ -520,13 +506,9 @@ async fn get_cells_capacity() {
         script_type: IndexerScriptType::Lock,
         script_search_mode: Some(IndexerSearchMode::Exact),
         filter: Some(IndexerSearchKeyFilter {
-            script: None,
             script_len_range: Some(IndexerRange::new(0, 1)),
-            output_data: None,
-            output_data_filter_mode: None,
-            output_data_len_range: None,
-            output_capacity_range: None,
             block_range: Some(IndexerRange::new(0, 1)),
+            ..Default::default()
         }),
         with_data: None,
         group_by_transaction: None,
@@ -555,13 +537,9 @@ async fn get_cells_capacity() {
         script_type: IndexerScriptType::Type,
         script_search_mode: Some(IndexerSearchMode::Partial),
         filter: Some(IndexerSearchKeyFilter {
-            script: None,
-            script_len_range: None,
             output_data: Some(JsonBytes::from_vec(vec![127, 69, 76])),
             output_data_filter_mode: Some(IndexerSearchMode::Prefix),
-            output_data_len_range: None,
-            output_capacity_range: None,
-            block_range: None,
+            ..Default::default()
         }),
         with_data: Some(false),
         group_by_transaction: None,

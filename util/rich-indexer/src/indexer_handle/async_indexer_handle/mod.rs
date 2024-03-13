@@ -8,7 +8,8 @@ use crate::store::SQLXPool;
 use ckb_app_config::DBDriver;
 use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::{
-    IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip,
+    IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchKeyFilter, IndexerSearchMode,
+    IndexerTip,
 };
 use ckb_types::H256;
 use num_bigint::BigUint;
@@ -160,7 +161,9 @@ fn build_cell_filter(
     search_key: &IndexerSearchKey,
     param_index: &mut usize,
 ) {
-    if let Some(ref filter) = search_key.filter {
+    let filter = convert_max_values_in_search_filter(&search_key.filter);
+
+    if let Some(ref filter) = filter {
         if filter.script.is_some() {
             match search_key.script_type {
                 IndexerScriptType::Lock => {
@@ -274,6 +277,43 @@ fn decode_i32(data: &[u8]) -> Result<i32, Error> {
         ));
     }
     Ok(i32::from_le_bytes(to_fixed_array(&data[0..4])))
+}
+
+// This function is used to convert u64::max values to i64::max in an IndexerSearchKeyFilter instance.
+// The primary reason for this conversion is the limitation of the relational database used by the rich-indexer.
+// The database can only handle integers up to i64::max.
+// Secondly, in our application, the range of i64 is sufficient for our needs, so converting u64::max to i64::max does not cause any loss of information.
+// Therefore, before passing the filter to the rich-indexer, we need to convert u64::max values to i64::max.
+pub(crate) fn convert_max_values_in_search_filter(
+    filter: &Option<IndexerSearchKeyFilter>,
+) -> Option<IndexerSearchKeyFilter> {
+    filter.as_ref().map(|f| {
+        let convert_range = |range: &Option<IndexerRange>| -> Option<IndexerRange> {
+            range.as_ref().map(|r| {
+                let start = if (i64::MAX as u64) < u64::from(r.start()) {
+                    i64::MAX as u64
+                } else {
+                    r.start().into()
+                };
+                let end = if (i64::MAX as u64) < u64::from(r.end()) {
+                    i64::MAX as u64
+                } else {
+                    r.end().into()
+                };
+                IndexerRange::new(start, end)
+            })
+        };
+
+        IndexerSearchKeyFilter {
+            script: f.script.clone(),
+            script_len_range: convert_range(&f.script_len_range),
+            output_data: f.output_data.clone(),
+            output_data_filter_mode: f.output_data_filter_mode,
+            output_data_len_range: convert_range(&f.output_data_len_range),
+            output_capacity_range: convert_range(&f.output_capacity_range),
+            block_range: convert_range(&f.block_range),
+        }
+    })
 }
 
 #[cfg(test)]
