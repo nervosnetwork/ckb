@@ -1,5 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
-use crate::syscalls::{INDEX_OUT_OF_BOUND, INVALID_PIPE, OTHER_END_CLOSED, SUCCESS, WAIT_FAILURE};
+use crate::syscalls::{
+    INDEX_OUT_OF_BOUND, INVALID_PIPE, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS, WAIT_FAILURE,
+};
 use crate::v2_types::PipeIoArgs;
 use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::ScriptVersion;
