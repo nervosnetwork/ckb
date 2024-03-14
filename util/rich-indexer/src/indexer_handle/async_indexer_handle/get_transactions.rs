@@ -146,7 +146,7 @@ pub async fn get_tx_with_cell(
 ) -> Result<Vec<(i64, u64, u32, Vec<u8>, u16, u32)>, Error> {
     let sql_union = build_tx_with_cell_union_sub_query(db_driver, &search_key)?;
 
-    let mut query_builder = SqlBuilder::select_from(&format!("{} AS res", sql_union));
+    let mut query_builder = SqlBuilder::select_from(format!("{} AS res", sql_union));
     query_builder.field("tx_id, block.block_number, ckb_transaction.tx_index, ckb_transaction.tx_hash, io_type, io_index");
     query_builder
         .join("ckb_transaction")
@@ -254,7 +254,7 @@ pub async fn get_tx_with_cells(
 ) -> Result<Vec<(i64, u64, u32, Vec<u8>, Vec<(u16, u32)>)>, Error> {
     let sql_union = build_tx_with_cell_union_sub_query(db_driver, &search_key)?;
 
-    let mut query_builder = SqlBuilder::select_from(&format!("{} AS res_union", sql_union));
+    let mut query_builder = SqlBuilder::select_from(format!("{} AS res_union", sql_union));
     query_builder
         .field("tx_id, block.block_number, ckb_transaction.tx_index, ckb_transaction.tx_hash, io_type, io_index")
         .join("ckb_transaction")
@@ -274,7 +274,7 @@ pub async fn get_tx_with_cells(
         .trim_end_matches(';')
         .to_string();
 
-    let mut query_builder = SqlBuilder::select_from(&format!("{} AS res", sql));
+    let mut query_builder = SqlBuilder::select_from(format!("{} AS res", sql));
     query_builder
         .field("tx_id")
         .field("block_number")

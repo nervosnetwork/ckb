@@ -386,8 +386,7 @@ pub(crate) async fn bulk_insert_tx_association_cell_dep_table(
             tx_association_cell_dep_rows.push(vec![
                 tx_id.into(),
                 output_id.into(),
-                (u8::try_from(cell_dep.dep_type()).expect("cell_dep to u8 should be OK") as i16)
-                    .into(),
+                (u8::from(cell_dep.dep_type()) as i16).into(),
             ]);
         }
     }
@@ -521,13 +520,13 @@ pub(crate) fn build_output_cell_rows(
         cell_capacity as i64,
         (
             cell.lock().code_hash().raw_data().to_vec(),
-            u8::try_from(cell.lock().hash_type()).expect("hash_type to u8 should be OK") as i16,
+            u8::from(cell.lock().hash_type()) as i16,
             cell.lock().args().raw_data().to_vec(),
         ),
         (cell.type_().to_opt().map(|type_script| {
             (
                 type_script.code_hash().raw_data().to_vec(),
-                u8::try_from(type_script.hash_type()).expect("hash_type to u8 should be OK") as i16,
+                u8::from(type_script.hash_type()) as i16,
                 type_script.args().raw_data().to_vec(),
             )
         })),
@@ -543,7 +542,7 @@ pub(crate) async fn build_script_set(
     let lock_script = cell.lock();
     let lock_script_row = (
         lock_script.code_hash().raw_data().to_vec(),
-        u8::try_from(lock_script.hash_type()).expect("hash_type to u8 should be OK") as i16,
+        u8::from(lock_script.hash_type()) as i16,
         lock_script.args().raw_data().to_vec(),
     );
     script_row.insert(lock_script_row);
@@ -551,7 +550,7 @@ pub(crate) async fn build_script_set(
     if let Some(type_script) = cell.type_().to_opt() {
         let type_script_row = (
             type_script.code_hash().raw_data().to_vec(),
-            u8::try_from(type_script.hash_type()).expect("hash_type to u8 should be OK") as i16,
+            u8::from(type_script.hash_type()) as i16,
             type_script.args().raw_data().to_vec(),
         );
         script_row.insert(type_script_row);

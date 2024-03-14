@@ -94,7 +94,7 @@ async fn get_cells() {
             search_key,
             IndexerOrder::Asc,
             100u32.into(),
-            Some(vec![5u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
+            Some([5u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
         )
         .await
         .unwrap();
@@ -153,7 +153,7 @@ async fn get_cells() {
             search_key,
             IndexerOrder::Asc,
             10u32.into(),
-            Some(vec![1u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
+            Some([1u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
         )
         .await
         .unwrap();
@@ -198,7 +198,7 @@ async fn get_cells_filter_data() {
             search_key,
             IndexerOrder::Asc,
             100u32.into(),
-            Some(vec![2u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
+            Some([2u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
         )
         .await
         .unwrap();
@@ -245,7 +245,7 @@ async fn get_cells_by_cursor() {
             search_key,
             IndexerOrder::Asc,
             3u32.into(),
-            Some(vec![0u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
+            Some([0u8, 0, 0, 0, 0, 0, 0, 0].pack().into()),
         )
         .await
         .unwrap();
