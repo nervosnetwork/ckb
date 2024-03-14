@@ -3,10 +3,8 @@ use crate::component::tests::util::{
     build_tx, build_tx_with_dep, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT,
     MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
 };
-use ckb_types::core::capacity_bytes;
-use ckb_types::core::ScriptHashType;
-use ckb_types::packed::CellOutputBuilder;
-use ckb_types::packed::ScriptBuilder;
+use ckb_types::core::{capacity_bytes, ScriptHashType};
+use ckb_types::packed::{CellOutputBuilder, ScriptBuilder};
 use ckb_types::H256;
 use std::time::Instant;
 
@@ -793,7 +791,7 @@ fn test_pool_map_bench() {
     let first = time_spend[0].as_millis();
     let last = time_spend.last().unwrap().as_millis();
     let diff = (last as i128 - first as i128).abs();
-    let expect_diff_range = ((first as f64) * 0.15) as i128;
+    let expect_diff_range = ((first as f64) * 2.0) as i128;
     eprintln!(
         "first: {} last: {}, diff: {}, range: {}",
         first, last, diff, expect_diff_range

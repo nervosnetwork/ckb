@@ -365,6 +365,9 @@ impl PoolMap {
         self.links.clear();
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
+        self.pending_count = 0;
+        self.gap_count = 0;
+        self.proposed_count = 0;
     }
 
     pub(crate) fn score_sorted_iter_by(
@@ -628,7 +631,7 @@ impl PoolMap {
         });
     }
 
-    pub fn track_entry_statics(&mut self, remove: Option<Status>, add: Option<Status>) {
+    fn track_entry_statics(&mut self, remove: Option<Status>, add: Option<Status>) {
         match remove {
             Some(Status::Pending) => self.pending_count -= 1,
             Some(Status::Gap) => self.gap_count -= 1,
