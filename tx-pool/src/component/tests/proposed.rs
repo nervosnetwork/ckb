@@ -747,7 +747,8 @@ fn test_pool_map_bench() {
     let mut pool = PoolMap::new(150);
 
     let mut instant = Instant::now();
-    for i in 0..500000 {
+    let mut time_spend = vec![];
+    for i in 0..20000 {
         let lock_script1 = ScriptBuilder::default()
             .code_hash(H256(rand::random()).pack())
             .hash_type(ScriptHashType::Data.into())
@@ -777,9 +778,9 @@ fn test_pool_map_bench() {
             Capacity::shannons(200),
             rng.gen_range(0..1000),
         );
-        let short_id = entry.proposal_short_id();
-        if i % 1000 == 0 {
+        if i % 5000 == 0 && i != 0 {
             eprintln!("i: {}, time: {:?}", i, instant.elapsed());
+            time_spend.push(instant.elapsed());
             instant = Instant::now();
         }
         let status = if rng.gen_range(0..100) >= 30 {
@@ -787,12 +788,15 @@ fn test_pool_map_bench() {
         } else {
             Status::Gap
         };
-        pool.add_entry(entry, status);
+        let _ = pool.add_entry(entry, status);
     }
-    // for _i in 0..100 {
-    //     let instant = Instant::now();
-    //     let res = pool.track_entry_statics(None, None);
-    //     let duration = instant.elapsed();
-    //     eprintln!("duration: {:?}", duration);
-    // }
+    let first = time_spend[0].as_millis();
+    let last = time_spend.last().unwrap().as_millis();
+    let diff = (last as i128 - first as i128).abs();
+    let expect_diff_range = ((first as f64) * 0.15) as i128;
+    eprintln!(
+        "first: {} last: {}, diff: {}, range: {}",
+        first, last, diff, expect_diff_range
+    );
+    assert!(diff < expect_diff_range);
 }

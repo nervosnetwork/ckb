@@ -151,10 +151,6 @@ impl PoolMap {
         self.get_by_id(id).expect("unconsistent pool")
     }
 
-    pub(crate) fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
-        self.entries.get_by_status(&status)
-    }
-
     pub(crate) fn pending_size(&self) -> usize {
         self.pending_count + self.gap_count
     }
@@ -656,15 +652,6 @@ impl PoolMap {
             self.pending_count + self.gap_count + self.proposed_count,
             self.entries.len()
         );
-        // let duration = instant.elapsed();
-        // eprintln!(
-        //     "pending: {}, gap: {}, proposed: {} => duration: {:?}  total_entries_size: {}",
-        //     self.pending_count,
-        //     self.gap_count,
-        //     self.proposed_count,
-        //     duration,
-        //     self.entries.len()
-        // );
         if let Some(metrics) = ckb_metrics::handle() {
             metrics
                 .ckb_tx_pool_entry
