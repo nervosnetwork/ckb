@@ -322,7 +322,7 @@ pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
     /// vm scheduler suspend state
-    pub state: FullSuspendedState,
+    pub state: Option<FullSuspendedState>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
@@ -332,7 +332,7 @@ pub struct TransactionState {
 impl TransactionState {
     /// Creates a new TransactionState struct
     pub fn new(
-        state: FullSuspendedState,
+        state: Option<FullSuspendedState>,
         current: usize,
         current_cycles: Cycle,
         limit_cycles: Cycle,
@@ -384,23 +384,9 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
             ..
         } = state;
 
-        // let mut snaps = Vec::with_capacity(vms.len());
-        // for mut vm in vms {
-        //     let snapshot = make_snapshot(&mut vm.machine_mut().machine)
-        //         .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?;
-        //     let cycles = vm.cycles();
-        //     let resume_point = match vm {
-        //         ResumableMachine::Initial(_) => ResumePoint::Initial,
-        //         ResumableMachine::Spawn(_, data) => (&data)
-        //             .try_into()
-        //             .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?,
-        //     };
-        //     snaps.push((snapshot, cycles, resume_point));
-        // }
-
         Ok(TransactionSnapshot {
             current,
-            state: Some(state),
+            state,
             current_cycles,
             limit_cycles,
         })

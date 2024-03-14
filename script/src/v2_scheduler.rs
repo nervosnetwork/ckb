@@ -707,7 +707,7 @@ where
 
     // Resume a suspended VM
     fn resume_vm(&mut self, id: &VmId) -> Result<(), Error> {
-        println!("Resuming VM: {}", id);
+        //println!("Resuming VM: {}", id);
         if !self.suspended.contains_key(id) {
             return Err(Error::Unexpected(format!("VM {:?} is not suspended!", id)));
         }

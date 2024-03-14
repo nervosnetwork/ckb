@@ -539,29 +539,29 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
 
     verifier.verify_map(script_version, &rtx, |verifier| {
         let mut groups: VecDeque<_> = verifier.groups_with_type().collect();
-        let mut tmp: Option<ResumableMachine> = None;
+        let mut tmp: Option<FullSuspendedState> = None;
+        let mut current_group = None;
         let mut limit = step_cycles;
 
         loop {
-            if let Some(mut vm) = tmp.take() {
-                vm.set_max_cycles(limit);
-                match vm.run() {
-                    Ok(code) => {
-                        if code == 0 {
-                            cycles += vm.cycles();
-                            groups.pop_front();
-                        } else {
-                            unreachable!()
-                        }
+            if let Some(mut cur_state) = tmp.take() {
+                match verifier.verify_group_with_chunk(
+                    current_group.unwrap(),
+                    limit,
+                    &Some(cur_state),
+                ) {
+                    Ok(ChunkState::Completed(used_cycles)) => {
+                        cycles += used_cycles;
+                        groups.pop_front();
                     }
-                    Err(error) => match error {
-                        VMInternalError::CyclesExceeded | VMInternalError::Pause => {
-                            tmp = Some(vm);
-                            limit += step_cycles;
-                            continue;
-                        }
-                        _ => unreachable!(),
-                    },
+                    Ok(ChunkState::Suspended(suspend_state)) => {
+                        tmp = suspend_state;
+                        limit += step_cycles;
+                        continue;
+                    }
+                    Err(error) => {
+                        unreachable!();
+                    }
                 }
             }
             if groups.is_empty() {
@@ -569,7 +569,10 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
             }
 
             while let Some((ty, _, group)) = groups.front().cloned() {
-                match verifier.verify_group_with_chunk(group, limit, &[]).unwrap() {
+                match verifier
+                    .verify_group_with_chunk(group, limit, &tmp)
+                    .unwrap()
+                {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                         groups.pop_front();
@@ -577,11 +580,10 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
                             limit = step_cycles;
                         }
                     }
-                    ChunkState::Suspended(mut vms, _) => {
-                        assert!(vms.len() <= 1);
-                        let vm = vms.pop();
-                        if vm.is_some() {
-                            tmp = vm;
+                    ChunkState::Suspended(suspend_state) => {
+                        if suspend_state.is_some() {
+                            tmp = suspend_state;
+                            current_group = Some(group);
                         } else if ty == ScriptGroupType::Type // fast forward
                             && step_cycles > TYPE_ID_CYCLES
                             && limit < (TYPE_ID_CYCLES - step_cycles)
@@ -740,38 +742,20 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         let mut groups: Vec<_> = verifier.groups_with_type().collect();
-        let mut tmp: Option<ResumableMachine> = None;
+        let mut tmp = None;
         let mut limit = step_cycles;
 
         loop {
-            if let Some(mut vm) = tmp.take() {
-                vm.set_max_cycles(limit);
-                match vm.run() {
-                    Ok(code) => {
-                        if code == 0 {
-                            cycles += vm.cycles();
-                        } else {
-                            unreachable!()
-                        }
-                    }
-                    Err(error) => match error {
-                        VMInternalError::CyclesExceeded | VMInternalError::Pause => {
-                            tmp = Some(vm);
-                            limit += step_cycles;
-                            continue;
-                        }
-                        _ => unreachable!(),
-                    },
-                }
-            }
             while let Some((_, _, group)) = groups.pop() {
-                match verifier.verify_group_with_chunk(group, limit, &[]).unwrap() {
+                match verifier
+                    .verify_group_with_chunk(group, limit, &tmp)
+                    .unwrap()
+                {
                     ChunkState::Completed(used_cycles) => {
                         cycles += used_cycles;
                     }
-                    ChunkState::Suspended(mut vms, _) => {
-                        assert!(vms.len() <= 1);
-                        tmp = vms.pop();
+                    ChunkState::Suspended(snapshot) => {
+                        tmp = snapshot;
                         if limit < (TWO_IN_TWO_OUT_CYCLES - step_cycles) {
                             limit += TWO_IN_TWO_OUT_CYCLES - step_cycles;
                         } else {

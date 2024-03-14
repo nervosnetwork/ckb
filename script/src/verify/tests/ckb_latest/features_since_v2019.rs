@@ -1182,12 +1182,14 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: 
         let mut init_state: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
+            eprintln!("suspend now ...");
             init_state = Some(state);
         }
 
         loop {
             let state = init_state.take().unwrap();
             let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
+            //eprintln!("limit_cycles: {}", limit_cycles);
             match verifier.resume_from_state(state, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_state = Some(state),
                 VerifyResult::Completed(cycle) => {
