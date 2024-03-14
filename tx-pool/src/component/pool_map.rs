@@ -19,8 +19,6 @@ use ckb_types::{
 };
 use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
-use std::time::Instant;
-
 type ConflictEntry = (TxEntry, Reject);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -131,16 +129,11 @@ impl PoolMap {
     }
 
     pub(crate) fn get_max_update_time(&self) -> u64 {
-        let instant = Instant::now();
-        let res = self
-            .entries
+        self.entries
             .iter()
             .map(|(_, entry)| entry.inner.timestamp)
             .max()
-            .unwrap_or(0);
-        let duration = instant.elapsed();
-        debug!("[Perf] get_max_update_time duration: {:?}", duration);
-        res
+            .unwrap_or(0)
     }
 
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {

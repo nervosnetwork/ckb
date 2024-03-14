@@ -14,7 +14,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug, error, info};
+use ckb_logger::{error, info};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
@@ -33,7 +33,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::block_in_place;
@@ -920,8 +920,7 @@ impl TxPoolService {
         let tx_pool = self.tx_pool.read().await;
         let orphan = self.orphan.read().await;
         let tip_header = tx_pool.snapshot.tip_header();
-        let instant = Instant::now();
-        let res = TxPoolInfo {
+        TxPoolInfo {
             tip_hash: tip_header.hash(),
             tip_number: tip_header.number(),
             pending_size: tx_pool.pool_map.pending_size(),
@@ -934,10 +933,7 @@ impl TxPoolService {
             last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
             tx_size_limit: TRANSACTION_SIZE_LIMIT,
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
-        };
-        let duration = instant.elapsed();
-        debug!("[Perf] tx_pool info: {:?}", duration);
-        res
+        }
     }
 
     pub fn should_notify_block_assembler(&self) -> bool {
