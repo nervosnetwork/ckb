@@ -19,6 +19,7 @@ use ckb_types::{
 };
 use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
+use std::time::Instant;
 
 type ConflictEntry = (TxEntry, Reject);
 
@@ -71,6 +72,9 @@ pub struct PoolMap {
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
     pub(crate) total_tx_cycles: Cycle,
+    pub(crate) pending_count: usize,
+    pub(crate) gap_count: usize,
+    pub(crate) proposed_count: usize,
 }
 
 impl PoolMap {
@@ -82,6 +86,9 @@ impl PoolMap {
             max_ancestors_count,
             total_tx_size: 0,
             total_tx_cycles: 0,
+            pending_count: 0,
+            gap_count: 0,
+            proposed_count: 0,
         }
     }
 
@@ -124,11 +131,16 @@ impl PoolMap {
     }
 
     pub(crate) fn get_max_update_time(&self) -> u64 {
-        self.entries
+        let instant = Instant::now();
+        let res = self
+            .entries
             .iter()
             .map(|(_, entry)| entry.inner.timestamp)
             .max()
-            .unwrap_or(0)
+            .unwrap_or(0);
+        let duration = instant.elapsed();
+        debug!("[Perf] get_max_update_time duration: {:?}", duration);
+        res
     }
 
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
@@ -144,12 +156,11 @@ impl PoolMap {
     }
 
     pub(crate) fn pending_size(&self) -> usize {
-        self.entries.get_by_status(&Status::Pending).len()
-            + self.entries.get_by_status(&Status::Gap).len()
+        self.pending_count + self.gap_count
     }
 
     pub(crate) fn proposed_size(&self) -> usize {
-        self.entries.get_by_status(&Status::Proposed).len()
+        self.proposed_count
     }
 
     pub(crate) fn sorted_proposed_iter(&self) -> impl Iterator<Item = &TxEntry> {
@@ -213,19 +224,21 @@ impl PoolMap {
         self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
-        self.track_entry_statics();
+        self.track_entry_statics(None, Some(status));
         self.update_stat_for_add_tx(entry.size, entry.cycles);
         Ok((true, evicts))
     }
 
     /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
     pub(crate) fn set_entry(&mut self, short_id: &ProposalShortId, status: Status) {
+        let mut old_status = None;
         self.entries
             .modify_by_id(short_id, |e| {
+                old_status = Some(e.status);
                 e.status = status;
             })
             .expect("unconsistent pool");
-        self.track_entry_statics();
+        self.track_entry_statics(old_status, Some(status));
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -239,6 +252,7 @@ impl PoolMap {
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
+            self.track_entry_statics(Some(entry.status), None);
             self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
             entry.inner
         })
@@ -625,20 +639,42 @@ impl PoolMap {
         });
     }
 
-    fn track_entry_statics(&self) {
+    pub fn track_entry_statics(&mut self, remove: Option<Status>, add: Option<Status>) {
+        match remove {
+            Some(Status::Pending) => self.pending_count -= 1,
+            Some(Status::Gap) => self.gap_count -= 1,
+            Some(Status::Proposed) => self.proposed_count -= 1,
+            _ => {}
+        }
+        match add {
+            Some(Status::Pending) => self.pending_count += 1,
+            Some(Status::Gap) => self.gap_count += 1,
+            Some(Status::Proposed) => self.proposed_count += 1,
+            _ => {}
+        }
+        assert_eq!(
+            self.pending_count + self.gap_count + self.proposed_count,
+            self.entries.len()
+        );
+        // let duration = instant.elapsed();
+        // eprintln!(
+        //     "pending: {}, gap: {}, proposed: {} => duration: {:?}  total_entries_size: {}",
+        //     self.pending_count,
+        //     self.gap_count,
+        //     self.proposed_count,
+        //     duration,
+        //     self.entries.len()
+        // );
         if let Some(metrics) = ckb_metrics::handle() {
             metrics
                 .ckb_tx_pool_entry
                 .pending
-                .set(self.entries.get_by_status(&Status::Pending).len() as i64);
-            metrics
-                .ckb_tx_pool_entry
-                .gap
-                .set(self.entries.get_by_status(&Status::Gap).len() as i64);
+                .set(self.pending_count as i64);
+            metrics.ckb_tx_pool_entry.gap.set(self.gap_count as i64);
             metrics
                 .ckb_tx_pool_entry
                 .proposed
-                .set(self.proposed_size() as i64);
+                .set(self.proposed_count as i64);
         }
     }
 

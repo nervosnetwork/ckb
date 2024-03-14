@@ -33,7 +33,7 @@ use ckb_verification::{
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::task::block_in_place;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
@@ -103,6 +103,7 @@ impl TxPoolService {
         entry: TxEntry,
         mut status: TxStatus,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
+        let instant = Instant::now();
         let (ret, snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
                 // check_rbf must be invoked in `write` lock to avoid concurrent issues.
@@ -170,6 +171,8 @@ impl TxPoolService {
             })
             .await;
 
+        let duration = instant.elapsed();
+        debug!("[Perf] submit_entry: {:?}", duration);
         (ret, snapshot)
     }
 
@@ -238,6 +241,7 @@ impl TxPoolService {
         tx: &TransactionView,
     ) -> (Result<PreCheckedTx, Reject>, Arc<Snapshot>) {
         // Acquire read lock for cheap check
+        let instant = Instant::now();
         let tx_size = tx.data().serialized_size_in_block();
 
         let (ret, snapshot) = self
@@ -279,6 +283,8 @@ impl TxPoolService {
                 }
             })
             .await;
+        let duration = instant.elapsed();
+        debug!("[Perf] pre-check: {:?}", duration);
         (ret, snapshot)
     }
 
@@ -1125,6 +1131,7 @@ fn _submit_entry(
 ) -> Result<HashSet<TxEntry>, Reject> {
     let tx_hash = entry.transaction().hash();
     debug!("submit_entry {:?} {}", status, tx_hash);
+    let start = Instant::now();
     let (succ, evicts) = match status {
         TxStatus::Fresh => tx_pool.add_pending(entry.clone())?,
         TxStatus::Gap => tx_pool.add_gap(entry.clone())?,
@@ -1137,6 +1144,8 @@ fn _submit_entry(
             TxStatus::Proposed => callbacks.call_proposed(&entry),
         }
     }
+    let duration = start.elapsed();
+    debug!("[Perf] Time elapsed in _submit_entry is: {:?}", duration);
     Ok(evicts)
 }
 
@@ -1149,6 +1158,7 @@ fn _update_tx_pool_for_reorg(
     callbacks: &Callbacks,
     mine_mode: bool,
 ) {
+    let instant = Instant::now();
     tx_pool.snapshot = Arc::clone(&snapshot);
 
     // NOTE: `remove_by_detached_proposal` will try to re-put the given expired/detached proposals into
@@ -1166,6 +1176,7 @@ fn _update_tx_pool_for_reorg(
         let mut proposals = Vec::new();
         let mut gaps = Vec::new();
 
+        let instant = Instant::now();
         for entry in tx_pool.pool_map.entries.get_by_status(&Status::Gap) {
             let short_id = entry.inner.proposal_short_id();
             if snapshot.proposals().contains_proposed(&short_id) {
@@ -1182,7 +1193,16 @@ fn _update_tx_pool_for_reorg(
                 gaps.push(elem);
             }
         }
+        let duration = instant.elapsed();
+        debug!("[Perf] reorg duration: {:?}", duration);
+        debug!(
+            "[Perf] reorg size: tx_pool size {:?} snapshot gap: {:?}, proposed: {:?}",
+            tx_pool.pool_map.entries.len(),
+            snapshot.proposals().gap().len(),
+            snapshot.proposals().set().len(),
+        );
 
+        let instant = Instant::now();
         for (id, entry) in proposals {
             debug!("begin to proposed: {:x}", id);
             if let Err(e) = tx_pool.proposed_rtx(&id) {
@@ -1208,6 +1228,8 @@ fn _update_tx_pool_for_reorg(
                 callbacks.call_reject(tx_pool, &entry, e.clone());
             }
         }
+        let duration = instant.elapsed();
+        debug!("[Perf] reorg setting: {:?}", duration);
     }
 
     // Remove expired transaction from pending
@@ -1215,6 +1237,8 @@ fn _update_tx_pool_for_reorg(
 
     // Remove transactions from the pool until its size <= size_limit.
     tx_pool.limit_size(callbacks);
+    let duration = instant.elapsed();
+    debug!("[Perf] reorg _update_tx_pool_for_reorg: {:?}", duration);
 }
 
 pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {

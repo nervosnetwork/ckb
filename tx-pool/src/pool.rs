@@ -25,6 +25,7 @@ use ckb_types::{
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Instant;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 const CONFLICTES_CACHE_SIZE: usize = 10_000;
@@ -254,6 +255,8 @@ impl TxPool {
     // Expire all transaction (and their dependencies) in the pool.
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
+        let instant = Instant::now();
+
         let removed: Vec<_> = self
             .pool_map
             .iter()
@@ -268,10 +271,13 @@ impl TxPool {
             let reject = Reject::Expiry(entry.timestamp);
             callbacks.call_reject(self, &entry, reject);
         }
+        let duration = instant.elapsed();
+        debug!("[Perf] remove_expired duration: {:?}", duration);
     }
 
     // Remove transactions from the pool until total size <= size_limit.
     pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
+        let instant = Instant::now();
         while self.pool_map.total_tx_size > self.config.max_tx_pool_size {
             let next_evict_entry = || {
                 self.pool_map
@@ -297,6 +303,8 @@ impl TxPool {
             }
         }
         self.pool_map.entries.shrink_to_fit();
+        let duration = instant.elapsed();
+        debug!("[Perf] limit_size duration: {:?}", duration);
     }
 
     // remove transaction with detached proposal from gap and proposed

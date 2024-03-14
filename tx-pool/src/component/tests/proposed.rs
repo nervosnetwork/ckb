@@ -3,6 +3,12 @@ use crate::component::tests::util::{
     build_tx, build_tx_with_dep, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT,
     MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
 };
+use ckb_types::core::capacity_bytes;
+use ckb_types::core::ScriptHashType;
+use ckb_types::packed::CellOutputBuilder;
+use ckb_types::packed::ScriptBuilder;
+use ckb_types::H256;
+use std::time::Instant;
 
 use crate::component::{entry::TxEntry, pool_map::PoolMap};
 use ckb_types::{
@@ -731,4 +737,62 @@ fn test_container_bench_add_limits() {
     assert_eq!(pool.pending_size(), 0);
     pool.clear();
     assert_eq!(pool.size(), 0);
+}
+
+#[test]
+fn test_pool_map_bench() {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+
+    let mut pool = PoolMap::new(150);
+
+    let mut instant = Instant::now();
+    for i in 0..500000 {
+        let lock_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .build();
+
+        let type_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
+            .build();
+
+        let tx = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1)
+                    .type_(Some(type_script1).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let entry = TxEntry::dummy_resolve(
+            tx,
+            rng.gen_range(0..1000),
+            Capacity::shannons(200),
+            rng.gen_range(0..1000),
+        );
+        let short_id = entry.proposal_short_id();
+        if i % 1000 == 0 {
+            eprintln!("i: {}, time: {:?}", i, instant.elapsed());
+            instant = Instant::now();
+        }
+        let status = if rng.gen_range(0..100) >= 30 {
+            Status::Pending
+        } else {
+            Status::Gap
+        };
+        pool.add_entry(entry, status);
+    }
+    // for _i in 0..100 {
+    //     let instant = Instant::now();
+    //     let res = pool.track_entry_statics(None, None);
+    //     let duration = instant.elapsed();
+    //     eprintln!("duration: {:?}", duration);
+    // }
 }
