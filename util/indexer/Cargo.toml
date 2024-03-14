@@ -16,7 +16,7 @@ ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.115.0-pre" }
 ckb-app-config = { path = "../app-config", version = "= 0.115.0-pre" }
 ckb-notify = { path = "../../notify", version = "= 0.115.0-pre" }
 ckb-async-runtime = { path = "../runtime", version = "= 0.115.0-pre" }
-ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.114.0-pre" }
+ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.115.0-pre" }
 rocksdb = { package = "ckb-rocksdb", version ="=0.21.1", features = ["snappy"], default-features = false }
 memchr = "2.7"
 

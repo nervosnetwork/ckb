@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer-sync"
-version = "0.114.0-pre"
+version = "0.115.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1366,7 +1366,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rich-indexer"
-version = "0.114.0-pre"
+version = "0.115.0-pre"
 dependencies = [
  "anyhow",
  "ckb-app-config",
