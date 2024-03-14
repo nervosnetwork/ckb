@@ -1,4 +1,4 @@
-use ckb_logger::debug;
+use ckb_logger::{debug, error};
 use ckb_types::core::EpochNumber;
 use ckb_types::{core, packed};
 use ckb_util::{parking_lot::RwLock, shrink_to_fit};
@@ -20,6 +20,8 @@ struct InnerPool {
     parents: HashMap<packed::Byte32, ParentHash>,
     // Leaders are blocks not in the orphan pool but having at least a child in the pool.
     leaders: HashSet<ParentHash>,
+    // block size of pool
+    block_size: usize,
 }
 
 impl InnerPool {
@@ -28,16 +30,26 @@ impl InnerPool {
             blocks: HashMap::with_capacity(capacity),
             parents: HashMap::new(),
             leaders: HashSet::new(),
+            block_size: 0,
         }
     }
 
     fn insert(&mut self, block: core::BlockView) {
         let hash = block.header().hash();
         let parent_hash = block.data().header().raw().parent_hash();
+
+        self.block_size = self
+            .block_size
+            .checked_add(block.data().total_size())
+            .unwrap_or_else(|| {
+                error!("orphan pool block size add overflow");
+                usize::MAX
+            });
         self.blocks
             .entry(parent_hash.clone())
             .or_default()
             .insert(hash.clone(), block);
+
         // Out-of-order insertion needs to be deduplicated
         self.leaders.remove(&hash);
         // It is a possible optimization to make the judgment in advance,
@@ -72,6 +84,13 @@ impl InnerPool {
             }
         }
 
+        self.block_size = self
+            .block_size
+            .checked_sub(removed.iter().map(|b| b.data().total_size()).sum::<usize>())
+            .unwrap_or_else(|| {
+                error!("orphan pool block size sub overflow");
+                0
+            });
         debug!("orphan pool pop chain len: {}", removed.len());
         debug_assert_ne!(
             removed.len(),
@@ -158,6 +177,10 @@ impl OrphanBlockPool {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn total_size(&self) -> usize {
+        self.inner.read().block_size
     }
 
     pub fn clone_leaders(&self) -> Vec<ParentHash> {

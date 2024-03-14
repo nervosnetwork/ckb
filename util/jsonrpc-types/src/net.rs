@@ -276,6 +276,8 @@ pub struct SyncState {
     ///
     /// If this number is too high, it indicates that block download has stuck at some block.
     pub orphan_blocks_count: Uint64,
+    /// The size of all download orphan blocks
+    pub orphan_blocks_size: Uint64,
     /// Count of downloading blocks.
     pub inflight_blocks_count: Uint64,
     /// The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
