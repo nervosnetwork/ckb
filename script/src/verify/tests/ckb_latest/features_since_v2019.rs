@@ -1182,7 +1182,6 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: 
         let mut init_state: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
-            eprintln!("suspend now ...");
             init_state = Some(state);
         }
 
@@ -1215,5 +1214,6 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: 
             "step_cycles {step_cycles}"
         );
     }
+
     assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
 }

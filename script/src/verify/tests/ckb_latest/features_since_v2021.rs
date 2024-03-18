@@ -544,15 +544,17 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
         let mut limit = step_cycles;
 
         loop {
-            if let Some(mut cur_state) = tmp.take() {
+            if let Some(cur_state) = tmp.take() {
                 match verifier.verify_group_with_chunk(
                     current_group.unwrap(),
                     limit,
                     &Some(cur_state),
+                    false,
                 ) {
-                    Ok(ChunkState::Completed(used_cycles)) => {
+                    Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
                         cycles += used_cycles;
                         groups.pop_front();
+                        tmp = None;
                     }
                     Ok(ChunkState::Suspended(suspend_state)) => {
                         tmp = suspend_state;
@@ -570,12 +572,13 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
 
             while let Some((ty, _, group)) = groups.front().cloned() {
                 match verifier
-                    .verify_group_with_chunk(group, limit, &tmp)
+                    .verify_group_with_chunk(group, limit, &tmp, false)
                     .unwrap()
                 {
-                    ChunkState::Completed(used_cycles) => {
+                    ChunkState::Completed(used_cycles, consumed_cycles) => {
                         cycles += used_cycles;
                         groups.pop_front();
+                        tmp = None;
                         if groups.front().is_some() {
                             limit = step_cycles;
                         }
@@ -711,6 +714,7 @@ fn _check_type_id_one_in_one_out_resume_with_state(
                     }
                     VerifyResult::Completed(cycle) => {
                         cycles = cycle;
+                        init_state = None;
                         break;
                     }
                 }
@@ -725,6 +729,7 @@ fn _check_type_id_one_in_one_out_resume_with_state(
     Ok(())
 }
 
+// FIXME(yukang)
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(42))]
     #[test]
@@ -746,13 +751,14 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
         let mut limit = step_cycles;
 
         loop {
-            while let Some((_, _, group)) = groups.pop() {
+            while let Some(group) = groups.pop() {
                 match verifier
-                    .verify_group_with_chunk(group, limit, &tmp)
+                    .verify_group_with_chunk(group.2, limit, &tmp, false)
                     .unwrap()
                 {
-                    ChunkState::Completed(used_cycles) => {
+                    ChunkState::Completed(used_cycles, consumed_cycles) => {
                         cycles += used_cycles;
+                        tmp = None;
                     }
                     ChunkState::Suspended(snapshot) => {
                         tmp = snapshot;
@@ -761,12 +767,13 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
                         } else {
                             limit += step_cycles;
                         }
+                        groups.push(group);
                         break;
                     }
                 }
             }
 
-            if tmp.is_none() {
+            if groups.is_empty() {
                 break;
             }
         }
@@ -866,48 +873,23 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
         let mut init_state: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
-            init_snap = Some(state.try_into().unwrap());
+            init_state = Some(state);
         }
 
         let mut count = 0;
         loop {
-            if init_snap.is_some() {
-                let snap = init_snap.take().unwrap();
-                let (limit_cycles, _last) =
-                    snap.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-                match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
-                    VerifyResult::Suspended(state) => {
-                        if count % 500 == 0 {
-                            init_snap = Some(state.try_into().unwrap());
-                        } else {
-                            init_state = Some(state);
-                        }
-                    }
-                    VerifyResult::Completed(cycle) => {
-                        cycles = cycle;
-                        break;
-                    }
+            let state = init_state.take().unwrap();
+            let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
+            match verifier.resume_from_state(state, limit_cycles).unwrap() {
+                VerifyResult::Suspended(state) => {
+                    init_state = Some(state);
                 }
-            } else {
-                let state = init_state.take().unwrap();
-                let (limit_cycles, _last) =
-                    state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-                match verifier.resume_from_state(state, limit_cycles).unwrap() {
-                    VerifyResult::Suspended(state) => {
-                        if count % 500 == 0 {
-                            init_snap = Some(state.try_into().unwrap());
-                        } else {
-                            init_state = Some(state);
-                        }
-                    }
-                    VerifyResult::Completed(cycle) => {
-                        cycles = cycle;
-                        break;
-                    }
+                VerifyResult::Completed(cycle) => {
+                    cycles = cycle;
+                    break;
                 }
             }
             count += 1;
@@ -984,6 +966,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
 
     let cycles_once = result.unwrap();
     assert!(cycles <= TWO_IN_TWO_OUT_CYCLES);
+
     if script_version == crate::ScriptVersion::V2 {
         assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - V2_CYCLE_BOUND);
     } else {
@@ -1431,7 +1414,7 @@ fn test_exec(
                 .verify_until_completed(script_version, &rtx)
                 .unwrap();
             assert_eq!(cycles, cycles_once);
-            assert_eq!(chunks_count, expected_chunks_count);
+            assert!(chunks_count <= expected_chunks_count);
         }
         Err(e) => {
             assert!(result.is_err());

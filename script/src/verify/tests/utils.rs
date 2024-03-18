@@ -266,6 +266,7 @@ impl TransactionScriptsVerifierWithEnv {
             let cycles;
             let mut times = 0usize;
             times += 1;
+
             let mut init_snap = match verifier.resumable_verify(max_cycles).unwrap() {
                 VerifyResult::Suspended(state) => Some(state.try_into().unwrap()),
                 VerifyResult::Completed(cycle) => {
