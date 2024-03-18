@@ -165,7 +165,11 @@ impl TxPoolService {
                     self.callbacks.call_reject(tx_pool, &evict, reject);
                 }
                 tx_pool.remove_conflict(&entry.proposal_short_id());
-
+                // in a corner case, a tx with lower fee rate may be rejected immediately
+                // after inserting into pool, return proper reject error here
+                tx_pool
+                    .limit_size(&self.callbacks, Some(&entry.proposal_short_id()))
+                    .map_or(Ok(()), Err)?;
                 Ok(())
             })
             .await;
@@ -1214,7 +1218,7 @@ fn _update_tx_pool_for_reorg(
     tx_pool.remove_expired(callbacks);
 
     // Remove transactions from the pool until its size <= size_limit.
-    tx_pool.limit_size(callbacks);
+    let _ = tx_pool.limit_size(callbacks, None);
 }
 
 pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {
