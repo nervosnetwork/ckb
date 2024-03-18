@@ -14,7 +14,7 @@ pub type VmId = u64;
 
 pub const FIRST_VM_ID: VmId = 0;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PipeId(pub(crate) u64);
 
 pub const FIRST_PIPE_SLOT: u64 = 2;

@@ -61,11 +61,11 @@ where
     next_vm_id: VmId,
     next_pipe_slot: u64,
     states: BTreeMap<VmId, VmState>,
-    pipes: HashMap<PipeId, VmId>,
+    pipes: BTreeMap<PipeId, VmId>,
     inherited_fd: BTreeMap<VmId, Vec<PipeId>>,
     instantiated: BTreeMap<VmId, (MachineContext<DL>, AsmMachine)>,
-    suspended: HashMap<VmId, Snapshot2<DataPieceId>>,
-    terminated_vms: HashMap<VmId, i8>,
+    suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
+    terminated_vms: BTreeMap<VmId, i8>,
 
     // message_box is expected to be empty before returning from `run`
     // function, there is no need to persist messages.
@@ -92,12 +92,12 @@ where
             next_vm_id: FIRST_VM_ID,
             next_pipe_slot: FIRST_PIPE_SLOT,
             states: BTreeMap::default(),
-            pipes: HashMap::default(),
+            pipes: BTreeMap::default(),
             inherited_fd: BTreeMap::default(),
             instantiated: BTreeMap::default(),
-            suspended: HashMap::default(),
+            suspended: BTreeMap::default(),
             message_box,
-            terminated_vms: HashMap::default(),
+            terminated_vms: BTreeMap::default(),
         }
     }
 
