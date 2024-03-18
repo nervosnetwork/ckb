@@ -6,10 +6,6 @@
 //!
 //! [`ckb-metrics-service`]: ../ckb_metrics_service/index.html
 
-use prometheus::{
-    register_histogram, register_histogram_vec, register_int_counter, register_int_gauge,
-    register_int_gauge_vec, Histogram, HistogramVec, IntCounter, IntGauge, IntGaugeVec,
-};
 use prometheus_static_metric::make_static_metric;
 use std::cell::Cell;
 

@@ -3,7 +3,7 @@
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{LonelyBlock, LonelyBlockHash};
 use ckb_channel::{select, Receiver, Sender};
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::Error;
 use ckb_logger::internal::trace;
 use ckb_logger::{debug, error, info};
 use ckb_shared::block_status::BlockStatus;
