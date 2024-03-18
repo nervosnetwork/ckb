@@ -38,7 +38,7 @@ impl InnerPool {
         let parent_hash = lonely_block.block().data().header().raw().parent_hash();
         self.blocks
             .entry(parent_hash.clone())
-            .or_insert_with(HashMap::default)
+            .or_default()
             .insert(hash.clone(), lonely_block);
         // Out-of-order insertion needs to be deduplicated
         self.leaders.remove(&hash);
