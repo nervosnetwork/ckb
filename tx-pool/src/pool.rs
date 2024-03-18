@@ -72,15 +72,6 @@ impl TxPool {
         Arc::clone(&self.snapshot)
     }
 
-    fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
-        self.pool_map.get_by_status(status)
-    }
-
-    /// Get tx-pool size
-    pub fn status_size(&self, status: Status) -> usize {
-        self.get_by_status(status).len()
-    }
-
     /// Check whether tx-pool enable RBF
     pub fn enable_rbf(&self) -> bool {
         self.config.min_rbf_rate > self.config.min_fee_rate
@@ -254,6 +245,7 @@ impl TxPool {
     // Expire all transaction (and their dependencies) in the pool.
     pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
+
         let removed: Vec<_> = self
             .pool_map
             .iter()

@@ -31,6 +31,7 @@ impl Spec for RpcTruncate {
 
         let tx_pool_info = node.get_tip_tx_pool_info();
         assert!(tx_pool_info.total_tx_size.value() > 0, "tx-pool holds tx2");
+        assert!(tx_pool_info.pending.value() > 0, "tx-pool hods tx2");
 
         // Truncate from `to_truncate`
 
