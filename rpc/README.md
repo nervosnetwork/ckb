@@ -4125,7 +4125,8 @@ Response
     "inflight_blocks_count": "0x0",
     "low_time": "0x5dc",
     "normal_time": "0x4e2",
-    "orphan_blocks_count": "0x0"
+    "orphan_blocks_count": "0x0",
+    "orphan_blocks_size": "0x0"
   }
 }
 ```
@@ -6511,6 +6512,8 @@ The overall chain synchronization state of this local node.
     The local node downloads multiple blocks simultaneously but blocks must be connected consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan block.
 
     If this number is too high, it indicates that block download has stuck at some block.
+
+* `orphan_blocks_size`: [`Uint64`](#type-uint64) - The size of all download orphan blocks
 
 ### Type `Timestamp`
 

@@ -3,6 +3,7 @@ use crate::types::{ActiveChain, BlockNumberAndHash, HeaderIndex, HeaderIndexView
 use crate::SyncShared;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
+    MAX_ORPHAN_POOL_SIZE,
 };
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
@@ -138,10 +139,40 @@ impl BlockFetcher {
             return None;
         }
 
+        let mut block_download_window = BLOCK_DOWNLOAD_WINDOW;
         let state = self.sync_shared.state();
         let mut inflight = state.write_inflight_blocks();
+
+        // During IBD, if the total block size of the orphan block pool is greater than MAX_ORPHAN_POOL_SIZE,
+        // we will enter a special download mode. In this mode, the node will only allow downloading
+        // the tip+1 block to reduce memory usage as quickly as possible.
+        //
+        // If there are more than CHECK_POINT_WINDOW blocks(ckb block maximum is 570kb) in
+        // the orphan block pool, immediately trace the tip + 1 block being downloaded, and
+        // re-select the target for downloading after timeout.
+        //
+        // Also try to send a chunk download request for tip + 1
+        if state.orphan_pool().total_size() >= MAX_ORPHAN_POOL_SIZE {
+            let tip = self.active_chain.tip_number();
+            // set download window to 2
+            block_download_window = 2;
+            debug!(
+                "[Enter special download mode], orphan pool total size = {}, \
+                orphan len = {}, inflight_len = {}, tip = {}",
+                state.orphan_pool().total_size(),
+                state.orphan_pool().len(),
+                inflight.total_inflight_count(),
+                tip
+            );
+
+            // will remove it's task if timeout
+            if state.orphan_pool().len() > CHECK_POINT_WINDOW as usize {
+                inflight.mark_slow_block(tip);
+            }
+        }
+
         let mut start = last_common.number() + 1;
-        let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
+        let mut end = min(best_known.number(), start + block_download_window);
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
             inflight.peer_can_fetch_count(self.peer),
@@ -170,7 +201,7 @@ impl BlockFetcher {
                         .state()
                         .peers()
                         .set_last_common_header(self.peer, header.number_and_hash());
-                    end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
+                    end = min(best_known.number(), header.number() + block_download_window);
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
