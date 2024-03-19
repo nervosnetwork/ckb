@@ -1,7 +1,7 @@
 name: Package
 
 permissions:
-  actions: write
+  # for actions/create-release, actions/upload-release-asset
   contents: write
 
 concurrency:
