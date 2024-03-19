@@ -1,5 +1,9 @@
 name: Package
 
+permissions:
+  actions: write
+  contents: write
+
 concurrency:
   group: package-${{ github.ref }}
   cancel-in-progress: true
