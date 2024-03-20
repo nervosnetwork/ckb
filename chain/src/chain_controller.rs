@@ -6,6 +6,7 @@ use crate::{LonelyBlock, ProcessBlockRequest, RemoteBlock, TruncateRequest, Veri
 use ckb_channel::Sender;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, error};
+use ckb_store::ChainDB;
 use ckb_types::{
     core::{service::Request, BlockView},
     packed::Byte32,
@@ -123,8 +124,8 @@ impl ChainController {
     }
 
     /// `Relayer::reconstruct_block` need this
-    pub fn get_orphan_block(&self, hash: &Byte32) -> Option<Arc<BlockView>> {
-        self.orphan_block_broker.get_block(hash)
+    pub fn get_orphan_block(&self, store: &ChainDB, hash: &Byte32) -> Option<Arc<BlockView>> {
+        self.orphan_block_broker.get_block(store, hash)
     }
 
     /// `NetRpcImpl::sync_state` rpc need this

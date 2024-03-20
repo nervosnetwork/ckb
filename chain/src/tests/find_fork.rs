@@ -1,10 +1,8 @@
-use crate::consume_orphan::ConsumeDescendantProcessor;
 use crate::consume_unverified::ConsumeUnverifiedBlockProcessor;
 use crate::utils::forkchanges::ForkChanges;
-use crate::{start_chain_services, LonelyBlock, LonelyBlockHash};
+use crate::{start_chain_services, UnverifiedBlock};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_proposal_table::ProposalTable;
-use ckb_shared::types::BlockNumberAndHash;
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
@@ -16,33 +14,29 @@ use ckb_types::{
     U256,
 };
 use ckb_verification_traits::Switch;
-use crossbeam::channel;
+use dashmap::DashSet;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 fn process_block(
-    consume_descendant_processor: &ConsumeDescendantProcessor,
     consume_unverified_block_processor: &mut ConsumeUnverifiedBlockProcessor,
     blk: &BlockView,
     switch: Switch,
 ) {
-    let lonely_block_hash = LonelyBlockHash {
-        switch: Some(switch),
-        block_number_and_hash: BlockNumberAndHash::new(blk.number(), blk.hash()),
-        verify_callback: None,
-    };
+    let store = consume_unverified_block_processor.shared.store();
+    let db_txn = store.begin_transaction();
+    db_txn.insert_block(blk).unwrap();
+    db_txn.commit().unwrap();
 
-    let lonely_block = LonelyBlock {
-        switch: Some(switch),
+    let parent_header = store.get_block_header(&blk.parent_hash()).unwrap();
+    let unverified_block = UnverifiedBlock {
         block: Arc::new(blk.to_owned()),
+        switch: Some(switch),
         verify_callback: None,
+        parent_header,
     };
 
-    consume_descendant_processor
-        .process_descendant(lonely_block)
-        .unwrap();
-
-    consume_unverified_block_processor.consume_unverified_blocks(lonely_block_hash);
+    consume_unverified_block_processor.consume_unverified_blocks(unverified_block);
 }
 
 // 0--1--2--3--4
@@ -73,20 +67,18 @@ fn test_find_fork_case1() {
         fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
 
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<LonelyBlockHash>();
-    let consume_descendant_processor = ConsumeDescendantProcessor {
-        shared: shared.clone(),
-        unverified_blocks_tx,
-    };
+    let is_pending_verify = Arc::new(DashSet::new());
+
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
+        is_pending_verify,
         proposal_table,
     };
 
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
+        println!("proceb1, fork1 block: {}-{}", blk.number(), blk.hash());
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -95,8 +87,8 @@ fn test_find_fork_case1() {
 
     // fork2 total_difficulty 270
     for blk in fork2.blocks() {
+        println!("procb2, fork1 block: {}-{}", blk.number(), blk.hash());
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -161,20 +153,15 @@ fn test_find_fork_case2() {
         fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<LonelyBlockHash>();
-    let consume_descendant_processor = ConsumeDescendantProcessor {
-        shared: shared.clone(),
-        unverified_blocks_tx,
-    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
         proposal_table,
     };
 
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -184,7 +171,6 @@ fn test_find_fork_case2() {
     // fork2 total_difficulty 280
     for blk in fork2.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -250,19 +236,14 @@ fn test_find_fork_case3() {
         fork2.gen_empty_block_with_diff(40u64, &mock_store)
     }
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<LonelyBlockHash>();
-    let consume_descendant_processor = ConsumeDescendantProcessor {
-        shared: shared.clone(),
-        unverified_blocks_tx,
-    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
         proposal_table,
     };
     // fork1 total_difficulty 240
     for blk in fork1.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -272,7 +253,6 @@ fn test_find_fork_case3() {
     // fork2 total_difficulty 200
     for blk in fork2.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -337,20 +317,15 @@ fn test_find_fork_case4() {
         fork2.gen_empty_block_with_diff(80u64, &mock_store);
     }
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<LonelyBlockHash>();
-    let consume_descendant_processor = ConsumeDescendantProcessor {
-        shared: shared.clone(),
-        unverified_blocks_tx,
-    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
         proposal_table,
     };
 
     // fork1 total_difficulty 200
     for blk in fork1.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -360,7 +335,6 @@ fn test_find_fork_case4() {
     // fork2 total_difficulty 160
     for blk in fork2.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -425,19 +399,14 @@ fn repeatedly_switch_fork() {
         fork2.gen_empty_block_with_nonce(2u128, &mock_store);
     }
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
-    let (unverified_blocks_tx, _unverified_blocks_rx) = channel::unbounded::<LonelyBlockHash>();
-    let consume_descendant_processor = ConsumeDescendantProcessor {
-        shared: shared.clone(),
-        unverified_blocks_tx,
-    };
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
         proposal_table,
     };
 
     for blk in fork1.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,
@@ -446,7 +415,6 @@ fn repeatedly_switch_fork() {
 
     for blk in fork2.blocks() {
         process_block(
-            &consume_descendant_processor,
             &mut consume_unverified_block_processor,
             blk,
             Switch::DISABLE_ALL,

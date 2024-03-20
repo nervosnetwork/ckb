@@ -1,8 +1,9 @@
 //! CKB chain service.
 #![allow(missing_docs)]
 
-use crate::{LonelyBlock, ProcessBlockRequest};
-use ckb_channel::{select, Receiver, Sender};
+use crate::orphan_broker::OrphanBroker;
+use crate::{LonelyBlock, LonelyBlockHash, ProcessBlockRequest};
+use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, warn};
 use ckb_shared::block_status::BlockStatus;
@@ -13,13 +14,12 @@ use ckb_verification::{BlockVerifier, NonContextualBlockTxsVerifier};
 use ckb_verification_traits::Verifier;
 
 /// Chain background service to receive LonelyBlock and only do `non_contextual_verify`
-#[derive(Clone)]
 pub(crate) struct ChainService {
     shared: Shared,
 
     process_block_rx: Receiver<ProcessBlockRequest>,
 
-    lonely_block_tx: Sender<LonelyBlock>,
+    orphan_broker: OrphanBroker,
 }
 impl ChainService {
     /// Create a new ChainService instance with shared.
@@ -27,18 +27,21 @@ impl ChainService {
         shared: Shared,
         process_block_rx: Receiver<ProcessBlockRequest>,
 
-        lonely_block_tx: Sender<LonelyBlock>,
+        consume_orphan: OrphanBroker,
     ) -> ChainService {
         ChainService {
             shared,
             process_block_rx,
-            lonely_block_tx,
+            orphan_broker: consume_orphan,
         }
     }
 
     /// Receive block from `process_block_rx` and do `non_contextual_verify`
     pub(crate) fn start_process_block(self) {
         let signal_receiver = new_crossbeam_exit_rx();
+
+        let clean_expired_orphan_timer =
+            crossbeam::channel::tick(std::time::Duration::from_secs(60));
 
         loop {
             select! {
@@ -57,6 +60,9 @@ impl ChainService {
                         error!("process_block_receiver closed");
                         break;
                     },
+                },
+                recv(clean_expired_orphan_timer) -> _ => {
+                    self.orphan_broker.clean_expired_orphans();
                 },
                 recv(signal_receiver) -> _ => {
                     info!("ChainService received exit signal, exit now");
@@ -127,25 +133,24 @@ impl ChainService {
             }
         }
 
-        if let Some(metrics) = ckb_metrics::handle() {
-            metrics
-                .ckb_chain_lonely_block_ch_len
-                .set(self.lonely_block_tx.len() as i64)
+        if let Err(err) = self.insert_block(&lonely_block) {
+            error!(
+                "insert block {}-{} failed: {:?}",
+                block_number, block_hash, err
+            );
+            self.shared.block_status_map().remove(&block_hash);
+            lonely_block.execute_callback(Err(err));
+            return;
         }
 
-        match self.lonely_block_tx.send(lonely_block) {
-            Ok(_) => {
-                debug!(
-                    "processing block: {}-{}, (tip:unverified_tip):({}:{})",
-                    block_number,
-                    block_hash,
-                    self.shared.snapshot().tip_number(),
-                    self.shared.get_unverified_tip().number(),
-                );
-            }
-            Err(_) => {
-                error!("Failed to notify new block to orphan pool, It seems that the orphan pool has exited.");
-            }
-        }
+        let lonely_block_hash: LonelyBlockHash = lonely_block.into();
+        self.orphan_broker.process_lonely_block(lonely_block_hash);
+    }
+
+    fn insert_block(&self, lonely_block: &LonelyBlock) -> Result<(), ckb_error::Error> {
+        let db_txn = self.shared.store().begin_transaction();
+        db_txn.insert_block(lonely_block.block())?;
+        db_txn.commit()?;
+        Ok(())
     }
 }

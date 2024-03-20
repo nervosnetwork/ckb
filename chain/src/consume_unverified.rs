@@ -1,4 +1,4 @@
-use crate::LonelyBlockHash;
+use crate::UnverifiedBlock;
 use crate::{utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest, VerifyResult};
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
@@ -23,19 +23,21 @@ use ckb_verification::cache::Completed;
 use ckb_verification::InvalidParentError;
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::Switch;
+use dashmap::DashSet;
 use std::cmp;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) struct ConsumeUnverifiedBlockProcessor {
     pub(crate) shared: Shared,
+    pub(crate) is_pending_verify: Arc<DashSet<Byte32>>,
     pub(crate) proposal_table: ProposalTable,
 }
 
 pub(crate) struct ConsumeUnverifiedBlocks {
     tx_pool_controller: TxPoolController,
 
-    unverified_block_rx: Receiver<LonelyBlockHash>,
+    unverified_block_rx: Receiver<UnverifiedBlock>,
     truncate_block_rx: Receiver<TruncateRequest>,
 
     stop_rx: Receiver<()>,
@@ -45,9 +47,10 @@ pub(crate) struct ConsumeUnverifiedBlocks {
 impl ConsumeUnverifiedBlocks {
     pub(crate) fn new(
         shared: Shared,
-        unverified_blocks_rx: Receiver<LonelyBlockHash>,
+        unverified_blocks_rx: Receiver<UnverifiedBlock>,
         truncate_block_rx: Receiver<TruncateRequest>,
         proposal_table: ProposalTable,
+        is_pending_verify: Arc<DashSet<Byte32>>,
         stop_rx: Receiver<()>,
     ) -> Self {
         ConsumeUnverifiedBlocks {
@@ -57,6 +60,7 @@ impl ConsumeUnverifiedBlocks {
             stop_rx,
             processor: ConsumeUnverifiedBlockProcessor {
                 shared,
+                is_pending_verify,
                 proposal_table,
             },
         }
@@ -94,7 +98,7 @@ impl ConsumeUnverifiedBlocks {
                         let _ = self.tx_pool_controller.continue_chunk_process();
                     },
                     Err(err) => {
-                        error!("truncate_block_tx has been closed,err: {}", err);
+                        info!("truncate_block_tx has been closed,err: {}", err);
                         return;
                     },
                 },
@@ -109,52 +113,31 @@ impl ConsumeUnverifiedBlocks {
 }
 
 impl ConsumeUnverifiedBlockProcessor {
-    fn load_unverified_block_and_parent_header(
-        &self,
-        block_hash: &Byte32,
-    ) -> (BlockView, HeaderView) {
-        let block_view = self
-            .shared
-            .store()
-            .get_block(block_hash)
-            .expect("block stored");
-        let parent_header_view = self
-            .shared
-            .store()
-            .get_block_header(&block_view.data().header().raw().parent_hash())
-            .expect("parent header stored");
-
-        (block_view, parent_header_view)
-    }
-
-    pub(crate) fn consume_unverified_blocks(&mut self, lonely_block_hash: LonelyBlockHash) {
-        let LonelyBlockHash {
-            block_number_and_hash,
+    pub(crate) fn consume_unverified_blocks(&mut self, unverified_block: UnverifiedBlock) {
+        let UnverifiedBlock {
+            block,
             switch,
             verify_callback,
-        } = lonely_block_hash;
-        let (unverified_block, parent_header) =
-            self.load_unverified_block_and_parent_header(&block_number_and_hash.hash);
+            parent_header,
+        } = unverified_block;
+        let block_hash = block.hash();
         // process this unverified block
-        let verify_result = self.verify_block(&unverified_block, &parent_header, switch);
+        let verify_result = self.verify_block(&block, &parent_header, switch);
         match &verify_result {
             Ok(_) => {
                 let log_now = std::time::Instant::now();
-                self.shared.remove_block_status(&block_number_and_hash.hash);
+                self.shared.remove_block_status(&block_hash);
                 let log_elapsed_remove_block_status = log_now.elapsed();
-                self.shared.remove_header_view(&block_number_and_hash.hash);
+                self.shared.remove_header_view(&block_hash);
                 debug!(
                     "block {} remove_block_status cost: {:?}, and header_view cost: {:?}",
-                    block_number_and_hash.hash,
+                    block_hash,
                     log_elapsed_remove_block_status,
                     log_now.elapsed()
                 );
             }
             Err(err) => {
-                error!(
-                    "verify block {} failed: {}",
-                    block_number_and_hash.hash, err
-                );
+                error!("verify block {} failed: {}", block_hash, err);
 
                 let tip = self
                     .shared
@@ -174,16 +157,18 @@ impl ConsumeUnverifiedBlockProcessor {
                 ));
 
                 self.shared
-                    .insert_block_status(block_number_and_hash.hash(), BlockStatus::BLOCK_INVALID);
+                    .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
                     tip.hash(),
-                    block_number_and_hash.hash,
+                    block_hash,
                     err
                 );
             }
         }
+
+        self.is_pending_verify.remove(&block_hash);
 
         if let Some(callback) = verify_callback {
             callback(verify_result);
@@ -279,6 +264,14 @@ impl ConsumeUnverifiedBlockProcessor {
         let db_txn = Arc::new(self.shared.store().begin_transaction());
         let txn_snapshot = db_txn.get_snapshot();
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
+
+        db_txn.insert_block_epoch_index(
+            &block.header().hash(),
+            &epoch.last_block_hash_in_previous_epoch(),
+        )?;
+        if new_epoch {
+            db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+        }
 
         if new_best_block {
             info!(

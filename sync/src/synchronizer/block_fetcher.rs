@@ -95,6 +95,17 @@ impl BlockFetcher {
             ckb_metrics::handle().map(|handle| handle.ckb_sync_block_fetch_duration.start_timer())
         };
 
+        if self.sync_shared.shared().get_unverified_tip().number()
+            >= self.sync_shared.active_chain().tip_number() + BLOCK_DOWNLOAD_WINDOW * 9
+        {
+            trace!(
+                "unverified_tip - tip > BLOCK_DOWNLOAD_WINDOW * 9, skip fetch, unverified_tip: {}, tip: {}",
+                self.sync_shared.shared().get_unverified_tip().number(),
+                self.sync_shared.active_chain().tip_number()
+            );
+            return None;
+        }
+
         if self.reached_inflight_limit() {
             trace!(
                 "[block_fetcher] inflight count has reached the limit, preventing further downloads from peer {}",
@@ -202,14 +213,6 @@ impl BlockFetcher {
                         .get_ancestor(&best_known.hash(), start + span - 1),
                 }
             }?;
-            debug!(
-                "get_ancestor({}, {}) -> {}-{}; IBD: {:?}",
-                best_known.hash(),
-                start + span - 1,
-                header.number(),
-                header.hash(),
-                self.ibd,
-            );
 
             let mut status = self
                 .sync_shared

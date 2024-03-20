@@ -10,23 +10,25 @@
 use ckb_error::Error;
 use ckb_shared::types::BlockNumberAndHash;
 use ckb_types::core::service::Request;
-use ckb_types::core::{BlockNumber, BlockView};
+use ckb_types::core::{BlockNumber, BlockView, EpochNumber, HeaderView};
 use ckb_types::packed::Byte32;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
 mod chain_controller;
 mod chain_service;
-mod consume_orphan;
-mod consume_unverified;
+pub mod consume_unverified;
 mod init;
 mod init_load_unverified;
+mod orphan_broker;
+mod preload_unverified_blocks_channel;
 #[cfg(test)]
 mod tests;
 mod utils;
 
 pub use chain_controller::ChainController;
-pub use consume_orphan::store_unverified_block;
+use ckb_types::prelude::{Pack, Unpack};
+use ckb_types::H256;
 pub use init::start_chain_services;
 
 type ProcessBlockRequest = Request<LonelyBlock, ()>;
@@ -68,6 +70,10 @@ pub struct LonelyBlockHash {
     /// block
     pub block_number_and_hash: BlockNumberAndHash,
 
+    pub parent_hash: Byte32,
+
+    pub epoch_number: EpochNumber,
+
     /// The Switch to control the verification process
     pub switch: Option<Switch>,
 
@@ -77,14 +83,57 @@ pub struct LonelyBlockHash {
 
 impl From<LonelyBlock> for LonelyBlockHash {
     fn from(val: LonelyBlock) -> Self {
+        let LonelyBlock {
+            block,
+            switch,
+            verify_callback,
+        } = val;
+        let block_hash_h256: H256 = block.hash().unpack();
+        let block_number: BlockNumber = block.number();
+        let parent_hash_h256: H256 = block.parent_hash().unpack();
+        let block_hash = block_hash_h256.pack();
+        let parent_hash = parent_hash_h256.pack();
+
+        let epoch_number: EpochNumber = block.epoch().number();
+
         LonelyBlockHash {
             block_number_and_hash: BlockNumberAndHash {
-                number: val.block.number(),
-                hash: val.block.hash(),
+                number: block_number,
+                hash: block_hash,
             },
-            switch: val.switch,
-            verify_callback: val.verify_callback,
+            parent_hash,
+            epoch_number,
+            switch,
+            verify_callback,
         }
+    }
+}
+
+impl LonelyBlockHash {
+    pub fn execute_callback(self, verify_result: VerifyResult) {
+        if let Some(verify_callback) = self.verify_callback {
+            verify_callback(verify_result);
+        }
+    }
+
+    pub fn number_hash(&self) -> BlockNumberAndHash {
+        self.block_number_and_hash.clone()
+    }
+
+    pub fn epoch_number(&self) -> EpochNumber {
+        self.epoch_number
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.block_number_and_hash.hash()
+    }
+
+    pub fn parent_hash(&self) -> Byte32 {
+        self.parent_hash.clone()
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.block_number_and_hash.number()
     }
 }
 
@@ -123,4 +172,16 @@ impl GlobalIndex {
         self.number -= 1;
         self.hash = hash;
     }
+}
+
+/// UnverifiedBlock will be consumed by ConsumeUnverified thread
+struct UnverifiedBlock {
+    // block
+    block: Arc<BlockView>,
+    // the switch to control the verification process
+    switch: Option<Switch>,
+    // verify callback
+    verify_callback: Option<VerifyCallback>,
+    // parent header
+    parent_header: HeaderView,
 }

@@ -3,11 +3,11 @@
 
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncShared;
-use ckb_chain::{start_chain_services, store_unverified_block, RemoteBlock, VerifyResult};
+use ckb_chain::{start_chain_services, RemoteBlock, VerifyResult};
 use ckb_logger::info;
 use ckb_logger_service::LoggerInitGuard;
 use ckb_shared::block_status::BlockStatus;
-use ckb_shared::SharedBuilder;
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
 use ckb_types::core::{BlockBuilder, BlockView, Capacity};
@@ -23,7 +23,9 @@ fn wait_for_expected_block_status(
 ) -> bool {
     let now = std::time::Instant::now();
     while now.elapsed().as_secs() < 2 {
-        let current_status = shared.active_chain().get_block_status(hash);
+        let current_status = shared
+            .shared()
+            .get_block_status(shared.shared().snapshot().as_ref(), hash);
         if current_status == expect_status {
             return true;
         }
@@ -175,22 +177,6 @@ fn test_insert_parent_unknown_block() {
 #[test]
 fn test_insert_child_block_with_stored_but_unverified_parent() {
     let (shared1, _) = build_chain(2);
-    let (shared, chain) = {
-        let (shared, mut pack) = SharedBuilder::with_temp_db()
-            .consensus(shared1.consensus().clone())
-            .build()
-            .unwrap();
-        let chain_controller = start_chain_services(pack.take_chain_services_builder());
-
-        while chain_controller.is_verifying_unverified_blocks_on_startup() {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-
-        (
-            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
-            chain_controller,
-        )
-    };
 
     let block = shared1
         .store()
@@ -203,20 +189,40 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
             .unwrap();
         Arc::new(parent)
     };
+
+    let _logger = ckb_logger_service::init_for_test("info,ckb-chain=debug").expect("init log");
+
     let parent_hash = parent.header().hash();
     let child = Arc::new(block);
     let child_hash = child.header().hash();
 
-    store_unverified_block(shared.shared(), Arc::clone(&parent)).expect("store parent block");
+    let (shared, chain) = {
+        let (shared, mut pack) = SharedBuilder::with_temp_db()
+            .consensus(shared1.consensus().clone())
+            .build()
+            .unwrap();
 
-    // Note that we will not find the block status obtained from
-    // shared.active_chain().get_block_status(&parent_hash) to be BLOCK_STORED,
-    // because `get_block_status` does not read the block status from the database,
-    // it use snapshot to get the block status, and the snapshot is not updated.
-    assert!(
-        shared.store().get_block_ext(&parent_hash).is_some(),
-        "parent block should be stored"
-    );
+        let db_txn = shared.store().begin_transaction();
+        info!("inserting parent: {}-{}", parent.number(), parent.hash());
+        db_txn.insert_block(&parent).expect("insert parent");
+        db_txn.commit().expect("commit parent");
+
+        assert!(
+            shared.store().get_block(&parent_hash).is_some(),
+            "parent block should be stored"
+        );
+
+        let chain_controller = start_chain_services(pack.take_chain_services_builder());
+
+        while chain_controller.is_verifying_unverified_blocks_on_startup() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        (
+            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
+            chain_controller,
+        )
+    };
 
     assert!(shared
         .blocking_insert_new_block(&chain, Arc::clone(&child))

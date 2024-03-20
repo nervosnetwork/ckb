@@ -1,13 +1,17 @@
+use crate::utils::orphan_block_pool::EXPIRED_EPOCH;
 use crate::{ChainController, LonelyBlock};
-use ckb_channel::{select, Receiver};
+use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::COLUMN_NUMBER_HASH;
 use ckb_logger::info;
+use ckb_shared::block_status::BlockStatus;
 use ckb_shared::Shared;
+use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockNumber, BlockView};
 use ckb_types::packed;
 use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Pack, Reader};
+use std::cmp;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -15,41 +19,18 @@ pub(crate) struct InitLoadUnverified {
     shared: Shared,
     chain_controller: ChainController,
     is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
-
-    stop_rx: Receiver<()>,
 }
 
 impl InitLoadUnverified {
     pub(crate) fn new(
         shared: Shared,
         chain_controller: ChainController,
-        stop_rx: Receiver<()>,
         is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
     ) -> Self {
         InitLoadUnverified {
             shared,
             chain_controller,
             is_verifying_unverified_blocks_on_startup,
-            stop_rx,
-        }
-    }
-    fn print_unverified_blocks_count(&self) {
-        let tip_number: BlockNumber = self.shared.snapshot().tip_number();
-        let mut check_unverified_number = tip_number + 1;
-        let mut unverified_block_count = 0;
-        loop {
-            // start checking `check_unverified_number` have COLUMN_NUMBER_HASH value in db?
-            let unverified_hashes: Vec<packed::Byte32> =
-                self.find_unverified_block_hashes(check_unverified_number);
-            unverified_block_count += unverified_hashes.len();
-            if unverified_hashes.is_empty() {
-                info!(
-                    "found {} unverified blocks, verifying...",
-                    unverified_block_count
-                );
-                break;
-            }
-            check_unverified_number += 1;
         }
     }
 
@@ -57,6 +38,8 @@ impl InitLoadUnverified {
         let pack_number: packed::Uint64 = check_unverified_number.pack();
         let prefix = pack_number.as_slice();
 
+        // If a block has `COLUMN_NUMBER_HASH` but not `BlockExt`,
+        // it indicates an unverified block inserted during the last shutdown.
         let unverified_hashes: Vec<packed::Byte32> = self
             .shared
             .store()
@@ -71,6 +54,7 @@ impl InitLoadUnverified {
                 let unverified_block_hash = reader.block_hash().to_entity();
                 unverified_block_hash
             })
+            .filter(|hash| self.shared.store().get_block_ext(hash).is_none())
             .collect::<Vec<packed::Byte32>>();
         unverified_hashes
     }
@@ -81,59 +65,59 @@ impl InitLoadUnverified {
             self.shared.snapshot().tip_number(),
             self.shared.snapshot().tip_hash()
         );
-        self.print_unverified_blocks_count();
 
         self.find_and_verify_unverified_blocks();
 
         self.is_verifying_unverified_blocks_on_startup
             .store(false, std::sync::atomic::Ordering::Release);
+        info!("find unverified blocks finished");
     }
 
-    fn find_and_verify_unverified_blocks(&self) {
+    fn find_unverified_blocks<F>(&self, f: F)
+    where
+        F: Fn(&packed::Byte32),
+    {
         let tip_number: BlockNumber = self.shared.snapshot().tip_number();
-        let mut check_unverified_number = tip_number + 1;
+        let start_check_number = cmp::max(
+            1,
+            tip_number.saturating_sub(EXPIRED_EPOCH * self.shared.consensus().max_epoch_length()),
+        );
+        let end_check_number = tip_number + BLOCK_DOWNLOAD_WINDOW * 10;
 
-        loop {
-            select! {
-                recv(self.stop_rx) -> _msg => {
-                    info!("init_unverified_blocks thread received exit signal, exit now");
-                    break;
-                },
-                default => {}
+        for check_unverified_number in start_check_number..=end_check_number {
+            if has_received_stop_signal() {
+                info!("init_unverified_blocks thread received exit signal, exit now");
+                return;
             }
 
             // start checking `check_unverified_number` have COLUMN_NUMBER_HASH value in db?
             let unverified_hashes: Vec<packed::Byte32> =
                 self.find_unverified_block_hashes(check_unverified_number);
 
-            if unverified_hashes.is_empty() {
-                if check_unverified_number == tip_number + 1 {
-                    info!("no unverified blocks found.");
-                } else {
-                    info!(
-                        "found and verify unverified blocks finish, current tip: {}-{}",
-                        self.shared.snapshot().tip_number(),
-                        self.shared.snapshot().tip_header()
-                    );
-                }
+            for unverified_hash in unverified_hashes {
+                f(&unverified_hash);
+            }
+        }
+    }
+
+    fn find_and_verify_unverified_blocks(&self) {
+        self.find_unverified_blocks(|unverified_hash| {
+            let unverified_block: BlockView = self
+                .shared
+                .store()
+                .get_block(unverified_hash)
+                .expect("unverified block must be in db");
+
+            if has_received_stop_signal() {
                 return;
             }
 
-            for unverified_hash in unverified_hashes {
-                let unverified_block: BlockView = self
-                    .shared
-                    .store()
-                    .get_block(&unverified_hash)
-                    .expect("unverified block must be in db");
-                self.chain_controller
-                    .asynchronous_process_lonely_block(LonelyBlock {
-                        block: Arc::new(unverified_block),
-                        switch: None,
-                        verify_callback: None,
-                    });
-            }
-
-            check_unverified_number += 1;
-        }
+            self.chain_controller
+                .asynchronous_process_lonely_block(LonelyBlock {
+                    block: Arc::new(unverified_block),
+                    switch: None,
+                    verify_callback: None,
+                });
+        });
     }
 }
