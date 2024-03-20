@@ -1,9 +1,7 @@
 mod rocksdb;
-mod secondary_db;
 
 pub(crate) use self::rocksdb::RocksdbStore;
-pub(crate) use self::secondary_db::SecondaryDB;
-use crate::error::Error;
+use ckb_indexer_sync::Error;
 use std::path::Path;
 
 type IteratorItem = (Box<[u8]>, Box<[u8]>);

@@ -115,7 +115,7 @@ listen_address = "127.0.0.1:8114" # {{
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer", "RichIndexer"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment"] # {{
 # dev => modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug"]
 # integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest"]
@@ -196,7 +196,8 @@ block_uncles_cache_size    = 30
 # # Or you may want use more flexible scripts, block template as arg.
 # notify_scripts = ["{cmd} {blocktemplate}"]
 #
-# # CKB built-in indexer settings. Existing indexes can be cleaned up using the `ckb reset-data --indexer` subcommand.
+# # CKB built-in indexer/rich-indexer settings.
+# # Utilize the `ckb reset-data --indexer` and `ckb reset-data --rich-indexer` subcommands to efficiently clean existing indexes.
 # [indexer_v2]
 # # Indexing the pending txs in the ckb tx-pool
 # index_tx_pool = false
@@ -206,3 +207,14 @@ block_uncles_cache_size    = 30
 # cell_filter = "let script = output.type;script!=() && script.code_hash == \"0x00000000000000000000000000000000000000000000000000545950455f4944\""
 # # The initial tip can be set higher than the current indexer tip as the starting height for indexing.
 # init_tip_hash = "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
+#
+# # CKB rich-indexer has its unique configuration.
+# [indexer_v2.rich_indexer]
+# # By default, it uses an embedded SQLite database.
+# # Alternatively, you can set up a PostgreSQL database service and provide the connection parameters.
+# db_type = "postgres"
+# db_name = "ckb-rich-indexer"
+# db_host = "127.0.0.1"
+# db_port = 5432
+# db_user = "postgres"
+# db_password = "123456"

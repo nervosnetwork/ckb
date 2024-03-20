@@ -77,7 +77,7 @@ impl Default for IndexerSearchKey {
 }
 
 /// IndexerSearchMode represent search mode, default is prefix search
-#[derive(Deserialize, PartialEq, Eq, JsonSchema)]
+#[derive(Deserialize, PartialEq, Eq, JsonSchema, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerSearchMode {
     /// Mode `prefix` search with prefix
@@ -182,7 +182,7 @@ pub struct IndexerCellsCapacity {
 }
 
 /// Indexer Transaction Object
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize, JsonSchema, Debug)]
 #[serde(untagged)]
 pub enum IndexerTx {
     /// # Ungrouped format represent as `IndexerTxWithCell`
@@ -225,7 +225,7 @@ impl IndexerTx {
 }
 
 /// Ungrouped Tx inner type
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize, JsonSchema, Debug)]
 pub struct IndexerTxWithCell {
     /// transaction hash
     pub tx_hash: H256,
@@ -240,7 +240,7 @@ pub struct IndexerTxWithCell {
 }
 
 /// Grouped Tx inner type
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize, JsonSchema, Debug)]
 pub struct IndexerTxWithCells {
     /// transaction hash
     pub tx_hash: H256,
@@ -253,7 +253,7 @@ pub struct IndexerTxWithCells {
 }
 
 /// Cell type
-#[derive(Serialize, Clone, JsonSchema)]
+#[derive(Serialize, Clone, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerCellType {
     /// Input

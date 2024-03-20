@@ -2,24 +2,25 @@
 use crate::module::{
     add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
     add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
-    add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_stats_rpc_methods,
-    add_subscription_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl,
-    IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, StatsRpcImpl,
-    SubscriptionRpcImpl,
+    add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_rich_indexer_rpc_methods,
+    add_stats_rpc_methods, add_subscription_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl,
+    ExperimentRpcImpl, IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl,
+    PoolRpcImpl, RichIndexerRpcImpl, StatsRpcImpl, SubscriptionRpcImpl,
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::chain::ChainController;
 use ckb_indexer::IndexerService;
+use ckb_indexer_sync::{new_secondary_db, PoolService};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
+use ckb_rich_indexer::RichIndexerService;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
 use ckb_util::Mutex;
-use jsonrpc_core::MetaIoHandler;
-use jsonrpc_core::RemoteProcedure;
+use jsonrpc_core::{MetaIoHandler, RemoteProcedure};
 use jsonrpc_utils::pub_sub::Session;
 use std::sync::Arc;
 
@@ -188,19 +189,59 @@ impl<'a> ServiceBuilder<'a> {
         db_config: &DBConfig,
         indexer_config: &IndexerConfig,
     ) -> Self {
-        let indexer = IndexerService::new(db_config, indexer_config, shared.async_handle().clone());
-        let indexer_handle = indexer.handle();
-        let methods = IndexerRpcImpl::new(indexer_handle);
+        // Initialize instances of data sources that will be shared for use by indexer and rich-indexer.
+        let ckb_secondary_db = new_secondary_db(db_config, &indexer_config.into());
+        let pool_service =
+            PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
+
         if self.config.indexer_enable() {
-            start_indexer(&shared, indexer, indexer_config.index_tx_pool);
+            // Init indexer service.
+            let mut indexer = IndexerService::new(
+                ckb_secondary_db.clone(),
+                pool_service.clone(),
+                indexer_config,
+                shared.async_handle().clone(),
+            );
+            indexer.spawn_poll(shared.notify_controller().clone());
+            if indexer_config.index_tx_pool {
+                indexer.index_tx_pool(shared.notify_controller().clone());
+            }
+
+            let indexer_handle = indexer.handle();
+            let methods = IndexerRpcImpl::new(indexer_handle);
+            self = set_rpc_module_methods!(
+                self,
+                "Indexer",
+                indexer_enable,
+                add_indexer_rpc_methods,
+                methods
+            );
         }
-        set_rpc_module_methods!(
-            self,
-            "Indexer",
-            indexer_enable,
-            add_indexer_rpc_methods,
-            methods
-        )
+
+        if self.config.rich_indexer_enable() {
+            // Init rich-indexer service
+            let mut rich_indexer = RichIndexerService::new(
+                ckb_secondary_db,
+                pool_service,
+                indexer_config,
+                shared.async_handle().clone(),
+            );
+            rich_indexer.spawn_poll(shared.notify_controller().clone());
+            if indexer_config.index_tx_pool {
+                rich_indexer.index_tx_pool(shared.notify_controller().clone());
+            }
+
+            let rich_indexer_handle = rich_indexer.async_handle();
+            let rich_indexer_methods = RichIndexerRpcImpl::new(rich_indexer_handle);
+            self = set_rpc_module_methods!(
+                self,
+                "RichIndexer",
+                rich_indexer_enable,
+                add_rich_indexer_rpc_methods,
+                rich_indexer_methods
+            )
+        }
+        self
     }
 
     pub fn enable_subscription(&mut self, shared: Shared) {
@@ -260,14 +301,5 @@ impl<'a> ServiceBuilder<'a> {
         let mut io_handler = self.io_handler;
         io_handler.add_method("ping", |_| async { Ok("pong".into()) });
         io_handler
-    }
-}
-
-fn start_indexer(shared: &Shared, service: IndexerService, index_tx_pool: bool) {
-    let notify_controller = shared.notify_controller().clone();
-    service.spawn_poll(notify_controller.clone());
-
-    if index_tx_pool {
-        service.index_tx_pool(notify_controller);
     }
 }
