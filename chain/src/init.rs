@@ -1,41 +1,53 @@
 #![allow(missing_docs)]
 
-//! Bootstrap ChainService, ConsumeOrphan and ConsumeUnverified threads.
+//! Bootstrap InitLoadUnverified, PreloadUnverifiedBlock, ChainService and ConsumeUnverified threads.
 use crate::chain_service::ChainService;
 use crate::consume_unverified::ConsumeUnverifiedBlocks;
 use crate::init_load_unverified::InitLoadUnverified;
+use crate::orphan_broker::OrphanBroker;
+use crate::preload_unverified_blocks_channel::PreloadUnverifiedBlocksChannel;
 use crate::utils::orphan_block_pool::OrphanBlockPool;
-use crate::{ChainController, LonelyBlock, LonelyBlockHash};
+use crate::{chain_controller::ChainController, LonelyBlockHash, UnverifiedBlock};
 use ckb_channel::{self as channel, SendError};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_logger::warn;
 use ckb_shared::ChainServicesBuilder;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
+use ckb_types::packed::Byte32;
+use dashmap::DashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 
-const ORPHAN_BLOCK_SIZE: usize = (BLOCK_DOWNLOAD_WINDOW * 2) as usize;
+const ORPHAN_BLOCK_SIZE: usize = BLOCK_DOWNLOAD_WINDOW as usize;
 
 pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
     let orphan_blocks_broker = Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE));
 
     let (truncate_block_tx, truncate_block_rx) = channel::bounded(1);
 
+    let (preload_unverified_stop_tx, preload_unverified_stop_rx) = ckb_channel::bounded::<()>(1);
+
+    let (preload_unverified_tx, preload_unverified_rx) =
+        channel::bounded::<LonelyBlockHash>(BLOCK_DOWNLOAD_WINDOW as usize * 10);
+
     let (unverified_queue_stop_tx, unverified_queue_stop_rx) = ckb_channel::bounded::<()>(1);
-    let (unverified_tx, unverified_rx) =
-        channel::bounded::<LonelyBlockHash>(BLOCK_DOWNLOAD_WINDOW as usize * 3);
+    let (unverified_block_tx, unverified_block_rx) = channel::bounded::<UnverifiedBlock>(128usize);
+
+    let is_pending_verify: Arc<DashSet<Byte32>> = Arc::new(DashSet::new());
 
     let consumer_unverified_thread = thread::Builder::new()
         .name("consume_unverified_blocks".into())
         .spawn({
             let shared = builder.shared.clone();
+            let is_pending_verify = Arc::clone(&is_pending_verify);
             move || {
                 let consume_unverified = ConsumeUnverifiedBlocks::new(
                     shared,
-                    unverified_rx,
+                    unverified_block_rx,
                     truncate_block_rx,
                     builder.proposal_table,
+                    is_pending_verify,
                     unverified_queue_stop_rx,
                 );
 
@@ -44,38 +56,30 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
         })
         .expect("start unverified_queue consumer thread should ok");
 
-    let (lonely_block_tx, lonely_block_rx) =
-        channel::bounded::<LonelyBlock>(BLOCK_DOWNLOAD_WINDOW as usize);
-
-    let (search_orphan_pool_stop_tx, search_orphan_pool_stop_rx) = ckb_channel::bounded::<()>(1);
-
-    let search_orphan_pool_thread = thread::Builder::new()
-        .name("consume_orphan_blocks".into())
+    let preload_unverified_block_thread = thread::Builder::new()
+        .name("preload_unverified_block".into())
         .spawn({
-            let orphan_blocks_broker = Arc::clone(&orphan_blocks_broker);
             let shared = builder.shared.clone();
-            use crate::consume_orphan::ConsumeOrphan;
             move || {
-                let consume_orphan = ConsumeOrphan::new(
+                let preload_unverified_block = PreloadUnverifiedBlocksChannel::new(
                     shared,
-                    orphan_blocks_broker,
-                    unverified_tx,
-                    lonely_block_rx,
-                    search_orphan_pool_stop_rx,
+                    preload_unverified_rx,
+                    unverified_block_tx,
+                    preload_unverified_stop_rx,
                 );
-                consume_orphan.start();
+                preload_unverified_block.start()
             }
         })
-        .expect("start search_orphan_pool thread should ok");
+        .expect("start preload_unverified_block should ok");
 
-    let (process_block_tx, process_block_rx) = channel::bounded(BLOCK_DOWNLOAD_WINDOW as usize);
+    let (process_block_tx, process_block_rx) = channel::bounded(0);
 
     let is_verifying_unverified_blocks_on_startup = Arc::new(AtomicBool::new(true));
 
     let chain_controller = ChainController::new(
         process_block_tx,
         truncate_block_tx,
-        orphan_blocks_broker,
+        Arc::clone(&orphan_blocks_broker),
         Arc::clone(&is_verifying_unverified_blocks_on_startup),
     );
 
@@ -90,16 +94,23 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
                 let init_load_unverified: InitLoadUnverified = InitLoadUnverified::new(
                     shared,
                     chain_controller,
-                    signal_receiver,
                     is_verifying_unverified_blocks_on_startup,
+                    signal_receiver,
                 );
                 init_load_unverified.start();
             }
         })
         .expect("start unverified_queue consumer thread should ok");
 
+    let consume_orphan = OrphanBroker::new(
+        builder.shared.clone(),
+        orphan_blocks_broker,
+        preload_unverified_tx,
+        is_pending_verify,
+    );
+
     let chain_service: ChainService =
-        ChainService::new(builder.shared, process_block_rx, lonely_block_tx);
+        ChainService::new(builder.shared, process_block_rx, consume_orphan);
     let chain_service_thread = thread::Builder::new()
         .name("ChainService".into())
         .spawn({
@@ -108,10 +119,10 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
 
                 let _ = init_load_unverified_thread.join();
 
-                if let Err(SendError(_)) = search_orphan_pool_stop_tx.send(()) {
-                    warn!("trying to notify search_orphan_pool thread to stop, but search_orphan_pool_stop_tx already closed")
+                if preload_unverified_stop_tx.send(()).is_err(){
+                    warn!("trying to notify preload unverified thread to stop, but preload_unverified_stop_tx already closed");
                 }
-                let _ = search_orphan_pool_thread.join();
+                let _ = preload_unverified_block_thread.join();
 
                 if let Err(SendError(_)) = unverified_queue_stop_tx.send(()) {
                     warn!("trying to notify consume unverified thread to stop, but unverified_queue_stop_tx already closed");

@@ -1,8 +1,10 @@
 #![allow(dead_code)]
-use crate::LonelyBlock;
+use crate::tests::util::start_chain;
+use crate::{LonelyBlock, LonelyBlockHash};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};
+use ckb_types::core::{BlockBuilder, EpochNumberWithFraction, HeaderView};
+use ckb_types::packed::Byte32;
 use ckb_types::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -38,8 +40,8 @@ fn assert_leaders_have_children(pool: &OrphanBlockPool) {
     }
 }
 
-fn assert_blocks_are_sorted(blocks: &[LonelyBlock]) {
-    let mut parent_hash = blocks[0].block.header().parent_hash();
+fn assert_blocks_are_sorted(blocks: &[LonelyBlockHash]) {
+    let mut parent_hash = blocks[0].parent_hash();
     let mut windows = blocks.windows(2);
     // Orphans are sorted in a breadth-first search manner. We iterate through them and
     // check that this is the case.
@@ -48,19 +50,16 @@ fn assert_blocks_are_sorted(blocks: &[LonelyBlock]) {
     while let Some([parent_or_sibling, child_or_sibling]) = windows.next() {
         // `parent_or_sibling` is a child of the block with current `parent_hash`.
         // Make `parent_or_sibling`'s parent the current `parent_hash`.
-        if parent_or_sibling.block.header().parent_hash() != parent_hash {
-            parent_hash = parent_or_sibling.block.header().parent_hash();
+        if parent_or_sibling.parent_hash() != parent_hash {
+            parent_hash = parent_or_sibling.parent_hash();
         }
 
         // If `child_or_sibling`'s parent is not the current `parent_hash`, i.e. it is not a sibling of
         // `parent_or_sibling`, then it must be a child of `parent_or_sibling`.
-        if child_or_sibling.block.header().parent_hash() != parent_hash {
-            assert_eq!(
-                child_or_sibling.block.header().parent_hash(),
-                parent_or_sibling.block.header().hash()
-            );
+        if child_or_sibling.parent_hash() != parent_hash {
+            assert_eq!(child_or_sibling.parent_hash(), parent_or_sibling.hash());
             // Move `parent_hash` forward.
-            parent_hash = child_or_sibling.block.header().parent_hash();
+            parent_hash = child_or_sibling.parent_hash();
         }
     }
 }
@@ -83,25 +82,25 @@ fn test_remove_blocks_by_parent() {
         blocks.push(new_block_clone);
 
         parent = new_block.block().header();
-        pool.insert(new_block);
+        pool.insert(new_block.into());
     }
 
     let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
 
-    assert_eq!(
-        orphan[0].block.header().parent_hash(),
-        consensus.genesis_block().hash()
-    );
+    assert_eq!(orphan[0].parent_hash(), consensus.genesis_block().hash());
     assert_blocks_are_sorted(orphan.as_slice());
 
-    let orphan_set: HashSet<_> = orphan.into_iter().map(|b| b.block).collect();
-    let blocks_set: HashSet<_> = blocks.into_iter().map(|b| b.to_owned()).collect();
+    let orphan_set: HashSet<_> = orphan.into_iter().map(|b| b.hash()).collect();
+    let blocks_set: HashSet<_> = blocks.into_iter().map(|b| b.hash()).collect();
     assert_eq!(orphan_set, blocks_set)
 }
 
 #[test]
 fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
     let consensus = ConsensusBuilder::default().build();
+
+    let (_chain_controller, shared, _parent) = start_chain(Some(consensus.clone()));
+
     let pool = OrphanBlockPool::with_capacity(1024);
     let mut header = consensus.genesis_block().header();
     let mut hashes = Vec::new();
@@ -113,7 +112,7 @@ fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
             switch: None,
             verify_callback: None,
         };
-        pool.insert(new_block_clone);
+        pool.insert(new_block_clone.into());
         header = new_block.header();
         hashes.push(header.hash());
     }
@@ -126,7 +125,7 @@ fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
     });
 
     for hash in hashes.iter().rev() {
-        pool_arc2.get_block(hash);
+        pool_arc2.get_block(shared.store(), hash);
     }
 
     thread1.join().unwrap();
@@ -149,27 +148,33 @@ fn test_leaders() {
         blocks.push(lonely_block);
         parent = new_block.block().header();
         if i % 5 != 0 {
-            pool.insert(new_block);
+            pool.insert(new_block.into());
         }
     }
     assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 15);
     assert_eq!(pool.leaders_len(), 4);
 
-    pool.insert(LonelyBlock {
-        block: Arc::clone(blocks[5].block()),
-        switch: None,
-        verify_callback: None,
-    });
+    pool.insert(
+        LonelyBlock {
+            block: Arc::clone(blocks[5].block()),
+            switch: None,
+            verify_callback: None,
+        }
+        .into(),
+    );
     assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 16);
     assert_eq!(pool.leaders_len(), 3);
 
-    pool.insert(LonelyBlock {
-        block: Arc::clone(blocks[10].block()),
-        switch: None,
-        verify_callback: None,
-    });
+    pool.insert(
+        LonelyBlock {
+            block: Arc::clone(blocks[10].block()),
+            switch: None,
+            verify_callback: None,
+        }
+        .into(),
+    );
     assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 17);
     assert_eq!(pool.leaders_len(), 2);
@@ -180,11 +185,14 @@ fn test_leaders() {
     assert_eq!(pool.len(), 17);
     assert_eq!(pool.leaders_len(), 2);
 
-    pool.insert(LonelyBlock {
-        block: Arc::clone(blocks[0].block()),
-        switch: None,
-        verify_callback: None,
-    });
+    pool.insert(
+        LonelyBlock {
+            block: Arc::clone(blocks[0].block()),
+            switch: None,
+            verify_callback: None,
+        }
+        .into(),
+    );
     assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 18);
     assert_eq!(pool.leaders_len(), 2);
@@ -193,23 +201,26 @@ fn test_leaders() {
     assert_eq!(pool.len(), 3);
     assert_eq!(pool.leaders_len(), 1);
 
-    pool.insert(LonelyBlock {
-        block: Arc::clone(blocks[15].block()),
-        switch: None,
-        verify_callback: None,
-    });
+    pool.insert(
+        LonelyBlock {
+            block: Arc::clone(blocks[15].block()),
+            switch: None,
+            verify_callback: None,
+        }
+        .into(),
+    );
     assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 4);
     assert_eq!(pool.leaders_len(), 1);
 
     let orphan_1 = pool.remove_blocks_by_parent(&blocks[14].block.hash());
 
-    let orphan_set: HashSet<Arc<BlockView>> = orphan
+    let orphan_set: HashSet<Byte32> = orphan
         .into_iter()
-        .map(|b| b.block)
-        .chain(orphan_1.into_iter().map(|b| b.block))
+        .map(|b| b.hash())
+        .chain(orphan_1.into_iter().map(|b| b.hash()))
         .collect();
-    let blocks_set: HashSet<Arc<BlockView>> = blocks.into_iter().map(|b| b.block).collect();
+    let blocks_set: HashSet<Byte32> = blocks.into_iter().map(|b| b.block().hash()).collect();
     assert_eq!(orphan_set, blocks_set);
     assert_eq!(pool.len(), 0);
     assert_eq!(pool.leaders_len(), 0);
@@ -239,7 +250,7 @@ fn test_remove_expired_blocks() {
             switch: None,
             verify_callback: None,
         };
-        pool.insert(lonely_block);
+        pool.insert(lonely_block.into());
     }
     assert_eq!(pool.leaders_len(), 1);
 
