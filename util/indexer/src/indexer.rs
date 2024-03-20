@@ -1,15 +1,11 @@
-use crate::error::Error;
-use crate::{
-    pool::Pool,
-    store::{Batch, IteratorDirection, Store},
-};
+use crate::service::SUBSCRIBER_NAME;
+use crate::store::{Batch, IteratorDirection, Store};
+use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
 use ckb_types::{
     core::{BlockNumber, BlockView},
     packed::{Byte32, Bytes, CellOutput, OutPoint, Script},
     prelude::*,
 };
-use numext_fixed_uint::U256;
-use rhai::{Engine, EvalAltResult, Scope, AST};
 use std::convert::TryInto;
 use std::{
     collections::HashMap,
@@ -272,6 +268,7 @@ pub struct DetailedLiveCell {
 }
 
 /// Indexer store wrapper
+#[derive(Clone)]
 pub(crate) struct Indexer<S> {
     /// storage
     store: S,
@@ -312,23 +309,28 @@ impl<S> Indexer<S> {
     }
 }
 
-impl<S> Indexer<S>
+impl<S> IndexerSync for Indexer<S>
 where
     S: Store,
 {
     /// Parse the block, store the Cell Transaction etc. contained in the block with the designed index
-    pub(crate) fn append(&self, block: &BlockView) -> Result<(), Error> {
+    fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut batch = self.store.batch()?;
+        let transactions = block.transactions();
+        let pool = self.pool.as_ref().map(|p| p.write().expect("acquire lock"));
         if !self.custom_filters.is_block_filter_match(block) {
             batch.put_kv(Key::Header(block.number(), &block.hash(), true), vec![])?;
             batch.commit()?;
+
+            if let Some(mut pool) = pool {
+                pool.transactions_committed(&transactions);
+            }
+
             return Ok(());
         }
 
         let block_number = block.number();
-        let transactions = block.transactions();
         let mut matched_txs = vec![];
-        let pool = self.pool.as_ref().map(|p| p.write().expect("acquire lock"));
         for (tx_index, tx) in transactions.iter().enumerate() {
             let tx_index = tx_index as u32;
             let tx_hash = tx.hash();
@@ -522,7 +524,7 @@ where
     }
 
     /// Rollback the current tip
-    pub(crate) fn rollback(&self) -> Result<(), Error> {
+    fn rollback(&self) -> Result<(), Error> {
         let mut iter = self
             .store
             .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
@@ -678,7 +680,7 @@ where
     }
 
     /// Return the current tip
-    pub(crate) fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error> {
+    fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error> {
         let mut iter = self
             .store
             .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)?;
@@ -690,6 +692,28 @@ where
         }))
     }
 
+    /// Return identity
+    fn get_identity(&self) -> &str {
+        SUBSCRIBER_NAME
+    }
+
+    /// Set init tip
+    fn set_init_tip(&self, init_tip_number: u64, init_tip_hash: &ckb_types::H256) {
+        let mut batch = self.store.batch().expect("create batch should be OK");
+        batch
+            .put_kv(
+                Key::Header(init_tip_number, &init_tip_hash.pack(), true),
+                vec![],
+            )
+            .expect("insert init tip header should be OK");
+        batch.commit().expect("commit batch should be OK");
+    }
+}
+
+impl<S> Indexer<S>
+where
+    S: Store,
+{
     /// Return block hash by specified block_number
     #[cfg(test)]
     pub(crate) fn get_block_hash(
@@ -901,96 +925,6 @@ where
         }
         println!("{statistics:?}");
         Ok(())
-    }
-}
-
-/// Custom filters
-///
-/// base on embedded scripting language Rhai
-pub struct CustomFilters {
-    engine: Engine,
-    block_filter: Option<AST>,
-    cell_filter: Option<AST>,
-}
-
-fn to_uint(s: &str) -> Result<U256, Box<EvalAltResult>> {
-    match &s[..2] {
-        "0b" => U256::from_bin_str(&s[2..]),
-        "0o" => U256::from_oct_str(&s[2..]),
-        "0x" => U256::from_hex_str(&s[2..]),
-        _ => U256::from_dec_str(s),
-    }
-    .map_err(|e| e.to_string().into())
-}
-
-macro_rules! register_ops {
-    ($engine:ident $(, $op:tt)+ $(,)?) => {
-        $(
-            $engine.register_fn(stringify!($op), |a: U256, b: U256| a $op b);
-        )+
-    };
-}
-
-impl CustomFilters {
-    /// Construct new CustomFilters
-    pub fn new(block_filter_str: Option<&str>, cell_filter_str: Option<&str>) -> Self {
-        let mut engine = Engine::new();
-        engine.register_fn("to_uint", to_uint);
-        register_ops!(engine, +, -, *, /, %, ==, !=, <, <=, >, >=);
-
-        let block_filter = block_filter_str.map(|block_filter| {
-            engine
-                .compile(block_filter)
-                .expect("compile block_filter should be ok")
-        });
-        let cell_filter = cell_filter_str.map(|cell_filter| {
-            engine
-                .compile(cell_filter)
-                .expect("compile cell_filter should be ok")
-        });
-
-        Self {
-            engine,
-            block_filter,
-            cell_filter,
-        }
-    }
-
-    pub(crate) fn is_block_filter_match(&self, block: &BlockView) -> bool {
-        self.block_filter
-            .as_ref()
-            .map(|block_filter| {
-                let json_block: ckb_jsonrpc_types::BlockView = block.clone().into();
-                let parsed_block = self
-                    .engine
-                    .parse_json(serde_json::to_string(&json_block).unwrap(), true)
-                    .unwrap();
-                let mut scope = Scope::new();
-                scope.push("block", parsed_block);
-                self.engine
-                    .eval_ast_with_scope(&mut scope, block_filter)
-                    .expect("eval block_filter should be ok")
-            })
-            .unwrap_or(true)
-    }
-
-    pub(crate) fn is_cell_filter_match(&self, output: &CellOutput, output_data: &Bytes) -> bool {
-        self.cell_filter
-            .as_ref()
-            .map(|cell_filter| {
-                let json_output: ckb_jsonrpc_types::CellOutput = output.clone().into();
-                let parsed_output = self
-                    .engine
-                    .parse_json(serde_json::to_string(&json_output).unwrap(), true)
-                    .unwrap();
-                let mut scope = Scope::new();
-                scope.push("output", parsed_output);
-                scope.push("output_data", format!("{output_data:#x}"));
-                self.engine
-                    .eval_ast_with_scope(&mut scope, cell_filter)
-                    .expect("eval cell_filter should be ok")
-            })
-            .unwrap_or(true)
     }
 }
 

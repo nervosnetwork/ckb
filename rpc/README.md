@@ -110,6 +110,12 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `get_raw_tx_pool`](#pool-get_raw_tx_pool)
         * [Method `get_pool_tx_detail_info`](#pool-get_pool_tx_detail_info)
         * [Method `tx_pool_ready`](#pool-tx_pool_ready)
+    * [Module Rich_indexer](#module-rich_indexer) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Rich_indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/rich_indexer_rpc_doc.json)
+
+        * [Method `get_indexer_tip`](#rich_indexer-get_indexer_tip)
+        * [Method `get_cells`](#rich_indexer-get_cells)
+        * [Method `get_transactions`](#rich_indexer-get_transactions)
+        * [Method `get_cells_capacity`](#rich_indexer-get_cells_capacity)
     * [Module Stats](#module-stats) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Stats&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/stats_rpc_doc.json)
 
         * [Method `get_blockchain_info`](#stats-get_blockchain_info)
@@ -4649,6 +4655,163 @@ Response
   "result": true
 }
 ```
+
+### Module `Rich_indexer`
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Rich_indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/rich_indexer_rpc_doc.json)
+
+
+RPC Module Rich Indexer.
+
+<a id="rich_indexer-get_indexer_tip"></a>
+#### Method `get_indexer_tip`
+* `get_indexer_tip()`
+
+* result: [`IndexerTip`](#type-indexertip) `|` `null`
+
+Returns the indexed tip.
+
+###### Returns
+  * block_hash - indexed tip block hash
+  * block_number - indexed tip block number
+
+###### Examples
+
+Same as CKB Indexer.
+
+<a id="rich_indexer-get_cells"></a>
+#### Method `get_cells`
+* `get_cells(search_key, order, limit, after)`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
+    * `limit`: [`Uint32`](#type-uint32)
+    * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: [`IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
+
+Returns the live cells collection by the lock or type script.
+
+The difference from the original CKB Indexer is that the `script_search_mode` parameter accepts the `partial` enumeration value. This implies that a partial search can be conducted on the `args` of the `script`.
+
+###### Params
+
+* search_key:
+    - script - Script, supports prefix search
+    - script_type - enum, lock | type
+    - script_search_mode - enum, prefix | exact | partial
+    - filter - filter cells by following conditions, all conditions are optional
+         - script: if search script type is lock, filter cells by type script prefix, and vice versa
+         - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+         - output_data: filter cells by output data
+         - output_data_filter_mode: enum, prefix | exact | partial
+         - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+         - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+         - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+    - with_data - bool, optional default is `true`, if with_data is set to false, the field of returning cell.output_data is null in the result
+* order: enum, asc | desc
+* limit: result size limit
+* after: pagination parameter, optional
+
+###### Returns
+
+If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_cells.
+
+* objects:
+    - output: the fields of an output cell
+    - output_data: the cell data
+    - out_point: reference to a cell via transaction hash and output index
+    - block_number: the number of the transaction committed in the block
+    - tx_index: the position index of the transaction committed in the block
+* last_cursor: pagination parameter
+
+###### Examples
+
+Same as CKB Indexer.
+
+<a id="rich_indexer-get_transactions"></a>
+#### Method `get_transactions`
+* `get_transactions(search_key, order, limit, after)`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+    * `order`: [`IndexerOrder`](#type-indexerorder)
+    * `limit`: [`Uint32`](#type-uint32)
+    * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
+* result: [`IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
+
+Returns the transactions collection by the lock or type script.
+
+The difference from the original CKB Indexer is that both the `script_search_mode` and `output_data_filter_mode` in `filter` can accept the `partial` enumeration value. This implies that a partial search can be conducted on both the `args` of the `script` and the cell `output_data`.
+
+* search_key:
+    - script - Script, supports prefix search when group_by_transaction is false
+    - script_type - enum, lock | type
+    - script_search_mode - enum, prefix | exact | partial
+    - filter - filter cells by following conditions, all conditions are optional
+        - script: if search script type is lock, filter cells by type script, and vice versa
+        - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+        - output_data: filter cells by output data
+        - output_data_filter_mode: enum, prefix | exact | partial
+        - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+        - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+        - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+    - group_by_transaction - bool, optional default is `false`, if group_by_transaction is set to true, the returning objects will be grouped by the tx hash
+* order: enum, asc | desc
+* limit: result size limit
+* after: pagination parameter, optional
+
+###### Returns
+
+If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_transactions.
+
+ * objects - enum, ungrouped TxWithCell | grouped TxWithCells
+    - TxWithCell:
+        - tx_hash: transaction hash,
+        - block_number: the number of the transaction committed in the block
+        - tx_index: the position index of the transaction committed in the block
+        - io_type: enum, input | output
+        - io_index: the position index of the cell in the transaction inputs or outputs
+    - TxWithCells:
+        - tx_hash: transaction hash,
+        - block_number: the number of the transaction committed in the block
+        - tx_index: the position index of the transaction committed in the block
+        - cells: Array [[io_type, io_index]]
+ * last_cursor - pagination parameter
+
+###### Examples
+
+Same as CKB Indexer.
+
+<a id="rich_indexer-get_cells_capacity"></a>
+#### Method `get_cells_capacity`
+* `get_cells_capacity(search_key)`
+    * `search_key`: [`IndexerSearchKey`](#type-indexersearchkey)
+* result: [`IndexerCellsCapacity`](#type-indexercellscapacity) `|` `null`
+
+Returns the live cells capacity by the lock or type script.
+
+The difference from the original CKB Indexer is that the `script_search_mode` parameter accepts the `partial` enumeration value. This implies that a partial search can be conducted on the `args` of the `script`.
+
+###### Parameters
+
+* search_key:
+    - script - Script
+    - script_type - enum, lock | type
+    - script_search_mode - enum, prefix | exact | partial
+    - filter - filter cells by following conditions, all conditions are optional
+        - script: if search script type is lock, filter cells by type script prefix, and vice versa
+        - script_len_range: [u64; 2], filter cells by script len range, [inclusive, exclusive]
+        - output_data: filter cells by output data
+        - output_data_filter_mode: enum, prefix | exact | partial
+        - output_data_len_range: [u64; 2], filter cells by output data len range, [inclusive, exclusive]
+        - output_capacity_range: [u64; 2], filter cells by output capacity range, [inclusive, exclusive]
+        - block_range: [u64; 2], filter cells by block number range, [inclusive, exclusive]
+
+###### Returns
+
+ * capacity - total capacity
+ * block_hash - indexed tip block hash
+ * block_number - indexed tip block number
+
+###### Examples
+
+Same as CKB Indexer.
 
 ### Module `Stats`
 - [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Stats&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/stats_rpc_doc.json)

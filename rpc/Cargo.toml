@@ -38,6 +38,8 @@ ckb-tx-pool = { path = "../tx-pool", version = "= 0.115.0-rc1" }
 ckb-memory-tracker = { path = "../util/memory-tracker", version = "= 0.115.0-rc1" }
 ckb-pow = { path = "../pow", version = "= 0.115.0-rc1" }
 ckb-indexer = { path = "../util/indexer", version = "= 0.115.0-rc1" }
+ckb-indexer-sync = { path = "../util/indexer-sync", version = "= 0.115.0-rc1" }
+ckb-rich-indexer = { path = "../util/rich-indexer", version = "= 0.115.0-rc1" }
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.115.0-rc1" }
 itertools.workspace = true
 tokio = "1"
