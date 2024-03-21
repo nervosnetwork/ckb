@@ -16,13 +16,11 @@ COMMON_CFLAGS := -O3 \
                  -Wall -Werror \
 				 -fno-builtin -nostdinc -nostartfiles \
 				 -Wno-stringop-overflow
-# enable log
+# enable ckb-c-stdlib's printf
 COMMON_CFLAGS += -DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
-# enable debug
-# COMMON_CFLAGS += -g
 
 BIN_CFLAGS := $(COMMON_CFLAGS)
-LIB_CFLAGS := -shared -fPIC -nostdlib -nostartfiles -fvisibility=hidden $(COMMON_CFLAGS)
+LIB_CFLAGS := -shared -fPIC -nostdlib -fvisibility=hidden -D__SHARED_LIBRARY__ $(COMMON_CFLAGS)
 
 COMMON_LDFLAGS := -Wl,-static -fdata-sections -ffunction-sections -Wl,--gc-sections
 BIN_LDFLAGS := $(COMMON_LDFLAGS)
@@ -149,4 +147,3 @@ spawn_caller_current_cycles: spawn_caller_current_cycles.c
 spawn_callee_current_cycles: spawn_callee_current_cycles.c
 spawn_times: spawn_times.c utils.h
 spawn_cases: spawn_cases.c utils.h
-
