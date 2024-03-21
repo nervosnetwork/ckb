@@ -551,7 +551,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
                     &Some(cur_state),
                     false,
                 ) {
-                    Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
+                    Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
                         cycles += used_cycles;
                         groups.pop_front();
                         tmp = None;
@@ -561,7 +561,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
                         limit += step_cycles;
                         continue;
                     }
-                    Err(error) => {
+                    Err(_error) => {
                         unreachable!();
                     }
                 }
@@ -575,7 +575,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
                     .verify_group_with_chunk(group, limit, &tmp, false)
                     .unwrap()
                 {
-                    ChunkState::Completed(used_cycles, consumed_cycles) => {
+                    ChunkState::Completed(used_cycles, _consumed_cycles) => {
                         cycles += used_cycles;
                         groups.pop_front();
                         tmp = None;
@@ -714,7 +714,6 @@ fn _check_type_id_one_in_one_out_resume_with_state(
                     }
                     VerifyResult::Completed(cycle) => {
                         cycles = cycle;
-                        init_state = None;
                         break;
                     }
                 }
@@ -756,7 +755,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
                     .verify_group_with_chunk(group.2, limit, &tmp, false)
                     .unwrap()
                 {
-                    ChunkState::Completed(used_cycles, consumed_cycles) => {
+                    ChunkState::Completed(used_cycles, _consumed_cycles) => {
                         cycles += used_cycles;
                         tmp = None;
                     }
@@ -879,7 +878,6 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
             init_state = Some(state);
         }
 
-        let mut count = 0;
         loop {
             let state = init_state.take().unwrap();
             let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
@@ -892,7 +890,6 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
                     break;
                 }
             }
-            count += 1;
         }
 
         verifier.verify(TWO_IN_TWO_OUT_CYCLES)

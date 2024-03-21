@@ -53,7 +53,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 mod tests;
 
 pub enum ChunkState {
-    //Suspended(Vec<ResumableMachine>, Arc<Mutex<MachineContext>>),
     Suspended(Option<FullSuspendedState>),
     Completed(Cycle, Cycle),
 }

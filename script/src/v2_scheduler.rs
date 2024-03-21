@@ -794,8 +794,7 @@ where
         syscalls_generator.vm_id = *id;
         syscalls_generator.snapshot2_context =
             Arc::new(Mutex::new(Snapshot2Context::new(self.tx_data.clone())));
-        let mut machine_context =
-            MachineContext::new(*id, self.message_box.clone(), self.tx_data.clone(), version);
+        let mut machine_context = MachineContext::new(self.tx_data.clone());
         machine_context.base_cycles = Arc::clone(&self.syscalls_generator.base_cycles);
         machine_context.snapshot2_context = syscalls_generator.snapshot2_context.clone();
 

@@ -14,7 +14,7 @@ use ckb_types::{
 use ckb_vm::{
     memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
     registers::{A0, A1, A2, A3, A4, A5, A7},
-    snapshot2::{DataSource, Snapshot2, Snapshot2Context},
+    snapshot2::Snapshot2Context,
     CoreMachine, Error as VMError, Memory, Syscalls, RISCV_PAGESIZE,
 };
 use proptest::{collection::size_range, prelude::*};
@@ -1453,7 +1453,6 @@ fn _test_load_cell_data_as_code(
 
     let data = Bytes::from(data.to_owned());
     let dep_cell = build_cell_meta(10000, data.clone());
-    let output = build_cell_meta(100, data.clone());
     let input_cell = build_cell_meta(100, data.clone());
 
     let data_loader = new_mock_data_loader();
@@ -1527,7 +1526,6 @@ fn _test_load_cell_data(
 
     let data = Bytes::from(data.to_owned());
     let dep_cell = build_cell_meta(10000, data.clone());
-    let output = build_cell_meta(100, data.clone());
     let input_cell = build_cell_meta(100, data.clone());
     let data_loader = new_mock_data_loader();
 

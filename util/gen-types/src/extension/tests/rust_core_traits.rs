@@ -82,8 +82,8 @@ fn test_bytesopt_cmp() {
 
 #[test]
 fn test_script_cmp() {
-    let a = Script::new_builder().args(vec![1].pack()).build();
-    let b = Script::new_builder().args(vec![2].pack()).build();
+    let a = Script::new_builder().args([1].pack()).build();
+    let b = Script::new_builder().args([2].pack()).build();
 
     assert!(a < b);
 }

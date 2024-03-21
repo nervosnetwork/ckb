@@ -394,12 +394,11 @@ fn check_spawn_snapshot() {
     let result = verifier.verify_without_pause(script_version, &rtx, Cycle::MAX);
     let cycles_once = result.unwrap();
 
-    // TODO
-    // let (cycles, chunks_count) = verifier
-    //     .verify_until_completed(script_version, &rtx)
-    //     .unwrap();
-    // assert_eq!(cycles, cycles_once);
-    // assert!(chunks_count > 1);
+    let (cycles, chunks_count) = verifier
+        .verify_until_completed(script_version, &rtx)
+        .unwrap();
+    assert_eq!(cycles, cycles_once);
+    assert!(chunks_count > 1);
 }
 
 // #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
