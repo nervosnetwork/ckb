@@ -213,8 +213,8 @@ default(TestNet): {}\n\n
 You can explicitly set the value to 0x0000000000000000000000000000000000000000000000000000000000000000 \
 to disable the default behavior and execute full verification for all blocks, \
 ",
-                          ckb_constant::sync::mainnet::DEFAULT_ASSUME_VALID_TARGET,
-                          ckb_constant::sync::testnet::DEFAULT_ASSUME_VALID_TARGET))
+                          ckb_constant::default_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGET,
+                          ckb_constant::default_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGET))
     ).arg(
         Arg::new(ARG_INDEXER)
             .long(ARG_INDEXER)

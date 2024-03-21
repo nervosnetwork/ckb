@@ -94,11 +94,11 @@ impl Setup {
         if config.network.sync.assume_valid_target.is_none() {
             config.network.sync.assume_valid_target = match consensus.id.as_str() {
                 ckb_constant::hardfork::mainnet::CHAIN_SPEC_NAME => Some(
-                    H256::from_str(&ckb_constant::sync::mainnet::DEFAULT_ASSUME_VALID_TARGET[2..])
+                    H256::from_str(&ckb_constant::default_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGET[2..])
                         .expect("default assume_valid_target for mainnet must be valid"),
                 ),
                 ckb_constant::hardfork::testnet::CHAIN_SPEC_NAME => Some(
-                    H256::from_str(&ckb_constant::sync::testnet::DEFAULT_ASSUME_VALID_TARGET[2..])
+                    H256::from_str(&ckb_constant::default_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGET[2..])
                         .expect("default assume_valid_target for testnet must be valid"),
                 ),
                 _ => None,

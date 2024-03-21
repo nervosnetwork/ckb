@@ -8,3 +8,5 @@ pub mod hardfork;
 pub mod store;
 /// sync constant
 pub mod sync;
+
+pub mod default_assume_valid_target;
