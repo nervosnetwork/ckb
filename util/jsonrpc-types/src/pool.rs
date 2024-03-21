@@ -111,9 +111,9 @@ impl From<CorePoolTransactionEntry> for PoolTransactionEntry {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputsValidator {
-    /// "passthrough": the default validator, bypass output checking, thus allow any kind of transaction outputs.
+    /// the default validator, bypass output checking, thus allow any kind of transaction outputs.
     Passthrough,
-    /// "well_known_scripts_only": restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>
+    /// restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>
     WellKnownScriptsOnly,
 }
 
@@ -184,11 +184,17 @@ pub struct TxPoolEntries {
     pub pending: HashMap<H256, TxPoolEntry>,
     /// Proposed tx verbose info
     pub proposed: HashMap<H256, TxPoolEntry>,
+    /// Conflicted tx hash vec
+    pub conflicted: Vec<H256>,
 }
 
 impl From<TxPoolEntryInfo> for TxPoolEntries {
     fn from(info: TxPoolEntryInfo) -> Self {
-        let TxPoolEntryInfo { pending, proposed } = info;
+        let TxPoolEntryInfo {
+            pending,
+            proposed,
+            conflicted,
+        } = info;
 
         TxPoolEntries {
             pending: pending
@@ -199,6 +205,7 @@ impl From<TxPoolEntryInfo> for TxPoolEntries {
                 .into_iter()
                 .map(|(hash, entry)| (hash.unpack(), entry.into()))
                 .collect(),
+            conflicted: conflicted.iter().map(Unpack::unpack).collect(),
         }
     }
 }
@@ -278,7 +285,9 @@ impl From<CorePoolTxDetailInfo> for PoolTxDetailInfo {
     }
 }
 
-/// TX reject message
+/// TX reject message, `PoolTransactionReject` is a JSON object with following fields.
+///    * `type`:  the Reject type with following enum values
+///    * `description`: `string` - Detailed description about why the transaction is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "description")]
 pub enum PoolTransactionReject {
@@ -314,6 +323,9 @@ pub enum PoolTransactionReject {
 
     /// RBF rejected
     RBFRejected(String),
+
+    /// Invalidated rejected
+    Invalidated(String),
 }
 
 impl From<Reject> for PoolTransactionReject {
@@ -334,6 +346,7 @@ impl From<Reject> for PoolTransactionReject {
             Reject::Verification(_) => Self::Verification(format!("{reject}")),
             Reject::Expiry(_) => Self::Expiry(format!("{reject}")),
             Reject::RBFRejected(_) => Self::RBFRejected(format!("{reject}")),
+            Reject::Invalidated(_) => Self::Invalidated(format!("{reject}")),
         }
     }
 }

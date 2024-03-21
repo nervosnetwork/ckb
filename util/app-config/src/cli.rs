@@ -80,6 +80,8 @@ pub const ARG_BA_ADVANCED: &str = "ba-advanced";
 pub const ARG_DAEMON: &str = "daemon";
 /// Command line argument `--indexer`.
 pub const ARG_INDEXER: &str = "indexer";
+/// Command line argument `--rich-indexer`.
+pub const ARG_RICH_INDEXER: &str = "rich-indexer";
 /// Command line argument `--from`.
 pub const ARG_FROM: &str = "from";
 /// Command line argument `--to`.
@@ -212,6 +214,12 @@ fn run() -> Command {
             .long(ARG_INDEXER)
             .action(clap::ArgAction::SetTrue)
             .help("Start the built-in indexer service"),
+        )
+        .arg(
+            Arg::new(ARG_RICH_INDEXER)
+            .long(ARG_RICH_INDEXER)
+            .action(clap::ArgAction::SetTrue)
+            .help("Start the built-in rich-indexer service"),
         );
 
     #[cfg(not(target_os = "windows"))]
@@ -273,6 +281,12 @@ fn reset_data() -> Command {
                 .long(ARG_INDEXER)
                 .action(clap::ArgAction::SetTrue)
                 .help("Delete only `data/indexer/store`"),
+        )
+        .arg(
+            Arg::new(ARG_RICH_INDEXER)
+                .long(ARG_RICH_INDEXER)
+                .action(clap::ArgAction::SetTrue)
+                .help("Delete only `data/indexer/sqlite`"),
         )
         .arg(
             Arg::new(ARG_NETWORK)

@@ -54,11 +54,11 @@ fn block_size_should_not_include_uncles_proposals() {
         let mut empty_uncles = empty_uncles;
         let mut uncles = uncles;
         let extensions: Vec<packed::Bytes> = vec![
-            vec![0u8].pack(),
-            vec![0u8; 24].pack(),
-            vec![0u8; 48].pack(),
-            vec![0u8; 72].pack(),
-            vec![0u8; 96].pack(),
+            [0u8].pack(),
+            [0u8; 24].pack(),
+            [0u8; 48].pack(),
+            [0u8; 72].pack(),
+            [0u8; 96].pack(),
         ];
         for extension in extensions {
             loop {

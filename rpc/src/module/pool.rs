@@ -250,6 +250,7 @@ pub trait PoolRpc {
     ///                "timestamp": "0x17c983e6e44"
     ///            }
     ///        },
+    ///        "conflicted": [],
     ///        "proposed": {}
     ///    }
     /// }

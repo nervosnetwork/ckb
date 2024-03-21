@@ -1,40 +1,26 @@
 //！The indexer service.
 
-use crate::error::Error;
-use crate::indexer::{self, extract_raw_data, CustomFilters, Indexer, Key, KeyPrefix, Value};
-use crate::pool::Pool;
-use crate::store::{Batch, IteratorDirection, RocksdbStore, SecondaryDB, Store};
+use crate::indexer::{self, extract_raw_data, Indexer, Key, KeyPrefix, Value};
+use crate::store::{IteratorDirection, RocksdbStore, Store};
 
-use ckb_app_config::{DBConfig, IndexerConfig};
-use ckb_async_runtime::{
-    tokio::{self, time},
-    Handle,
-};
-use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_INDEX, COLUMN_META};
+use ckb_app_config::IndexerConfig;
+use ckb_async_runtime::Handle;
+use ckb_indexer_sync::{CustomFilters, Error, IndexerSyncService, Pool, PoolService, SecondaryDB};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
     IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip, IndexerTx,
     IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
-use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
-use ckb_stop_handler::{has_received_stop_signal, new_tokio_exit_rx, CancellationToken};
-use ckb_store::ChainStore;
-use ckb_types::{
-    core::{self, BlockNumber},
-    packed,
-    prelude::*,
-    H256,
-};
+use ckb_types::{core, packed, prelude::*, H256};
 use memchr::memmem;
 use rocksdb::{prelude::*, Direction, IteratorMode};
+
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
-use std::thread::sleep;
-use std::time::Duration;
 
-const SUBSCRIBER_NAME: &str = "Indexer";
+pub(crate) const SUBSCRIBER_NAME: &str = "Indexer";
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
 const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
 
@@ -42,49 +28,34 @@ const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
 #[derive(Clone)]
 pub struct IndexerService {
     store: RocksdbStore,
-    secondary_db: SecondaryDB,
-    pool: Option<Arc<RwLock<Pool>>>,
-    poll_interval: Duration,
-    async_handle: Handle,
+    sync: IndexerSyncService,
     block_filter: Option<String>,
     cell_filter: Option<String>,
-    init_tip_hash: Option<H256>,
 }
 
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
-    pub fn new(ckb_db_config: &DBConfig, config: &IndexerConfig, async_handle: Handle) -> Self {
+    pub fn new(
+        ckb_db: SecondaryDB,
+        pool_service: PoolService,
+        config: &IndexerConfig,
+        async_handle: Handle,
+    ) -> Self {
         let store_opts = Self::indexer_store_options(config);
         let store = RocksdbStore::new(&store_opts, &config.store);
-        let pool = if config.index_tx_pool {
-            Some(Arc::new(RwLock::new(Pool::default())))
-        } else {
-            None
-        };
-
-        let cf_names = vec![
-            COLUMN_INDEX,
-            COLUMN_META,
-            COLUMN_BLOCK_HEADER,
-            COLUMN_BLOCK_BODY,
-        ];
-        let secondary_opts = Self::indexer_secondary_options(config);
-        let secondary_db = SecondaryDB::open_cf(
-            &secondary_opts,
-            &ckb_db_config.path,
-            cf_names,
-            config.secondary_path.to_string_lossy().to_string(),
+        let sync = IndexerSyncService::new(
+            ckb_db,
+            pool_service,
+            &config.into(),
+            async_handle.clone(),
+            config.init_tip_hash.clone(),
         );
 
         Self {
             store,
-            secondary_db,
-            pool,
-            async_handle,
-            poll_interval: Duration::from_secs(config.poll_interval),
+            sync,
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
-            init_tip_hash: config.init_tip_hash.clone(),
         }
     }
 
@@ -95,192 +66,8 @@ impl IndexerService {
     pub fn handle(&self) -> IndexerHandle {
         IndexerHandle {
             store: self.store.clone(),
-            pool: self.pool.clone(),
+            pool: self.sync.pool(),
         }
-    }
-
-    /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
-    pub fn index_tx_pool(&self, notify_controller: NotifyController) {
-        let service = self.clone();
-        let stop: CancellationToken = new_tokio_exit_rx();
-
-        self.async_handle.spawn(async move {
-            let mut new_transaction_receiver = notify_controller
-                .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
-                .await;
-            let mut reject_transaction_receiver = notify_controller
-                .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
-                .await;
-
-            loop {
-                tokio::select! {
-                    Some(tx_entry) = new_transaction_receiver.recv() => {
-                        if let Some(pool) = service.pool.as_ref() {
-                            pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
-                        }
-                    }
-                    Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
-                        if let Some(pool) = service.pool.as_ref() {
-                            pool.write()
-                            .expect("acquire lock")
-                            .transaction_rejected(&tx_entry.transaction);
-                        }
-                    }
-                    _ = stop.cancelled() => {
-                        info!("Indexer received exit signal, exit now");
-                        break
-                    },
-                    else => break,
-                }
-            }
-        });
-    }
-
-    fn apply_init_tip(&self) {
-        if let Some(init_tip_hash) = &self.init_tip_hash {
-            let indexer_tip = self
-                .store
-                .iter([KeyPrefix::Header as u8 + 1], IteratorDirection::Reverse)
-                .expect("iter Header should be OK")
-                .next()
-                .map(|(key, _)| {
-                    BlockNumber::from_be_bytes(key[1..9].try_into().expect("stored block key"))
-                });
-            if let Some(indexer_tip) = indexer_tip {
-                if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
-                    if indexer_tip >= init_tip.number() {
-                        return;
-                    }
-                }
-            }
-            loop {
-                if has_received_stop_signal() {
-                    info!("apply_init_tip received exit signal, exit now");
-                    break;
-                }
-
-                if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
-                    error!("secondary_db try_catch_up_with_primary error {}", e);
-                }
-                if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
-                    let init_tip_number = header.number();
-                    let mut batch = self.store.batch().expect("create batch should be OK");
-                    batch
-                        .put_kv(
-                            Key::Header(init_tip_number, &init_tip_hash.pack(), true),
-                            vec![],
-                        )
-                        .expect("insert init tip header should be OK");
-                    batch.commit().expect("commit batch should be OK");
-                    break;
-                }
-                sleep(Duration::from_secs(1));
-            }
-        }
-    }
-
-    fn try_loop_sync(&self) {
-        // assume that long fork will not happen >= 100 blocks.
-        let keep_num = 100;
-        if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
-            error!("secondary_db try_catch_up_with_primary error {}", e);
-        }
-        let indexer = Indexer::new(
-            self.store.clone(),
-            keep_num,
-            1000,
-            self.pool.clone(),
-            CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
-        );
-        loop {
-            if has_received_stop_signal() {
-                info!("try_loop_sync received exit signal, exit now");
-                break;
-            }
-
-            if let Some((tip_number, tip_hash)) = indexer.tip().expect("get tip should be OK") {
-                match self.get_block_by_number(tip_number + 1) {
-                    Some(block) => {
-                        if block.parent_hash() == tip_hash {
-                            info!("Append {}, {}", block.number(), block.hash());
-                            indexer.append(&block).expect("append block should be OK");
-                        } else {
-                            info!("Rollback {}, {}", tip_number, tip_hash);
-                            indexer.rollback().expect("rollback block should be OK");
-                        }
-                    }
-                    None => {
-                        break;
-                    }
-                }
-            } else {
-                match self.get_block_by_number(0) {
-                    Some(block) => indexer.append(&block).expect("append block should be OK"),
-                    None => {
-                        error!("ckb node returns an empty genesis block");
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Processes that handle block cell and expect to be spawned to run in tokio runtime
-    pub fn spawn_poll(&self, notify_controller: NotifyController) {
-        let initial_service = self.clone();
-        let initial_syncing = self.async_handle.spawn_blocking(move || {
-            initial_service.apply_init_tip();
-            initial_service.try_loop_sync()
-        });
-
-        let stop: CancellationToken = new_tokio_exit_rx();
-        let async_handle = self.async_handle.clone();
-        let poll_service = self.clone();
-        self.async_handle.spawn(async move {
-            let _initial_finished = initial_syncing.await;
-            if stop.is_cancelled() {
-                info!("Indexer received exit signal, cancel new_block_watcher task, exit now");
-                return;
-            }
-
-            info!("initial_syncing finished");
-
-            let mut new_block_watcher = notify_controller
-                .watch_new_block(SUBSCRIBER_NAME.to_string())
-                .await;
-            let mut interval = time::interval(poll_service.poll_interval);
-            interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-            loop {
-                tokio::select! {
-                    Ok(_) = new_block_watcher.changed() => {
-                        let service = poll_service.clone();
-                        if let Err(e) = async_handle.spawn_blocking(move || {
-                            service.try_loop_sync()
-                        }).await {
-                            error!("ckb indexer syncing join error {:?}", e);
-                        }
-                        new_block_watcher.borrow_and_update();
-                    },
-                    _ = interval.tick() => {
-                        let service = poll_service.clone();
-                        if let Err(e) = async_handle.spawn_blocking(move || {
-                            service.try_loop_sync()
-                        }).await {
-                            error!("ckb indexer syncing join error {:?}", e);
-                        }
-                    }
-                    _ = stop.cancelled() => {
-                        info!("Indexer received exit signal, exit now");
-                        break
-                    },
-                }
-            }
-        });
-    }
-
-    fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
-        let block_hash = self.secondary_db.get_block_hash(block_number)?;
-        self.secondary_db.get_block(&block_hash)
     }
 
     fn indexer_store_options(config: &IndexerConfig) -> Options {
@@ -301,17 +88,31 @@ impl IndexerService {
         opts
     }
 
-    fn indexer_secondary_options(config: &IndexerConfig) -> Options {
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-        opts.set_keep_log_file_num(
-            config
-                .db_keep_log_file_num
-                .map(NonZeroUsize::get)
-                .unwrap_or(DEFAULT_LOG_KEEP_NUM),
-        );
-        opts
+    fn get_indexer(&self) -> Indexer<RocksdbStore> {
+        // assume that long fork will not happen >= 100 blocks.
+        let keep_num = 100;
+        Indexer::new(
+            self.store.clone(),
+            keep_num,
+            1000,
+            self.sync.pool(),
+            CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
+        )
+    }
+
+    /// Processes that handle block cell and expect to be spawned to run in tokio runtime
+    pub fn spawn_poll(&self, notify_controller: NotifyController) {
+        self.sync.spawn_poll(
+            notify_controller,
+            SUBSCRIBER_NAME.to_string(),
+            self.get_indexer(),
+        )
+    }
+
+    /// Index tx pool
+    pub fn index_tx_pool(&mut self, notify_controller: NotifyController) {
+        self.sync
+            .index_tx_pool(self.get_indexer(), notify_controller)
     }
 }
 
@@ -358,7 +159,8 @@ impl IndexerHandle {
             .unwrap_or(false)
         {
             return Err(Error::invalid_params(
-                "doesn't support search_key.script_search_mode partial search mode",
+                "the CKB indexer doesn't support search_key.script_search_mode partial search mode, \
+                please use the CKB rich-indexer for such search",
             ));
         }
 
@@ -540,7 +342,8 @@ impl IndexerHandle {
             .unwrap_or(false)
         {
             return Err(Error::invalid_params(
-                "doesn't support search_key.script_search_mode partial search mode",
+                "the CKB indexer doesn't support search_key.script_search_mode partial search mode, \
+                please use the CKB rich-indexer for such search",
             ));
         }
 
@@ -819,7 +622,8 @@ impl IndexerHandle {
             .unwrap_or(false)
         {
             return Err(Error::invalid_params(
-                "doesn't support search_key.script_search_mode partial search mode",
+                "the CKB indexer doesn't support search_key.script_search_mode partial search mode, \
+                please use the CKB rich-indexer for such search",
             ));
         }
 
@@ -1098,6 +902,7 @@ impl TryInto<FilterOptions> for IndexerSearchKey {
 mod tests {
     use super::*;
     use crate::store::RocksdbStore;
+    use ckb_indexer_sync::IndexerSync;
     use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
     use ckb_types::{
         bytes::Bytes,

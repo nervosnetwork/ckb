@@ -57,6 +57,7 @@ cargo-publish.log
 # generated files
 cobertura.xml
 /rpc/json/rpc.expect.json
+/docs/ckb_rpc_openrpc
 
 # proptest
 **/proptest-regressions

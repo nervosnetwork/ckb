@@ -19,7 +19,6 @@ use ckb_types::{
 };
 use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
-
 type ConflictEntry = (TxEntry, Reject);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -71,6 +70,9 @@ pub struct PoolMap {
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
     pub(crate) total_tx_cycles: Cycle,
+    pub(crate) pending_count: usize,
+    pub(crate) gap_count: usize,
+    pub(crate) proposed_count: usize,
 }
 
 impl PoolMap {
@@ -82,6 +84,9 @@ impl PoolMap {
             max_ancestors_count,
             total_tx_size: 0,
             total_tx_cycles: 0,
+            pending_count: 0,
+            gap_count: 0,
+            proposed_count: 0,
         }
     }
 
@@ -120,6 +125,7 @@ impl PoolMap {
     #[cfg(test)]
     pub(crate) fn add_proposed(&mut self, entry: TxEntry) -> Result<bool, Reject> {
         self.add_entry(entry, Status::Proposed)
+            .map(|(succ, _)| succ)
     }
 
     pub(crate) fn get_max_update_time(&self) -> u64 {
@@ -138,17 +144,12 @@ impl PoolMap {
         self.get_by_id(id).expect("unconsistent pool")
     }
 
-    pub(crate) fn get_by_status(&self, status: Status) -> Vec<&PoolEntry> {
-        self.entries.get_by_status(&status)
-    }
-
     pub(crate) fn pending_size(&self) -> usize {
-        self.entries.get_by_status(&Status::Pending).len()
-            + self.entries.get_by_status(&Status::Gap).len()
+        self.pending_count + self.gap_count
     }
 
     pub(crate) fn proposed_size(&self) -> usize {
-        self.entries.get_by_status(&Status::Proposed).len()
+        self.proposed_count
     }
 
     pub(crate) fn sorted_proposed_iter(&self) -> impl Iterator<Item = &TxEntry> {
@@ -189,29 +190,44 @@ impl PoolMap {
             })
     }
 
-    pub(crate) fn add_entry(&mut self, mut entry: TxEntry, status: Status) -> Result<bool, Reject> {
+    /// Inesrt a `TxEntry` into pool_map.
+    ///
+    /// ## Returns
+    ///
+    /// Returns `Reject` when any error happened, otherwise return `Ok((succ, evicts))`
+    /// - succ  : means whether the entry is insertted actually into pool,
+    /// - evicts: is the evicted transactions before inserting this `TxEntry`,
+    ///           Currently, evicts when inserting is only due to reffering cell dep will be consumed by this new transaction.
+    pub(crate) fn add_entry(
+        &mut self,
+        mut entry: TxEntry,
+        status: Status,
+    ) -> Result<(bool, HashSet<TxEntry>), Reject> {
         let tx_short_id = entry.proposal_short_id();
+        let mut evicts = Default::default();
         if self.entries.get_by_id(&tx_short_id).is_some() {
-            return Ok(false);
+            return Ok((false, evicts));
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
-        self.check_and_record_ancestors(&mut entry)?;
+        evicts = self.check_and_record_ancestors(&mut entry)?;
         self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
-        self.track_entry_statics();
+        self.track_entry_statics(None, Some(status));
         self.update_stat_for_add_tx(entry.size, entry.cycles);
-        Ok(true)
+        Ok((true, evicts))
     }
 
     /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
     pub(crate) fn set_entry(&mut self, short_id: &ProposalShortId, status: Status) {
+        let mut old_status = None;
         self.entries
             .modify_by_id(short_id, |e| {
+                old_status = Some(e.status);
                 e.status = status;
             })
             .expect("unconsistent pool");
-        self.track_entry_statics();
+        self.track_entry_statics(old_status, Some(status));
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -225,7 +241,7 @@ impl PoolMap {
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
-            self.track_entry_statics();
+            self.track_entry_statics(Some(entry.status), None);
             self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
             entry.inner
         })
@@ -277,6 +293,11 @@ impl PoolMap {
         tx.input_pts_iter()
             .filter_map(|out_point| self.edges.get_input_ref(&out_point).cloned())
             .collect()
+    }
+
+    pub(crate) fn find_conflict_outpoint(&self, tx: &TransactionView) -> Option<OutPoint> {
+        tx.input_pts_iter()
+            .find_map(|out_point| self.edges.get_input_ref(&out_point).map(|_| out_point))
     }
 
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
@@ -344,6 +365,9 @@ impl PoolMap {
         self.links.clear();
         self.total_tx_size = 0;
         self.total_tx_cycles = 0;
+        self.pending_count = 0;
+        self.gap_count = 0;
+        self.proposed_count = 0;
     }
 
     pub(crate) fn score_sorted_iter_by(
@@ -430,7 +454,6 @@ impl PoolMap {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let outputs = entry.transaction().output_pts();
         let mut children = HashSet::new();
-        let mut direct_children = HashSet::new();
 
         // collect children
         for o in outputs {
@@ -438,17 +461,13 @@ impl PoolMap {
                 children.extend(ids);
             }
             if let Some(id) = self.edges.get_input_ref(&o).cloned() {
-                children.insert(id.clone());
-                direct_children.insert(id);
+                children.insert(id);
             }
         }
         // update children
         if !children.is_empty() {
             for child in &children {
                 self.links.add_parent(child, tx_short_id.clone());
-            }
-            for child in &direct_children {
-                self.links.add_direct_parent(child, tx_short_id.clone());
             }
             if let Some(links) = self.links.inner.get_mut(&tx_short_id) {
                 links.children.extend(children);
@@ -459,29 +478,33 @@ impl PoolMap {
         self.update_ancestors_index_key(entry, EntryOp::Add);
     }
 
-    /// Check ancestors and record for entry
-    fn check_and_record_ancestors(&mut self, entry: &mut TxEntry) -> Result<bool, Reject> {
-        let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
-            entry.transaction().inputs().len() + entry.transaction().cell_deps().len(),
-        );
-        let mut direct_parents: HashSet<ProposalShortId> =
-            HashSet::with_capacity(entry.transaction().inputs().len());
+    // return (ancestors, parents, cell_ref_parents)
+    // `cell_ref_parents` may be invalidate when the tx consuming the cell is submitted
+    fn get_tx_ancenstors(
+        &self,
+        entry: &TransactionView,
+    ) -> (
+        HashSet<ProposalShortId>,
+        HashSet<ProposalShortId>,
+        HashSet<ProposalShortId>,
+    ) {
+        let mut parents: HashSet<ProposalShortId> =
+            HashSet::with_capacity(entry.inputs().len() + entry.cell_deps().len());
+        let mut cell_ref_parents: HashSet<ProposalShortId> = Default::default();
 
-        let short_id = entry.proposal_short_id();
-        for input in entry.transaction().inputs() {
+        for input in entry.inputs() {
             let input_pt = input.previous_output();
             if let Some(deps) = self.edges.deps.get(&input_pt) {
+                cell_ref_parents.extend(deps.iter().cloned());
                 parents.extend(deps.iter().cloned());
             }
 
-            let parent_hash = &input_pt.tx_hash();
-            let id = ProposalShortId::from_tx_hash(parent_hash);
+            let id = ProposalShortId::from_tx_hash(&input_pt.tx_hash());
             if self.links.inner.contains_key(&id) {
-                parents.insert(id.clone());
-                direct_parents.insert(id);
+                parents.insert(id);
             }
         }
-        for cell_dep in entry.transaction().cell_deps() {
+        for cell_dep in entry.cell_deps() {
             let dep_pt = cell_dep.out_point();
             let id = ProposalShortId::from_tx_hash(&dep_pt.tx_hash());
             if self.links.inner.contains_key(&id) {
@@ -493,35 +516,93 @@ impl PoolMap {
             .links
             .calc_relation_ids(parents.clone(), Relation::Parents);
 
-        let direct_ancestors = self
-            .links
-            .calc_relation_ids(direct_parents.clone(), Relation::DirectParents);
+        (ancestors, parents, cell_ref_parents)
+    }
 
+    fn _record_ancestors(
+        &mut self,
+        entry: &mut TxEntry,
+        ancestors: HashSet<ProposalShortId>,
+        parents: HashSet<ProposalShortId>,
+    ) {
         // update parents references
         for ancestor_id in &ancestors {
             let ancestor = self.get_by_id_checked(ancestor_id);
-            // cell deps don't accord into ancestors
             entry.add_ancestor_weight(&ancestor.inner);
         }
-        entry.direct_ancestors_count = direct_ancestors.len() + 1;
-        if entry.direct_ancestors_count > self.max_ancestors_count {
-            return Err(Reject::ExceededMaximumAncestorsCount);
-        }
+
+        let short_id = entry.proposal_short_id();
 
         for parent in &parents {
             self.links.add_child(parent, short_id.clone());
         }
-
         self.links.add_link(
             short_id,
             TxLinks {
                 parents,
-                direct_parents,
                 children: Default::default(),
             },
         );
+    }
 
-        Ok(true)
+    /// Check ancestors and record for entry
+    // FIXME: In the scenario that a transaction passed all RBF rules, and then removed the conflicted
+    // transaction in txpool, then failed with max ancestor limits, we now need to rollback the removing.
+    // this is not an issue currently, because RBF have a rule that not allow any unknown inputs except
+    // the conflicted inputs, so the new transcation can not be in a long transaction chain.
+    // but it's still safer to report an error before any writing kind of operation.
+    fn check_and_record_ancestors(
+        &mut self,
+        entry: &mut TxEntry,
+    ) -> Result<HashSet<TxEntry>, Reject> {
+        let tx = entry.transaction();
+        let (ancestors, mut parents, cell_ref_parents) = self.get_tx_ancenstors(tx);
+
+        let mut ancestors_count = ancestors.len() + 1;
+        let mut evicted = Default::default();
+
+        if ancestors_count <= self.max_ancestors_count {
+            self._record_ancestors(entry, ancestors, parents);
+            return Ok(evicted);
+        }
+
+        if ancestors_count.saturating_sub(cell_ref_parents.len()) <= self.max_ancestors_count {
+            // if ancestors count exceed limitation,
+            // try to evict some conflicted transactions due to ref cells
+
+            // sort them to find out the transactions with lowest fees
+            let evict_candidates: Vec<ProposalShortId> = self
+                .entries
+                .iter_by_evict_key()
+                .filter(move |entry| cell_ref_parents.contains(&entry.id))
+                .map(|x| x.id.clone())
+                .collect();
+
+            let mut iter = evict_candidates.iter();
+            while ancestors_count > self.max_ancestors_count {
+                if let Some(next_id) = iter.next() {
+                    let removed = self.remove_entry_and_descendants(next_id);
+                    ancestors_count = ancestors_count.saturating_sub(1);
+                    parents.remove(next_id);
+                    evicted.extend(removed);
+                } else {
+                    break;
+                }
+            }
+        } else {
+            return Err(Reject::ExceededMaximumAncestorsCount);
+        }
+
+        // some txs in `parents` are removed, now `ancestors` need to re-caculate,
+        let ancestors = self
+            .links
+            .calc_relation_ids(parents.clone(), Relation::Parents);
+
+        // we can assume the number now is less than `max_ancestors_count`
+        assert!(ancestors.len() < self.max_ancestors_count);
+
+        self._record_ancestors(entry, ancestors, parents);
+        Ok(evicted)
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
@@ -550,20 +631,33 @@ impl PoolMap {
         });
     }
 
-    fn track_entry_statics(&self) {
+    fn track_entry_statics(&mut self, remove: Option<Status>, add: Option<Status>) {
+        match remove {
+            Some(Status::Pending) => self.pending_count -= 1,
+            Some(Status::Gap) => self.gap_count -= 1,
+            Some(Status::Proposed) => self.proposed_count -= 1,
+            _ => {}
+        }
+        match add {
+            Some(Status::Pending) => self.pending_count += 1,
+            Some(Status::Gap) => self.gap_count += 1,
+            Some(Status::Proposed) => self.proposed_count += 1,
+            _ => {}
+        }
+        assert_eq!(
+            self.pending_count + self.gap_count + self.proposed_count,
+            self.entries.len()
+        );
         if let Some(metrics) = ckb_metrics::handle() {
             metrics
                 .ckb_tx_pool_entry
                 .pending
-                .set(self.entries.get_by_status(&Status::Pending).len() as i64);
-            metrics
-                .ckb_tx_pool_entry
-                .gap
-                .set(self.entries.get_by_status(&Status::Gap).len() as i64);
+                .set(self.pending_count as i64);
+            metrics.ckb_tx_pool_entry.gap.set(self.gap_count as i64);
             metrics
                 .ckb_tx_pool_entry
                 .proposed
-                .set(self.proposed_size() as i64);
+                .set(self.proposed_count as i64);
         }
     }
 

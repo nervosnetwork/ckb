@@ -78,7 +78,7 @@ impl Launcher {
                     Ok(genesis_cellbase
                         .outputs()
                         .into_iter()
-                        .zip(genesis_cellbase.outputs_data().into_iter())
+                        .zip(genesis_cellbase.outputs_data())
                         .any(|(output, data)| {
                             data.raw_data() == secp_cell_data.as_ref()
                                 && output
@@ -237,7 +237,22 @@ impl Launcher {
         if self.args.indexer && !config.indexer_enable() {
             config.modules.push(RpcModule::Indexer);
         }
+        if self.args.rich_indexer && !config.rich_indexer_enable() {
+            config.modules.push(RpcModule::RichIndexer);
+        }
         config
+    }
+
+    /// Check indexer config
+    pub fn check_indexer_config(&self) -> Result<(), ExitCode> {
+        // check if indexer and rich-indexer are both set
+        if (self.args.indexer || self.args.config.rpc.indexer_enable())
+            && (self.args.rich_indexer || self.args.config.rpc.rich_indexer_enable())
+        {
+            eprintln!("Config Error: indexer and rich-indexer cannot be both set");
+            return Err(ExitCode::Config);
+        }
+        Ok(())
     }
 
     /// start block filter service

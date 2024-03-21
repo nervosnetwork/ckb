@@ -27,7 +27,7 @@ pub struct ExtraLoggerConfig {
 pub struct MainLoggerConfig {
     /// Sets log levels for different modules.
     ///
-    /// **Optional**, null means keeping the current option unchanged.
+    /// `null` means keeping the current option unchanged.
     ///
     /// ## Examples
     ///
@@ -45,14 +45,14 @@ pub struct MainLoggerConfig {
     pub filter: Option<String>,
     /// Whether printing the logs to the process stdout.
     ///
-    /// **Optional**, null means keeping the current option unchanged.
+    /// `null` means keeping the current option unchanged.
     pub to_stdout: Option<bool>,
     /// Whether appending the logs to the log file.
     ///
-    /// **Optional**, null means keeping the current option unchanged.
+    /// `null` means keeping the current option unchanged.
     pub to_file: Option<bool>,
     /// Whether using color when printing the logs to the process stdout.
     ///
-    /// **Optional**, null means keeping the current option unchanged.
+    /// `null` means keeping the current option unchanged.
     pub color: Option<bool>,
 }

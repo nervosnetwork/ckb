@@ -368,7 +368,8 @@ pub trait NetRpc {
     ///     "inflight_blocks_count": "0x0",
     ///     "low_time": "0x5dc",
     ///     "normal_time": "0x4e2",
-    ///     "orphan_blocks_count": "0x0"
+    ///     "orphan_blocks_count": "0x0",
+    ///     "orphan_blocks_size": "0x0"
     ///   }
     /// }
     /// ```
@@ -723,6 +724,7 @@ impl NetRpc for NetRpcImpl {
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
             orphan_blocks_count: (state.orphan_pool().len() as u64).into(),
+            orphan_blocks_size: (state.orphan_pool().total_size() as u64).into(),
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
             fast_time: fast_time.into(),

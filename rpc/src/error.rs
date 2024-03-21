@@ -115,6 +115,8 @@ pub enum RPCError {
     PoolRejectedTransactionBySizeLimit = -1110,
     /// (-1111): The transaction is rejected for RBF checking.
     PoolRejectedRBF = -1111,
+    /// (-1112): The transaction is rejected for ref cell consuming.
+    PoolRejectedInvalidated = -1112,
     /// (-1200): The indexer error.
     Indexer = -1200,
 }
@@ -177,6 +179,7 @@ impl RPCError {
             Reject::Resolve(_) => RPCError::TransactionFailedToResolve,
             Reject::Verification(_) => RPCError::TransactionFailedToVerify,
             Reject::RBFRejected(_) => RPCError::PoolRejectedRBF,
+            Reject::Invalidated(_) => RPCError::PoolRejectedInvalidated,
             Reject::ExceededTransactionSizeLimit(_, _) => {
                 RPCError::PoolRejectedTransactionBySizeLimit
             }

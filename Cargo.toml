@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.114.0-pre"
+version = "0.115.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -8,14 +8,14 @@ build = "build.rs"
 description = "CKB is the layer 1 of Nervos Network, a public/permissionless blockchain."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-rust-version = "1.71.1"
+rust-version = "1.75.0"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.114.0-pre" }
+ckb-build-info = { path = "util/build-info", version = "= 0.115.0-pre" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.114.0-pre" }
-ckb-bin = { path = "ckb-bin", version = "= 0.114.0-pre" }
+ckb-build-info = { path = "util/build-info", version = "= 0.115.0-pre" }
+ckb-bin = { path = "ckb-bin", version = "= 0.115.0-pre" }
 
 [dev-dependencies]
 
@@ -33,7 +33,6 @@ members = [
     "util/metrics-config",
     "util/hash",
     "util/rational",
-    "util/rust-unstable-port",
     "benches",
     "db-schema",
     "util/spawn",
@@ -71,7 +70,9 @@ members = [
     "db-migration",
     "util/network-alert",
     "store",
+    "util/indexer-sync",
     "util/indexer",
+    "util/rich-indexer",
     "util/chain-iter",
     "util/dao",
     "util/test-chain-utils",

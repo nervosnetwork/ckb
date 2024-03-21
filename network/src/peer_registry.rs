@@ -1,4 +1,5 @@
 //! Peer registry
+use crate::network_group::Group;
 use crate::peer_store::PeerStore;
 use crate::{
     errors::{Error, PeerError},
@@ -166,13 +167,13 @@ impl PeerRegistry {
         // Group peers by network group
         let evict_group = candidate_peers
             .into_iter()
-            .fold(HashMap::new(), |mut groups, peer| {
-                groups
-                    .entry(peer.network_group())
-                    .or_insert_with(Vec::new)
-                    .push(peer);
-                groups
-            })
+            .fold(
+                HashMap::new(),
+                |mut groups: HashMap<Group, Vec<&Peer>>, peer| {
+                    groups.entry(peer.network_group()).or_default().push(peer);
+                    groups
+                },
+            )
             .values()
             .max_by_key(|group| group.len())
             .cloned()

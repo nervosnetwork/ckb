@@ -1124,25 +1124,20 @@ impl NetworkService {
                 }
                 start_sender.send(Ok(())).unwrap();
                 tokio::spawn(async move { p2p_service.run().await });
-                loop {
-                    tokio::select! {
-                        _ = receiver.cancelled() => {
-                            info!("NetworkService receive exit signal, start shutdown...");
-                            let _ = p2p_control.shutdown().await;
-                            // Drop senders to stop all corresponding background task
-                            drop(bg_signals);
+                tokio::select! {
+                    _ = receiver.cancelled() => {
+                        info!("NetworkService receive exit signal, start shutdown...");
+                        let _ = p2p_control.shutdown().await;
+                        // Drop senders to stop all corresponding background task
+                        drop(bg_signals);
 
-                            info!("NetworkService shutdown now");
-                            break;
-                        },
-                        else => {
-                            let _ = p2p_control.shutdown().await;
-                            // Drop senders to stop all corresponding background task
-                            drop(bg_signals);
-
-                            break;
-                        },
-                    }
+                        info!("NetworkService shutdown now");
+                    },
+                    else => {
+                        let _ = p2p_control.shutdown().await;
+                        // Drop senders to stop all corresponding background task
+                        drop(bg_signals);
+                    },
                 }
             });
         }

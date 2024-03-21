@@ -64,7 +64,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
                 cellbase
                     .outputs()
                     .into_iter()
-                    .zip(cellbase.outputs_data().into_iter())
+                    .zip(cellbase.outputs_data())
                     .skip(1),
             )
             .enumerate()

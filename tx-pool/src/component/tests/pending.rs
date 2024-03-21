@@ -23,8 +23,8 @@ fn test_basic() {
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    assert!(pool.add_entry(entry1.clone(), Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1.clone(), Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2, Status::Pending).is_ok());
     assert!(pool.size() == 2);
     assert!(pool.contains_key(&tx1.proposal_short_id()));
     assert!(pool.contains_key(&tx2.proposal_short_id()));
@@ -70,9 +70,9 @@ fn test_resolve_conflict() {
     let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry3 = TxEntry::dummy_resolve(tx3, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    assert!(pool.add_entry(entry1.clone(), Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2.clone(), Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3.clone(), Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1.clone(), Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2.clone(), Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3.clone(), Status::Pending).is_ok());
 
     let conflicts = pool.resolve_conflict(&tx4);
     assert_eq!(
@@ -99,9 +99,9 @@ fn test_resolve_conflict_descendants() {
     let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry3 = TxEntry::dummy_resolve(tx3, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry4 = TxEntry::dummy_resolve(tx4, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3.clone(), Status::Pending).unwrap());
-    assert!(pool.add_entry(entry4.clone(), Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3.clone(), Status::Pending).is_ok());
+    assert!(pool.add_entry(entry4.clone(), Status::Pending).is_ok());
 
     let conflicts = pool.resolve_conflict(&tx2);
     assert_eq!(
@@ -124,8 +124,8 @@ fn test_resolve_conflict_header_dep() {
 
     let entry = TxEntry::dummy_resolve(tx, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    assert!(pool.add_entry(entry.clone(), Status::Pending).unwrap());
-    assert!(pool.add_entry(entry1.clone(), Status::Pending).unwrap());
+    assert!(pool.add_entry(entry.clone(), Status::Pending).is_ok());
+    assert!(pool.add_entry(entry1.clone(), Status::Pending).is_ok());
 
     assert_eq!(pool.inputs_len(), 3);
     assert_eq!(pool.header_deps_len(), 1);
@@ -149,8 +149,8 @@ fn test_remove_entry() {
 
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    assert!(pool.add_entry(entry1.clone(), Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2.clone(), Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1.clone(), Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2.clone(), Status::Pending).is_ok());
 
     let removed = pool.remove_entry(&tx1.proposal_short_id());
     assert_eq!(removed, Some(entry1));
@@ -182,9 +182,9 @@ fn test_fill_proposals() {
     std::thread::sleep(Duration::from_millis(1));
 
     let entry3 = TxEntry::dummy_resolve(tx3.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3, Status::Pending).is_ok());
 
     assert_eq!(pool.inputs_len(), 5);
     assert_eq!(pool.deps_len(), 1);
@@ -234,9 +234,9 @@ fn test_fill_proposals_with_high_score() {
     std::thread::sleep(Duration::from_millis(1));
     let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(100), 2);
 
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3, Status::Pending).is_ok());
 
     let id1 = tx1.proposal_short_id();
     let id2 = tx2.proposal_short_id();
@@ -301,9 +301,9 @@ fn test_pool_evict() {
     std::thread::sleep(Duration::from_millis(1));
     let entry3 = TxEntry::dummy_resolve(tx3.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
 
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3, Status::Pending).is_ok());
 
     let e1 = pool.next_evict_entry(Status::Pending).unwrap();
     assert_eq!(e1, tx1.proposal_short_id());
@@ -339,9 +339,9 @@ fn test_pool_min_weight_evict() {
     std::thread::sleep(Duration::from_millis(1));
     let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(10), 2);
 
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3, Status::Pending).is_ok());
 
     let e1 = pool.next_evict_entry(Status::Pending).unwrap();
     assert_eq!(e1, tx3.proposal_short_id());
@@ -377,9 +377,9 @@ fn test_pool_max_size_evict() {
     std::thread::sleep(Duration::from_millis(1));
     let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(100), 1);
 
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3, Status::Pending).is_ok());
 
     let e1 = pool.next_evict_entry(Status::Pending).unwrap();
     assert_eq!(e1, tx1.proposal_short_id());
@@ -408,9 +408,9 @@ fn test_pool_min_descendants_evict() {
     std::thread::sleep(Duration::from_millis(1));
     let entry3 = TxEntry::dummy_resolve(tx3.clone(), 2, Capacity::shannons(100), 1);
 
-    assert!(pool.add_entry(entry1, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry2, Status::Pending).unwrap());
-    assert!(pool.add_entry(entry3, Status::Pending).unwrap());
+    assert!(pool.add_entry(entry1, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry2, Status::Pending).is_ok());
+    assert!(pool.add_entry(entry3, Status::Pending).is_ok());
 
     let e1 = pool.next_evict_entry(Status::Pending).unwrap();
     assert_eq!(e1, tx3.proposal_short_id());

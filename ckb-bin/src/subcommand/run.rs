@@ -17,6 +17,8 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     let block_assembler_config = launcher.sanitize_block_assembler_config()?;
     let miner_enable = block_assembler_config.is_some();
 
+    launcher.check_indexer_config()?;
+
     let (shared, mut pack) = launcher.build_shared(block_assembler_config)?;
 
     // spawn freezer background process

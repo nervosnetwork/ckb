@@ -1025,7 +1025,7 @@ impl From<core::BlockView> for BlockView {
         let uncles = block
             .uncles()
             .into_iter()
-            .zip(input.uncle_hashes().into_iter())
+            .zip(input.uncle_hashes())
             .map(|(uncle, hash)| {
                 let header = HeaderView {
                     inner: uncle.header().into(),
@@ -1398,7 +1398,7 @@ pub struct Consensus {
     pub permanent_difficulty_in_dummy: bool,
     /// Hardfork features
     pub hardfork_features: HardForks,
-    /// Softforks
+    /// `HashMap<DeploymentPos, SoftFork>` - Softforks
     pub softforks: HashMap<DeploymentPos, SoftFork>,
 }
 

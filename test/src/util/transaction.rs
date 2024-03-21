@@ -1,5 +1,6 @@
 use crate::util::cell::{as_input, as_inputs, as_output, as_outputs};
 use crate::{Net, Node};
+use ckb_jsonrpc_types::{RawTxPool, TxPoolEntries};
 use ckb_network::SupportProtocols;
 use ckb_types::{
     bytes::Bytes,
@@ -80,4 +81,17 @@ pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
         )
         .build();
     net.send(node, SupportProtocols::RelayV3, tx_msg.as_bytes());
+}
+
+pub fn get_tx_pool_conflicts(node: &Node) -> Vec<ckb_types::H256> {
+    let tx_pool_raw = node.rpc_client().get_raw_tx_pool(Some(true));
+    match tx_pool_raw {
+        RawTxPool::Verbose(TxPoolEntries { mut conflicted, .. }) => {
+            conflicted.sort_unstable();
+            conflicted
+        }
+        _ => {
+            panic!("tx_pool_raw is None");
+        }
+    }
 }

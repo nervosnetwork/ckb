@@ -20,6 +20,10 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
         target_dirs.push(args.indexer_path);
     }
 
+    if args.rich_indexer {
+        target_dirs.push(args.rich_indexer_path);
+    }
+
     if args.network {
         target_dirs.push(args.network_dir);
     }
