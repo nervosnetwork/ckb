@@ -1055,14 +1055,12 @@ where
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(error),
         };
-        //eprintln!("scheduler run with max_cycles: {}", max_cycles);
         let previous_cycles = scheduler.consumed_cycles();
         loop {
             let res = scheduler.run(RunMode::LimitCycles(max_cycles));
             match res {
                 Ok((exit_code, cycles)) => {
                     if exit_code == 0 {
-                        //eprintln!("finished with cycles: {}", cycles);
                         return Ok(ChunkState::Completed(
                             cycles,
                             scheduler.consumed_cycles() - previous_cycles,
@@ -1277,78 +1275,6 @@ where
         }
     }
 }
-
-// Run a series of VMs that are just freshly resumed
-// fn run_vms(
-//     _script_group: &ScriptGroup,
-//     _max_cycles: Cycle,
-//     mut _machines: Vec<ResumableMachine>,
-//     _context: &Arc<Mutex<MachineContext>>,
-// ) -> Result<ChunkState, ScriptError> {
-//     unimplemented!()
-// let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
-
-// if machines.is_empty() {
-//     return Err(ScriptError::Other(
-//         "To resume VMs, at least one VM must be available!".to_string(),
-//     ));
-// }
-
-// let map_vm_internal_error = |error: VMInternalError| match error {
-//     VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-//     _ => ScriptError::VMInternalError(error),
-// };
-
-// while let Some(mut machine) = machines.pop() {
-//     if let Some(callee_spawn_data) = &spawn_data {
-//         update_caller_machine(
-//             &mut machine.machine_mut().machine,
-//             exit_code,
-//             cycles,
-//             callee_spawn_data,
-//         )
-//         .map_err(map_vm_internal_error)?;
-//     }
-
-//     match machine.run() {
-//         Ok(code) => {
-//             exit_code = code;
-//             cycles = machine.cycles();
-//             if let ResumableMachine::Spawn(_, data) = machine {
-//                 spawn_data = Some(data);
-//             } else {
-//                 spawn_data = None;
-//             }
-//         }
-//         Err(error) => match error {
-//             VMInternalError::CyclesExceeded | VMInternalError::Pause => {
-//                 let mut new_suspended_machines: Vec<_> = {
-//                     let mut context = context.lock().map_err(|e| {
-//                         ScriptError::Other(format!("Failed to acquire lock: {}", e))
-//                     })?;
-//                     context.suspended_machines.drain(..).collect()
-//                 };
-//                 // The inner most machine lives at the top of the vector,
-//                 // reverse the list for natural order.
-//                 new_suspended_machines.reverse();
-//                 machines.push(machine);
-//                 machines.append(&mut new_suspended_machines);
-//                 return Ok(ChunkState::suspended(machines, Arc::clone(context)));
-//             }
-//             _ => return Err(ScriptError::VMInternalError(error)),
-//         },
-//     };
-// }
-
-// if exit_code == 0 {
-//     Ok(ChunkState::Completed(cycles))
-// } else {
-//     Err(ScriptError::validation_failure(
-//         &script_group.script,
-//         exit_code,
-//     ))
-// }
-//}
 
 fn wrapping_cycles_add(
     lhs: Cycle,
