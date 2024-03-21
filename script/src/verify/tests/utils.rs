@@ -289,7 +289,7 @@ impl TransactionScriptsVerifierWithEnv {
         verifier.set_debug_printer(Box::new(move |_hash: &Byte32, message: &str| {
             print!("{}", message);
             if !message.ends_with('\n') {
-                println!("");
+                println!();
             }
         }));
         verify_func(verifier)

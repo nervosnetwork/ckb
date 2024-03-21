@@ -31,8 +31,7 @@ fn simple_spawn_test(bin_path: &str, args: &[u8]) -> Result<Cycle, Error> {
         resolved_dep_groups: vec![],
     };
     let verifier = TransactionScriptsVerifierWithEnv::new();
-    let result = verifier.verify_without_limit(script_version, &rtx);
-    result
+    verifier.verify_without_limit(script_version, &rtx)
 }
 
 #[test]

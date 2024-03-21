@@ -1465,8 +1465,8 @@ fn _test_load_cell_data_as_code(
         resolved_dep_groups: vec![],
     });
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),
@@ -1538,8 +1538,8 @@ fn _test_load_cell_data(
         resolved_dep_groups: vec![],
     });
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),
@@ -1648,8 +1648,8 @@ fn test_load_overflowed_cell_data_as_code() {
     });
 
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),
@@ -1700,8 +1700,8 @@ fn _test_load_cell_data_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseErr
     });
 
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),
@@ -1750,8 +1750,8 @@ fn _test_load_cell_data_as_code_on_freezed_memory(data: &[u8]) -> Result<(), Tes
     });
 
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),
@@ -1811,8 +1811,8 @@ fn test_load_code_unaligned_error() {
     });
 
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),
@@ -1859,8 +1859,8 @@ fn test_load_code_slice_out_of_bound_error() {
     });
 
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),
@@ -1910,8 +1910,8 @@ fn test_load_code_not_enough_space_error() {
     });
 
     let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-        rtx: rtx,
-        data_loader: data_loader,
+        rtx,
+        data_loader,
         program: Bytes::new(),
         script_group: Arc::new(ScriptGroup {
             script: Default::default(),

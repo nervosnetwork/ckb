@@ -82,7 +82,7 @@ where
         script_version: ScriptVersion,
         syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
     ) -> Self {
-        let message_box = syscalls_generator.message_box.clone();
+        let message_box = Arc::clone(&syscalls_generator.message_box);
         Self {
             tx_data,
             script_version,
@@ -112,7 +112,7 @@ where
         syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
         full: FullSuspendedState,
     ) -> Self {
-        let message_box = syscalls_generator.message_box.clone();
+        let message_box = Arc::clone(&syscalls_generator.message_box);
         Self {
             tx_data,
             script_version,
@@ -134,7 +134,7 @@ where
                 .into_iter()
                 .map(|(id, _, snapshot)| (id, snapshot))
                 .collect(),
-            message_box: message_box,
+            message_box,
             terminated_vms: full.terminated_vms.into_iter().collect(),
         }
     }
@@ -796,7 +796,7 @@ where
             Arc::new(Mutex::new(Snapshot2Context::new(self.tx_data.clone())));
         let mut machine_context = MachineContext::new(self.tx_data.clone());
         machine_context.base_cycles = Arc::clone(&self.syscalls_generator.base_cycles);
-        machine_context.snapshot2_context = syscalls_generator.snapshot2_context.clone();
+        machine_context.snapshot2_context = Arc::clone(&syscalls_generator.snapshot2_context);
 
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles));

@@ -199,7 +199,7 @@ where
 
     /// Build syscall: load_cell_data
     pub fn build_load_cell_data(&self) -> LoadCellData<DL> {
-        LoadCellData::new(self.snapshot2_context.clone())
+        LoadCellData::new(Arc::clone(&self.snapshot2_context))
     }
 
     ///Build syscall: load_input
@@ -244,14 +244,14 @@ where
     pub fn build_spawn(&self) -> Spawn<DL> {
         Spawn::new(
             self.vm_id,
-            self.message_box.clone(),
-            self.snapshot2_context.clone(),
+            Arc::clone(&self.message_box),
+            Arc::clone(&self.snapshot2_context),
         )
     }
 
     /// Build syscall: wait
     pub fn build_wait(&self) -> Wait {
-        Wait::new(self.vm_id, self.message_box.clone())
+        Wait::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Build syscall: process_id
@@ -261,27 +261,27 @@ where
 
     /// Build syscall: pipe
     pub fn build_pipe(&self) -> Pipe {
-        Pipe::new(self.vm_id, self.message_box.clone())
+        Pipe::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Build syscall: write
     pub fn build_write(&self) -> Write {
-        Write::new(self.vm_id, self.message_box.clone())
+        Write::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Build syscall: read
     pub fn build_read(&self) -> Read {
-        Read::new(self.vm_id, self.message_box.clone())
+        Read::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Build syscall: inherited_fd
     pub fn inherited_fd(&self) -> InheritedFd {
-        InheritedFd::new(self.vm_id, self.message_box.clone())
+        InheritedFd::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Build syscall: close
     pub fn close(&self) -> Close {
-        Close::new(self.vm_id, self.message_box.clone())
+        Close::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Generate same syscalls. The result does not contain spawn syscalls.
@@ -474,7 +474,7 @@ where
             skip_pause: Arc::clone(&skip_pause),
             // Use a dummy snapshot2_context as a placeholder.
             snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-                rtx: rtx.clone(),
+                rtx: Arc::clone(&rtx),
                 data_loader: data_loader.clone(),
                 program: Bytes::new(),
                 script_group: Arc::new(ScriptGroup {
@@ -1035,7 +1035,7 @@ where
     ) -> Result<ChunkState, ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let tx_data = TxData {
-            rtx: self.rtx.clone(),
+            rtx: Arc::clone(&self.rtx),
             data_loader: self.data_loader.clone(),
             program,
             script_group: Arc::new(script_group.clone()),
@@ -1145,7 +1145,7 @@ where
     ) -> Result<(i8, Cycle), ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let tx_data = TxData {
-            rtx: self.rtx.clone(),
+            rtx: Arc::clone(&self.rtx),
             data_loader: self.data_loader.clone(),
             program,
             script_group: Arc::new(script_group.clone()),
@@ -1180,7 +1180,7 @@ where
     ) -> Result<Cycle, ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let tx_data = TxData {
-            rtx: self.rtx.clone(),
+            rtx: Arc::clone(&self.rtx),
             data_loader: self.data_loader.clone(),
             program,
             script_group: Arc::new(script_group.clone()),
