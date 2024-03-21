@@ -1816,9 +1816,9 @@ dependencies = [
 
 [[package]]
 name = "ckb_schemars"
-version = "0.8.16"
+version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "160bd7cb5051a4bd6fe80a3c3e794cd26864dba70360d0e5ea34e21a71d7e4a3"
+checksum = "f21f99fca82a4eb8708e406e99246987b087ecc1e1babeece1a0b1d5238b1750"
 dependencies = [
  "ckb_schemars_derive",
  "dyn-clone",
@@ -1828,9 +1828,9 @@ dependencies = [
 
 [[package]]
 name = "ckb_schemars_derive"
-version = "0.8.16"
+version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b4003e04a097903cf2d96d20f5c587c5f744cdef972ce8029bd30a4674634c9"
+checksum = "40c813b4fadbdd9f33b1cf02a1ddfa9537d955c8d2fbe150d1fc1684dbf78e73"
 dependencies = [
  "proc-macro2",
  "quote",
