@@ -5,12 +5,13 @@ mod miner;
 mod network;
 mod network_alert;
 mod notify;
+mod rich_indexer;
 mod rpc;
 mod store;
 mod tx_pool;
 
 pub use db::Config as DBConfig;
-pub use indexer::IndexerConfig;
+pub use indexer::{IndexerConfig, IndexerSyncConfig};
 pub use memory_tracker::Config as MemoryTrackerConfig;
 pub use miner::{
     ClientConfig as MinerClientConfig, Config as MinerConfig, DummyConfig, EaglesongSimpleConfig,
@@ -22,6 +23,7 @@ pub use network::{
 };
 pub use network_alert::Config as NetworkAlertConfig;
 pub use notify::Config as NotifyConfig;
+pub use rich_indexer::{DBDriver, RichIndexerConfig};
 pub use rpc::{Config as RpcConfig, Module as RpcModule};
 pub use store::Config as StoreConfig;
 pub use tx_pool::{BlockAssemblerConfig, TxPoolConfig};

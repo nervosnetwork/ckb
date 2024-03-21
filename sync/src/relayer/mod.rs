@@ -447,12 +447,11 @@ impl Relayer {
 
         if !short_ids_set.is_empty() {
             let tx_pool = self.shared.shared().tx_pool_controller();
-
             let fetch_txs = tx_pool.fetch_txs(short_ids_set);
             if let Err(e) = fetch_txs {
                 return ReconstructionResult::Error(StatusCode::TxPool.with_context(e));
             }
-            txs_map.extend(fetch_txs.unwrap().into_iter());
+            txs_map.extend(fetch_txs.unwrap());
         }
 
         let txs_len = compact_block.txs_len();

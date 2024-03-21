@@ -975,7 +975,7 @@ impl Consensus {
         genesis_cellbase
             .outputs()
             .into_iter()
-            .zip(genesis_cellbase.outputs_data().into_iter())
+            .zip(genesis_cellbase.outputs_data())
             .find(|(_, data)| data.raw_data() == secp_cell_data.as_ref())
             .and_then(|(output, _)| {
                 output

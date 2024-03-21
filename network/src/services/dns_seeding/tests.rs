@@ -65,7 +65,7 @@ impl SeedRecord {
         sig[0..64].copy_from_slice(&signed_data[0..64]);
         sig[64] = recid.to_i32() as u8;
         let signature_string = bs58::encode(&sig[..]).into_string();
-        Ok(vec![data, signature_string].join(&SEP.to_string()))
+        Ok([data, signature_string].join(&SEP.to_string()))
     }
 }
 

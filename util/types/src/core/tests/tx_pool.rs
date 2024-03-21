@@ -25,7 +25,7 @@ fn test_if_is_malformed_tx() {
     let reject = Reject::Malformed(Default::default(), Default::default());
     assert!(reject.is_malformed_tx());
 
-    for error in vec![
+    for error in [
         OutPointError::Dead(Default::default()),
         OutPointError::Unknown(Default::default()),
         OutPointError::OutOfOrder(Default::default()),

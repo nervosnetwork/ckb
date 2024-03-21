@@ -313,7 +313,7 @@ fn test_collision_and_send_missing_indexes() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes(vec![1u32, 2u32].pack())
+        .indexes([1u32, 2u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
@@ -427,7 +427,7 @@ fn test_missing() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes(vec![1, 2u32].pack())
+        .indexes([1, 2u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
 

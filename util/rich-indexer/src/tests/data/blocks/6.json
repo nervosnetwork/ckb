@@ -1,0 +1,40 @@
+{
+  "header": {
+    "version": "0x0",
+    "compact_target": "0x1e015555",
+    "timestamp": "0x1723b993f45",
+    "number": "0x6",
+    "epoch": "0x3e80006000000",
+    "parent_hash": "0xbade09717a1d7431755406e91f585eed6cf138d77e7e6f1406f7b99e72b8ddd9",
+    "transactions_root": "0x5686ab362dfc71b32e40b7936e666fac133859935d9f91681d9484a1e9ce738b",
+    "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "dao": "0x1cd375d2cd1fa12efbf412b1f2862300c8a99b285700000000b2b49f02fbfe06",
+    "nonce": "0xf33558f6c9dfdecc71a139ef806577da",
+    "hash": "0x4b8a145cc46c3cdaf9a3e0b7e8f93c25275ab9ffe4c0bf47e2918932873b7ecf"
+  },
+  "uncles": [],
+  "transactions": [
+    {
+      "version": "0x0",
+      "cell_deps": [],
+      "header_deps": [],
+      "inputs": [
+        {
+          "since": "0x6",
+          "previous_output": {
+            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "index": "0xffffffff"
+          }
+        }
+      ],
+      "outputs": [],
+      "outputs_data": [],
+      "witnesses": [
+        "0x5d0000000c00000055000000490000001000000030000000310000009bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce80114000000da648442dbb7347e467d1d09da13e5cd3a0ef0e104000000deadbeef"
+      ],
+      "hash": "0xf3b800a83e9966c9035256fd1222de2ce53b10c0d0058c6c2888ae6e5d8371a7"
+    }
+  ],
+  "proposals": []
+}

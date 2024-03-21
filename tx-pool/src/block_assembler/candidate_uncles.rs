@@ -45,7 +45,7 @@ impl CandidateUncles {
             }
         }
 
-        let set = self.map.entry(number).or_insert_with(HashSet::new);
+        let set = self.map.entry(number).or_default();
         if set.len() < MAX_PER_HEIGHT {
             let ret = set.insert(uncle);
             if ret {

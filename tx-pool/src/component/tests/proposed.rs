@@ -3,6 +3,10 @@ use crate::component::tests::util::{
     build_tx, build_tx_with_dep, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT,
     MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
 };
+use ckb_types::core::{capacity_bytes, ScriptHashType};
+use ckb_types::packed::{CellOutputBuilder, ScriptBuilder};
+use ckb_types::H256;
+use std::time::Instant;
 
 use crate::component::{entry::TxEntry, pool_map::PoolMap};
 use ckb_types::{
@@ -731,4 +735,66 @@ fn test_container_bench_add_limits() {
     assert_eq!(pool.pending_size(), 0);
     pool.clear();
     assert_eq!(pool.size(), 0);
+}
+
+#[test]
+fn test_pool_map_bench() {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+
+    let mut pool = PoolMap::new(150);
+
+    let mut instant = Instant::now();
+    let mut time_spend = vec![];
+    for i in 0..20000 {
+        let lock_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .build();
+
+        let type_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
+            .build();
+
+        let tx = TransactionBuilder::default()
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000).pack())
+                    .lock(lock_script1)
+                    .type_(Some(type_script1).pack())
+                    .build(),
+            )
+            .output_data(Default::default())
+            .build();
+
+        let entry = TxEntry::dummy_resolve(
+            tx,
+            rng.gen_range(0..1000),
+            Capacity::shannons(200),
+            rng.gen_range(0..1000),
+        );
+        if i % 5000 == 0 && i != 0 {
+            eprintln!("i: {}, time: {:?}", i, instant.elapsed());
+            time_spend.push(instant.elapsed());
+            instant = Instant::now();
+        }
+        let status = if rng.gen_range(0..100) >= 30 {
+            Status::Pending
+        } else {
+            Status::Gap
+        };
+        let _ = pool.add_entry(entry, status);
+    }
+    let first = time_spend[0].as_millis();
+    let last = time_spend.last().unwrap().as_millis();
+    let diff = (last as i128 - first as i128).abs();
+    let expect_diff_range = ((first as f64) * 2.0) as i128;
+    eprintln!(
+        "first: {} last: {}, diff: {}, range: {}",
+        first, last, diff, expect_diff_range
+    );
+    assert!(diff < expect_diff_range);
 }

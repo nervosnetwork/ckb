@@ -2,6 +2,3 @@
 	path = test/vendor
 	url = https://github.com/nervosnetwork/ckb-tests.git
 	shallow = true
-[submodule "docs/ckb_rpc_openrpc"]
-	path = docs/ckb_rpc_openrpc
-	url = https://github.com/nervosnetwork/ckb-rpc-resources.git

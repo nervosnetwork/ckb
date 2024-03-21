@@ -26,17 +26,21 @@ fn test_remove_blocks_by_parent() {
     let mut blocks = Vec::new();
     let mut parent = consensus.genesis_block().header();
     let pool = OrphanBlockPool::with_capacity(200);
+    let mut total_size = 0;
     for _ in 1..block_number {
         let new_block = gen_block(&parent);
+        total_size += new_block.data().total_size();
         blocks.push(new_block.clone());
         pool.insert(new_block.clone());
         parent = new_block.header();
     }
+    assert_eq!(total_size, pool.total_size());
 
     let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
     let orphan_set: HashSet<BlockView> = orphan.into_iter().collect();
     let blocks_set: HashSet<BlockView> = blocks.into_iter().collect();
-    assert_eq!(orphan_set, blocks_set)
+    assert_eq!(orphan_set, blocks_set);
+    assert_eq!(0, pool.total_size());
 }
 
 #[test]
@@ -113,7 +117,7 @@ fn test_leaders() {
 
     let orphan_1 = pool.remove_blocks_by_parent(&blocks[14].hash());
 
-    let orphan_set: HashSet<BlockView> = orphan.into_iter().chain(orphan_1.into_iter()).collect();
+    let orphan_set: HashSet<BlockView> = orphan.into_iter().chain(orphan_1).collect();
     let blocks_set: HashSet<BlockView> = blocks.into_iter().collect();
     assert_eq!(orphan_set, blocks_set);
     assert_eq!(pool.len(), 0);
@@ -145,4 +149,5 @@ fn test_remove_expired_blocks() {
     let v = pool.clean_expired_blocks(20_u64);
     assert_eq!(v.len(), 19);
     assert_eq!(pool.leaders_len(), 0);
+    assert_eq!(pool.total_size(), 0)
 }

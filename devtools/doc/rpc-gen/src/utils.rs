@@ -1,7 +1,10 @@
+use std::path::Path;
+
 use ckb_rpc::module::*;
 use serde_json::Value;
 
 pub const OPENRPC_DIR: &str = "./docs/ckb_rpc_openrpc/";
+pub const OPENRPC_DIR_REPO: &str = "https://github.com/nervosnetwork/ckb-rpc-resources";
 
 macro_rules! generate_docs {
     ($($func:ident),* $(,)?) => {
@@ -25,6 +28,7 @@ pub(crate) fn all_rpc_docs() -> Vec<(String, Value)> {
         stats_rpc_doc,
         integration_test_rpc_doc,
         indexer_rpc_doc,
+        rich_indexer_rpc_doc,
         experiment_rpc_doc,
     )
     .into()
@@ -51,7 +55,8 @@ pub(crate) fn get_version() -> String {
         .nth(1)
         .unwrap_or("0.0.0")
         .to_owned();
-    version
+    let stripped = version.split('@').nth(1).unwrap_or(&version).trim();
+    stripped.to_string()
 }
 
 pub(crate) fn get_current_git_branch() -> String {
@@ -59,13 +64,14 @@ pub(crate) fn get_current_git_branch() -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-pub(crate) fn get_commit_sha() -> String {
-    let res = run_command("git", &["rev-parse", "HEAD"], Some(OPENRPC_DIR)).unwrap();
-    eprintln!("commit sha: {:?}", res);
-    res
-}
-
 pub(crate) fn checkout_openrpc_branch(version: &str) {
+    let git_dir = format!("{}/.git", OPENRPC_DIR);
+    if !Path::new(&git_dir).exists() {
+        let _ = run_command("rm", &["-r", OPENRPC_DIR], None);
+        let _ = run_command("git", &["clone", OPENRPC_DIR_REPO, "ckb-rpc-repo"], None);
+        let _ = run_command("mv", &["ckb-rpc-repo", OPENRPC_DIR], None);
+    }
+    eprintln!("checkout version: {}", version);
     let dir = Some(OPENRPC_DIR);
     let res = run_command("git", &["checkout", version], dir);
     if res.is_none() {

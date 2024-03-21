@@ -98,6 +98,7 @@ impl Setup {
             overwrite_chain_spec: matches.get_flag(cli::ARG_OVERWRITE_CHAIN_SPEC),
             chain_spec_hash,
             indexer: matches.get_flag(cli::ARG_INDEXER),
+            rich_indexer: matches.get_flag(cli::ARG_RICH_INDEXER),
             #[cfg(not(target_os = "windows"))]
             daemon: matches.get_flag(cli::ARG_DAEMON),
         })
@@ -323,6 +324,13 @@ impl Setup {
         let data_dir = config.data_dir;
         let db_path = config.db.path;
         let indexer_path = config.indexer.store;
+        let rich_indexer_path = config
+            .indexer
+            .rich_indexer
+            .store
+            .parent()
+            .expect("rich-indexer store path should have parent dir")
+            .to_path_buf();
         let network_config = config.network;
         let network_dir = network_config.path.clone();
         let network_peer_store_path = network_config.peer_store_path();
@@ -333,6 +341,7 @@ impl Setup {
         let all = matches.get_flag(cli::ARG_ALL);
         let database = matches.get_flag(cli::ARG_DATABASE);
         let indexer = matches.get_flag(cli::ARG_INDEXER);
+        let rich_indexer = matches.get_flag(cli::ARG_RICH_INDEXER);
         let network = matches.get_flag(cli::ARG_NETWORK);
         let network_peer_store = matches.get_flag(cli::ARG_NETWORK_PEER_STORE);
         let network_secret_key = matches.get_flag(cli::ARG_NETWORK_SECRET_KEY);
@@ -343,6 +352,7 @@ impl Setup {
             all,
             database,
             indexer,
+            rich_indexer,
             network,
             network_peer_store,
             network_secret_key,
@@ -350,6 +360,7 @@ impl Setup {
             data_dir,
             db_path,
             indexer_path,
+            rich_indexer_path,
             network_dir,
             network_peer_store_path,
             network_secret_key_path,

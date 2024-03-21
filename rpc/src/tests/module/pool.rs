@@ -143,7 +143,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
     let store = suite.shared.store();
     let tip = store.get_tip_header().unwrap();
     let tip_block = store.get_block(&tip.hash()).unwrap();
-    let mut parent_tx_hash = tip_block.transactions().get(0).unwrap().hash();
+    let mut parent_tx_hash = tip_block.transactions().first().unwrap().hash();
 
     // generate 30 child-spends-parent txs
     for i in 0..130 {

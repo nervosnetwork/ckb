@@ -9,8 +9,6 @@ use ckb_logger::{
 };
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_proposal_table::ProposalTable;
-#[cfg(debug_assertions)]
-use ckb_rust_unstable_port::IsSorted;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
@@ -33,6 +31,8 @@ use ckb_verification::cache::Completed;
 use ckb_verification::{BlockVerifier, InvalidParentError, NonContextualBlockTxsVerifier};
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::{Switch, Verifier};
+#[cfg(debug_assertions)]
+use is_sorted::IsSorted;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;

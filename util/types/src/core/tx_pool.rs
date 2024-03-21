@@ -59,6 +59,10 @@ pub enum Reject {
     /// RBF rejected
     #[error("RBF rejected: {0}")]
     RBFRejected(String),
+
+    /// Invalidated by cell consuming Tx
+    #[error("Invalidated: {0}")]
+    Invalidated(String),
 }
 
 fn is_malformed_from_verification(error: &Error) -> bool {
@@ -161,6 +165,8 @@ pub struct TxPoolEntryInfo {
     pub pending: HashMap<Byte32, TxEntryInfo>,
     /// Proposed transaction entry info
     pub proposed: HashMap<Byte32, TxEntryInfo>,
+    /// Conflicted transaction hash vec
+    pub conflicted: Vec<Byte32>,
 }
 
 /// The JSON view of a transaction as well as its status.

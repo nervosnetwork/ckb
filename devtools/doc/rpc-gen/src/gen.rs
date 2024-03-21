@@ -1,4 +1,5 @@
 extern crate tera;
+use crate::syn::*;
 use ckb_rpc::RPCError;
 use schemars::schema_for;
 use serde_json::{Map, Value};
@@ -12,7 +13,7 @@ struct RpcModule {
 }
 
 impl RpcModule {
-    pub fn gen_menu(&self, commit: &str) -> Value {
+    pub fn gen_menu(&self) -> Value {
         let capitlized = self.title.to_string();
         let mut method_names = self
             .methods
@@ -28,14 +29,11 @@ impl RpcModule {
             ("title", capitlized.clone().into()),
             ("name", self.title.to_lowercase().into()),
             ("methods", method_names.into()),
-            (
-                "link",
-                gen_module_openrpc_playground(&capitlized, commit).into(),
-            ),
+            ("link", gen_module_openrpc_playground(&capitlized).into()),
         ])
     }
 
-    pub fn gen_module_content(&self, commit: &str) -> String {
+    pub fn gen_module_content(&self) -> String {
         if self.title == "Subscription" {
             return gen_subscription_rpc_doc();
         }
@@ -85,10 +83,7 @@ impl RpcModule {
             include_str!("../templates/module.tera"),
             &[
                 ("name", capitlized.clone().into()),
-                (
-                    "link",
-                    gen_module_openrpc_playground(&capitlized, commit).into(),
-                ),
+                ("link", gen_module_openrpc_playground(&capitlized).into()),
                 ("desc", description.into()),
                 ("methods", methods.into()),
             ],
@@ -100,11 +95,10 @@ pub(crate) struct RpcDocGenerator {
     rpc_methods: Vec<RpcModule>,
     types: Vec<(String, Value)>,
     file_path: String,
-    commit: String,
 }
 
 impl RpcDocGenerator {
-    pub fn new(all_rpc: &Vec<Value>, readme_path: String, commit: String) -> Self {
+    pub fn new(all_rpc: &Vec<Value>, readme_path: String) -> Self {
         let mut rpc_methods = vec![];
         let mut all_types: Vec<&Map<String, Value>> = vec![];
         for rpc in all_rpc {
@@ -130,21 +124,27 @@ impl RpcDocGenerator {
         // sort rpc_methods accoring to title
         rpc_methods.sort_by(|a, b| a.title.cmp(&b.title));
 
-        let mut types: Vec<(String, Value)> = vec![];
-        for map in all_types.iter() {
+        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
+        pre_defined.extend(visit_for_types());
+
+        let mut types: Vec<(String, Value)> = pre_defined
+            .iter()
+            .map(|(name, desc)| (name.clone(), Value::String(desc.clone())))
+            .collect();
+        for map in all_types {
             for (name, ty) in map.iter() {
-                if !types.iter().any(|(n, _)| *n == *name) {
+                if !(types.iter().any(|(n, _)| *n == *name)
+                    || (name.starts_with("Either_for_") && name.ends_with("_JsonBytes")))
+                {
                     types.push((name.to_string(), ty.to_owned()));
                 }
             }
         }
         types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
-
         Self {
             rpc_methods,
             types,
             file_path: readme_path,
-            commit,
         }
     }
 
@@ -163,7 +163,7 @@ impl RpcDocGenerator {
         let module_menus = self
             .rpc_methods
             .iter()
-            .map(|r| r.gen_menu(&self.commit))
+            .map(|r| r.gen_menu())
             .collect::<Vec<_>>();
 
         let type_menus: Value = self
@@ -177,7 +177,7 @@ impl RpcDocGenerator {
         let modules: Vec<Value> = self
             .rpc_methods
             .iter()
-            .map(|r| r.gen_module_content(&self.commit).into())
+            .map(|r| r.gen_module_content().into())
             .collect::<Vec<_>>();
 
         let types = self.gen_type_contents();
@@ -203,7 +203,7 @@ impl RpcDocGenerator {
                 } else if let Some(desc) = ty.get("format") {
                     format!("`{}` is `{}`", name, desc.as_str().unwrap())
                 } else {
-                    "".to_string()
+                    ty.as_str().map_or_else(|| "".to_owned(), |v| v.to_owned())
                 };
                 let desc = desc.replace("##", "######");
                 // remove the inline code from comments
@@ -213,11 +213,12 @@ impl RpcDocGenerator {
                     .collect::<Vec<_>>()
                     .join("\n");
 
-                // replace only the first ``` with ```json
+                // replace only the first code snippet ``` with ```json
+                let name = capitlize(name);
                 let desc = desc.replacen("```\n", "```json\n", 1);
-                let fields = gen_type_fields(ty);
+                let fields = gen_type_fields(&name, ty);
                 gen_value(&[
-                    ("name", capitlize(name).into()),
+                    ("name", name.into()),
                     ("desc", desc.into()),
                     ("fields", fields.into()),
                 ])
@@ -302,7 +303,14 @@ fn gen_type_desc(desc: &str) -> String {
     format!(" - {}\n", desc)
 }
 
-fn gen_type_fields(ty: &Value) -> String {
+fn format_fields(name: &str, fields: &str) -> String {
+    format!(
+        "\n#### Fields\n\n`{}` is a JSON object with the following fields.\n\n{}",
+        name, fields
+    )
+}
+
+fn gen_type_fields(name: &str, ty: &Value) -> String {
     if let Some(fields) = ty.get("required") {
         let res = fields
             .as_array()
@@ -319,7 +327,33 @@ fn gen_type_fields(ty: &Value) -> String {
             .collect::<Vec<_>>()
             .join("\n");
         let res = strip_prefix_space(&res);
-        format!("\n#### Fields:\n{}", res)
+        format_fields(name, &res)
+    } else if let Some(properties) = ty.get("properties") {
+        let properties = properties.as_object().unwrap();
+        let res = properties
+            .iter()
+            .map(|(key, value)| {
+                let ty_ref = gen_type(value.get("items").unwrap_or(value));
+                let field_desc = value.get("description").unwrap().as_str().unwrap();
+                let field_desc = field_desc
+                    .split('\n')
+                    .map(|l| {
+                        let l = l.trim();
+                        if !l.is_empty() {
+                            format!("    {}", l)
+                        } else {
+                            l.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("* `{}`: {} {}", key, ty_ref, field_desc.trim())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format_fields(name, &res)
+    } else if let Some(_values) = ty.get("oneOf") {
+        gen_type(ty)
     } else {
         "".to_string()
     }
@@ -337,6 +371,21 @@ fn gen_type(ty: &Value) -> String {
                     } else {
                         gen_type(&map["items"])
                     }
+                } else if ty.as_str() == Some("string") {
+                    let mut enum_val = String::new();
+                    let mut desc = String::new();
+                    if let Some(arr) = map.get("enum") {
+                        enum_val = arr.as_array().unwrap()[0].as_str().unwrap().to_owned();
+                    }
+                    if let Some(val) = map.get("description") {
+                        desc = val.as_str().unwrap_or_default().to_owned();
+                    }
+
+                    if !enum_val.is_empty() && !desc.is_empty() {
+                        format!("  - {} : {}", enum_val, desc)
+                    } else {
+                        format!("`{}`", ty.as_str().unwrap())
+                    }
                 } else if let Some(arr) = ty.as_array() {
                     let ty = arr
                         .iter()
@@ -344,6 +393,10 @@ fn gen_type(ty: &Value) -> String {
                         .collect::<Vec<_>>()
                         .join(" `|` ");
                     ty.to_string()
+                } else if ty.as_str() == Some("object") {
+                    // json schemars bug!
+                    // type is `HashMap` here
+                    "".to_string()
                 } else {
                     format!("`{}`", ty.as_str().unwrap())
                 }
@@ -354,9 +407,20 @@ fn gen_type(ty: &Value) -> String {
                     .map(gen_type)
                     .collect::<Vec<_>>()
                     .join(" `|` ")
+            } else if let Some(arr) = map.get("oneOf") {
+                let res = arr
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(gen_type)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("\nIt's an enum value from one of:\n{}\n", res)
+            } else if let Some(link) = map.get("$ref") {
+                let link = link.as_str().unwrap().split('/').last().unwrap();
+                format!("[`{}`](#type-{})", link, link.to_lowercase())
             } else {
-                let ty = map["$ref"].as_str().unwrap().split('/').last().unwrap();
-                format!("[`{}`](#type-{})", ty, ty.to_lowercase())
+                "".to_owned()
             }
         }
         Value::Array(arr) => {
@@ -422,14 +486,13 @@ fn gen_subscription_rpc_doc() -> String {
 }
 
 /// generate openrpc playground urls
-fn gen_module_openrpc_playground(module: &str, commit: &str) -> String {
+fn gen_module_openrpc_playground(module: &str) -> String {
     let title = format!("CKB-{}", capitlize(module));
     render_tera(
         include_str!("../templates/link.tera"),
         &[
             ("title", title.into()),
             ("module", module.to_lowercase().into()),
-            ("commit", commit.into()),
         ],
     )
 }
@@ -453,4 +516,21 @@ fn render_tera(template: &str, content: &[(&str, Value)]) -> String {
     let mut tera = Tera::default();
     tera.add_raw_template("template", template).unwrap();
     tera.render("template", &context).unwrap()
+}
+
+fn pre_defined_types() -> impl Iterator<Item = (String, String)> {
+    [
+        ("AlertId", "The alert identifier that is used to filter duplicated alerts.\n
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
+        ("AlertPriority", "Alerts are sorted by priority. Greater integers mean higher priorities.\n
+This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](#type-uint32)."),
+        ("EpochNumber", "Consecutive epoch number starting from 0.\n
+This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](#type-uint64)."),
+        ("SerializedHeader", "This is a 0x-prefix hex string. It is the block header serialized by molecule using the schema `table Header`."),
+        ("SerializedBlock", "This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`."),
+        ("U256", "The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON."),
+        ("H256", "The 256-bit binary data encoded as a 0x-prefixed hex string in JSON."),
+        ("Byte32", "The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON."),
+        ("RationalU256", "The ratio which numerator and denominator are both 256-bit unsigned integers.")
+    ].iter().map(|&(x, y)| (x.to_string(), y.to_string()))
 }

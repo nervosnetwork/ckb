@@ -41,7 +41,7 @@ fn test_extension_field_in_block_view() {
         block.transactions(),
         block.data().proposals(),
     );
-    let extension: packed::Bytes = vec![0u8, 1, 2, 3, 4, 5, 6, 7].pack();
+    let extension: packed::Bytes = [0u8, 1, 2, 3, 4, 5, 6, 7].pack();
     // block with extension but not reset all hashes
     let block2_v1_un = BlockView::new_unchecked_with_extension(
         block.header(),

@@ -1,7 +1,7 @@
 use crate::error::Error;
+
 use ckb_db_schema::Col;
 use ckb_store::{ChainStore, Freezer, StoreCache};
-use ckb_types::{core::BlockView, packed, prelude::*};
 use rocksdb::{
     ops::OpenCF, prelude::*, ColumnFamilyDescriptor, DBIterator, DBPinnableSlice, IteratorMode,
     SecondaryDB as SecondaryRocksDB, SecondaryOpenDescriptor,
@@ -36,7 +36,7 @@ use std::sync::Arc;
 
 // Notice: rust-rocksdb `OpenRaw` handle 'default' column automatically
 #[derive(Clone)]
-pub(crate) struct SecondaryDB {
+pub struct SecondaryDB {
     inner: Arc<SecondaryRocksDB>,
 }
 
@@ -119,19 +119,5 @@ impl ChainStore for SecondaryDB {
 
     fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIterator {
         self.iter(col, mode).expect("db operation should be ok")
-    }
-
-    // Only block header and block body loaded
-    fn get_block(&self, h: &packed::Byte32) -> Option<BlockView> {
-        let header = self.get_block_header(h)?;
-        let body = self.get_block_body(h);
-        let uncles = packed::UncleBlockVecView::default();
-        let proposals = packed::ProposalShortIdVec::default();
-        Some(BlockView::new_unchecked(
-            header,
-            uncles.unpack(),
-            body,
-            proposals,
-        ))
     }
 }
