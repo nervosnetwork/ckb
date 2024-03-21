@@ -85,6 +85,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `notify_transaction`](#integration_test-notify_transaction)
         * [Method `generate_block_with_template`](#integration_test-generate_block_with_template)
         * [Method `calculate_dao_field`](#integration_test-calculate_dao_field)
+        * [Method `send_test_transaction`](#integration_test-send_test_transaction)
     * [Module Miner](#module-miner) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/miner_rpc_doc.json)
 
         * [Method `get_block_template`](#miner-get_block_template)
