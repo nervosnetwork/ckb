@@ -370,12 +370,11 @@ pub trait NetRpc {
     ///     "inflight_blocks_count": "0x0",
     ///     "low_time": "0x5dc",
     ///     "normal_time": "0x4e2",
-    ///     "orphan_blocks_count": "0x0"
-    ///     "orphan_blocks_size": "0x0"
-    ///     "tip_hash": String("0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"),
-    ///     "tip_number": String("0x400"),
-    ///     "unverified_tip_hash": String("0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40"),
-    ///     "unverified_tip_number": String("0x400"),
+    ///     "orphan_blocks_count": "0x0",
+    ///     "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "tip_number": "0x400",
+    ///     "unverified_tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    ///     "unverified_tip_number": "0x400"
     ///   }
     /// }
     /// ```
@@ -733,7 +732,6 @@ impl NetRpc for NetRpcImpl {
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
             orphan_blocks_count: (self.chain_controller.orphan_blocks_len() as u64).into(),
-            orphan_blocks_size: (state.orphan_pool().total_size() as u64).into(),
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
             unverified_tip_number: unverified_tip.number().into(),

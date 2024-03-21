@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::{LonelyBlock, LonelyBlockWithCallback};
+use crate::LonelyBlock;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};
@@ -10,7 +10,7 @@ use std::thread;
 
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 
-fn gen_lonely_block_with_callback(parent_header: &HeaderView) -> LonelyBlockWithCallback {
+fn gen_lonely_block(parent_header: &HeaderView) -> LonelyBlock {
     let number = parent_header.number() + 1;
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash())
@@ -19,38 +19,23 @@ fn gen_lonely_block_with_callback(parent_header: &HeaderView) -> LonelyBlockWith
         .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).pack())
         .nonce((parent_header.nonce() + 1).pack())
         .build();
-    LonelyBlockWithCallback {
-        lonely_block: LonelyBlock {
-            block: Arc::new(block),
-            peer_id: None,
-            switch: None,
-        },
+    LonelyBlock {
+        block: Arc::new(block),
+        switch: None,
         verify_callback: None,
     }
 }
 
-#[test]
-fn test_remove_blocks_by_parent() {
-    let consensus = ConsensusBuilder::default().build();
-    let block_number = 200;
-    let mut blocks = Vec::new();
-    let mut parent = consensus.genesis_block().header();
-    let pool = OrphanBlockPool::with_capacity(200);
-    let mut total_size = 0;
-    for _ in 1..block_number {
-        let new_block = gen_lonely_block_with_callback(&parent);
-        total_size += new_block.data().total_size();
-        blocks.push(new_block.clone());
-        pool.insert(new_block.clone());
-        parent = new_block.header();
+fn assert_leaders_have_children(pool: &OrphanBlockPool) {
+    for leader in pool.clone_leaders() {
+        let children = pool.remove_blocks_by_parent(&leader);
+        assert!(!children.is_empty());
+        // `remove_blocks_by_parent` will remove all children from the pool,
+        // so we need to put them back here.
+        for child in children {
+            pool.insert(child);
+        }
     }
-    assert_eq!(total_size, pool.total_size());
-
-    let orphan = pool.remove_blocks_by_parent(&consensus.genesis_block().hash());
-    let orphan_set: HashSet<BlockView> = orphan.into_iter().collect();
-    let blocks_set: HashSet<BlockView> = blocks.into_iter().collect();
-    assert_eq!(orphan_set, blocks_set);
-    assert_eq!(0, pool.total_size());
 }
 
 fn assert_blocks_are_sorted(blocks: &[LonelyBlock]) {
@@ -121,8 +106,14 @@ fn test_remove_blocks_by_parent_and_get_block_should_not_deadlock() {
     let mut header = consensus.genesis_block().header();
     let mut hashes = Vec::new();
     for _ in 1..1024 {
-        let new_block = gen_lonely_block_with_callback(&header);
-        pool.insert(new_block.clone());
+        let lonely_block = gen_lonely_block(&header);
+        let new_block = lonely_block.block();
+        let new_block_clone = LonelyBlock {
+            block: Arc::clone(new_block),
+            switch: None,
+            verify_callback: None,
+        };
+        pool.insert(new_block_clone);
         header = new_block.header();
         hashes.push(header.hash());
     }
@@ -149,14 +140,19 @@ fn test_leaders() {
     let mut parent = consensus.genesis_block().header();
     let pool = OrphanBlockPool::with_capacity(20);
     for i in 0..block_number - 1 {
-        let new_block = gen_lonely_block_with_callback(&parent);
-        blocks.push(new_block.clone());
-        parent = new_block.header();
+        let lonely_block = gen_lonely_block(&parent);
+        let new_block = LonelyBlock {
+            block: Arc::clone(lonely_block.block()),
+            switch: None,
+            verify_callback: None,
+        };
+        blocks.push(lonely_block);
+        parent = new_block.block().header();
         if i % 5 != 0 {
-            pool.insert(new_block.clone());
+            pool.insert(new_block);
         }
     }
-
+    assert_leaders_have_children(&pool);
     assert_eq!(pool.len(), 15);
     assert_eq!(pool.leaders_len(), 4);
 
@@ -206,10 +202,14 @@ fn test_leaders() {
     assert_eq!(pool.len(), 4);
     assert_eq!(pool.leaders_len(), 1);
 
-    let orphan_1 = pool.remove_blocks_by_parent(&blocks[14].hash());
+    let orphan_1 = pool.remove_blocks_by_parent(&blocks[14].block.hash());
 
-    let orphan_set: HashSet<BlockView> = orphan.into_iter().chain(orphan_1).collect();
-    let blocks_set: HashSet<BlockView> = blocks.into_iter().collect();
+    let orphan_set: HashSet<Arc<BlockView>> = orphan
+        .into_iter()
+        .map(|b| b.block)
+        .chain(orphan_1.into_iter().map(|b| b.block))
+        .collect();
+    let blocks_set: HashSet<Arc<BlockView>> = blocks.into_iter().map(|b| b.block).collect();
     assert_eq!(orphan_set, blocks_set);
     assert_eq!(pool.len(), 0);
     assert_eq!(pool.leaders_len(), 0);
@@ -234,20 +234,16 @@ fn test_remove_expired_blocks() {
             .build();
 
         parent = new_block.header();
-        let lonely_block_with_callback = LonelyBlockWithCallback {
-            lonely_block: LonelyBlock {
-                block: Arc::new(new_block),
-                peer_id: None,
-                switch: None,
-            },
+        let lonely_block = LonelyBlock {
+            block: Arc::new(new_block),
+            switch: None,
             verify_callback: None,
         };
-        pool.insert(lonely_block_with_callback);
+        pool.insert(lonely_block);
     }
     assert_eq!(pool.leaders_len(), 1);
 
     let v = pool.clean_expired_blocks(20_u64);
     assert_eq!(v.len(), 19);
     assert_eq!(pool.leaders_len(), 0);
-    assert_eq!(pool.total_size(), 0)
 }

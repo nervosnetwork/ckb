@@ -13,8 +13,8 @@ use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{BlockExt, BlockView, EpochNumber, EpochNumberWithFraction, HeaderView};
 use ckb_types::U256;
 use ckb_verification::InvalidParentError;
-use std::sync::Arc;
 use dashmap::mapref::entry::Entry;
+use std::sync::Arc;
 
 pub(crate) struct ConsumeDescendantProcessor {
     pub shared: Shared,
@@ -329,7 +329,7 @@ impl ConsumeOrphan {
         let parent_hash = lonely_block.block().parent_hash();
         let block_hash = lonely_block.block().hash();
         let block_number = lonely_block.block().number();
-        
+
         {
             // Is this block still verifying by ConsumeUnverified?
             // If yes, skip it.
@@ -338,7 +338,7 @@ impl ConsumeOrphan {
                 if entry.get().eq(&BlockStatus::BLOCK_STORED) {
                     debug!(
                         "in process_lonely_block, {} is BLOCK_STORED in block_status_map, it is still verifying by ConsumeUnverified thread",
-                        block_hash, 
+                        block_hash,
                     );
                     return;
                 }

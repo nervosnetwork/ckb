@@ -277,8 +277,6 @@ pub struct SyncState {
     ///
     /// If this number is too high, it indicates that block download has stuck at some block.
     pub orphan_blocks_count: Uint64,
-    /// The size of all download orphan blocks
-    pub orphan_blocks_size: Uint64,
     /// Count of downloading blocks.
     pub inflight_blocks_count: Uint64,
     /// The block number of current unverified tip block
