@@ -1,5 +1,5 @@
 use crate::syscalls::WAIT;
-use crate::v2_types::{Message, VmId, WaitArgs};
+use crate::types::{Message, VmId, WaitArgs};
 use ckb_vm::{
     registers::{A0, A1, A7},
     Error as VMError, Register, SupportMachine, Syscalls,

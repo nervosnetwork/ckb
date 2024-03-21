@@ -1,5 +1,5 @@
 use crate::syscalls::CLOSE;
-use crate::v2_types::{Message, PipeId, VmId};
+use crate::types::{Message, PipeId, VmId};
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,

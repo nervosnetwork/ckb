@@ -1,10 +1,8 @@
+use crate::scheduler::Scheduler;
 #[cfg(test)]
 use crate::syscalls::Pause;
 use crate::syscalls::{InheritedFd, ProcessID};
-use crate::v2_scheduler::Scheduler;
-use crate::v2_types::{
-    DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID,
-};
+use crate::types::{DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID};
 use crate::{
     error::{ScriptError, TransactionScriptError},
     syscalls::{

@@ -1,5 +1,5 @@
 use crate::syscalls::INHERITED_FD;
-use crate::v2_types::{Message, PipeId, PipeIoArgs, VmId};
+use crate::types::{Message, PipeId, PipeIoArgs, VmId};
 use ckb_vm::{
     registers::{A0, A1, A7},
     Error as VMError, Register, SupportMachine, Syscalls,

@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SPAWN, SPAWN_EXTRA_CYCLES_BASE};
-use crate::v2_types::{DataPieceId, Message, PipeId, SpawnArgs, TxData, VmId};
+use crate::types::{DataPieceId, Message, PipeId, SpawnArgs, TxData, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     machine::SupportMachine,

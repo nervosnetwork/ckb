@@ -23,8 +23,8 @@ use std::sync::{Arc, Mutex};
 
 use super::SCRIPT_VERSION;
 use crate::syscalls::{tests::utils::*, *};
+use crate::types::TxData;
 use crate::types::{ScriptGroup, ScriptGroupType};
-use crate::v2_types::TxData;
 
 fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
     let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();

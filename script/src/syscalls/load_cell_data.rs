@@ -1,4 +1,4 @@
-use crate::v2_types::{DataPieceId, TxData};
+use crate::types::{DataPieceId, TxData};
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{

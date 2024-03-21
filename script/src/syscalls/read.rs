@@ -1,6 +1,6 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{INVALID_PIPE, READ};
-use crate::v2_types::{Message, PipeId, PipeIoArgs, VmId};
+use crate::types::{Message, PipeId, PipeIoArgs, VmId};
 use ckb_vm::{
     registers::{A0, A1, A2, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,

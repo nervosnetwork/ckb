@@ -2,15 +2,13 @@ use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
     INDEX_OUT_OF_BOUND, INVALID_PIPE, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS, WAIT_FAILURE,
 };
-use crate::v2_types::PipeIoArgs;
+use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::ScriptVersion;
-use crate::{
-    v2_syscalls::MachineContext,
-    v2_types::{
-        DataPieceId, FullSuspendedState, Message, PipeId, RunMode, TxData, VmId, VmState,
-        FIRST_PIPE_SLOT, FIRST_VM_ID,
-    },
+
+use crate::types::{
+    DataPieceId, FullSuspendedState, Message, PipeId, PipeIoArgs, RunMode, TxData, VmId, VmState,
+    FIRST_PIPE_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
