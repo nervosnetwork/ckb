@@ -6037,6 +6037,7 @@ It's an enum value from one of:
   - desc : Descending order
   - asc : Ascending order
 
+<a id="type-indexerpagination_for_indexercell"></a>
 ### Type `IndexerPagination<IndexerCell>`
 IndexerPagination wraps objects array and last_cursor to provide paging
 
@@ -6048,6 +6049,7 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 
 * `objects`: `Array<` [`IndexerCell`](#type-indexercell) `>` - objects collection
 
+<a id="type-indexerpagination_for_indexertx"></a>
 ### Type `IndexerPagination<IndexerTx>`
 IndexerPagination wraps objects array and last_cursor to provide paging
 
@@ -6578,6 +6580,7 @@ The information about an active running protocol.
 
 * `version`: `string` - Active protocol version.
 
+<a id="type-responseformat_for_blockview"></a>
 ### Type `ResponseFormat<BlockView>`
 This is a wrapper for JSON serialization to select the format between Json and Hex.
 
@@ -6591,6 +6594,7 @@ This is a wrapper for JSON serialization to select the format between Json and H
 
 * `inner`: [`Either<BlockView | JsonBytes>`](#type-either_for_blockview_and_jsonbytes) - The inner value.
 
+<a id="type-responseformat_for_headerview"></a>
 ### Type `ResponseFormat<HeaderView>`
 This is a wrapper for JSON serialization to select the format between Json and Hex.
 
@@ -6604,6 +6608,7 @@ This is a wrapper for JSON serialization to select the format between Json and H
 
 * `inner`: [`Either<HeaderView | JsonBytes>`](#type-either_for_headerview_and_jsonbytes) - The inner value.
 
+<a id="type-responseformat_for_transactionview"></a>
 ### Type `ResponseFormat<TransactionView>`
 This is a wrapper for JSON serialization to select the format between Json and Hex.
 

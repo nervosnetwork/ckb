@@ -218,8 +218,19 @@ impl RpcDocGenerator {
                 let name = capitlize(name);
                 let desc = desc.replacen("```\n", "```json\n", 1);
                 let fields = gen_type_fields(&name, ty);
+                let fixed_name = fix_type_name(&name);
+                let sub_title = if fixed_name != name {
+                    format!(
+                        "<a id=\"type-{}\"></a>\n### Type `{}`",
+                        name.to_lowercase(),
+                        fixed_name
+                    )
+                } else {
+                    format!("### Type `{}`", fixed_name)
+                };
                 gen_value(&[
-                    ("name", fix_type_name(&name).into()),
+                    ("sub_title", sub_title.into()),
+                    ("name", fixed_name.into()),
                     ("desc", desc.into()),
                     ("fields", fields.into()),
                 ])
