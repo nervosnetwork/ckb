@@ -693,7 +693,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         let mut cycles = 0;
 
         let groups: Vec<_> = self.groups().collect();
-        for (_idx, (_hash, group)) in groups.iter().enumerate() {
+        for (_hash, group) in groups.iter() {
             // vm should early return invalid cycles
             let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
                 ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
