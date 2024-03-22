@@ -58,7 +58,8 @@ function print_60_days_ago_block(){
 
   TEXT="    // Default assume valid target for ${network}, expect to be a block 60 days ago.\n    // Need to update when CKB's new release\n    // in ${network}: the 60 days ago block is:\n    // height: ${ASSUME_TARGET_HEIGHT_DECIMAL}\n    // hash: ${ASSUME_TARGET_HASH}\n    // date: ${ASSUME_TARGET_DATE}\n    // you can view this block in ${EXPLORER_URL}\n    pub const DEFAULT_ASSUME_VALID_TARGET: &str =\n        \"${ASSUME_TARGET_HASH}\";"
 
-sed -i "/pub mod ${network} {/,/}/c\pub mod ${network} {\n${TEXT}\n}" util/constant/src/default_assume_valid_target.rs
+  sed -i.bak "/pub mod ${network} {/,/}/c\pub mod ${network} {\n${TEXT}\n}" util/constant/src/default_assume_valid_target.rs
+  rm -f util/constant/src/default_assume_valid_target.rs.bak
 }
 
 printf "Now: %s\n\n" "$(date)"
