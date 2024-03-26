@@ -52,7 +52,7 @@ function check_version() {
     fi
 
     if grep -n -H '{.*path\s*=\s*' $cargo_toml | grep -F -v 'version = "= '"$expected"'"'; then
-      printf "Error: Local depedencies in <%s> must specify version \"= %s\"\n" \
+      printf "Error: Local dependencies in <%s> must specify version \"= %s\"\n" \
         "${cargo_toml}" "${expected}"
       ERRCNT=$((ERRCNT + 1))
     fi
