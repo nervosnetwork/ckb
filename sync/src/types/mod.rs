@@ -1953,7 +1953,7 @@ impl ActiveChain {
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
-        self.shared().get_block_status(self.snapshot(), block_hash)
+        self.shared().get_block_status(block_hash)
     }
 
     pub fn contains_block_status(&self, block_hash: &Byte32, status: BlockStatus) -> bool {

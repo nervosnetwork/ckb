@@ -23,9 +23,7 @@ fn wait_for_expected_block_status(
 ) -> bool {
     let now = std::time::Instant::now();
     while now.elapsed().as_secs() < 2 {
-        let current_status = shared
-            .shared()
-            .get_block_status(shared.shared().snapshot().as_ref(), hash);
+        let current_status = shared.shared().get_block_status(hash);
         if current_status == expect_status {
             return true;
         }

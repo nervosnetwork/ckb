@@ -4,7 +4,6 @@ use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::COLUMN_NUMBER_HASH;
 use ckb_logger::info;
-use ckb_shared::block_status::BlockStatus;
 use ckb_shared::Shared;
 use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;

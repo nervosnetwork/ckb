@@ -419,14 +419,15 @@ impl Shared {
         &self.block_status_map
     }
 
-    pub fn get_block_status<T: ChainStore>(&self, store: &T, block_hash: &Byte32) -> BlockStatus {
+    pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
         match self.block_status_map().get(block_hash) {
             Some(status_ref) => *status_ref.value(),
             None => {
                 if self.header_map().contains_key(block_hash) {
                     BlockStatus::HEADER_VALID
                 } else {
-                    let verified = store
+                    let verified = self
+                        .snapshot()
                         .get_block_ext(block_hash)
                         .map(|block_ext| block_ext.verified);
                     match verified {
@@ -442,11 +443,10 @@ impl Shared {
 
     pub fn contains_block_status<T: ChainStore>(
         &self,
-        store: &T,
         block_hash: &Byte32,
         status: BlockStatus,
     ) -> bool {
-        self.get_block_status(store, block_hash).contains(status)
+        self.get_block_status(block_hash).contains(status)
     }
 
     pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {

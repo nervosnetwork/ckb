@@ -294,11 +294,13 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                     &self.header.hash(),
                     status.contains(BlockStatus::BLOCK_STORED),
                 )
-                .expect(&format!(
-                    "header {}-{} with HEADER_VALID should exist",
-                    self.header.number(),
-                    self.header.hash()
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "header {}-{} with HEADER_VALID should exist",
+                        self.header.number(),
+                        self.header.hash()
+                    )
+                })
                 .as_header_index();
             state
                 .peers()

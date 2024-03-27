@@ -37,9 +37,7 @@ impl OrphanBroker {
     }
 
     fn search_orphan_leader(&self, leader_hash: ParentHash) {
-        let leader_status = self
-            .shared
-            .get_block_status(self.shared.store(), &leader_hash);
+        let leader_status = self.shared.get_block_status(&leader_hash);
 
         if leader_status.eq(&BlockStatus::BLOCK_INVALID) {
             let descendants: Vec<LonelyBlockHash> = self
@@ -148,9 +146,7 @@ impl OrphanBroker {
         let block_number = lonely_block.block_number_and_hash.number();
         let parent_hash = lonely_block.parent_hash();
         let parent_is_pending_verify = self.is_pending_verify.contains(&parent_hash);
-        let parent_status = self
-            .shared
-            .get_block_status(self.shared.store(), &parent_hash);
+        let parent_status = self.shared.get_block_status(&parent_hash);
         if parent_is_pending_verify || parent_status.contains(BlockStatus::BLOCK_STORED) {
             debug!(
                 "parent {} has stored: {:?} or is_pending_verify: {}, processing descendant directly {}-{}",
