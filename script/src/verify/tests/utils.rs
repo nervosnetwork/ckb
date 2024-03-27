@@ -246,14 +246,15 @@ impl TransactionScriptsVerifierWithEnv {
             loop {
                 times += 1;
                 let snap = init_snap.take().unwrap();
-                match verifier.resume_from_snap(&snap, max_cycles).unwrap() {
-                    VerifyResult::Suspended(state) => {
+                match verifier.resume_from_snap(&snap, max_cycles) {
+                    Ok(VerifyResult::Suspended(state)) => {
                         init_snap = Some(state.try_into().unwrap());
                     }
-                    VerifyResult::Completed(cycle) => {
+                    Ok(VerifyResult::Completed(cycle)) => {
                         cycles = cycle;
                         break;
                     }
+                    Err(e) => return Err(e),
                 }
             }
 

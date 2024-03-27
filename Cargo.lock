@@ -1793,7 +1793,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.24.9"
-source = "git+https://github.com/nervosnetwork/ckb-vm?branch=release-0.24#e416ba4e711c5ec086f3ef17b25b79c8a2fdae43"
+source = "git+https://github.com/nervosnetwork/ckb-vm?branch=release-0.24#b71f5d96798cc049f9d6dee1da5879e27ae583b0"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1810,7 +1810,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm-definitions"
 version = "0.24.9"
-source = "git+https://github.com/nervosnetwork/ckb-vm?branch=release-0.24#e416ba4e711c5ec086f3ef17b25b79c8a2fdae43"
+source = "git+https://github.com/nervosnetwork/ckb-vm?branch=release-0.24#b71f5d96798cc049f9d6dee1da5879e27ae583b0"
 dependencies = [
  "paste",
 ]
