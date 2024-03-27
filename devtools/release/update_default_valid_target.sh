@@ -46,27 +46,54 @@ function print_60_days_ago_block(){
   local network=$1
   local host=$2
   local explorer_url=$3
-  
+
   ASSUME_TARGET_HEIGHT=$(get_60days_ago_block ${host})
   ASSUME_TARGET_HEIGHT_DECIMAL=$(printf "%d" ${ASSUME_TARGET_HEIGHT})
   ASSUME_TARGET_HASH=$(get_block_hash ${host} ${ASSUME_TARGET_HEIGHT})
   ASSUME_TARGET_TIMESTAMP=$(get_block_timestamp ${host} ${ASSUME_TARGET_HEIGHT})
   ASSUME_TARGET_DATE=$(date -d @$((${ASSUME_TARGET_TIMESTAMP} / 1000)))
   EXPLORER_URL=${explorer_url}/block/${ASSUME_TARGET_HASH}
-  printf "the 60 days ago block is: %d %s in %s\n" ${ASSUME_TARGET_HEIGHT_DECIMAL} ${ASSUME_TARGET_HASH} "${ASSUME_TARGET_DATE}"
-  printf "you can view this block in ${EXPLORER_URL}\n\n"
+  printf "the 60 days ago block is: %d %s in %s\n" ${ASSUME_TARGET_HEIGHT_DECIMAL} ${ASSUME_TARGET_HASH} "${ASSUME_TARGET_DATE}" >&2
+  printf "you can view this block in ${EXPLORER_URL}\n\n" >&2
 
-  TEXT="    // Default assume valid target for ${network}, expect to be a block 60 days ago.\n    // Need to update when CKB's new release\n    // in ${network}: the 60 days ago block is:\n    // height: ${ASSUME_TARGET_HEIGHT_DECIMAL}\n    // hash: ${ASSUME_TARGET_HASH}\n    // date: ${ASSUME_TARGET_DATE}\n    // you can view this block in ${EXPLORER_URL}\n    pub const DEFAULT_ASSUME_VALID_TARGET: &str =\n        \"${ASSUME_TARGET_HASH}\";"
-
-  sed -i.bak "/pub mod ${network} {/,/}/c\pub mod ${network} {\n${TEXT}\n}" util/constant/src/default_assume_valid_target.rs
-  rm -f util/constant/src/default_assume_valid_target.rs.bak
+  TEXT=$(cat <<END_HEREDOC
+/// sync config related to ${network}
+pub mod ${network} {
+    /// Default assume valid target for ${network}, expect to be a block 60 days ago.
+    ///
+    /// Need to update when CKB's new release
+    /// in ${network}: the 60 days ago block is:
+    /// height: ${ASSUME_TARGET_HEIGHT_DECIMAL}
+    /// hash: ${ASSUME_TARGET_HASH}
+    /// date: ${ASSUME_TARGET_DATE}
+    /// you can view this block in ${EXPLORER_URL}
+    pub const DEFAULT_ASSUME_VALID_TARGET: &str =
+        "${ASSUME_TARGET_HASH}";
 }
+END_HEREDOC
+)
+
+    echo "${TEXT}"
+}
+
+IFS='' read -r -d '' TEXT_HEADER <<'EOF' || true
+/// The mod mainnet and mod testnet's codes are generated
+/// by script: ./devtools/release/update_default_valid_target.sh
+/// Please don't modify them manually.
+///
+EOF
 
 printf "Now: %s\n\n" "$(date)"
 printf "Finding the 60 days ago block..., this script may take 1 minute\n\n"
 
 printf "MainNet:\n"
-print_60_days_ago_block mainnet https://mainnet.ckb.dev https://explorer.nervos.org
+TEXT_MAINNET=$(print_60_days_ago_block mainnet https://mainnet.ckb.dev https://explorer.nervos.org)
 
 printf "TestNet:\n"
-print_60_days_ago_block testnet https://testnet.ckb.dev https://pudge.explorer.nervos.org
+TEXT_TESTNET=$(print_60_days_ago_block testnet https://testnet.ckb.dev https://pudge.explorer.nervos.org)
+echo "${TEXT_HEADER}" > util/constant/src/default_assume_valid_target.rs
+echo "${TEXT_MAINNET}" >> util/constant/src/default_assume_valid_target.rs
+echo "${TEXT_TESTNET}" >> util/constant/src/default_assume_valid_target.rs
+echo
+echo this script has overwrite file: util/constant/src/default_assume_valid_target.rs
+echo Please review the changes
