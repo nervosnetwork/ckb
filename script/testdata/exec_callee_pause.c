@@ -1,6 +1,4 @@
-#include <stdlib.h>
 #include "ckb_syscalls.h"
-#include <stdio.h>
 
 void try_pause() {
     ckb_debug("try_pause");
