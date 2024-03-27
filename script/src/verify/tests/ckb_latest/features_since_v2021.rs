@@ -1788,3 +1788,38 @@ fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.unwrap(), 539);
 }
+
+#[test]
+fn check_exec_callee_pause() {
+    let script_version = SCRIPT_VERSION;
+
+    let (exec_caller_cell, exec_caller_data_hash) =
+        load_cell_from_path("testdata/exec_caller_from_cell_data");
+    let (exec_callee_cell, _exec_callee_data_hash) =
+        load_cell_from_path("testdata/exec_callee_pause");
+
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(exec_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell, exec_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_until_completed(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
+    assert_eq!(result.unwrap().1, 5);
+}

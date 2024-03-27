@@ -118,6 +118,7 @@ vm_version: vm_version.c
 vm_version_2: vm_version_2.c
 vm_version_with_snapshot: vm_version_with_snapshot.c
 exec_callee: exec_callee.c
+exec_callee_pause: exec_callee_pause.c
 exec_caller_from_cell_data: exec_caller_from_cell_data.c
 exec_caller_from_witness: exec_caller_from_witness.c
 exec_caller_big_offset_length: exec_caller_big_offset_length.c
