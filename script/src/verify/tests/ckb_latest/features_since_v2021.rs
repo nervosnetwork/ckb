@@ -726,7 +726,6 @@ fn _check_type_id_one_in_one_out_resume_with_state(
     Ok(())
 }
 
-// FIXME(yukang)
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(42))]
     #[test]
