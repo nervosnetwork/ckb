@@ -245,6 +245,11 @@ GEN_MOL_OUT_DIR := util/gen-types/src/generated
 GEN_MOL_FILES := ${GEN_MOL_OUT_DIR}/blockchain.rs ${GEN_MOL_OUT_DIR}/extensions.rs ${GEN_MOL_OUT_DIR}/protocols.rs
 gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
 
+.PHONY: update-default-valid-target
+update-default-valid-target: ## update hardcoded default assume valid target to a 60 days ago block
+	./devtools/release/update_default_valid_target.sh
+	git --no-pager diff util/constant/src/default_assume_valid_target.rs
+
 .PHONY: check-moleculec-version
 check-moleculec-version:
 	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}

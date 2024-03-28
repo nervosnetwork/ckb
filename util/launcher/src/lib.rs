@@ -219,6 +219,7 @@ impl Launcher {
     pub fn check_assume_valid_target(&mut self, shared: &Shared) {
         if let Some(ref target) = self.args.config.network.sync.assume_valid_target {
             if shared.snapshot().block_exists(&target.pack()) {
+                info!("assume valid target is already in db, CKB will do full verification from now on");
                 self.args.config.network.sync.assume_valid_target.take();
             }
         }

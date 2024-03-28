@@ -14,7 +14,7 @@ use ckb_constant::sync::{
     RETRY_ASK_TX_TIMEOUT_INCREASE, SUSPEND_SYNC_TIME,
 };
 use ckb_error::Error as CKBError;
-use ckb_logger::{debug, error, trace};
+use ckb_logger::{debug, error, info, trace};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
@@ -1463,6 +1463,7 @@ impl SyncShared {
                 // if the target has been reached, delete it
                 let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
                     assume_valid_target.take();
+                    info!("assume valid target reached; CKB will do full verification from now on");
                     Switch::NONE
                 } else {
                     Switch::DISABLE_SCRIPT
