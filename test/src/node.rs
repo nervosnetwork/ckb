@@ -690,20 +690,36 @@ impl Node {
         drop(self.guard.take())
     }
 
-    #[cfg(not(target_os = "windows"))]
     pub fn stop_gracefully(&mut self) {
         if let Some(mut guard) = self.guard.take() {
             if !guard.killed {
-                // send SIGINT to the child
-                nix::sys::signal::kill(
-                    nix::unistd::Pid::from_raw(guard.child.id() as i32),
-                    nix::sys::signal::Signal::SIGINT,
-                )
-                .expect("cannot send ctrl-c");
+                // on nix: send SIGINT to the child
+                // on windows: use taskkill to kill the child gracefully
+                Self::kill_gracefully(guard.child.id());
                 let _ = guard.child.wait();
                 guard.killed = true;
             }
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn kill_gracefully(pid: u32) {
+        // taskkill /pid 1234
+        let kill_output = std::process::Command::new("taskkill")
+            .arg("/pid")
+            .arg(format!("{}", pid))
+            .output()
+            .expect("kill process on windows");
+        info!("kill process {}, output: {}", pid, kill_output)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn kill_gracefully(pid: u32) {
+        nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(pid as i32),
+            nix::sys::signal::Signal::SIGINT,
+        )
+        .expect("cannot send ctrl-c");
     }
 
     pub fn export(&self, target: String) {
