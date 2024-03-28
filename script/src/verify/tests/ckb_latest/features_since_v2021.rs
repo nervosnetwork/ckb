@@ -548,7 +548,6 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
                     current_group.unwrap(),
                     limit,
                     &Some(cur_state),
-                    false,
                 ) {
                     Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
                         cycles += used_cycles;
@@ -571,7 +570,7 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
 
             while let Some((ty, _, group)) = groups.front().cloned() {
                 match verifier
-                    .verify_group_with_chunk(group, limit, &tmp, false)
+                    .verify_group_with_chunk(group, limit, &tmp)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles, _consumed_cycles) => {
@@ -751,7 +750,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
         loop {
             while let Some(group) = groups.pop() {
                 match verifier
-                    .verify_group_with_chunk(group.2, limit, &tmp, false)
+                    .verify_group_with_chunk(group.2, limit, &tmp)
                     .unwrap()
                 {
                     ChunkState::Completed(used_cycles, _consumed_cycles) => {
@@ -1792,6 +1791,9 @@ fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
 #[test]
 fn check_exec_callee_pause() {
     let script_version = SCRIPT_VERSION;
+    if script_version < crate::ScriptVersion::V1 {
+        return;
+    }
 
     let (exec_caller_cell, exec_caller_data_hash) =
         load_cell_from_path("testdata/exec_caller_from_cell_data");
@@ -1821,5 +1823,5 @@ fn check_exec_callee_pause() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_until_completed(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
-    assert_eq!(result.unwrap().1, 5);
+    assert_eq!(result.unwrap().1, 6);
 }

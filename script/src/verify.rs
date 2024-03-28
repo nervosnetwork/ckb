@@ -662,7 +662,7 @@ where
                         .source(group)
                 })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &None, false) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
                     current_consumed_cycles =
                         wrapping_cycles_add(current_consumed_cycles, consumed_cycles, group)?;
@@ -748,7 +748,7 @@ where
         })?;
 
         // continue snapshot current script
-        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.state, true) {
+        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.state) {
             Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
                 current_used = wrapping_cycles_add(
                     current_used,
@@ -775,7 +775,7 @@ where
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &None, true) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
                     current_used = wrapping_cycles_add(current_used, consumed_cycles, group)?;
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
@@ -830,7 +830,7 @@ where
 
         //eprintln!("begin to run with limit_cycles: {}", limit_cycles);
         let resumed_script_result =
-            self.verify_group_with_chunk(current_group, limit_cycles, &state, false);
+            self.verify_group_with_chunk(current_group, limit_cycles, &state);
 
         match resumed_script_result {
             Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
@@ -856,7 +856,7 @@ where
                 .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &None, false) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
                     current_used = wrapping_cycles_add(current_used, consumed_cycles, group)?;
                     eprintln!("used_cycles: {:?}", used_cycles);
@@ -906,7 +906,7 @@ where
 
         // continue snapshot current script
         // max_cycles - cycles checked
-        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.state, true) {
+        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.state) {
             Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
@@ -928,7 +928,7 @@ where
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &None, true) {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
                 }
@@ -1004,7 +1004,6 @@ where
         group: &ScriptGroup,
         max_cycles: Cycle,
         state: &Option<FullSuspendedState>,
-        until_complete: bool,
     ) -> Result<ChunkState, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
@@ -1020,7 +1019,7 @@ where
                 Err(e) => Err(e),
             }
         } else {
-            self.chunk_run(group, max_cycles, state, until_complete)
+            self.chunk_run(group, max_cycles, state)
         }
     }
 
@@ -1029,7 +1028,6 @@ where
         script_group: &ScriptGroup,
         max_cycles: Cycle,
         state: &Option<FullSuspendedState>,
-        until_complete: bool,
     ) -> Result<ChunkState, ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let tx_data = TxData {
@@ -1071,18 +1069,11 @@ where
                     }
                 }
                 Err(error) => match error {
-                    VMInternalError::CyclesExceeded => {
-                        if let Ok(snapshot) = scheduler.suspend() {
-                            return Ok(ChunkState::suspended(snapshot));
-                        } else {
-                            panic!("scheduler suspend error");
-                        }
+                    VMInternalError::CyclesExceeded | VMInternalError::Pause => {
+                        let snapshot = scheduler.suspend().map_err(map_vm_internal_error)?;
+                        return Ok(ChunkState::suspended(snapshot));
                     }
-                    VMInternalError::Pause => {
-                        if !until_complete {
-                            return Ok(ChunkState::Suspended(None));
-                        }
-                    }
+
                     _ => return Err(map_vm_internal_error(error)),
                 },
             }
