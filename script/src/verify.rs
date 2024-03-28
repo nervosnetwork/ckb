@@ -738,7 +738,6 @@ where
         snap: &TransactionSnapshot,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
-        let current_group_used = snap.current_cycles;
         let mut cycles = snap.current_cycles;
         let mut current_used = 0;
 
@@ -750,11 +749,7 @@ where
         // continue snapshot current script
         match self.verify_group_with_chunk(current_group, limit_cycles, &snap.state) {
             Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
-                current_used = wrapping_cycles_add(
-                    current_used,
-                    wrapping_cycles_sub(consumed_cycles, current_group_used, current_group)?,
-                    current_group,
-                )?;
+                current_used = wrapping_cycles_add(current_used, consumed_cycles, current_group)?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
             Ok(ChunkState::Suspended(state)) => {
@@ -828,7 +823,6 @@ where
             ScriptError::Other(format!("snapshot group missing {current:?}")).unknown_source()
         })?;
 
-        //eprintln!("begin to run with limit_cycles: {}", limit_cycles);
         let resumed_script_result =
             self.verify_group_with_chunk(current_group, limit_cycles, &state);
 
@@ -1271,15 +1265,6 @@ fn wrapping_cycles_add(
     group: &ScriptGroup,
 ) -> Result<Cycle, TransactionScriptError> {
     lhs.checked_add(rhs)
-        .ok_or_else(|| ScriptError::CyclesOverflow(lhs, rhs).source(group))
-}
-
-fn wrapping_cycles_sub(
-    lhs: Cycle,
-    rhs: Cycle,
-    group: &ScriptGroup,
-) -> Result<Cycle, TransactionScriptError> {
-    lhs.checked_sub(rhs)
         .ok_or_else(|| ScriptError::CyclesOverflow(lhs, rhs).source(group))
 }
 

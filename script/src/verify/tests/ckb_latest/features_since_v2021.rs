@@ -865,29 +865,56 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
 
 fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle) {
     let script_version = SCRIPT_VERSION;
-
     let rtx = random_2_in_2_out_rtx();
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
+
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
+        let mut init_snap: Option<TransactionSnapshot> = None;
         let mut init_state: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
-            init_state = Some(state);
+            init_snap = Some(state.try_into().unwrap());
         }
 
+        let mut count = 0;
         loop {
-            let state = init_state.take().unwrap();
-            let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-            match verifier.resume_from_state(state, limit_cycles).unwrap() {
-                VerifyResult::Suspended(state) => {
-                    init_state = Some(state);
+            if init_snap.is_some() {
+                let snap = init_snap.take().unwrap();
+                let (limit_cycles, _last) =
+                    snap.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
+                match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        if count % 500 == 0 {
+                            init_snap = Some(state.try_into().unwrap());
+                        } else {
+                            init_state = Some(state);
+                        }
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        cycles = cycle;
+                        break;
+                    }
                 }
-                VerifyResult::Completed(cycle) => {
-                    cycles = cycle;
-                    break;
+            } else {
+                let state = init_state.take().unwrap();
+                let (limit_cycles, _last) =
+                    state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
+                match verifier.resume_from_state(state, limit_cycles).unwrap() {
+                    VerifyResult::Suspended(state) => {
+                        if count % 500 == 0 {
+                            init_snap = Some(state.try_into().unwrap());
+                        } else {
+                            init_state = Some(state);
+                        }
+                    }
+                    VerifyResult::Completed(cycle) => {
+                        cycles = cycle;
+                        break;
+                    }
                 }
             }
+            count += 1;
         }
 
         verifier.verify(TWO_IN_TWO_OUT_CYCLES)
