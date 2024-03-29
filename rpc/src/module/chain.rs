@@ -1562,7 +1562,7 @@ pub trait ChainRpc {
     /// ```
     #[deprecated(
         since = "0.109.0",
-        note = "Please use the RPC method [`get_fee_rate_statistics`](#tymethod.get_fee_rate_statistics) instead"
+        note = "Please use the RPC method [`get_fee_rate_statistics`](#chain-get_fee_rate_statistics) instead"
     )]
     #[rpc(name = "get_fee_rate_statics")]
     fn get_fee_rate_statics(&self, target: Option<Uint64>) -> Result<Option<FeeRateStatistics>>;
