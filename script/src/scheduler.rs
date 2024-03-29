@@ -65,7 +65,7 @@ where
     suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
     terminated_vms: BTreeMap<VmId, i8>,
 
-    // message_box is expected to be empty before returning from `run`
+    // MessageBox is expected to be empty before returning from `run`
     // function, there is no need to persist messages.
     message_box: Arc<Mutex<Vec<Message>>>,
 }
@@ -332,8 +332,8 @@ where
                     for pipe in &args.pipes {
                         self.pipes.insert(*pipe, spawned_vm_id);
                     }
-                    // here we keep the original version of file descriptors.
-                    // if one fd is moved afterward, this inherited file descriptors doesn't change.
+                    // Here we keep the original version of file descriptors.
+                    // If one fd is moved afterward, this inherited file descriptors doesn't change.
                     // log::info!(
                     //     "VmId = {} with Inherited file descriptor {:?}",
                     //     spawned_vm_id,
@@ -608,7 +608,6 @@ where
                 let copiable = std::cmp::min(fillable, consumable);
 
                 // Actual data copying
-                // TODO: charge cycles
                 let data = self
                     .instantiated
                     .get_mut(&write_vm_id)
@@ -638,7 +637,7 @@ where
                 // have been written, or when the pairing read pipe is closed.
                 consumed += copiable;
                 if consumed == write_length {
-                    // write VM has fulfilled its write request
+                    // Write VM has fulfilled its write request
                     let (_, write_machine) = self.instantiated.get_mut(&write_vm_id).unwrap();
                     write_machine
                         .machine
@@ -685,7 +684,7 @@ where
         }
 
         if !uninstantiated_ids.is_empty() {
-            // instantiated is a BTreeMap, an iterator on it maintains key order to ensure deterministic behavior
+            // Instantiated is a BTreeMap, an iterator on it maintains key order to ensure deterministic behavior
             let suspendable_ids: Vec<VmId> = self
                 .instantiated
                 .keys()
@@ -705,7 +704,6 @@ where
 
     // Resume a suspended VM
     fn resume_vm(&mut self, id: &VmId) -> Result<(), Error> {
-        //println!("Resuming VM: {}", id);
         if !self.suspended.contains_key(id) {
             return Err(Error::Unexpected(format!("VM {:?} is not suspended!", id)));
         }
@@ -715,7 +713,6 @@ where
             let mut sc = context.snapshot2_context().lock().expect("lock");
             sc.resume(&mut machine.machine, snapshot)?;
         }
-        // TODO: charge cycles
         self.instantiated.insert(*id, (context, machine));
         self.suspended.remove(id);
         Ok(())
@@ -730,7 +727,6 @@ where
                 id
             )));
         }
-        // TODO: charge cycles
         let (context, machine) = self.instantiated.get_mut(id).unwrap();
         let snapshot = {
             let sc = context.snapshot2_context().lock().expect("lock");
@@ -750,7 +746,7 @@ where
     ) -> Result<VmId, Error> {
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
-            // instantiated is a BTreeMap, first_entry will maintain key order
+            // Instantiated is a BTreeMap, first_entry will maintain key order
             let id = *self.instantiated.first_entry().unwrap().key();
             self.suspend_vm(&id)?;
         }
