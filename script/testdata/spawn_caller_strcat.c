@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include "ckb_syscalls.h"
-#include "utils.h"
+#include "spawn_utils.h"
 
 int main() {
     int err = 0;

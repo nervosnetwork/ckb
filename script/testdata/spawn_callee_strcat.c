@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include "ckb_syscalls.h"
-#include "utils.h"
+#include "spawn_utils.h"
 
 char *strcat(char *restrict dest, const char *restrict src) {
     strcpy(dest + strlen(dest), src);

@@ -1,8 +1,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "utils.h"
+
 #include "ckb_syscalls.h"
+#include "spawn_utils.h"
 
 int fib(int n) {
     if (n < 2) {

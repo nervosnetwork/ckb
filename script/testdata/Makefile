@@ -134,17 +134,17 @@ mul2.lib: mul2.c
 div2.lib: div2.c
 load_arithmetic: load_arithmetic.c
 
-spawn_caller_strcat: spawn_caller_strcat.c utils.h
-spawn_callee_strcat: spawn_callee_strcat.c utils.h
+spawn_caller_strcat: spawn_caller_strcat.c spawn_utils.h
+spawn_callee_strcat: spawn_callee_strcat.c spawn_utils.h
 spawn_caller_exec: spawn_caller_exec.c
 spawn_callee_exec_caller: spawn_callee_exec_caller.c
 spawn_callee_exec_callee: spawn_callee_exec_callee.c
-spawn_caller_strcat_wrap: spawn_caller_strcat_wrap.c utils.h
-spawn_recursive: spawn_recursive.c utils.h
+spawn_caller_strcat_wrap: spawn_caller_strcat_wrap.c spawn_utils.h
+spawn_recursive: spawn_recursive.c spawn_utils.h
 spawn_caller_out_of_cycles: spawn_caller_out_of_cycles.c
 spawn_callee_out_of_cycles: spawn_callee_out_of_cycles.c
 spawn_caller_out_of_cycles_wrap: spawn_caller_out_of_cycles_wrap.c
 spawn_caller_current_cycles: spawn_caller_current_cycles.c
 spawn_callee_current_cycles: spawn_callee_current_cycles.c
-spawn_times: spawn_times.c utils.h
-spawn_cases: spawn_cases.c utils.h
+spawn_times: spawn_times.c spawn_utils.h
+spawn_cases: spawn_cases.c spawn_utils.h
