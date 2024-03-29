@@ -631,15 +631,12 @@ where
         .map(|data| {
             let offset = std::cmp::min(offset as usize, data.len());
             let full_length = data.len() - offset;
-            let slice_length = if length > 0 {
+            let real_length = if length > 0 {
                 std::cmp::min(full_length, length as usize)
             } else {
                 full_length
             };
-            (
-                data.slice(offset..offset + slice_length),
-                full_length as u64,
-            )
+            (data.slice(offset..offset + real_length), full_length as u64)
         })
     }
 }

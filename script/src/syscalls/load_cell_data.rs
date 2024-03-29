@@ -11,7 +11,7 @@ use ckb_vm::{
     memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
     registers::{A0, A1, A2, A3, A4, A5, A7},
     snapshot2::{DataSource, Snapshot2Context},
-    Error as VMError, Register, SupportMachine, Syscalls,
+    Bytes, Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::{Arc, Mutex};
 
@@ -50,6 +50,17 @@ where
             .snapshot2_context
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
+
+        if size == 0 {
+            let (cell, _) = sc
+                .data_source()
+                .load_data(&data_piece_id, offset, u64::max_value())?;
+            machine
+                .memory_mut()
+                .store64(&size_addr, &Mac::REG::from_u64(cell.len() as u64))?;
+            machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+            return Ok(());
+        }
 
         let (wrote_size, full_size) =
             match sc.store_bytes(machine, addr, &data_piece_id, offset, size) {
@@ -95,7 +106,13 @@ where
             .data_source()
             .load_data(&data_piece_id, 0, u64::max_value())
         {
-            Ok(val) => val,
+            Ok(val) => {
+                if content_size == 0 {
+                    (Bytes::new(), val.1)
+                } else {
+                    val
+                }
+            }
             Err(VMError::External(m)) if m == "INDEX_OUT_OF_BOUND" => {
                 // This comes from TxData results in an out of bound error, to
                 // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
