@@ -710,7 +710,7 @@ impl Node {
             .arg(format!("{}", pid))
             .output()
             .expect("kill process on windows");
-        info!("kill process {}, output: {}", pid, kill_output)
+        ckb_logger::info!("kill process {}, output: {}", pid, kill_output)
     }
 
     #[cfg(not(target_os = "windows"))]
