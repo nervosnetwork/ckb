@@ -23,9 +23,11 @@ case "$OSTYPE" in
     ;;
 esac
 
+CARGOS=$(find "${SRC_ROOT}" -type f -name "Cargo.toml" -not -path '*/target/*')
+
 function check_package_name() {
   local regex_to_cut_pkgname='s/^\[\(package\)\]\nname\(\|[ ]\+\)=\(\|[ ]\+\)"\(.\+\)"/\4/p'
-  for cargo_toml in $(find "${SRC_ROOT}" -type f -name "Cargo.toml" -not -path '*/target/*'); do
+  for cargo_toml in ${CARGOS}; do
     local pkgname=$(${SED} -n -e N -e "${regex_to_cut_pkgname}" "${cargo_toml}")
     if [ -z "${pkgname}" ]; then
       printf "Error: No package name in <%s>\n" "${cargo_toml}"
@@ -43,7 +45,7 @@ function check_package_name() {
 function check_version() {
   local regex_to_cut_version='s/^version = "\(.*\)"$/\1/p'
   local expected=$(${SED} -n "${regex_to_cut_version}" "${SRC_ROOT}/Cargo.toml")
-  for cargo_toml in $(find "${SRC_ROOT}" -type f -name "Cargo.toml" -not -path '*/target/*'); do
+  for cargo_toml in ${CARGOS}; do
     local tmp=$(${SED} -n "${regex_to_cut_version}" "${cargo_toml}")
     if [ "${expected}" != "${tmp}" ]; then
       printf "Error: Version in <%s> is not right (expect: '%s', actual: '%s')\n" \
@@ -62,7 +64,7 @@ function check_version() {
 function check_license() {
   local regex_to_cut_license='s/^license = "\(.*\)"$/\1/p'
   local expected=$(${SED} -n "${regex_to_cut_license}" "${SRC_ROOT}/Cargo.toml")
-  for cargo_toml in $(find "${SRC_ROOT}" -type f -name "Cargo.toml" -not -path '*/target/*'); do
+  for cargo_toml in ${CARGOS}; do
     local tmp=$(${SED} -n "${regex_to_cut_license}" "${cargo_toml}")
     if [ "${expected}" != "${tmp}" ]; then
       printf "Error: License in <%s> is not right (expect: '%s', actual: '%s')\n" \
@@ -73,7 +75,7 @@ function check_license() {
 }
 
 function check_cargo_publish() {
-  for cargo_toml in $(find "${SRC_ROOT}" -type f -name "Cargo.toml" -not -path '*/target/*'); do
+  for cargo_toml in ${CARGOS}; do
     if ! grep -q '^description =' "${cargo_toml}"; then
       echo "Error: Require description in <${cargo_toml}>"
       ERRCNT=$((ERRCNT + 1))
@@ -89,122 +91,12 @@ function check_cargo_publish() {
   done
 }
 
-function search_crate() {
-  local crate="$1"
-  local source="$2"
-  local tmpcnt=0
-  local depcnt=0
-  local grepopts="-rh"
-  tmpcnt=$({
-    ${GREP} ${grepopts} "\(^\| \)extern crate ${crate}\(::\|;\| as \)" "${source}" ||
-      true
-  } |
-    wc -l)
-  depcnt=$((depcnt + tmpcnt))
-  tmpcnt=$({
-    ${GREP} ${grepopts} "\(^\| \)use ${crate}\(::\|;\| as \)" "${source}" ||
-      true
-  } |
-    wc -l)
-  depcnt=$((depcnt + tmpcnt))
-  tmpcnt=$({
-    ${GREP} ${grepopts} "\(^\|[ (<]\)\(::\|\)${crate}::" "${source}" ||
-      true
-  } |
-    wc -l)
-  depcnt=$((depcnt + tmpcnt))
-  printf "${depcnt}"
-}
-
-function check_dependencies_for() {
-  local deptype="$1"
-  for cargo_toml in $(find "${SRC_ROOT}" -type f -name "Cargo.toml" -not -path '*/target/*'); do
-    local pkgroot=$(dirname "${cargo_toml}")
-    for dependency_original in $(${SED} -n "/^\[${deptype}\]/,/^\[/p" "${cargo_toml}" |
-      { ${GREP} -v "^\(\[\|[ ]*$\|[ ]*#\)" || true; } |
-      ${SED} -n "s/\([^ =]*\).*/\1/p"); do
-      local workspace_suffix=".workspace"
-      local dependency=$(printf "${dependency_original}" | tr '-' '_' |  ${SED} -e s/$workspace_suffix$//)
-      local tmpcnt=0
-      local depcnt=0
-      local srcdir=
-      local buildrs=
-      case "${deptype}" in
-        "dependencies" | "dev-dependencies")
-          srcdir="${pkgroot}/src"
-          if [ ! -d "${srcdir}" ]; then
-            srcdir="${pkgroot}"
-          fi
-          tmpcnt=$(search_crate "${dependency}" "${srcdir}")
-          depcnt=$((depcnt + tmpcnt))
-          ;;
-        "build-dependencies")
-          buildrs="${pkgroot}/build.rs"
-          tmpcnt=$(search_crate "${dependency}" "${buildrs}")
-          depcnt=$((depcnt + tmpcnt))
-          ;;
-        *)
-          :
-          ;;
-      esac
-      if [ "${deptype}" = "dev-dependencies" ]; then
-        for subdir in "tests" "benches" "examples"; do
-          srcdir="${pkgroot}/${subdir}"
-          if [ -d "${srcdir}" ]; then
-            tmpcnt=$(search_crate "${dependency}" "${srcdir}")
-            depcnt=$((depcnt + tmpcnt))
-          fi
-        done
-      fi
-      if [ "${depcnt}" -eq 0 ]; then
-        case "${dependency}" in
-          phf)
-            # We cann't handle these crates.
-            printf "Warn: [%s::%s] in <%s>\n" \
-              "${deptype}" "${dependency}" "${pkgroot}"
-            ;;
-          tokio_yamux)
-            if [ "$(basename "$pkgroot")" != "network" ]; then
-              printf "Error: [%s::%s] in <%s>\n" \
-                "${deptype}" "${dependency}" "${pkgroot}"
-              ERRCNT=$((ERRCNT + 1))
-            else
-              printf "Warn: [%s::%s] locked in <%s>\n" \
-                "${deptype}" "${dependency}" "${pkgroot}"
-            fi
-            ;;
-          tokio)
-            if [ "$(basename "$pkgroot")" != "light-client-protocol-server" ]; then
-              printf "Error: [%s::%s] in <%s>\n" \
-                "${deptype}" "${dependency}" "${pkgroot}"
-              ERRCNT=$((ERRCNT + 1))
-            else
-              printf "Warn: [%s::%s] used as macros in <%s>\n" \
-                "${deptype}" "${dependency}" "${pkgroot}"
-            fi
-            ;;
-          *)
-            printf "Error: [%s::%s] in <%s>\n" \
-              "${deptype}" "${dependency}" "${pkgroot}"
-            ERRCNT=$((ERRCNT + 1))
-            ;;
-        esac
-      fi
-      if [ "${deptype}" = "dev-dependencies" ]; then
-        tmpcnt=$(${GREP} -c "^${dependency_original}[^a-zA-Z0-9=_-]*=" "${cargo_toml}")
-        if [ "${tmpcnt}" -gt 1 ]; then
-          printf "Warn: [%s::%s] in <%s>, twice\n" \
-            "${deptype}" "${dependency}" "${pkgroot}"
-        fi
-      fi
-    done
-  done
-}
-
 function check_dependencies() {
-  check_dependencies_for "dependencies"
-  check_dependencies_for "build-dependencies"
-  check_dependencies_for "dev-dependencies"
+  if ! type cargo-shear &> /dev/null
+  then
+      cargo install cargo-shear
+  fi
+  cargo shear
 }
 
 function main() {

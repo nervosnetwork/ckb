@@ -16,3 +16,6 @@ ckb-fixed-hash-core = { path = "../core", version = "= 0.116.0-pre" }
 quote = "1.0"
 syn = "1.0"
 proc-macro2 = "1.0"
+
+[package.metadata.cargo-shear]
+ignored = ["ckb-fixed-hash-core"]
