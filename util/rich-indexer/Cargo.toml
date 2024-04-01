@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rich-indexer"
-version = "0.115.0-rc2"
+version = "0.115.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -12,12 +12,12 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 anyhow = "1.0.34"
-ckb-app-config = { path = "../app-config", version = "= 0.115.0-rc2" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.115.0-rc2" }
-ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.115.0-rc2" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.115.0-rc2" }
-ckb-notify = { path = "../../notify", version = "= 0.115.0-rc2" }
-ckb-types = { path = "../types", version = "= 0.115.0-rc2" }
+ckb-app-config = { path = "../app-config", version = "= 0.115.0" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.115.0" }
+ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.115.0" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.115.0" }
+ckb-notify = { path = "../../notify", version = "= 0.115.0" }
+ckb-types = { path = "../types", version = "= 0.115.0" }
 futures = "0.3"
 log = "0.4"
 num-bigint = "0.4"
