@@ -172,6 +172,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `FeeRateStatistics`](#type-feeratestatistics)
     * [Type `H256`](#type-h256)
     * [Type `HardForkFeature`](#type-hardforkfeature)
+    * [Type `HardForks`](#type-hardforks)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
     * [Type `IndexerCell`](#type-indexercell)
@@ -208,6 +209,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
+    * [Type `ResponseFormat_for_BlockView`](#type-responseformat_for_blockview)
+    * [Type `ResponseFormat_for_HeaderView`](#type-responseformat_for_headerview)
+    * [Type `ResponseFormat_for_TransactionView`](#type-responseformat_for_transactionview)
     * [Type `Rfc0043`](#type-rfc0043)
     * [Type `Script`](#type-script)
     * [Type `ScriptHashType`](#type-scripthashtype)
@@ -607,7 +611,7 @@ When specifying with_cycles, the response object will be different like below:
 * `get_header(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
+* result: [`ResponseFormat_for_HeaderView`](#type-responseformat_for_headerview) `|` `null`
 
 Returns the information about a block header by hash.
 
@@ -686,7 +690,7 @@ The response looks like below when `verbosity` is 0.
 * `get_header_by_number(block_number, verbosity)`
     * `block_number`: [`Uint64`](#type-uint64)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
+* result: [`ResponseFormat_for_HeaderView`](#type-responseformat_for_headerview) `|` `null`
 
 Returns the block header in the [canonical chain](#canonical-chain) with the specific block
 number.
@@ -997,7 +1001,7 @@ Response
 #### Method `get_tip_header`
 * `get_tip_header(verbosity)`
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes)
+* result: [`ResponseFormat_for_HeaderView`](#type-responseformat_for_headerview)
 
 Returns the header with the highest block number in the [canonical chain](#canonical-chain).
 
@@ -1525,7 +1529,7 @@ Response
 * `get_fork_block(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) `|` `null`
+* result: [`ResponseFormat_for_BlockView`](#type-responseformat_for_blockview) `|` `null`
 
 Returns the information about a fork block by hash.
 
@@ -5438,7 +5442,7 @@ BlockResponse with cycles format wrapper
 
 `BlockWithCyclesResponse` is a JSON object with the following fields.
 
-* `block`: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) - The block structure
+* `block`: [`ResponseFormat_for_BlockView`](#type-responseformat_for_blockview) - The block structure
 
 ### Type `Buried`
 Represent soft fork deployments where the activation epoch is hard-coded into the client implementation
@@ -5689,7 +5693,7 @@ Consensus defines various parameters that influence chain consensus
 
 * `genesis_hash`: [`H256`](#type-h256) - The genesis block hash
 
-* `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
+* `hardfork_features`: [`HardForks`](#type-hardforks) - Hardfork features
 
 * `id`: `string` - Names the network.
 
@@ -5935,6 +5939,14 @@ The information about one hardfork feature.
 
 * `rfc`: `string` - The related RFC ID.
 
+### Type `HardForks`
+Hardfork information
+
+#### Fields
+
+`HardForks` is a JSON object with the following fields.
+
+* `inner`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>`
 ### Type `Header`
 The block header.
 
@@ -6175,13 +6187,13 @@ IndexerSearchKeyFilter represent indexer params `filter`
 
 `IndexerSearchKeyFilter` is a JSON object with the following fields.
 
-* `block_range`: [`Uint64`](#type-uint64) filter cells by block number range
-* `output_capacity_range`: [`Uint64`](#type-uint64) filter cells by output capacity range
+* `block_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by block number range
+* `output_capacity_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by output capacity range
 * `output_data`: [`JsonBytes`](#type-jsonbytes) `|` `null` filter cells by output data
 * `output_data_filter_mode`: [`IndexerSearchMode`](#type-indexersearchmode) `|` `null` output data filter mode, optional default is `prefix`
-* `output_data_len_range`: [`Uint64`](#type-uint64) filter cells by output data len range
+* `output_data_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by output data len range
 * `script`: [`Script`](#type-script) `|` `null` if search script type is lock, filter cells by type script prefix, and vice versa
-* `script_len_range`: [`Uint64`](#type-uint64) filter cells by script len range
+* `script_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by script len range
 ### Type `IndexerSearchMode`
 IndexerSearchMode represent search mode, default is prefix search
 
@@ -6655,6 +6667,45 @@ The information about an active running protocol.
 * `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
 
 * `version`: `string` - Active protocol version.
+
+### Type `ResponseFormat_for_BlockView`
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+###### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat_for_BlockView` is a JSON object with the following fields.
+
+* `inner`: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) - The inner value.
+
+### Type `ResponseFormat_for_HeaderView`
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+###### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat_for_HeaderView` is a JSON object with the following fields.
+
+* `inner`: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) - The inner value.
+
+### Type `ResponseFormat_for_TransactionView`
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+###### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat_for_TransactionView` is a JSON object with the following fields.
+
+* `inner`: [`Either_for_TransactionView_and_JsonBytes`](#type-either_for_transactionview_and_jsonbytes) - The inner value.
 
 ### Type `Rfc0043`
 Represent soft fork deployments where activation is controlled by rfc0043 signaling
