@@ -1,4 +1,23 @@
-# CHANGELOG
+## [v0.115.0](https://github.com/nervosnetwork/ckb/compare/v0.114.0...v0.115.0) (2024-04-01)
+
+### Features
+
+-   #4381: Limit ibd orphan pool size (@driftluo)
+-   #4224: Add rich-indexer which is another built-in indexer based on relational database (@EthanYuan)
+
+### Bug Fixes
+
+-   #4382: Fix the performance issue caused by `track_entry_statics` (@chenyukang)
+
+### Improvements
+
+-   #4335: Move some helper function for building `blocks/txs` from `ckb-chain` to `ckb-test-chain-utils` (@eval-exec)
+-   #4187: Add `OpenRPC `generator and use `JsonSchema `to update rpc/readme (@chenyukang)
+-   #4345: `IndexerService::apply_init_tip` should stop after received exit signal. (@eval-exec)
+-   #4348: IndexerService should use `is_cancelled()` to check if ckb received Ctrl-C signal (@eval-exec)
+-   #4356: Upgade rust-toolchain to `1.75.0` (@eval-exec)
+-   #4363: Evict possible cell ref txs before submitting cell consuming transaction (@chenyukang)
+-   #4339: Add conflicts cache for tx pool to record conflicted transactions (@chenyukang)
 
 ## [v0.114.0](https://github.com/nervosnetwork/ckb/compare/v0.113.1...v0.114.0) (2024-02-29)
 
