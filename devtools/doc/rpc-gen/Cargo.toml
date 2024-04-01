@@ -15,3 +15,4 @@ serde_json = "~1.0"
 tera = "1"
 syn = { version = "2.0.39", features = ["extra-traits", "full", "parsing", "visit"] }
 walkdir = "2.1.4"
+proc-macro2 = "1.0"

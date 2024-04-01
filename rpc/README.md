@@ -1866,6 +1866,9 @@ Response
     * `target`: [`Uint64`](#type-uint64) `|` `null`
 * result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
 
+👎Deprecated since 0.109.0: Please use the RPC method [`get_fee_rate_statistics`](#chain-get_fee_rate_statistics) instead
+
+
 Returns the fee_rate statistics of confirmed blocks on the chain
 
 ###### Params
@@ -2014,6 +2017,9 @@ The methods here may be removed or changed in future releases without prior noti
 * `dry_run_transaction(tx)`
     * `tx`: [`Transaction`](#type-transaction)
 * result: [`EstimateCycles`](#type-estimatecycles)
+
+👎Deprecated since 0.105.1: Please use the RPC method [`estimate_cycles`](#chain-estimate_cycles) instead
+
 
 Dry run a transaction and return the execution cycles.
 

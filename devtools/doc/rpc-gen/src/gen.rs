@@ -3,6 +3,7 @@ use crate::syn::*;
 use ckb_rpc::RPCError;
 use schemars::schema_for;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::{fs, vec};
 use tera::Tera;
 
@@ -10,6 +11,7 @@ struct RpcModule {
     pub title: String,
     pub description: String,
     pub methods: Vec<serde_json::Value>,
+    pub deprecated: HashMap<String, (String, String)>,
 }
 
 impl RpcModule {
@@ -65,7 +67,15 @@ impl RpcModule {
                 } else {
                     "".to_string()
                 };
-                let signatures = format!("* `{}({})`\n{}\n{}", name, args, arg_lines, ret_ty);
+                let fn_full_name = format!("{}.{}", self.title, name);
+                let mut deprecated_desc = "".to_string();
+                if let Some((version, desc)) = self.deprecated.get(&fn_full_name) {
+                    deprecated_desc = format!("\n\n👎Deprecated since {}: {}\n", version, desc);
+                }
+                let signatures = format!(
+                    "* `{}({})`\n{}\n{}{}",
+                    name, args, arg_lines, ret_ty, deprecated_desc
+                );
                 let mut desc = method["description"]
                     .as_str()
                     .unwrap()
@@ -101,6 +111,17 @@ impl RpcDocGenerator {
     pub fn new(all_rpc: &Vec<Value>, readme_path: String) -> Self {
         let mut rpc_methods = vec![];
         let mut types: Vec<&Map<String, Value>> = vec![];
+
+        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
+        let finder = CommentFinder::new();
+        let types_defined_in_source: Vec<(String, String)> = finder
+            .type_comments
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let deprecated = finder.deprecated;
+        pre_defined.extend(types_defined_in_source);
+
         for rpc in all_rpc {
             if let serde_json::Value::Object(map) = rpc {
                 let title = capitlize(
@@ -117,15 +138,12 @@ impl RpcDocGenerator {
                     title,
                     description,
                     methods: methods.to_owned(),
+                    deprecated: deprecated.clone(),
                 });
             }
         }
-
         // sort rpc_methods accoring to title
         rpc_methods.sort_by(|a, b| a.title.cmp(&b.title));
-
-        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
-        pre_defined.extend(visit_for_types());
 
         let mut all_types: Vec<(String, Value)> = pre_defined
             .iter()
