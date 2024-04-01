@@ -67,7 +67,9 @@ ALL_BINS := jalr_zero \
             spawn_caller_current_cycles \
             spawn_callee_current_cycles \
             spawn_times \
-            spawn_cases
+            spawn_cases \
+            spawn_configurable_caller \
+            spawn_configurable_callee
 
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
@@ -148,3 +150,5 @@ spawn_caller_current_cycles: spawn_caller_current_cycles.c
 spawn_callee_current_cycles: spawn_callee_current_cycles.c
 spawn_times: spawn_times.c spawn_utils.h
 spawn_cases: spawn_cases.c spawn_utils.h
+spawn_configurable_caller: spawn_configurable_caller.c spawn_utils.h
+spawn_configurable_callee: spawn_configurable_callee.c spawn_utils.h

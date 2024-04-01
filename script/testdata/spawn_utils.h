@@ -140,6 +140,35 @@ exit:
     return err;
 }
 
+// Function read_all reads from fd until an error or EOF and returns the data it read.
+int ckb_read_all(uint64_t fd, void* buffer, size_t* length) {
+    int err = 0;
+    size_t read_length = 0;
+    size_t full_length = *length;
+    uint8_t* b = buffer;
+    while (true) {
+        size_t n = full_length - read_length;
+        err = ckb_read(fd, b, &n);
+        if (err == CKB_OTHER_END_CLOSED) {
+            err = 0;
+            *length = read_length;
+            break;
+        } else {
+            CHECK(err);
+        }
+        if (full_length - read_length == 0) {
+            err = CKB_LENGTH_NOT_ENOUGH;
+            CHECK(err);
+        }
+        b += n;
+        read_length += n;
+        *length = read_length;
+    }
+
+exit:
+    return err;
+}
+
 // write exact `length` bytes into buffer.
 // Will wait forever when less bytes are read on read fd.
 int write_exact(uint64_t fd, void* buffer, size_t length, size_t* actual_length) {
@@ -187,4 +216,11 @@ int load_script_args(uint8_t* args, size_t* length) {
 
 exit:
     return err;
+}
+
+void print_hex(const uint8_t* buf, size_t length) {
+  for (size_t i = 0; i < length; i++) {
+    printf("%02x ", buf[i]);
+  }
+  printf("\n");
 }

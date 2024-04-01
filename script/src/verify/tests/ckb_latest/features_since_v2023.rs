@@ -1,10 +1,10 @@
+use super::SCRIPT_VERSION;
+use crate::syscalls::SOURCE_GROUP_FLAG;
+use crate::verify::{tests::utils::*, *};
 use ckb_types::{
-    core::{capacity_bytes, Capacity, TransactionBuilder},
+    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, TransactionBuilder},
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
 };
-
-use super::SCRIPT_VERSION;
-use crate::verify::{tests::utils::*, *};
 
 fn simple_spawn_test(bin_path: &str, args: &[u8]) -> Result<Cycle, Error> {
     let script_version = SCRIPT_VERSION;
@@ -636,4 +636,174 @@ fn check_spawn_current_cycles() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[derive(Clone, Copy)]
+enum SpawnFrom {
+    TxInputWitness,
+    GroupInputWitness,
+    TxOutputWitness,
+    GroupOutputWitness,
+    TxCellDep,
+    TxInputCell,
+    TxOutputCell,
+    GroupInputCell,
+    GroupOutputCell,
+}
+
+fn check_spawn_configurable_once(spawn_from: SpawnFrom) {
+    let script_version = SCRIPT_VERSION;
+
+    let args = {
+        let mut args: Vec<u8> = vec![];
+        let position = match spawn_from {
+            SpawnFrom::TxInputWitness => vec![0, 1, 1, 0],
+            SpawnFrom::GroupInputWitness => vec![0, SOURCE_GROUP_FLAG | 1, 1, 0],
+            SpawnFrom::TxOutputWitness => vec![0, 2, 1, 0],
+            SpawnFrom::GroupOutputWitness => vec![0, SOURCE_GROUP_FLAG | 2, 1, 0],
+            SpawnFrom::TxCellDep => vec![1, 3, 0, 0],
+            SpawnFrom::TxInputCell => vec![1, 1, 0, 0],
+            SpawnFrom::TxOutputCell => vec![0, 2, 0, 0],
+            SpawnFrom::GroupInputCell => vec![0, SOURCE_GROUP_FLAG | 1, 0, 0],
+            SpawnFrom::GroupOutputCell => vec![0, SOURCE_GROUP_FLAG | 2, 0, 0],
+        };
+        for e in position {
+            args.extend(e.to_le_bytes());
+        }
+        args
+    };
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_configurable_caller");
+    let (spawn_callee_cell, _) = load_cell_from_path("testdata/spawn_configurable_callee");
+    let (always_success_cell, always_success_data_hash) =
+        load_cell_from_path("testdata/always_success");
+    let spawn_callee_cell_data = spawn_callee_cell.mem_cell_data.as_ref().unwrap();
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .args(args.pack())
+        .build();
+    let always_success_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(always_success_data_hash)
+        .build();
+
+    let input_spawn_caller = create_dummy_cell(
+        CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(spawn_caller_script.clone())
+            .build(),
+    );
+
+    let rtx = match spawn_from {
+        SpawnFrom::TxInputWitness | SpawnFrom::TxOutputWitness | SpawnFrom::GroupInputWitness => {
+            ResolvedTransaction {
+                transaction: TransactionBuilder::default()
+                    .set_witnesses(vec![spawn_callee_cell_data.pack()])
+                    .build(),
+                resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+                resolved_inputs: vec![input_spawn_caller],
+                resolved_dep_groups: vec![],
+            }
+        }
+        SpawnFrom::GroupOutputWitness => ResolvedTransaction {
+            transaction: TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(100).pack())
+                        .type_(Some(spawn_caller_script).pack())
+                        .build(),
+                )
+                .set_witnesses(vec![spawn_callee_cell_data.pack()])
+                .build(),
+            resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+            resolved_inputs: vec![],
+            resolved_dep_groups: vec![],
+        },
+        SpawnFrom::TxCellDep => ResolvedTransaction {
+            transaction: TransactionBuilder::default().build(),
+            resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+            resolved_inputs: vec![input_spawn_caller],
+            resolved_dep_groups: vec![],
+        },
+        SpawnFrom::TxInputCell => {
+            let input_spawn_callee_output = CellOutputBuilder::default()
+                .capacity(capacity_bytes!(1000).pack())
+                .lock(always_success_script.clone())
+                .build();
+            let input_spawn_callee = CellMetaBuilder::from_cell_output(
+                input_spawn_callee_output,
+                spawn_callee_cell_data.clone(),
+            )
+            .build();
+            ResolvedTransaction {
+                transaction: TransactionBuilder::default().build(),
+                resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell, always_success_cell],
+                resolved_inputs: vec![input_spawn_caller, input_spawn_callee],
+                resolved_dep_groups: vec![],
+            }
+        }
+        SpawnFrom::TxOutputCell => ResolvedTransaction {
+            transaction: TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(100).pack())
+                        .lock(always_success_script.clone())
+                        .build(),
+                )
+                .output_data(spawn_callee_cell_data.pack())
+                .build(),
+            resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell, always_success_cell],
+            resolved_inputs: vec![input_spawn_caller],
+            resolved_dep_groups: vec![],
+        },
+        SpawnFrom::GroupInputCell => {
+            let input_spawn_caller = CellMetaBuilder::from_cell_output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(100).pack())
+                    .lock(spawn_caller_script)
+                    .build(),
+                spawn_callee_cell_data.clone(),
+            )
+            .build();
+            ResolvedTransaction {
+                transaction: TransactionBuilder::default().build(),
+                resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell, always_success_cell],
+                resolved_inputs: vec![input_spawn_caller],
+                resolved_dep_groups: vec![],
+            }
+        }
+        SpawnFrom::GroupOutputCell => ResolvedTransaction {
+            transaction: TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(100).pack())
+                        .type_(Some(spawn_caller_script).pack())
+                        .build(),
+                )
+                .output_data(spawn_callee_cell_data.pack())
+                .build(),
+            resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell, always_success_cell],
+            resolved_inputs: vec![],
+            resolved_dep_groups: vec![],
+        },
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_configurable() {
+    check_spawn_configurable_once(SpawnFrom::TxInputWitness);
+    check_spawn_configurable_once(SpawnFrom::GroupInputWitness);
+    check_spawn_configurable_once(SpawnFrom::TxOutputWitness);
+    check_spawn_configurable_once(SpawnFrom::GroupOutputWitness);
+    check_spawn_configurable_once(SpawnFrom::TxCellDep);
+    check_spawn_configurable_once(SpawnFrom::TxInputCell);
+    check_spawn_configurable_once(SpawnFrom::TxOutputCell);
+    check_spawn_configurable_once(SpawnFrom::GroupInputCell);
+    check_spawn_configurable_once(SpawnFrom::GroupOutputCell);
 }
