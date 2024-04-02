@@ -1,6 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INDEX_OUT_OF_BOUND, INVALID_PIPE, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS, WAIT_FAILURE,
+    INDEX_OUT_OF_BOUND, INVALID_PIPE, MAX_PIPE_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS,
+    WAIT_FAILURE,
 };
 use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
@@ -35,6 +36,7 @@ use std::{
 const ROOT_VM_ID: VmId = FIRST_VM_ID;
 const MAX_VMS_COUNT: u64 = 16;
 const MAX_INSTANTIATED_VMS: usize = 4;
+const MAX_PIPE: u64 = 64;
 
 /// A single Scheduler instance is used to verify a single script
 /// within a CKB transaction.
@@ -384,7 +386,11 @@ where
                     );
                 }
                 Message::Pipe(vm_id, args) => {
-                    // TODO: pipe limits
+                    if self.next_pipe_slot - FIRST_PIPE_SLOT >= MAX_PIPE {
+                        let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                        machine.machine.set_register(A0, MAX_PIPE_CREATED as u64);
+                        continue;
+                    }
                     let (p1, p2, slot) = PipeId::create(self.next_pipe_slot);
                     self.next_pipe_slot = slot;
                     // log::debug!("VM {} creates pipes ({}, {})", vm_id, p1.0, p2.0);

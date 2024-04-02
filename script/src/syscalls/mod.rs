@@ -67,6 +67,7 @@ pub const WAIT_FAILURE: u8 = 5;
 pub const INVALID_PIPE: u8 = 6;
 pub const OTHER_END_CLOSED: u8 = 7;
 pub const MAX_VMS_SPAWNED: u8 = 8;
+pub const MAX_PIPE_CREATED: u8 = 9;
 
 pub const VM_VERSION: u64 = 2041;
 pub const CURRENT_CYCLES: u64 = 2042;
