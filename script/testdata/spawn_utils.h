@@ -219,8 +219,21 @@ exit:
 }
 
 void print_hex(const uint8_t* buf, size_t length) {
-  for (size_t i = 0; i < length; i++) {
-    printf("%02x ", buf[i]);
-  }
-  printf("\n");
+    char dst[65] = {0};
+    int j = 0;
+    for (int i = 0; i < length; i++) {
+        char hi = buf[i] >> 4;
+        char lo = buf[i] & 0xf;
+        dst[j * 2] = hi + (hi < 10 ? '0' : ('a' - 10));
+        dst[j * 2 + 1] = lo + (lo < 10 ? '0' : ('a' - 10));
+        j += 1;
+        if (j > 31) {
+            j = 0;
+            printf("%s", dst);
+        }
+    }
+    if (j != 0) {
+        dst[j * 2] = 0;
+        printf("%s", dst);
+    }
 }

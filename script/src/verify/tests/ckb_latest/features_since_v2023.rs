@@ -679,6 +679,7 @@ enum SpawnFrom {
     TxOutputCell,
     GroupInputCell,
     GroupOutputCell,
+    Slice(u64, u64),
 }
 
 fn check_spawn_configurable_once(spawn_from: SpawnFrom) {
@@ -696,6 +697,17 @@ fn check_spawn_configurable_once(spawn_from: SpawnFrom) {
             SpawnFrom::TxOutputCell => vec![0, 2, 0, 0],
             SpawnFrom::GroupInputCell => vec![0, SOURCE_GROUP_FLAG | 1, 0, 0],
             SpawnFrom::GroupOutputCell => vec![0, SOURCE_GROUP_FLAG | 2, 0, 0],
+            SpawnFrom::Slice(offset, size) => {
+                let (spawn_callee_cell, _) =
+                    load_cell_from_path("testdata/spawn_configurable_callee");
+                let h = offset << 32;
+                let l = if size == 0 {
+                    0
+                } else {
+                    spawn_callee_cell.mem_cell_data.unwrap().len() as u64
+                };
+                vec![0, 1, 1, h | l]
+            }
         };
         for e in position {
             args.extend(e.to_le_bytes());
@@ -818,6 +830,21 @@ fn check_spawn_configurable_once(spawn_from: SpawnFrom) {
             resolved_inputs: vec![],
             resolved_dep_groups: vec![],
         },
+        SpawnFrom::Slice(offset, size) => {
+            let mut data = vec![0; offset as usize];
+            data.extend(spawn_callee_cell_data);
+            if size != 0 {
+                data.extend(vec![0; 0x12]);
+            }
+            ResolvedTransaction {
+                transaction: TransactionBuilder::default()
+                    .set_witnesses(vec![data.pack()])
+                    .build(),
+                resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+                resolved_inputs: vec![input_spawn_caller],
+                resolved_dep_groups: vec![],
+            }
+        }
     };
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
@@ -836,4 +863,8 @@ fn check_spawn_configurable() {
     check_spawn_configurable_once(SpawnFrom::TxOutputCell);
     check_spawn_configurable_once(SpawnFrom::GroupInputCell);
     check_spawn_configurable_once(SpawnFrom::GroupOutputCell);
+    check_spawn_configurable_once(SpawnFrom::Slice(0, 0));
+    check_spawn_configurable_once(SpawnFrom::Slice(1, 0));
+    check_spawn_configurable_once(SpawnFrom::Slice(0, 1));
+    check_spawn_configurable_once(SpawnFrom::Slice(1, 1));
 }

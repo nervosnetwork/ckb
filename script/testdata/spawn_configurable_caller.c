@@ -16,14 +16,15 @@ int main() {
     n = countof(args);
     err = load_script_args(args, &n);
     CHECK(err);
-    int args_index = read_u64_le(&args[0x00]);
-    int args_source = read_u64_le(&args[0x08]);
-    int args_place = read_u64_le(&args[0x10]);
-    int args_bounds = read_u64_le(&args[0x18]);
-    printf("args.index  = %d", args_index);
-    printf("args.source = %d", args_source);
-    printf("args.place  = %d", args_place);
-    printf("args.bounds = %d", args_bounds);
+    CHECK2(n == 32, ErrorCommon);
+    uint64_t args_index = read_u64_le(&args[0x00]);
+    uint64_t args_source = read_u64_le(&args[0x08]);
+    uint64_t args_place = read_u64_le(&args[0x10]);
+    uint64_t args_bounds = read_u64_le(&args[0x18]);
+    printf("args.index  = %llu", args_index);
+    printf("args.source = %llu", args_source);
+    printf("args.place  = %llu", args_place);
+    printf("args.bounds = %llu", args_bounds);
 
     const char *argv[] = {};
     uint64_t pid = 0;
