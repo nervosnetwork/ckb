@@ -40,3 +40,5 @@ ckb-crypto = { path = "../util/crypto", version = "= 0.115.0-pre" }
 ckb-db-schema = { path = "../db-schema", version = "= 0.115.0-pre" }
 tempfile.workspace = true
 rand = "0.8.4"
+daggy = "0.8.0"
+molecule = "0.7.5"

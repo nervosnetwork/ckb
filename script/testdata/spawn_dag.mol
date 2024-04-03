@@ -1,0 +1,34 @@
+array VmIndex [byte; 8];
+array PipeIndex [byte; 8];
+
+vector PipeIndices <PipeIndex>;
+vector Bytes <byte>;
+
+table Pipe {
+  vm: VmIndex,
+  read_pipe: PipeIndex,
+  write_pipe: PipeIndex,
+}
+vector Pipes <Pipe>;
+
+table Write {
+  from: VmIndex,
+  from_pipe: PipeIndex,
+  to: VmIndex,
+  to_pipe: PipeIndex,
+  data: Bytes,
+}
+vector Writes <Write>;
+
+table Spawn {
+  from: VmIndex,
+  child: VmIndex,
+  pipes: PipeIndices,
+}
+vector Spawns <Spawn>;
+
+table Data {
+  spawns: Spawns,
+  pipes: Pipes,
+  writes: Writes,
+}
