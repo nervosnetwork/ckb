@@ -5236,7 +5236,7 @@ Block filter data and hash.
 
 `BlockFilter` is a JSON object with the following fields.
 
-* `data`: [`JsonBytes`](#type-jsonbytes) - The the hex-encoded filter data of the block
+* `data`: [`JsonBytes`](#type-jsonbytes) - The hex-encoded filter data of the block
 
 * `hash`: [`Byte32`](#type-byte32) - The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
 
