@@ -30,3 +30,6 @@ paste = "1.0"
 
 [dev-dependencies]
 proptest = "1.0"
+
+[package.metadata.cargo-shear]
+ignored = ["bytes"]
