@@ -561,6 +561,7 @@ where
         for vm_id in closed_pipes {
             match self.states[&vm_id].clone() {
                 VmState::WaitForRead { length_addr, .. } => {
+                    self.ensure_vms_instantiated(&[vm_id])?;
                     let (_, read_machine) = self.instantiated.get_mut(&vm_id).unwrap();
                     read_machine
                         .machine
@@ -574,6 +575,7 @@ where
                     length_addr,
                     ..
                 } => {
+                    self.ensure_vms_instantiated(&[vm_id])?;
                     let (_, write_machine) = self.instantiated.get_mut(&vm_id).unwrap();
                     write_machine
                         .machine
