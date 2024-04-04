@@ -1481,7 +1481,9 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-vm",
+ "daggy",
  "faster-hex",
+ "molecule",
  "proptest",
  "rand 0.8.5",
  "serde",
@@ -2123,6 +2125,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8bfdaacb3c887a54d41bdf48d3af8873b3f5566469f8ba21b92057509f116e"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "daggy"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91a9304e55e9d601a39ae4deaba85406d5c0980e106f65afcf0460e9af1e7602"
+dependencies = [
+ "petgraph",
 ]
 
 [[package]]
