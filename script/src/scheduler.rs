@@ -307,7 +307,6 @@ where
         for message in messages {
             match message {
                 Message::Spawn(vm_id, args) => {
-                    println!("message:spawn {:?}", vm_id);
                     // All pipes must belong to the correct owner
                     let mut pipes_valid = true;
                     for pipe in &args.pipes {

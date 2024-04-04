@@ -869,15 +869,14 @@ fn check_spawn_configurable() {
     check_spawn_configurable_once(SpawnFrom::Slice(1, 1));
 }
 
-
 #[allow(dead_code)]
 #[path = "../../../../testdata/spawn_dag.rs"]
 mod spawn_dag;
 use molecule::prelude::Byte;
 use spawn_dag as dag;
 // use spawn_dag::*;
-use daggy::{Dag, Walker};
 use ckb_types::bytes::Bytes;
+use daggy::{Dag, Walker};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::collections::{HashSet, VecDeque};
 // use ckb_types::core::DepType;
@@ -1141,53 +1140,10 @@ fn build_pipe_index(val: u64) -> dag::PipeIndex {
     dag::PipeIndexBuilder::default().set(data).build()
 }
 
-// fn random_out_point<R: Rng>(rng: &mut R) -> OutPoint {
-//     let tx_hash = {
-//         let mut buf = [0u8; 32];
-//         rng.fill(&mut buf);
-//         buf.pack()
-//     };
-//     OutPoint::new(tx_hash, 0)
-// }
-
-// pub fn random_script<R: Rng>(rng: &mut R, t: ScriptHashType) -> Script {
-//     let code_hash = {
-//         let mut buf = [0u8; 32];
-//         rng.fill(&mut buf[..]);
-//         buf.pack()
-//     };
-//     let args = {
-//         let len = rng.gen_range(1..101);
-//         let mut buf = vec![0u8; len];
-//         rng.fill(&mut buf[..]);
-//         buf.pack()
-//     };
-//     Script::new_builder()
-//         .code_hash(code_hash)
-//         .hash_type(t.into())
-//         .args(args)
-//         .build()
-// }
-
-pub fn build_mock_tx(_seed: u64, program: Bytes, data: dag::Data) -> ResolvedTransaction {
+pub fn build_mock_tx(program: Bytes, data: dag::Data) -> ResolvedTransaction {
     let script_version = SCRIPT_VERSION;
-    // let mut rng = StdRng::seed_from_u64(seed);
 
     let (code_dep, code_dep_hash) = load_cell_from_slice(&program[..]);
-
-    // let code_type_script = random_script(&mut rng, ScriptHashType::Type);
-    // let code_dep = MockCellDep {
-    //     cell_dep: CellDep::new_builder()
-    //         .out_point(random_out_point(&mut rng))
-    //         .dep_type(DepType::Code.into())
-    //         .build(),
-    //     output: CellOutput::new_builder()
-    //         .type_(Some(code_type_script.clone()).pack())
-    //         .build(),
-    //     data: program,
-    //     header: None,
-    // };
-
     let spawn_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
         .code_hash(code_dep_hash)
@@ -1198,26 +1154,9 @@ pub fn build_mock_tx(_seed: u64, program: Bytes, data: dag::Data) -> ResolvedTra
         .build();
     let dummy_cell = create_dummy_cell(output);
 
-    // let input_lock_script = Script::new_builder()
-    //     .code_hash(code_type_script.calc_script_hash())
-    //     .hash_type(ScriptHashType::Type.into())
-    //     .build();
-    // let input_cell = MockInput {
-    //     input: CellInput::new_builder()
-    //         .previous_output(random_out_point(&mut rng))
-    //         .build(),
-    //     output: CellOutput::new_builder().lock(input_lock_script).build(),
-    //     data: Bytes::default(),
-    //     header: None,
-    // };
-
     let tx = TransactionBuilder::default()
-        // .cell_dep(code_dep.cell_dep.clone())
-        // .input(input_cell.input.clone())
-        // .output(CellOutput::new_builder().build())
         .witness(data.as_bytes().pack())
         .build();
-
     ResolvedTransaction {
         transaction: tx,
         resolved_cell_deps: vec![code_dep],
@@ -1237,10 +1176,9 @@ fn test_single_dag() {
     let data = generate_data_graph(seed, spawns, writes, 3).unwrap();
     let program = std::fs::read("./testdata/spawn_dag").unwrap().into();
 
-    let rtx = build_mock_tx(seed.wrapping_add(10), program, data);
+    let rtx = build_mock_tx(program, data);
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    println!("{:?}", result);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
 }
