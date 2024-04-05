@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::LonelyBlockHash;
 use ckb_logger::debug;
 use ckb_store::{ChainDB, ChainStore};
@@ -96,10 +95,6 @@ impl InnerPool {
         })
     }
 
-    pub fn contains_block(&self, hash: &packed::Byte32) -> bool {
-        self.parents.contains_key(hash)
-    }
-
     /// cleanup expired blocks(epoch + EXPIRED_EPOCH < tip_epoch)
     pub fn clean_expired_blocks(&mut self, tip_epoch: EpochNumber) -> Vec<LonelyBlockHash> {
         let mut result = vec![];
@@ -157,20 +152,12 @@ impl OrphanBlockPool {
         store.get_block(&lonely_block_hash.hash()).map(Arc::new)
     }
 
-    pub fn contains_block(&self, hash: &packed::Byte32) -> bool {
-        self.inner.read().contains_block(hash)
-    }
-
     pub fn clean_expired_blocks(&self, epoch: EpochNumber) -> Vec<LonelyBlockHash> {
         self.inner.write().clean_expired_blocks(epoch)
     }
 
     pub fn len(&self) -> usize {
         self.inner.read().parents.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     pub fn clone_leaders(&self) -> Vec<ParentHash> {

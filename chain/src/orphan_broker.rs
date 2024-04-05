@@ -237,7 +237,7 @@ impl OrphanBroker {
         }
     }
 
-    pub(crate) fn process_descendant(&self, lonely_block: LonelyBlockHash) {
+    fn process_descendant(&self, lonely_block: LonelyBlockHash) {
         self.is_pending_verify
             .insert(lonely_block.block_number_and_hash.hash());
 

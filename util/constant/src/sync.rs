@@ -53,9 +53,6 @@ pub const BLOCK_DOWNLOAD_TIMEOUT: u64 = 30 * 1000; // 30s
 // potential degree of disordering of blocks.
 pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024 * 8; // 1024 * default_outbound_peers
 
-/// Orphan block pool max size
-pub const MAX_ORPHAN_POOL_SIZE: usize = 1024 * 1024 * 256;
-
 /// Interval between repeated inquiry transactions
 pub const RETRY_ASK_TX_TIMEOUT_INCREASE: Duration = Duration::from_secs(30);
 

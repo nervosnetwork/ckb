@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 
 use crate::orphan_broker::OrphanBroker;
-use crate::{LonelyBlock, LonelyBlockHash, ProcessBlockRequest};
+use crate::{LonelyBlock, ProcessBlockRequest};
 use ckb_channel::{select, Receiver};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, warn};
@@ -16,9 +16,7 @@ use ckb_verification_traits::Verifier;
 /// Chain background service to receive LonelyBlock and only do `non_contextual_verify`
 pub(crate) struct ChainService {
     shared: Shared,
-
     process_block_rx: Receiver<ProcessBlockRequest>,
-
     orphan_broker: OrphanBroker,
 }
 impl ChainService {
@@ -26,7 +24,6 @@ impl ChainService {
     pub(crate) fn new(
         shared: Shared,
         process_block_rx: Receiver<ProcessBlockRequest>,
-
         consume_orphan: OrphanBroker,
     ) -> ChainService {
         ChainService {
@@ -143,8 +140,7 @@ impl ChainService {
             return;
         }
 
-        let lonely_block_hash: LonelyBlockHash = lonely_block.into();
-        self.orphan_broker.process_lonely_block(lonely_block_hash);
+        self.orphan_broker.process_lonely_block(lonely_block.into());
     }
 
     fn insert_block(&self, lonely_block: &LonelyBlock) -> Result<(), ckb_error::Error> {
