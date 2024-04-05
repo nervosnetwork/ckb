@@ -4,9 +4,7 @@
 #include "ckb_syscalls.h"
 #include "spawn_utils.h"
 
-uint64_t read_u64_le(const uint8_t* src) {
-    return *(const uint64_t*)src;
-}
+uint64_t read_u64_le(const uint8_t* src) { return *(const uint64_t*)src; }
 
 int main() {
     int err = 0;
@@ -26,7 +24,7 @@ int main() {
     printf("args.place  = %llu", args_place);
     printf("args.bounds = %llu", args_bounds);
 
-    const char *argv[] = {};
+    const char* argv[] = {};
     uint64_t pid = 0;
     uint64_t fds[2] = {0};
     uint64_t inherited_fds[3] = {0};
