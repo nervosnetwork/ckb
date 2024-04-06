@@ -33,10 +33,10 @@ use std::{
     mem::size_of,
 };
 
-const ROOT_VM_ID: VmId = FIRST_VM_ID;
-const MAX_VMS_COUNT: u64 = 16;
-const MAX_INSTANTIATED_VMS: usize = 4;
-const MAX_PIPE: u64 = 64;
+pub const ROOT_VM_ID: VmId = FIRST_VM_ID;
+pub const MAX_VMS_COUNT: u64 = 16;
+pub const MAX_INSTANTIATED_VMS: usize = 4;
+pub const MAX_PIPE: u64 = 64;
 
 /// A single Scheduler instance is used to verify a single script
 /// within a CKB transaction.

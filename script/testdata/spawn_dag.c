@@ -123,8 +123,6 @@ int main(int argc, char *argv[]) {
             uint64_t pipe_index = *((uint64_t *)pipe_res.seg.ptr);
             uint64_t pipe_id = *((uint64_t *)&argv[1][i * 8]);
 
-            ckb_printf("Obtained pipe index %lu, id: %lu", pipe_index, pipe_id);
-
             ret = pipes_add(&current_pipes, pipe_index, pipe_id);
             if (ret != 0) {
                 return ret;
@@ -199,8 +197,6 @@ int main(int argc, char *argv[]) {
                     return ret;
                 }
 
-                ckb_printf("Pass pipe index %lu, id %lu to VM %lu", index, id, child_index);
-
                 ret = pipes_add(&passed_pipes, index, id);
                 if (ret != 0) {
                     return ret;
@@ -262,8 +258,6 @@ int main(int argc, char *argv[]) {
                 return ret;
             }
 
-            ckb_printf("Write %lu bytes to pipe index %lu, id %lu", data_seg.size, from_pipe, pipe_id);
-
             uint32_t written = 0;
             while (written < data_seg.size) {
                 size_t length = data_seg.size - written;
@@ -286,8 +280,6 @@ int main(int argc, char *argv[]) {
             if (ret != 0) {
                 return ret;
             }
-
-            ckb_printf("Read %lu bytes from pipe index %lu, id %lu", data_seg.size, to_pipe, pipe_id);
 
             uint32_t read = 0;
             while (read < data_seg.size) {

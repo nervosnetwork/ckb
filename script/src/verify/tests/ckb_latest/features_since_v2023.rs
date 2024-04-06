@@ -1,10 +1,13 @@
 use super::SCRIPT_VERSION;
+use crate::scheduler::{MAX_PIPE, MAX_VMS_COUNT};
 use crate::syscalls::SOURCE_GROUP_FLAG;
 use crate::verify::{tests::utils::*, *};
 use ckb_types::{
     core::{capacity_bytes, cell::CellMetaBuilder, Capacity, TransactionBuilder},
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
 };
+use proptest::prelude::*;
+use proptest::proptest;
 
 fn simple_spawn_test(bin_path: &str, args: &[u8]) -> Result<Cycle, Error> {
     let script_version = SCRIPT_VERSION;
@@ -1140,45 +1143,38 @@ fn build_pipe_index(val: u64) -> dag::PipeIndex {
     dag::PipeIndexBuilder::default().set(data).build()
 }
 
-pub fn build_mock_tx(program: Bytes, data: dag::Data) -> ResolvedTransaction {
-    let script_version = SCRIPT_VERSION;
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
+    #[test]
+    fn test_random_dag(
+        seed: u64,
+        spawns in 5u32..MAX_VMS_COUNT as u32,
+        writes in 3u32..MAX_PIPE as u32 / 2,
+    ) {
+        let script_version = SCRIPT_VERSION;
+        let program: Bytes = std::fs::read("./testdata/spawn_dag").unwrap().into();
+        let data = generate_data_graph(seed, spawns, writes, 3).unwrap();
 
-    let (code_dep, code_dep_hash) = load_cell_from_slice(&program[..]);
-    let spawn_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
-        .code_hash(code_dep_hash)
-        .build();
-    let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
-        .lock(spawn_caller_script)
-        .build();
-    let dummy_cell = create_dummy_cell(output);
+        let (code_dep, code_dep_hash) = load_cell_from_slice(&program[..]);
+        let spawn_caller_script = Script::new_builder()
+            .hash_type(script_version.data_hash_type().into())
+            .code_hash(code_dep_hash)
+            .build();
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .lock(spawn_caller_script)
+            .build();
+        let dummy_cell = create_dummy_cell(output);
 
-    let tx = TransactionBuilder::default()
-        .witness(data.as_bytes().pack())
-        .build();
-    ResolvedTransaction {
-        transaction: tx,
-        resolved_cell_deps: vec![code_dep],
-        resolved_inputs: vec![dummy_cell],
-        resolved_dep_groups: vec![],
+        let rtx = ResolvedTransaction {
+            transaction: TransactionBuilder::default().witness(data.as_bytes().pack()).build(),
+            resolved_cell_deps: vec![code_dep],
+            resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
+        };
+
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let result = verifier.verify_without_limit(script_version, &rtx);
+        assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
     }
-}
-
-#[test]
-fn test_single_dag() {
-    let script_version = SCRIPT_VERSION;
-
-    let seed = 0;
-    let spawns = 8;
-    let writes = 64;
-
-    let data = generate_data_graph(seed, spawns, writes, 3).unwrap();
-    let program = std::fs::read("./testdata/spawn_dag").unwrap().into();
-
-    let rtx = build_mock_tx(program, data);
-
-    let verifier = TransactionScriptsVerifierWithEnv::new();
-    let result = verifier.verify_without_limit(script_version, &rtx);
-    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
 }
