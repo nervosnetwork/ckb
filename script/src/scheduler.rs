@@ -8,8 +8,8 @@ use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::ScriptVersion;
 
 use crate::types::{
-    DataPieceId, FullSuspendedState, Message, PipeId, PipeIoArgs, RunMode, TxData, VmId, VmState,
-    FIRST_PIPE_SLOT, FIRST_VM_ID,
+    set_vm_max_cycles, CoreMachineType, DataPieceId, FullSuspendedState, Machine, Message, PipeId,
+    PipeIoArgs, RunMode, TxData, VmId, VmState, FIRST_PIPE_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -18,10 +18,7 @@ use ckb_vm::{
     bytes::Bytes,
     cost_model::estimate_cycles,
     elf::parse_elf,
-    machine::{
-        asm::{AsmCoreMachine, AsmMachine},
-        CoreMachine, DefaultMachineBuilder, Pause, SupportMachine,
-    },
+    machine::{CoreMachine, DefaultMachineBuilder, Pause, SupportMachine},
     memory::Memory,
     registers::A0,
     snapshot2::{DataSource, Snapshot2},
@@ -63,7 +60,7 @@ where
     states: BTreeMap<VmId, VmState>,
     pipes: BTreeMap<PipeId, VmId>,
     inherited_fd: BTreeMap<VmId, Vec<PipeId>>,
-    instantiated: BTreeMap<VmId, (MachineContext<DL>, AsmMachine)>,
+    instantiated: BTreeMap<VmId, (MachineContext<DL>, Machine)>,
     suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
     terminated_vms: BTreeMap<VmId, i8>,
 
@@ -229,7 +226,7 @@ where
             self.ensure_vms_instantiated(&[vm_id_to_run])?;
             let (context, machine) = self.instantiated.get_mut(&vm_id_to_run).unwrap();
             context.set_base_cycles(self.total_cycles);
-            machine.set_max_cycles(limit_cycles);
+            set_vm_max_cycles(machine, limit_cycles);
             machine.machine.set_pause(pause);
             let result = machine.run();
             let consumed_cycles = {
@@ -779,13 +776,13 @@ where
     }
 
     // Create a new VM instance with syscalls attached
-    fn create_dummy_vm(&self, id: &VmId) -> Result<(MachineContext<DL>, AsmMachine), Error> {
+    fn create_dummy_vm(&self, id: &VmId) -> Result<(MachineContext<DL>, Machine), Error> {
         // The code here looks slightly weird, since I don't want to copy over all syscall
         // impls here again. Ideally, this scheduler package should be merged with ckb-script,
         // or simply replace ckb-script. That way, the quirks here will be eliminated.
         let version = self.script_version;
         // log::debug!("Creating VM {} using version {:?}", id, version);
-        let core_machine = AsmCoreMachine::new(
+        let core_machine = CoreMachineType::new(
             version.vm_isa(),
             version.vm_version(),
             // We will update max_cycles for each machine when it gets a chance to run
@@ -807,6 +804,6 @@ where
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
-        Ok((machine_context, AsmMachine::new(default_machine)))
+        Ok((machine_context, Machine::new(default_machine)))
     }
 }

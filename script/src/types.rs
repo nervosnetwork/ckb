@@ -13,7 +13,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 #[cfg(has_asm)]
-use ckb_vm::machine::asm::AsmCoreMachine;
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 
 #[cfg(not(has_asm))]
 use ckb_vm::{DefaultCoreMachine, TraceMachine, WXorXMemory};
@@ -50,6 +50,11 @@ pub type CoreMachine = Box<AsmCoreMachine>;
 pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
 #[cfg(all(not(has_asm), feature = "flatmemory"))]
 pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
+
+#[cfg(has_asm)]
+pub(crate) type Machine = AsmMachine;
+#[cfg(not(has_asm))]
+pub(crate) type Machine = TraceMachine<CoreMachine>;
 
 pub(crate) type Indices = Arc<Vec<usize>>;
 
@@ -116,6 +121,16 @@ impl ScriptVersion {
         let version = self.vm_version();
         CoreMachineType::new(isa, version, max_cycles)
     }
+}
+
+#[cfg(has_asm)]
+pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
+    vm.set_max_cycles(cycles)
+}
+
+#[cfg(not(has_asm))]
+pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
+    vm.machine.inner_mut().set_max_cycles(cycles)
 }
 
 /// A script group is defined as scripts that share the same hash.
