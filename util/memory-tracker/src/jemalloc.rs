@@ -3,7 +3,7 @@ use std::{ffi, mem, ptr};
 
 /// Dumps the heap through Jemalloc's API.
 ///
-/// This funcions works when the following conditions are satisfied:
+/// This functions works when the following conditions are satisfied:
 /// - the global allocator is [Jemallocator].
 /// - the profiling is enabled.
 ///

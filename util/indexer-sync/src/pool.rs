@@ -43,7 +43,7 @@ impl Pool {
         }
     }
 
-    /// Return wether out_point referred cell consumed by pooled transaction
+    /// Return weather out_point referred cell consumed by pooled transaction
     pub fn is_consumed_by_pool_tx(&self, out_point: &OutPoint) -> bool {
         self.dead_cells.contains(out_point)
     }
