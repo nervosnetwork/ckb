@@ -1,4 +1,4 @@
-use crate::syscalls::PIPE;
+use crate::syscalls::{PIPE, SPAWN_YIELD_CYCLES_BASE};
 use crate::types::{Message, PipeArgs, VmId};
 use ckb_vm::{
     registers::{A0, A7},
@@ -29,6 +29,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Pipe {
         }
         let pipe1_addr = machine.registers()[A0].to_u64();
         let pipe2_addr = pipe1_addr.wrapping_add(8);
+        machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?

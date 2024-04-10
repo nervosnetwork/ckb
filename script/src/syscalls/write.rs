@@ -1,5 +1,5 @@
 use crate::cost_model::transferred_byte_cycles;
-use crate::syscalls::{INVALID_PIPE, WRITE};
+use crate::syscalls::{INVALID_PIPE, SPAWN_YIELD_CYCLES_BASE, WRITE};
 use crate::types::{Message, PipeId, PipeIoArgs, VmId};
 use ckb_vm::{
     registers::{A0, A1, A2, A7},
@@ -43,6 +43,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Write {
             machine.set_register(A0, Mac::REG::from_u8(INVALID_PIPE));
             return Ok(true);
         }
+        machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
         machine.add_cycles_no_checking(transferred_byte_cycles(length))?;
         self.message_box
             .lock()

@@ -99,6 +99,7 @@ pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 pub const DEBUG_PAUSE: u64 = 2178;
 
 pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
+pub const SPAWN_YIELD_CYCLES_BASE: u64 = 800;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {
