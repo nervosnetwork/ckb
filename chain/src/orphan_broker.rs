@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
 use crate::utils::orphan_block_pool::{OrphanBlockPool, ParentHash};
-use crate::{LonelyBlockHash, VerifyResult};
+use crate::{delete_unverified_block, LonelyBlockHash, VerifyResult};
 use ckb_channel::Sender;
 use ckb_error::InternalErrorKind;
 use ckb_logger::internal::trace;
@@ -9,7 +9,7 @@ use ckb_logger::{debug, error, info};
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
-use ckb_types::{core::BlockView, packed::Byte32, U256};
+use ckb_types::{packed::Byte32, U256};
 use dashmap::DashSet;
 use std::sync::Arc;
 
@@ -84,42 +84,7 @@ impl OrphanBroker {
         let block_number = lonely_block.block_number_and_hash.number();
         let parent_hash = lonely_block.parent_hash();
 
-        info!(
-            "parent: {}, deleting this block {}-{}",
-            parent_hash, block_number, block_hash,
-        );
-
-        let db_txn = self.shared.store().begin_transaction();
-        let block_op: Option<BlockView> = db_txn.get_block(&block_hash);
-        match block_op {
-            Some(block) => {
-                if let Err(err) = db_txn.delete_block(&block) {
-                    error!(
-                        "delete block {}-{} failed {:?}",
-                        block_number, block_hash, err
-                    );
-                    return;
-                }
-                if let Err(err) = db_txn.commit() {
-                    error!(
-                        "commit delete block {}-{} failed {:?}",
-                        block_number, block_hash, err
-                    );
-                    return;
-                }
-
-                info!(
-                    "parent: {}, deleted this block {}-{}",
-                    parent_hash, block_number, block_hash,
-                );
-            }
-            None => {
-                error!(
-                    "want to delete block {}-{}, but it not found in db",
-                    block_number, block_hash
-                );
-            }
-        }
+        delete_unverified_block(self.shared.store(), block_hash, block_number, parent_hash);
     }
 
     fn process_invalid_block(&self, lonely_block: LonelyBlockHash) {

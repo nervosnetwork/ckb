@@ -1,4 +1,4 @@
-use crate::UnverifiedBlock;
+use crate::{delete_unverified_block, UnverifiedBlock};
 use crate::{utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest, VerifyResult};
 use ckb_channel::{select, Receiver};
 use ckb_error::{is_internal_db_error, Error, InternalErrorKind};
@@ -156,6 +156,8 @@ impl ConsumeUnverifiedBlockProcessor {
                     tip_ext.total_difficulty,
                 ));
 
+                self.delete_unverified_block(&block);
+
                 if !is_internal_db_error(err) {
                     self.shared
                         .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
@@ -179,6 +181,15 @@ impl ConsumeUnverifiedBlockProcessor {
         if let Some(callback) = verify_callback {
             callback(verify_result);
         }
+    }
+
+    fn delete_unverified_block(&self, block: &BlockView) {
+        delete_unverified_block(
+            self.shared.store(),
+            block.hash(),
+            block.number(),
+            block.parent_hash(),
+        )
     }
 
     fn verify_block(
@@ -205,11 +216,27 @@ impl ConsumeUnverifiedBlockProcessor {
             }
         });
 
-        let parent_ext = self
-            .shared
-            .store()
-            .get_block_ext(&block.data().header().raw().parent_hash())
-            .expect("parent should be stored already");
+        let block_hash = block.hash();
+        let parent_hash = block.parent_hash();
+
+        {
+            let parent_status = self.shared.get_block_status(&parent_hash);
+            if parent_status.eq(&BlockStatus::BLOCK_INVALID) {
+                return Err(InternalErrorKind::Other
+                    .other(format!(
+                        "block: {}'s parent: {} previously verified failed",
+                        block_hash, parent_hash
+                    ))
+                    .into());
+            }
+        }
+
+        let parent_ext = self.shared.store().get_block_ext(&parent_hash).ok_or(
+            InternalErrorKind::Other.other(format!(
+                "block: {}'s parent: {}'s block ext not found",
+                block_hash, parent_hash
+            )),
+        )?;
 
         if let Some(ext) = self.shared.store().get_block_ext(&block.hash()) {
             if let Some(verified) = ext.verified {

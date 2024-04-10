@@ -27,6 +27,8 @@ mod tests;
 mod utils;
 
 pub use chain_controller::ChainController;
+use ckb_logger::{error, info};
+use ckb_store::{ChainDB, ChainStore};
 use ckb_types::prelude::{Pack, Unpack};
 use ckb_types::H256;
 pub use init::start_chain_services;
@@ -184,4 +186,48 @@ struct UnverifiedBlock {
     verify_callback: Option<VerifyCallback>,
     // parent header
     parent_header: HeaderView,
+}
+
+pub(crate) fn delete_unverified_block(
+    store: &ChainDB,
+    block_hash: Byte32,
+    block_number: BlockNumber,
+    parent_hash: Byte32,
+) {
+    info!(
+        "parent: {}, deleting this block {}-{}",
+        parent_hash, block_number, block_hash,
+    );
+
+    let db_txn = store.begin_transaction();
+    let block_op: Option<BlockView> = db_txn.get_block(&block_hash);
+    match block_op {
+        Some(block) => {
+            if let Err(err) = db_txn.delete_block(&block) {
+                error!(
+                    "delete block {}-{} failed {:?}",
+                    block_number, block_hash, err
+                );
+                return;
+            }
+            if let Err(err) = db_txn.commit() {
+                error!(
+                    "commit delete block {}-{} failed {:?}",
+                    block_number, block_hash, err
+                );
+                return;
+            }
+
+            info!(
+                "parent: {}, deleted this block {}-{}",
+                parent_hash, block_number, block_hash,
+            );
+        }
+        None => {
+            error!(
+                "want to delete block {}-{}, but it not found in db",
+                block_number, block_hash
+            );
+        }
+    }
 }
