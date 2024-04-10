@@ -1,7 +1,7 @@
 use crate::UnverifiedBlock;
 use crate::{utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest, VerifyResult};
 use ckb_channel::{select, Receiver};
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::{is_internal_db_error, Error, InternalErrorKind};
 use ckb_logger::internal::{log_enabled, trace};
 use ckb_logger::Level::Trace;
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
@@ -156,8 +156,14 @@ impl ConsumeUnverifiedBlockProcessor {
                     tip_ext.total_difficulty,
                 ));
 
-                self.shared
-                    .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                if !is_internal_db_error(err) {
+                    self.shared
+                        .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                } else {
+                    error!("internal db error, remove block status: {}", block_hash);
+                    self.shared.remove_block_status(&block_hash);
+                }
+
                 error!(
                     "set_unverified tip to {}-{}, because verify {} failed: {}",
                     tip.number(),
