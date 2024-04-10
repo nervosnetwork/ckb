@@ -490,9 +490,6 @@ where
                                 .store64(&length_addr, &actual_length)?;
                             machine.machine.set_register(A0, SUCCESS as u64);
                         } else {
-                            // TODO: in the previous convention
-                            // https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0009-vm-syscalls/0009-vm-syscalls.md#partial-loading
-                            // this will load data in to address 0 without notice. It is now marked as an error.
                             machine.machine.set_register(A0, INDEX_OUT_OF_BOUND as u64);
                         }
                         continue;
