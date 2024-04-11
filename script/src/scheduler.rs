@@ -145,7 +145,10 @@ where
             self.suspend_vm(&id)?;
         }
         for (id, state) in self.states {
-            let snapshot = self.suspended.remove(&id).unwrap();
+            let snapshot = self
+                .suspended
+                .remove(&id)
+                .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
             vms.push((id, state, snapshot));
         }
         Ok(FullSuspendedState {
@@ -215,16 +218,15 @@ where
             .filter(|(_, state)| matches!(state, VmState::Runnable))
             .map(|(id, _)| *id)
             .next();
-        if vm_id_to_run.is_none() {
-            return Err(Error::Unexpected(
-                "A deadlock situation has been reached!".to_string(),
-            ));
-        }
-        let vm_id_to_run = vm_id_to_run.unwrap();
-        // log::debug!("Running VM {}", vm_id_to_run);
+        let vm_id_to_run = vm_id_to_run.ok_or_else(|| {
+            Error::Unexpected("A deadlock situation has been reached!".to_string())
+        })?;
         let (result, consumed_cycles) = {
             self.ensure_vms_instantiated(&[vm_id_to_run])?;
-            let (context, machine) = self.instantiated.get_mut(&vm_id_to_run).unwrap();
+            let (context, machine) = self
+                .instantiated
+                .get_mut(&vm_id_to_run)
+                .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
             context.set_base_cycles(self.total_cycles);
             set_vm_max_cycles(machine, limit_cycles);
             machine.machine.set_pause(pause);
@@ -277,7 +279,10 @@ where
                     // runnable state.
                     for (vm_id, exit_code_addr) in joining_vms {
                         self.ensure_vms_instantiated(&[vm_id])?;
-                        let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                        let (_, machine) = self
+                            .instantiated
+                            .get_mut(&vm_id)
+                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                         machine
                             .machine
                             .memory_mut()
@@ -309,7 +314,10 @@ where
                     for pipe in &args.pipes {
                         if !(self.pipes.contains_key(pipe) && (self.pipes[pipe] == vm_id)) {
                             self.ensure_vms_instantiated(&[vm_id])?;
-                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            let (_, machine) =
+                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
+                                    Error::Unexpected("Unable to find VM Id".to_string())
+                                })?;
                             machine.machine.set_register(A0, INVALID_PIPE as u64);
                             pipes_valid = false;
                             break;
@@ -321,7 +329,10 @@ where
                     if self.suspended.len() + self.instantiated.len() > self.max_vms_count as usize
                     {
                         self.ensure_vms_instantiated(&[vm_id])?;
-                        let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                        let (_, machine) = self
+                            .instantiated
+                            .get_mut(&vm_id)
+                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                         machine.machine.set_register(A0, MAX_VMS_SPAWNED as u64);
                         continue;
                     }
@@ -342,7 +353,10 @@ where
 
                     self.ensure_vms_instantiated(&[vm_id])?;
                     {
-                        let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                        let (_, machine) = self
+                            .instantiated
+                            .get_mut(&vm_id)
+                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                         machine
                             .machine
                             .memory_mut()
@@ -354,7 +368,10 @@ where
                     if let Some(exit_code) = self.terminated_vms.get(&args.target_id).copied() {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
-                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            let (_, machine) =
+                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
+                                    Error::Unexpected("Unable to find VM Id".to_string())
+                                })?;
                             machine
                                 .machine
                                 .memory_mut()
@@ -368,7 +385,10 @@ where
                     if !self.states.contains_key(&args.target_id) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
-                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            let (_, machine) =
+                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
+                                    Error::Unexpected("Unable to find VM Id".to_string())
+                                })?;
                             machine.machine.set_register(A0, WAIT_FAILURE as u64);
                         }
                         continue;
@@ -384,7 +404,10 @@ where
                 }
                 Message::Pipe(vm_id, args) => {
                     if self.next_pipe_slot - FIRST_PIPE_SLOT >= MAX_PIPE {
-                        let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                        let (_, machine) = self
+                            .instantiated
+                            .get_mut(&vm_id)
+                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                         machine.machine.set_register(A0, MAX_PIPE_CREATED as u64);
                         continue;
                     }
@@ -397,7 +420,10 @@ where
 
                     self.ensure_vms_instantiated(&[vm_id])?;
                     {
-                        let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                        let (_, machine) = self
+                            .instantiated
+                            .get_mut(&vm_id)
+                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                         machine
                             .machine
                             .memory_mut()
@@ -413,7 +439,10 @@ where
                     if !(self.pipes.contains_key(&args.pipe) && (self.pipes[&args.pipe] == vm_id)) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
-                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            let (_, machine) =
+                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
+                                    Error::Unexpected("Unable to find VM Id".to_string())
+                                })?;
                             machine.machine.set_register(A0, INVALID_PIPE as u64);
                         }
                         continue;
@@ -421,7 +450,10 @@ where
                     if !self.pipes.contains_key(&args.pipe.other_pipe()) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
-                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            let (_, machine) =
+                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
+                                    Error::Unexpected("Unable to find VM Id".to_string())
+                                })?;
                             machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
                         }
                         continue;
@@ -441,7 +473,10 @@ where
                     if !(self.pipes.contains_key(&args.pipe) && (self.pipes[&args.pipe] == vm_id)) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
-                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            let (_, machine) =
+                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
+                                    Error::Unexpected("Unable to find VM Id".to_string())
+                                })?;
                             machine.machine.set_register(A0, INVALID_PIPE as u64);
                         }
                         continue;
@@ -449,7 +484,10 @@ where
                     if !self.pipes.contains_key(&args.pipe.other_pipe()) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
-                            let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                            let (_, machine) =
+                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
+                                    Error::Unexpected("Unable to find VM Id".to_string())
+                                })?;
                             machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
                         }
                         continue;
@@ -468,7 +506,10 @@ where
                 }
                 Message::InheritedFileDescriptor(vm_id, args) => {
                     self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                    let (_, machine) = self
+                        .instantiated
+                        .get_mut(&vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     let PipeIoArgs {
                         buffer_addr,
                         length_addr,
@@ -514,7 +555,10 @@ where
                 }
                 Message::Close(vm_id, fd) => {
                     self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                    let (_, machine) = self
+                        .instantiated
+                        .get_mut(&vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     if self.pipes.get(&fd) != Some(&vm_id) {
                         machine.machine.set_register(A0, INVALID_PIPE as u64);
                     } else {
@@ -556,7 +600,10 @@ where
             match self.states[&vm_id].clone() {
                 VmState::WaitForRead { length_addr, .. } => {
                     self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, read_machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                    let (_, read_machine) = self
+                        .instantiated
+                        .get_mut(&vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     read_machine
                         .machine
                         .memory_mut()
@@ -570,7 +617,10 @@ where
                     ..
                 } => {
                     self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, write_machine) = self.instantiated.get_mut(&vm_id).unwrap();
+                    let (_, write_machine) = self
+                        .instantiated
+                        .get_mut(&vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     write_machine
                         .machine
                         .memory_mut()
@@ -610,7 +660,10 @@ where
                 let copiable = std::cmp::min(fillable, consumable);
 
                 // Actual data copying
-                let (_, write_machine) = self.instantiated.get_mut(&write_vm_id).unwrap();
+                let (_, write_machine) = self
+                    .instantiated
+                    .get_mut(&write_vm_id)
+                    .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                 write_machine
                     .machine
                     .add_cycles_no_checking(transferred_byte_cycles(copiable))?;
@@ -618,7 +671,10 @@ where
                     .machine
                     .memory_mut()
                     .load_bytes(write_buffer_addr.wrapping_add(consumed), copiable)?;
-                let (_, read_machine) = self.instantiated.get_mut(&read_vm_id).unwrap();
+                let (_, read_machine) = self
+                    .instantiated
+                    .get_mut(&read_vm_id)
+                    .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                 read_machine
                     .machine
                     .add_cycles_no_checking(transferred_byte_cycles(copiable))?;
@@ -639,7 +695,10 @@ where
                 consumed += copiable;
                 if consumed == write_length {
                     // Write VM has fulfilled its write request
-                    let (_, write_machine) = self.instantiated.get_mut(&write_vm_id).unwrap();
+                    let (_, write_machine) = self
+                        .instantiated
+                        .get_mut(&write_vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     write_machine
                         .machine
                         .memory_mut()
@@ -680,7 +739,9 @@ where
             .copied()
             .collect();
         while (!uninstantiated_ids.is_empty()) && (self.instantiated.len() < MAX_INSTANTIATED_VMS) {
-            let id = uninstantiated_ids.pop().unwrap();
+            let id = uninstantiated_ids
+                .pop()
+                .ok_or_else(|| Error::Unexpected("Map should not be empty".to_string()))?;
             self.resume_vm(&id)?;
         }
 
@@ -728,7 +789,10 @@ where
                 id
             )));
         }
-        let (context, machine) = self.instantiated.get_mut(id).unwrap();
+        let (context, machine) = self
+            .instantiated
+            .get_mut(id)
+            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
         let snapshot = {
             let sc = context.snapshot2_context().lock().expect("lock");
             sc.make_snapshot(&mut machine.machine)?
@@ -748,7 +812,11 @@ where
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
             // Instantiated is a BTreeMap, first_entry will maintain key order
-            let id = *self.instantiated.first_entry().unwrap().key();
+            let id = *self
+                .instantiated
+                .first_entry()
+                .ok_or_else(|| Error::Unexpected("Map should not be empty".to_string()))?
+                .key();
             self.suspend_vm(&id)?;
         }
 
