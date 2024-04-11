@@ -2,7 +2,7 @@ use crate::global::binary;
 use crate::rpc::RpcClient;
 use crate::utils::{find_available_port, temp_path, wait_until};
 use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
-use ckb_app_config::CKBAppConfig;
+use ckb_app_config::{AppConfig, CKBAppConfig, ExitCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
@@ -11,6 +11,8 @@ use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
 use ckb_logger::{debug, error, info};
 use ckb_network::multiaddr::Multiaddr;
 use ckb_resource::Resource;
+use ckb_shared::shared_builder::open_or_create_db;
+use ckb_store::ChainDB;
 use ckb_types::{
     bytes,
     core::{
@@ -22,9 +24,8 @@ use ckb_types::{
 };
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
-use std::convert::Into;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, RwLock};
 use std::thread::sleep;
@@ -722,6 +723,74 @@ impl Node {
         drop(self.take_guard());
     }
 
+    fn derive_options(
+        &self,
+        mut config: CKBAppConfig,
+        root_dir: &Path,
+        subcommand_name: &str,
+    ) -> Result<CKBAppConfig, ExitCode> {
+        config.root_dir = root_dir.to_path_buf();
+
+        config.data_dir = root_dir.join(config.data_dir);
+
+        config.db.adjust(root_dir, &config.data_dir, "db");
+        config.ancient = config.data_dir.join("ancient");
+
+        config.network.path = config.data_dir.join("network");
+        if config.tmp_dir.is_none() {
+            config.tmp_dir = Some(config.data_dir.join("tmp"));
+        }
+        config.logger.log_dir = config.data_dir.join("logs");
+        config.logger.file = Path::new(&(subcommand_name.to_string() + ".log")).to_path_buf();
+
+        let tx_pool_path = config.data_dir.join("tx_pool");
+        config.tx_pool.adjust(root_dir, tx_pool_path);
+
+        let indexer_path = config.data_dir.join("indexer");
+        config.indexer.adjust(root_dir, indexer_path);
+
+        config.chain.spec.absolutize(root_dir);
+
+        Ok(config)
+    }
+
+    pub fn access_db<F>(&self, f: F)
+    where
+        F: Fn(&ChainDB),
+    {
+        info!("accessing db");
+        info!("AppConfig load_for_subcommand {:?}", self.working_dir());
+
+        let resource = Resource::ckb_config(self.working_dir());
+        let app_config =
+            CKBAppConfig::load_from_slice(&resource.get().expect("resource")).expect("app config");
+
+        let config = AppConfig::CKB(Box::new(
+            self.derive_options(app_config, self.working_dir().as_ref(), "run")
+                .expect("app config"),
+        ));
+
+        let consensus = config
+            .chain_spec()
+            .expect("spec")
+            .build_consensus()
+            .expect("consensus");
+
+        let app_config = config.into_ckb().expect("app config");
+
+        let db = open_or_create_db(
+            "ckb",
+            &app_config.root_dir,
+            &app_config.db,
+            consensus.hardfork_switch().clone(),
+        )
+        .expect("open_or_create_db");
+        let chain_db = ChainDB::new(db, app_config.store);
+        f(&chain_db);
+
+        info!("accessed db done");
+    }
+
     pub fn stop_gracefully(&mut self) {
         let guard = self.take_guard();
         if let Some(mut guard) = guard {
@@ -824,7 +893,13 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
         tip_headers.len() == 1
     });
     if !synced {
-        panic!("timeout to wait for sync, tip_headers: {tip_headers:?}");
+        panic!(
+            "timeout to wait for sync, tip_headers: {:?}",
+            tip_headers
+                .iter()
+                .map(|header| header.inner.number.value())
+                .collect::<Vec<BlockNumber>>()
+        );
     }
     for node in nodes {
         node.borrow().wait_for_tx_pool();
