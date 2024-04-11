@@ -1,4 +1,3 @@
-use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
     INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SPAWN, SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
@@ -144,7 +143,6 @@ where
         }
         machine.add_cycles_no_checking(SPAWN_EXTRA_CYCLES_BASE)?;
         machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
-        machine.add_cycles_no_checking(transferred_byte_cycles(full_length))?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?

@@ -1,4 +1,3 @@
-use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{INVALID_PIPE, SPAWN_YIELD_CYCLES_BASE, WRITE};
 use crate::types::{Message, PipeId, PipeIoArgs, VmId};
 use ckb_vm::{
@@ -44,7 +43,6 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Write {
             return Ok(true);
         }
         machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
-        machine.add_cycles_no_checking(transferred_byte_cycles(length))?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?

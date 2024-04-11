@@ -610,24 +610,23 @@ where
                 let copiable = std::cmp::min(fillable, consumable);
 
                 // Actual data copying
-                let data = self
-                    .instantiated
-                    .get_mut(&write_vm_id)
-                    .unwrap()
-                    .1
+                let (_, write_machine) = self.instantiated.get_mut(&write_vm_id).unwrap();
+                write_machine
+                    .machine
+                    .add_cycles_no_checking(transferred_byte_cycles(copiable))?;
+                let data = write_machine
                     .machine
                     .memory_mut()
                     .load_bytes(write_buffer_addr.wrapping_add(consumed), copiable)?;
-                self.instantiated
-                    .get_mut(&read_vm_id)
-                    .unwrap()
-                    .1
+                let (_, read_machine) = self.instantiated.get_mut(&read_vm_id).unwrap();
+                read_machine
+                    .machine
+                    .add_cycles_no_checking(transferred_byte_cycles(copiable))?;
+                read_machine
                     .machine
                     .memory_mut()
                     .store_bytes(read_buffer_addr, &data)?;
-
                 // Read syscall terminates as soon as some data are filled
-                let (_, read_machine) = self.instantiated.get_mut(&read_vm_id).unwrap();
                 read_machine
                     .machine
                     .memory_mut()
