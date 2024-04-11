@@ -1050,23 +1050,23 @@ where
         match res {
             Ok((exit_code, cycles)) => {
                 if exit_code == 0 {
-                    return Ok(ChunkState::Completed(
+                    Ok(ChunkState::Completed(
                         cycles,
                         scheduler.consumed_cycles() - previous_cycles,
-                    ));
+                    ))
                 } else {
-                    return Err(ScriptError::validation_failure(
+                    Err(ScriptError::validation_failure(
                         &script_group.script,
                         exit_code,
-                    ));
+                    ))
                 }
             }
             Err(error) => match error {
                 VMInternalError::CyclesExceeded | VMInternalError::Pause => {
                     let snapshot = scheduler.suspend().map_err(map_vm_internal_error)?;
-                    return Ok(ChunkState::suspended(snapshot));
+                    Ok(ChunkState::suspended(snapshot))
                 }
-                _ => return Err(map_vm_internal_error(error)),
+                _ => Err(map_vm_internal_error(error)),
             },
         }
     }
