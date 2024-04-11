@@ -33,6 +33,6 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Close {
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?
             .push(Message::Close(self.id, pipe));
-        Err(VMError::External("YIELD".to_string()))
+        Err(VMError::Yield)
     }
 }

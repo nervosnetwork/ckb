@@ -42,6 +42,6 @@ impl<Mac: SupportMachine> Syscalls<Mac> for InheritedFd {
                     length_addr,
                 },
             ));
-        Err(VMError::External("YIELD".to_string()))
+        Err(VMError::Yield)
     }
 }

@@ -40,6 +40,6 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Pipe {
                     pipe2_addr,
                 },
             ));
-        Err(VMError::External("YIELD".to_string()))
+        Err(VMError::Yield)
     }
 }

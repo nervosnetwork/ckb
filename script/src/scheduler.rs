@@ -294,7 +294,7 @@ where
                 }
                 Ok(consumed_cycles)
             }
-            Err(Error::External(msg)) if msg == "YIELD" => Ok(consumed_cycles),
+            Err(Error::Yield) => Ok(consumed_cycles),
             Err(e) => Err(e),
         }
     }

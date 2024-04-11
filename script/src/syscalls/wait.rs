@@ -40,6 +40,6 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Wait {
                     exit_code_addr,
                 },
             ));
-        Err(VMError::External("YIELD".to_string()))
+        Err(VMError::Yield)
     }
 }

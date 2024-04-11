@@ -55,6 +55,6 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Write {
                     length_addr,
                 },
             ));
-        Err(VMError::External("YIELD".to_string()))
+        Err(VMError::Yield)
     }
 }

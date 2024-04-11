@@ -157,6 +157,6 @@ where
                     process_id_addr,
                 },
             ));
-        Err(VMError::External("YIELD".to_string()))
+        Err(VMError::Yield)
     }
 }
