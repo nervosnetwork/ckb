@@ -246,12 +246,9 @@ where
         // 3. Process message box, update VM states accordingly
         self.process_message_box()?;
         assert!(self.message_box.lock().expect("lock").is_empty());
-        // log::debug!("VM states: {:?}", self.states);
-        // log::debug!("Pipes and owners: {:?}", self.pipes);
         // 4. If the VM terminates, update VMs in join state, also closes its pipes
         match result {
             Ok(code) => {
-                // log::debug!("VM {} terminates with code {}", vm_id_to_run, code);
                 self.terminated_vms.insert(vm_id_to_run, code);
                 // When root VM terminates, the execution stops immediately, we will purge
                 // all non-root VMs, and only keep root VM in states.
@@ -344,11 +341,6 @@ where
                     }
                     // Here we keep the original version of file descriptors.
                     // If one fd is moved afterward, this inherited file descriptors doesn't change.
-                    // log::info!(
-                    //     "VmId = {} with Inherited file descriptor {:?}",
-                    //     spawned_vm_id,
-                    //     args.pipes
-                    // );
                     self.inherited_fd.insert(spawned_vm_id, args.pipes.clone());
 
                     self.ensure_vms_instantiated(&[vm_id])?;
@@ -413,8 +405,6 @@ where
                     }
                     let (p1, p2, slot) = PipeId::create(self.next_pipe_slot);
                     self.next_pipe_slot = slot;
-                    // log::debug!("VM {} creates pipes ({}, {})", vm_id, p1.0, p2.0);
-
                     self.pipes.insert(p1, vm_id);
                     self.pipes.insert(p2, vm_id);
 
@@ -782,7 +772,6 @@ where
 
     // Suspend an instantiated VM
     fn suspend_vm(&mut self, id: &VmId) -> Result<(), Error> {
-        // log::debug!("Suspending VM: {}", id);
         if !self.instantiated.contains_key(id) {
             return Err(Error::Unexpected(format!(
                 "VM {:?} is not instantiated!",
@@ -845,7 +834,6 @@ where
         // impls here again. Ideally, this scheduler package should be merged with ckb-script,
         // or simply replace ckb-script. That way, the quirks here will be eliminated.
         let version = self.script_version;
-        // log::debug!("Creating VM {} using version {:?}", id, version);
         let core_machine = CoreMachineType::new(
             version.vm_isa(),
             version.vm_version(),
