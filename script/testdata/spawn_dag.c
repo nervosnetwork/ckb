@@ -105,18 +105,18 @@ int main(int argc, char *argv[]) {
         if (spawn_found == 0) {
             return ERROR_ARGV;
         }
-        mol_seg_t passed_pipes_seg = MolReader_Spawn_get_pipes(&spawn_seg);
+        mol_seg_t passed_pipes_seg = MolReader_Spawn_get_fds(&spawn_seg);
 
         decoded_length = 0;
         ret = ee_decode_char_string_in_place(argv[1], &decoded_length);
         if (ret != 0) {
             return ret;
         }
-        if (decoded_length != MolReader_PipeIndices_length(&passed_pipes_seg) * 8) {
+        if (decoded_length != MolReader_FdIndices_length(&passed_pipes_seg) * 8) {
             return ERROR_ARGV;
         }
-        for (mol_num_t i = 0; i < MolReader_PipeIndices_length(&passed_pipes_seg); i++) {
-            mol_seg_res_t pipe_res = MolReader_PipeIndices_get(&passed_pipes_seg, i);
+        for (mol_num_t i = 0; i < MolReader_FdIndices_length(&passed_pipes_seg); i++) {
+            mol_seg_res_t pipe_res = MolReader_FdIndices_get(&passed_pipes_seg, i);
             if (pipe_res.errno != MOL_OK) {
                 return ERROR_ENCODING;
             }
@@ -141,8 +141,8 @@ int main(int argc, char *argv[]) {
 
         uint64_t pair_vm_index = *((uint64_t *)MolReader_Pipe_get_vm(&pipe_pair_seg).ptr);
         if (pair_vm_index == vm_index) {
-            uint64_t read_index = *((uint64_t *)MolReader_Pipe_get_read_pipe(&pipe_pair_seg).ptr);
-            uint64_t write_index = *((uint64_t *)MolReader_Pipe_get_write_pipe(&pipe_pair_seg).ptr);
+            uint64_t read_index = *((uint64_t *)MolReader_Pipe_get_read_fd(&pipe_pair_seg).ptr);
+            uint64_t write_index = *((uint64_t *)MolReader_Pipe_get_write_fd(&pipe_pair_seg).ptr);
 
             uint64_t fildes[2];
             ret = ckb_pipe(fildes);
@@ -182,9 +182,9 @@ int main(int argc, char *argv[]) {
             pipes_t passed_pipes;
             pipes_init(&passed_pipes);
 
-            mol_seg_t pipe_indices = MolReader_Spawn_get_pipes(&spawn_seg);
-            for (mol_num_t i = 0; i < MolReader_PipeIndices_length(&pipe_indices); i++) {
-                mol_seg_res_t index_res = MolReader_PipeIndices_get(&pipe_indices, i);
+            mol_seg_t pipe_indices = MolReader_Spawn_get_fds(&spawn_seg);
+            for (mol_num_t i = 0; i < MolReader_FdIndices_length(&pipe_indices); i++) {
+                mol_seg_res_t index_res = MolReader_FdIndices_get(&pipe_indices, i);
                 if (index_res.errno != MOL_OK) {
                     return ERROR_ENCODING;
                 }
@@ -249,7 +249,7 @@ int main(int argc, char *argv[]) {
 
         if (from == vm_index) {
             // Write data
-            uint64_t from_pipe = *((uint64_t *)MolReader_Write_get_from_pipe(&write_seg).ptr);
+            uint64_t from_pipe = *((uint64_t *)MolReader_Write_get_from_fd(&write_seg).ptr);
             mol_seg_t data_seg = MolReader_Write_get_data(&write_seg);
 
             uint64_t pipe_id = 0;
@@ -272,7 +272,7 @@ int main(int argc, char *argv[]) {
             }
         } else if (to == vm_index) {
             // Read data
-            uint64_t to_pipe = *((uint64_t *)MolReader_Write_get_to_pipe(&write_seg).ptr);
+            uint64_t to_pipe = *((uint64_t *)MolReader_Write_get_to_fd(&write_seg).ptr);
             mol_seg_t data_seg = MolReader_Write_get_data(&write_seg);
 
             uint64_t pipe_id = 0;

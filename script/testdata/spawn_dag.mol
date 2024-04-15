@@ -1,21 +1,21 @@
 array VmIndex [byte; 8];
-array PipeIndex [byte; 8];
+array FdIndex [byte; 8];
 
-vector PipeIndices <PipeIndex>;
+vector FdIndices <FdIndex>;
 vector Bytes <byte>;
 
 table Pipe {
   vm: VmIndex,
-  read_pipe: PipeIndex,
-  write_pipe: PipeIndex,
+  read_fd: FdIndex,
+  write_fd: FdIndex,
 }
 vector Pipes <Pipe>;
 
 table Write {
   from: VmIndex,
-  from_pipe: PipeIndex,
+  from_fd: FdIndex,
   to: VmIndex,
-  to_pipe: PipeIndex,
+  to_fd: FdIndex,
   data: Bytes,
 }
 vector Writes <Write>;
@@ -23,7 +23,7 @@ vector Writes <Write>;
 table Spawn {
   from: VmIndex,
   child: VmIndex,
-  pipes: PipeIndices,
+  fds: FdIndices,
 }
 vector Spawns <Spawn>;
 
