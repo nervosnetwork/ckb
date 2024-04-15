@@ -594,8 +594,8 @@ int child_entry(int case_id) {
         return child_pid();
     } else if (case_id == 15) {
         return 0;
-    // } else if (case_id == 16) {
-    //     return 0;
+    } else if (case_id == 16) {
+        return 0;
     } else {
         return -1;
     }
