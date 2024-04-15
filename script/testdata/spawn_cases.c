@@ -334,7 +334,7 @@ exit:
     return err;
 }
 
-int parent_max_pipe_limits() {
+int parent_max_fds_limit() {
     const char* argv[2] = {"", 0};
     int err = 0;
     uint64_t fd[2] = {0};
@@ -347,16 +347,16 @@ exit:
     return err;
 }
 
-int child_max_pipe_limits() {
+int child_max_fds_limit() {
     int err = 0;
-    uint64_t pipe[2] = {0};
+    uint64_t fd[2] = {0};
     for (int i = 0; i < 16; i++) {
-        err = ckb_pipe(pipe);
+        err = ckb_pipe(fd);
         CHECK(err);
     }
     // Create up to 64 pipes.
-    err = ckb_pipe(pipe);
-    err = err - 9;
+    err = ckb_pipe(fd);
+    err = CKB_MAX_FDS_CREATED - 9;
 
 exit:
     return err;
@@ -538,7 +538,7 @@ int parent_entry(int case_id) {
         err = parent_max_vms_count(&pid);
         return err;
     } else if (case_id == 11) {
-        err = parent_max_pipe_limits(&pid);
+        err = parent_max_fds_limit(&pid);
         return err;
     } else if (case_id == 12) {
         return parent_close_invalid_fd(&pid);
@@ -585,7 +585,7 @@ int child_entry(int case_id) {
     } else if (case_id == 10) {
         return child_max_vms_count();
     } else if (case_id == 11) {
-        return child_max_pipe_limits();
+        return child_max_fds_limit();
     } else if (case_id == 12) {
         return 0;
     } else if (case_id == 13) {

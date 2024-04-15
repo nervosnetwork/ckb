@@ -28,7 +28,7 @@ int main() {
     uint64_t pid = 0;
     uint64_t fds[2] = {0};
     uint64_t inherited_fds[3] = {0};
-    err = create_std_pipes(fds, inherited_fds);
+    err = create_std_fds(fds, inherited_fds);
     CHECK(err);
 
     spawn_args_t spgs = {

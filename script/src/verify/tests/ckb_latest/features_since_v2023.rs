@@ -104,7 +104,7 @@ fn check_spawn_max_vms_count() {
 }
 
 #[test]
-fn check_spawn_max_fd_limits() {
+fn check_spawn_max_fds_limit() {
     let result = simple_spawn_test("testdata/spawn_cases", &[11]);
     assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
 }
@@ -639,36 +639,6 @@ fn check_spawn_current_cycles() {
     let rtx = ResolvedTransaction {
         transaction,
         resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
-        resolved_inputs: vec![dummy_cell],
-        resolved_dep_groups: vec![],
-    };
-    let verifier = TransactionScriptsVerifierWithEnv::new();
-    let result = verifier.verify_without_limit(script_version, &rtx);
-    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
-}
-
-#[test]
-fn check_spawn_fd_limits() {
-    let script_version = SCRIPT_VERSION;
-
-    let (spawn_caller_cell, spawn_caller_data_hash) =
-        load_cell_from_path("testdata/spawn_fd_limits");
-
-    let spawn_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
-        .code_hash(spawn_caller_data_hash)
-        .build();
-    let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
-        .lock(spawn_caller_script)
-        .build();
-
-    let transaction = TransactionBuilder::default().build();
-    let dummy_cell = create_dummy_cell(output);
-
-    let rtx = ResolvedTransaction {
-        transaction,
-        resolved_cell_deps: vec![spawn_caller_cell],
         resolved_inputs: vec![dummy_cell],
         resolved_dep_groups: vec![],
     };

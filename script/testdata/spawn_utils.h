@@ -45,8 +45,8 @@ enum CkbSpawnError {
 #define CKB_STDIN (0)
 #define CKB_STDOUT (1)
 
-// mimic stdio pipes on linux
-int create_std_pipes(uint64_t* fds, uint64_t* inherited_fds) {
+// mimic stdio fds on linux
+int create_std_fds(uint64_t* fds, uint64_t* inherited_fds) {
     int err = 0;
 
     uint64_t to_child[2] = {0};
@@ -104,7 +104,7 @@ exit:
 int full_spawn(size_t index, int argc, const char* argv[], uint64_t fds[2], uint64_t* pid) {
     int err = 0;
     uint64_t inherited_fds[3] = {0};
-    err = create_std_pipes(fds, inherited_fds);
+    err = create_std_fds(fds, inherited_fds);
     CHECK(err);
     spawn_args_t spgs = {.argc = argc, .argv = argv, .process_id = pid, .inherited_fds = inherited_fds};
     err = ckb_spawn(0, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
