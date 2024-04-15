@@ -1,6 +1,6 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FD_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS,
+    INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS,
     WAIT_FAILURE,
 };
 use crate::types::MachineContext;
@@ -400,7 +400,7 @@ where
                             .instantiated
                             .get_mut(&vm_id)
                             .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                        machine.machine.set_register(A0, MAX_FD_CREATED as u64);
+                        machine.machine.set_register(A0, MAX_FDS_CREATED as u64);
                         continue;
                     }
                     let (p1, p2, slot) = Fd::create(self.next_fd_slot);
