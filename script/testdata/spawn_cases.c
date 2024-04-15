@@ -334,6 +334,185 @@ exit:
     return err;
 }
 
+int parent_max_pipe_limits() {
+    const char* argv[2] = {"", 0};
+    int err = 0;
+    uint64_t fd[2] = {0};
+    for (int i = 0; i < 16; i++) {
+        err = ckb_pipe(fd);
+        CHECK(err);
+    }
+    err = simple_spawn_args(0, 1, argv);
+exit:
+    return err;
+}
+
+int child_max_pipe_limits() {
+    int err = 0;
+    uint64_t pipe[2] = {0};
+    for (int i = 0; i < 16; i++) {
+        err = ckb_pipe(pipe);
+        CHECK(err);
+    }
+    // Create up to 64 pipes.
+    err = ckb_pipe(pipe);
+    err = err - 9;
+
+exit:
+    return err;
+}
+
+int parent_close_invalid_fd() {
+    uint64_t fds[2] = {0};
+    int err = ckb_pipe(fds);
+    CHECK(err);
+
+    err = ckb_close(fds[CKB_STDIN] + 32);
+    CHECK2(err == 6, -1);
+
+    err = ckb_close(fds[CKB_STDIN]);
+    CHECK(err);
+    err = ckb_close(fds[CKB_STDOUT]);
+    CHECK(err);
+
+    err = ckb_close(fds[CKB_STDIN]);
+    CHECK2(err == 6, -1);
+    err = ckb_close(fds[CKB_STDOUT]);
+    CHECK2(err == 6, -1);
+
+    err = 0;
+exit:
+    return err;
+}
+
+int parent_write_closed_fd(uint64_t* pid) {
+    int err = 0;
+    const char* argv[] = {"", 0};
+    uint64_t fds[2] = {0};
+    err = full_spawn(0, 1, argv, fds, pid);
+    CHECK(err);
+
+    // int exit_code = 0;
+    uint8_t block[7] = {1, 2, 3, 4, 5, 6, 7};
+    size_t actual_length = 0;
+    err = read_exact(fds[CKB_STDIN], block, sizeof(block), &actual_length);
+    CHECK(err);
+    err = ckb_close(fds[CKB_STDIN]);
+    CHECK(err);
+
+    err = ckb_close(fds[CKB_STDOUT]);
+exit:
+    return err;
+}
+
+int child_write_closed_fd() {
+    int err = 0;
+    uint64_t inherited_fds[2];
+    size_t inherited_fds_length = 2;
+    err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+    CHECK(err);
+
+    uint8_t block[7] = {0};
+    size_t actual_length = 0;
+    err = write_exact(inherited_fds[CKB_STDOUT], block, sizeof(block),
+                      &actual_length);
+    CHECK(err);
+    err = write_exact(inherited_fds[CKB_STDOUT], block, sizeof(block),
+                      &actual_length);
+    CHECK(err);
+
+    ckb_close(inherited_fds[CKB_STDIN]);
+    ckb_close(inherited_fds[CKB_STDOUT]);
+
+exit:
+    return err;
+}
+
+int parent_pid(uint64_t* pid) {
+    int err = 0;
+
+    uint64_t cur_pid = ckb_process_id();
+
+    uint64_t pid_c1 = 0;
+    const char* argv[] = {"", 0};
+    uint64_t fds_1[2] = {0};
+    err = full_spawn(0, 1, argv, fds_1, &pid_c1);
+    CHECK2(pid_c1 != cur_pid, -1);
+
+    uint64_t pid_c2 = 0;
+    uint64_t fds_2[2] = {0};
+    err = full_spawn(0, 1, argv, fds_2, &pid_c2);
+    CHECK(err);
+    CHECK2(pid_c2 != cur_pid, -1);
+
+    uint64_t child_pid_1 = 0;
+    size_t actual_length = 0;
+    err = read_exact(fds_1[CKB_STDIN], &child_pid_1, sizeof(child_pid_1),
+                     &actual_length);
+    CHECK(err);
+    CHECK2(child_pid_1 == pid_c1, -1);
+
+    uint64_t child_pid_2 = 0;
+    err = read_exact(fds_2[CKB_STDIN], &child_pid_2, sizeof(child_pid_2),
+                     &actual_length);
+    CHECK(err);
+    CHECK2(child_pid_2 == pid_c2, -1);
+
+exit:
+    return err;
+}
+
+int child_pid() {
+    uint64_t pid = ckb_process_id();
+
+    int err = 0;
+    uint64_t fds[2] = {0};
+    uint64_t fds_length = 2;
+    err = ckb_inherited_file_descriptors(fds, &fds_length);
+    CHECK(err);
+
+    // send pid
+    size_t actual_length = 0;
+    err = write_exact(fds[CKB_STDOUT], &pid, sizeof(pid), &actual_length);
+    CHECK(err);
+
+exit:
+    return err;
+}
+
+int parent_spawn_offset_out_of_bound(uint64_t* pid) {
+    int err = 0;
+
+    const char* argv[] = {"", 0};
+    spawn_args_t spgs = {
+        .argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
+    uint64_t offset = 1024 * 1024 * 1024 * 1;
+    uint64_t length = 0;
+    uint64_t bounds = (offset << 32) + length;
+    err = ckb_spawn(0, CKB_SOURCE_CELL_DEP, 0, bounds, &spgs);
+    CHECK2(err == 3, -1);  // SLICE_OUT_OF_BOUND
+    err = 0;
+exit:
+    return err;
+}
+
+int parent_spawn_length_out_of_bound(uint64_t* pid) {
+    int err = 0;
+
+    const char* argv[] = {"", 0};
+    spawn_args_t spgs = {
+        .argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
+    uint64_t offset = 1024 * 14;
+    uint64_t length = 1024;
+    uint64_t bounds = (offset << 32) + length;
+
+    err = ckb_spawn(0, CKB_SOURCE_CELL_DEP, 0, bounds, &spgs);
+    CHECK2(err == 3, -1);  // SLICE_OUT_OF_BOUND
+    err = 0;
+exit:
+    return err;
+}
+
 int parent_entry(int case_id) {
     int err = 0;
     uint64_t pid = 0;
@@ -358,6 +537,19 @@ int parent_entry(int case_id) {
     } else if (case_id == 10) {
         err = parent_max_vms_count(&pid);
         return err;
+    } else if (case_id == 11) {
+        err = parent_max_pipe_limits(&pid);
+        return err;
+    } else if (case_id == 12) {
+        return parent_close_invalid_fd(&pid);
+    } else if (case_id == 13) {
+        return parent_write_closed_fd(&pid);
+    } else if (case_id == 14) {
+        return parent_pid(&pid);
+    } else if (case_id == 15) {
+        return parent_spawn_offset_out_of_bound(&pid);
+    } else if (case_id == 16) {
+        return parent_spawn_length_out_of_bound(&pid);
     } else {
         CHECK2(false, -2);
     }
@@ -392,6 +584,18 @@ int child_entry(int case_id) {
         return child_read_then_close();
     } else if (case_id == 10) {
         return child_max_vms_count();
+    } else if (case_id == 11) {
+        return child_max_pipe_limits();
+    } else if (case_id == 12) {
+        return 0;
+    } else if (case_id == 13) {
+        return child_write_closed_fd();
+    } else if (case_id == 14) {
+        return child_pid();
+    } else if (case_id == 15) {
+        return 0;
+    // } else if (case_id == 16) {
+    //     return 0;
     } else {
         return -1;
     }

@@ -104,6 +104,12 @@ fn check_spawn_max_vms_count() {
 }
 
 #[test]
+fn check_spawn_max_pipe_limits() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[11]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
 fn check_vm_version() {
     let script_version = SCRIPT_VERSION;
 
@@ -1177,4 +1183,35 @@ proptest! {
         let result = verifier.verify_without_limit(script_version, &rtx);
         assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
     }
+}
+
+#[test]
+fn check_spawn_close_invalid_fd() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[12]);
+    println!("--- err: {:?}", result);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_write_closed_fd() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[13]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_pid() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[14]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_offset_out_of_bound() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[15]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_length_out_of_bound() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[16]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
 }
