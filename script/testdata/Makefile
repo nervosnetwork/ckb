@@ -68,7 +68,7 @@ ALL_BINS := jalr_zero \
             spawn_callee_current_cycles \
             spawn_times \
             spawn_cases \
-            spawn_pipe_limits \
+            spawn_fd_limits \
             spawn_configurable_caller \
             spawn_configurable_callee \
             spawn_dag \
@@ -153,7 +153,7 @@ spawn_caller_current_cycles: spawn_caller_current_cycles.c
 spawn_callee_current_cycles: spawn_callee_current_cycles.c
 spawn_times: spawn_times.c spawn_utils.h
 spawn_cases: spawn_cases.c spawn_utils.h
-spawn_pipe_limits: spawn_pipe_limits.c
+spawn_fd_limits: spawn_fd_limits.c
 spawn_configurable_caller: spawn_configurable_caller.c spawn_utils.h
 spawn_configurable_callee: spawn_configurable_callee.c spawn_utils.h
 spawn_dag: spawn_dag.c spawn_dag.h spawn_dag_escape_encoding.h

@@ -27,19 +27,13 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Pipe {
         if machine.registers()[A7].to_u64() != PIPE {
             return Ok(false);
         }
-        let pipe1_addr = machine.registers()[A0].to_u64();
-        let pipe2_addr = pipe1_addr.wrapping_add(8);
+        let fd1_addr = machine.registers()[A0].to_u64();
+        let fd2_addr = fd1_addr.wrapping_add(8);
         machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?
-            .push(Message::Pipe(
-                self.id,
-                PipeArgs {
-                    pipe1_addr,
-                    pipe2_addr,
-                },
-            ));
+            .push(Message::Pipe(self.id, PipeArgs { fd1_addr, fd2_addr }));
         Err(VMError::Yield)
     }
 }

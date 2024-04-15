@@ -1,5 +1,5 @@
 use super::SCRIPT_VERSION;
-use crate::scheduler::{MAX_PIPE, MAX_VMS_COUNT};
+use crate::scheduler::{MAX_FDS, MAX_VMS_COUNT};
 use crate::syscalls::SOURCE_GROUP_FLAG;
 use crate::verify::{tests::utils::*, *};
 use ckb_types::{
@@ -104,7 +104,7 @@ fn check_spawn_max_vms_count() {
 }
 
 #[test]
-fn check_spawn_max_pipe_limits() {
+fn check_spawn_max_fd_limits() {
     let result = simple_spawn_test("testdata/spawn_cases", &[11]);
     assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
 }
@@ -648,11 +648,11 @@ fn check_spawn_current_cycles() {
 }
 
 #[test]
-fn check_spawn_pipe_limits() {
+fn check_spawn_fd_limits() {
     let script_version = SCRIPT_VERSION;
 
     let (spawn_caller_cell, spawn_caller_data_hash) =
-        load_cell_from_path("testdata/spawn_pipe_limits");
+        load_cell_from_path("testdata/spawn_fd_limits");
 
     let spawn_caller_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
@@ -1155,7 +1155,7 @@ proptest! {
     fn test_random_dag(
         seed: u64,
         spawns in 5u32..MAX_VMS_COUNT as u32,
-        writes in 3u32..MAX_PIPE as u32 / 2,
+        writes in 3u32..MAX_FDS as u32 / 2,
     ) {
         let script_version = SCRIPT_VERSION;
         let program: Bytes = std::fs::read("./testdata/spawn_dag").unwrap().into();

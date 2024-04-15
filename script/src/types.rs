@@ -359,17 +359,17 @@ pub type VmId = u64;
 pub const FIRST_VM_ID: VmId = 0;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PipeId(pub(crate) u64);
+pub struct Fd(pub(crate) u64);
 
-pub const FIRST_PIPE_SLOT: u64 = 2;
+pub const FIRST_FD_SLOT: u64 = 2;
 
-impl PipeId {
-    pub fn create(slot: u64) -> (PipeId, PipeId, u64) {
-        (PipeId(slot), PipeId(slot + 1), slot + 2)
+impl Fd {
+    pub fn create(slot: u64) -> (Fd, Fd, u64) {
+        (Fd(slot), Fd(slot + 1), slot + 2)
     }
 
-    pub fn other_pipe(&self) -> PipeId {
-        PipeId(self.0 ^ 0x1)
+    pub fn other_fd(&self) -> Fd {
+        Fd(self.0 ^ 0x1)
     }
 
     pub fn is_read(&self) -> bool {
@@ -390,14 +390,14 @@ pub enum VmState {
         exit_code_addr: u64,
     },
     WaitForWrite {
-        pipe: PipeId,
+        fd: Fd,
         consumed: u64,
         length: u64,
         buffer_addr: u64,
         length_addr: u64,
     },
     WaitForRead {
-        pipe: PipeId,
+        fd: Fd,
         length: u64,
         buffer_addr: u64,
         length_addr: u64,
@@ -410,7 +410,7 @@ pub struct SpawnArgs {
     pub offset: u64,
     pub length: u64,
     pub argv: Vec<Bytes>,
-    pub pipes: Vec<PipeId>,
+    pub fds: Vec<Fd>,
     pub process_id_addr: u64,
 }
 
@@ -422,13 +422,13 @@ pub struct WaitArgs {
 
 #[derive(Clone, Debug)]
 pub struct PipeArgs {
-    pub pipe1_addr: u64,
-    pub pipe2_addr: u64,
+    pub fd1_addr: u64,
+    pub fd2_addr: u64,
 }
 
 #[derive(Clone, Debug)]
-pub struct PipeIoArgs {
-    pub pipe: PipeId,
+pub struct FdArgs {
+    pub fd: Fd,
     pub length: u64,
     pub buffer_addr: u64,
     pub length_addr: u64,
@@ -439,10 +439,10 @@ pub enum Message {
     Spawn(VmId, SpawnArgs),
     Wait(VmId, WaitArgs),
     Pipe(VmId, PipeArgs),
-    PipeRead(VmId, PipeIoArgs),
-    PipeWrite(VmId, PipeIoArgs),
-    InheritedFileDescriptor(VmId, PipeIoArgs),
-    Close(VmId, PipeId),
+    FdRead(VmId, FdArgs),
+    FdWrite(VmId, FdArgs),
+    InheritedFileDescriptor(VmId, FdArgs),
+    Close(VmId, Fd),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -488,10 +488,10 @@ pub struct FullSuspendedState {
     pub max_vms_count: u64,
     pub total_cycles: Cycle,
     pub next_vm_id: VmId,
-    pub next_pipe_slot: u64,
+    pub next_fd_slot: u64,
     pub vms: Vec<(VmId, VmState, Snapshot2<DataPieceId>)>,
-    pub pipes: Vec<(PipeId, VmId)>,
-    pub inherited_fd: Vec<(VmId, Vec<PipeId>)>,
+    pub fds: Vec<(Fd, VmId)>,
+    pub inherited_fd: Vec<(VmId, Vec<Fd>)>,
     pub terminated_vms: Vec<(VmId, i8)>,
 }
 
@@ -518,8 +518,8 @@ impl FullSuspendedState {
                     + size_of::<u64>();
                 acc
             })
-            + (self.pipes.len() * (size_of::<PipeId>() + size_of::<VmId>()))) as u64
-            + (self.inherited_fd.len() * (size_of::<PipeId>())) as u64
+            + (self.fds.len() * (size_of::<Fd>() + size_of::<VmId>()))) as u64
+            + (self.inherited_fd.len() * (size_of::<Fd>())) as u64
             + (self.terminated_vms.len() * (size_of::<VmId>() + size_of::<i8>())) as u64
     }
 }

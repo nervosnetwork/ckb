@@ -1,5 +1,5 @@
 use crate::syscalls::{INHERITED_FD, SPAWN_YIELD_CYCLES_BASE};
-use crate::types::{Message, PipeId, PipeIoArgs, VmId};
+use crate::types::{Fd, FdArgs, Message, VmId};
 use ckb_vm::{
     registers::{A0, A1, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -35,8 +35,8 @@ impl<Mac: SupportMachine> Syscalls<Mac> for InheritedFd {
             .map_err(|e| VMError::Unexpected(e.to_string()))?
             .push(Message::InheritedFileDescriptor(
                 self.id,
-                PipeIoArgs {
-                    pipe: PipeId(0),
+                FdArgs {
+                    fd: Fd(0),
                     length: 0,
                     buffer_addr,
                     length_addr,

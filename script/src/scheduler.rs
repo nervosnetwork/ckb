@@ -1,6 +1,6 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INDEX_OUT_OF_BOUND, INVALID_PIPE, MAX_PIPE_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS,
+    INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FD_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS,
     WAIT_FAILURE,
 };
 use crate::types::MachineContext;
@@ -8,8 +8,8 @@ use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::ScriptVersion;
 
 use crate::types::{
-    set_vm_max_cycles, CoreMachineType, DataPieceId, FullSuspendedState, Machine, Message, PipeId,
-    PipeIoArgs, RunMode, TxData, VmId, VmState, FIRST_PIPE_SLOT, FIRST_VM_ID,
+    set_vm_max_cycles, CoreMachineType, DataPieceId, Fd, FdArgs, FullSuspendedState, Machine,
+    Message, RunMode, TxData, VmId, VmState, FIRST_FD_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -33,7 +33,7 @@ use std::{
 pub const ROOT_VM_ID: VmId = FIRST_VM_ID;
 pub const MAX_VMS_COUNT: u64 = 16;
 pub const MAX_INSTANTIATED_VMS: usize = 4;
-pub const MAX_PIPE: u64 = 64;
+pub const MAX_FDS: u64 = 64;
 
 /// A single Scheduler instance is used to verify a single script
 /// within a CKB transaction.
@@ -56,10 +56,10 @@ where
     max_vms_count: u64,
     total_cycles: Cycle,
     next_vm_id: VmId,
-    next_pipe_slot: u64,
+    next_fd_slot: u64,
     states: BTreeMap<VmId, VmState>,
-    pipes: BTreeMap<PipeId, VmId>,
-    inherited_fd: BTreeMap<VmId, Vec<PipeId>>,
+    fds: BTreeMap<Fd, VmId>,
+    inherited_fd: BTreeMap<VmId, Vec<Fd>>,
     instantiated: BTreeMap<VmId, (MachineContext<DL>, Machine)>,
     suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
     terminated_vms: BTreeMap<VmId, i8>,
@@ -87,9 +87,9 @@ where
             max_vms_count: MAX_VMS_COUNT,
             total_cycles: 0,
             next_vm_id: FIRST_VM_ID,
-            next_pipe_slot: FIRST_PIPE_SLOT,
+            next_fd_slot: FIRST_FD_SLOT,
             states: BTreeMap::default(),
-            pipes: BTreeMap::default(),
+            fds: BTreeMap::default(),
             inherited_fd: BTreeMap::default(),
             instantiated: BTreeMap::default(),
             suspended: BTreeMap::default(),
@@ -117,13 +117,13 @@ where
             max_vms_count: full.max_vms_count,
             total_cycles: full.total_cycles,
             next_vm_id: full.next_vm_id,
-            next_pipe_slot: full.next_pipe_slot,
+            next_fd_slot: full.next_fd_slot,
             states: full
                 .vms
                 .iter()
                 .map(|(id, state, _)| (*id, state.clone()))
                 .collect(),
-            pipes: full.pipes.into_iter().collect(),
+            fds: full.fds.into_iter().collect(),
             inherited_fd: full.inherited_fd.into_iter().collect(),
             instantiated: BTreeMap::default(),
             suspended: full
@@ -155,9 +155,9 @@ where
             max_vms_count: self.max_vms_count,
             total_cycles: self.total_cycles,
             next_vm_id: self.next_vm_id,
-            next_pipe_slot: self.next_pipe_slot,
+            next_fd_slot: self.next_fd_slot,
             vms,
-            pipes: self.pipes.into_iter().collect(),
+            fds: self.fds.into_iter().collect(),
             inherited_fd: self.inherited_fd.into_iter().collect(),
             terminated_vms: self.terminated_vms.into_iter().collect(),
         })
@@ -246,7 +246,7 @@ where
         // 3. Process message box, update VM states accordingly
         self.process_message_box()?;
         assert!(self.message_box.lock().expect("lock").is_empty());
-        // 4. If the VM terminates, update VMs in join state, also closes its pipes
+        // 4. If the VM terminates, update VMs in join state, also closes its fds
         match result {
             Ok(code) => {
                 self.terminated_vms.insert(vm_id_to_run, code);
@@ -287,8 +287,8 @@ where
                         machine.machine.set_register(A0, SUCCESS as u64);
                         self.states.insert(vm_id, VmState::Runnable);
                     }
-                    // Close pipes
-                    self.pipes.retain(|_, vm_id| *vm_id != vm_id_to_run);
+                    // Close fds
+                    self.fds.retain(|_, vm_id| *vm_id != vm_id_to_run);
                     // Clear terminated VM states
                     self.states.remove(&vm_id_to_run);
                     self.instantiated.remove(&vm_id_to_run);
@@ -306,21 +306,21 @@ where
         for message in messages {
             match message {
                 Message::Spawn(vm_id, args) => {
-                    // All pipes must belong to the correct owner
-                    let mut pipes_valid = true;
-                    for pipe in &args.pipes {
-                        if !(self.pipes.contains_key(pipe) && (self.pipes[pipe] == vm_id)) {
+                    // All fds must belong to the correct owner
+                    let mut fds_valid = true;
+                    for fd in &args.fds {
+                        if !(self.fds.contains_key(fd) && (self.fds[fd] == vm_id)) {
                             self.ensure_vms_instantiated(&[vm_id])?;
                             let (_, machine) =
                                 self.instantiated.get_mut(&vm_id).ok_or_else(|| {
                                     Error::Unexpected("Unable to find VM Id".to_string())
                                 })?;
-                            machine.machine.set_register(A0, INVALID_PIPE as u64);
-                            pipes_valid = false;
+                            machine.machine.set_register(A0, INVALID_FD as u64);
+                            fds_valid = false;
                             break;
                         }
                     }
-                    if !pipes_valid {
+                    if !fds_valid {
                         continue;
                     }
                     if self.suspended.len() + self.instantiated.len() > self.max_vms_count as usize
@@ -335,13 +335,13 @@ where
                     }
                     let spawned_vm_id =
                         self.boot_vm(&args.data_piece_id, args.offset, args.length, &args.argv)?;
-                    // Move passed pipes from spawner to spawnee
-                    for pipe in &args.pipes {
-                        self.pipes.insert(*pipe, spawned_vm_id);
+                    // Move passed fds from spawner to spawnee
+                    for fd in &args.fds {
+                        self.fds.insert(*fd, spawned_vm_id);
                     }
                     // Here we keep the original version of file descriptors.
                     // If one fd is moved afterward, this inherited file descriptors doesn't change.
-                    self.inherited_fd.insert(spawned_vm_id, args.pipes.clone());
+                    self.inherited_fd.insert(spawned_vm_id, args.fds.clone());
 
                     self.ensure_vms_instantiated(&[vm_id])?;
                     {
@@ -395,18 +395,18 @@ where
                     );
                 }
                 Message::Pipe(vm_id, args) => {
-                    if self.next_pipe_slot - FIRST_PIPE_SLOT >= MAX_PIPE {
+                    if self.next_fd_slot - FIRST_FD_SLOT >= MAX_FDS {
                         let (_, machine) = self
                             .instantiated
                             .get_mut(&vm_id)
                             .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                        machine.machine.set_register(A0, MAX_PIPE_CREATED as u64);
+                        machine.machine.set_register(A0, MAX_FD_CREATED as u64);
                         continue;
                     }
-                    let (p1, p2, slot) = PipeId::create(self.next_pipe_slot);
-                    self.next_pipe_slot = slot;
-                    self.pipes.insert(p1, vm_id);
-                    self.pipes.insert(p2, vm_id);
+                    let (p1, p2, slot) = Fd::create(self.next_fd_slot);
+                    self.next_fd_slot = slot;
+                    self.fds.insert(p1, vm_id);
+                    self.fds.insert(p2, vm_id);
 
                     self.ensure_vms_instantiated(&[vm_id])?;
                     {
@@ -417,27 +417,27 @@ where
                         machine
                             .machine
                             .memory_mut()
-                            .store64(&args.pipe1_addr, &p1.0)?;
+                            .store64(&args.fd1_addr, &p1.0)?;
                         machine
                             .machine
                             .memory_mut()
-                            .store64(&args.pipe2_addr, &p2.0)?;
+                            .store64(&args.fd2_addr, &p2.0)?;
                         machine.machine.set_register(A0, SUCCESS as u64);
                     }
                 }
-                Message::PipeRead(vm_id, args) => {
-                    if !(self.pipes.contains_key(&args.pipe) && (self.pipes[&args.pipe] == vm_id)) {
+                Message::FdRead(vm_id, args) => {
+                    if !(self.fds.contains_key(&args.fd) && (self.fds[&args.fd] == vm_id)) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
                             let (_, machine) =
                                 self.instantiated.get_mut(&vm_id).ok_or_else(|| {
                                     Error::Unexpected("Unable to find VM Id".to_string())
                                 })?;
-                            machine.machine.set_register(A0, INVALID_PIPE as u64);
+                            machine.machine.set_register(A0, INVALID_FD as u64);
                         }
                         continue;
                     }
-                    if !self.pipes.contains_key(&args.pipe.other_pipe()) {
+                    if !self.fds.contains_key(&args.fd.other_fd()) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
                             let (_, machine) =
@@ -452,26 +452,26 @@ where
                     self.states.insert(
                         vm_id,
                         VmState::WaitForRead {
-                            pipe: args.pipe,
+                            fd: args.fd,
                             length: args.length,
                             buffer_addr: args.buffer_addr,
                             length_addr: args.length_addr,
                         },
                     );
                 }
-                Message::PipeWrite(vm_id, args) => {
-                    if !(self.pipes.contains_key(&args.pipe) && (self.pipes[&args.pipe] == vm_id)) {
+                Message::FdWrite(vm_id, args) => {
+                    if !(self.fds.contains_key(&args.fd) && (self.fds[&args.fd] == vm_id)) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
                             let (_, machine) =
                                 self.instantiated.get_mut(&vm_id).ok_or_else(|| {
                                     Error::Unexpected("Unable to find VM Id".to_string())
                                 })?;
-                            machine.machine.set_register(A0, INVALID_PIPE as u64);
+                            machine.machine.set_register(A0, INVALID_FD as u64);
                         }
                         continue;
                     }
-                    if !self.pipes.contains_key(&args.pipe.other_pipe()) {
+                    if !self.fds.contains_key(&args.fd.other_fd()) {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         {
                             let (_, machine) =
@@ -486,7 +486,7 @@ where
                     self.states.insert(
                         vm_id,
                         VmState::WaitForWrite {
-                            pipe: args.pipe,
+                            fd: args.fd,
                             consumed: 0,
                             length: args.length,
                             buffer_addr: args.buffer_addr,
@@ -500,7 +500,7 @@ where
                         .instantiated
                         .get_mut(&vm_id)
                         .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                    let PipeIoArgs {
+                    let FdArgs {
                         buffer_addr,
                         length_addr,
                         ..
@@ -549,10 +549,10 @@ where
                         .instantiated
                         .get_mut(&vm_id)
                         .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                    if self.pipes.get(&fd) != Some(&vm_id) {
-                        machine.machine.set_register(A0, INVALID_PIPE as u64);
+                    if self.fds.get(&fd) != Some(&vm_id) {
+                        machine.machine.set_register(A0, INVALID_FD as u64);
                     } else {
-                        self.pipes.remove(&fd);
+                        self.fds.remove(&fd);
                         machine.machine.set_register(A0, SUCCESS as u64);
                     }
                 }
@@ -562,31 +562,31 @@ where
     }
 
     fn process_io(&mut self) -> Result<(), Error> {
-        let mut reads: HashMap<PipeId, (VmId, VmState)> = HashMap::default();
-        let mut closed_pipes: Vec<VmId> = Vec::new();
+        let mut reads: HashMap<Fd, (VmId, VmState)> = HashMap::default();
+        let mut closed_fds: Vec<VmId> = Vec::new();
         self.states.iter().for_each(|(vm_id, state)| {
-            if let VmState::WaitForRead { pipe, .. } = state {
-                if self.pipes.contains_key(&pipe.other_pipe()) {
-                    reads.insert(*pipe, (*vm_id, state.clone()));
+            if let VmState::WaitForRead { fd, .. } = state {
+                if self.fds.contains_key(&fd.other_fd()) {
+                    reads.insert(*fd, (*vm_id, state.clone()));
                 } else {
-                    closed_pipes.push(*vm_id);
+                    closed_fds.push(*vm_id);
                 }
             }
         });
         let mut pairs: Vec<[(VmId, VmState); 2]> = Vec::new();
         self.states.iter().for_each(|(vm_id, state)| {
-            if let VmState::WaitForWrite { pipe, .. } = state {
-                if self.pipes.contains_key(&pipe.other_pipe()) {
-                    if let Some((read_vm_id, read_state)) = reads.get(&pipe.other_pipe()) {
+            if let VmState::WaitForWrite { fd, .. } = state {
+                if self.fds.contains_key(&fd.other_fd()) {
+                    if let Some((read_vm_id, read_state)) = reads.get(&fd.other_fd()) {
                         pairs.push([(*read_vm_id, read_state.clone()), (*vm_id, state.clone())]);
                     }
                 } else {
-                    closed_pipes.push(*vm_id);
+                    closed_fds.push(*vm_id);
                 }
             }
         });
-        // Finish read / write syscalls for pipes that are closed on the other end
-        for vm_id in closed_pipes {
+        // Finish read / write syscalls for fds that are closed on the other end
+        for vm_id in closed_fds {
             match self.states[&vm_id].clone() {
                 VmState::WaitForRead { length_addr, .. } => {
                     self.ensure_vms_instantiated(&[vm_id])?;
@@ -621,7 +621,7 @@ where
                 _ => (),
             }
         }
-        // Transfering data from write pipes to read pipes
+        // Transfering data from write fds to read fds
         for [(read_vm_id, read_state), (write_vm_id, write_state)] in pairs {
             let VmState::WaitForRead {
                 length: read_length,
@@ -633,7 +633,7 @@ where
                 unreachable!()
             };
             let VmState::WaitForWrite {
-                pipe: write_pipe,
+                fd: write_fd,
                 mut consumed,
                 length: write_length,
                 buffer_addr: write_buffer_addr,
@@ -681,7 +681,7 @@ where
                 self.states.insert(read_vm_id, VmState::Runnable);
 
                 // Write syscall, however, terminates only when all the data
-                // have been written, or when the pairing read pipe is closed.
+                // have been written, or when the pairing read fd is closed.
                 consumed += copiable;
                 if consumed == write_length {
                     // Write VM has fulfilled its write request
@@ -700,7 +700,7 @@ where
                     self.states.insert(
                         write_vm_id,
                         VmState::WaitForWrite {
-                            pipe: write_pipe,
+                            fd: write_fd,
                             consumed,
                             length: write_length,
                             buffer_addr: write_buffer_addr,

@@ -1,5 +1,5 @@
-use crate::syscalls::{INVALID_PIPE, READ, SPAWN_YIELD_CYCLES_BASE};
-use crate::types::{Message, PipeId, PipeIoArgs, VmId};
+use crate::syscalls::{INVALID_FD, READ, SPAWN_YIELD_CYCLES_BASE};
+use crate::types::{Fd, FdArgs, Message, VmId};
 use ckb_vm::{
     registers::{A0, A1, A2, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
@@ -27,7 +27,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Read {
         if machine.registers()[A7].to_u64() != READ {
             return Ok(false);
         }
-        let pipe = PipeId(machine.registers()[A0].to_u64());
+        let fd = Fd(machine.registers()[A0].to_u64());
         let buffer_addr = machine.registers()[A1].to_u64();
         let length_addr = machine.registers()[A2].to_u64();
         let length = machine
@@ -38,18 +38,18 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Read {
         // We can only do basic checks here, when the message is actually processed,
         // more complete checks will be performed.
         // We will also leave to the actual write operation to test memory permissions.
-        if !pipe.is_read() {
-            machine.set_register(A0, Mac::REG::from_u8(INVALID_PIPE));
+        if !fd.is_read() {
+            machine.set_register(A0, Mac::REG::from_u8(INVALID_FD));
             return Ok(true);
         }
         machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?
-            .push(Message::PipeRead(
+            .push(Message::FdRead(
                 self.id,
-                PipeIoArgs {
-                    pipe,
+                FdArgs {
+                    fd,
                     length,
                     buffer_addr,
                     length_addr,
