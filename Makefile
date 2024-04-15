@@ -26,7 +26,7 @@ doc-test: ## Run doc tests
 
 .PHONY: cli-test
 cli-test: prod # Run ckb command line usage bats test
-	./util/app-config/src/tests/cli_test.sh
+	./util/app-config/src/tests/bats_tests/cli_test.sh
 
 .PHONY: test
 test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
