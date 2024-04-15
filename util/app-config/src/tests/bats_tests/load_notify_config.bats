@@ -41,9 +41,9 @@ function run_with_uncomment_notify_config { #@test
 
   run _run
   [ "$status" -eq 0 ]
- 
+
   run _log_no_error
   [ "$status" -eq 0 ]
- 
+
   cat ${TMP_DIR}/ckb_notify.log
 }
