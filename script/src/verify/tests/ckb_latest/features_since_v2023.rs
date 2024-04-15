@@ -959,9 +959,9 @@ pub fn generate_data_graph(
             writes_builder = writes_builder.push(
                 dag::WriteBuilder::default()
                     .from(build_vm_index(writer.index() as u64))
-                    .from_pipe(build_pipe_index(writer_pipe_index as u64))
+                    .from_fd(build_fd_index(writer_pipe_index as u64))
                     .to(build_vm_index(reader.index() as u64))
-                    .to_pipe(build_pipe_index(reader_pipe_index as u64))
+                    .to_fd(build_fd_index(reader_pipe_index as u64))
                     .data(
                         dag::BytesBuilder::default()
                             .extend(data.iter().map(|b| Byte::new(*b)))
@@ -1067,9 +1067,9 @@ pub fn generate_data_graph(
         let (parent, child) = spawn_dag.edge_endpoints(e).unwrap();
 
         let pipes = {
-            let mut builder = dag::PipeIndicesBuilder::default();
+            let mut builder = dag::FdIndicesBuilder::default();
             for p in &spawn_ops[&e.index()] {
-                builder = builder.push(build_pipe_index(*p as u64));
+                builder = builder.push(build_fd_index(*p as u64));
             }
             builder.build()
         };
@@ -1078,7 +1078,7 @@ pub fn generate_data_graph(
             dag::SpawnBuilder::default()
                 .from(build_vm_index(parent.index() as u64))
                 .child(build_vm_index(child.index() as u64))
-                .pipes(pipes)
+                .fds(pipes)
                 .build(),
         );
     }
@@ -1089,8 +1089,8 @@ pub fn generate_data_graph(
             pipes_builder = pipes_builder.push(
                 dag::PipeBuilder::default()
                     .vm(build_vm_index(vm_index as u64))
-                    .read_pipe(build_pipe_index(reader_pipe_index as u64))
-                    .write_pipe(build_pipe_index(writer_pipe_index as u64))
+                    .read_fd(build_fd_index(reader_pipe_index as u64))
+                    .write_fd(build_fd_index(writer_pipe_index as u64))
                     .build(),
             );
         }
@@ -1111,12 +1111,12 @@ fn build_vm_index(val: u64) -> dag::VmIndex {
     dag::VmIndexBuilder::default().set(data).build()
 }
 
-fn build_pipe_index(val: u64) -> dag::PipeIndex {
+fn build_fd_index(val: u64) -> dag::FdIndex {
     let mut data = [Byte::new(0); 8];
     for (i, v) in val.to_le_bytes().into_iter().enumerate() {
         data[i] = Byte::new(v);
     }
-    dag::PipeIndexBuilder::default().set(data).build()
+    dag::FdIndexBuilder::default().set(data).build()
 }
 
 proptest! {
