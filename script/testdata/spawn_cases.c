@@ -270,7 +270,7 @@ int parent_inherited_fds_without_owner(uint64_t* pid) {
 
     spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = fds};
     err = ckb_spawn(0, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
-    CHECK2(err == CKB_INVALID_PIPE, -2);
+    CHECK2(err == CKB_INVALID_FD, -2);
 
     // create valid fds
     err = ckb_pipe(fds);
@@ -281,7 +281,7 @@ int parent_inherited_fds_without_owner(uint64_t* pid) {
 
     // the fds are already transferred. An error expected.
     err = ckb_spawn(0, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
-    CHECK2(err == CKB_INVALID_PIPE, -2);
+    CHECK2(err == CKB_INVALID_FD, -2);
     err = 0;
 exit:
     return err;

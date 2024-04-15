@@ -12,7 +12,7 @@ int main() {
     }
     // Create up to 64 pipes.
     err = ckb_pipe(pipe);
-    err = err - 9;
+    err = err - CKB_MAX_FDS_CREATED;
 
 exit:
     return err;
