@@ -71,7 +71,8 @@ ALL_BINS := jalr_zero \
             spawn_configurable_caller \
             spawn_configurable_callee \
             spawn_dag \
-            spawn_fuzzing
+            spawn_fuzzing \
+            spawn_huge_swap
 
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
@@ -156,3 +157,4 @@ spawn_configurable_caller: spawn_configurable_caller.c spawn_utils.h
 spawn_configurable_callee: spawn_configurable_callee.c spawn_utils.h
 spawn_dag: spawn_dag.c spawn_dag.h spawn_dag_escape_encoding.h
 spawn_fuzzing: spawn_fuzzing.c spawn_utils.h
+spawn_huge_swap: spawn_huge_swap.c spawn_utils.h
