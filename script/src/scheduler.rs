@@ -395,7 +395,7 @@ where
                     );
                 }
                 Message::Pipe(vm_id, args) => {
-                    if self.next_fd_slot - FIRST_FD_SLOT >= MAX_FDS {
+                    if self.fds.len() as u64 >= MAX_FDS {
                         let (_, machine) = self
                             .instantiated
                             .get_mut(&vm_id)
