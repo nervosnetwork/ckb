@@ -414,11 +414,9 @@ int child_write_closed_fd() {
 
     uint8_t block[7] = {0};
     size_t actual_length = 0;
-    err = write_exact(inherited_fds[CKB_STDOUT], block, sizeof(block),
-                      &actual_length);
+    err = write_exact(inherited_fds[CKB_STDOUT], block, sizeof(block), &actual_length);
     CHECK(err);
-    err = write_exact(inherited_fds[CKB_STDOUT], block, sizeof(block),
-                      &actual_length);
+    err = write_exact(inherited_fds[CKB_STDOUT], block, sizeof(block), &actual_length);
     CHECK(err);
 
     ckb_close(inherited_fds[CKB_STDIN]);
@@ -447,14 +445,12 @@ int parent_pid(uint64_t* pid) {
 
     uint64_t child_pid_1 = 0;
     size_t actual_length = 0;
-    err = read_exact(fds_1[CKB_STDIN], &child_pid_1, sizeof(child_pid_1),
-                     &actual_length);
+    err = read_exact(fds_1[CKB_STDIN], &child_pid_1, sizeof(child_pid_1), &actual_length);
     CHECK(err);
     CHECK2(child_pid_1 == pid_c1, -1);
 
     uint64_t child_pid_2 = 0;
-    err = read_exact(fds_2[CKB_STDIN], &child_pid_2, sizeof(child_pid_2),
-                     &actual_length);
+    err = read_exact(fds_2[CKB_STDIN], &child_pid_2, sizeof(child_pid_2), &actual_length);
     CHECK(err);
     CHECK2(child_pid_2 == pid_c2, -1);
 
@@ -484,8 +480,7 @@ int parent_spawn_offset_out_of_bound(uint64_t* pid) {
     int err = 0;
 
     const char* argv[] = {"", 0};
-    spawn_args_t spgs = {
-        .argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
+    spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
     uint64_t offset = 1024 * 1024 * 1024 * 1;
     uint64_t length = 0;
     uint64_t bounds = (offset << 32) + length;
@@ -500,8 +495,7 @@ int parent_spawn_length_out_of_bound(uint64_t* pid) {
     int err = 0;
 
     const char* argv[] = {"", 0};
-    spawn_args_t spgs = {
-        .argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
+    spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
     uint64_t offset = 1024 * 14;
     uint64_t length = 1024;
     uint64_t bounds = (offset << 32) + length;
