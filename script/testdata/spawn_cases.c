@@ -496,13 +496,53 @@ int parent_spawn_length_out_of_bound(uint64_t* pid) {
 
     const char* argv[] = {"", 0};
     spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
-    uint64_t offset = 1024 * 14;
+    uint64_t offset = 1024 * 15;
     uint64_t length = 1024;
     uint64_t bounds = (offset << 32) + length;
 
     err = ckb_spawn(0, CKB_SOURCE_CELL_DEP, 0, bounds, &spgs);
     CHECK2(err == 3, -1);  // SLICE_OUT_OF_BOUND
     err = 0;
+exit:
+    return err;
+}
+
+int parent_invaild_index(uint64_t* pid) {
+    int err = 0;
+    const char* argv[] = {"", 0};
+    uint64_t inherited_fds[11] = {0};
+    for (size_t i = 0; i < 5; i++) {
+        err = ckb_pipe(&inherited_fds[i * 2]);
+        CHECK(err);
+    }
+    spawn_args_t spgs = {.argc = 1,
+                         .argv = argv,
+                         .process_id = pid,
+                         .inherited_fds = inherited_fds};
+    err = ckb_spawn(0xFFFFFFFFF, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
+    CHECK2(err == 1, -1);  // INDEX_OUT_OF_BOUND
+    err = 0;
+
+exit:
+    return err;
+}
+
+int parent_index_out_of_bound(uint64_t* pid) {
+    int err = 0;
+    const char* argv[] = {"", 0};
+    uint64_t inherited_fds[11] = {0};
+    for (size_t i = 0; i < 5; i++) {
+        err = ckb_pipe(&inherited_fds[i * 2]);
+        CHECK(err);
+    }
+    spawn_args_t spgs = {.argc = 1,
+                         .argv = argv,
+                         .process_id = pid,
+                         .inherited_fds = inherited_fds};
+    err = ckb_spawn(2, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
+    CHECK2(err == 1, -1);  // INDEX_OUT_OF_BOUND
+    err = 0;
+
 exit:
     return err;
 }
@@ -544,6 +584,10 @@ int parent_entry(int case_id) {
         return parent_spawn_offset_out_of_bound(&pid);
     } else if (case_id == 16) {
         return parent_spawn_length_out_of_bound(&pid);
+    } else if (case_id == 17) {
+        return parent_invaild_index(&pid);
+    } else if (case_id == 18) {
+        return parent_index_out_of_bound(&pid);
     } else {
         CHECK2(false, -2);
     }

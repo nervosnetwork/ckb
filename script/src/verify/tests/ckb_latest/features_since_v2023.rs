@@ -1158,7 +1158,6 @@ proptest! {
 #[test]
 fn check_spawn_close_invalid_fd() {
     let result = simple_spawn_test("testdata/spawn_cases", &[12]);
-    println!("--- err: {:?}", result);
     assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
 }
 
@@ -1220,4 +1219,16 @@ fn check_spawn_huge_swap() {
     } else {
         assert!(result.is_err())
     }
+}
+
+#[test]
+fn check_spawn_invaild_index() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[17]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_index_out_of_bound() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[18]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
 }
