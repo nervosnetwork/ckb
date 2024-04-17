@@ -851,15 +851,12 @@ fn check_spawn_configurable() {
 #[allow(dead_code)]
 #[path = "../../../../testdata/spawn_dag.rs"]
 mod spawn_dag;
-use molecule::prelude::Byte;
-use spawn_dag as dag;
-// use spawn_dag::*;
 use ckb_types::bytes::Bytes;
 use daggy::{Dag, Walker};
+use molecule::prelude::Byte;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use spawn_dag as dag;
 use std::collections::{HashSet, VecDeque};
-// use ckb_types::core::DepType;
-// use ckb_types::packed::CellDep;
 
 pub fn generate_data_graph(
     seed: u64,
