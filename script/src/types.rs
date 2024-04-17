@@ -493,6 +493,7 @@ pub struct FullSuspendedState {
     pub fds: Vec<(Fd, VmId)>,
     pub inherited_fd: Vec<(VmId, Vec<Fd>)>,
     pub terminated_vms: Vec<(VmId, i8)>,
+    pub instantiated_ids: Vec<VmId>,
 }
 
 impl FullSuspendedState {
@@ -521,6 +522,7 @@ impl FullSuspendedState {
             + (self.fds.len() * (size_of::<Fd>() + size_of::<VmId>()))) as u64
             + (self.inherited_fd.len() * (size_of::<Fd>())) as u64
             + (self.terminated_vms.len() * (size_of::<VmId>() + size_of::<i8>())) as u64
+            + (self.instantiated_ids.len() * size_of::<VmId>()) as u64
     }
 }
 

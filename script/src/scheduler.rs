@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS,
-    WAIT_FAILURE,
+    INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
+    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
 };
 use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
@@ -55,6 +55,7 @@ where
 
     max_vms_count: u64,
     total_cycles: Cycle,
+    extra_cycles: Cycle,
     next_vm_id: VmId,
     next_fd_slot: u64,
     states: BTreeMap<VmId, VmState>,
@@ -86,6 +87,7 @@ where
             syscalls_generator,
             max_vms_count: MAX_VMS_COUNT,
             total_cycles: 0,
+            extra_cycles: 0,
             next_vm_id: FIRST_VM_ID,
             next_fd_slot: FIRST_FD_SLOT,
             states: BTreeMap::default(),
@@ -110,12 +112,13 @@ where
         full: FullSuspendedState,
     ) -> Self {
         let message_box = Arc::clone(&syscalls_generator.message_box);
-        Self {
+        let mut scheduler = Self {
             tx_data,
             script_version,
             syscalls_generator,
             max_vms_count: full.max_vms_count,
             total_cycles: full.total_cycles,
+            extra_cycles: 0,
             next_vm_id: full.next_vm_id,
             next_fd_slot: full.next_fd_slot,
             states: full
@@ -133,7 +136,11 @@ where
                 .collect(),
             message_box,
             terminated_vms: full.terminated_vms.into_iter().collect(),
-        }
+        };
+        scheduler
+            .ensure_vms_instantiated(&full.instantiated_ids)
+            .unwrap();
+        scheduler
     }
 
     /// Suspend current scheduler into a serializable full state
@@ -141,8 +148,8 @@ where
         assert!(self.message_box.lock().expect("lock").is_empty());
         let mut vms = Vec::with_capacity(self.states.len());
         let instantiated_ids: Vec<_> = self.instantiated.keys().cloned().collect();
-        for id in instantiated_ids {
-            self.suspend_vm(&id)?;
+        for id in &instantiated_ids {
+            self.suspend_vm(id)?;
         }
         for (id, state) in self.states {
             let snapshot = self
@@ -160,6 +167,7 @@ where
             fds: self.fds.into_iter().collect(),
             inherited_fd: self.inherited_fd.into_iter().collect(),
             terminated_vms: self.terminated_vms.into_iter().collect(),
+            instantiated_ids,
         })
     }
 
@@ -192,6 +200,7 @@ where
         };
 
         while self.states[&ROOT_VM_ID] != VmState::Terminated {
+            self.extra_cycles = 0;
             let consumed_cycles = self.iterate(pause.clone(), limit_cycles)?;
             limit_cycles = limit_cycles
                 .checked_sub(consumed_cycles)
@@ -294,9 +303,19 @@ where
                     self.instantiated.remove(&vm_id_to_run);
                     self.suspended.remove(&vm_id_to_run);
                 }
-                Ok(consumed_cycles)
+                self.total_cycles = self
+                    .total_cycles
+                    .checked_add(self.extra_cycles)
+                    .ok_or(Error::CyclesOverflow)?;
+                Ok(consumed_cycles + self.extra_cycles)
             }
-            Err(Error::Yield) => Ok(consumed_cycles),
+            Err(Error::Yield) => {
+                self.total_cycles = self
+                    .total_cycles
+                    .checked_add(self.extra_cycles)
+                    .ok_or(Error::CyclesOverflow)?;
+                Ok(consumed_cycles + self.extra_cycles)
+            }
             Err(e) => Err(e),
         }
     }
@@ -760,6 +779,7 @@ where
             return Err(Error::Unexpected(format!("VM {:?} is not suspended!", id)));
         }
         let snapshot = &self.suspended[id];
+        self.extra_cycles += SPAWN_EXTRA_CYCLES_BASE;
         let (context, mut machine) = self.create_dummy_vm(id)?;
         {
             let mut sc = context.snapshot2_context().lock().expect("lock");
@@ -778,6 +798,7 @@ where
                 id
             )));
         }
+        self.extra_cycles += SPAWN_EXTRA_CYCLES_BASE;
         let (context, machine) = self
             .instantiated
             .get_mut(id)

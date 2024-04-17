@@ -1209,10 +1209,15 @@ fn check_spawn_huge_swap() {
         resolved_dep_groups: vec![],
     };
     let verifier = TransactionScriptsVerifierWithEnv::new();
+
+    let tic = std::time::Instant::now();
     let result = verifier.verify(script_version, &rtx, 70_000_000);
+    let toc = tic.elapsed().as_millis();
     if script_version >= ScriptVersion::V2 {
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("ExceededMaximumCycles"))
+        assert!(msg.contains("ExceededMaximumCycles"));
+        // Normally, this test should take less than 1 second.
+        assert!(toc < 5000);
     } else {
         assert!(result.is_err())
     }
