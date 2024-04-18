@@ -414,11 +414,12 @@ where
                     );
                 }
                 Message::Pipe(vm_id, args) => {
+                    self.ensure_vms_instantiated(&[vm_id])?;
+                    let (_, machine) = self
+                        .instantiated
+                        .get_mut(&vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     if self.fds.len() as u64 >= MAX_FDS {
-                        let (_, machine) = self
-                            .instantiated
-                            .get_mut(&vm_id)
-                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                         machine.machine.set_register(A0, MAX_FDS_CREATED as u64);
                         continue;
                     }
@@ -426,23 +427,15 @@ where
                     self.next_fd_slot = slot;
                     self.fds.insert(p1, vm_id);
                     self.fds.insert(p2, vm_id);
-
-                    self.ensure_vms_instantiated(&[vm_id])?;
-                    {
-                        let (_, machine) = self
-                            .instantiated
-                            .get_mut(&vm_id)
-                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                        machine
-                            .machine
-                            .memory_mut()
-                            .store64(&args.fd1_addr, &p1.0)?;
-                        machine
-                            .machine
-                            .memory_mut()
-                            .store64(&args.fd2_addr, &p2.0)?;
-                        machine.machine.set_register(A0, SUCCESS as u64);
-                    }
+                    machine
+                        .machine
+                        .memory_mut()
+                        .store64(&args.fd1_addr, &p1.0)?;
+                    machine
+                        .machine
+                        .memory_mut()
+                        .store64(&args.fd2_addr, &p2.0)?;
+                    machine.machine.set_register(A0, SUCCESS as u64);
                 }
                 Message::FdRead(vm_id, args) => {
                     if !(self.fds.contains_key(&args.fd) && (self.fds[&args.fd] == vm_id)) {
