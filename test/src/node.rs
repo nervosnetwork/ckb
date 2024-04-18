@@ -8,7 +8,7 @@ use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
-use ckb_logger::{debug, error};
+use ckb_logger::{debug, error, info};
 use ckb_resource::Resource;
 use ckb_types::{
     bytes,
@@ -27,6 +27,9 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_C_EVENT};
 
 struct ProcessGuard {
     pub name: String,
@@ -704,13 +707,15 @@ impl Node {
 
     #[cfg(target_os = "windows")]
     fn kill_gracefully(pid: u32) {
-        // taskkill /pid 1234
-        let kill_output = std::process::Command::new("taskkill")
-            .arg("/pid")
-            .arg(format!("{}", pid))
-            .output()
-            .expect("kill process on windows");
-        ckb_logger::info!("kill process {}, output: {:?}", pid, kill_output)
+        unsafe {
+            let ret = GenerateConsoleCtrlEvent(CTRL_C_EVENT, pid);
+            if ret == 0 {
+                let err = std::io::Error::last_os_error();
+                error!("GenerateConsoleCtrlEvent failed: {}", err);
+            } else {
+                info!("GenerateConsoleCtrlEvent success");
+            }
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
