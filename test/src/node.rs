@@ -8,7 +8,7 @@ use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
-use ckb_logger::{debug, error, info};
+use ckb_logger::{debug, error};
 use ckb_resource::Resource;
 use ckb_types::{
     bytes,
