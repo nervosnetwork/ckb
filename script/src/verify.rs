@@ -853,7 +853,6 @@ where
             match self.verify_group_with_chunk(group, remain_cycles, &None) {
                 Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
                     current_used = wrapping_cycles_add(current_used, consumed_cycles, group)?;
-                    eprintln!("used_cycles: {:?}", used_cycles);
                     cycles = wrapping_cycles_add(cycles, consumed_cycles, group)?;
                 }
                 Ok(ChunkState::Suspended(state)) => {
