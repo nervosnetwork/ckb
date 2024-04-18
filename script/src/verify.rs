@@ -845,7 +845,7 @@ where
         for (idx, (_hash, group)) in self.groups().enumerate().skip(current + 1) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
                 ScriptError::Other(format!(
-                    "here expect invalid cycles {limit_cycles} {cycles}"
+                    "expect invalid cycles {limit_cycles} {current_used} {cycles}"
                 ))
                 .source(group)
             })?;
