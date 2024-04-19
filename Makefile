@@ -137,6 +137,10 @@ build-for-profiling: ## Build binary with for profiling.
 prod: ## Build binary for production release.
 	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
+.PHONY: trace-tokio
+trace-tokio: ## Build binary for production release and with tokio trace feature.
+	RUSTFLAGS="--cfg tokio_unstable" cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "tokio-trace,with_sentry,with_dns_seeding"
+
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
 	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
