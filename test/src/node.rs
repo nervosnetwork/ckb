@@ -713,7 +713,7 @@ impl Node {
                 let err = std::io::Error::last_os_error();
                 error!("GenerateConsoleCtrlEvent failed: {}", err);
             } else {
-                info!("GenerateConsoleCtrlEvent success");
+                ckb_logger::info!("GenerateConsoleCtrlEvent success");
             }
         }
     }
