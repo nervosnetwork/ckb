@@ -62,8 +62,6 @@ jobs:
         scoop install git
         scoop bucket add extras
         scoop install llvm
-    - name: Install nextest dependency
-      run: scoop install jq
     - name: Install nextest-rs/nextest
       uses: taiki-e/install-action@nextest
     - run: |
