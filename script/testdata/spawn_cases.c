@@ -515,10 +515,7 @@ int parent_invaild_index(uint64_t* pid) {
         err = ckb_pipe(&inherited_fds[i * 2]);
         CHECK(err);
     }
-    spawn_args_t spgs = {.argc = 1,
-                         .argv = argv,
-                         .process_id = pid,
-                         .inherited_fds = inherited_fds};
+    spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = inherited_fds};
     err = ckb_spawn(0xFFFFFFFFF, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
     CHECK2(err == 1, -1);  // INDEX_OUT_OF_BOUND
     err = 0;
@@ -535,10 +532,7 @@ int parent_index_out_of_bound(uint64_t* pid) {
         err = ckb_pipe(&inherited_fds[i * 2]);
         CHECK(err);
     }
-    spawn_args_t spgs = {.argc = 1,
-                         .argv = argv,
-                         .process_id = pid,
-                         .inherited_fds = inherited_fds};
+    spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = inherited_fds};
     err = ckb_spawn(2, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
     CHECK2(err == 1, -1);  // INDEX_OUT_OF_BOUND
     err = 0;
