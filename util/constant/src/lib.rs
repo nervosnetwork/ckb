@@ -4,6 +4,8 @@
 pub mod consensus;
 /// hardfork constant
 pub mod hardfork;
+/// softfork constant
+pub mod softfork;
 /// store constant
 pub mod store;
 /// sync constant
