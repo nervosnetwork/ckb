@@ -52,6 +52,7 @@ mod tests;
 
 pub enum ChunkState {
     Suspended(Option<FullSuspendedState>),
+    // (total_cycles, consumed_cycles in last chunk)
     Completed(Cycle, Cycle),
 }
 
