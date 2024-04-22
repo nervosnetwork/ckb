@@ -7,7 +7,10 @@ ignore = [
     # The CVE can be kept under control for its triggering.
     # See https://github.com/launchbadge/sqlx/pull/2455#issuecomment-1507657825 for more information.
     # Meanwhile, awaiting SQLx's new version (> 0.7.3) for full support of any DB driver.
-    "RUSTSEC-2022-0090"
+    "RUSTSEC-2022-0090",
+    # ckb-rich-indexer need sqlx's runtime-tokio-rustls feature,
+    # ignore https://rustsec.org/advisories/RUSTSEC-2024-0336
+    "RUSTSEC-2024-0336"
 ]
 
 [licenses]
