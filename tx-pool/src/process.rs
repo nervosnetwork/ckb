@@ -32,7 +32,7 @@ use ckb_verification::{
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
@@ -158,7 +158,11 @@ impl TxPoolService {
                     self.callbacks.call_reject(tx_pool, &evict, reject);
                 }
                 tx_pool.remove_conflict(&entry.proposal_short_id());
-
+                // in a corner case, a tx with lower fee rate may be rejected immediately
+                // after inserting into pool, return proper reject error here
+                tx_pool
+                    .limit_size(&self.callbacks, Some(&entry.proposal_short_id()))
+                    .map_or(Ok(()), Err)?;
                 Ok(())
             })
             .await;
@@ -636,6 +640,8 @@ impl TxPoolService {
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
         let tx_hash = tx.hash();
+        let instant = Instant::now();
+        let is_sync_process = command_rx.is_none();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
@@ -689,6 +695,15 @@ impl TxPoolService {
                 let mut guard = txs_verify_cache.write().await;
                 guard.put(tx_hash, verified);
             });
+        }
+
+        if let Some(metrics) = ckb_metrics::handle() {
+            let elapsed = instant.elapsed().as_secs_f64();
+            if is_sync_process {
+                metrics.ckb_tx_pool_sync_process.observe(elapsed);
+            } else {
+                metrics.ckb_tx_pool_async_process.observe(elapsed);
+            }
         }
 
         Some((Ok(verified), submit_snapshot))
@@ -1068,7 +1083,7 @@ fn _update_tx_pool_for_reorg(
     tx_pool.remove_expired(callbacks);
 
     // Remove transactions from the pool until its size <= size_limit.
-    tx_pool.limit_size(callbacks);
+    let _ = tx_pool.limit_size(callbacks, None);
 }
 
 pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {

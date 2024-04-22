@@ -26,7 +26,7 @@ doc-test: ## Run doc tests
 
 .PHONY: cli-test
 cli-test: prod # Run ckb command line usage bats test
-	./util/app-config/src/tests/cli_test.sh
+	./util/app-config/src/tests/bats_tests/cli_test.sh
 
 .PHONY: test
 test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
@@ -137,6 +137,10 @@ build-for-profiling: ## Build binary with for profiling.
 prod: ## Build binary for production release.
 	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
+.PHONY: trace-tokio
+trace-tokio: ## Build binary for production release and with tokio trace feature.
+	RUSTFLAGS="--cfg tokio_unstable" cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "tokio-trace,with_sentry,with_dns_seeding"
+
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
 	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
@@ -244,6 +248,11 @@ GEN_MOL_IN_DIR := util/gen-types/schemas
 GEN_MOL_OUT_DIR := util/gen-types/src/generated
 GEN_MOL_FILES := ${GEN_MOL_OUT_DIR}/blockchain.rs ${GEN_MOL_OUT_DIR}/extensions.rs ${GEN_MOL_OUT_DIR}/protocols.rs
 gen: check-moleculec-version ${GEN_MOL_FILES} # Generate Protocol Files
+
+.PHONY: update-default-valid-target
+update-default-valid-target: ## update hardcoded default assume valid target to a 60 days ago block
+	./devtools/release/update_default_valid_target.sh
+	git --no-pager diff util/constant/src/default_assume_valid_target.rs
 
 .PHONY: check-moleculec-version
 check-moleculec-version:

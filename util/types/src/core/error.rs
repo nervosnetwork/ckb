@@ -122,7 +122,7 @@ pub enum TransactionError {
         outputs_data_len: usize,
     },
 
-    /// Error dues to the the fact that the since rule is not respected.
+    /// Error dues to the fact that the since rule is not respected.
     ///
     /// See also [0017-tx-valid-since](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md).
     #[error("InvalidSince(Inputs[{index}]): the since field is invalid")]

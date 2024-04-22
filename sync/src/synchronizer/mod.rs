@@ -171,9 +171,11 @@ impl BlockFetchCMD {
                 match state.header_map().get(&target.pack()) {
                     Some(header) => {
                         *flag = CanStart::Ready;
+                        info!("assume valid target found in header_map; CKB will start fetch blocks now");
                         // Blocks that are no longer in the scope of ibd must be forced to verify
                         if unix_time_as_millis().saturating_sub(header.timestamp()) < MAX_TIP_AGE {
                             assume_valid_target.take();
+                            warn!("the duration gap between 'assume valid target' and 'now' is less than 24h; CKB will ignore the specified assume valid target and do full verification from now on");
                         }
                     }
                     None => {
@@ -182,6 +184,7 @@ impl BlockFetchCMD {
                             .saturating_sub(state.shared_best_header_ref().timestamp())
                             < MAX_TIP_AGE
                         {
+                            warn!("the duration gap between 'shared_best_header' and 'now' is less than 24h, but CKB haven't found the assume valid target in header_map; CKB will ignore the specified assume valid target and do full verification from now on");
                             *flag = CanStart::Ready;
                             assume_valid_target.take();
                         }

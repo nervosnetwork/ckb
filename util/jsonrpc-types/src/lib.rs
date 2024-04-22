@@ -90,7 +90,7 @@ pub struct ResponseFormat<V> {
     pub inner: Either<V, JsonBytes>,
 }
 
-/// The enum `ResponseFormatInnerType` with variants `Json` and `Hex` is is used to
+/// The enum `ResponseFormatInnerType` with variants `Json` and `Hex` is used to
 /// supply a format choice for the format of `ResponseFormatResponse.transaction`
 pub enum ResponseFormatInnerType {
     /// Indicate the json format of `ResponseFormatResponse.transaction`
