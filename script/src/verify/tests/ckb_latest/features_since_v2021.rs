@@ -1435,7 +1435,7 @@ fn test_exec(
                 .verify_until_completed(script_version, &rtx)
                 .unwrap();
             assert_eq!(cycles, cycles_once);
-            assert!(chunks_count <= expected_chunks_count);
+            assert_eq!(chunks_count, expected_chunks_count);
         }
         Err(e) => {
             assert!(result.is_err());
