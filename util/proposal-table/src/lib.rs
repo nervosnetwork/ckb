@@ -88,7 +88,7 @@ impl ProposalTable {
         &self.table
     }
 
-    /// Update table by proposal window move froward, drop outdated proposal set
+    /// Update table by proposal window move forward, drop outdated proposal set
     /// Return removed proposal ids set and new ProposalView
     pub fn finalize(
         &mut self,

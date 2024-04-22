@@ -7,6 +7,9 @@ use ckb_build_info::Version;
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
+    #[cfg(feature = "tokio-trace")]
+    console_subscriber::init();
+
     let version = get_version();
     if let Some(exit_code) = run_app(version).err() {
         ::std::process::exit(exit_code.into());

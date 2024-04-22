@@ -74,6 +74,6 @@ impl Spec for ProposalRespondSizelimit {
             node0.rpc_client().get_banned_addresses().is_empty(),
             "net should not banned"
         );
-        assert!(res, "block proposal responde size must less than 1M")
+        assert!(res, "block proposal response size must less than 1M")
     }
 }

@@ -240,8 +240,8 @@ impl Spec for CompactBlockMissingNotFreshTxs {
 /// Test case:
 /// 1. CompactBlock new with 2 tx commit, but local node has only one, send GetBlockTransactions to get the missed one
 /// 2. At this time, node lost its tx on tx-pool
-/// 3. Received BlockTransactions with requets one, but can't construct the block, try requests with all 2 tx
-/// 4. Received BlockTransactions with two txs, constract block success
+/// 3. Received BlockTransactions with requests one, but can't construct the block, try requests with all 2 tx
+/// 4. Received BlockTransactions with two txs, construct block success
 pub struct CompactBlockMissingWithDropTx;
 
 impl Spec for CompactBlockMissingWithDropTx {

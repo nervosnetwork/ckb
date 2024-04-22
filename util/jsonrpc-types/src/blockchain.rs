@@ -1315,7 +1315,7 @@ impl From<RawMerkleProof> for MerkleProof {
 /// Block filter data and hash.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockFilter {
-    /// The the hex-encoded filter data of the block
+    /// The hex-encoded filter data of the block
     pub data: JsonBytes,
     /// The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
     pub hash: Byte32,
