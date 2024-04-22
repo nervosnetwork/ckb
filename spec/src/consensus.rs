@@ -15,6 +15,7 @@ use crate::{
 use ckb_constant::{
     consensus::TAU,
     hardfork::{mainnet, testnet},
+    softfork,
 };
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
@@ -94,8 +95,10 @@ pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6
 // only affects genesis cellbase's satoshi lock cells.
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio::new(6, 10);
 
-pub(crate) const LC_MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(8, 10);
-pub(crate) const TESTNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(3, 4);
+/// The mainnet default activation_threshold
+pub const LC_MAINNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(8, 10);
+/// The testnet default activation_threshold
+pub const TESTNET_ACTIVATION_THRESHOLD: Ratio = Ratio::new(3, 4);
 
 /// The starting block number from which the lock script size of a DAO withdrawing
 /// cell shall be limited
@@ -999,6 +1002,16 @@ impl Consensus {
         &self.hardfork_switch
     }
 
+    /// Returns whether rfc0044 is active  based on the epoch number
+    pub fn rfc0044_active(&self, target: EpochNumber) -> bool {
+        let rfc0044_active_epoch = match self.id.as_str() {
+            mainnet::CHAIN_SPEC_NAME => softfork::mainnet::RFC0044_ACTIVE_EPOCH,
+            testnet::CHAIN_SPEC_NAME => softfork::testnet::RFC0044_ACTIVE_EPOCH,
+            _ => 0,
+        };
+        target >= rfc0044_active_epoch
+    }
+
     /// Returns what version a new block should use.
     pub fn compute_versionbits<I: VersionbitsIndexer>(
         &self,
@@ -1109,6 +1122,27 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
                 ckb_jsonrpc_types::SoftFork::new_rfc0043(deployment.into()),
             );
         }
+        match consensus.id.as_str() {
+            mainnet::CHAIN_SPEC_NAME => {
+                softforks.insert(
+                    DeploymentPos::LightClient.into(),
+                    ckb_jsonrpc_types::SoftFork::new_buried(
+                        true,
+                        softfork::mainnet::RFC0044_ACTIVE_EPOCH.into(),
+                    ),
+                );
+            }
+            testnet::CHAIN_SPEC_NAME => {
+                softforks.insert(
+                    DeploymentPos::LightClient.into(),
+                    ckb_jsonrpc_types::SoftFork::new_buried(
+                        true,
+                        softfork::testnet::RFC0044_ACTIVE_EPOCH.into(),
+                    ),
+                );
+            }
+            _ => {}
+        };
         Self {
             id: consensus.id,
             genesis_hash: consensus.genesis_hash.unpack(),
