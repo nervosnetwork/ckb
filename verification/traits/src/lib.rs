@@ -39,11 +39,15 @@ bitflags! {
         /// Disable script verification
         const DISABLE_SCRIPT            = 0b01000000;
 
+        /// Disable extension verification
+        const DISABLE_EXTENSION         = 0b10000000;
+
         /// Disable all verifier
         const DISABLE_ALL               = Self::DISABLE_EPOCH.bits | Self::DISABLE_UNCLES.bits |
                                     Self::DISABLE_TWO_PHASE_COMMIT.bits | Self::DISABLE_DAOHEADER.bits |
                                     Self::DISABLE_REWARD.bits |
-                                    Self::DISABLE_NON_CONTEXTUAL.bits | Self::DISABLE_SCRIPT.bits;
+                                    Self::DISABLE_NON_CONTEXTUAL.bits | Self::DISABLE_SCRIPT.bits |
+                                    Self::DISABLE_EXTENSION.bits;
 
         /// Only script verification
         const ONLY_SCRIPT               = Self::DISABLE_ALL.bits & (!Self::DISABLE_SCRIPT.bits);
@@ -84,6 +88,11 @@ impl Switch {
     /// Whether reward verifier is disabled
     pub fn disable_reward(&self) -> bool {
         self.contains(Switch::DISABLE_REWARD)
+    }
+
+    /// Whether extension verifier is disabled
+    pub fn disable_extension(&self) -> bool {
+        self.contains(Switch::DISABLE_EXTENSION)
     }
 
     /// Whether script verifier is disabled

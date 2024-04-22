@@ -695,7 +695,10 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStore<HeaderDiges
             RewardVerifier::new(&self.context, resolved, &parent).verify()?;
         }
 
-        BlockExtensionVerifier::new(&self.context, self.chain_root_mmr, &parent).verify(block)?;
+        if !self.switch.disable_extension() {
+            BlockExtensionVerifier::new(&self.context, self.chain_root_mmr, &parent)
+                .verify(block)?;
+        }
 
         let ret = BlockTxsVerifier::new(
             self.context.clone(),
