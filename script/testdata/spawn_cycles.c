@@ -11,7 +11,6 @@ const uint64_t SPAWN_YIELD_CYCLES_BASE = 800;
 int tic() {
     static uint64_t tic = 0;
     uint64_t cur_cycles = ckb_current_cycles();
-    printf("cur_cycles %d tic %d", cur_cycles, tic);
     uint64_t toc = cur_cycles - tic;
     tic = cur_cycles;
     return toc;
@@ -29,7 +28,6 @@ int main() {
     int err = 0;
     int toc = 0;
     uint64_t cid = ckb_process_id();
-    printf("vm %d: init", cid);
     uint64_t pid[5] = {0};
     uint64_t fds[5][2][3] = {0};
     uint64_t buf[256] = {0};
@@ -157,6 +155,5 @@ int main() {
     }
 
 exit:
-    printf("vm %d: done", cid);
     return err;
 }

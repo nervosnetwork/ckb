@@ -1234,3 +1234,37 @@ fn check_spawn_index_out_of_bound() {
     let result = simple_spawn_test("testdata/spawn_cases", &[18]);
     assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
 }
+
+#[test]
+fn check_spawn_cycles() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) = load_cell_from_path("testdata/spawn_cycles");
+    let (spawn_callee_cell, _spawn_callee_data_hash) = load_cell_from_path("testdata/spawn_cycles");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+    if script_version >= ScriptVersion::V2 {
+        assert_eq!(result.unwrap(), 1524396);
+    }
+}
