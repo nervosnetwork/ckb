@@ -1,7 +1,6 @@
 #![allow(clippy::bad_bit_mask)]
 
 //! The trait abstract for particular verification
-#![allow(clippy::bad_bit_mask)]
 use bitflags::bitflags;
 use ckb_error::Error;
 
