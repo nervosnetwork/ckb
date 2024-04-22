@@ -2,16 +2,37 @@
 //! maybe it's better to fix it in schemars, but here we only do a quick hack
 //! here we use a simple syn visitor to find extra type comments
 
+use proc_macro2::TokenTree;
 use std::collections::HashMap;
 use syn::visit::Visit;
 use syn::{parse2, Expr, ItemType, Meta, MetaNameValue};
 use walkdir::WalkDir;
 
-struct CommentFinder {
+pub(crate) struct CommentFinder {
     // Store the comments here
-    type_comments: HashMap<String, String>,
+    pub type_comments: HashMap<String, String>,
+    pub deprecated: HashMap<String, (String, String)>,
     current_type: Option<String>,
+    current_fn: Option<String>,
     types: Vec<String>,
+}
+
+fn get_deprected_attr(attr: &syn::Attribute) -> Option<Vec<String>> {
+    if attr.path().is_ident("deprecated") {
+        let mut vals = vec![];
+        if let Meta::List(list) = &attr.meta {
+            for token in list.tokens.clone().into_iter() {
+                if let TokenTree::Literal(lit) = token {
+                    let v = lit.to_string().trim_matches('\"').to_string();
+                    vals.push(v);
+                }
+            }
+        }
+        if vals.len() == 2 {
+            return Some(vals);
+        }
+    }
+    None
 }
 
 fn get_doc_from_attr(attr: &syn::Attribute) -> String {
@@ -42,6 +63,13 @@ impl Visit<'_> for CommentFinder {
                 .entry(current_type)
                 .or_insert("".to_string()) += &format!("\n{}", doc.trim_start());
         }
+        if let Some(fn_name) = &self.current_fn {
+            let deprecated = get_deprected_attr(attr);
+            if let Some(ref vals) = deprecated {
+                self.deprecated
+                    .insert(fn_name.to_string(), (vals[0].clone(), vals[1].clone()));
+            }
+        }
     }
 
     fn visit_item_struct(&mut self, i: &syn::ItemStruct) {
@@ -63,6 +91,25 @@ impl Visit<'_> for CommentFinder {
                 self.visit_attribute(attr);
             }
             self.current_type = None;
+        }
+    }
+
+    fn visit_item_trait(&mut self, trait_item: &'_ syn::ItemTrait) {
+        for i in trait_item.items.iter() {
+            if let syn::TraitItem::Fn(item_fn) = i {
+                if !item_fn.attrs.is_empty() {
+                    let current_rpc = trait_item
+                        .ident
+                        .to_string()
+                        .trim_end_matches("Rpc")
+                        .to_owned();
+                    self.current_fn = Some(format!("{}.{}", current_rpc, item_fn.sig.ident));
+                    for attr in &item_fn.attrs {
+                        self.visit_attribute(attr);
+                    }
+                    self.current_fn = None;
+                }
+            }
         }
     }
 
@@ -93,39 +140,40 @@ impl Visit<'_> for CommentFinder {
     }
 }
 
-fn visit_source_file(finder: &mut CommentFinder, file_path: &std::path::Path) {
-    let code = std::fs::read_to_string(file_path).unwrap();
-    if let Ok(tokens) = code.parse() {
-        if let Ok(file) = parse2(tokens) {
-            finder.visit_file(&file);
-        }
-    }
-}
-
-pub(crate) fn visit_for_types() -> Vec<(String, String)> {
-    let mut finder = CommentFinder {
-        type_comments: Default::default(),
-        current_type: None,
-        types: ["JsonBytes", "IndexerRange", "PoolTransactionReject"]
-            .iter()
-            .map(|&s| s.to_owned())
-            .collect(),
-    };
-    let dir = "util/jsonrpc-types";
-    for entry in WalkDir::new(dir).follow_links(true).into_iter() {
-        match entry {
-            Ok(ref e)
-                if !e.file_name().to_string_lossy().starts_with('.')
-                    && e.file_name().to_string_lossy().ends_with(".rs") =>
-            {
-                visit_source_file(&mut finder, e.path());
+impl CommentFinder {
+    fn visit_source_file(&mut self, file_path: &std::path::Path) {
+        let code = std::fs::read_to_string(file_path).unwrap();
+        if let Ok(tokens) = code.parse() {
+            if let Ok(file) = parse2(tokens) {
+                self.visit_file(&file);
             }
-            _ => (),
         }
     }
-    finder
-        .type_comments
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect()
+
+    pub fn new() -> CommentFinder {
+        let mut finder = CommentFinder {
+            type_comments: Default::default(),
+            current_type: None,
+            current_fn: None,
+            types: ["JsonBytes", "IndexerRange", "PoolTransactionReject"]
+                .iter()
+                .map(|&s| s.to_owned())
+                .collect(),
+            deprecated: Default::default(),
+        };
+        for dir in ["util/jsonrpc-types", "rpc/src/module"] {
+            for entry in WalkDir::new(dir).follow_links(true).into_iter() {
+                match entry {
+                    Ok(ref e)
+                        if !e.file_name().to_string_lossy().starts_with('.')
+                            && e.file_name().to_string_lossy().ends_with(".rs") =>
+                    {
+                        finder.visit_source_file(e.path());
+                    }
+                    _ => (),
+                }
+            }
+        }
+        finder
+    }
 }

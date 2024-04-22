@@ -97,7 +97,7 @@ pub trait ExperimentRpc {
     /// ```
     #[deprecated(
         since = "0.105.1",
-        note = "Please use the RPC method [`estimate_cycles`](#tymethod.estimate_cycles) instead"
+        note = "Please use the RPC method [`estimate_cycles`](#chain-estimate_cycles) instead"
     )]
     #[rpc(name = "dry_run_transaction")]
     fn dry_run_transaction(&self, tx: Transaction) -> Result<EstimateCycles>;

@@ -131,7 +131,7 @@ impl Resource {
 
     /// Checks whether any of the bundled resource has been exported in the specified directory.
     ///
-    /// This can be used to avoid overwritting to export all the bundled resources to the specified
+    /// This can be used to avoid overwriting to export all the bundled resources to the specified
     /// directory.
     pub fn exported_in<P: AsRef<Path>>(root_dir: P) -> bool {
         BUNDLED

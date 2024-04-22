@@ -1,5 +1,9 @@
 name: Package
 
+permissions:
+  # for actions/create-release, actions/upload-release-asset
+  contents: write
+
 concurrency:
   group: package-${{ github.ref }}
   cancel-in-progress: true
@@ -12,7 +16,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v1.7.0
+  CKB_CLI_VERSION: v1.8.0
 
 jobs:
   create-release:

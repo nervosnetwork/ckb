@@ -263,7 +263,13 @@ impl TxPool {
     }
 
     // Remove transactions from the pool until total size <= size_limit.
-    pub(crate) fn limit_size(&mut self, callbacks: &Callbacks) {
+    // Return a `Reject` for current inserting entry if it's removed
+    pub(crate) fn limit_size(
+        &mut self,
+        callbacks: &Callbacks,
+        current_entry_id: Option<&ProposalShortId>,
+    ) -> Option<Reject> {
+        let mut ret = None;
         while self.pool_map.total_tx_size > self.config.max_tx_pool_size {
             let next_evict_entry = || {
                 self.pool_map
@@ -284,11 +290,17 @@ impl TxPool {
                         "the fee_rate for this transaction is: {}",
                         entry.fee_rate()
                     ));
+                    if let Some(short_id) = current_entry_id {
+                        if entry.proposal_short_id() == *short_id {
+                            ret = Some(reject.clone());
+                        }
+                    }
                     callbacks.call_reject(self, &entry, reject);
                 }
             }
         }
         self.pool_map.entries.shrink_to_fit();
+        ret
     }
 
     // remove transaction with detached proposal from gap and proposed
