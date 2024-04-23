@@ -24,6 +24,14 @@ uint64_t cal_cycles(uint64_t nbase, uint64_t yield, uint64_t extra) {
     return r;
 }
 
+uint64_t cal_cycles_floor(uint64_t nbase, uint64_t yield, uint64_t extra) {
+    return cal_cycles(nbase, yield, extra);
+}
+
+uint64_t cal_cycles_upper(uint64_t nbase, uint64_t yield, uint64_t extra) {
+    return cal_cycles(nbase, yield, extra) + 8192;
+}
+
 int main() {
     int err = 0;
     int toc = 0;
@@ -42,7 +50,8 @@ int main() {
                 err = ckb_pipe(buf);
                 CHECK(err);
                 toc = tic();
-                CHECK2(toc > cal_cycles(1, 1, 0), ErrorCommon);
+                CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);
+                CHECK2(toc < cal_cycles_upper(1, 1, 0), ErrorCommon);
                 fds[i][0][0] = buf[0];
                 fds[i][1][1] = buf[1];
 
@@ -50,7 +59,8 @@ int main() {
                 err = ckb_pipe(buf);
                 CHECK(err);
                 toc = tic();
-                CHECK2(toc > cal_cycles(1, 1, 0), ErrorCommon);
+                CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);
+                CHECK2(toc < cal_cycles_upper(1, 1, 0), ErrorCommon);
                 fds[i][0][1] = buf[1];
                 fds[i][1][0] = buf[0];
             }
@@ -67,10 +77,12 @@ int main() {
                 err = ckb_spawn(0, CKB_SOURCE_CELL_DEP, 0, 0, &spgs);
                 CHECK(err);
                 toc = tic();
-                if (i < 5) {
-                    CHECK2(toc > cal_cycles(1, 1, 1), ErrorCommon);
+                if (i < 4) {
+                    CHECK2(toc > cal_cycles_floor(1, 1, 1), ErrorCommon);
+                    CHECK2(toc < cal_cycles_upper(1, 1, 1), ErrorCommon);
                 } else {
-                    CHECK2(toc > cal_cycles(1, 1, 4), ErrorCommon);
+                    CHECK2(toc > cal_cycles_floor(1, 1, 4), ErrorCommon);
+                    CHECK2(toc < cal_cycles_upper(1, 1, 4), ErrorCommon);
                 }
             }
 
@@ -84,14 +96,17 @@ int main() {
                 toc = tic();
                 CHECK(err);
                 if (i < 3) {
-                    CHECK2(toc > cal_cycles(1, 1, 2), ErrorCommon);
+                    CHECK2(toc > cal_cycles_floor(1, 1, 2), ErrorCommon);
+                    CHECK2(toc < cal_cycles_upper(1, 1, 2), ErrorCommon);
                 } else {
-                    CHECK2(toc > cal_cycles(1, 1, 0), ErrorCommon);
+                    CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);
+                    CHECK2(toc < cal_cycles_upper(1, 1, 0), ErrorCommon);
                 }
                 err = ckb_close(fds[i][0][1]);
                 CHECK(err);
                 toc = tic();
-                CHECK2(toc > cal_cycles(1, 1, 0), ErrorCommon);
+                CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);
+                CHECK2(toc < cal_cycles_upper(1, 1, 0), ErrorCommon);
             }
 
             // Living Process: 0, 2, 3, 4
@@ -107,13 +122,16 @@ int main() {
                 CHECK(err);
                 toc = tic();
                 if (i == 1) {
-                    CHECK2(toc > cal_cycles(1, 1, 2), ErrorCommon);
+                    CHECK2(toc > cal_cycles_floor(1, 1, 2), ErrorCommon);
+                    CHECK2(toc < cal_cycles_upper(1, 1, 2), ErrorCommon);
                 }
                 if (i == 2) {
-                    CHECK2(toc > cal_cycles(1, 1, 1), ErrorCommon);
+                    CHECK2(toc > cal_cycles_floor(1, 1, 1), ErrorCommon);
+                    CHECK2(toc < cal_cycles_upper(1, 1, 1), ErrorCommon);
                 }
                 if (i >= 3) {
-                    CHECK2(toc > cal_cycles(1, 1, 0), ErrorCommon);
+                    CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);
+                    CHECK2(toc < cal_cycles_upper(1, 1, 0), ErrorCommon);
                 }
                 CHECK2(len == 12, ErrorCommon);
                 err = memcmp("Hello World!", buf, len);
@@ -126,7 +144,8 @@ int main() {
                 err = ckb_wait(pid[i], &exit_code);
                 CHECK(err);
                 toc = tic();
-                CHECK2(toc > cal_cycles(1, 1, 0), ErrorCommon);
+                CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);
+                CHECK2(toc < cal_cycles_upper(1, 1, 0), ErrorCommon);
                 CHECK(exit_code);
             }
             break;
@@ -139,7 +158,8 @@ int main() {
             err = ckb_inherited_file_descriptors(fds[cid][1], &len);
             CHECK(err);
             toc = tic();
-            CHECK2(toc > cal_cycles(1, 1, 0), ErrorCommon);
+            CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);
+            CHECK2(toc < cal_cycles_upper(1, 1, 0), ErrorCommon);
             CHECK2(len == 2, ErrorCommon);
             len = 1024;
             err = ckb_read_all(fds[cid][1][0], buf, &len);
