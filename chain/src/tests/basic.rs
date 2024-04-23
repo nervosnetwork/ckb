@@ -34,7 +34,7 @@ fn repeat_process_block() {
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
     assert!(chain_controller
-        .process_block(Arc::clone(&block))
+        .internal_process_block(Arc::clone(&block), Switch::DISABLE_EXTENSION)
         .expect("process block ok"));
     assert_eq!(
         shared
@@ -46,7 +46,7 @@ fn repeat_process_block() {
     );
 
     assert!(!chain_controller
-        .process_block(Arc::clone(&block))
+        .internal_process_block(Arc::clone(&block), Switch::DISABLE_EXTENSION)
         .expect("process block ok"));
     assert_eq!(
         shared
@@ -165,7 +165,10 @@ fn test_transaction_spend_in_same_block() {
 
     for block in chain.blocks() {
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EPOCH)
+            .internal_process_block(
+                Arc::new(block.clone()),
+                Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
+            )
             .expect("process block ok");
     }
 
@@ -236,13 +239,16 @@ fn test_transaction_conflict_in_same_block() {
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
             .expect("process block ok");
     }
     assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()))
+            .internal_process_block(
+                Arc::new(chain.blocks()[3].clone()),
+                Switch::DISABLE_EXTENSION
+            )
             .unwrap_err(),
     );
 }
@@ -273,13 +279,16 @@ fn test_transaction_conflict_in_different_blocks() {
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
             .expect("process block ok");
     }
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()))
+            .internal_process_block(
+                Arc::new(chain.blocks()[4].clone()),
+                Switch::DISABLE_EXTENSION
+            )
             .unwrap_err(),
     );
 }
@@ -307,13 +316,16 @@ fn test_invalid_out_point_index_in_same_block() {
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
             .expect("process block ok");
     }
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()))
+            .internal_process_block(
+                Arc::new(chain.blocks()[3].clone()),
+                Switch::DISABLE_EXTENSION
+            )
             .unwrap_err(),
     );
 }
@@ -342,14 +354,17 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
             .expect("process block ok");
     }
 
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()))
+            .internal_process_block(
+                Arc::new(chain.blocks()[4].clone()),
+                Switch::DISABLE_EXTENSION
+            )
             .unwrap_err(),
     );
 }

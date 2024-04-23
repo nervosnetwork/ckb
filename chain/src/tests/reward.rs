@@ -21,6 +21,7 @@ use ckb_types::{
     },
     utilities::DIFF_TWO,
 };
+use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
@@ -228,7 +229,7 @@ fn finalize_reward() {
         parent = block.header().clone();
 
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
             .expect("process block ok");
         blocks.push(block);
     }
@@ -265,7 +266,7 @@ fn finalize_reward() {
     parent = block.header();
 
     chain_controller
-        .process_block(Arc::new(block.clone()))
+        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
         .expect("process block ok");
 
     let (target, reward) = RewardCalculator::new(shared.consensus(), shared.snapshot().as_ref())
@@ -299,6 +300,6 @@ fn finalize_reward() {
     );
 
     chain_controller
-        .process_block(Arc::new(block))
+        .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
         .expect("process block ok");
 }
