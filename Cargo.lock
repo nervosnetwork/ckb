@@ -1344,7 +1344,7 @@ dependencies = [
  "ckb-types",
  "includedir",
  "includedir_codegen",
- "phf 0.8.0",
+ "phf 0.11.2",
  "serde",
  "tempfile",
  "walkdir",
