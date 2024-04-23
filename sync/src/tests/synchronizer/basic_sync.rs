@@ -43,7 +43,7 @@ fn basic_sync() {
 
     let (signal_tx1, signal_rx1) = bounded(DEFAULT_CHANNEL);
     node1.start(thread_name.clone(), signal_tx1, |data| {
-        let msg = packed::SyncMessage::from_slice(&data)
+        let msg = packed::SyncMessage::from_compatible_slice(&data)
             .expect("sync message")
             .to_enum();
         // terminate thread after 3 blocks
@@ -149,6 +149,12 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
                 .unwrap()
         };
 
+        let chain_root = snapshot
+            .chain_root_mmr(block.header().number())
+            .get_root()
+            .expect("chain root_mmr");
+        let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
+
         block = BlockBuilder::default()
             .transaction(cellbase)
             .parent_hash(block.header().hash())
@@ -157,6 +163,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .timestamp(timestamp.pack())
             .compact_target(epoch.compact_target().pack())
             .dao(dao)
+            .extension(Some(bytes))
             .build();
 
         chain_controller
