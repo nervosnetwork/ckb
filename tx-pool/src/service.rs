@@ -18,7 +18,7 @@ use ckb_logger::{error, info};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
-use ckb_types::core::tx_pool::{PoolTxDetailInfo, TransactionWithStatus, TxStatus};
+use ckb_types::core::tx_pool::{EntryCompleted, PoolTxDetailInfo, TransactionWithStatus, TxStatus};
 use ckb_types::{
     core::{
         tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TRANSACTION_SIZE_LIMIT},
@@ -74,6 +74,8 @@ type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
 pub(crate) type SubmitTxResult = Result<(), Reject>;
 
+pub(crate) type TestAcceptTxResult = Result<EntryCompleted, Reject>;
+
 type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
 type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
 type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
@@ -89,6 +91,7 @@ pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
     RemoveLocalTx(Request<Byte32, bool>),
+    TestAcceptTx(Request<TransactionView, TestAcceptTxResult>),
     SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
@@ -223,6 +226,13 @@ impl TxPoolController {
     /// Submit local tx to tx-pool
     pub fn submit_local_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         send_message!(self, SubmitLocalTx, tx)
+    }
+
+    /// test if a tx can be accepted by tx-pool
+    /// Won't be broadcasted to network
+    /// won't be insert to tx-pool
+    pub fn test_accept_tx(&self, tx: TransactionView) -> Result<TestAcceptTxResult, AnyError> {
+        send_message!(self, TestAcceptTx, tx)
     }
 
     /// Remove tx from tx-pool
@@ -694,6 +704,15 @@ async fn process(mut service: TxPoolService, message: Message) {
             let result = service.remove_tx(tx_hash).await;
             if let Err(e) = responder.send(result) {
                 error!("Responder sending remove_tx result failed {:?}", e);
+            };
+        }
+        Message::TestAcceptTx(Request {
+            responder,
+            arguments: tx,
+        }) => {
+            let result = service.test_accept_tx(tx).await;
+            if let Err(e) = responder.send(result.map(|r| r.into())) {
+                error!("Responder sending test_accept_tx result failed {:?}", e);
             };
         }
         Message::SubmitRemoteTx(Request {
