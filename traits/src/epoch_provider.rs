@@ -51,7 +51,7 @@ pub trait EpochProvider {
 
 /// Progress of block's corresponding epoch
 pub enum BlockEpoch {
-    /// Block is the tail block of epoch, provides extrat statistics for next epoch generating or verifying
+    /// Block is the tail block of epoch, provides extra statistics for next epoch generating or verifying
     TailBlock {
         /// epoch information
         epoch: EpochExt,
