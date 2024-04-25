@@ -200,9 +200,9 @@ impl Resource {
 
     /// Exports a bundled resource.
     ///
-    /// This function returns `Ok` immediatly when invoked on a file system resource.
+    /// This function returns `Ok` immediately when invoked on a file system resource.
     ///
-    /// The file is exported to the path by combining `root_dir` and the resource indentifier.
+    /// The file is exported to the path by combining `root_dir` and the resource identifier.
     ///
     /// These bundled files can be customized for different chains using spec branches.
     /// See [Template](struct.Template.html).

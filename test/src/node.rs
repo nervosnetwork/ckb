@@ -8,7 +8,7 @@ use ckb_chain_spec::ChainSpec;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
-use ckb_logger::{debug, error};
+use ckb_logger::{debug, error, info};
 use ckb_resource::Resource;
 use ckb_types::{
     bytes,
@@ -67,7 +67,7 @@ impl Node {
 
         // Copy node template into node's working directory
         let cells_dir = working_dir.join("specs").join("cells");
-        ckb_logger::info!("working_dir {:?}", working_dir);
+        info!("working_dir {:?}", working_dir);
 
         fs::create_dir_all(cells_dir).expect("create node's dir");
         for file in &[
