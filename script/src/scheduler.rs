@@ -325,20 +325,13 @@ where
             match message {
                 Message::Spawn(vm_id, args) => {
                     // All fds must belong to the correct owner
-                    let mut fds_valid = true;
-                    for fd in &args.fds {
-                        if !(self.fds.contains_key(fd) && (self.fds[fd] == vm_id)) {
-                            self.ensure_vms_instantiated(&[vm_id])?;
-                            let (_, machine) =
-                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
-                                    Error::Unexpected("Unable to find VM Id".to_string())
-                                })?;
-                            machine.machine.set_register(A0, INVALID_FD as u64);
-                            fds_valid = false;
-                            break;
-                        }
-                    }
-                    if !fds_valid {
+                    if args.fds.iter().any(|fd| self.fds.get(fd) != Some(&vm_id)) {
+                        self.ensure_vms_instantiated(&[vm_id])?;
+                        let (_, machine) = self
+                            .instantiated
+                            .get_mut(&vm_id)
+                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
+                        machine.machine.set_register(A0, INVALID_FD as u64);
                         continue;
                     }
                     if self.suspended.len() + self.instantiated.len() > MAX_VMS_COUNT as usize {
