@@ -312,7 +312,11 @@ where
                     .ok_or(Error::CyclesOverflow)?;
                 Ok(consumed_cycles + self.extra_cycles)
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                // In this case, there should be no vm instantiated/uninstantiated state switch.
+                debug_assert_eq!(self.extra_cycles, 0);
+                Err(e)
+            }
         }
     }
 
