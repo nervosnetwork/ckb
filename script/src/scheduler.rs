@@ -265,18 +265,17 @@ where
                     self.states.clear();
                     self.states.insert(vm_id_to_run, VmState::Terminated);
                 } else {
-                    let mut joining_vms: Vec<(VmId, u64)> = Vec::new();
-                    self.states.iter().for_each(|(vm_id, state)| {
-                        if let VmState::Wait {
-                            target_vm_id,
-                            exit_code_addr,
-                        } = state
-                        {
-                            if *target_vm_id == vm_id_to_run {
-                                joining_vms.push((*vm_id, *exit_code_addr));
-                            }
-                        }
-                    });
+                    let joining_vms: Vec<(VmId, u64)> = self
+                        .states
+                        .iter()
+                        .filter_map(|(vm_id, state)| match state {
+                            VmState::Wait {
+                                target_vm_id,
+                                exit_code_addr,
+                            } if *target_vm_id == vm_id_to_run => Some((*vm_id, *exit_code_addr)),
+                            _ => None,
+                        })
+                        .collect();
                     // For all joining VMs, update exit code, then mark them as
                     // runnable state.
                     for (vm_id, exit_code_addr) in joining_vms {
