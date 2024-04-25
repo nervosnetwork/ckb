@@ -105,6 +105,12 @@ fn gen_block(
             .dao_field([resolved_cellbase].iter(), parent_header)
             .unwrap()
     };
+    let chain_root = shared
+        .snapshot()
+        .chain_root_mmr(parent_header.number())
+        .get_root()
+        .expect("chain root_mmr");
+    let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
 
     BlockBuilder::default()
         .transaction(cellbase)
@@ -115,6 +121,7 @@ fn gen_block(
         .compact_target(epoch.compact_target().pack())
         .nonce(nonce.pack())
         .dao(dao)
+        .extension(Some(bytes))
         .build()
 }
 
@@ -137,7 +144,7 @@ fn insert_block(
     let block = gen_block(shared, &parent, &epoch, nonce);
 
     chain_controller
-        .process_block(Arc::new(block))
+        .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
         .expect("process block ok");
 }
 
