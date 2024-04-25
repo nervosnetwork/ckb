@@ -4,34 +4,6 @@
 #include "ckb_syscalls.h"
 #include "spawn_utils.h"
 
-const uint64_t SYSCALL_CYCLES_BASE = 500;
-const uint64_t SPAWN_EXTRA_CYCLES_BASE = 100000;
-const uint64_t SPAWN_YIELD_CYCLES_BASE = 800;
-
-int tic() {
-    static uint64_t tic = 0;
-    uint64_t cur_cycles = ckb_current_cycles();
-    uint64_t toc = cur_cycles - tic;
-    tic = cur_cycles;
-    return toc;
-}
-
-uint64_t cal_cycles(uint64_t nbase, uint64_t yield, uint64_t extra) {
-    uint64_t r = 0;
-    r += SYSCALL_CYCLES_BASE * nbase;
-    r += SPAWN_YIELD_CYCLES_BASE * yield;
-    r += SPAWN_EXTRA_CYCLES_BASE * extra;
-    return r;
-}
-
-uint64_t cal_cycles_floor(uint64_t nbase, uint64_t yield, uint64_t extra) {
-    return cal_cycles(nbase, yield, extra);
-}
-
-uint64_t cal_cycles_upper(uint64_t nbase, uint64_t yield, uint64_t extra) {
-    return cal_cycles(nbase, yield, extra) + 8192;
-}
-
 #define BUFFER_SIZE 1024 * 4
 
 typedef struct {
