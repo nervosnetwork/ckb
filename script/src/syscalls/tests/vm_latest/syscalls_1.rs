@@ -2135,3 +2135,46 @@ fn test_load_cell_data_size_zero() {
     assert_eq!(machine.memory_mut().load64(&size_addr).unwrap(), 256);
     assert_eq!(machine.memory_mut().load64(&addr).unwrap(), 0);
 }
+
+#[test]
+fn test_load_cell_data_size_zero_index_out_of_bound() {
+    let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
+    let size_addr: u64 = 100;
+    let addr = 4096;
+    let data = [0xff; 256];
+
+    machine.set_register(A0, addr); // addr
+    machine.set_register(A1, size_addr); // size
+    machine.set_register(A2, 0); // offset
+    machine.set_register(A3, 8); // index
+    machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
+    machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+
+    machine.memory_mut().store64(&size_addr, &0).unwrap();
+
+    let data = Bytes::from(data.to_vec());
+    let dep_cell = build_cell_meta(10000, data.clone());
+    let input_cell = build_cell_meta(100, data.clone());
+
+    let data_loader = new_mock_data_loader();
+
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction: TransactionBuilder::default().build(),
+        resolved_cell_deps: vec![dep_cell],
+        resolved_inputs: vec![input_cell],
+        resolved_dep_groups: vec![],
+    });
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: vec![0],
+            output_indices: vec![0],
+        }),
+    }))));
+    load_code.ecall(&mut machine).unwrap();
+    assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
+}
