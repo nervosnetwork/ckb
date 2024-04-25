@@ -53,7 +53,6 @@ where
     script_version: ScriptVersion,
     syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
 
-    max_vms_count: u64,
     total_cycles: Cycle,
     extra_cycles: Cycle,
     next_vm_id: VmId,
@@ -85,7 +84,6 @@ where
             tx_data,
             script_version,
             syscalls_generator,
-            max_vms_count: MAX_VMS_COUNT,
             total_cycles: 0,
             extra_cycles: 0,
             next_vm_id: FIRST_VM_ID,
@@ -116,7 +114,6 @@ where
             tx_data,
             script_version,
             syscalls_generator,
-            max_vms_count: full.max_vms_count,
             total_cycles: full.total_cycles,
             extra_cycles: 0,
             next_vm_id: full.next_vm_id,
@@ -159,7 +156,6 @@ where
             vms.push((id, state, snapshot));
         }
         Ok(FullSuspendedState {
-            max_vms_count: self.max_vms_count,
             total_cycles: self.total_cycles,
             next_vm_id: self.next_vm_id,
             next_fd_slot: self.next_fd_slot,
@@ -342,8 +338,7 @@ where
                     if !fds_valid {
                         continue;
                     }
-                    if self.suspended.len() + self.instantiated.len() > self.max_vms_count as usize
-                    {
+                    if self.suspended.len() + self.instantiated.len() > MAX_VMS_COUNT as usize {
                         self.ensure_vms_instantiated(&[vm_id])?;
                         let (_, machine) = self
                             .instantiated
