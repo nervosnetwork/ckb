@@ -73,7 +73,8 @@ ALL_BINS := jalr_zero \
             spawn_dag \
             spawn_fuzzing \
             spawn_huge_swap \
-            spawn_cycles
+            spawn_cycles \
+            spawn_io_cycles
 
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
@@ -160,3 +161,4 @@ spawn_dag: spawn_dag.c spawn_dag.h spawn_dag_escape_encoding.h
 spawn_fuzzing: spawn_fuzzing.c spawn_utils.h
 spawn_huge_swap: spawn_huge_swap.c spawn_utils.h
 spawn_cycles: spawn_cycles.c spawn_utils.h
+spawn_io_cycles: spawn_io_cycles.c spawn_utils.h

@@ -1268,3 +1268,55 @@ fn check_spawn_cycles() {
         assert_eq!(result.unwrap(), 1524861);
     }
 }
+
+fn spawn_io_test(io_size: u64, enable_check: bool) -> Result<u64, Error> {
+    let script_version = SCRIPT_VERSION;
+
+    let mut args = vec![0u8; 16];
+    args[..8].copy_from_slice(&io_size.to_le_bytes());
+    args[8] = enable_check as u8;
+
+    let (cell, data_hash) = load_cell_from_path("testdata/spawn_io_cycles");
+    let script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(data_hash)
+        .args(Bytes::copy_from_slice(&args).pack())
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    verifier.verify_without_limit(script_version, &rtx)
+}
+
+#[test]
+fn check_spawn_io_cycles() {
+    if SCRIPT_VERSION != ScriptVersion::V2 {
+        return;
+    }
+
+    let offset_size = 1024;
+    let r = spawn_io_test(128, true);
+    r.unwrap();
+    let r = spawn_io_test(128 + offset_size, true);
+    r.unwrap();
+
+    let r = spawn_io_test(128, false);
+    let cycles1 = r.unwrap();
+    let r = spawn_io_test(128 + offset_size, false);
+    let cycles2 = r.unwrap();
+
+    assert_eq!(cycles2 - cycles1, offset_size / 2);
+}
