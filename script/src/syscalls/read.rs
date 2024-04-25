@@ -37,7 +37,6 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Read {
 
         // We can only do basic checks here, when the message is actually processed,
         // more complete checks will be performed.
-        // We will also leave to the actual write operation to test memory permissions.
         if !fd.is_read() {
             machine.set_register(A0, Mac::REG::from_u8(INVALID_FD));
             return Ok(true);
