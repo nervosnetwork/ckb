@@ -382,6 +382,23 @@ impl Fd {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ReadState {
+    pub fd: Fd,
+    pub length: u64,
+    pub buffer_addr: u64,
+    pub length_addr: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct WriteState {
+    pub fd: Fd,
+    pub consumed: u64,
+    pub length: u64,
+    pub buffer_addr: u64,
+    pub length_addr: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VmState {
     Runnable,
     Terminated,
@@ -389,19 +406,8 @@ pub enum VmState {
         target_vm_id: VmId,
         exit_code_addr: u64,
     },
-    WaitForWrite {
-        fd: Fd,
-        consumed: u64,
-        length: u64,
-        buffer_addr: u64,
-        length_addr: u64,
-    },
-    WaitForRead {
-        fd: Fd,
-        length: u64,
-        buffer_addr: u64,
-        length_addr: u64,
-    },
+    WaitForWrite(WriteState),
+    WaitForRead(ReadState),
 }
 
 #[derive(Clone, Debug)]

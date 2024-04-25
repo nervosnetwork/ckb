@@ -9,7 +9,7 @@ use crate::ScriptVersion;
 
 use crate::types::{
     set_vm_max_cycles, CoreMachineType, DataPieceId, Fd, FdArgs, FullSuspendedState, Machine,
-    Message, RunMode, TxData, VmId, VmState, FIRST_FD_SLOT, FIRST_VM_ID,
+    Message, ReadState, RunMode, TxData, VmId, VmState, WriteState, FIRST_FD_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -458,12 +458,12 @@ where
                     // Return code will be updated when the read operation finishes
                     self.states.insert(
                         vm_id,
-                        VmState::WaitForRead {
+                        VmState::WaitForRead(ReadState {
                             fd: args.fd,
                             length: args.length,
                             buffer_addr: args.buffer_addr,
                             length_addr: args.length_addr,
-                        },
+                        }),
                     );
                 }
                 Message::FdWrite(vm_id, args) => {
@@ -492,13 +492,13 @@ where
                     // Return code will be updated when the write operation finishes
                     self.states.insert(
                         vm_id,
-                        VmState::WaitForWrite {
+                        VmState::WaitForWrite(WriteState {
                             fd: args.fd,
                             consumed: 0,
                             length: args.length,
                             buffer_addr: args.buffer_addr,
                             length_addr: args.length_addr,
-                        },
+                        }),
                     );
                 }
                 Message::InheritedFileDescriptor(vm_id, args) => {
@@ -569,23 +569,23 @@ where
     }
 
     fn process_io(&mut self) -> Result<(), Error> {
-        let mut reads: HashMap<Fd, (VmId, VmState)> = HashMap::default();
+        let mut reads: HashMap<Fd, (VmId, ReadState)> = HashMap::default();
         let mut closed_fds: Vec<VmId> = Vec::new();
         self.states.iter().for_each(|(vm_id, state)| {
-            if let VmState::WaitForRead { fd, .. } = state {
-                if self.fds.contains_key(&fd.other_fd()) {
-                    reads.insert(*fd, (*vm_id, state.clone()));
+            if let VmState::WaitForRead(inner_state) = state {
+                if self.fds.contains_key(&inner_state.fd.other_fd()) {
+                    reads.insert(inner_state.fd, (*vm_id, inner_state.clone()));
                 } else {
                     closed_fds.push(*vm_id);
                 }
             }
         });
-        let mut pairs: Vec<[(VmId, VmState); 2]> = Vec::new();
+        let mut pairs: Vec<(VmId, ReadState, VmId, WriteState)> = Vec::new();
         self.states.iter().for_each(|(vm_id, state)| {
-            if let VmState::WaitForWrite { fd, .. } = state {
-                if self.fds.contains_key(&fd.other_fd()) {
-                    if let Some((read_vm_id, read_state)) = reads.get(&fd.other_fd()) {
-                        pairs.push([(*read_vm_id, read_state.clone()), (*vm_id, state.clone())]);
+            if let VmState::WaitForWrite(inner_state) = state {
+                if self.fds.contains_key(&inner_state.fd.other_fd()) {
+                    if let Some((read_vm_id, read_state)) = reads.get(&inner_state.fd.other_fd()) {
+                        pairs.push((*read_vm_id, read_state.clone(), *vm_id, inner_state.clone()));
                     }
                 } else {
                     closed_fds.push(*vm_id);
@@ -595,7 +595,7 @@ where
         // Finish read / write syscalls for fds that are closed on the other end
         for vm_id in closed_fds {
             match self.states[&vm_id].clone() {
-                VmState::WaitForRead { length_addr, .. } => {
+                VmState::WaitForRead(ReadState { length_addr, .. }) => {
                     self.ensure_vms_instantiated(&[vm_id])?;
                     let (_, read_machine) = self
                         .instantiated
@@ -608,11 +608,11 @@ where
                     read_machine.machine.set_register(A0, SUCCESS as u64);
                     self.states.insert(vm_id, VmState::Runnable);
                 }
-                VmState::WaitForWrite {
+                VmState::WaitForWrite(WriteState {
                     consumed,
                     length_addr,
                     ..
-                } => {
+                }) => {
                     self.ensure_vms_instantiated(&[vm_id])?;
                     let (_, write_machine) = self
                         .instantiated
@@ -629,26 +629,20 @@ where
             }
         }
         // Transfering data from write fds to read fds
-        for [(read_vm_id, read_state), (write_vm_id, write_state)] in pairs {
-            let VmState::WaitForRead {
+        for (read_vm_id, read_state, write_vm_id, write_state) in pairs {
+            let ReadState {
                 length: read_length,
                 buffer_addr: read_buffer_addr,
                 length_addr: read_length_addr,
                 ..
-            } = read_state
-            else {
-                unreachable!()
-            };
-            let VmState::WaitForWrite {
+            } = read_state;
+            let WriteState {
                 fd: write_fd,
                 mut consumed,
                 length: write_length,
                 buffer_addr: write_buffer_addr,
                 length_addr: write_length_addr,
-            } = write_state
-            else {
-                unreachable!()
-            };
+            } = write_state;
 
             self.ensure_vms_instantiated(&[read_vm_id, write_vm_id])?;
             {
@@ -706,13 +700,13 @@ where
                     // Only update write VM state
                     self.states.insert(
                         write_vm_id,
-                        VmState::WaitForWrite {
+                        VmState::WaitForWrite(WriteState {
                             fd: write_fd,
                             consumed,
                             length: write_length,
                             buffer_addr: write_buffer_addr,
                             length_addr: write_length_addr,
-                        },
+                        }),
                     );
                 }
             }
