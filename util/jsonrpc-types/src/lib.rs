@@ -45,8 +45,9 @@ pub use self::net::{
     RemoteNodeProtocol, SyncState,
 };
 pub use self::pool::{
-    AncestorsScoreSortKey, OutputsValidator, PoolTransactionEntry, PoolTransactionReject,
-    PoolTxDetailInfo, RawTxPool, TxPoolEntries, TxPoolEntry, TxPoolIds, TxPoolInfo,
+    AncestorsScoreSortKey, EntryCompleted, OutputsValidator, PoolTransactionEntry,
+    PoolTransactionReject, PoolTxDetailInfo, RawTxPool, TxPoolEntries, TxPoolEntry, TxPoolIds,
+    TxPoolInfo,
 };
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;

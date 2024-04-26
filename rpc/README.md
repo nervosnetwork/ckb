@@ -104,6 +104,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Module Pool](#module-pool) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Pool&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/pool_rpc_doc.json)
 
         * [Method `send_transaction`](#pool-send_transaction)
+        * [Method `test_tx_pool_accept`](#pool-test_tx_pool_accept)
         * [Method `remove_transaction`](#pool-remove_transaction)
         * [Method `tx_pool_info`](#pool-tx_pool_info)
         * [Method `clear_tx_pool`](#pool-clear_tx_pool)
@@ -162,6 +163,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `DeploymentInfo`](#type-deploymentinfo)
     * [Type `DeploymentState`](#type-deploymentstate)
     * [Type `DeploymentsInfo`](#type-deploymentsinfo)
+    * [Type `EntryCompleted`](#type-entrycompleted)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
@@ -3395,7 +3397,7 @@ Request
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
-    "extension": null,
+    "extension": "0xb0a0079f3778c0ba0d89d88b389c602cc18b8a0355d16c0713f8bfcee64b5f84",
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -3502,7 +3504,7 @@ Request
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
-    "extension": null,
+    "extension": "0xb0a0079f3778c0ba0d89d88b389c602cc18b8a0355d16c0713f8bfcee64b5f84",
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -3641,7 +3643,7 @@ Response
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
-    "extension": null,
+    "extension": "0xb0a0079f3778c0ba0d89d88b389c602cc18b8a0355d16c0713f8bfcee64b5f84",
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -4417,6 +4419,114 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+}
+```
+
+<a id="pool-test_tx_pool_accept"></a>
+#### Method `test_tx_pool_accept`
+* `test_tx_pool_accept(tx, outputs_validator)`
+    * `tx`: [`Transaction`](#type-transaction)
+    * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
+* result: [`EntryCompleted`](#type-entrycompleted)
+
+Test if a transaction can be accepted by the transaction pool without inserting it into the pool or rebroadcasting it to peers.
+The parameters and errors of this method are the same as `send_transaction`.
+
+###### Params
+
+* `transaction` - The transaction.
+* `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+
+###### Errors
+
+* [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+* [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
+* [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
+* [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+* [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
+* [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+* [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
+
+###### Examples
+
+Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "test_tx_pool_accept",
+  "params": [
+    {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x075fe030c1f4725713c5aacf41c2f59b29b284008fdb786e5efd8a058be51d0c"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2431ac129",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    },
+    "passthrough"
+  ]
+}
+```
+
+Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "cycles": "0x219",
+    "fee": "0x2a66f36e90"
+  }
+}
+```
+
+
+The response looks like below if the transaction pool check fails
+
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null,
+  "error": {
+    "code": -1107,
+    "data": "Duplicated(Byte32(0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3))",
+    "message": "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3)) already exists in transaction_pool"
+  }
 }
 ```
 
@@ -5738,6 +5848,17 @@ Chain information.
 * `epoch`: [`Uint64`](#type-uint64) - requested block epoch
 
 * `hash`: [`H256`](#type-h256) - requested block hash
+
+### Type `EntryCompleted`
+Transaction's verify result by test_tx_pool_accept
+
+#### Fields
+
+`EntryCompleted` is a JSON object with the following fields.
+
+* `cycles`: [`Uint64`](#type-uint64) - Cached tx cycles
+
+* `fee`: [`Uint64`](#type-uint64) - Cached tx fee
 
 ### Type `EpochNumber`
 Consecutive epoch number starting from 0.
