@@ -1163,8 +1163,7 @@ where
             script_group: Arc::new(script_group.clone()),
         };
         let version = self.select_version(&script_group.script)?;
-        let mut scheduler =
-            Scheduler::new(tx_data, version, self.syscalls_generator.clone());
+        let mut scheduler = Scheduler::new(tx_data, version, self.syscalls_generator.clone());
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(error),

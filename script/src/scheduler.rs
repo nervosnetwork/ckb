@@ -8,8 +8,8 @@ use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::ScriptVersion;
 
 use crate::types::{
-    set_vm_max_cycles, CoreMachineType, DataPieceId, Fd, FdArgs, FullSuspendedState, Machine,
-    Message, ReadState, RunMode, TxData, VmId, VmState, WriteState, FIRST_FD_SLOT, FIRST_VM_ID,
+    CoreMachineType, DataPieceId, Fd, FdArgs, FullSuspendedState, Machine, Message, ReadState,
+    RunMode, TxData, VmId, VmState, WriteState, FIRST_FD_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -238,7 +238,7 @@ where
                 .get_mut(&vm_id_to_run)
                 .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
             context.set_base_cycles(self.total_cycles);
-            set_vm_max_cycles(machine, limit_cycles);
+            machine.set_max_cycles(limit_cycles);
             machine.machine.set_pause(pause);
             let result = machine.run();
             let cycles = machine.machine.cycles();

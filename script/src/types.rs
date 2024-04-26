@@ -123,16 +123,6 @@ impl ScriptVersion {
     }
 }
 
-#[cfg(has_asm)]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
-    vm.set_max_cycles(cycles)
-}
-
-#[cfg(not(has_asm))]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
-    vm.machine.inner_mut().set_max_cycles(cycles)
-}
-
 /// A script group is defined as scripts that share the same hash.
 ///
 /// A script group will only be executed once per transaction, the
