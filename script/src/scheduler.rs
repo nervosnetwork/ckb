@@ -232,12 +232,9 @@ where
             Error::Unexpected("A deadlock situation has been reached!".to_string())
         })?;
         let result = {
-            self.ensure_vms_instantiated(&[vm_id_to_run])?;
-            let (context, machine) = self
-                .instantiated
-                .get_mut(&vm_id_to_run)
-                .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-            context.set_base_cycles(self.total_cycles);
+            let total_cycles = self.total_cycles;
+            let (context, machine) = self.ensure_get_instantiated(&vm_id_to_run)?;
+            context.set_base_cycles(total_cycles);
             machine.set_max_cycles(limit_cycles);
             machine.machine.set_pause(pause);
             let result = machine.run();
@@ -280,11 +277,7 @@ where
                     // For all joining VMs, update exit code, then mark them as
                     // runnable state.
                     for (vm_id, exit_code_addr) in joining_vms {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        let (_, machine) = self
-                            .instantiated
-                            .get_mut(&vm_id)
-                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                         machine
                             .machine
                             .memory_mut()
@@ -313,20 +306,12 @@ where
                 Message::Spawn(vm_id, args) => {
                     // All fds must belong to the correct owner
                     if args.fds.iter().any(|fd| self.fds.get(fd) != Some(&vm_id)) {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        let (_, machine) = self
-                            .instantiated
-                            .get_mut(&vm_id)
-                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                         machine.machine.set_register(A0, INVALID_FD as u64);
                         continue;
                     }
                     if self.suspended.len() + self.instantiated.len() > MAX_VMS_COUNT as usize {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        let (_, machine) = self
-                            .instantiated
-                            .get_mut(&vm_id)
-                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                         machine.machine.set_register(A0, MAX_VMS_SPAWNED as u64);
                         continue;
                     }
@@ -340,46 +325,28 @@ where
                     // If one fd is moved afterward, this inherited file descriptors doesn't change.
                     self.inherited_fd.insert(spawned_vm_id, args.fds.clone());
 
-                    self.ensure_vms_instantiated(&[vm_id])?;
-                    {
-                        let (_, machine) = self
-                            .instantiated
-                            .get_mut(&vm_id)
-                            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                        machine
-                            .machine
-                            .memory_mut()
-                            .store64(&args.process_id_addr, &spawned_vm_id)?;
-                        machine.machine.set_register(A0, SUCCESS as u64);
-                    }
+                    let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                    machine
+                        .machine
+                        .memory_mut()
+                        .store64(&args.process_id_addr, &spawned_vm_id)?;
+                    machine.machine.set_register(A0, SUCCESS as u64);
                 }
                 Message::Wait(vm_id, args) => {
                     if let Some(exit_code) = self.terminated_vms.get(&args.target_id).copied() {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        {
-                            let (_, machine) =
-                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
-                                    Error::Unexpected("Unable to find VM Id".to_string())
-                                })?;
-                            machine
-                                .machine
-                                .memory_mut()
-                                .store8(&args.exit_code_addr, &u64::from_i8(exit_code))?;
-                            machine.machine.set_register(A0, SUCCESS as u64);
-                            self.states.insert(vm_id, VmState::Runnable);
-                            self.terminated_vms.retain(|id, _| id != &args.target_id);
-                        }
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                        machine
+                            .machine
+                            .memory_mut()
+                            .store8(&args.exit_code_addr, &u64::from_i8(exit_code))?;
+                        machine.machine.set_register(A0, SUCCESS as u64);
+                        self.states.insert(vm_id, VmState::Runnable);
+                        self.terminated_vms.retain(|id, _| id != &args.target_id);
                         continue;
                     }
                     if !self.states.contains_key(&args.target_id) {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        {
-                            let (_, machine) =
-                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
-                                    Error::Unexpected("Unable to find VM Id".to_string())
-                                })?;
-                            machine.machine.set_register(A0, WAIT_FAILURE as u64);
-                        }
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                        machine.machine.set_register(A0, WAIT_FAILURE as u64);
                         continue;
                     }
                     // Return code will be updated when the joining VM exits
@@ -392,12 +359,8 @@ where
                     );
                 }
                 Message::Pipe(vm_id, args) => {
-                    self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, machine) = self
-                        .instantiated
-                        .get_mut(&vm_id)
-                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     if self.fds.len() as u64 >= MAX_FDS {
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                         machine.machine.set_register(A0, MAX_FDS_CREATED as u64);
                         continue;
                     }
@@ -405,6 +368,7 @@ where
                     self.next_fd_slot = slot;
                     self.fds.insert(p1, vm_id);
                     self.fds.insert(p2, vm_id);
+                    let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                     machine
                         .machine
                         .memory_mut()
@@ -417,25 +381,13 @@ where
                 }
                 Message::FdRead(vm_id, args) => {
                     if !(self.fds.contains_key(&args.fd) && (self.fds[&args.fd] == vm_id)) {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        {
-                            let (_, machine) =
-                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
-                                    Error::Unexpected("Unable to find VM Id".to_string())
-                                })?;
-                            machine.machine.set_register(A0, INVALID_FD as u64);
-                        }
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                        machine.machine.set_register(A0, INVALID_FD as u64);
                         continue;
                     }
                     if !self.fds.contains_key(&args.fd.other_fd()) {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        {
-                            let (_, machine) =
-                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
-                                    Error::Unexpected("Unable to find VM Id".to_string())
-                                })?;
-                            machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
-                        }
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                        machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
                         continue;
                     }
                     // Return code will be updated when the read operation finishes
@@ -451,25 +403,13 @@ where
                 }
                 Message::FdWrite(vm_id, args) => {
                     if !(self.fds.contains_key(&args.fd) && (self.fds[&args.fd] == vm_id)) {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        {
-                            let (_, machine) =
-                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
-                                    Error::Unexpected("Unable to find VM Id".to_string())
-                                })?;
-                            machine.machine.set_register(A0, INVALID_FD as u64);
-                        }
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                        machine.machine.set_register(A0, INVALID_FD as u64);
                         continue;
                     }
                     if !self.fds.contains_key(&args.fd.other_fd()) {
-                        self.ensure_vms_instantiated(&[vm_id])?;
-                        {
-                            let (_, machine) =
-                                self.instantiated.get_mut(&vm_id).ok_or_else(|| {
-                                    Error::Unexpected("Unable to find VM Id".to_string())
-                                })?;
-                            machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
-                        }
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                        machine.machine.set_register(A0, OTHER_END_CLOSED as u64);
                         continue;
                     }
                     // Return code will be updated when the write operation finishes
@@ -485,11 +425,8 @@ where
                     );
                 }
                 Message::InheritedFileDescriptor(vm_id, args) => {
-                    self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, machine) = self
-                        .instantiated
-                        .get_mut(&vm_id)
-                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
+                    let inherited_fd = self.inherited_fd[&vm_id].clone();
+                    let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                     let FdArgs {
                         buffer_addr,
                         length_addr,
@@ -500,7 +437,6 @@ where
                         .inner_mut()
                         .memory_mut()
                         .load64(&length_addr)?;
-                    let inherited_fd = &self.inherited_fd[&vm_id];
                     let actual_length = inherited_fd.len() as u64;
                     if buffer_addr == 0 {
                         if input_length == 0 {
@@ -534,15 +470,12 @@ where
                     machine.machine.set_register(A0, SUCCESS as u64);
                 }
                 Message::Close(vm_id, fd) => {
-                    self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, machine) = self
-                        .instantiated
-                        .get_mut(&vm_id)
-                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     if self.fds.get(&fd) != Some(&vm_id) {
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                         machine.machine.set_register(A0, INVALID_FD as u64);
                     } else {
                         self.fds.remove(&fd);
+                        let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                         machine.machine.set_register(A0, SUCCESS as u64);
                     }
                 }
@@ -579,16 +512,9 @@ where
         for vm_id in closed_fds {
             match self.states[&vm_id].clone() {
                 VmState::WaitForRead(ReadState { length_addr, .. }) => {
-                    self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, read_machine) = self
-                        .instantiated
-                        .get_mut(&vm_id)
-                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                    read_machine
-                        .machine
-                        .memory_mut()
-                        .store64(&length_addr, &0)?;
-                    read_machine.machine.set_register(A0, SUCCESS as u64);
+                    let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                    machine.machine.memory_mut().store64(&length_addr, &0)?;
+                    machine.machine.set_register(A0, SUCCESS as u64);
                     self.states.insert(vm_id, VmState::Runnable);
                 }
                 VmState::WaitForWrite(WriteState {
@@ -596,16 +522,12 @@ where
                     length_addr,
                     ..
                 }) => {
-                    self.ensure_vms_instantiated(&[vm_id])?;
-                    let (_, write_machine) = self
-                        .instantiated
-                        .get_mut(&vm_id)
-                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                    write_machine
+                    let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
+                    machine
                         .machine
                         .memory_mut()
                         .store64(&length_addr, &consumed)?;
-                    write_machine.machine.set_register(A0, SUCCESS as u64);
+                    machine.machine.set_register(A0, SUCCESS as u64);
                     self.states.insert(vm_id, VmState::Runnable);
                 }
                 _ => (),
@@ -736,6 +658,18 @@ where
         }
 
         Ok(())
+    }
+
+    // Ensure corresponding VM is instantiated and return a mutable reference to it
+    fn ensure_get_instantiated(
+        &mut self,
+        id: &VmId,
+    ) -> Result<&mut (MachineContext<DL>, Machine), Error> {
+        self.ensure_vms_instantiated(&[*id])?;
+        Ok(self
+            .instantiated
+            .get_mut(id)
+            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?)
     }
 
     // Resume a suspended VM
