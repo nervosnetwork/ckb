@@ -20,7 +20,7 @@ use ckb_types::{
             ResolvedTransaction,
         },
         hardfork::HardForks,
-        service::{Request, DEFAULT_CHANNEL_SIZE},
+        service::Request,
         BlockExt, BlockNumber, BlockView, Cycle, HeaderView,
     },
     packed::{Byte32, ProposalShortId},
@@ -222,8 +222,8 @@ impl ChainService {
     /// start background single-threaded service with specified thread_name.
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
         let signal_receiver = new_crossbeam_exit_rx();
-        let (process_block_sender, process_block_receiver) = channel::bounded(DEFAULT_CHANNEL_SIZE);
-        let (truncate_sender, truncate_receiver) = channel::bounded(1);
+        let (process_block_sender, process_block_receiver) = channel::bounded(0);
+        let (truncate_sender, truncate_receiver) = channel::bounded(0);
 
         // Mainly for test: give an empty thread_name
         let mut thread_builder = thread::Builder::new();

@@ -5,7 +5,6 @@ use ckb_chain_spec::{
 };
 use ckb_dao_utils::genesis_dao_data;
 use ckb_resource::Resource;
-use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -125,6 +124,8 @@ pub fn load_is_even() -> &'static (CellOutput, Bytes, Script) {
     &LOAD_IS_EVEN
 }
 
+const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
+
 /// Build and return an always success consensus instance.
 #[doc(hidden)]
 pub fn always_success_consensus() -> Consensus {
@@ -138,7 +139,7 @@ pub fn always_success_consensus() -> Consensus {
         .build();
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
-        .timestamp(unix_time_as_millis().pack())
+        .timestamp(GENESIS_TIMESTAMP.pack())
         .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(always_success_tx)
