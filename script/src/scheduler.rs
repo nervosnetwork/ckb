@@ -666,10 +666,9 @@ where
         id: &VmId,
     ) -> Result<&mut (MachineContext<DL>, Machine), Error> {
         self.ensure_vms_instantiated(&[*id])?;
-        Ok(self
-            .instantiated
+        self.instantiated
             .get_mut(id)
-            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?)
+            .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))
     }
 
     // Resume a suspended VM
