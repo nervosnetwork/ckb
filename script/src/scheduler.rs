@@ -778,7 +778,7 @@ where
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles));
         let machine_builder = syscalls_generator
-            .generate_same_syscalls(version, &self.tx_data.script_group)
+            .generate_syscalls(version, &self.tx_data.script_group)
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();

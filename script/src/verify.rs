@@ -283,8 +283,8 @@ where
         Close::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
-    /// Generate same syscalls. The result does not contain spawn syscalls.
-    pub fn generate_same_syscalls(
+    /// Generate syscalls.
+    pub fn generate_syscalls(
         &self,
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
@@ -1111,7 +1111,7 @@ where
         script_group: &ScriptGroup,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         self.syscalls_generator
-            .generate_same_syscalls(script_version, script_group)
+            .generate_syscalls(script_version, script_group)
     }
 
     /// Runs a single program, then returns the exit code together with the entire
