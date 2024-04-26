@@ -1467,6 +1467,15 @@ impl SoftFork {
             rfc0043: deployment,
         })
     }
+
+    /// Construct new buried
+    pub fn new_buried(active: bool, epoch: EpochNumber) -> SoftFork {
+        SoftFork::Buried(Buried {
+            active,
+            epoch,
+            status: SoftForkStatus::Buried,
+        })
+    }
 }
 
 /// Represent soft fork deployments where the activation epoch is

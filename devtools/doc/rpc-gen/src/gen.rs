@@ -142,7 +142,7 @@ impl RpcDocGenerator {
                 });
             }
         }
-        // sort rpc_methods accoring to title
+        // sort rpc_methods according to title
         rpc_methods.sort_by(|a, b| a.title.cmp(&b.title));
 
         let mut all_types: Vec<(String, Value)> = pre_defined

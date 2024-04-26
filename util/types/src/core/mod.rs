@@ -34,7 +34,7 @@ pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
 pub use fee_rate::FeeRate;
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
-pub use tx_pool::TransactionWithStatus;
+pub use tx_pool::{EntryCompleted, TransactionWithStatus};
 pub use views::{
     BlockView, ExtraHashView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView,
 };
