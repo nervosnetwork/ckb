@@ -20,6 +20,7 @@ use ckb_types::{
     U256,
 };
 use ckb_verification::HeaderVerifier;
+use ckb_verification_traits::Switch;
 use ckb_verification_traits::Verifier;
 use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
 use rand::random;
@@ -217,7 +218,9 @@ fn bench(c: &mut Criterion) {
                                 .verify(&block.header())
                                 .expect("header verified");
 
-                            chain.process_block(Arc::new(block)).expect("process_block");
+                            chain
+                                .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
+                                .expect("process_block");
                             i -= 1;
                         }
                     },
