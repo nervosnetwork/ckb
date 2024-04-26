@@ -151,7 +151,6 @@ where
     pub(crate) rtx: Arc<ResolvedTransaction>,
     #[cfg(test)]
     pub(crate) skip_pause: Arc<AtomicBool>,
-    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     pub(crate) vm_id: VmId,
 }
 
@@ -197,8 +196,11 @@ where
     }
 
     /// Build syscall: load_cell_data
-    pub fn build_load_cell_data(&self) -> LoadCellData<DL> {
-        LoadCellData::new(Arc::clone(&self.snapshot2_context))
+    pub fn build_load_cell_data(
+        &self,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+    ) -> LoadCellData<DL> {
+        LoadCellData::new(snapshot2_context)
     }
 
     ///Build syscall: load_input
@@ -240,12 +242,11 @@ where
     }
 
     /// Build syscall: spawn
-    pub fn build_spawn(&self) -> Spawn<DL> {
-        Spawn::new(
-            self.vm_id,
-            Arc::clone(&self.message_box),
-            Arc::clone(&self.snapshot2_context),
-        )
+    pub fn build_spawn(
+        &self,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+    ) -> Spawn<DL> {
+        Spawn::new(self.vm_id, Arc::clone(&self.message_box), snapshot2_context)
     }
 
     /// Build syscall: wait
@@ -288,6 +289,7 @@ where
         &self,
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         let current_script_hash = script_group.script.calc_script_hash();
         let script_group_input_indices = Arc::new(script_group.input_indices.clone());
@@ -306,7 +308,7 @@ where
                 Arc::clone(&script_group_output_indices),
             )),
             Box::new(self.build_load_script(script_group.script.clone())),
-            Box::new(self.build_load_cell_data()),
+            Box::new(self.build_load_cell_data(Arc::clone(&snapshot2_context))),
             Box::new(Debugger::new(
                 current_script_hash,
                 Arc::clone(&self.debug_printer),
@@ -325,7 +327,7 @@ where
         if script_version >= ScriptVersion::V2 {
             syscalls.append(&mut vec![
                 Box::new(self.build_load_block_extension(Arc::clone(&script_group_input_indices))),
-                Box::new(self.build_spawn()),
+                Box::new(self.build_spawn(Arc::clone(&snapshot2_context))),
                 Box::new(self.build_process_id()),
                 Box::new(self.build_pipe()),
                 Box::new(self.build_wait()),
@@ -471,18 +473,6 @@ where
             rtx: Arc::clone(&rtx),
             #[cfg(test)]
             skip_pause: Arc::clone(&skip_pause),
-            // Use a dummy snapshot2_context as a placeholder.
-            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(TxData {
-                rtx: Arc::clone(&rtx),
-                data_loader: data_loader.clone(),
-                program: Bytes::new(),
-                script_group: Arc::new(ScriptGroup {
-                    script: Default::default(),
-                    group_type: ScriptGroupType::Lock,
-                    input_indices: Default::default(),
-                    output_indices: Default::default(),
-                }),
-            }))),
             vm_id: FIRST_VM_ID,
         };
 
@@ -1109,9 +1099,10 @@ where
         &self,
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         self.syscalls_generator
-            .generate_syscalls(script_version, script_group)
+            .generate_syscalls(script_version, script_group, snapshot2_context)
     }
 
     /// Runs a single program, then returns the exit code together with the entire

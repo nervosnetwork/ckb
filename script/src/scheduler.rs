@@ -766,19 +766,21 @@ where
             // We will update max_cycles for each machine when it gets a chance to run
             u64::max_value(),
         );
-
+        let snapshot2_context = Arc::new(Mutex::new(Snapshot2Context::new(self.tx_data.clone())));
         let mut syscalls_generator = self.syscalls_generator.clone();
         syscalls_generator.vm_id = *id;
-        syscalls_generator.snapshot2_context =
-            Arc::new(Mutex::new(Snapshot2Context::new(self.tx_data.clone())));
         let mut machine_context = MachineContext::new(self.tx_data.clone());
         machine_context.base_cycles = Arc::clone(&self.syscalls_generator.base_cycles);
-        machine_context.snapshot2_context = Arc::clone(&syscalls_generator.snapshot2_context);
+        machine_context.snapshot2_context = Arc::clone(&snapshot2_context);
 
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles));
         let machine_builder = syscalls_generator
-            .generate_syscalls(version, &self.tx_data.script_group)
+            .generate_syscalls(
+                version,
+                &self.tx_data.script_group,
+                Arc::clone(&snapshot2_context),
+            )
             .into_iter()
             .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
