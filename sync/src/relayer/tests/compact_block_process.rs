@@ -16,6 +16,7 @@ use ckb_types::{
     core::{BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, CompactBlock, OutPoint, ProposalShortId},
 };
+use ckb_verification_traits::Switch;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -386,7 +387,9 @@ fn test_accept_block() {
                 ChainService::new(relayer.shared().shared().to_owned(), proposal_window);
             chain_service.start::<&str>(None)
         };
-        chain_controller.process_block(Arc::new(uncle)).unwrap();
+        chain_controller
+            .internal_process_block(Arc::new(uncle), Switch::DISABLE_EXTENSION)
+            .unwrap();
     }
 
     let mut prefilled_transactions_indexes = HashSet::new();

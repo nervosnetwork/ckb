@@ -2,7 +2,7 @@ use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::{
     consensus::{Consensus, ConsensusProvider},
-    versionbits::{DeploymentPos, ThresholdState, VersionbitsIndexer},
+    versionbits::VersionbitsIndexer,
 };
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
@@ -62,13 +62,6 @@ impl<CS: ChainStore + VersionbitsIndexer> VerifyContext<CS> {
         parent: &HeaderView,
     ) -> Result<(Script, BlockReward), DaoError> {
         RewardCalculator::new(&self.consensus, self.store.as_ref()).block_reward_to_finalize(parent)
-    }
-
-    fn versionbits_active(&self, pos: DeploymentPos, header: &HeaderView) -> bool {
-        self.consensus
-            .versionbits_state(pos, header, self.store.as_ref())
-            .map(|state| state == ThresholdState::Active)
-            .unwrap_or(false)
     }
 }
 
@@ -469,7 +462,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                     })
                     .map(|completed| (tx_hash, completed))
                 }.and_then(|result| {
-                    if self.context.versionbits_active(DeploymentPos::LightClient, self.parent) {
+                    if self.context.consensus.rfc0044_active(self.parent.epoch().number()) {
                         DaoScriptSizeVerifier::new(
                             Arc::clone(tx),
                             Arc::clone(&self.context.consensus),
@@ -566,8 +559,8 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
 
         let mmr_active = self
             .context
-            .versionbits_active(DeploymentPos::LightClient, self.parent);
-
+            .consensus
+            .rfc0044_active(self.parent.epoch().number());
         match extra_fields_count {
             0 => {
                 if mmr_active {
@@ -702,7 +695,10 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStore<HeaderDiges
             RewardVerifier::new(&self.context, resolved, &parent).verify()?;
         }
 
-        BlockExtensionVerifier::new(&self.context, self.chain_root_mmr, &parent).verify(block)?;
+        if !self.switch.disable_extension() {
+            BlockExtensionVerifier::new(&self.context, self.chain_root_mmr, &parent)
+                .verify(block)?;
+        }
 
         let ret = BlockTxsVerifier::new(
             self.context.clone(),

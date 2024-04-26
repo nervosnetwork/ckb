@@ -44,7 +44,7 @@ fn bench(c: &mut Criterion) {
                     |(chain, blocks)| {
                         blocks.into_iter().skip(1).for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
                                 .expect("process block OK");
                         });
                     },
@@ -187,7 +187,7 @@ fn bench(c: &mut Criterion) {
                     |(chain, blocks)| {
                         blocks.into_iter().skip(8).for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
                                 .expect("process block OK");
                         });
                     },

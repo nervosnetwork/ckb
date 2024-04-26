@@ -271,7 +271,7 @@ fn verify_nodes_message(nodes: &Nodes) -> Option<Misbehavior> {
     if nodes.announce {
         if nodes.items.len() > ANNOUNCE_THRESHOLD {
             warn!(
-                "Number of nodes exceeds announce threshhold {}",
+                "Number of nodes exceeds announce threshold {}",
                 ANNOUNCE_THRESHOLD
             );
             misbehavior = Some(Misbehavior::TooManyItems {

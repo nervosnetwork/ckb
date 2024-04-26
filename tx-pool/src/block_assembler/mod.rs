@@ -10,7 +10,6 @@ use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 pub use candidate_uncles::CandidateUncles;
 use ckb_app_config::BlockAssemblerConfig;
-use ckb_chain_spec::versionbits::DeploymentPos;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::{
@@ -527,7 +526,11 @@ impl BlockAssembler {
 
     pub(crate) fn build_extension(snapshot: &Snapshot) -> Result<Option<packed::Bytes>, AnyError> {
         let tip_header = snapshot.tip_header();
-        let mmr_activate = snapshot.versionbits_active(DeploymentPos::LightClient);
+        // The use of the epoch number of the tip here leads to an off-by-one bug,
+        // so be careful, it needs to be preserved for consistency reasons and not fixed directly.
+        let mmr_activate = snapshot
+            .consensus()
+            .rfc0044_active(tip_header.epoch().number());
         if mmr_activate {
             let chain_root = snapshot
                 .chain_root_mmr(tip_header.number())
