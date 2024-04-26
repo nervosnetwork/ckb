@@ -233,7 +233,7 @@ impl TxPool {
         {
             for (entry, reject) in self.pool_map.resolve_conflict(tx) {
                 debug!(
-                    "removed {} for commited: {}",
+                    "removed {} for committed: {}",
                     entry.transaction().hash(),
                     tx.hash()
                 );

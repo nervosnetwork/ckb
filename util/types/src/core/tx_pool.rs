@@ -395,3 +395,12 @@ impl PoolTxDetailInfo {
         }
     }
 }
+
+/// A Tx CacheEntry
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct EntryCompleted {
+    /// Cached tx cycles
+    pub cycles: Cycle,
+    /// Cached tx fee
+    pub fee: Capacity,
+}
