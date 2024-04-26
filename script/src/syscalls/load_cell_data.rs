@@ -63,7 +63,7 @@ where
                     machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
                     return Ok(());
                 }
-                Err(VMError::External(m)) if m == "INDEX_OUT_OF_BOUND" => {
+                Err(VMError::CkbScriptIndexOutOfBound) => {
                     // This comes from TxData results in an out of bound error, to
                     // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                     machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
@@ -76,7 +76,7 @@ where
         let (wrote_size, full_size) =
             match sc.store_bytes(machine, addr, &data_piece_id, offset, size) {
                 Ok(val) => val,
-                Err(VMError::External(m)) if m == "INDEX_OUT_OF_BOUND" => {
+                Err(VMError::CkbScriptIndexOutOfBound) => {
                     // This comes from TxData results in an out of bound error, to
                     // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                     machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
@@ -124,7 +124,7 @@ where
                     val
                 }
             }
-            Err(VMError::External(m)) if m == "INDEX_OUT_OF_BOUND" => {
+            Err(VMError::CkbScriptIndexOutOfBound) => {
                 // This comes from TxData results in an out of bound error, to
                 // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                 machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));

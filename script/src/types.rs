@@ -561,10 +561,11 @@ where
                 Ok(self.program.clone())
             }
             DataPieceId::Input(i) => {
-                let cell =
-                    self.rtx.resolved_inputs.get(*i as usize).ok_or_else(|| {
-                        VMInternalError::External("INDEX_OUT_OF_BOUND".to_string())
-                    })?;
+                let cell = self
+                    .rtx
+                    .resolved_inputs
+                    .get(*i as usize)
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)?;
                 self.data_loader.load_cell_data(cell).ok_or_else(|| {
                     VMInternalError::Unexpected(format!("Loading input cell #{}'s data failed!", i))
                 })
@@ -575,13 +576,13 @@ where
                 .outputs_data()
                 .get(*i as usize)
                 .map(|data| data.raw_data())
-                .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string())),
+                .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound),
             DataPieceId::CellDep(i) => {
                 let cell = self
                     .rtx
                     .resolved_cell_deps
                     .get(*i as usize)
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))?;
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)?;
                 self.data_loader.load_cell_data(cell).ok_or_else(|| {
                     VMInternalError::Unexpected(format!("Loading dep cell #{}'s data failed!", i))
                 })
@@ -591,11 +592,12 @@ where
                     .script_group
                     .input_indices
                     .get(*i as usize)
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))?;
-                let cell =
-                    self.rtx.resolved_inputs.get(gi).ok_or_else(|| {
-                        VMInternalError::External("INDEX_OUT_OF_BOUND".to_string())
-                    })?;
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)?;
+                let cell = self
+                    .rtx
+                    .resolved_inputs
+                    .get(gi)
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)?;
                 self.data_loader.load_cell_data(cell).ok_or_else(|| {
                     VMInternalError::Unexpected(format!(
                         "Loading input cell #{}'s data failed!",
@@ -608,13 +610,13 @@ where
                     .script_group
                     .output_indices
                     .get(*i as usize)
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))?;
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)?;
                 self.rtx
                     .transaction
                     .outputs_data()
                     .get(gi)
                     .map(|data| data.raw_data())
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)
             }
             DataPieceId::Witness(i) => self
                 .rtx
@@ -622,32 +624,32 @@ where
                 .witnesses()
                 .get(*i as usize)
                 .map(|data| data.raw_data())
-                .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string())),
+                .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound),
             DataPieceId::WitnessGroupInput(i) => {
                 let gi = *self
                     .script_group
                     .input_indices
                     .get(*i as usize)
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))?;
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)?;
                 self.rtx
                     .transaction
                     .witnesses()
                     .get(gi)
                     .map(|data| data.raw_data())
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)
             }
             DataPieceId::WitnessGroupOutput(i) => {
                 let gi = *self
                     .script_group
                     .output_indices
                     .get(*i as usize)
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))?;
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)?;
                 self.rtx
                     .transaction
                     .witnesses()
                     .get(gi)
                     .map(|data| data.raw_data())
-                    .ok_or_else(|| VMInternalError::External("INDEX_OUT_OF_BOUND".to_string()))
+                    .ok_or_else(|| VMInternalError::CkbScriptIndexOutOfBound)
             }
         }
         .map(|data| {

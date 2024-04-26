@@ -122,7 +122,7 @@ where
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
         let (_, full_length) = match sc.data_source().load_data(&data_piece_id, 0, 0) {
             Ok(val) => val,
-            Err(VMError::External(m)) if m == "INDEX_OUT_OF_BOUND" => {
+            Err(VMError::CkbScriptIndexOutOfBound) => {
                 // This comes from TxData results in an out of bound error, to
                 // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                 machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
