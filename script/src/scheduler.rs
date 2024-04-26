@@ -54,7 +54,7 @@ where
     syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
 
     total_cycles: Cycle,
-    extra_cycles: Cycle,
+    current_iteration_cycles: Cycle,
     next_vm_id: VmId,
     next_fd_slot: u64,
     states: BTreeMap<VmId, VmState>,
@@ -85,7 +85,7 @@ where
             script_version,
             syscalls_generator,
             total_cycles: 0,
-            extra_cycles: 0,
+            current_iteration_cycles: 0,
             next_vm_id: FIRST_VM_ID,
             next_fd_slot: FIRST_FD_SLOT,
             states: BTreeMap::default(),
@@ -115,7 +115,7 @@ where
             script_version,
             syscalls_generator,
             total_cycles: full.total_cycles,
-            extra_cycles: 0,
+            current_iteration_cycles: 0,
             next_vm_id: full.next_vm_id,
             next_fd_slot: full.next_fd_slot,
             states: full
@@ -196,11 +196,16 @@ where
         };
 
         while self.states[&ROOT_VM_ID] != VmState::Terminated {
-            self.extra_cycles = 0;
-            let consumed_cycles = self.iterate(pause.clone(), limit_cycles)?;
-            limit_cycles = limit_cycles
-                .checked_sub(consumed_cycles)
+            self.current_iteration_cycles = 0;
+            let iterate_return = self.iterate(pause.clone(), limit_cycles);
+            self.total_cycles = self
+                .total_cycles
+                .checked_add(self.current_iteration_cycles)
                 .ok_or(Error::CyclesExceeded)?;
+            limit_cycles = limit_cycles
+                .checked_sub(self.current_iteration_cycles)
+                .ok_or(Error::CyclesExceeded)?;
+            iterate_return?;
         }
 
         // At this point, root VM cannot be suspended
@@ -211,7 +216,7 @@ where
     // This is internal function that does the actual VM execution loop.
     // Here both pause signal and limit_cycles are provided so as to simplify
     // branches.
-    fn iterate(&mut self, pause: Pause, limit_cycles: Cycle) -> Result<Cycle, Error> {
+    fn iterate(&mut self, pause: Pause, limit_cycles: Cycle) -> Result<(), Error> {
         // 1. Process all pending VM reads & writes
         self.process_io()?;
         // 2. Run an actual VM
@@ -226,7 +231,7 @@ where
         let vm_id_to_run = vm_id_to_run.ok_or_else(|| {
             Error::Unexpected("A deadlock situation has been reached!".to_string())
         })?;
-        let (result, consumed_cycles) = {
+        let result = {
             self.ensure_vms_instantiated(&[vm_id_to_run])?;
             let (context, machine) = self
                 .instantiated
@@ -236,17 +241,13 @@ where
             set_vm_max_cycles(machine, limit_cycles);
             machine.machine.set_pause(pause);
             let result = machine.run();
-            let consumed_cycles = {
-                let c = machine.machine.cycles();
-                machine.machine.set_cycles(0);
-                c
-            };
-            // This shall be the only place where total_cycles gets updated
-            self.total_cycles = self
-                .total_cycles
-                .checked_add(consumed_cycles)
+            let cycles = machine.machine.cycles();
+            machine.machine.set_cycles(0);
+            self.current_iteration_cycles = self
+                .current_iteration_cycles
+                .checked_add(cycles)
                 .ok_or(Error::CyclesOverflow)?;
-            (result, consumed_cycles)
+            result
         };
         // 3. Process message box, update VM states accordingly
         self.process_message_box()?;
@@ -298,24 +299,10 @@ where
                     self.instantiated.remove(&vm_id_to_run);
                     self.suspended.remove(&vm_id_to_run);
                 }
-                self.total_cycles = self
-                    .total_cycles
-                    .checked_add(self.extra_cycles)
-                    .ok_or(Error::CyclesOverflow)?;
-                Ok(consumed_cycles + self.extra_cycles)
+                Ok(())
             }
-            Err(Error::Yield) => {
-                self.total_cycles = self
-                    .total_cycles
-                    .checked_add(self.extra_cycles)
-                    .ok_or(Error::CyclesOverflow)?;
-                Ok(consumed_cycles + self.extra_cycles)
-            }
-            Err(e) => {
-                // In this case, there should be no vm instantiated/uninstantiated state switch.
-                debug_assert_eq!(self.extra_cycles, 0);
-                Err(e)
-            }
+            Err(Error::Yield) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 
@@ -757,7 +744,10 @@ where
             return Err(Error::Unexpected(format!("VM {:?} is not suspended!", id)));
         }
         let snapshot = &self.suspended[id];
-        self.extra_cycles += SPAWN_EXTRA_CYCLES_BASE;
+        self.current_iteration_cycles = self
+            .current_iteration_cycles
+            .checked_add(SPAWN_EXTRA_CYCLES_BASE)
+            .ok_or(Error::CyclesExceeded)?;
         let (context, mut machine) = self.create_dummy_vm(id)?;
         {
             let mut sc = context.snapshot2_context().lock().expect("lock");
@@ -776,7 +766,10 @@ where
                 id
             )));
         }
-        self.extra_cycles += SPAWN_EXTRA_CYCLES_BASE;
+        self.current_iteration_cycles = self
+            .current_iteration_cycles
+            .checked_add(SPAWN_EXTRA_CYCLES_BASE)
+            .ok_or(Error::CyclesExceeded)?;
         let (context, machine) = self
             .instantiated
             .get_mut(id)
