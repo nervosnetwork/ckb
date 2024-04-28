@@ -2445,7 +2445,7 @@ Response
 ```
 
 * get cells by lock script and filter empty type script by setting script_len_range to
-[0, 1), script_len is caculated by (code_hash + hash_type + args).len
+[0, 1), script_len is calculated by (code_hash + hash_type + args).len
 
 Request
 
