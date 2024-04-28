@@ -40,11 +40,14 @@ use ckb_network::{
 };
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::H256;
 use ckb_types::{
     core::{self, BlockNumber},
     packed::{self, Byte32},
     prelude::*,
 };
+use std::ops::Div;
+use std::str::FromStr;
 use std::{
     collections::HashSet,
     sync::{atomic::Ordering, Arc},
@@ -79,6 +82,7 @@ struct BlockFetchCMD {
     recv: channel::Receiver<FetchCMD>,
     can_start: CanStart,
     number: BlockNumber,
+    last_check_assume_target_time: Option<Instant>,
 }
 
 impl BlockFetchCMD {
@@ -123,16 +127,66 @@ impl BlockFetchCMD {
 
                 if number != self.number && (number - self.number) % 10000 == 0 {
                     self.number = number;
+                    let log_reach_assume_target_msg =
+                        self.get_reach_assume_target_duration_log(&assume_valid_target);
+                    self.last_check_assume_target_time = Some(Instant::now());
                     info!(
                         "best known header number: {}, hash: {:#?}, \
-                                 temporarily can't find assume valid target, hash: {:#?} \
-                                 Please wait",
+                                 CKB is reaching the assume valid target: {:#?} \
+                                 Please wait. {}",
                         number,
                         best_known.hash(),
-                        assume_valid_target
+                        assume_valid_target,
+                        log_reach_assume_target_msg
                     );
                 }
             }
+        }
+    }
+
+    fn get_reach_default_assume_target_duration_log(
+        &self,
+        assume_valid_target: &Byte32,
+        default_assume_valid_target: &str,
+        default_assume_valid_target_height: u64,
+    ) -> String {
+        if assume_valid_target.eq(&H256::from_str(&default_assume_valid_target[2..])
+            .expect("decode assume valid target must ok")
+            .pack())
+        {
+            if let Some(last_time) = self.last_check_assume_target_time {
+                let duration: Duration = {
+                    Duration::from_secs_f64(
+                        last_time.elapsed().as_secs_f64().div(10000.0)
+                            * ((default_assume_valid_target_height.saturating_sub(self.number))
+                                as f64),
+                    )
+                };
+
+                return format!(
+                    "It will take about {:.1} minutes to reach the assume valid target",
+                    duration.as_secs_f64() / 60.0
+                );
+            }
+        }
+        "".to_string()
+    }
+
+    fn get_reach_assume_target_duration_log(&self, assume_valid_target: &Byte32) -> String {
+        match self.sync_shared.consensus().id.as_str() {
+            ckb_constant::hardfork::mainnet::CHAIN_SPEC_NAME => self
+                .get_reach_default_assume_target_duration_log(
+                    assume_valid_target,
+                    ckb_constant::default_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGET,
+                    ckb_constant::default_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGET_HEIGHT,
+                ),
+            ckb_constant::hardfork::testnet::CHAIN_SPEC_NAME => self
+                .get_reach_default_assume_target_duration_log(
+                    assume_valid_target,
+                    ckb_constant::default_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGET,
+                    ckb_constant::default_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGET_HEIGHT,
+                ),
+            _ => "".to_string(),
         }
     }
 
@@ -655,6 +709,7 @@ impl Synchronizer {
                                 recv,
                                 number,
                                 can_start: CanStart::MinWorkNotReach,
+                                last_check_assume_target_time: None,
                             }
                             .run(stop_signal);
                         })
