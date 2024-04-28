@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
-    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
+    INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE,
+    SUCCESS, WAIT_FAILURE,
 };
 use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
@@ -24,11 +24,8 @@ use ckb_vm::{
     snapshot2::{DataSource, Snapshot2},
     Error, Register,
 };
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
-use std::{
-    collections::{BTreeMap, HashMap},
-    mem::size_of,
-};
 
 pub const ROOT_VM_ID: VmId = FIRST_VM_ID;
 pub const MAX_VMS_COUNT: u64 = 16;
@@ -432,41 +429,27 @@ where
                         length_addr,
                         ..
                     } = args;
-                    let input_length = machine
+                    let full_length = machine
                         .machine
                         .inner_mut()
                         .memory_mut()
                         .load64(&length_addr)?;
-                    let actual_length = inherited_fd.len() as u64;
-                    if buffer_addr == 0 {
-                        if input_length == 0 {
-                            machine
-                                .machine
-                                .inner_mut()
-                                .memory_mut()
-                                .store64(&length_addr, &actual_length)?;
-                            machine.machine.set_register(A0, SUCCESS as u64);
-                        } else {
-                            machine.machine.set_register(A0, INDEX_OUT_OF_BOUND as u64);
-                        }
-                        continue;
-                    }
-                    let mut buffer_addr2 = buffer_addr;
-                    let copy_length = u64::min(input_length, actual_length);
+                    let real_length = inherited_fd.len() as u64;
+                    let copy_length = u64::min(full_length, real_length);
                     for i in 0..copy_length {
                         let fd = inherited_fd[i as usize].0;
+                        let addr = buffer_addr + i * 8;
                         machine
                             .machine
                             .inner_mut()
                             .memory_mut()
-                            .store64(&buffer_addr2, &fd)?;
-                        buffer_addr2 += size_of::<u64>() as u64;
+                            .store64(&addr, &fd)?;
                     }
                     machine
                         .machine
                         .inner_mut()
                         .memory_mut()
-                        .store64(&length_addr, &actual_length)?;
+                        .store64(&length_addr, &real_length)?;
                     machine.machine.set_register(A0, SUCCESS as u64);
                 }
                 Message::Close(vm_id, fd) => {

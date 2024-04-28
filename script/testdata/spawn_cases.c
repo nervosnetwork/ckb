@@ -238,11 +238,6 @@ int child_inherited_fds() {
     err = ckb_inherited_file_descriptors(0, &fds_length);
     CHECK2(fds_length == 10, -2);
 
-    // wrong way to get fd length
-    fds_length = 2;
-    err = ckb_inherited_file_descriptors(0, &fds_length);
-    CHECK2(err != 0, -2);
-
     // get part of fds
     uint64_t fds[11] = {0};
     fds_length = 1;
