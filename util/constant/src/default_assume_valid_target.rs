@@ -15,6 +15,8 @@ pub mod mainnet {
     /// you can view this block in https://explorer.nervos.org/block/0xc394fa4c5e5032c49f3502d4fd8054ead76ff693a54ac90757e441b5119afcaf
     pub const DEFAULT_ASSUME_VALID_TARGET: &str =
         "0xc394fa4c5e5032c49f3502d4fd8054ead76ff693a54ac90757e441b5119afcaf";
+    /// Default assume valid target's height
+    pub const DEFAULT_ASSUME_VALID_TARGET_HEIGHT: u64 = 12051310;
 }
 /// sync config related to testnet
 pub mod testnet {
@@ -28,4 +30,6 @@ pub mod testnet {
     /// you can view this block in https://pudge.explorer.nervos.org/block/0xb60b1fbe31f02ad58234dee525400c161c604e851c4ef839e4ef4b9422cfb445
     pub const DEFAULT_ASSUME_VALID_TARGET: &str =
         "0xb60b1fbe31f02ad58234dee525400c161c604e851c4ef839e4ef4b9422cfb445";
+    /// Default assume valid target's height
+    pub const DEFAULT_ASSUME_VALID_TARGET_HEIGHT: u64 = 12069984;
 }

@@ -69,6 +69,8 @@ pub mod ${network} {
     /// you can view this block in ${EXPLORER_URL}
     pub const DEFAULT_ASSUME_VALID_TARGET: &str =
         "${ASSUME_TARGET_HASH}";
+    /// Default assume valid target's height
+    pub const DEFAULT_ASSUME_VALID_TARGET_HEIGHT: u64 = ${ASSUME_TARGET_HEIGHT_DECIMAL};
 }
 END_HEREDOC
 )
