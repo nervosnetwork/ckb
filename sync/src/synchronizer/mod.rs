@@ -79,6 +79,7 @@ struct BlockFetchCMD {
     recv: channel::Receiver<FetchCMD>,
     can_start: CanStart,
     number: BlockNumber,
+    start_timestamp: u64,
 }
 
 impl BlockFetchCMD {
@@ -123,17 +124,71 @@ impl BlockFetchCMD {
 
                 if number != self.number && (number - self.number) % 10000 == 0 {
                     self.number = number;
+                    let remaining_headers_sync_log = self.reaming_headers_sync_log();
+
                     info!(
-                        "best known header number: {}, hash: {:#?}, \
-                                 temporarily can't find assume valid target, hash: {:#?} \
-                                 Please wait",
+                        "best known header {}-{}, \
+                                 CKB is syncing to latest Header to find the assume valid target: {}. \
+                                 Please wait. {}",
                         number,
                         best_known.hash(),
-                        assume_valid_target
+                        assume_valid_target,
+                        remaining_headers_sync_log
                     );
                 }
             }
         }
+    }
+
+    fn reaming_headers_sync_log(&self) -> String {
+        if let Some(remaining_headers_needed) = self.calc_time_need_to_reach_latest_tip_header() {
+            format!(
+                "Need {} minutes to sync to the latest Header.",
+                remaining_headers_needed.as_secs() / 60
+            )
+        } else {
+            "".to_string()
+        }
+    }
+
+    // Timeline:
+    //
+    // |-------------------|--------------------------------|------------|---->
+    // Genesis  (shared best timestamp)                     |           now
+    // |                   |                                |            |
+    // |             (Sync point)                  (CKB process start)   |
+    // |                   |                                             |
+    // |--Synced Part------|------------ Remain to Sync -----------------|
+    // |                                                                 |
+    // |------------------- CKB Chain Age -------------------------------|
+    //
+    fn calc_time_need_to_reach_latest_tip_header(&self) -> Option<Duration> {
+        let genesis_timestamp = self
+            .sync_shared
+            .consensus()
+            .genesis_block()
+            .header()
+            .timestamp();
+        let shared_best_timestamp = self.sync_shared.state().shared_best_header().timestamp();
+
+        let ckb_process_start_timestamp = self.start_timestamp;
+
+        let now_timestamp = unix_time_as_millis();
+
+        let ckb_chain_age = now_timestamp.checked_sub(genesis_timestamp)?;
+
+        let ckb_process_age = now_timestamp.checked_sub(ckb_process_start_timestamp)?;
+
+        let has_synced_headers_age = shared_best_timestamp.checked_sub(genesis_timestamp)?;
+
+        let ckb_sync_header_speed = has_synced_headers_age.checked_div(ckb_process_age)?;
+
+        let sync_all_headers_timecost = ckb_chain_age.checked_div(ckb_sync_header_speed)?;
+
+        let sync_remaining_headers_needed =
+            sync_all_headers_timecost.checked_sub(ckb_process_age)?;
+
+        Some(Duration::from_millis(sync_remaining_headers_needed))
     }
 
     fn run(&mut self, stop_signal: Receiver<()>) {
@@ -655,6 +710,7 @@ impl Synchronizer {
                                 recv,
                                 number,
                                 can_start: CanStart::MinWorkNotReach,
+                                start_timestamp: unix_time_as_millis(),
                             }
                             .run(stop_signal);
                         })
