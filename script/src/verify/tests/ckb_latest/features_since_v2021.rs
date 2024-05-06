@@ -57,6 +57,8 @@ fn test_hint_instructions() {
         };
         let script_error = ScriptError::VMInternalError(vm_error);
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+    } else {
+        assert_eq!(result.ok(), Some(540));
     }
 }
 
@@ -107,6 +109,10 @@ fn test_b_extension() {
         };
         let script_error = ScriptError::VMInternalError(vm_error);
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+    } else if script_version == ScriptVersion::V1 {
+        assert_eq!(result.ok(), Some(1876));
+    } else {
+        assert_eq!(result.ok(), Some(1875));
     }
 }
 
@@ -372,6 +378,11 @@ fn check_exec_from_witness() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1);
+    if script_version == ScriptVersion::V1 {
+        assert_eq!(result.ok(), Some(1200));
+    } else if script_version == ScriptVersion::V2 {
+        assert_eq!(result.ok(), Some(1198));
+    }
 }
 
 #[test]
@@ -792,6 +803,11 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
         );
     }
     assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
+    if script_version < crate::ScriptVersion::V2 {
+        assert_eq!(cycles, 3387236);
+    } else {
+        assert_eq!(cycles, 3276322);
+    }
 }
 
 #[test]
@@ -994,6 +1010,13 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
         assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
     }
     assert_eq!(cycles, cycles_once);
+    if script_version <= ScriptVersion::V0 {
+        assert_eq!(cycles, 3405227);
+    } else if script_version == ScriptVersion::V1 {
+        assert_eq!(cycles, 3387236);
+    } else if script_version == ScriptVersion::V2 {
+        assert_eq!(cycles, 3276322);
+    }
 }
 
 #[test]
@@ -1041,10 +1064,14 @@ fn load_code_into_global() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
-    if script_version < ScriptVersion::V1 {
+    if script_version < ScriptVersion::V0 {
         let vm_error = VmError::MemWriteOnFreezedPage;
         let script_error = ScriptError::VMInternalError(vm_error);
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+    } else if script_version == ScriptVersion::V1 {
+        assert_eq!(result.ok(), Some(10529));
+    } else if script_version == ScriptVersion::V2 {
+        assert_eq!(result.ok(), Some(10525));
     }
 }
 
@@ -1118,6 +1145,13 @@ fn load_code_with_snapshot() {
 
     let cycles_once = result.unwrap();
     assert_eq!(cycles, cycles_once);
+    if script_version == ScriptVersion::V0 {
+        assert_eq!(cycles_once, 11062);
+    } else if script_version == ScriptVersion::V1 {
+        assert_eq!(cycles_once, 11064);
+    } else {
+        assert_eq!(cycles_once, 11060);
+    }
 }
 
 #[test]
@@ -1211,6 +1245,13 @@ fn load_code_with_snapshot_more_times() {
     let result = verifier.verify_without_pause(script_version, &rtx, max_cycles);
     let cycles_once = result.unwrap();
     assert_eq!(cycles, cycles_once);
+    if script_version == ScriptVersion::V0 {
+        assert_eq!(cycles_once, 45740);
+    } else if script_version == ScriptVersion::V1 {
+        assert_eq!(cycles_once, 45742);
+    } else {
+        assert_eq!(cycles_once, 45729);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1811,7 +1852,7 @@ fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert_eq!(result.unwrap(), 539);
+    assert_eq!(result.ok(), Some(539));
 }
 
 #[test]
