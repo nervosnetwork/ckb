@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_C_EVENT};
 
-struct ProcessGuard {
+pub(crate) struct ProcessGuard {
     pub name: String,
     pub child: Child,
     pub killed: bool,

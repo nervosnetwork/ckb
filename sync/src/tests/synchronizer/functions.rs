@@ -179,6 +179,7 @@ fn test_locator() {
 
 #[test]
 fn test_locate_latest_common_block() {
+    let _log_guard = ckb_logger_service::init_for_test("debug").expect("init log");
     let consensus = Consensus::default();
     let (chain_controller1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
     let (chain_controller2, shared2, synchronizer2) = start_chain(Some(consensus.clone()));

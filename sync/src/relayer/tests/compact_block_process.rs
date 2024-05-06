@@ -334,6 +334,8 @@ fn test_send_missing_indexes() {
 
 #[test]
 fn test_accept_block() {
+    let _log_guard = ckb_logger_service::init_for_test("info,ckb-chain=debug").expect("init log");
+
     let (relayer, _) = build_chain(5);
     let parent = {
         let active_chain = relayer.shared.active_chain();

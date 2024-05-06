@@ -283,6 +283,8 @@ fn test_prepare_uncles() {
 
 #[test]
 fn test_candidate_uncles_retain() {
+    let _log_guard = ckb_logger_service::init_for_test("debug").expect("init log");
+
     let mut consensus = Consensus::default();
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();
@@ -622,6 +624,8 @@ fn test_package_multi_best_scores() {
 
 #[test]
 fn test_package_low_fee_descendants() {
+    let _log_guard = ckb_logger_service::init_for_test("debug").expect("init log");
+
     let mut consensus = Consensus::default();
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();

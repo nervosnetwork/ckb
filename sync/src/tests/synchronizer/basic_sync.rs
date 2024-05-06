@@ -10,7 +10,6 @@ use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_logger::info;
-use ckb_logger_service::LoggerInitGuard;
 use ckb_network::SupportProtocols;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder};
@@ -34,7 +33,7 @@ const DEFAULT_CHANNEL: usize = 128;
 
 #[test]
 fn basic_sync() {
-    let _log_guard: LoggerInitGuard = ckb_logger_service::init_for_test("debug").expect("init log");
+    let _log_guard = ckb_logger_service::init_for_test("debug").expect("init log");
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(0);
     let thread_name = "fake_time=0".to_string();

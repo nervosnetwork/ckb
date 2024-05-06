@@ -726,6 +726,7 @@ dependencies = [
  "ckb-error",
  "ckb-jsonrpc-types",
  "ckb-logger",
+ "ckb-logger-service",
  "ckb-merkle-mountain-range",
  "ckb-metrics",
  "ckb-network",
