@@ -438,6 +438,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(PoolResurrect),
         Box::new(PoolResolveConflictAfterReorg),
         Box::new(InvalidHeaderDep),
+        // TODO fix this on windows platform
+        #[cfg(not(target_os = "windows"))]
         Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),

@@ -69,6 +69,13 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
             .unwrap()
     };
 
+    let chain_root = shared
+        .snapshot()
+        .chain_root_mmr(parent_number)
+        .get_root()
+        .expect("chain root_mmr");
+    let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
+
     BlockBuilder::default()
         .parent_hash(parent_hash.to_owned())
         .number((parent.header().number() + 1).pack())
@@ -77,6 +84,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .compact_target(epoch.compact_target().pack())
         .dao(dao)
         .transaction(cellbase)
+        .extension(Some(bytes))
 }
 
 pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> TransactionView {

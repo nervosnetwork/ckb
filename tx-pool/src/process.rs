@@ -314,6 +314,21 @@ impl TxPoolService {
         self.enqueue_verify_queue(tx.clone(), remote).await
     }
 
+    pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
+        // non contextual verify first
+        self.non_contextual_verify(&tx, None)?;
+
+        if self.verify_queue_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+
+        if self.orphan_contains(&tx).await {
+            debug!("reject tx {} already in orphan pool", tx.hash());
+            return Err(Reject::Duplicated(tx.hash()));
+        }
+        self._test_accept_tx(tx.clone()).await
+    }
+
     pub(crate) async fn process_tx(
         &self,
         tx: TransactionView,
@@ -707,6 +722,31 @@ impl TxPoolService {
         }
 
         Some((Ok(verified), submit_snapshot))
+    }
+
+    pub(crate) async fn _test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
+        let tx_hash = tx.hash();
+
+        let (pre_check_ret, snapshot) = self.pre_check(&tx).await;
+
+        let (_tip_hash, rtx, status, _fee, _tx_size) = pre_check_ret?;
+
+        // skip check the delay window
+
+        let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
+        let max_cycles = self.consensus.max_block_cycles();
+        let tip_header = snapshot.tip_header();
+        let tx_env = Arc::new(status.with_env(tip_header));
+
+        verify_rtx(
+            Arc::clone(&snapshot),
+            Arc::clone(&rtx),
+            tx_env,
+            &verify_cache,
+            max_cycles,
+            None,
+        )
+        .await
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(

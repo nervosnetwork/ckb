@@ -33,7 +33,6 @@ ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.116.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.116.0-pre" }
 ckb-network = { path = "../network", version = "= 0.116.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.116.0-pre" }
-ckb-traits = { path = "../traits", version = "= 0.116.0-pre" }
 ckb-db = { path = "../db", version = "= 0.116.0-pre" }
 ckb-script = { path = "../script", version = "= 0.116.0-pre" }
 sentry = { version = "0.26.0", optional = true }
