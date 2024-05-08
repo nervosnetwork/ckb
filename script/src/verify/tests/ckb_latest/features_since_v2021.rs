@@ -102,17 +102,21 @@ fn test_b_extension() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
-    if script_version < ScriptVersion::V1 {
-        let vm_error = VmError::InvalidInstruction {
-            pc: 65866,
-            instruction: 0x60291913,
-        };
-        let script_error = ScriptError::VMInternalError(vm_error);
-        assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
-    } else if script_version == ScriptVersion::V1 {
-        assert_eq!(result.ok(), Some(1876));
-    } else {
-        assert_eq!(result.ok(), Some(1875));
+    match script_version {
+        ScriptVersion::V0 => {
+            let vm_error = VmError::InvalidInstruction {
+                pc: 65866,
+                instruction: 0x60291913,
+            };
+            let script_error = ScriptError::VMInternalError(vm_error);
+            assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
+        }
+        ScriptVersion::V1 => {
+            assert_eq!(result.ok(), Some(1876));
+        }
+        ScriptVersion::V2 => {
+            assert_eq!(result.ok(), Some(1875));
+        }
     }
 }
 
