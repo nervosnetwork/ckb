@@ -3,7 +3,6 @@ use ckb_types::{
     core::{Cycle, ScriptHashType},
     packed::{Byte32, Script},
 };
-use ckb_vm::Error as VMInternalError;
 use ckb_vm::{
     machine::{VERSION0, VERSION1, VERSION2},
     ISA_A, ISA_B, ISA_IMC, ISA_MOP,
@@ -537,110 +536,60 @@ impl<DL> DataSource<DataPieceId> for TxData<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    fn load_data(
-        &self,
-        id: &DataPieceId,
-        offset: u64,
-        length: u64,
-    ) -> Result<(Bytes, u64), VMInternalError> {
+    fn load_data(&self, id: &DataPieceId, offset: u64, length: u64) -> Option<(Bytes, u64)> {
         match id {
             DataPieceId::Program => {
                 // This is just a shortcut so we don't have to copy over the logic in extract_script,
                 // ideally you can also only define the rest 5, then figure out a way to convert
                 // script group to the actual cell dep index.
-                Ok(self.program.clone())
+                Some(self.program.clone())
             }
-            DataPieceId::Input(i) => {
-                let cell = self
-                    .rtx
-                    .resolved_inputs
-                    .get(*i as usize)
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)?;
-                self.data_loader.load_cell_data(cell).ok_or_else(|| {
-                    VMInternalError::Unexpected(format!("Loading input cell #{}'s data failed!", i))
-                })
-            }
+            DataPieceId::Input(i) => self
+                .rtx
+                .resolved_inputs
+                .get(*i as usize)
+                .and_then(|cell| self.data_loader.load_cell_data(cell)),
             DataPieceId::Output(i) => self
                 .rtx
                 .transaction
                 .outputs_data()
                 .get(*i as usize)
-                .map(|data| data.raw_data())
-                .ok_or(VMInternalError::CkbScriptIndexOutOfBound),
-            DataPieceId::CellDep(i) => {
-                let cell = self
-                    .rtx
-                    .resolved_cell_deps
-                    .get(*i as usize)
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)?;
-                self.data_loader.load_cell_data(cell).ok_or_else(|| {
-                    VMInternalError::Unexpected(format!("Loading dep cell #{}'s data failed!", i))
-                })
-            }
-            DataPieceId::GroupInput(i) => {
-                let gi = *self
-                    .script_group
-                    .input_indices
-                    .get(*i as usize)
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)?;
-                let cell = self
-                    .rtx
-                    .resolved_inputs
-                    .get(gi)
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)?;
-                self.data_loader.load_cell_data(cell).ok_or_else(|| {
-                    VMInternalError::Unexpected(format!(
-                        "Loading input cell #{}'s data failed!",
-                        gi
-                    ))
-                })
-            }
-            DataPieceId::GroupOutput(i) => {
-                let gi = *self
-                    .script_group
-                    .output_indices
-                    .get(*i as usize)
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)?;
-                self.rtx
-                    .transaction
-                    .outputs_data()
-                    .get(gi)
-                    .map(|data| data.raw_data())
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)
-            }
+                .map(|data| data.raw_data()),
+            DataPieceId::CellDep(i) => self
+                .rtx
+                .resolved_cell_deps
+                .get(*i as usize)
+                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+            DataPieceId::GroupInput(i) => self
+                .script_group
+                .input_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.resolved_inputs.get(*gi))
+                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+            DataPieceId::GroupOutput(i) => self
+                .script_group
+                .output_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.transaction.outputs_data().get(*gi))
+                .map(|data| data.raw_data()),
             DataPieceId::Witness(i) => self
                 .rtx
                 .transaction
                 .witnesses()
                 .get(*i as usize)
-                .map(|data| data.raw_data())
-                .ok_or(VMInternalError::CkbScriptIndexOutOfBound),
-            DataPieceId::WitnessGroupInput(i) => {
-                let gi = *self
-                    .script_group
-                    .input_indices
-                    .get(*i as usize)
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)?;
-                self.rtx
-                    .transaction
-                    .witnesses()
-                    .get(gi)
-                    .map(|data| data.raw_data())
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)
-            }
-            DataPieceId::WitnessGroupOutput(i) => {
-                let gi = *self
-                    .script_group
-                    .output_indices
-                    .get(*i as usize)
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)?;
-                self.rtx
-                    .transaction
-                    .witnesses()
-                    .get(gi)
-                    .map(|data| data.raw_data())
-                    .ok_or(VMInternalError::CkbScriptIndexOutOfBound)
-            }
+                .map(|data| data.raw_data()),
+            DataPieceId::WitnessGroupInput(i) => self
+                .script_group
+                .input_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
+                .map(|data| data.raw_data()),
+            DataPieceId::WitnessGroupOutput(i) => self
+                .script_group
+                .output_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
+                .map(|data| data.raw_data()),
         }
         .map(|data| {
             let offset = std::cmp::min(offset as usize, data.len());

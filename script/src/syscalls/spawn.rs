@@ -8,7 +8,7 @@ use ckb_vm::{
     machine::SupportMachine,
     memory::Memory,
     registers::{A0, A1, A2, A3, A4, A7},
-    snapshot2::{DataSource, Snapshot2Context},
+    snapshot2::Snapshot2Context,
     syscalls::Syscalls,
     Error as VMError, Register,
 };
@@ -116,13 +116,13 @@ where
         }
 
         // We are fetching the actual cell here for some in-place validation
-        let sc = self
+        let mut sc = self
             .snapshot2_context
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
-        let (_, full_length) = match sc.data_source().load_data(&data_piece_id, 0, 0) {
+        let (_, full_length) = match sc.load_data(&data_piece_id, 0, 0) {
             Ok(val) => val,
-            Err(VMError::CkbScriptIndexOutOfBound) => {
+            Err(VMError::SnapshotDataLoadError) => {
                 // This comes from TxData results in an out of bound error, to
                 // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                 machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));

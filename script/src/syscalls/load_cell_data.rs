@@ -10,7 +10,7 @@ use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
     registers::{A0, A1, A2, A3, A4, A5, A7},
-    snapshot2::{DataSource, Snapshot2Context},
+    snapshot2::Snapshot2Context,
     Bytes, Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::{Arc, Mutex};
@@ -52,10 +52,7 @@ where
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
 
         if size == 0 {
-            match sc
-                .data_source()
-                .load_data(&data_piece_id, offset, u64::max_value())
-            {
+            match sc.load_data(&data_piece_id, offset, u64::max_value()) {
                 Ok((cell, _)) => {
                     machine
                         .memory_mut()
@@ -63,7 +60,7 @@ where
                     machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
                     return Ok(());
                 }
-                Err(VMError::CkbScriptIndexOutOfBound) => {
+                Err(VMError::SnapshotDataLoadError) => {
                     // This comes from TxData results in an out of bound error, to
                     // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                     machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
@@ -76,7 +73,7 @@ where
         let (wrote_size, full_size) =
             match sc.store_bytes(machine, addr, &data_piece_id, offset, size) {
                 Ok(val) => val,
-                Err(VMError::CkbScriptIndexOutOfBound) => {
+                Err(VMError::SnapshotDataLoadError) => {
                     // This comes from TxData results in an out of bound error, to
                     // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                     machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
@@ -113,10 +110,7 @@ where
         // We are using 0..u64::max_value() to fetch full cell, there is
         // also no need to keep the full length value. Since cell's length
         // is already full length.
-        let (cell, _) = match sc
-            .data_source()
-            .load_data(&data_piece_id, 0, u64::max_value())
-        {
+        let (cell, _) = match sc.load_data(&data_piece_id, 0, u64::max_value()) {
             Ok(val) => {
                 if content_size == 0 {
                     (Bytes::new(), val.1)
@@ -124,7 +118,7 @@ where
                     val
                 }
             }
-            Err(VMError::CkbScriptIndexOutOfBound) => {
+            Err(VMError::SnapshotDataLoadError) => {
                 // This comes from TxData results in an out of bound error, to
                 // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                 machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));

@@ -21,7 +21,7 @@ use ckb_vm::{
     machine::{CoreMachine, DefaultMachineBuilder, Pause, SupportMachine},
     memory::Memory,
     registers::A0,
-    snapshot2::{DataSource, Snapshot2},
+    snapshot2::Snapshot2,
     Error, Register,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -722,7 +722,7 @@ where
         let (context, mut machine) = self.create_dummy_vm(&id)?;
         {
             let mut sc = context.snapshot2_context().lock().expect("lock");
-            let (program, _) = sc.data_source().load_data(data_piece_id, offset, length)?;
+            let (program, _) = sc.load_data(data_piece_id, offset, length)?;
             let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
             let bytes = machine.load_program_with_metadata(&program, &metadata, args)?;
             sc.mark_program(&mut machine.machine, &metadata, data_piece_id, offset)?;
