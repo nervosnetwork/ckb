@@ -202,7 +202,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
 
                 match calculator.calculate_maximum_withdraw(
                     &output,
-                    core::Capacity::bytes(output_data.len()).expect("should not overlfow"),
+                    core::Capacity::bytes(output_data.len()).expect("should not overflow"),
                     &deposit_header_hash,
                     &withdrawing_header_hash.pack(),
                 ) {
@@ -231,7 +231,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
 
                 match calculator.calculate_maximum_withdraw(
                     &output,
-                    core::Capacity::bytes(output_data.len()).expect("should not overlfow"),
+                    core::Capacity::bytes(output_data.len()).expect("should not overflow"),
                     &deposit_header_hash,
                     &withdrawing_header_hash,
                 ) {

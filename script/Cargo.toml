@@ -30,7 +30,6 @@ ckb-error = { path = "../error", version = "= 0.116.0-pre" }
 ckb-chain-spec = { path = "../spec", version = "= 0.116.0-pre" }
 tokio = { version = "1.35.0", features = ["rt-multi-thread"] }
 
-
 [dev-dependencies]
 proptest = "1.0"
 ckb-db = { path = "../db", version = "= 0.116.0-pre" }

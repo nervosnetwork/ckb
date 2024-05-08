@@ -14,6 +14,7 @@ use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_shared::SharedBuilder;
 use ckb_sync::SyncShared;
+use ckb_verification_traits::Switch;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -131,7 +132,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
             .expect("processing new block should be ok");
         parent = block;
     }
@@ -258,7 +259,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             )
             .build();
         chain_controller
-            .process_block(Arc::new(fork_block))
+            .internal_process_block(Arc::new(fork_block), Switch::DISABLE_EXTENSION)
             .expect("processing new block should be ok");
     }
 
