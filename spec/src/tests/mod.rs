@@ -113,7 +113,7 @@ fn test_bundled_specs() {
             .map(|output| Unpack::<Capacity>::unpack(&output.capacity()))
             .try_fold(Capacity::zero(), Capacity::safe_add)
             .unwrap();
-        // capacity for input and outpus should be same
+        // capacity for input and outputs should be same
         assert_eq!(input_capacity, outputs_capacity);
 
         // dep group tx has only one input

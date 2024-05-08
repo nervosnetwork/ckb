@@ -2,7 +2,7 @@
 
 use ckb_script::TransactionSnapshot;
 use ckb_types::{
-    core::{Capacity, Cycle},
+    core::{Capacity, Cycle, EntryCompleted},
     packed::Byte32,
 };
 use std::sync::Arc;
@@ -36,4 +36,13 @@ pub struct Completed {
     pub cycles: Cycle,
     /// Cached tx fee
     pub fee: Capacity,
+}
+
+impl From<Completed> for EntryCompleted {
+    fn from(value: Completed) -> Self {
+        EntryCompleted {
+            cycles: value.cycles,
+            fee: value.fee,
+        }
+    }
 }
