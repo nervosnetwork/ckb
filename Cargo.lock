@@ -1685,7 +1685,6 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-store",
  "ckb-systemtime",
- "ckb-traits",
  "ckb-types",
  "ckb-util",
  "ckb-verification",

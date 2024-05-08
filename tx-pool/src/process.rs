@@ -318,7 +318,7 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
-        if self.chunk_contains(&tx).await {
+        if self.verify_queue_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
@@ -744,7 +744,9 @@ impl TxPoolService {
             tx_env,
             &verify_cache,
             max_cycles,
+            None,
         )
+        .await
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(
