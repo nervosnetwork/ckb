@@ -802,11 +802,20 @@ impl ChainService {
                                     mmr.push(b.digest())
                                         .map_err(|e| InternalErrorKind::MMR.other(e))?;
 
+                                    // when `disable_script` is true, `cache_entries` is a array with all `0`
+                                    // there is no need to store them in db
+                                    let verify_entries: Option<&[Completed]> =
+                                        if switch.disable_script() {
+                                            None
+                                        } else {
+                                            Some(&cache_entries)
+                                        };
+
                                     self.insert_ok_ext(
                                         &txn,
                                         &b.header().hash(),
                                         ext.clone(),
-                                        Some(&cache_entries),
+                                        verify_entries,
                                         Some(txs_sizes),
                                     )?;
 
