@@ -63,7 +63,7 @@ impl Net {
                 )
             })
             .collect();
-        let (async_handle, _handle_recv, async_runtime) = new_global_runtime();
+        let (async_handle, _handle_recv, async_runtime) = new_global_runtime(None);
         let controller = NetworkService::new(
             Arc::clone(&network_state),
             ckb_protocols,
