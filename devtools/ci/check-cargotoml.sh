@@ -94,7 +94,8 @@ function check_cargo_publish() {
 function check_dependencies() {
   if ! type cargo-shear &> /dev/null
   then
-      cargo install cargo-shear
+      # lock version to avoid breaking building now
+      cargo install cargo-shear --version 0.0.24
   fi
   cargo shear
 }
