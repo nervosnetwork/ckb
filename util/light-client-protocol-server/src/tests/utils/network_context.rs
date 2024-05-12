@@ -79,7 +79,7 @@ impl CKBProtocolContext for MockProtocolContext {
         false
     }
     async fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
-        // NOTE: no need to mock this function, just call protocol.notity(token) in
+        // NOTE: no need to mock this function, just call protocol.notify(token) in
         // test code to test the functionality of the protocol.
         unimplemented!()
     }
