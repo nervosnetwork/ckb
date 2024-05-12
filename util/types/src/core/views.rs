@@ -1,5 +1,6 @@
 //! Immutable blockchain types with caches (various hashes).
 
+use ckb_gen_types::packed::Byte32;
 use std::collections::HashSet;
 
 use ckb_hash::new_blake2b;
@@ -944,6 +945,55 @@ impl IntoBlockView for packed::Block {
             uncle_hashes,
             tx_hashes,
             tx_witness_hashes,
+        }
+    }
+}
+
+#[allow(missing_docs)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BlockNumberAndHash {
+    pub number: BlockNumber,
+    pub hash: Byte32,
+}
+
+#[allow(missing_docs)]
+impl BlockNumberAndHash {
+    pub fn new(number: BlockNumber, hash: Byte32) -> Self {
+        Self { number, hash }
+    }
+
+    pub fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    pub fn hash(&self) -> Byte32 {
+        self.hash.clone()
+    }
+}
+
+impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
+    fn from(inner: (BlockNumber, Byte32)) -> Self {
+        Self {
+            number: inner.0,
+            hash: inner.1,
+        }
+    }
+}
+
+impl From<&crate::core::HeaderView> for BlockNumberAndHash {
+    fn from(header: &crate::core::HeaderView) -> Self {
+        Self {
+            number: header.number(),
+            hash: header.hash(),
+        }
+    }
+}
+
+impl From<crate::core::HeaderView> for BlockNumberAndHash {
+    fn from(header: crate::core::HeaderView) -> Self {
+        Self {
+            number: header.number(),
+            hash: header.hash(),
         }
     }
 }
