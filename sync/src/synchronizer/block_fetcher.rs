@@ -18,16 +18,23 @@ pub struct BlockFetcher {
     peer: PeerIndex,
     active_chain: ActiveChain,
     ibd: IBDState,
+    reaching_to_target: Option<BlockNumberAndHash>,
 }
 
 impl BlockFetcher {
-    pub fn new(sync_shared: Arc<SyncShared>, peer: PeerIndex, ibd: IBDState) -> Self {
+    pub fn new(
+        sync_shared: Arc<SyncShared>,
+        peer: PeerIndex,
+        ibd: IBDState,
+        reaching_to_target: Option<BlockNumberAndHash>,
+    ) -> Self {
         let active_chain = sync_shared.active_chain();
         BlockFetcher {
             sync_shared,
             peer,
             active_chain,
             ibd,
+            reaching_to_target,
         }
     }
 
@@ -174,6 +181,10 @@ impl BlockFetcher {
 
         let mut start = last_common.number() + 1;
         let mut end = min(best_known.number(), start + block_download_window);
+        if let Some(reaching_to_target) = self.reaching_to_target {
+            end = min(end, reaching_to_target.number());
+        }
+
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
             inflight.peer_can_fetch_count(self.peer),

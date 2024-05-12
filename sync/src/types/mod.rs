@@ -1286,7 +1286,7 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
-            assume_valid_target: Mutex::new(sync_config.assume_valid_target),
+            assume_valid_targets: Mutex::new(sync_config.assume_valid_targets),
             min_chain_work: sync_config.min_chain_work,
         };
 
@@ -1412,15 +1412,28 @@ impl SyncShared {
         block: Arc<core::BlockView>,
     ) -> Result<bool, CKBError> {
         let ret = {
-            let mut assume_valid_target = self.state.assume_valid_target();
-            if let Some(ref target) = *assume_valid_target {
+            let mut assume_valid_targets = self.state.assume_valid_targets();
+            if let Some(ref mut targets) = *assume_valid_targets {
                 // if the target has been reached, delete it
-                let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
-                    assume_valid_target.take();
-                    info!("assume valid target reached; CKB will do full verification from now on");
-                    Switch::NONE
+                let switch: Switch = if let Some(first_target) = targets.first() {
+                    let first_target = first_target.to_owned();
+                    if first_target == Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+                        targets.remove(0);
+                        info!(
+                            "a assume valid target reached: {}, {} targets remaining",
+                            first_target,
+                            targets.len()
+                        );
+                    }
+
+                    if targets.is_empty() {
+                        info!("all assume valid targets reached; CKB will do full verification from now on");
+                        Switch::NONE
+                    } else {
+                        Switch::DISABLE_SCRIPT
+                    }
                 } else {
-                    Switch::DISABLE_SCRIPT
+                    Switch::NONE
                 };
 
                 chain.internal_process_block(Arc::clone(&block), switch)
@@ -1646,13 +1659,13 @@ pub struct SyncState {
 
     /* cached for sending bulk */
     tx_relay_receiver: Receiver<TxVerificationResult>,
-    assume_valid_target: Mutex<Option<H256>>,
+    assume_valid_targets: Mutex<Option<Vec<H256>>>,
     min_chain_work: U256,
 }
 
 impl SyncState {
-    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
-        self.assume_valid_target.lock()
+    pub fn assume_valid_targets(&self) -> MutexGuard<Option<Vec<H256>>> {
+        self.assume_valid_targets.lock()
     }
 
     pub fn min_chain_work(&self) -> &U256 {

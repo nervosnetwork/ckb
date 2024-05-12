@@ -198,7 +198,7 @@ fn run() -> Command {
     ).arg(
         Arg::new(ARG_ASSUME_VALID_TARGET)
             .long(ARG_ASSUME_VALID_TARGET)
-            .action(clap::ArgAction::Set)
+            .action(clap::ArgAction::Append)
             .value_parser(is_h256)
             .help(format!("This parameter specifies the hash of a block. \
 When the height does not reach this block's height, script execution will be disabled, \
@@ -213,8 +213,8 @@ default(TestNet): {}\n\n
 You can explicitly set the value to 0x0000000000000000000000000000000000000000000000000000000000000000 \
 to disable the default behavior and execute full verification for all blocks, \
 ",
-                          ckb_constant::default_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGET,
-                          ckb_constant::default_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGET))
+                          ckb_constant::default_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGETS.last().expect("must have one assume valid target"),
+                          ckb_constant::default_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGETS.last().expect("must have one assume valid target")))
     ).arg(
         Arg::new(ARG_INDEXER)
             .long(ARG_INDEXER)

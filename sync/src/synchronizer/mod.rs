@@ -40,6 +40,7 @@ use ckb_network::{
 };
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::core::BlockNumberAndHash;
 use ckb_types::{
     core::{self, BlockNumber},
     packed::{self, Byte32},
@@ -80,24 +81,31 @@ struct BlockFetchCMD {
     can_start: CanStart,
     number: BlockNumber,
     start_timestamp: u64,
+    reaching_to_assume_valid_target: Option<BlockNumberAndHash>,
 }
 
 impl BlockFetchCMD {
-    fn process_fetch_cmd(&mut self, cmd: FetchCMD) {
+    fn fetch(&mut self, cmd: FetchCMD, reaching_to_target: Option<BlockNumberAndHash>) {
         let FetchCMD { peers, ibd_state }: FetchCMD = cmd;
-
-        match self.can_start() {
-            CanStart::Ready => {
-                for peer in peers {
-                    if let Some(fetch) =
-                        BlockFetcher::new(Arc::clone(&self.sync_shared), peer, ibd_state).fetch()
-                    {
-                        for item in fetch {
-                            BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
-                        }
-                    }
+        for peer in peers {
+            if let Some(fetch) = BlockFetcher::new(
+                Arc::clone(&self.sync_shared),
+                peer,
+                ibd_state,
+                reaching_to_target.clone(),
+            )
+            .fetch()
+            {
+                for item in fetch {
+                    BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                 }
             }
+        }
+    }
+
+    fn process_fetch_cmd(&mut self, cmd: FetchCMD) {
+        match self.can_start() {
+            CanStart::Ready => self.fetch(cmd, None),
             CanStart::MinWorkNotReach => {
                 let best_known = self.sync_shared.state().shared_best_header_ref();
                 let number = best_known.number();
@@ -113,26 +121,36 @@ impl BlockFetchCMD {
                 }
             }
             CanStart::AssumeValidNotFound => {
+                if let Some(ref reaching_to_target) = self.reaching_to_assume_valid_target {
+                    self.fetch(cmd, Some(reaching_to_target.to_owned()));
+                }
+
                 let state = self.sync_shared.state();
                 let best_known = state.shared_best_header_ref();
-                let number = best_known.number();
-                let assume_valid_target: Byte32 = state
-                    .assume_valid_target()
-                    .as_ref()
-                    .map(Pack::pack)
-                    .expect("assume valid target must exist");
+                let best_known_number = best_known.number();
+                let best_known_hash = best_known.hash();
 
-                if number != self.number && (number - self.number) % 10000 == 0 {
-                    self.number = number;
+                let last_assume_valid_target: Byte32 = state
+                    .assume_valid_targets()
+                    .as_ref()
+                    .expect("assume valid targets must exist")
+                    .last()
+                    .map(Pack::pack)
+                    .expect("at least one assume valid target must exist");
+
+                if best_known_number != self.number
+                    && (best_known_number - self.number) % 10000 == 0
+                {
+                    self.number = best_known_number;
                     let remaining_headers_sync_log = self.reaming_headers_sync_log();
 
                     info!(
                         "best known header {}-{}, \
                                  CKB is syncing to latest Header to find the assume valid target: {}. \
                                  Please wait. {}",
-                        number,
-                        best_known.hash(),
-                        assume_valid_target,
+                        best_known_number,
+                        best_known_hash,
+                        last_assume_valid_target,
                         remaining_headers_sync_log
                     );
                 }
@@ -220,30 +238,53 @@ impl BlockFetchCMD {
             }
         };
 
-        let assume_valid_target_find = |flag: &mut CanStart| {
-            let mut assume_valid_target = state.assume_valid_target();
-            if let Some(ref target) = *assume_valid_target {
-                match state.header_map().get(&target.pack()) {
-                    Some(header) => {
-                        *flag = CanStart::Ready;
-                        info!("assume valid target found in header_map; CKB will start fetch blocks now");
-                        // Blocks that are no longer in the scope of ibd must be forced to verify
-                        if unix_time_as_millis().saturating_sub(header.timestamp()) < MAX_TIP_AGE {
-                            assume_valid_target.take();
-                            warn!("the duration gap between 'assume valid target' and 'now' is less than 24h; CKB will ignore the specified assume valid target and do full verification from now on");
+        let mut assume_valid_target_find = |flag: &mut CanStart| {
+            let mut assume_valid_targets = state.assume_valid_targets();
+            if let Some(ref mut targets) = *assume_valid_targets {
+                if let Some(first_target) = targets.first() {
+                    if let Some(ref reaching_to_target) = self.reaching_to_assume_valid_target {
+                        if first_target.pack() == reaching_to_target.hash() {
+                            return;
                         }
                     }
-                    None => {
-                        // Best known already not in the scope of ibd, it means target is invalid
-                        if unix_time_as_millis()
-                            .saturating_sub(state.shared_best_header_ref().timestamp())
-                            < MAX_TIP_AGE
-                        {
-                            warn!("the duration gap between 'shared_best_header' and 'now' is less than 24h, but CKB haven't found the assume valid target in header_map; CKB will ignore the specified assume valid target and do full verification from now on");
-                            *flag = CanStart::Ready;
-                            assume_valid_target.take();
+
+                    match state.header_map().get(&first_target.pack()) {
+                        Some(header) => {
+                            info!("a assume valid target found in header_map; CKB will start fetch blocks to {}-{} now",
+                                header.number_and_hash().number(),
+                                header.number_and_hash().hash(),
+                            );
+                            self.reaching_to_assume_valid_target = Some(header.number_and_hash());
+
+                            if targets.is_empty() {
+                                assume_valid_targets.take();
+                                *flag = CanStart::Ready;
+                                info!("all assume valid targets are reached.");
+                            }
+
+                            // Blocks that are no longer in the scope of ibd must be forced to verify
+                            if unix_time_as_millis().saturating_sub(header.timestamp())
+                                < MAX_TIP_AGE
+                            {
+                                assume_valid_targets.take();
+                                *flag = CanStart::Ready;
+                                warn!("the duration gap between 'assume valid target' and 'now' is less than 24h; CKB will ignore the specified assume valid target and do full verification from now on");
+                            }
+                        }
+                        None => {
+                            // Best known already not in the scope of ibd, it means target is invalid
+                            if unix_time_as_millis()
+                                .saturating_sub(state.shared_best_header_ref().timestamp())
+                                < MAX_TIP_AGE
+                            {
+                                warn!("the duration gap between 'shared_best_header' and 'now' is less than 24h, but CKB haven't found the assume valid target in header_map; CKB will ignore the specified assume valid target and do full verification from now on");
+                                *flag = CanStart::Ready;
+                                assume_valid_targets.take();
+                            }
                         }
                     }
+                } else {
+                    *flag = CanStart::Ready;
                 }
             } else {
                 *flag = CanStart::Ready;
@@ -416,7 +457,7 @@ impl Synchronizer {
         peer: PeerIndex,
         ibd: IBDState,
     ) -> Option<Vec<Vec<packed::Byte32>>> {
-        BlockFetcher::new(Arc::to_owned(self.shared()), peer, ibd).fetch()
+        BlockFetcher::new(Arc::to_owned(self.shared()), peer, ibd, None).fetch()
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
@@ -711,6 +752,7 @@ impl Synchronizer {
                                 number,
                                 can_start: CanStart::MinWorkNotReach,
                                 start_timestamp: unix_time_as_millis(),
+                                reaching_to_assume_valid_target: None,
                             }
                             .run(stop_signal);
                         })

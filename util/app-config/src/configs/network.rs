@@ -99,7 +99,7 @@ pub struct SyncConfig {
     pub header_map: HeaderMapConfig,
     /// Block hash of assume valid target
     #[serde(skip, default)]
-    pub assume_valid_target: Option<H256>,
+    pub assume_valid_targets: Option<Vec<H256>>,
     /// Proof of minimum work during synchronization
     #[serde(skip, default)]
     pub min_chain_work: U256,
