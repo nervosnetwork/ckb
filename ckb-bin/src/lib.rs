@@ -64,7 +64,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .expect("SubcommandRequiredElseHelp");
 
     #[cfg(not(target_os = "windows"))]
-    if run_deamon(cmd, matches) {
+    if run_daemon(cmd, matches) {
         return run_app_in_daemon(version, bin_name, cmd, matches);
     }
 
@@ -155,7 +155,7 @@ fn run_app_inner(
 }
 
 #[cfg(not(target_os = "windows"))]
-fn run_deamon(cmd: &str, matches: &ArgMatches) -> bool {
+fn run_daemon(cmd: &str, matches: &ArgMatches) -> bool {
     match cmd {
         cli::CMD_RUN => matches.get_flag(cli::ARG_DAEMON),
         _ => false,
