@@ -10,6 +10,9 @@ pub enum Error {
     /// Invalid params error
     #[error("Invalid params {0}")]
     Params(String),
+    /// Iterator limit exceeded
+    #[error("Iteration limit exceeded {0}, you need to increase `iterator_next_limit` in the ckb.toml or tuning the query performance.")]
+    IterLimitExceeded(usize),
 }
 
 impl Error {

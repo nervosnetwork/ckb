@@ -1,6 +1,7 @@
 //! CKB's built-in indexer, which shares data with the ckb node by creating secondary db instances.
 
 pub(crate) mod indexer;
+pub(crate) mod limited_iter;
 pub(crate) mod store;
 
 /// The indexer service.

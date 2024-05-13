@@ -1,6 +1,7 @@
 //！The indexer service.
 
 use crate::indexer::{self, extract_raw_data, Indexer, Key, KeyPrefix, Value};
+use crate::limited_iter::LimitedIterator;
 use crate::store::{IteratorDirection, RocksdbStore, Store};
 
 use ckb_app_config::IndexerConfig;
@@ -31,6 +32,7 @@ pub struct IndexerService {
     sync: IndexerSyncService,
     block_filter: Option<String>,
     cell_filter: Option<String>,
+    iterator_next_limit: usize,
 }
 
 impl IndexerService {
@@ -56,6 +58,7 @@ impl IndexerService {
             sync,
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
+            iterator_next_limit: config.iterator_next_limit,
         }
     }
 
@@ -67,6 +70,7 @@ impl IndexerService {
         IndexerHandle {
             store: self.store.clone(),
             pool: self.sync.pool(),
+            iterator_next_limit: self.iterator_next_limit,
         }
     }
 
@@ -124,6 +128,7 @@ impl IndexerService {
 pub struct IndexerHandle {
     pub(crate) store: RocksdbStore,
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
+    pub(crate) iterator_next_limit: usize,
 }
 
 impl IndexerHandle {
@@ -188,137 +193,144 @@ impl IndexerHandle {
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
-        let iter = snapshot.iterator(mode).skip(skip);
+        let iter =
+            LimitedIterator::new(snapshot.iterator(mode).skip(skip), self.iterator_next_limit);
 
         let mut last_key = Vec::new();
         let pool = self
             .pool
             .as_ref()
             .map(|pool| pool.read().expect("acquire lock"));
-        let cells = iter
-            .take_while(|(key, _value)| key.starts_with(&prefix))
-            .filter_map(|(key, value)| {
-                if script_search_exact {
-                    // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + OutputIndex (4)
-                    if key.len() != prefix.len() + 16 {
-                        return None;
-                    }
+        let mut cells = vec![];
+        for element in iter {
+            let Ok((key, value)) = element else {
+                return Err(Error::IterLimitExceeded(self.iterator_next_limit));
+            };
+            if !key.starts_with(&prefix) {
+                break;
+            }
+            if script_search_exact {
+                // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + OutputIndex (4)
+                if key.len() != prefix.len() + 16 {
+                    continue;
                 }
-                let tx_hash = packed::Byte32::from_slice(&value).expect("stored tx hash");
-                let index =
-                    u32::from_be_bytes(key[key.len() - 4..].try_into().expect("stored index"));
-                let out_point = packed::OutPoint::new(tx_hash, index);
-                if pool
-                    .as_ref()
-                    .map(|pool| pool.is_consumed_by_pool_tx(&out_point))
-                    .unwrap_or_default()
-                {
-                    return None;
-                }
-                let (block_number, tx_index, output, output_data) = Value::parse_cell_value(
-                    &snapshot
-                        .get(Key::OutPoint(&out_point).into_vec())
-                        .expect("get OutPoint should be OK")
-                        .expect("stored OutPoint"),
-                );
+            }
+            let tx_hash = packed::Byte32::from_slice(&value).expect("stored tx hash");
+            let index = u32::from_be_bytes(key[key.len() - 4..].try_into().expect("stored index"));
+            let out_point = packed::OutPoint::new(tx_hash, index);
+            if pool
+                .as_ref()
+                .map(|pool| pool.is_consumed_by_pool_tx(&out_point))
+                .unwrap_or_default()
+            {
+                continue;
+            }
+            let (block_number, tx_index, output, output_data) = Value::parse_cell_value(
+                &snapshot
+                    .get(Key::OutPoint(&out_point).into_vec())
+                    .expect("get OutPoint should be OK")
+                    .expect("stored OutPoint"),
+            );
 
-                if let Some(prefix) = filter_options.script_prefix.as_ref() {
-                    match filter_script_type {
-                        IndexerScriptType::Lock => {
-                            if !extract_raw_data(&output.lock())
+            if let Some(prefix) = filter_options.script_prefix.as_ref() {
+                match filter_script_type {
+                    IndexerScriptType::Lock => {
+                        if !extract_raw_data(&output.lock())
+                            .as_slice()
+                            .starts_with(prefix)
+                        {
+                            continue;
+                        }
+                    }
+                    IndexerScriptType::Type => {
+                        if output.type_().is_none()
+                            || !extract_raw_data(&output.type_().to_opt().unwrap())
                                 .as_slice()
                                 .starts_with(prefix)
-                            {
-                                return None;
-                            }
-                        }
-                        IndexerScriptType::Type => {
-                            if output.type_().is_none()
-                                || !extract_raw_data(&output.type_().to_opt().unwrap())
-                                    .as_slice()
-                                    .starts_with(prefix)
-                            {
-                                return None;
-                            }
+                        {
+                            continue;
                         }
                     }
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.script_len_range {
-                    match filter_script_type {
-                        IndexerScriptType::Lock => {
-                            let script_len = extract_raw_data(&output.lock()).len();
-                            if script_len < r0 || script_len >= r1 {
-                                return None;
-                            }
-                        }
-                        IndexerScriptType::Type => {
-                            let script_len = output
-                                .type_()
-                                .to_opt()
-                                .map(|script| extract_raw_data(&script).len())
-                                .unwrap_or_default();
-                            if script_len < r0 || script_len >= r1 {
-                                return None;
-                            }
+            if let Some([r0, r1]) = filter_options.script_len_range {
+                match filter_script_type {
+                    IndexerScriptType::Lock => {
+                        let script_len = extract_raw_data(&output.lock()).len();
+                        if script_len < r0 || script_len >= r1 {
+                            continue;
                         }
                     }
-                }
-
-                if let Some((data, mode)) = &filter_options.output_data {
-                    match mode {
-                        IndexerSearchMode::Prefix => {
-                            if !output_data.raw_data().starts_with(data) {
-                                return None;
-                            }
-                        }
-                        IndexerSearchMode::Exact => {
-                            if output_data.raw_data() != data {
-                                return None;
-                            }
-                        }
-                        IndexerSearchMode::Partial => {
-                            memmem::find(&output_data.raw_data(), data)?;
+                    IndexerScriptType::Type => {
+                        let script_len = output
+                            .type_()
+                            .to_opt()
+                            .map(|script| extract_raw_data(&script).len())
+                            .unwrap_or_default();
+                        if script_len < r0 || script_len >= r1 {
+                            continue;
                         }
                     }
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.output_data_len_range {
-                    if output_data.len() < r0 || output_data.len() >= r1 {
-                        return None;
+            if let Some((data, mode)) = &filter_options.output_data {
+                match mode {
+                    IndexerSearchMode::Prefix => {
+                        if !output_data.raw_data().starts_with(data) {
+                            continue;
+                        }
+                    }
+                    IndexerSearchMode::Exact => {
+                        if output_data.raw_data() != data {
+                            continue;
+                        }
+                    }
+                    IndexerSearchMode::Partial => {
+                        if memmem::find(&output_data.raw_data(), data).is_none() {
+                            continue;
+                        }
                     }
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.output_capacity_range {
-                    let capacity: core::Capacity = output.capacity().unpack();
-                    if capacity < r0 || capacity >= r1 {
-                        return None;
-                    }
+            if let Some([r0, r1]) = filter_options.output_data_len_range {
+                if output_data.len() < r0 || output_data.len() >= r1 {
+                    continue;
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.block_range {
-                    if block_number < r0 || block_number >= r1 {
-                        return None;
-                    }
+            if let Some([r0, r1]) = filter_options.output_capacity_range {
+                let capacity: core::Capacity = output.capacity().unpack();
+                if capacity < r0 || capacity >= r1 {
+                    continue;
                 }
+            }
 
-                last_key = key.to_vec();
+            if let Some([r0, r1]) = filter_options.block_range {
+                if block_number < r0 || block_number >= r1 {
+                    continue;
+                }
+            }
 
-                Some(IndexerCell {
-                    output: output.into(),
-                    output_data: if filter_options.with_data {
-                        Some(output_data.into())
-                    } else {
-                        None
-                    },
-                    out_point: out_point.into(),
-                    block_number: block_number.into(),
-                    tx_index: tx_index.into(),
-                })
-            })
-            .take(limit)
-            .collect::<Vec<_>>();
+            last_key = key.to_vec();
 
+            cells.push(IndexerCell {
+                output: output.into(),
+                output_data: if filter_options.with_data {
+                    Some(output_data.into())
+                } else {
+                    None
+                },
+                out_point: out_point.into(),
+                block_number: block_number.into(),
+                tx_index: tx_index.into(),
+            });
+            if cells.len() >= limit {
+                break;
+            }
+        }
         Ok(IndexerPagination::new(cells, JsonBytes::from_vec(last_key)))
     }
 
@@ -398,12 +410,20 @@ impl IndexerHandle {
 
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
-        let iter = snapshot.iterator(mode).skip(skip);
+        let iter =
+            LimitedIterator::new(snapshot.iterator(mode).skip(skip), self.iterator_next_limit);
 
         if search_key.group_by_transaction.unwrap_or_default() {
             let mut tx_with_cells: Vec<IndexerTxWithCells> = Vec::new();
             let mut last_key = Vec::new();
-            for (key, value) in iter.take_while(|(key, _value)| key.starts_with(&prefix)) {
+            for element in iter {
+                let Ok((key, value)) = element else {
+                    return Err(Error::IterLimitExceeded(self.iterator_next_limit));
+                };
+                if !key.starts_with(&prefix) {
+                    break;
+                }
+
                 if script_search_exact {
                     // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + CellIndex (4) + CellType (1)
                     if key.len() != prefix.len() + 17 {
@@ -514,97 +534,107 @@ impl IndexerHandle {
             ))
         } else {
             let mut last_key = Vec::new();
-            let txs = iter
-                .take_while(|(key, _value)| key.starts_with(&prefix))
-                .filter_map(|(key, value)| {
-                    if script_search_exact {
-                        // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + CellIndex (4) + CellType (1)
-                        if key.len() != prefix.len() + 17 {
-                            return None;
-                        }
+            let mut txs = vec![];
+            for element in iter {
+                let Ok((key, value)) = element else {
+                    return Err(Error::IterLimitExceeded(self.iterator_next_limit));
+                };
+                if !key.starts_with(&prefix) {
+                    break;
+                }
+                if script_search_exact {
+                    // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + CellIndex (4) + CellType (1)
+                    if key.len() != prefix.len() + 17 {
+                        continue;
                     }
-                    let tx_hash = packed::Byte32::from_slice(&value).expect("stored tx hash");
-                    let block_number = u64::from_be_bytes(
-                        key[key.len() - 17..key.len() - 9]
-                            .try_into()
-                            .expect("stored block_number"),
-                    );
-                    let tx_index = u32::from_be_bytes(
-                        key[key.len() - 9..key.len() - 5]
-                            .try_into()
-                            .expect("stored tx_index"),
-                    );
-                    let io_index = u32::from_be_bytes(
-                        key[key.len() - 5..key.len() - 1]
-                            .try_into()
-                            .expect("stored io_index"),
-                    );
-                    let io_type = if *key.last().expect("stored io_type") == 0 {
-                        IndexerCellType::Input
-                    } else {
-                        IndexerCellType::Output
-                    };
+                }
+                let tx_hash = packed::Byte32::from_slice(&value).expect("stored tx hash");
+                let block_number = u64::from_be_bytes(
+                    key[key.len() - 17..key.len() - 9]
+                        .try_into()
+                        .expect("stored block_number"),
+                );
+                let tx_index = u32::from_be_bytes(
+                    key[key.len() - 9..key.len() - 5]
+                        .try_into()
+                        .expect("stored tx_index"),
+                );
+                let io_index = u32::from_be_bytes(
+                    key[key.len() - 5..key.len() - 1]
+                        .try_into()
+                        .expect("stored io_index"),
+                );
+                let io_type = if *key.last().expect("stored io_type") == 0 {
+                    IndexerCellType::Input
+                } else {
+                    IndexerCellType::Output
+                };
 
-                    if let Some(filter_script) = filter_script.as_ref() {
-                        match filter_script_type {
-                            IndexerScriptType::Lock => {
-                                snapshot
-                                    .get(
-                                        Key::TxLockScript(
-                                            filter_script,
-                                            block_number,
-                                            tx_index,
-                                            io_index,
-                                            match io_type {
-                                                IndexerCellType::Input => indexer::CellType::Input,
-                                                IndexerCellType::Output => {
-                                                    indexer::CellType::Output
-                                                }
-                                            },
-                                        )
-                                        .into_vec(),
+                if let Some(filter_script) = filter_script.as_ref() {
+                    match filter_script_type {
+                        IndexerScriptType::Lock => {
+                            if snapshot
+                                .get(
+                                    Key::TxLockScript(
+                                        filter_script,
+                                        block_number,
+                                        tx_index,
+                                        io_index,
+                                        match io_type {
+                                            IndexerCellType::Input => indexer::CellType::Input,
+                                            IndexerCellType::Output => indexer::CellType::Output,
+                                        },
                                     )
-                                    .expect("get TxLockScript should be OK")?;
-                            }
-                            IndexerScriptType::Type => {
-                                snapshot
-                                    .get(
-                                        Key::TxTypeScript(
-                                            filter_script,
-                                            block_number,
-                                            tx_index,
-                                            io_index,
-                                            match io_type {
-                                                IndexerCellType::Input => indexer::CellType::Input,
-                                                IndexerCellType::Output => {
-                                                    indexer::CellType::Output
-                                                }
-                                            },
-                                        )
-                                        .into_vec(),
-                                    )
-                                    .expect("get TxTypeScript should be OK")?;
+                                    .into_vec(),
+                                )
+                                .expect("get TxLockScript should be OK")
+                                .is_none()
+                            {
+                                continue;
                             }
                         }
-                    }
-
-                    if let Some([r0, r1]) = filter_block_range {
-                        if block_number < r0 || block_number >= r1 {
-                            return None;
+                        IndexerScriptType::Type => {
+                            if snapshot
+                                .get(
+                                    Key::TxTypeScript(
+                                        filter_script,
+                                        block_number,
+                                        tx_index,
+                                        io_index,
+                                        match io_type {
+                                            IndexerCellType::Input => indexer::CellType::Input,
+                                            IndexerCellType::Output => indexer::CellType::Output,
+                                        },
+                                    )
+                                    .into_vec(),
+                                )
+                                .expect("get TxTypeScript should be OK")
+                                .is_none()
+                            {
+                                continue;
+                            }
                         }
                     }
+                }
 
-                    last_key = key.to_vec();
-                    Some(IndexerTx::Ungrouped(IndexerTxWithCell {
-                        tx_hash: tx_hash.unpack(),
-                        block_number: block_number.into(),
-                        tx_index: tx_index.into(),
-                        io_index: io_index.into(),
-                        io_type,
-                    }))
-                })
-                .take(limit)
-                .collect::<Vec<_>>();
+                if let Some([r0, r1]) = filter_block_range {
+                    if block_number < r0 || block_number >= r1 {
+                        continue;
+                    }
+                }
+
+                last_key = key.to_vec();
+                txs.push(IndexerTx::Ungrouped(IndexerTxWithCell {
+                    tx_hash: tx_hash.unpack(),
+                    block_number: block_number.into(),
+                    tx_index: tx_index.into(),
+                    io_index: io_index.into(),
+                    io_type,
+                }));
+                if txs.len() >= limit {
+                    break;
+                }
+            }
 
             Ok(IndexerPagination::new(txs, JsonBytes::from_vec(last_key)))
         }
@@ -645,122 +675,128 @@ impl IndexerHandle {
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
-        let iter = snapshot.iterator(mode).skip(skip);
+        let iter =
+            LimitedIterator::new(snapshot.iterator(mode).skip(skip), self.iterator_next_limit);
         let pool = self
             .pool
             .as_ref()
             .map(|pool| pool.read().expect("acquire lock"));
 
-        let capacity: u64 = iter
-            .take_while(|(key, _value)| key.starts_with(&prefix))
-            .filter_map(|(key, value)| {
-                if script_search_exact {
-                    // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + OutputIndex (4)
-                    if key.len() != prefix.len() + 16 {
-                        return None;
-                    }
+        let mut capacity: u64 = 0;
+        for element in iter {
+            let Ok((key, value)) = element else {
+                return Err(Error::IterLimitExceeded(self.iterator_next_limit));
+            };
+            if !key.starts_with(&prefix) {
+                break;
+            }
+            if script_search_exact {
+                // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + OutputIndex (4)
+                if key.len() != prefix.len() + 16 {
+                    continue;
                 }
-                let tx_hash = packed::Byte32::from_slice(value.as_ref()).expect("stored tx hash");
-                let index =
-                    u32::from_be_bytes(key[key.len() - 4..].try_into().expect("stored index"));
-                let out_point = packed::OutPoint::new(tx_hash, index);
-                if pool
-                    .as_ref()
-                    .map(|pool| pool.is_consumed_by_pool_tx(&out_point))
-                    .unwrap_or_default()
-                {
-                    return None;
-                }
-                let (block_number, _tx_index, output, output_data) = Value::parse_cell_value(
-                    &snapshot
-                        .get(Key::OutPoint(&out_point).into_vec())
-                        .expect("get OutPoint should be OK")
-                        .expect("stored OutPoint"),
-                );
+            }
+            let tx_hash = packed::Byte32::from_slice(value.as_ref()).expect("stored tx hash");
+            let index = u32::from_be_bytes(key[key.len() - 4..].try_into().expect("stored index"));
+            let out_point = packed::OutPoint::new(tx_hash, index);
+            if pool
+                .as_ref()
+                .map(|pool| pool.is_consumed_by_pool_tx(&out_point))
+                .unwrap_or_default()
+            {
+                continue;
+            }
+            let (block_number, _tx_index, output, output_data) = Value::parse_cell_value(
+                &snapshot
+                    .get(Key::OutPoint(&out_point).into_vec())
+                    .expect("get OutPoint should be OK")
+                    .expect("stored OutPoint"),
+            );
 
-                if let Some(prefix) = filter_options.script_prefix.as_ref() {
-                    match filter_script_type {
-                        IndexerScriptType::Lock => {
-                            if !extract_raw_data(&output.lock())
+            if let Some(prefix) = filter_options.script_prefix.as_ref() {
+                match filter_script_type {
+                    IndexerScriptType::Lock => {
+                        if !extract_raw_data(&output.lock())
+                            .as_slice()
+                            .starts_with(prefix)
+                        {
+                            continue;
+                        }
+                    }
+                    IndexerScriptType::Type => {
+                        if output.type_().is_none()
+                            || !extract_raw_data(&output.type_().to_opt().unwrap())
                                 .as_slice()
                                 .starts_with(prefix)
-                            {
-                                return None;
-                            }
-                        }
-                        IndexerScriptType::Type => {
-                            if output.type_().is_none()
-                                || !extract_raw_data(&output.type_().to_opt().unwrap())
-                                    .as_slice()
-                                    .starts_with(prefix)
-                            {
-                                return None;
-                            }
+                        {
+                            continue;
                         }
                     }
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.script_len_range {
-                    match filter_script_type {
-                        IndexerScriptType::Lock => {
-                            let script_len = extract_raw_data(&output.lock()).len();
-                            if script_len < r0 || script_len > r1 {
-                                return None;
-                            }
-                        }
-                        IndexerScriptType::Type => {
-                            let script_len = output
-                                .type_()
-                                .to_opt()
-                                .map(|script| extract_raw_data(&script).len())
-                                .unwrap_or_default();
-                            if script_len < r0 || script_len > r1 {
-                                return None;
-                            }
+            if let Some([r0, r1]) = filter_options.script_len_range {
+                match filter_script_type {
+                    IndexerScriptType::Lock => {
+                        let script_len = extract_raw_data(&output.lock()).len();
+                        if script_len < r0 || script_len > r1 {
+                            continue;
                         }
                     }
-                }
-
-                if let Some((data, mode)) = &filter_options.output_data {
-                    match mode {
-                        IndexerSearchMode::Prefix => {
-                            if !output_data.raw_data().starts_with(data) {
-                                return None;
-                            }
-                        }
-                        IndexerSearchMode::Exact => {
-                            if output_data.raw_data() != data {
-                                return None;
-                            }
-                        }
-                        IndexerSearchMode::Partial => {
-                            memmem::find(&output_data.raw_data(), data)?;
+                    IndexerScriptType::Type => {
+                        let script_len = output
+                            .type_()
+                            .to_opt()
+                            .map(|script| extract_raw_data(&script).len())
+                            .unwrap_or_default();
+                        if script_len < r0 || script_len > r1 {
+                            continue;
                         }
                     }
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.output_data_len_range {
-                    if output_data.len() < r0 || output_data.len() >= r1 {
-                        return None;
+            if let Some((data, mode)) = &filter_options.output_data {
+                match mode {
+                    IndexerSearchMode::Prefix => {
+                        if !output_data.raw_data().starts_with(data) {
+                            continue;
+                        }
+                    }
+                    IndexerSearchMode::Exact => {
+                        if output_data.raw_data() != data {
+                            continue;
+                        }
+                    }
+                    IndexerSearchMode::Partial => {
+                        if memmem::find(&output_data.raw_data(), data).is_none() {
+                            continue;
+                        }
                     }
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.output_capacity_range {
-                    let capacity: core::Capacity = output.capacity().unpack();
-                    if capacity < r0 || capacity >= r1 {
-                        return None;
-                    }
+            if let Some([r0, r1]) = filter_options.output_data_len_range {
+                if output_data.len() < r0 || output_data.len() >= r1 {
+                    continue;
                 }
+            }
 
-                if let Some([r0, r1]) = filter_options.block_range {
-                    if block_number < r0 || block_number >= r1 {
-                        return None;
-                    }
+            if let Some([r0, r1]) = filter_options.output_capacity_range {
+                let capacity: core::Capacity = output.capacity().unpack();
+                if capacity < r0 || capacity >= r1 {
+                    continue;
                 }
+            }
 
-                Some(Unpack::<core::Capacity>::unpack(&output.capacity()).as_u64())
-            })
-            .sum();
+            if let Some([r0, r1]) = filter_options.block_range {
+                if block_number < r0 || block_number >= r1 {
+                    continue;
+                }
+            }
+
+            capacity += Unpack::<core::Capacity>::unpack(&output.capacity()).as_u64();
+        }
 
         let tip_mode = IteratorMode::From(&[KeyPrefix::Header as u8 + 1], Direction::Reverse);
         let mut tip_iter = snapshot.iterator(tip_mode);
@@ -930,8 +966,9 @@ mod tests {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
         let rpc = IndexerHandle {
-            store,
+            store: store.clone(),
             pool: Some(Arc::clone(&pool)),
+            iterator_next_limit: 100000,
         };
 
         // setup test data
@@ -1499,7 +1536,7 @@ mod tests {
         // test get_cells_capacity rpc with tx-pool overlay
         let capacity = rpc
             .get_cells_capacity(IndexerSearchKey {
-                script: lock_script1.into(),
+                script: lock_script1.clone().into(),
                 ..Default::default()
             })
             .unwrap()
@@ -1510,13 +1547,43 @@ mod tests {
             capacity.capacity.value(),
             "cellbases (last block live cell was consumed by a pending tx in the pool)"
         );
+
+        let rpc = IndexerHandle {
+            store,
+            pool: None,
+            iterator_next_limit: 10,
+        };
+
+        let res = rpc.get_transactions(
+            IndexerSearchKey {
+                script: lock_script1.clone().into(),
+                group_by_transaction: Some(true),
+                filter: Some(IndexerSearchKeyFilter {
+                    block_range: Some(IndexerRange::new(100, 200)),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            150.into(),
+            None,
+        );
+        assert!(res
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Iteration limit exceeded 10"));
     }
 
     #[test]
     fn script_search_mode_rpc() {
         let store = new_store("script_search_mode_rpc");
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
-        let rpc = IndexerHandle { store, pool: None };
+        let rpc = IndexerHandle {
+            store: store.clone(),
+            pool: None,
+            iterator_next_limit: 100000,
+        };
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()
@@ -1743,7 +1810,7 @@ mod tests {
         // test get_cells_capacity rpc with prefix search mode (by default)
         let capacity = rpc
             .get_cells_capacity(IndexerSearchKey {
-                script: lock_script1.into(),
+                script: lock_script1.clone().into(),
                 ..Default::default()
             })
             .unwrap()
@@ -1753,13 +1820,39 @@ mod tests {
             1000 * 100000000 * (total_blocks + 1) + 2000 * 100000000,
             capacity.capacity.value()
         );
+
+        let rpc = IndexerHandle {
+            store,
+            pool: None,
+            iterator_next_limit: 200,
+        };
+
+        let cells = rpc.get_cells(
+            IndexerSearchKey {
+                script: lock_script1.clone().into(),
+                script_search_mode: Some(IndexerSearchMode::Exact),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            1000.into(),
+            None,
+        );
+        assert!(cells
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Iteration limit exceeded 200"));
     }
 
     #[test]
     fn output_data_filter_mode_rpc() {
         let store = new_store("script_search_mode_rpc");
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
-        let rpc = IndexerHandle { store, pool: None };
+        let rpc = IndexerHandle {
+            store: store.clone(),
+            pool: None,
+            iterator_next_limit: 100000,
+        };
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()
@@ -2010,6 +2103,27 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
+        let capacity: u64 = cells_capacity.unwrap().capacity.into();
+        assert_eq!(200000000000, capacity);
+
+        let rpc = IndexerHandle {
+            store,
+            pool: None,
+            iterator_next_limit: 10,
+        };
+
+        let cells_capacity = rpc
+            .get_cells_capacity(IndexerSearchKey {
+                script: lock_script11.clone().into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(vec![])),
+                    output_data_filter_mode: Some(IndexerSearchMode::Partial),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+
         let capacity: u64 = cells_capacity.unwrap().capacity.into();
         assert_eq!(200000000000, capacity);
     }
