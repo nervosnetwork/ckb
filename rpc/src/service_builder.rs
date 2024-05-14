@@ -23,6 +23,7 @@ use ckb_util::Mutex;
 use jsonrpc_core::{MetaIoHandler, RemoteProcedure};
 use jsonrpc_utils::pub_sub::Session;
 use std::sync::Arc;
+use std::thread::available_parallelism;
 
 const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
 
@@ -208,7 +209,12 @@ impl<'a> ServiceBuilder<'a> {
             }
 
             let indexer_handle = indexer.handle();
-            let methods = IndexerRpcImpl::new(indexer_handle);
+            let threads_num: usize = self
+                .config
+                .threads
+                .unwrap_or(available_parallelism().unwrap().into());
+            let slow_query_limit = usize::max(threads_num * 2 / 3, 1);
+            let methods = IndexerRpcImpl::new(indexer_handle, slow_query_limit);
             self = set_rpc_module_methods!(
                 self,
                 "Indexer",
