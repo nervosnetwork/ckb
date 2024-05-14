@@ -157,22 +157,7 @@ impl IndexerHandle {
         limit: Uint32,
         after_cursor: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
-        if search_key
-            .script_search_mode
-            .as_ref()
-            .map(|mode| *mode == IndexerSearchMode::Partial)
-            .unwrap_or(false)
-        {
-            return Err(Error::invalid_params(
-                "the CKB indexer doesn't support search_key.script_search_mode partial search mode, \
-                please use the CKB rich-indexer for such search",
-            ));
-        }
-
-        let limit = limit.value() as usize;
-        if limit == 0 {
-            return Err(Error::invalid_params("limit should be greater than 0"));
-        }
+        let limit = Self::verify_query_params(&search_key, Some(limit))?;
 
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
@@ -342,22 +327,7 @@ impl IndexerHandle {
         limit: Uint32,
         after_cursor: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
-        let limit = limit.value() as usize;
-        if limit == 0 {
-            return Err(Error::invalid_params("limit should be greater than 0"));
-        }
-
-        if search_key
-            .script_search_mode
-            .as_ref()
-            .map(|mode| *mode == IndexerSearchMode::Partial)
-            .unwrap_or(false)
-        {
-            return Err(Error::invalid_params(
-                "the CKB indexer doesn't support search_key.script_search_mode partial search mode, \
-                please use the CKB rich-indexer for such search",
-            ));
-        }
+        let limit = Self::verify_query_params(&search_key, Some(limit))?;
 
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
@@ -645,17 +615,7 @@ impl IndexerHandle {
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>, Error> {
-        if search_key
-            .script_search_mode
-            .as_ref()
-            .map(|mode| *mode == IndexerSearchMode::Partial)
-            .unwrap_or(false)
-        {
-            return Err(Error::invalid_params(
-                "the CKB indexer doesn't support search_key.script_search_mode partial search mode, \
-                please use the CKB rich-indexer for such search",
-            ));
-        }
+        Self::verify_query_params(&search_key, None)?;
 
         let (prefix, from_key, direction, skip) = build_query_options(
             &search_key,
@@ -810,6 +770,31 @@ impl IndexerHandle {
             )
             .into(),
         }))
+    }
+
+    fn verify_query_params(
+        search_key: &IndexerSearchKey,
+        limit_val: Option<Uint32>,
+    ) -> Result<usize, Error> {
+        let mut limit = 0;
+        if let Some(l) = limit_val {
+            if l.value() == 0 {
+                return Err(Error::invalid_params("limit should be greater than 0"));
+            }
+            limit = l.value() as usize;
+        }
+        if search_key
+            .script_search_mode
+            .as_ref()
+            .map(|mode| *mode == IndexerSearchMode::Partial)
+            .unwrap_or(false)
+        {
+            return Err(Error::invalid_params(
+            "the CKB indexer doesn't support search_key.script_search_mode partial search mode, \
+            please use the CKB rich-indexer for such search",
+        ));
+        }
+        Ok(limit)
     }
 }
 
@@ -1523,7 +1508,7 @@ mod tests {
                 },
                 IndexerOrder::Asc,
                 150.into(),
-                Some(cells_page_1.last_cursor),
+                Some(cells_page_1.last_cursor.clone()),
             )
             .unwrap();
 
@@ -1531,6 +1516,21 @@ mod tests {
             total_blocks as usize,
             cells_page_1.objects.len() + cells_page_2.objects.len(),
             "total size should be cellbase cells count (last block live cell was consumed by a pending tx in the pool)"
+        );
+
+        let limit_error_query = rpc.get_cells(
+            IndexerSearchKey {
+                script: lock_script1.clone().into(),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            0.into(),
+            Some(cells_page_1.last_cursor),
+        );
+
+        assert_eq!(
+            limit_error_query.err().unwrap().to_string(),
+            "Invalid params limit should be greater than 0"
         );
 
         // test get_cells_capacity rpc with tx-pool overlay
