@@ -1,5 +1,5 @@
 use crate::block_status::BlockStatus;
-use crate::types::{ActiveChain, BlockNumberAndHash, HeaderIndex, HeaderIndexView, IBDState};
+use crate::types::{ActiveChain, HeaderIndex, HeaderIndexView, IBDState};
 use crate::SyncShared;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
@@ -8,6 +8,7 @@ use ckb_constant::sync::{
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::core::BlockNumberAndHash;
 use ckb_types::packed;
 use std::cmp::min;
 use std::sync::Arc;
@@ -17,16 +18,23 @@ pub struct BlockFetcher {
     peer: PeerIndex,
     active_chain: ActiveChain,
     ibd: IBDState,
+    reaching_to_target: Option<BlockNumberAndHash>,
 }
 
 impl BlockFetcher {
-    pub fn new(sync_shared: Arc<SyncShared>, peer: PeerIndex, ibd: IBDState) -> Self {
+    pub fn new(
+        sync_shared: Arc<SyncShared>,
+        peer: PeerIndex,
+        ibd: IBDState,
+        reaching_to_target: Option<BlockNumberAndHash>,
+    ) -> Self {
         let active_chain = sync_shared.active_chain();
         BlockFetcher {
             sync_shared,
             peer,
             active_chain,
             ibd,
+            reaching_to_target,
         }
     }
 
@@ -173,6 +181,10 @@ impl BlockFetcher {
 
         let mut start = last_common.number() + 1;
         let mut end = min(best_known.number(), start + block_download_window);
+        if let Some(reaching_to_target) = self.reaching_to_target {
+            end = min(end, reaching_to_target.number());
+        }
+
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
             inflight.peer_can_fetch_count(self.peer),

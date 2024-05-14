@@ -36,7 +36,8 @@ pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};
 pub use tx_pool::{EntryCompleted, TransactionWithStatus};
 pub use views::{
-    BlockView, ExtraHashView, HeaderView, TransactionView, UncleBlockVecView, UncleBlockView,
+    BlockNumberAndHash, BlockView, ExtraHashView, HeaderView, TransactionView, UncleBlockVecView,
+    UncleBlockView,
 };
 
 pub use ckb_gen_types::core::*;

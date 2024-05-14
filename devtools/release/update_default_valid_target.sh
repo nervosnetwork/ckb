@@ -42,6 +42,25 @@ function get_60days_ago_block(){
 	echo ${START_NUMBER}
 }
 
+MIN_WORK_NOT_REACH_HEIGHT=500000
+
+function get_ten_percentile_block_hashes(){
+  local host=$1
+  local lasttest_height=$2
+  local current=$MIN_WORK_NOT_REACH_HEIGHT
+  
+  while [ $current -lt $lasttest_height ]; do
+      current=${current%.*}
+      current=$(( $current - (( $current % 10000 )) ))
+      current_hex=$(printf "0x%x" $current)
+      block_hash=$(get_block_hash $host $current_hex)
+      >&2 printf "add multiple assume target: %10d %s\n" $current  $block_hash
+      printf "            \"%s\", // height: %d \n" $block_hash $current
+      current=$(bc <<< "scale=0; $current * 1.3")
+      current=${current%.*}
+  done
+}
+
 function print_60_days_ago_block(){
   local network=$1
   local host=$2
@@ -50,11 +69,15 @@ function print_60_days_ago_block(){
   ASSUME_TARGET_HEIGHT=$(get_60days_ago_block ${host})
   ASSUME_TARGET_HEIGHT_DECIMAL=$(printf "%d" ${ASSUME_TARGET_HEIGHT})
   ASSUME_TARGET_HASH=$(get_block_hash ${host} ${ASSUME_TARGET_HEIGHT})
+  ASSUME_TARGET_TEN_PERCENTILE_HASHES=$(get_ten_percentile_block_hashes ${host} ${ASSUME_TARGET_HEIGHT_DECIMAL})
   ASSUME_TARGET_TIMESTAMP=$(get_block_timestamp ${host} ${ASSUME_TARGET_HEIGHT})
   ASSUME_TARGET_DATE=$(date -d @$((${ASSUME_TARGET_TIMESTAMP} / 1000)))
   EXPLORER_URL=${explorer_url}/block/${ASSUME_TARGET_HASH}
   printf "the 60 days ago block is: %d %s in %s\n" ${ASSUME_TARGET_HEIGHT_DECIMAL} ${ASSUME_TARGET_HASH} "${ASSUME_TARGET_DATE}" >&2
   printf "you can view this block in ${EXPLORER_URL}\n\n" >&2
+  ASSUME_TARGET_TEN_PERCENTILE_HASHES_LENGTH=$(wc -l <<< ${ASSUME_TARGET_TEN_PERCENTILE_HASHES})
+  
+  ALL_HASHES_LENGTH=$((1 + $ASSUME_TARGET_TEN_PERCENTILE_HASHES_LENGTH))
 
   TEXT=$(cat <<END_HEREDOC
 /// sync config related to ${network}
@@ -67,8 +90,11 @@ pub mod ${network} {
     /// hash: ${ASSUME_TARGET_HASH}
     /// date: ${ASSUME_TARGET_DATE}
     /// you can view this block in ${EXPLORER_URL}
-    pub const DEFAULT_ASSUME_VALID_TARGET: &str =
-        "${ASSUME_TARGET_HASH}";
+    pub const DEFAULT_ASSUME_VALID_TARGETS: [&str; ${ALL_HASHES_LENGTH}] =
+        [
+            ${ASSUME_TARGET_TEN_PERCENTILE_HASHES}
+            "${ASSUME_TARGET_HASH}" // height: ${ASSUME_TARGET_HEIGHT_DECIMAL}
+        ];
 }
 END_HEREDOC
 )
@@ -86,14 +112,18 @@ EOF
 printf "Now: %s\n\n" "$(date)"
 printf "Finding the 60 days ago block..., this script may take 1 minute\n\n"
 
+echo "${TEXT_HEADER}" > util/constant/src/default_assume_valid_target.rs
+
 printf "MainNet:\n"
 TEXT_MAINNET=$(print_60_days_ago_block mainnet https://mainnet.ckb.dev https://explorer.nervos.org)
+echo "${TEXT_MAINNET}" >> util/constant/src/default_assume_valid_target.rs
 
 printf "TestNet:\n"
 TEXT_TESTNET=$(print_60_days_ago_block testnet https://testnet.ckb.dev https://pudge.explorer.nervos.org)
-echo "${TEXT_HEADER}" > util/constant/src/default_assume_valid_target.rs
-echo "${TEXT_MAINNET}" >> util/constant/src/default_assume_valid_target.rs
 echo "${TEXT_TESTNET}" >> util/constant/src/default_assume_valid_target.rs
 echo
+
+rustfmt util/constant/src/default_assume_valid_target.rs
+
 echo this script has overwrite file: util/constant/src/default_assume_valid_target.rs
 echo Please review the changes

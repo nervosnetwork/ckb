@@ -43,6 +43,7 @@ use std::{cmp, fmt, iter};
 mod header_map;
 
 use crate::utils::send_message;
+use ckb_types::core::BlockNumberAndHash;
 use ckb_types::core::{EpochNumber, EpochNumberWithFraction};
 pub use header_map::HeaderMap;
 
@@ -398,53 +399,6 @@ impl InflightState {
         Self {
             peer,
             timestamp: unix_time_as_millis(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BlockNumberAndHash {
-    pub number: BlockNumber,
-    pub hash: Byte32,
-}
-
-impl BlockNumberAndHash {
-    pub fn new(number: BlockNumber, hash: Byte32) -> Self {
-        Self { number, hash }
-    }
-
-    pub fn number(&self) -> BlockNumber {
-        self.number
-    }
-
-    pub fn hash(&self) -> Byte32 {
-        self.hash.clone()
-    }
-}
-
-impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
-    fn from(inner: (BlockNumber, Byte32)) -> Self {
-        Self {
-            number: inner.0,
-            hash: inner.1,
-        }
-    }
-}
-
-impl From<&core::HeaderView> for BlockNumberAndHash {
-    fn from(header: &core::HeaderView) -> Self {
-        Self {
-            number: header.number(),
-            hash: header.hash(),
-        }
-    }
-}
-
-impl From<core::HeaderView> for BlockNumberAndHash {
-    fn from(header: core::HeaderView) -> Self {
-        Self {
-            number: header.number(),
-            hash: header.hash(),
         }
     }
 }
@@ -1332,7 +1286,7 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
-            assume_valid_target: Mutex::new(sync_config.assume_valid_target),
+            assume_valid_targets: Mutex::new(sync_config.assume_valid_targets),
             min_chain_work: sync_config.min_chain_work,
         };
 
@@ -1458,15 +1412,28 @@ impl SyncShared {
         block: Arc<core::BlockView>,
     ) -> Result<bool, CKBError> {
         let ret = {
-            let mut assume_valid_target = self.state.assume_valid_target();
-            if let Some(ref target) = *assume_valid_target {
+            let mut assume_valid_targets = self.state.assume_valid_targets();
+            if let Some(ref mut targets) = *assume_valid_targets {
                 // if the target has been reached, delete it
-                let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
-                    assume_valid_target.take();
-                    info!("assume valid target reached; CKB will do full verification from now on");
-                    Switch::NONE
+                let switch: Switch = if let Some(first_target) = targets.first() {
+                    let first_target = first_target.to_owned();
+                    if first_target == Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+                        targets.remove(0);
+                        info!(
+                            "a assume valid target reached: {}, {} targets remaining",
+                            first_target,
+                            targets.len()
+                        );
+                    }
+
+                    if targets.is_empty() {
+                        info!("all assume valid targets reached; CKB will do full verification from now on");
+                        Switch::NONE
+                    } else {
+                        Switch::DISABLE_SCRIPT
+                    }
                 } else {
-                    Switch::DISABLE_SCRIPT
+                    Switch::NONE
                 };
 
                 chain.internal_process_block(Arc::clone(&block), switch)
@@ -1692,13 +1659,13 @@ pub struct SyncState {
 
     /* cached for sending bulk */
     tx_relay_receiver: Receiver<TxVerificationResult>,
-    assume_valid_target: Mutex<Option<H256>>,
+    assume_valid_targets: Mutex<Option<Vec<H256>>>,
     min_chain_work: U256,
 }
 
 impl SyncState {
-    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
-        self.assume_valid_target.lock()
+    pub fn assume_valid_targets(&self) -> MutexGuard<Option<Vec<H256>>> {
+        self.assume_valid_targets.lock()
     }
 
     pub fn min_chain_work(&self) -> &U256 {
