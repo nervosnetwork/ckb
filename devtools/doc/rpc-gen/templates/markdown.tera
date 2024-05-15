@@ -22,7 +22,7 @@
 
 ## RPC Types
 {% for ty in types %}
-### Type `{{ ty["name"] }}`
+{{ ty["sub_title"]}}
 {{ ty["desc"] }}
 {{ ty["fields"] }}
 {%- endfor %}

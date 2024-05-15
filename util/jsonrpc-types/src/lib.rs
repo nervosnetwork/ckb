@@ -45,8 +45,9 @@ pub use self::net::{
     RemoteNodeProtocol, SyncState,
 };
 pub use self::pool::{
-    AncestorsScoreSortKey, OutputsValidator, PoolTransactionEntry, PoolTransactionReject,
-    PoolTxDetailInfo, RawTxPool, TxPoolEntries, TxPoolEntry, TxPoolIds, TxPoolInfo,
+    AncestorsScoreSortKey, EntryCompleted, OutputsValidator, PoolTransactionEntry,
+    PoolTransactionReject, PoolTxDetailInfo, RawTxPool, TxPoolEntries, TxPoolEntry, TxPoolIds,
+    TxPoolInfo,
 };
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
@@ -90,7 +91,7 @@ pub struct ResponseFormat<V> {
     pub inner: Either<V, JsonBytes>,
 }
 
-/// The enum `ResponseFormatInnerType` with variants `Json` and `Hex` is is used to
+/// The enum `ResponseFormatInnerType` with variants `Json` and `Hex` is used to
 /// supply a format choice for the format of `ResponseFormatResponse.transaction`
 pub enum ResponseFormatInnerType {
     /// Indicate the json format of `ResponseFormatResponse.transaction`

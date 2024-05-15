@@ -71,7 +71,7 @@ fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
                 eprintln!(
                     "{}",
                     format!(
-                    "ckb daemon service is is still running with pid {}..., stop it now forcefully ...",
+                    "ckb daemon service is still running with pid {}..., stop it now forcefully ...",
                     pid
                 )
                     .red()

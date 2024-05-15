@@ -2,7 +2,7 @@ use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::{
     consensus::{Consensus, ConsensusProvider},
-    versionbits::{DeploymentPos, ThresholdState, VersionbitsIndexer},
+    versionbits::VersionbitsIndexer,
 };
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
@@ -62,13 +62,6 @@ impl<CS: ChainStore + VersionbitsIndexer> VerifyContext<CS> {
         parent: &HeaderView,
     ) -> Result<(Script, BlockReward), DaoError> {
         RewardCalculator::new(&self.consensus, self.store.as_ref()).block_reward_to_finalize(parent)
-    }
-
-    fn versionbits_active(&self, pos: DeploymentPos, header: &HeaderView) -> bool {
-        self.consensus
-            .versionbits_state(pos, header, self.store.as_ref())
-            .map(|state| state == ThresholdState::Active)
-            .unwrap_or(false)
     }
 }
 
@@ -352,17 +345,24 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         }
     }
 
-    fn fetched_cache<K: IntoIterator<Item = Byte32> + Send + 'static>(
-        &self,
-        keys: K,
-    ) -> HashMap<Byte32, CacheEntry> {
+    fn fetched_cache(&self, rtxs: &'a [Arc<ResolvedTransaction>]) -> HashMap<Byte32, CacheEntry> {
         let (sender, receiver) = oneshot::channel();
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
+        let wtx_hashes: Vec<Byte32> = rtxs
+            .iter()
+            .skip(1)
+            .map(|rtx| rtx.transaction.witness_hash())
+            .collect();
         self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
-            let ret = keys
+            let ret = wtx_hashes
                 .into_iter()
-                .filter_map(|hash| guard.peek(&hash).cloned().map(|value| (hash, value)))
+                .filter_map(|wtx_hash| {
+                    guard
+                        .peek(&wtx_hash)
+                        .cloned()
+                        .map(|value| (wtx_hash, value))
+                })
                 .collect();
 
             if let Err(e) = sender.send(ret) {
@@ -392,13 +392,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         // We should skip updating tx_verify_cache about the cellbase tx,
         // putting it in cache that will never be used until lru cache expires.
         let fetched_cache = if resolved.len() > 1 {
-            let keys: Vec<Byte32> = resolved
-                .iter()
-                .skip(1)
-                .map(|rtx| rtx.transaction.hash())
-                .collect();
-
-            self.fetched_cache(keys)
+            self.fetched_cache(resolved)
         } else {
             HashMap::new()
         };
@@ -410,9 +404,9 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                let tx_hash = tx.transaction.hash();
+                let wtx_hash = tx.transaction.witness_hash();
 
-                if let Some(cache_entry) = fetched_cache.get(&tx_hash) {
+                if let Some(cache_entry) = fetched_cache.get(&wtx_hash) {
                     match cache_entry {
                         CacheEntry::Completed(completed) => TimeRelativeTransactionVerifier::new(
                             Arc::clone(tx),
@@ -428,7 +422,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                             }
                             .into()
                         })
-                        .map(|_| (tx_hash, *completed)),
+                        .map(|_| (wtx_hash, *completed)),
                         CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
                             Arc::clone(tx),
                             Arc::clone(&self.context.consensus),
@@ -447,7 +441,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                             }
                             .into()
                         })
-                        .map(|completed| (tx_hash, completed)),
+                        .map(|completed| (wtx_hash, completed)),
                     }
                 } else {
                     ContextualTransactionVerifier::new(
@@ -467,9 +461,9 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                         }
                         .into()
                     })
-                    .map(|completed| (tx_hash, completed))
+                    .map(|completed| (wtx_hash, completed))
                 }.and_then(|result| {
-                    if self.context.versionbits_active(DeploymentPos::LightClient, self.parent) {
+                    if self.context.consensus.rfc0044_active(self.parent.epoch().number()) {
                         DaoScriptSizeVerifier::new(
                             Arc::clone(tx),
                             Arc::clone(&self.context.consensus),
@@ -566,8 +560,8 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer, MS: MMRStore<HeaderDigest>>
 
         let mmr_active = self
             .context
-            .versionbits_active(DeploymentPos::LightClient, self.parent);
-
+            .consensus
+            .rfc0044_active(self.parent.epoch().number());
         match extra_fields_count {
             0 => {
                 if mmr_active {
@@ -702,7 +696,10 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStore<HeaderDiges
             RewardVerifier::new(&self.context, resolved, &parent).verify()?;
         }
 
-        BlockExtensionVerifier::new(&self.context, self.chain_root_mmr, &parent).verify(block)?;
+        if !self.switch.disable_extension() {
+            BlockExtensionVerifier::new(&self.context, self.chain_root_mmr, &parent)
+                .verify(block)?;
+        }
 
         let ret = BlockTxsVerifier::new(
             self.context.clone(),

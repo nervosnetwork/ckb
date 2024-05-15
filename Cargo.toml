@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.115.0"
+version = "0.116.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,88 +11,89 @@ repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.75.0"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.115.0" }
+ckb-build-info = { path = "util/build-info", version = "= 0.116.1" }
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.115.0" }
-ckb-bin = { path = "ckb-bin", version = "= 0.115.0" }
+ckb-build-info = { path = "util/build-info", version = "= 0.116.1" }
+ckb-bin = { path = "ckb-bin", version = "= 0.116.1" }
+console-subscriber = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 
 [workspace]
 # To get a list sorted by dependencies, run devtools/ci/check-cyclic-dependencies.py
 members = [
-    "util",
-    "util/occupied-capacity/core",
-    "util/channel",
-    "util/systemtime",
-    "util/fixed-hash/core",
-    "util/build-info",
-    "util/logger",
-    "util/logger-config",
-    "util/metrics-config",
-    "util/hash",
-    "util/rational",
-    "benches",
-    "db-schema",
-    "util/spawn",
-    "util/occupied-capacity/macros",
-    "util/fixed-hash/macros",
-    "util/logger-service",
-    "util/runtime",
-    "util/stop-handler",
-    "util/metrics",
-    "util/metrics-service",
-    "util/fixed-hash",
-    "util/occupied-capacity",
-    "util/crypto",
-    "util/constant",
-    "error",
-    "util/multisig",
-    "util/gen-types",
-    "util/migrate/migration-template",
-    "util/types",
-    "util/jsonrpc-types",
-    "freezer",
-    "resource",
-    "pow",
-    "util/dao/utils",
-    "traits",
-    "spec",
-    "util/proposal-table",
-    "script",
-    "util/app-config",
-    "db",
-    "network",
-    "miner",
-    "notify",
-    "util/memory-tracker",
-    "db-migration",
-    "util/network-alert",
-    "store",
-    "util/indexer-sync",
-    "util/indexer",
-    "util/rich-indexer",
-    "util/chain-iter",
-    "util/dao",
-    "util/test-chain-utils",
-    "util/reward-calculator",
-    "util/snapshot",
-    "util/migrate",
-    "verification/traits",
-    "verification",
-    "verification/contextual",
-    "tx-pool",
-    "shared",
-    "block-filter",
-    "chain",
-    "sync",
-    "util/instrument",
-    "rpc",
-    "util/light-client-protocol-server",
-    "util/launcher",
-    "devtools/doc/rpc-gen",
-    "ckb-bin"
+  "util",
+  "util/occupied-capacity/core",
+  "util/channel",
+  "util/systemtime",
+  "util/fixed-hash/core",
+  "util/build-info",
+  "util/logger",
+  "util/logger-config",
+  "util/metrics-config",
+  "util/hash",
+  "util/rational",
+  "benches",
+  "db-schema",
+  "util/spawn",
+  "util/occupied-capacity/macros",
+  "util/fixed-hash/macros",
+  "util/logger-service",
+  "util/runtime",
+  "util/stop-handler",
+  "util/metrics",
+  "util/metrics-service",
+  "util/fixed-hash",
+  "util/occupied-capacity",
+  "util/crypto",
+  "util/constant",
+  "error",
+  "util/multisig",
+  "util/gen-types",
+  "util/migrate/migration-template",
+  "util/types",
+  "util/jsonrpc-types",
+  "freezer",
+  "resource",
+  "pow",
+  "util/dao/utils",
+  "traits",
+  "spec",
+  "util/proposal-table",
+  "script",
+  "util/app-config",
+  "db",
+  "network",
+  "miner",
+  "notify",
+  "util/memory-tracker",
+  "db-migration",
+  "util/network-alert",
+  "store",
+  "util/indexer-sync",
+  "util/indexer",
+  "util/rich-indexer",
+  "util/chain-iter",
+  "util/dao",
+  "util/test-chain-utils",
+  "util/reward-calculator",
+  "util/snapshot",
+  "util/migrate",
+  "verification/traits",
+  "verification",
+  "verification/contextual",
+  "tx-pool",
+  "shared",
+  "block-filter",
+  "chain",
+  "sync",
+  "util/instrument",
+  "rpc",
+  "util/light-client-protocol-server",
+  "util/launcher",
+  "devtools/doc/rpc-gen",
+  "ckb-bin"
 ]
 
 [workspace.dependencies]
@@ -124,3 +125,4 @@ with_dns_seeding = ["ckb-bin/with_dns_seeding"]
 profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
 portable = ["ckb-bin/portable"]
 march-native = ["ckb-bin/march-native"]
+tokio-trace = ["console-subscriber"]

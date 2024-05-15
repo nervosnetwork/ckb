@@ -350,3 +350,21 @@ impl From<Reject> for PoolTransactionReject {
         }
     }
 }
+
+/// Transaction's verify result by test_tx_pool_accept
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
+pub struct EntryCompleted {
+    /// Cached tx cycles
+    pub cycles: Cycle,
+    /// Cached tx fee
+    pub fee: Capacity,
+}
+
+impl From<ckb_types::core::EntryCompleted> for EntryCompleted {
+    fn from(value: ckb_types::core::EntryCompleted) -> Self {
+        Self {
+            cycles: value.cycles.into(),
+            fee: value.fee.into(),
+        }
+    }
+}

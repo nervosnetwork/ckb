@@ -3,6 +3,7 @@ use crate::syn::*;
 use ckb_rpc::RPCError;
 use schemars::schema_for;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::{fs, vec};
 use tera::Tera;
 
@@ -10,6 +11,7 @@ struct RpcModule {
     pub title: String,
     pub description: String,
     pub methods: Vec<serde_json::Value>,
+    pub deprecated: HashMap<String, (String, String)>,
 }
 
 impl RpcModule {
@@ -65,7 +67,15 @@ impl RpcModule {
                 } else {
                     "".to_string()
                 };
-                let signatures = format!("* `{}({})`\n{}\n{}", name, args, arg_lines, ret_ty);
+                let fn_full_name = format!("{}.{}", self.title, name);
+                let mut deprecated_desc = "".to_string();
+                if let Some((version, desc)) = self.deprecated.get(&fn_full_name) {
+                    deprecated_desc = format!("\n\n👎Deprecated since {}: {}\n", version, desc);
+                }
+                let signatures = format!(
+                    "* `{}({})`\n{}\n{}{}",
+                    name, args, arg_lines, ret_ty, deprecated_desc
+                );
                 let mut desc = method["description"]
                     .as_str()
                     .unwrap()
@@ -100,7 +110,18 @@ pub(crate) struct RpcDocGenerator {
 impl RpcDocGenerator {
     pub fn new(all_rpc: &Vec<Value>, readme_path: String) -> Self {
         let mut rpc_methods = vec![];
-        let mut all_types: Vec<&Map<String, Value>> = vec![];
+        let mut types: Vec<&Map<String, Value>> = vec![];
+
+        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
+        let finder = CommentFinder::new();
+        let types_defined_in_source: Vec<(String, String)> = finder
+            .type_comments
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let deprecated = finder.deprecated;
+        pre_defined.extend(types_defined_in_source);
+
         for rpc in all_rpc {
             if let serde_json::Value::Object(map) = rpc {
                 let title = capitlize(
@@ -111,39 +132,37 @@ impl RpcDocGenerator {
                 );
                 let description = get_description(&map["info"]["description"]);
                 let methods = map["methods"].as_array().unwrap();
-                let types = map["components"]["schemas"].as_object().unwrap();
-                all_types.push(types);
+                let pair = map["components"]["schemas"].as_object().unwrap();
+                types.push(pair);
                 rpc_methods.push(RpcModule {
                     title,
                     description,
                     methods: methods.to_owned(),
+                    deprecated: deprecated.clone(),
                 });
             }
         }
-
-        // sort rpc_methods accoring to title
+        // sort rpc_methods according to title
         rpc_methods.sort_by(|a, b| a.title.cmp(&b.title));
 
-        let mut pre_defined: Vec<(String, String)> = pre_defined_types().collect();
-        pre_defined.extend(visit_for_types());
-
-        let mut types: Vec<(String, Value)> = pre_defined
+        let mut all_types: Vec<(String, Value)> = pre_defined
             .iter()
             .map(|(name, desc)| (name.clone(), Value::String(desc.clone())))
             .collect();
-        for map in all_types {
+        for map in types {
             for (name, ty) in map.iter() {
-                if !(types.iter().any(|(n, _)| *n == *name)
+                if !(all_types.iter().any(|(n, _)| *n == *name)
                     || (name.starts_with("Either_for_") && name.ends_with("_JsonBytes")))
                 {
-                    types.push((name.to_string(), ty.to_owned()));
+                    all_types.push((name.to_string(), ty.to_owned()));
                 }
             }
         }
-        types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
+
+        all_types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
         Self {
             rpc_methods,
-            types,
+            types: all_types,
             file_path: readme_path,
         }
     }
@@ -169,7 +188,7 @@ impl RpcDocGenerator {
         let type_menus: Value = self
             .types
             .iter()
-            .map(|(name, _)| vec![capitlize(name).into(), name.to_lowercase().into()])
+            .map(|(name, _)| vec![fix_type_name(name).into(), name.to_lowercase().into()])
             .collect::<Vec<Vec<Value>>>()
             .into();
 
@@ -217,8 +236,19 @@ impl RpcDocGenerator {
                 let name = capitlize(name);
                 let desc = desc.replacen("```\n", "```json\n", 1);
                 let fields = gen_type_fields(&name, ty);
+                let fixed_name = fix_type_name(&name);
+                let sub_title = if fixed_name != name {
+                    format!(
+                        "<a id=\"type-{}\"></a>\n### Type `{}`",
+                        name.to_lowercase(),
+                        fixed_name
+                    )
+                } else {
+                    format!("### Type `{}`", fixed_name)
+                };
                 gen_value(&[
-                    ("name", name.into()),
+                    ("sub_title", sub_title.into()),
+                    ("name", fixed_name.into()),
                     ("desc", desc.into()),
                     ("fields", fields.into()),
                 ])
@@ -261,6 +291,23 @@ fn strip_prefix_space(content: &str) -> String {
     } else {
         content.to_string()
     }
+}
+
+// Fix type name issue caused by: https://github.com/GREsau/schemars/issues/193
+fn fix_type_name(type_name: &str) -> String {
+    let elems: Vec<_> = type_name.split("_for_").collect();
+    let type_name = if elems.len() == 2 {
+        format!("{}<{}>", fix_type_name(elems[0]), fix_type_name(elems[1]))
+    } else {
+        type_name.to_owned()
+    };
+    let elems: Vec<_> = type_name.split("_and_").collect();
+    let type_name = if elems.len() == 2 {
+        format!("{} | {}", fix_type_name(elems[0]), fix_type_name(elems[1]))
+    } else {
+        type_name.to_owned()
+    };
+    capitlize(&type_name)
 }
 
 fn get_description(value: &Value) -> String {
@@ -306,7 +353,8 @@ fn gen_type_desc(desc: &str) -> String {
 fn format_fields(name: &str, fields: &str) -> String {
     format!(
         "\n#### Fields\n\n`{}` is a JSON object with the following fields.\n\n{}",
-        name, fields
+        fix_type_name(name),
+        fields
     )
 }
 
@@ -418,7 +466,7 @@ fn gen_type(ty: &Value) -> String {
                 format!("\nIt's an enum value from one of:\n{}\n", res)
             } else if let Some(link) = map.get("$ref") {
                 let link = link.as_str().unwrap().split('/').last().unwrap();
-                format!("[`{}`](#type-{})", link, link.to_lowercase())
+                format!("[`{}`](#type-{})", fix_type_name(link), link.to_lowercase())
             } else {
                 "".to_owned()
             }

@@ -5,7 +5,7 @@ set -u
 [ -n "${DEBUG:-}" ] && set -x || true
 
 CRATES="$(cat Cargo.toml | sed -n -e '1, /^members/d' -e '/^\]$/, $d' -e 's/.*["'\'']\(.*\)["'\''].*/\1/p')"
-RUST_VERSION="$(cat rust-toolchain)"
+RUST_VERSION="$(sed -n 's/channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
 
 retry_cargo_publish() {
   # Ignore dev dependencies

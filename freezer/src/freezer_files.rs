@@ -253,7 +253,7 @@ impl FreezerFiles {
         )))
     }
 
-    /// keeping the the provided threshold number item and dropping the rest.
+    /// keeping the provided threshold number item and dropping the rest.
     pub fn truncate(&mut self, item: u64) -> Result<(), IoError> {
         // out of bound, this has no effect.
         if item < 1 || ((item + 1) >= self.number()) {
@@ -389,7 +389,7 @@ impl FreezerFilesBuilder {
         self
     }
 
-    /// Sets the the limit of opened files for the new freezer.
+    /// Sets the limit of opened files for the new freezer.
     ///
     /// # Panics
     ///

@@ -131,7 +131,7 @@ impl Resource {
 
     /// Checks whether any of the bundled resource has been exported in the specified directory.
     ///
-    /// This can be used to avoid overwritting to export all the bundled resources to the specified
+    /// This can be used to avoid overwriting to export all the bundled resources to the specified
     /// directory.
     pub fn exported_in<P: AsRef<Path>>(root_dir: P) -> bool {
         BUNDLED
@@ -200,9 +200,9 @@ impl Resource {
 
     /// Exports a bundled resource.
     ///
-    /// This function returns `Ok` immediatly when invoked on a file system resource.
+    /// This function returns `Ok` immediately when invoked on a file system resource.
     ///
-    /// The file is exported to the path by combining `root_dir` and the resource indentifier.
+    /// The file is exported to the path by combining `root_dir` and the resource identifier.
     ///
     /// These bundled files can be customized for different chains using spec branches.
     /// See [Template](struct.Template.html).

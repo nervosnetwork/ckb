@@ -104,6 +104,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Module Pool](#module-pool) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Pool&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/pool_rpc_doc.json)
 
         * [Method `send_transaction`](#pool-send_transaction)
+        * [Method `test_tx_pool_accept`](#pool-test_tx_pool_accept)
         * [Method `remove_transaction`](#pool-remove_transaction)
         * [Method `tx_pool_info`](#pool-tx_pool_info)
         * [Method `clear_tx_pool`](#pool-clear_tx_pool)
@@ -162,6 +163,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `DeploymentInfo`](#type-deploymentinfo)
     * [Type `DeploymentState`](#type-deploymentstate)
     * [Type `DeploymentsInfo`](#type-deploymentsinfo)
+    * [Type `EntryCompleted`](#type-entrycompleted)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
@@ -171,14 +173,15 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `FeeRateStatistics`](#type-feeratestatistics)
     * [Type `H256`](#type-h256)
     * [Type `HardForkFeature`](#type-hardforkfeature)
+    * [Type `HardForks`](#type-hardforks)
     * [Type `Header`](#type-header)
     * [Type `HeaderView`](#type-headerview)
     * [Type `IndexerCell`](#type-indexercell)
     * [Type `IndexerCellType`](#type-indexercelltype)
     * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
     * [Type `IndexerOrder`](#type-indexerorder)
-    * [Type `IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
-    * [Type `IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
+    * [Type `IndexerPagination<IndexerCell>`](#type-indexerpagination_for_indexercell)
+    * [Type `IndexerPagination<IndexerTx>`](#type-indexerpagination_for_indexertx)
     * [Type `IndexerRange`](#type-indexerrange)
     * [Type `IndexerScriptType`](#type-indexerscripttype)
     * [Type `IndexerSearchKey`](#type-indexersearchkey)
@@ -207,6 +210,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
+    * [Type `ResponseFormat<BlockView>`](#type-responseformat_for_blockview)
+    * [Type `ResponseFormat<HeaderView>`](#type-responseformat_for_headerview)
+    * [Type `ResponseFormat<TransactionView>`](#type-responseformat_for_transactionview)
     * [Type `Rfc0043`](#type-rfc0043)
     * [Type `Script`](#type-script)
     * [Type `ScriptHashType`](#type-scripthashtype)
@@ -606,7 +612,7 @@ When specifying with_cycles, the response object will be different like below:
 * `get_header(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
+* result: [`ResponseFormat<HeaderView>`](#type-responseformat_for_headerview) `|` `null`
 
 Returns the information about a block header by hash.
 
@@ -685,7 +691,7 @@ The response looks like below when `verbosity` is 0.
 * `get_header_by_number(block_number, verbosity)`
     * `block_number`: [`Uint64`](#type-uint64)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes) `|` `null`
+* result: [`ResponseFormat<HeaderView>`](#type-responseformat_for_headerview) `|` `null`
 
 Returns the block header in the [canonical chain](#canonical-chain) with the specific block
 number.
@@ -996,7 +1002,7 @@ Response
 #### Method `get_tip_header`
 * `get_tip_header(verbosity)`
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_HeaderView_and_JsonBytes`](#type-either_for_headerview_and_jsonbytes)
+* result: [`ResponseFormat<HeaderView>`](#type-responseformat_for_headerview)
 
 Returns the header with the highest block number in the [canonical chain](#canonical-chain).
 
@@ -1524,7 +1530,7 @@ Response
 * `get_fork_block(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) `|` `null`
+* result: [`ResponseFormat<BlockView>`](#type-responseformat_for_blockview) `|` `null`
 
 Returns the information about a fork block by hash.
 
@@ -1862,6 +1868,9 @@ Response
     * `target`: [`Uint64`](#type-uint64) `|` `null`
 * result: [`FeeRateStatistics`](#type-feeratestatistics) `|` `null`
 
+👎Deprecated since 0.109.0: Please use the RPC method [`get_fee_rate_statistics`](#chain-get_fee_rate_statistics) instead
+
+
 Returns the fee_rate statistics of confirmed blocks on the chain
 
 ###### Params
@@ -2010,6 +2019,9 @@ The methods here may be removed or changed in future releases without prior noti
 * `dry_run_transaction(tx)`
     * `tx`: [`Transaction`](#type-transaction)
 * result: [`EstimateCycles`](#type-estimatecycles)
+
+👎Deprecated since 0.105.1: Please use the RPC method [`estimate_cycles`](#chain-estimate_cycles) instead
+
 
 Dry run a transaction and return the execution cycles.
 
@@ -2200,7 +2212,7 @@ Response
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
+* result: [`IndexerPagination<IndexerCell>`](#type-indexerpagination_for_indexercell)
 
 Returns the live cells collection by the lock or type script.
 
@@ -2558,7 +2570,7 @@ Response
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
+* result: [`IndexerPagination<IndexerTx>`](#type-indexerpagination_for_indexertx)
 
 Returns the transactions collection by the lock or type script.
 
@@ -3385,7 +3397,7 @@ Request
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
-    "extension": null,
+    "extension": "0xb0a0079f3778c0ba0d89d88b389c602cc18b8a0355d16c0713f8bfcee64b5f84",
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -3492,7 +3504,7 @@ Request
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
-    "extension": null,
+    "extension": "0xb0a0079f3778c0ba0d89d88b389c602cc18b8a0355d16c0713f8bfcee64b5f84",
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -3631,7 +3643,7 @@ Response
     "cycles_limit": "0xd09dc300",
     "dao": "0xd495a106684401001e47c0ae1d5930009449d26e32380000000721efd0030000",
     "epoch": "0x7080019000001",
-    "extension": null,
+    "extension": "0xb0a0079f3778c0ba0d89d88b389c602cc18b8a0355d16c0713f8bfcee64b5f84",
     "number": "0x401",
     "parent_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
     "proposals": ["0xa0ef4eb5f4ceeb08a4c8"],
@@ -4410,6 +4422,113 @@ Response
 }
 ```
 
+<a id="pool-test_tx_pool_accept"></a>
+#### Method `test_tx_pool_accept`
+* `test_tx_pool_accept(tx, outputs_validator)`
+    * `tx`: [`Transaction`](#type-transaction)
+    * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
+* result: [`EntryCompleted`](#type-entrycompleted)
+
+Test if a transaction can be accepted by the transaction pool without inserting it into the pool or rebroadcasting it to peers.
+The parameters and errors of this method are the same as `send_transaction`.
+
+###### Params
+
+* `transaction` - The transaction.
+* `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+
+###### Errors
+
+* [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+* [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
+* [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
+* [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
+* [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+* [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
+
+###### Examples
+
+Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "test_tx_pool_accept",
+  "params": [
+    {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x075fe030c1f4725713c5aacf41c2f59b29b284008fdb786e5efd8a058be51d0c"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2431ac129",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    },
+    "passthrough"
+  ]
+}
+```
+
+Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "cycles": "0x219",
+    "fee": "0x2a66f36e90"
+  }
+}
+```
+
+
+The response looks like below if the transaction pool check fails
+
+```text
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null,
+  "error": {
+    "code": -1107,
+    "data": "Duplicated(Byte32(0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3))",
+    "message": "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3)) already exists in transaction_pool"
+  }
+}
+```
+
 <a id="pool-remove_transaction"></a>
 #### Method `remove_transaction`
 * `remove_transaction(tx_hash)`
@@ -4685,7 +4804,7 @@ Same as CKB Indexer.
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination_for_IndexerCell`](#type-indexerpagination_for_indexercell)
+* result: [`IndexerPagination<IndexerCell>`](#type-indexerpagination_for_indexercell)
 
 Returns the live cells collection by the lock or type script.
 
@@ -4733,7 +4852,7 @@ Same as CKB Indexer.
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination_for_IndexerTx`](#type-indexerpagination_for_indexertx)
+* result: [`IndexerPagination<IndexerTx>`](#type-indexerpagination_for_indexertx)
 
 Returns the transactions collection by the lock or type script.
 
@@ -5226,7 +5345,7 @@ Block filter data and hash.
 
 `BlockFilter` is a JSON object with the following fields.
 
-* `data`: [`JsonBytes`](#type-jsonbytes) - The the hex-encoded filter data of the block
+* `data`: [`JsonBytes`](#type-jsonbytes) - The hex-encoded filter data of the block
 
 * `hash`: [`Byte32`](#type-byte32) - The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
 
@@ -5348,7 +5467,7 @@ BlockResponse with cycles format wrapper
 
 `BlockWithCyclesResponse` is a JSON object with the following fields.
 
-* `block`: [`Either_for_BlockView_and_JsonBytes`](#type-either_for_blockview_and_jsonbytes) - The block structure
+* `block`: [`ResponseFormat<BlockView>`](#type-responseformat_for_blockview) - The block structure
 
 ### Type `Buried`
 Represent soft fork deployments where the activation epoch is hard-coded into the client implementation
@@ -5599,7 +5718,7 @@ Consensus defines various parameters that influence chain consensus
 
 * `genesis_hash`: [`H256`](#type-h256) - The genesis block hash
 
-* `hardfork_features`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>` - Hardfork features
+* `hardfork_features`: [`HardForks`](#type-hardforks) - Hardfork features
 
 * `id`: `string` - Names the network.
 
@@ -5729,6 +5848,17 @@ Chain information.
 
 * `hash`: [`H256`](#type-h256) - requested block hash
 
+### Type `EntryCompleted`
+Transaction's verify result by test_tx_pool_accept
+
+#### Fields
+
+`EntryCompleted` is a JSON object with the following fields.
+
+* `cycles`: [`Uint64`](#type-uint64) - Cached tx cycles
+
+* `fee`: [`Uint64`](#type-uint64) - Cached tx fee
+
 ### Type `EpochNumber`
 Consecutive epoch number starting from 0.
 
@@ -5845,6 +5975,14 @@ The information about one hardfork feature.
 
 * `rfc`: `string` - The related RFC ID.
 
+### Type `HardForks`
+Hardfork information
+
+#### Fields
+
+`HardForks` is a JSON object with the following fields.
+
+* `inner`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>`
 ### Type `Header`
 The block header.
 
@@ -6025,23 +6163,25 @@ It's an enum value from one of:
   - desc : Descending order
   - asc : Ascending order
 
-### Type `IndexerPagination_for_IndexerCell`
+<a id="type-indexerpagination_for_indexercell"></a>
+### Type `IndexerPagination<IndexerCell>`
 IndexerPagination wraps objects array and last_cursor to provide paging
 
 #### Fields
 
-`IndexerPagination_for_IndexerCell` is a JSON object with the following fields.
+`IndexerPagination<IndexerCell>` is a JSON object with the following fields.
 
 * `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
 * `objects`: `Array<` [`IndexerCell`](#type-indexercell) `>` - objects collection
 
-### Type `IndexerPagination_for_IndexerTx`
+<a id="type-indexerpagination_for_indexertx"></a>
+### Type `IndexerPagination<IndexerTx>`
 IndexerPagination wraps objects array and last_cursor to provide paging
 
 #### Fields
 
-`IndexerPagination_for_IndexerTx` is a JSON object with the following fields.
+`IndexerPagination<IndexerTx>` is a JSON object with the following fields.
 
 * `last_cursor`: [`JsonBytes`](#type-jsonbytes) - pagination parameter
 
@@ -6085,13 +6225,13 @@ IndexerSearchKeyFilter represent indexer params `filter`
 
 `IndexerSearchKeyFilter` is a JSON object with the following fields.
 
-* `block_range`: [`Uint64`](#type-uint64) filter cells by block number range
-* `output_capacity_range`: [`Uint64`](#type-uint64) filter cells by output capacity range
+* `block_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by block number range
+* `output_capacity_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by output capacity range
 * `output_data`: [`JsonBytes`](#type-jsonbytes) `|` `null` filter cells by output data
 * `output_data_filter_mode`: [`IndexerSearchMode`](#type-indexersearchmode) `|` `null` output data filter mode, optional default is `prefix`
-* `output_data_len_range`: [`Uint64`](#type-uint64) filter cells by output data len range
+* `output_data_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by output data len range
 * `script`: [`Script`](#type-script) `|` `null` if search script type is lock, filter cells by type script prefix, and vice versa
-* `script_len_range`: [`Uint64`](#type-uint64) filter cells by script len range
+* `script_len_range`: [`IndexerRange`](#type-indexerrange) `|` `null` filter cells by script len range
 ### Type `IndexerSearchMode`
 IndexerSearchMode represent search mode, default is prefix search
 
@@ -6565,6 +6705,48 @@ The information about an active running protocol.
 * `id`: [`Uint64`](#type-uint64) - Unique protocol ID.
 
 * `version`: `string` - Active protocol version.
+
+<a id="type-responseformat_for_blockview"></a>
+### Type `ResponseFormat<BlockView>`
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+###### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat<BlockView>` is a JSON object with the following fields.
+
+* `inner`: [`Either<BlockView | JsonBytes>`](#type-either_for_blockview_and_jsonbytes) - The inner value.
+
+<a id="type-responseformat_for_headerview"></a>
+### Type `ResponseFormat<HeaderView>`
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+###### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat<HeaderView>` is a JSON object with the following fields.
+
+* `inner`: [`Either<HeaderView | JsonBytes>`](#type-either_for_headerview_and_jsonbytes) - The inner value.
+
+<a id="type-responseformat_for_transactionview"></a>
+### Type `ResponseFormat<TransactionView>`
+This is a wrapper for JSON serialization to select the format between Json and Hex.
+
+###### Examples
+
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+
+#### Fields
+
+`ResponseFormat<TransactionView>` is a JSON object with the following fields.
+
+* `inner`: [`Either<TransactionView | JsonBytes>`](#type-either_for_transactionview_and_jsonbytes) - The inner value.
 
 ### Type `Rfc0043`
 Represent soft fork deployments where activation is controlled by rfc0043 signaling

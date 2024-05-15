@@ -127,7 +127,7 @@ fn main() {
 
     let cloned_running_names = Arc::clone(&running_spec_names);
     ctrlc::set_handler(move || {
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(10));
         warn!(
             "Total {} specs are not finished",
             cloned_running_names.lock().len()
@@ -438,6 +438,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(PoolResurrect),
         Box::new(PoolResolveConflictAfterReorg),
         Box::new(InvalidHeaderDep),
+        // TODO fix this on windows platform
         #[cfg(not(target_os = "windows"))]
         Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),

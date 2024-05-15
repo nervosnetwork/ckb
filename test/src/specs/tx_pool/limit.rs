@@ -51,11 +51,10 @@ impl Spec for SizeLimit {
         });
 
         info!("The next tx reach size limit");
-        let tx = node.new_transaction(hash);
-        let _hash = node.rpc_client().send_transaction(tx.data().into());
-        node.assert_tx_pool_serialized_size((max_tx_num + 1) * one_tx_size);
-        let last = node
-            .mine_with_blocking(|template| template.proposals.len() != (max_tx_num + 1) as usize);
+        let _tx = node.new_transaction(hash);
+        node.assert_tx_pool_serialized_size((max_tx_num) * one_tx_size);
+        let last =
+            node.mine_with_blocking(|template| template.proposals.len() != max_tx_num as usize);
         node.assert_tx_pool_serialized_size(max_tx_num * one_tx_size);
         node.mine_with_blocking(|template| template.number.value() != (last + 1));
         node.mine_with_blocking(|template| template.transactions.len() != max_tx_num as usize);

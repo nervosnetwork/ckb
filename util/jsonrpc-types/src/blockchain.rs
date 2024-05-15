@@ -1315,7 +1315,7 @@ impl From<RawMerkleProof> for MerkleProof {
 /// Block filter data and hash.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct BlockFilter {
-    /// The the hex-encoded filter data of the block
+    /// The hex-encoded filter data of the block
     pub data: JsonBytes,
     /// The filter hash, blake2b hash of the parent block filter hash and the filter data, blake2b(parent_block_filter_hash | current_block_filter_data)
     pub hash: Byte32,
@@ -1465,6 +1465,15 @@ impl SoftFork {
         SoftFork::Rfc0043(Rfc0043 {
             status: SoftForkStatus::Rfc0043,
             rfc0043: deployment,
+        })
+    }
+
+    /// Construct new buried
+    pub fn new_buried(active: bool, epoch: EpochNumber) -> SoftFork {
+        SoftFork::Buried(Buried {
+            active,
+            epoch,
+            status: SoftForkStatus::Buried,
         })
     }
 }

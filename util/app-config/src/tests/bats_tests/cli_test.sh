@@ -12,9 +12,9 @@ function cleanup {
 trap cleanup EXIT
 
 cp target/prod/ckb ${CKB_BATS_TESTBED}
-cp util/app-config/src/tests/*.bats ${CKB_BATS_TESTBED}
-cp -r util/app-config/src/tests/later_bats_job ${CKB_BATS_TESTBED}
-cp util/app-config/src/tests/*.sh ${CKB_BATS_TESTBED}
+cp util/app-config/src/tests/bats_tests/*.bats ${CKB_BATS_TESTBED}
+cp -r util/app-config/src/tests/bats_tests/later_bats_job ${CKB_BATS_TESTBED}
+cp util/app-config/src/tests/bats_tests/*.sh ${CKB_BATS_TESTBED}
 
 if [ ! -d "/tmp/ckb_bats_assets/" ]; then
   git clone --depth=1 https://github.com/nervosnetwork/ckb-assets /tmp/ckb_bats_assets

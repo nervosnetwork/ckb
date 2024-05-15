@@ -146,7 +146,7 @@ block_proposals_cache_size = 30
 block_tx_hashes_cache_size = 30
 block_uncles_cache_size    = 30
 
-# [notifier]
+# [notify]
 # # Execute command when the new tip block changes, first arg is block hash.
 # new_block_notify_script = "your_new_block_notify_script.sh"
 # # Execute command when node received an network alert, first arg is alert message string.

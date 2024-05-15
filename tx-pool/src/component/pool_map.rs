@@ -195,9 +195,9 @@ impl PoolMap {
     /// ## Returns
     ///
     /// Returns `Reject` when any error happened, otherwise return `Ok((succ, evicts))`
-    /// - succ  : means whether the entry is insertted actually into pool,
+    /// - succ  : means whether the entry is inserted actually into pool,
     /// - evicts: is the evicted transactions before inserting this `TxEntry`,
-    ///           Currently, evicts when inserting is only due to reffering cell dep will be consumed by this new transaction.
+    ///           Currently, evicts when inserting is only due to referring cell dep will be consumed by this new transaction.
     pub(crate) fn add_entry(
         &mut self,
         mut entry: TxEntry,

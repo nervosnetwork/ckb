@@ -1,3 +1,25 @@
+# CHANGELOG
+
+## [v0.116.1](https://github.com/nervosnetwork/ckb/compare/v0.115.0...v0.116.1) (2024-05-11)
+
+### Features
+
+-   #4433: Add `PoolRpc::test_tx_pool_accept`, check if the transaction can be accepted by TxPool (@eval-exec)
+
+### Bug Fixes
+
+-   #4405: Fix default `ckb.toml`'s `[notifier]` to `[notify]` (@eval-exec)
+
+    This is a breaking change in the config file format.
+
+### Improvements
+
+-   #4254: Hardcoding a Default `assume_valid_target` to Reduce the Timecost of Block Synchronization in IBD mode (@eval-exec)
+-   #4390: Limit txpool size when inserting an Entry (@chenyukang)
+-   #4418: Set ChainService `process_block` channel size to zero (@eval-exec)
+-   #4417: Add `tokio-trace` feature for `tokio-console` debug tool (@eval-exec)
+-   #4366: Adjusting the default dev chain epoch parameter (@EthanYuan)
+
 ## [v0.115.0](https://github.com/nervosnetwork/ckb/compare/v0.114.0...v0.115.0) (2024-04-01)
 
 ### Features

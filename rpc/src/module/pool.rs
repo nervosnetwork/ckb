@@ -3,10 +3,11 @@ use async_trait::async_trait;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_jsonrpc_types::{
-    OutputsValidator, PoolTxDetailInfo, RawTxPool, Script, Transaction, TxPoolInfo,
+    EntryCompleted, OutputsValidator, PoolTxDetailInfo, RawTxPool, Script, Transaction, TxPoolInfo,
 };
 use ckb_logger::error;
 use ckb_shared::shared::Shared;
+use ckb_types::core::TransactionView;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
@@ -108,6 +109,112 @@ pub trait PoolRpc {
         tx: Transaction,
         outputs_validator: Option<OutputsValidator>,
     ) -> Result<H256>;
+
+    /// Test if a transaction can be accepted by the transaction pool without inserting it into the pool or rebroadcasting it to peers.
+    /// The parameters and errors of this method are the same as `send_transaction`.
+    ///
+    /// ## Params
+    ///
+    /// * `transaction` - The transaction.
+    /// * `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+    ///
+    /// ## Errors
+    ///
+    /// * [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+    /// * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
+    /// * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
+    /// * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
+    /// * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+    /// * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "test_tx_pool_accept",
+    ///   "params": [
+    ///     {
+    ///       "cell_deps": [
+    ///         {
+    ///           "dep_type": "code",
+    ///           "out_point": {
+    ///             "index": "0x0",
+    ///             "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+    ///           }
+    ///         }
+    ///       ],
+    ///       "header_deps": [
+    ///         "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+    ///       ],
+    ///       "inputs": [
+    ///         {
+    ///           "previous_output": {
+    ///             "index": "0x0",
+    ///             "tx_hash": "0x075fe030c1f4725713c5aacf41c2f59b29b284008fdb786e5efd8a058be51d0c"
+    ///           },
+    ///           "since": "0x0"
+    ///         }
+    ///       ],
+    ///       "outputs": [
+    ///         {
+    ///           "capacity": "0x2431ac129",
+    ///           "lock": {
+    ///             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    ///             "hash_type": "data",
+    ///             "args": "0x"
+    ///           },
+    ///           "type": null
+    ///         }
+    ///       ],
+    ///       "outputs_data": [
+    ///         "0x"
+    ///       ],
+    ///       "version": "0x0",
+    ///       "witnesses": []
+    ///     },
+    ///     "passthrough"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "cycles": "0x219",
+    ///     "fee": "0x2a66f36e90"
+    ///   }
+    /// }
+    /// ```
+    ///
+    ///
+    /// The response looks like below if the transaction pool check fails
+    ///
+    /// ```text
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": null,
+    ///   "error": {
+    ///     "code": -1107,
+    ///     "data": "Duplicated(Byte32(0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3))",
+    ///     "message": "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3)) already exists in transaction_pool"
+    ///   }
+    /// }
+    /// ```
+    #[rpc(name = "test_tx_pool_accept")]
+    fn test_tx_pool_accept(
+        &self,
+        tx: Transaction,
+        outputs_validator: Option<OutputsValidator>,
+    ) -> Result<EntryCompleted>;
 
     /// Removes a transaction and all transactions which depends on it from tx pool if it exists.
     ///
@@ -359,6 +466,33 @@ impl PoolRpcImpl {
             well_known_type_scripts,
         }
     }
+
+    fn check_output_validator(
+        &self,
+        outputs_validator: Option<OutputsValidator>,
+        tx: &TransactionView,
+    ) -> Result<()> {
+        if let Err(e) = match outputs_validator {
+            None | Some(OutputsValidator::Passthrough) => Ok(()),
+            Some(OutputsValidator::WellKnownScriptsOnly) => WellKnownScriptsOnlyValidator::new(
+                self.shared.consensus(),
+                &self.well_known_lock_scripts,
+                &self.well_known_type_scripts,
+            )
+            .validate(tx),
+        } {
+            return Err(RPCError::custom_with_data(
+                RPCError::PoolRejectedTransactionByOutputsValidator,
+                format!(
+                    "The transaction is rejected by OutputsValidator set in params[1]: {}. \
+                    Please check the related information in https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator",
+                    outputs_validator.unwrap_or(OutputsValidator::WellKnownScriptsOnly).json_display()
+                ),
+                e,
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Build well known lock scripts
@@ -452,25 +586,7 @@ impl PoolRpc for PoolRpcImpl {
         let tx: packed::Transaction = tx.into();
         let tx: core::TransactionView = tx.into_view();
 
-        if let Err(e) = match outputs_validator {
-            None | Some(OutputsValidator::Passthrough) => Ok(()),
-            Some(OutputsValidator::WellKnownScriptsOnly) => WellKnownScriptsOnlyValidator::new(
-                self.shared.consensus(),
-                &self.well_known_lock_scripts,
-                &self.well_known_type_scripts,
-            )
-            .validate(&tx),
-        } {
-            return Err(RPCError::custom_with_data(
-                RPCError::PoolRejectedTransactionByOutputsValidator,
-                format!(
-                    "The transaction is rejected by OutputsValidator set in params[1]: {}. \
-                    Please check the related information in https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator",
-                    outputs_validator.unwrap_or(OutputsValidator::WellKnownScriptsOnly).json_display()
-                ),
-                e,
-            ));
-        }
+        self.check_output_validator(outputs_validator, &tx)?;
 
         let tx_pool = self.shared.tx_pool_controller();
         let submit_tx = tx_pool.submit_local_tx(tx.clone());
@@ -485,6 +601,31 @@ impl PoolRpc for PoolRpcImpl {
             Ok(_) => Ok(tx_hash.unpack()),
             Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
         }
+    }
+
+    fn test_tx_pool_accept(
+        &self,
+        tx: Transaction,
+        outputs_validator: Option<OutputsValidator>,
+    ) -> Result<EntryCompleted> {
+        let tx: packed::Transaction = tx.into();
+        let tx: core::TransactionView = tx.into_view();
+
+        self.check_output_validator(outputs_validator, &tx)?;
+
+        let tx_pool = self.shared.tx_pool_controller();
+
+        let test_accept_tx_reslt = tx_pool.test_accept_tx(tx).map_err(|e| {
+            error!("Send test_tx_pool_accept_tx request error {}", e);
+            RPCError::ckb_internal_error(e)
+        })?;
+
+        test_accept_tx_reslt
+            .map(|test_accept_result| test_accept_result.into())
+            .map_err(|reject| {
+                error!("Send test_tx_pool_accept_tx request error {}", reject);
+                RPCError::from_submit_transaction_reject(&reject)
+            })
     }
 
     fn remove_transaction(&self, tx_hash: H256) -> Result<bool> {
