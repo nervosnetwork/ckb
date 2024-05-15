@@ -36,6 +36,7 @@ ckb-network = { path = "../network", version = "= 0.116.0-pre" }
 ckb-tx-pool = { path = "../tx-pool", version = "= 0.116.0-pre" }
 minstant = "0.1.4"
 dashmap = "4.0"
+either = "1.11.0"
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.116.0-pre" }

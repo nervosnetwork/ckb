@@ -3,7 +3,10 @@ use ckb_channel::{Receiver, Sender};
 use ckb_logger::{debug, error, info};
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
+use ckb_types::core::HeaderView;
 use crossbeam::select;
+use either::Either;
+use std::cell::Cell;
 use std::sync::Arc;
 
 pub(crate) struct PreloadUnverifiedBlocksChannel {
@@ -13,6 +16,9 @@ pub(crate) struct PreloadUnverifiedBlocksChannel {
     unverified_block_tx: Sender<UnverifiedBlock>,
 
     stop_rx: Receiver<()>,
+
+    // after we load a block from store, we put block.parent_header into this cell
+    prev_header: Cell<HeaderView>,
 }
 
 impl PreloadUnverifiedBlocksChannel {
@@ -22,11 +28,19 @@ impl PreloadUnverifiedBlocksChannel {
         unverified_block_tx: Sender<UnverifiedBlock>,
         stop_rx: Receiver<()>,
     ) -> Self {
+        let tip_hash = shared.snapshot().tip_hash();
+
+        let tip_header = shared
+            .store()
+            .get_block_header(&tip_hash)
+            .expect("must get tip header");
+
         PreloadUnverifiedBlocksChannel {
             shared,
             preload_unverified_rx,
             unverified_block_tx,
             stop_rx,
+            prev_header: Cell::new(tip_header),
         }
     }
 
@@ -51,8 +65,8 @@ impl PreloadUnverifiedBlocksChannel {
     }
 
     fn preload_unverified_channel(&self, task: LonelyBlockHash) {
-        let block_number = task.block_number_and_hash.number();
-        let block_hash = task.block_number_and_hash.hash();
+        let block_number = task.number();
+        let block_hash = task.hash();
         let unverified_block: UnverifiedBlock = self.load_full_unverified_block_by_hash(task);
 
         if let Some(metrics) = ckb_metrics::handle() {
@@ -82,17 +96,30 @@ impl PreloadUnverifiedBlocksChannel {
             verify_callback,
         } = task;
 
-        let block_view = self
-            .shared
-            .store()
-            .get_block(&block_number_and_hash.hash())
-            .expect("block stored");
-        let block = Arc::new(block_view);
+        let block = {
+            match block_number_and_hash {
+                Either::Left(number_and_hash) => {
+                    let block_view = self
+                        .shared
+                        .store()
+                        .get_block(&number_and_hash.hash())
+                        .expect("block stored");
+                    Arc::new(block_view)
+                }
+                Either::Right(block) => block,
+            }
+        };
+
         let parent_header = {
-            self.shared
-                .store()
-                .get_block_header(&parent_hash)
-                .expect("parent header stored")
+            let prev_header = self.prev_header.replace(block.header());
+            if prev_header.hash() == parent_hash {
+                prev_header
+            } else {
+                self.shared
+                    .store()
+                    .get_block_header(&parent_hash)
+                    .expect("parent header stored")
+            }
         };
 
         UnverifiedBlock {

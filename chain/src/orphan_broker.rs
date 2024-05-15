@@ -80,16 +80,16 @@ impl OrphanBroker {
     }
 
     fn delete_block(&self, lonely_block: &LonelyBlockHash) {
-        let block_hash = lonely_block.block_number_and_hash.hash();
-        let block_number = lonely_block.block_number_and_hash.number();
+        let block_hash = lonely_block.hash();
+        let block_number = lonely_block.number();
         let parent_hash = lonely_block.parent_hash();
 
         delete_unverified_block(self.shared.store(), block_hash, block_number, parent_hash);
     }
 
     fn process_invalid_block(&self, lonely_block: LonelyBlockHash) {
-        let block_hash = lonely_block.block_number_and_hash.hash();
-        let block_number = lonely_block.block_number_and_hash.number();
+        let block_hash = lonely_block.hash();
+        let block_number = lonely_block.number();
         let parent_hash = lonely_block.parent_hash();
 
         self.delete_block(&lonely_block);
@@ -107,8 +107,8 @@ impl OrphanBroker {
     }
 
     pub(crate) fn process_lonely_block(&self, lonely_block: LonelyBlockHash) {
-        let block_hash = lonely_block.block_number_and_hash.hash();
-        let block_number = lonely_block.block_number_and_hash.number();
+        let block_hash = lonely_block.hash();
+        let block_number = lonely_block.number();
         let parent_hash = lonely_block.parent_hash();
         let parent_is_pending_verify = self.is_pending_verify.contains(&parent_hash);
         let parent_status = self.shared.get_block_status(&parent_hash);
@@ -162,8 +162,8 @@ impl OrphanBroker {
     }
 
     fn send_unverified_block(&self, lonely_block: LonelyBlockHash) {
-        let block_number = lonely_block.block_number_and_hash.number();
-        let block_hash = lonely_block.block_number_and_hash.hash();
+        let block_number = lonely_block.number();
+        let block_hash = lonely_block.hash();
 
         if let Some(metrics) = ckb_metrics::handle() {
             metrics
@@ -203,8 +203,7 @@ impl OrphanBroker {
     }
 
     fn process_descendant(&self, lonely_block: LonelyBlockHash) {
-        self.is_pending_verify
-            .insert(lonely_block.block_number_and_hash.hash());
+        self.is_pending_verify.insert(lonely_block.hash());
 
         self.send_unverified_block(lonely_block)
     }
