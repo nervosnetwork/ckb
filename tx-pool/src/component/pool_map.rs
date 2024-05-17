@@ -329,23 +329,19 @@ impl PoolMap {
         conflicts
     }
 
-    // fill proposal txs
-    pub(crate) fn fill_proposals(
+    // find the pending txs sorted by score, and return their proposal short ids
+    pub(crate) fn get_proposals(
         &self,
         limit: usize,
         exclusion: &HashSet<ProposalShortId>,
-        proposals: &mut HashSet<ProposalShortId>,
-        status: Status,
-    ) {
-        for entry in self.score_sorted_iter_by(vec![status]) {
-            if proposals.len() == limit {
-                break;
-            }
-            let id = entry.proposal_short_id();
-            if !exclusion.contains(&id) {
-                proposals.insert(id);
-            }
-        }
+    ) -> HashSet<ProposalShortId> {
+        self.score_sorted_iter_by(vec![Status::Pending])
+            .filter_map(|entry| {
+                let id = entry.proposal_short_id();
+                (!exclusion.contains(&id)).then_some(id)
+            })
+            .take(limit)
+            .collect()
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &PoolEntry> {

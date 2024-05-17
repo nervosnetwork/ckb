@@ -402,10 +402,7 @@ impl TxPool {
         limit: usize,
         exclusion: &HashSet<ProposalShortId>,
     ) -> HashSet<ProposalShortId> {
-        let mut proposals = HashSet::with_capacity(limit);
-        self.pool_map
-            .fill_proposals(limit, exclusion, &mut proposals, Status::Pending);
-        proposals
+        self.pool_map.get_proposals(limit, exclusion)
     }
 
     /// Returns tx from tx-pool or storage corresponding to the id.
