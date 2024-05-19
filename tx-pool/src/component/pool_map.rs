@@ -153,7 +153,7 @@ impl PoolMap {
     }
 
     pub(crate) fn sorted_proposed_iter(&self) -> impl Iterator<Item = &TxEntry> {
-        self.score_sorted_iter_by(vec![Status::Proposed])
+        self.score_sorted_iter_by_status(Status::Proposed)
     }
 
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
@@ -329,23 +329,19 @@ impl PoolMap {
         conflicts
     }
 
-    // fill proposal txs
-    pub(crate) fn fill_proposals(
+    // find the pending txs sorted by score, and return their proposal short ids
+    pub(crate) fn get_proposals(
         &self,
         limit: usize,
         exclusion: &HashSet<ProposalShortId>,
-        proposals: &mut HashSet<ProposalShortId>,
-        status: Status,
-    ) {
-        for entry in self.score_sorted_iter_by(vec![status]) {
-            if proposals.len() == limit {
-                break;
-            }
-            let id = entry.proposal_short_id();
-            if !exclusion.contains(&id) {
-                proposals.insert(id);
-            }
-        }
+    ) -> HashSet<ProposalShortId> {
+        self.score_sorted_iter_by_status(Status::Pending)
+            .filter_map(|entry| {
+                let id = entry.proposal_short_id();
+                (!exclusion.contains(&id)).then_some(id)
+            })
+            .take(limit)
+            .collect()
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &PoolEntry> {
@@ -370,15 +366,24 @@ impl PoolMap {
         self.proposed_count = 0;
     }
 
-    pub(crate) fn score_sorted_iter_by(
+    pub(crate) fn score_sorted_iter_by_status(
+        &self,
+        status: Status,
+    ) -> impl Iterator<Item = &TxEntry> {
+        self.entries
+            .iter_by_score()
+            .rev()
+            .filter_map(move |entry| (entry.status == status).then_some(&entry.inner))
+    }
+
+    pub(crate) fn score_sorted_iter_by_statuses(
         &self,
         statuses: Vec<Status>,
     ) -> impl Iterator<Item = &TxEntry> {
         self.entries
             .iter_by_score()
             .rev()
-            .filter(move |entry| statuses.contains(&entry.status))
-            .map(|entry| &entry.inner)
+            .filter_map(move |entry| statuses.contains(&entry.status).then_some(&entry.inner))
     }
 
     fn remove_entry_links(&mut self, id: &ProposalShortId) {
