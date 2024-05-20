@@ -1320,3 +1320,9 @@ fn check_spawn_io_cycles() {
 
     assert_eq!(cycles2 - cycles1, offset_size / 2);
 }
+
+#[test]
+fn check_spawn_saturate_memory() {
+    let result = simple_spawn_test("testdata/spawn_saturate_memory", &[0]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
