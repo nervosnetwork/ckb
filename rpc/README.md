@@ -70,6 +70,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
         * [Method `dry_run_transaction`](#experiment-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#experiment-calculate_dao_maximum_withdraw)
+        * [Method `get_fee_estimates`](#experiment-get_fee_estimates)
     * [Module Indexer](#module-indexer) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/indexer_rpc_doc.json)
 
         * [Method `get_indexer_tip`](#indexer-get_indexer_tip)
@@ -208,6 +209,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `Ratio`](#type-ratio)
     * [Type `RationalU256`](#type-rationalu256)
     * [Type `RawTxPool`](#type-rawtxpool)
+    * [Type `RecommendedFeeRates`](#type-recommendedfeerates)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
     * [Type `ResponseFormat<BlockView>`](#type-responseformat_for_blockview)
@@ -2159,6 +2161,50 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x4a8b4e8a4"
+}
+```
+
+<a id="experiment-get_fee_estimates"></a>
+#### Method `get_fee_estimates`
+* `get_fee_estimates()`
+
+* result: [`RecommendedFeeRates`](#type-recommendedfeerates)
+
+Get fee estimates.
+
+###### Returns
+
+Recommended fee rates in 4 levels of priorities:
+- No priority (about 2 hours).
+- Low priority (about 1 hour).
+- Medium priority (about 10 minutes).
+- High priority (as soon as possible).
+
+###### Examples
+
+Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "get_fee_estimates",
+  "params": []
+}
+```
+
+Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": {
+    "no_priority": 1000,
+    "low_priority": 1000,
+    "medium_priority": 1000,
+    "high_priority": 1000
+  }
 }
 ```
 
@@ -6605,6 +6651,21 @@ All transactions in tx-pool.
 
 [`TxPoolIds`]: struct.TxPoolIds.html
 [`TxPoolEntries`]: struct.TxPoolEntries.html
+
+### Type `RecommendedFeeRates`
+Recommended fee rates.
+
+#### Fields
+
+`RecommendedFeeRates` is a JSON object with the following fields.
+
+* `high_priority`: `integer` - High-priority fee rate.
+
+* `low_priority`: `integer` - Low-priority fee rate.
+
+* `medium_priority`: `integer` - Medium-priority fee rate.
+
+* `no_priority`: `integer` - Default fee rate.
 
 ### Type `RemoteNode`
 Information of a remote node.

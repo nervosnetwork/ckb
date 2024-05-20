@@ -91,6 +91,7 @@ members = [
   "util/instrument",
   "rpc",
   "util/light-client-protocol-server",
+  "util/fee-estimator",
   "util/launcher",
   "devtools/doc/rpc-gen",
   "ckb-bin"

@@ -865,6 +865,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-fee-estimator"
+version = "0.117.0-pre"
+dependencies = [
+ "ckb-chain-spec",
+ "ckb-logger",
+ "ckb-types",
+ "ckb-util",
+ "thiserror",
+]
+
+[[package]]
 name = "ckb-fixed-hash"
 version = "0.117.0-pre"
 dependencies = [
@@ -1505,6 +1516,7 @@ dependencies = [
  "ckb-db",
  "ckb-db-schema",
  "ckb-error",
+ "ckb-fee-estimator",
  "ckb-logger",
  "ckb-migrate",
  "ckb-notify",
@@ -1673,6 +1685,7 @@ dependencies = [
  "ckb-dao",
  "ckb-db",
  "ckb-error",
+ "ckb-fee-estimator",
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",

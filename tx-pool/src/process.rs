@@ -12,7 +12,7 @@ use crate::util::{
 };
 use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_error::{AnyError, InternalErrorKind};
-use ckb_jsonrpc_types::BlockTemplate;
+use ckb_jsonrpc_types::{BlockTemplate, RecommendedFeeRates};
 use ckb_logger::Level::Trace;
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
@@ -924,6 +924,7 @@ impl TxPoolService {
         }
 
         for blk in attached_blocks {
+            self.fee_estimator.commit_block(&blk);
             attached.extend(blk.transactions().into_iter().skip(1));
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
@@ -1087,6 +1088,18 @@ impl TxPoolService {
         } else {
             info!("TxPool saved successfully")
         }
+    }
+
+    pub(crate) async fn update_ibd_state(&self, in_ibd: bool) {
+        self.fee_estimator.update_ibd_state(in_ibd);
+    }
+
+    pub(crate) async fn get_fee_estimates(&self) -> Result<Option<RecommendedFeeRates>, AnyError> {
+        let all_entry_info = self.tx_pool.read().await.get_all_entry_info();
+        self.fee_estimator
+            .get_fee_estimates(all_entry_info)
+            .map(|inner| inner.map(Into::into))
+            .map_err(Into::into)
     }
 
     // # Notice
