@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_jsonrpc_types::{
-    EntryCompleted, OutputsValidator, PoolTxDetailInfo, RawTxPool, Script, Transaction, TxPoolInfo,
+    BlockNumber, EntryCompleted, OutputsValidator, PoolTxDetailInfo, RawTxPool, Script,
+    Transaction, TxPoolInfo, Uint64,
 };
 use ckb_logger::error;
 use ckb_shared::shared::Shared;
@@ -109,6 +110,50 @@ pub trait PoolRpc {
         tx: Transaction,
         outputs_validator: Option<OutputsValidator>,
     ) -> Result<H256>;
+
+    /// Estimate fee rate for a transaction to be committed within target block number by using a simple strategy.
+    ///
+    /// Since CKB transaction confirmation involves a two-step process—1) propose and 2) commit, it is complex to
+    /// predict the transaction fee accurately with the expectation that it will be included within a certain block height.
+    ///
+    /// This method relies on two assumptions and uses a simple strategy to estimate the transaction fee: 1) all transactions
+    /// in the pool are waiting to be proposed, and 2) no new transactions will be added to the pool.
+    ///
+    /// In practice, this simple method should achieve good accuracy fee rate and running performance.
+    ///
+    /// ## Params
+    ///
+    /// * `target_to_be_committed` - The target block number to be committed, minimum value is 3 and maximum value is 131.
+    ///
+    /// ## Returns
+    ///
+    /// The estimated fee rate in shannons per kilobyte.
+    ///
+    /// ## Examples
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "estimate_fee_rate",
+    ///   "params": [
+    ///     "0x4"
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x3e8"
+    /// }
+    /// ```
+    ///
+    #[rpc(name = "estimate_fee_rate")]
+    fn estimate_fee_rate(&self, target_to_be_committed: BlockNumber) -> Result<Uint64>;
 
     /// Test if a transaction can be accepted by the transaction pool without inserting it into the pool or rebroadcasting it to peers.
     /// The parameters and errors of this method are the same as `send_transaction`.
@@ -602,6 +647,24 @@ impl PoolRpc for PoolRpcImpl {
             Ok(_) => Ok(tx_hash.unpack()),
             Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
         }
+    }
+
+    fn estimate_fee_rate(&self, target_to_be_committed: BlockNumber) -> Result<Uint64> {
+        let target_to_be_committed = target_to_be_committed.value();
+        if !(3..=131).contains(&target_to_be_committed) {
+            return Err(RPCError::invalid_params(
+                "target to be committed block number must be in range [3, 131]",
+            ));
+        }
+        let fee_rate = self
+            .shared
+            .tx_pool_controller()
+            .estimate_fee_rate(target_to_be_committed)
+            .map_err(|e| {
+                error!("Send estimate_fee_rate request error {}", e);
+                RPCError::ckb_internal_error(e)
+            })?;
+        Ok(fee_rate.as_u64().into())
     }
 
     fn test_tx_pool_accept(

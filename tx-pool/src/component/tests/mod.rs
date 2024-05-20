@@ -1,5 +1,6 @@
 mod chunk;
 mod entry;
+mod estimate;
 mod links;
 mod orphan;
 mod pending;

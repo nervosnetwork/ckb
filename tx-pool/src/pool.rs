@@ -12,7 +12,7 @@ use ckb_logger::{debug, error, warn};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::tx_pool::PoolTxDetailInfo;
-use ckb_types::core::CapacityError;
+use ckb_types::core::{BlockNumber, CapacityError, FeeRate};
 use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
@@ -526,6 +526,16 @@ impl TxPool {
             );
         }
         (entries, size, cycles)
+    }
+
+    pub(crate) fn estimate_fee_rate(&self, target_to_be_committed: BlockNumber) -> FeeRate {
+        self.pool_map.estimate_fee_rate(
+            (target_to_be_committed - self.snapshot.consensus().tx_proposal_window().closest())
+                as usize,
+            self.snapshot.consensus().max_block_bytes() as usize,
+            self.snapshot.consensus().max_block_cycles(),
+            self.config.min_fee_rate,
+        )
     }
 
     pub(crate) fn check_rbf(
