@@ -13,7 +13,8 @@ use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
-use ckb_jsonrpc_types::BlockTemplate;
+use ckb_fee_estimator::FeeEstimator;
+use ckb_jsonrpc_types::{BlockTemplate, RecommendedFeeRates};
 use ckb_logger::{error, info};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
@@ -87,6 +88,8 @@ pub(crate) type ChainReorgArgs = (
     Arc<Snapshot>,
 );
 
+pub(crate) type FeeEstimatesResult = Result<Option<RecommendedFeeRates>, AnyError>;
+
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
@@ -106,6 +109,9 @@ pub(crate) enum Message {
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
     GetPoolTxDetails(Request<Byte32, PoolTxDetailInfo>),
+
+    UpdateIBDState(Request<bool, ()>),
+    GetFeeEstimates(Request<(), FeeEstimatesResult>),
 
     // test
     #[cfg(feature = "internal")]
@@ -323,6 +329,16 @@ impl TxPoolController {
         send_message!(self, SavePool, ())
     }
 
+    /// Updates IBD state.
+    pub fn update_ibd_state(&self, in_ibd: bool) -> Result<(), AnyError> {
+        send_message!(self, UpdateIBDState, in_ibd)
+    }
+
+    /// Gets fee estimates.
+    pub fn get_fee_estimates(&self) -> Result<FeeEstimatesResult, AnyError> {
+        send_message!(self, GetFeeEstimates, ())
+    }
+
     /// Sends suspend chunk process cmd
     pub fn suspend_chunk_process(&self) -> Result<(), AnyError> {
         self.chunk_tx
@@ -394,6 +410,7 @@ pub struct TxPoolServiceBuilder {
         mpsc::Sender<BlockAssemblerMessage>,
         mpsc::Receiver<BlockAssemblerMessage>,
     ),
+    pub(crate) fee_estimator: FeeEstimator,
 }
 
 impl TxPoolServiceBuilder {
@@ -405,6 +422,7 @@ impl TxPoolServiceBuilder {
         txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
         handle: &Handle,
         tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
+        fee_estimator: FeeEstimator,
     ) -> (TxPoolServiceBuilder, TxPoolController) {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let block_assembler_channel = mpsc::channel(BLOCK_ASSEMBLER_CHANNEL_SIZE);
@@ -440,6 +458,7 @@ impl TxPoolServiceBuilder {
             chunk,
             started,
             block_assembler_channel,
+            fee_estimator,
         };
 
         (builder, controller)
@@ -495,6 +514,7 @@ impl TxPoolServiceBuilder {
             consensus,
             delay: Arc::new(RwLock::new(LinkedHashMap::new())),
             after_delay: Arc::new(AtomicBool::new(after_delay_window)),
+            fee_estimator: self.fee_estimator,
         };
 
         let signal_receiver = self.signal_receiver.clone();
@@ -650,6 +670,7 @@ pub(crate) struct TxPoolService {
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
     pub(crate) after_delay: Arc<AtomicBool>,
+    pub(crate) fee_estimator: FeeEstimator,
 }
 
 /// tx verification result
@@ -901,6 +922,21 @@ async fn process(mut service: TxPoolService, message: Message) {
             service.save_pool().await;
             if let Err(e) = responder.send(()) {
                 error!("Responder sending save_pool failed {:?}", e)
+            };
+        }
+        Message::UpdateIBDState(Request {
+            responder,
+            arguments: in_ibd,
+        }) => {
+            service.update_ibd_state(in_ibd).await;
+            if let Err(e) = responder.send(()) {
+                error!("Responder sending update_ibd_state failed {:?}", e)
+            };
+        }
+        Message::GetFeeEstimates(Request { responder, .. }) => {
+            let fee_estimates_result = service.get_fee_estimates().await;
+            if let Err(e) = responder.send(fee_estimates_result) {
+                error!("Responder sending fee_estimates_result failed {:?}", e)
             };
         }
         #[cfg(feature = "internal")]
