@@ -19,6 +19,7 @@ use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_types::core::tx_pool::{EntryCompleted, PoolTxDetailInfo, TransactionWithStatus, TxStatus};
+use ckb_types::core::{BlockNumber, FeeRate};
 use ckb_types::{
     core::{
         tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TRANSACTION_SIZE_LIMIT},
@@ -91,6 +92,7 @@ pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
     RemoveLocalTx(Request<Byte32, bool>),
+    EstimateFeeRate(Request<BlockNumber, FeeRate>),
     TestAcceptTx(Request<TransactionView, TestAcceptTxResult>),
     SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
@@ -226,6 +228,14 @@ impl TxPoolController {
     /// Submit local tx to tx-pool
     pub fn submit_local_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         send_message!(self, SubmitLocalTx, tx)
+    }
+
+    /// Estimate fee rate for a transaction to be committed within target block number by using a simple strategy
+    pub fn estimate_fee_rate(
+        &self,
+        target_to_be_committed: BlockNumber,
+    ) -> Result<FeeRate, AnyError> {
+        send_message!(self, EstimateFeeRate, target_to_be_committed)
     }
 
     /// test if a tx can be accepted by tx-pool
@@ -704,6 +714,15 @@ async fn process(mut service: TxPoolService, message: Message) {
             let result = service.remove_tx(tx_hash).await;
             if let Err(e) = responder.send(result) {
                 error!("Responder sending remove_tx result failed {:?}", e);
+            };
+        }
+        Message::EstimateFeeRate(Request {
+            responder,
+            arguments: target_to_be_committed,
+        }) => {
+            let fee_rate = service.estimate_fee_rate(target_to_be_committed).await;
+            if let Err(e) = responder.send(fee_rate) {
+                error!("Responder sending estimate_fee_rate failed {:?}", e);
             };
         }
         Message::TestAcceptTx(Request {

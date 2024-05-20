@@ -9,7 +9,7 @@ use crate::error::Reject;
 use crate::TxEntry;
 use ckb_logger::{debug, error, trace};
 use ckb_types::core::error::OutPointError;
-use ckb_types::core::Cycle;
+use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -327,6 +327,33 @@ impl PoolMap {
         }
 
         conflicts
+    }
+
+    pub(crate) fn estimate_fee_rate(
+        &self,
+        mut target_blocks: usize,
+        max_block_bytes: usize,
+        max_block_cycles: Cycle,
+        min_fee_rate: FeeRate,
+    ) -> FeeRate {
+        debug_assert!(target_blocks > 0);
+        let iter = self.entries.iter_by_score().rev();
+        let mut current_block_bytes = 0;
+        let mut current_block_cycles = 0;
+        for entry in iter {
+            current_block_bytes += entry.inner.size;
+            current_block_cycles += entry.inner.cycles;
+            if current_block_bytes >= max_block_bytes || current_block_cycles >= max_block_cycles {
+                target_blocks -= 1;
+                if target_blocks == 0 {
+                    return entry.inner.fee_rate();
+                }
+                current_block_bytes = entry.inner.size;
+                current_block_cycles = entry.inner.cycles;
+            }
+        }
+
+        min_fee_rate
     }
 
     // find the pending txs sorted by score, and return their proposal short ids

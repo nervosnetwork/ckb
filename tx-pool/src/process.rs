@@ -20,6 +20,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
+use ckb_types::core::{BlockNumber, FeeRate};
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
     packed::{Byte32, ProposalShortId},
@@ -337,6 +338,11 @@ impl TxPoolService {
         } else {
             Ok(())
         }
+    }
+
+    pub(crate) async fn estimate_fee_rate(&self, target_to_be_committed: BlockNumber) -> FeeRate {
+        let pool = self.tx_pool.read().await;
+        pool.estimate_fee_rate(target_to_be_committed)
     }
 
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {

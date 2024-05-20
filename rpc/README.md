@@ -104,6 +104,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Module Pool](#module-pool) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Pool&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/pool_rpc_doc.json)
 
         * [Method `send_transaction`](#pool-send_transaction)
+        * [Method `estimate_fee_rate`](#pool-estimate_fee_rate)
         * [Method `test_tx_pool_accept`](#pool-test_tx_pool_accept)
         * [Method `remove_transaction`](#pool-remove_transaction)
         * [Method `tx_pool_info`](#pool-tx_pool_info)
@@ -4419,6 +4420,53 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+}
+```
+
+<a id="pool-estimate_fee_rate"></a>
+#### Method `estimate_fee_rate`
+* `estimate_fee_rate(target_to_be_committed)`
+    * `target_to_be_committed`: [`Uint64`](#type-uint64)
+* result: [`Uint64`](#type-uint64)
+
+Estimate fee rate for a transaction to be committed within target block number by using a simple strategy.
+
+Since CKB transaction confirmation involves a two-step process—1) propose and 2) commit, it is complex to
+predict the transaction fee accurately with the expectation that it will be included within a certain block height.
+
+This method relies on two assumptions and uses a simple strategy to estimate the transaction fee: 1) all transactions
+in the pool are waiting to be proposed, and 2) no new transactions will be added to the pool.
+
+In practice, this simple method should achieve good accuracy fee rate and running performance.
+
+###### Params
+
+* `target_to_be_committed` - The target block number to be committed, minimum value is 3 and maximum value is 131.
+
+###### Returns
+
+The estimated fee rate in shannons per kilobyte.
+
+###### Examples
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "estimate_fee_rate",
+  "params": [
+    "0x4"
+  ]
+}
+```
+
+Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x3e8"
 }
 ```
 
