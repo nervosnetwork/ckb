@@ -4,7 +4,7 @@
 
   - Create a directory named `deps`.
 
-  - Clone https://github.com/XuJiandong/ckb-c-stdlib.git with branch `syscall-spawn` into `deps`. FIXME with the correct address!
+  - Clone https://github.com/nervosnetwork/ckb-c-stdlib into `deps`.
 
 - Build all scripts with `docker`.
 
