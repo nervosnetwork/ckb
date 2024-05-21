@@ -76,8 +76,7 @@ reject_ill_transactions = true
 # By default deprecated rpc methods are disabled.
 enable_deprecated_rpc = true
 
-# threads number for RPC service,
-# default it's equal to the number of CPU cores minus one
+# threads number for RPC service, default value is the number of CPU cores
 # threads = 4
 
 [tx_pool]

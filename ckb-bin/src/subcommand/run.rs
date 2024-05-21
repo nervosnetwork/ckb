@@ -76,6 +76,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
 fn calc_rpc_threads_num(args: &RunArgs) -> usize {
     let system_parallelism: usize = available_parallelism().unwrap().into();
-    let default_num = usize::max(system_parallelism - 1, 1);
+    let default_num = usize::max(system_parallelism, 1);
     args.config.rpc.threads.unwrap_or(default_num)
 }
