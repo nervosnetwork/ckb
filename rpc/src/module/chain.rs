@@ -22,7 +22,7 @@ use ckb_types::{
     packed,
     prelude::*,
     utilities::{merkle_root, MerkleProof, CBMT},
-    H256,
+    BlockNumberAndHash, H256,
 };
 use ckb_verification::ScriptVerifier;
 use ckb_verification::TxVerifyEnv;
@@ -1730,12 +1730,14 @@ impl ChainRpc for ChainRpcImpl {
     fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>> {
         let store = self.shared.store();
         let block_hash = block_hash.pack();
-        if !store.is_main_chain(&block_hash) {
-            return Ok(None);
-        }
-        Ok(store.get_block_filter(&block_hash).map(|data| {
+        let block_number = match store.get_block_number(&block_hash) {
+            Some(block_number) => block_number,
+            _ => return Ok(None),
+        };
+        let num_hash = BlockNumberAndHash::new(block_number, block_hash.clone());
+        Ok(store.get_block_filter(&num_hash).map(|data| {
             let hash = store
-                .get_block_filter_hash(&block_hash)
+                .get_block_filter_hash(num_hash)
                 .expect("stored filter hash");
             BlockFilter {
                 data: data.into(),

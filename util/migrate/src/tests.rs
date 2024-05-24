@@ -5,7 +5,6 @@ use ckb_db::RocksDB;
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
-    META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
@@ -47,29 +46,30 @@ fn test_mock_migration() {
         let uncles = genesis.uncles().pack();
         let proposals = genesis.data().proposals();
         db_txn
-            .put(COLUMN_INDEX, number.as_slice(), hash.as_slice())
-            .unwrap();
-        db_txn
-            .put(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())
-            .unwrap();
-        db_txn
-            .put(COLUMN_BLOCK_UNCLE, hash.as_slice(), uncles.as_slice())
+            .put(COLUMN_INDEX::NAME, number.as_slice(), hash.as_slice())
             .unwrap();
         db_txn
             .put(
-                COLUMN_BLOCK_PROPOSAL_IDS,
+                COLUMN_BLOCK_HEADER::NAME,
+                hash.as_slice(),
+                header.as_slice(),
+            )
+            .unwrap();
+        db_txn
+            .put(COLUMN_BLOCK_UNCLE::NAME, hash.as_slice(), uncles.as_slice())
+            .unwrap();
+        db_txn
+            .put(
+                COLUMN_BLOCK_PROPOSAL_IDS::NAME,
                 hash.as_slice(),
                 proposals.as_slice(),
             )
             .unwrap();
         for (index, tx) in genesis.transactions().into_iter().enumerate() {
-            let key = packed::TransactionKey::new_builder()
-                .block_hash(hash.clone())
-                .index(index.pack())
-                .build();
+            let key = COLUMN_BLOCK_BODY::key(number.unpack(), hash.to_owned(), index);
             let tx_data = tx.pack();
             db_txn
-                .put(COLUMN_BLOCK_BODY, key.as_slice(), tx_data.as_slice())
+                .put(COLUMN_BLOCK_BODY::NAME, key.as_ref(), tx_data.as_slice())
                 .unwrap();
         }
     }
@@ -88,7 +88,7 @@ fn test_mock_migration() {
     {
         db_txn
             .put(
-                COLUMN_BLOCK_EPOCH,
+                COLUMN_BLOCK_EPOCH::NAME,
                 genesis.header().hash().as_slice(),
                 epoch_ext.last_block_hash_in_previous_epoch().as_slice(),
             )
@@ -98,7 +98,7 @@ fn test_mock_migration() {
     {
         db_txn
             .put(
-                COLUMN_EPOCH,
+                COLUMN_EPOCH::NAME,
                 epoch_ext.last_block_hash_in_previous_epoch().as_slice(),
                 epoch_ext.pack().as_slice(),
             )
@@ -106,7 +106,7 @@ fn test_mock_migration() {
         let epoch_number: packed::Uint64 = epoch_ext.number().pack();
         db_txn
             .put(
-                COLUMN_EPOCH,
+                COLUMN_EPOCH::NAME,
                 epoch_number.as_slice(),
                 epoch_ext.last_block_hash_in_previous_epoch().as_slice(),
             )
@@ -117,8 +117,8 @@ fn test_mock_migration() {
     {
         db_txn
             .put(
-                COLUMN_META,
-                META_TIP_HEADER_KEY,
+                COLUMN_META::NAME,
+                COLUMN_META::META_TIP_HEADER_KEY,
                 genesis.header().hash().as_slice(),
             )
             .unwrap()
@@ -128,8 +128,8 @@ fn test_mock_migration() {
     {
         db_txn
             .put(
-                COLUMN_BLOCK_EXT,
-                genesis.header().hash().as_slice(),
+                COLUMN_BLOCK_EXT::NAME,
+                COLUMN_BLOCK_EXT::key(genesis.header().num_hash()),
                 ext.pack().as_slice(),
             )
             .unwrap()
@@ -139,8 +139,8 @@ fn test_mock_migration() {
     {
         db_txn
             .put(
-                COLUMN_META,
-                META_CURRENT_EPOCH_KEY,
+                COLUMN_META::NAME,
+                COLUMN_META::META_CURRENT_EPOCH_KEY,
                 epoch_ext.pack().as_slice(),
             )
             .unwrap()

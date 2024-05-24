@@ -18,7 +18,7 @@ use ckb_types::{
     core::{BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
-    U256,
+    BlockNumberAndHash, U256,
 };
 use ckb_verification::cache::TxVerificationCache;
 use std::cmp;
@@ -182,7 +182,8 @@ impl Shared {
         if !frozen.is_empty() {
             // remain header
             for (hash, (number, txs)) in &frozen {
-                batch.delete_block_body(*number, hash, *txs).map_err(|e| {
+                let num_hash = BlockNumberAndHash::new(number.to_owned(), hash.to_owned());
+                batch.delete_block_body(num_hash, *txs).map_err(|e| {
                     ckb_logger::error!("Freezer delete_block_body failed {}", e);
                     e
                 })?;
@@ -191,7 +192,7 @@ impl Shared {
                 let prefix = pack_number.as_slice();
                 for (key, value) in snapshot
                     .get_iter(
-                        COLUMN_NUMBER_HASH,
+                        COLUMN_NUMBER_HASH::NAME,
                         IteratorMode::From(prefix, Direction::Forward),
                     )
                     .take_while(|(key, _)| key.starts_with(prefix))
@@ -221,12 +222,12 @@ impl Shared {
         if !side.is_empty() {
             // Wipe out side chain
             for (hash, (number, txs)) in &side {
-                batch
-                    .delete_block(number.unpack(), hash, *txs)
-                    .map_err(|e| {
-                        ckb_logger::error!("Freezer delete_block_body failed {}", e);
-                        e
-                    })?;
+                let number: u64 = number.unpack();
+                let num_hash = BlockNumberAndHash::new(number, hash.to_owned());
+                batch.delete_block(num_hash, *txs).map_err(|e| {
+                    ckb_logger::error!("Freezer delete_block_body failed {}", e);
+                    e
+                })?;
             }
 
             self.store.write(&batch).map_err(|e| {
@@ -255,7 +256,7 @@ impl Shared {
             .build();
 
         if let Err(e) = self.store.compact_range(
-            COLUMN_BLOCK_BODY,
+            COLUMN_BLOCK_BODY::NAME,
             Some(start_t.as_slice()),
             Some(end_t.as_slice()),
         ) {

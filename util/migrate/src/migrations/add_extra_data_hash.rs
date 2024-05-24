@@ -41,14 +41,18 @@ impl Migration for AddExtraDataHash {
                 } else {
                     &[]
                 };
-                wb.put(COLUMN_CELL_DATA_HASH, key, data_hash)?;
+                wb.put(COLUMN_CELL_DATA_HASH::NAME, key, data_hash)?;
                 Ok(())
             };
 
             let mode = self.mode(&next_key);
 
-            let (_count, nk) =
-                db.traverse(COLUMN_CELL_DATA, &mut cell_data_migration, mode, LIMIT)?;
+            let (_count, nk) = db.traverse(
+                COLUMN_CELL_DATA::NAME,
+                &mut cell_data_migration,
+                mode,
+                LIMIT,
+            )?;
             next_key = nk;
 
             if !wb.is_empty() {

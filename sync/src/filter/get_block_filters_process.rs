@@ -3,7 +3,7 @@ use crate::utils::send_message_to;
 use crate::{attempt, Status};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::core::BlockNumber;
-use ckb_types::{packed, prelude::*};
+use ckb_types::{packed, prelude::*, BlockNumberAndHash};
 use std::sync::Arc;
 
 const BATCH_SIZE: BlockNumber = 1000;
@@ -40,7 +40,8 @@ impl<'a> GetBlockFiltersProcess<'a> {
             let mut filters = Vec::new();
             for block_number in start_number..start_number + BATCH_SIZE {
                 if let Some(block_hash) = active_chain.get_block_hash(block_number) {
-                    if let Some(block_filter) = active_chain.get_block_filter(&block_hash) {
+                    let num_hash = BlockNumberAndHash::new(block_number, block_hash.clone());
+                    if let Some(block_filter) = active_chain.get_block_filter(&num_hash) {
                         block_hashes.push(block_hash);
                         filters.push(block_filter);
                     } else {

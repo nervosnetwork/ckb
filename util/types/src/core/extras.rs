@@ -48,6 +48,7 @@ impl TransactionInfo {
     /// TODO(doc): @quake
     pub fn key(&self) -> packed::TransactionKey {
         packed::TransactionKey::new_builder()
+            .block_number(self.block_number.pack())
             .block_hash(self.block_hash.clone())
             .index(self.index.pack())
             .build()

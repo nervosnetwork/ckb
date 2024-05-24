@@ -9,6 +9,7 @@ use ckb_types::{
     core::{BlockReward, Capacity, CapacityResult, HeaderView},
     packed::{Byte32, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
+    BlockNumberAndHash,
 };
 use std::cmp;
 use std::collections::HashSet;
@@ -88,7 +89,7 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
             &self
                 .store
                 .get_cellbase(&target.hash())
-                .expect("target cellbase exist")
+                .expect(&format!("target cellbase {} exist", target.hash()))
                 .witnesses()
                 .get(0)
                 .expect("target witness exist")
@@ -172,7 +173,7 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
         parent: &HeaderView,
         target: &HeaderView,
     ) -> CapacityResult<Capacity> {
-        let mut target_proposals = self.get_proposal_ids_by_hash(&target.hash());
+        let mut target_proposals = self.get_proposal_ids_by_hash(target.num_hash());
 
         let proposal_window = self.consensus.tx_proposal_window();
         let proposer_ratio = self.consensus.proposer_reward_ratio();
@@ -237,7 +238,12 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
 
             let previous_ids = store
                 .get_block_hash(competing_proposal_start)
-                .map(|hash| self.get_proposal_ids_by_hash(&hash))
+                .map(|hash| {
+                    self.get_proposal_ids_by_hash(BlockNumberAndHash::new(
+                        competing_proposal_start,
+                        hash,
+                    ))
+                })
                 .expect("finalize target exist");
 
             proposed.extend(previous_ids);
@@ -271,12 +277,12 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
         Ok((primary_block_reward, secondary_block_reward))
     }
 
-    fn get_proposal_ids_by_hash(&self, hash: &Byte32) -> HashSet<ProposalShortId> {
+    fn get_proposal_ids_by_hash(&self, num_hash: BlockNumberAndHash) -> HashSet<ProposalShortId> {
         let mut ids_set = HashSet::new();
-        if let Some(ids) = self.store.get_block_proposal_txs_ids(hash) {
+        if let Some(ids) = self.store.get_block_proposal_txs_ids(num_hash.clone()) {
             ids_set.extend(ids)
         }
-        if let Some(us) = self.store.get_block_uncles(hash) {
+        if let Some(us) = self.store.get_block_uncles(num_hash) {
             for u in us.data().into_iter() {
                 ids_set.extend(u.proposals().into_iter());
             }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
-use ckb_types::{packed, prelude::*, utilities::CBMT};
+use ckb_types::{packed, prelude::*, utilities::CBMT, BlockNumberAndHash};
 
 use crate::{constant, LightClientProtocol, Status, StatusCode};
 
@@ -116,8 +116,9 @@ impl<'a> GetTransactionsProofProcess<'a> {
             positions.push(leaf_index_to_pos(block.number()));
             filtered_blocks.push(filtered_block);
             if ckb2023 {
+                let num_hash = BlockNumberAndHash::new(block.number(), block_hash.clone());
                 let uncles = snapshot
-                    .get_block_uncles(&block_hash)
+                    .get_block_uncles(num_hash)
                     .expect("block uncles must be stored");
                 let extension = snapshot.get_block_extension(&block_hash);
 

@@ -862,6 +862,9 @@ dependencies = [
 [[package]]
 name = "ckb-db-schema"
 version = "0.117.0-pre"
+dependencies = [
+ "ckb-types",
+]
 
 [[package]]
 name = "ckb-error"
@@ -1579,6 +1582,7 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-util",
+ "log",
  "lru",
  "tempfile",
 ]

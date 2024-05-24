@@ -93,6 +93,7 @@ struct EpochExt {
 }
 
 struct TransactionKey {
+    block_number:   BeUint64,
     block_hash:     Byte32,
     index:          BeUint32,
 }

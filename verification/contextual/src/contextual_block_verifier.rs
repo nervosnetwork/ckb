@@ -170,10 +170,14 @@ impl<'a, CS: ChainStore + VersionbitsIndexer> TwoPhaseCommitVerifier<'a, CS> {
                 break;
             }
 
-            if let Some(ids) = self.context.store.get_block_proposal_txs_ids(&block_hash) {
+            if let Some(ids) = self
+                .context
+                .store
+                .get_block_proposal_txs_ids(header.num_hash())
+            {
                 proposal_txs_ids.extend(ids);
             }
-            if let Some(uncles) = self.context.store.get_block_uncles(&block_hash) {
+            if let Some(uncles) = self.context.store.get_block_uncles(header.num_hash()) {
                 uncles
                     .data()
                     .into_iter()

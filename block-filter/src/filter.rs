@@ -124,7 +124,8 @@ impl BlockFilter {
             header.hash()
         );
         let db = self.shared.store();
-        if db.get_block_filter_hash(&header.hash()).is_some() {
+        let num_hash = header.num_hash();
+        if db.get_block_filter_hash(num_hash.clone()).is_some() {
             debug!(
                 "Filter data for block {:#x} already exists. Skip building.",
                 header.hash()
@@ -134,11 +135,11 @@ impl BlockFilter {
         let parent_block_filter_hash = if header.is_genesis() {
             Byte32::zero()
         } else {
-            db.get_block_filter_hash(&header.parent_hash())
+            db.get_block_filter_hash(header.parent_num_hash())
                 .expect("parent block filter data stored")
         };
 
-        let transactions = db.get_block_body(&header.hash());
+        let transactions = db.get_block_body_by_num_hash(num_hash.clone());
         let transactions_size: usize = transactions.iter().map(|tx| tx.data().total_size()).sum();
         let provider = WrappedChainDB::new(db);
         let (filter_data, missing_out_points) = build_filter_data(provider, &transactions);
@@ -151,11 +152,7 @@ impl BlockFilter {
         }
         let db_transaction = db.begin_transaction();
         db_transaction
-            .insert_block_filter(
-                &header.hash(),
-                &filter_data.pack(),
-                &parent_block_filter_hash,
-            )
+            .insert_block_filter(&num_hash, &filter_data.pack(), &parent_block_filter_hash)
             .expect("insert_block_filter should be ok");
         db_transaction.commit().expect("commit should be ok");
         debug!("Inserted filter data for block: {}, hash: {:#x}, filter data size: {}, transactions size: {}", header.number(), header.hash(), filter_data.len(), transactions_size);

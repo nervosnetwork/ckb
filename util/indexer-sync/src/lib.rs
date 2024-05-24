@@ -57,13 +57,13 @@ pub trait IndexerSync {
 /// Construct new secondary db instance
 pub fn new_secondary_db(ckb_db_config: &DBConfig, config: &IndexerSyncConfig) -> SecondaryDB {
     let cf_names = vec![
-        COLUMN_INDEX,
-        COLUMN_META,
-        COLUMN_BLOCK_HEADER,
-        COLUMN_BLOCK_BODY,
-        COLUMN_BLOCK_UNCLE,
-        COLUMN_BLOCK_PROPOSAL_IDS,
-        COLUMN_BLOCK_EXTENSION,
+        COLUMN_INDEX::NAME,
+        COLUMN_META::NAME,
+        COLUMN_BLOCK_HEADER::NAME,
+        COLUMN_BLOCK_BODY::NAME,
+        COLUMN_BLOCK_UNCLE::NAME,
+        COLUMN_BLOCK_PROPOSAL_IDS::NAME,
+        COLUMN_BLOCK_EXTENSION::NAME,
     ];
     let secondary_opts = indexer_secondary_options(config);
     SecondaryDB::open_cf(

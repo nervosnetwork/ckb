@@ -3,7 +3,7 @@ use crate::utils::send_message_to;
 use crate::{attempt, Status};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::core::BlockNumber;
-use ckb_types::{packed, prelude::*};
+use ckb_types::{packed, prelude::*, BlockNumberAndHash};
 use std::sync::Arc;
 
 const BATCH_SIZE: BlockNumber = 2000;
@@ -42,9 +42,15 @@ impl<'a> GetBlockFilterCheckPointsProcess<'a> {
             for block_number in (start_number..start_number + BATCH_SIZE * CHECK_POINT_INTERVAL)
                 .step_by(CHECK_POINT_INTERVAL as usize)
             {
-                if let Some(block_filter_hash) = active_chain
-                    .get_block_hash(block_number)
-                    .and_then(|block_hash| active_chain.get_block_filter_hash(&block_hash))
+                if let Some(block_filter_hash) =
+                    active_chain
+                        .get_block_hash(block_number)
+                        .and_then(|block_hash| {
+                            active_chain.get_block_filter_hash(BlockNumberAndHash::new(
+                                block_number,
+                                block_hash,
+                            ))
+                        })
                 {
                     block_filter_hashes.push(block_filter_hash);
                 } else {

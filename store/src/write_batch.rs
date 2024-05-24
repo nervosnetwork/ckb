@@ -4,7 +4,8 @@ use ckb_db_schema::{
     COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_NUMBER_HASH,
 };
 use ckb_error::Error;
-use ckb_types::{core::BlockNumber, packed, prelude::*};
+use ckb_types::core::BlockNumber;
+use ckb_types::{packed, prelude::*, BlockNumberAndHash};
 
 /// Wrapper of `RocksDBWriteBatch`, provides atomic batch of write operations.
 pub struct StoreWriteBatch {
@@ -54,18 +55,34 @@ impl StoreWriteBatch {
         >,
     ) -> Result<(), Error> {
         for (out_point, cell, cell_data) in cells {
-            let key = out_point.to_cell_key();
-            self.put(COLUMN_CELL, &key, cell.as_slice())?;
+            let block_number: BlockNumber = cell.block_number().unpack();
+            self.put(
+                COLUMN_CELL::NAME,
+                COLUMN_CELL::key(block_number, &out_point).as_ref(),
+                cell.as_slice(),
+            )?;
             if let Some(data) = cell_data {
-                self.put(COLUMN_CELL_DATA, &key, data.as_slice())?;
                 self.put(
-                    COLUMN_CELL_DATA_HASH,
-                    &key,
+                    COLUMN_CELL_DATA::NAME,
+                    COLUMN_CELL_DATA::key(block_number, &out_point).as_ref(),
+                    data.as_slice(),
+                )?;
+                self.put(
+                    COLUMN_CELL_DATA_HASH::NAME,
+                    COLUMN_CELL_DATA_HASH::key(block_number, &out_point).as_ref(),
                     data.output_data_hash().as_slice(),
                 )?;
             } else {
-                self.put(COLUMN_CELL_DATA, &key, &[])?;
-                self.put(COLUMN_CELL_DATA_HASH, &key, &[])?;
+                self.put(
+                    COLUMN_CELL_DATA::NAME,
+                    COLUMN_CELL_DATA::key(block_number, &out_point).as_ref(),
+                    &[],
+                )?;
+                self.put(
+                    COLUMN_CELL_DATA_HASH::NAME,
+                    COLUMN_CELL_DATA_HASH::key(block_number, &out_point).as_ref(),
+                    &[],
+                )?;
             }
         }
         Ok(())
@@ -74,13 +91,14 @@ impl StoreWriteBatch {
     /// Remove cells from this write batch
     pub fn delete_cells(
         &mut self,
+        block_number: BlockNumber,
         out_points: impl Iterator<Item = packed::OutPoint>,
     ) -> Result<(), Error> {
         for out_point in out_points {
-            let key = out_point.to_cell_key();
-            self.delete(COLUMN_CELL, &key)?;
-            self.delete(COLUMN_CELL_DATA, &key)?;
-            self.delete(COLUMN_CELL_DATA_HASH, &key)?;
+            let key = out_point.to_cell_key(block_number);
+            self.delete(COLUMN_CELL::NAME, &key)?;
+            self.delete(COLUMN_CELL_DATA::NAME, &key)?;
+            self.delete(COLUMN_CELL_DATA_HASH::NAME, &key)?;
         }
 
         Ok(())
@@ -89,42 +107,44 @@ impl StoreWriteBatch {
     /// Removes the block body from database with corresponding hash, number and txs number
     pub fn delete_block_body(
         &mut self,
-        number: BlockNumber,
-        hash: &packed::Byte32,
+        num_hash: BlockNumberAndHash,
         txs_len: u32,
     ) -> Result<(), Error> {
-        self.inner.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
-        self.inner.delete(COLUMN_BLOCK_EXTENSION, hash.as_slice())?;
-        self.inner
-            .delete(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())?;
         self.inner.delete(
-            COLUMN_NUMBER_HASH,
+            COLUMN_BLOCK_UNCLE::NAME,
+            COLUMN_BLOCK_UNCLE::key(num_hash.clone()).as_ref(),
+        )?;
+        self.inner
+            .delete(COLUMN_BLOCK_EXTENSION::NAME, num_hash.hash().as_slice())?;
+        self.inner
+            .delete(COLUMN_BLOCK_PROPOSAL_IDS::NAME, num_hash.hash().as_slice())?;
+        self.inner.delete(
+            COLUMN_NUMBER_HASH::NAME,
             packed::NumberHash::new_builder()
-                .number(number.pack())
-                .block_hash(hash.clone())
+                .number(num_hash.number().pack())
+                .block_hash(num_hash.hash().clone())
                 .build()
                 .as_slice(),
         )?;
 
-        let key_range = (0u32..txs_len).map(|i| {
-            packed::TransactionKey::new_builder()
-                .block_hash(hash.clone())
-                .index(i.pack())
-                .build()
-        });
+        let key_range =
+            (0u32..txs_len).map(|i| COLUMN_BLOCK_BODY::key(num_hash.clone(), i as usize));
 
-        self.inner.delete_range(COLUMN_BLOCK_BODY, key_range)?;
+        self.inner
+            .delete_range(COLUMN_BLOCK_BODY::NAME, key_range)?;
         Ok(())
     }
 
     /// Removes the entire block from database with corresponding hash, number and txs number
     pub fn delete_block(
         &mut self,
-        number: BlockNumber,
-        hash: &packed::Byte32,
+        num_hash: BlockNumberAndHash,
         txs_len: u32,
     ) -> Result<(), Error> {
-        self.inner.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
-        self.delete_block_body(number, hash, txs_len)
+        self.inner.delete(
+            COLUMN_BLOCK_HEADER::NAME,
+            COLUMN_BLOCK_HEADER::key(num_hash.clone()).as_mut_slice(),
+        )?;
+        self.delete_block_body(num_hash, txs_len)
     }
 }

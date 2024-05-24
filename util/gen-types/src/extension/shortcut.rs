@@ -71,18 +71,19 @@ impl packed::OutPoint {
     /// The difference between [`Self::as_slice()`](../prelude/trait.Entity.html#tymethod.as_slice)
     /// and [`Self::to_cell_key()`](#method.to_cell_key) is the byteorder of the field `index`.
     ///
-    /// - Uses little endian for the field `index` in serialization.
+    /// - Uses little endian for the field `block_number` and `index` in serialization.
     ///
     ///   Because in the real world, the little endian machines make up the majority, we can cast
     ///   it as a number without re-order the bytes.
     ///
-    /// - Uses big endian for the field `index` to index cells in storage.
+    /// - Uses big endian for the field `block_number` and `index` to index cells in storage.
     ///
     ///   So we can use `tx_hash` as key prefix to seek the cells from storage in the forward
     ///   order, so as to traverse cells in the forward order too.
-    pub fn to_cell_key(&self) -> Vec<u8> {
-        let mut key = Vec::with_capacity(36);
+    pub fn to_cell_key(&self, block_number: BlockNumber) -> Vec<u8> {
+        let mut key = Vec::with_capacity(44);
         let index: u32 = self.index().unpack();
+        key.extend_from_slice(block_number.to_be_bytes().as_ref());
         key.extend_from_slice(self.tx_hash().as_slice());
         key.extend_from_slice(&index.to_be_bytes());
         key
