@@ -1,7 +1,7 @@
 use ckb_app_config::DBConfig;
 use ckb_db::ReadOnlyDB;
 use ckb_db::RocksDB;
-use ckb_db_schema::MIGRATION_VERSION_KEY;
+use ckb_db_schema::COLUMN_META;
 use ckb_error::Error;
 use indicatif::ProgressBar;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ fn test_default_migration() {
         let r = migrations.migrate(db, false).unwrap();
         assert_eq!(
             b"20191116225943".to_vec(),
-            r.get_pinned_default(MIGRATION_VERSION_KEY)
+            r.get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
                 .unwrap()
                 .unwrap()
                 .to_vec()
@@ -41,7 +41,7 @@ fn test_default_migration() {
             .unwrap();
         assert_eq!(
             b"20191127101121".to_vec(),
-            r.get_pinned_default(MIGRATION_VERSION_KEY)
+            r.get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
                 .unwrap()
                 .unwrap()
                 .to_vec()
@@ -117,7 +117,7 @@ fn test_customized_migration() {
         );
         assert_eq!(
             VERSION.as_bytes(),
-            db.get_pinned_default(MIGRATION_VERSION_KEY)
+            db.get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
                 .unwrap()
                 .unwrap()
                 .to_vec()
@@ -209,7 +209,7 @@ fn test_background_migration() {
         let r = migrations.migrate(db, false).unwrap();
         assert_eq!(
             b"20191116225943".to_vec(),
-            r.get_pinned_default(MIGRATION_VERSION_KEY)
+            r.get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
                 .unwrap()
                 .unwrap()
                 .to_vec()
@@ -248,7 +248,7 @@ fn test_background_migration() {
         std::thread::sleep(std::time::Duration::from_millis(1000));
         assert_eq!(
             b"20241127101122".to_vec(),
-            db.get_pinned_default(MIGRATION_VERSION_KEY)
+            db.get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
                 .unwrap()
                 .unwrap()
                 .to_vec()

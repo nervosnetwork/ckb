@@ -2,7 +2,7 @@ use crate::filter::BlockFilter;
 use crate::utils::send_message_to;
 use crate::{attempt, Status};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_types::{core::BlockNumber, packed, prelude::*};
+use ckb_types::{core::BlockNumber, packed, prelude::*, BlockNumberAndHash};
 use std::sync::Arc;
 
 const BATCH_SIZE: BlockNumber = 2000;
@@ -38,10 +38,15 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
 
         if latest >= start_number {
             let parent_block_filter_hash = if start_number > 0 {
+                let block_number = start_number - 1;
                 match active_chain
-                    .get_block_hash(start_number - 1)
-                    .and_then(|block_hash| active_chain.get_block_filter_hash(&block_hash))
-                {
+                    .get_block_hash(block_number)
+                    .and_then(|block_hash| {
+                        active_chain.get_block_filter_hash(BlockNumberAndHash::new(
+                            block_number,
+                            block_hash,
+                        ))
+                    }) {
                     Some(parent_block_filter_hash) => parent_block_filter_hash,
                     None => return Status::ignored(),
                 }
@@ -50,9 +55,15 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
             };
 
             for block_number in start_number..start_number + BATCH_SIZE {
-                if let Some(block_filter_hash) = active_chain
-                    .get_block_hash(block_number)
-                    .and_then(|block_hash| active_chain.get_block_filter_hash(&block_hash))
+                if let Some(block_filter_hash) =
+                    active_chain
+                        .get_block_hash(block_number)
+                        .and_then(|block_hash| {
+                            active_chain.get_block_filter_hash(BlockNumberAndHash::new(
+                                block_number,
+                                block_hash,
+                            ))
+                        })
                 {
                     block_filter_hashes.push(block_filter_hash);
                 } else {

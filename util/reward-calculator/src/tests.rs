@@ -53,7 +53,7 @@ fn get_proposal_ids_by_hash() {
 
     let consensus = Consensus::default();
     let reward_calculator = RewardCalculator::new(&consensus, &store);
-    let ids = reward_calculator.get_proposal_ids_by_hash(&block.hash());
+    let ids = reward_calculator.get_proposal_ids_by_hash(block.number(), &block.hash());
 
     assert_eq!(ids, expected);
 }
