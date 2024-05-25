@@ -6,7 +6,6 @@ use ckb_network::{
     multiaddr::MultiAddr, peer_store::types::BannedAddr, peer_store::PeerStore, Flags, PeerId,
 };
 use ckb_network_fuzz::BufManager;
-use rand::{thread_rng, RngCore};
 
 fn new_multi_addr(data: &mut BufManager) -> (MultiAddr, Flags) {
     let flags = data.get();
@@ -30,8 +29,6 @@ fn new_multi_addr(data: &mut BufManager) -> (MultiAddr, Flags) {
 }
 
 fn add_ban_addr(data: &mut BufManager, peer_store: &mut PeerStore) {
-    let now_ms = ckb_systemtime::unix_time_as_millis();
-
     let num = data.get::<u8>() as usize;
     for _ in 0..num {
         let flags = data.get::<u8>();
@@ -44,8 +41,8 @@ fn add_ban_addr(data: &mut BufManager, peer_store: &mut PeerStore) {
 
         let ban_addr = BannedAddr {
             address: network,
-            ban_until: now_ms + (data.get::<u32>() as u64),
-            created_at: now_ms,
+            ban_until: data.get(),
+            created_at: data.get(),
             ban_reason: String::new(),
         };
         peer_store.mut_ban_list().ban(ban_addr);
@@ -64,15 +61,7 @@ fn add_basic_addr(data: &mut BufManager, peer_store: &mut PeerStore) {
 
     let basic_num = data.get::<u32>();
 
-    let last_connected_time_range = if flags >> 2 & 0b1 == 1 {
-        60_000 // 1 minute
-    } else {
-        1000 * 60 * 60 * 24 * 365
-    };
-
     let num = basic_num % 16 + (16384) - 8; // ±8
-    let mut rng = thread_rng();
-    let now_ms = ckb_systemtime::unix_time_as_millis();
 
     for i in 0..num {
         let addr = format!(
@@ -82,19 +71,12 @@ fn add_basic_addr(data: &mut BufManager, peer_store: &mut PeerStore) {
         )
         .parse()
         .unwrap();
-        let _ = peer_store.add_addr_fuzz(
-            addr,
-            Flags::all(),
-            now_ms - ((rng.next_u32() as u64) % last_connected_time_range),
-            rng.next_u32(),
-        );
+        let _ = peer_store.add_addr_fuzz(addr, Flags::all(), data.get(), data.get());
     }
 }
 
 fuzz_target!(|data: &[u8]| {
     let mut data = BufManager::new(data);
-
-    let now_ms = ckb_systemtime::unix_time_as_millis();
 
     let mut peer_store: PeerStore = Default::default();
 
@@ -106,7 +88,7 @@ fuzz_target!(|data: &[u8]| {
 
     while !data.is_end() {
         let (addr, flag) = new_multi_addr(&mut data);
-        let last_connected_time = now_ms + data.get::<u16>() as u64;
+        let last_connected_time = data.get();
         let attempts_count = data.get::<u32>();
         let _res = peer_store.add_addr_fuzz(addr, flag, last_connected_time, attempts_count);
         // _res.expect("msg");
