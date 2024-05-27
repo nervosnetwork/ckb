@@ -81,9 +81,13 @@ where
                 }
                 Err(e) => return Err(e),
             };
-        machine
-            .memory_mut()
-            .store64(&size_addr, &Mac::REG::from_u64(full_size))?;
+        if size_addr.to_u64() < addr.to_u64()
+            || size_addr.to_u64() >= addr.to_u64().wrapping_add(wrote_size.to_u64())
+        {
+            machine
+                .memory_mut()
+                .store64(&size_addr, &Mac::REG::from_u64(full_size))?;
+        }
         machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(())
