@@ -89,7 +89,7 @@ pub struct TransactionScriptError {
 }
 
 impl TransactionScriptError {
-    /// Orginating script for the generated error
+    /// Originating script for the generated error
     pub fn originating_script(&self) -> &TransactionScriptErrorSource {
         &self.source
     }
@@ -100,7 +100,7 @@ impl TransactionScriptError {
     }
 }
 
-/// It is a delibrate choice here to implement StdError directly, instead of
+/// It is a deliberate choice here to implement StdError directly, instead of
 /// implementing thiserror::Error on TransactionScriptError. This way, calling
 /// root_cause() on ckb_error::Error would return TransactionScriptError structure,
 /// providing us enough information to inspect on all kinds of errors generated when
