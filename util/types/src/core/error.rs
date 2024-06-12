@@ -153,7 +153,7 @@ pub enum TransactionError {
     },
 
     /// The transaction version does not match with the system expected.
-    #[error("MismatchedVersion: expected {}, got {}", expected, actual)]
+    #[error("MismatchedVersion: expected {expected}, got {actual}")]
     MismatchedVersion {
         /// The expected transaction version.
         expected: Version,
@@ -178,7 +178,7 @@ pub enum TransactionError {
     },
 
     /// Nervos DAO lock size mismatch.
-    #[error("The lock script size of deposit cell at index {} does not match the withdrawing cell at the same index", index)]
+    #[error("The lock script size of deposit cell at index {index} does not match the withdrawing cell at the same index")]
     DaoLockSizeMismatch {
         /// The index of mismatched DAO cells.
         index: usize,
