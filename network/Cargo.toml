@@ -7,6 +7,7 @@ edition = "2021"
 description = "ckb network implementation"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+exclude = [ "fuzz" ]
 
 [dependencies]
 rand = "0.7"
@@ -41,6 +42,7 @@ p2p = { version="0.4.0", package="tentacle", features = ["upnp", "parking_lot", 
 [features]
 with_sentry = ["sentry"]
 with_dns_seeding = ["lazy_static", "bs58", "faster-hex", "trust-dns-resolver", "secp256k1"]
+fuzz = []
 
 [dev-dependencies]
 tempfile.workspace = true
