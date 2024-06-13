@@ -1070,9 +1070,10 @@ The response looks like below when `verbosity` is 0.
 
 <a id="chain-get_live_cell"></a>
 #### Method `get_live_cell`
-* `get_live_cell(out_point, with_data)`
+* `get_live_cell(out_point, with_data, include_tx_pool)`
     * `out_point`: [`OutPoint`](#type-outpoint)
     * `with_data`: `boolean`
+    * `include_tx_pool`: `boolean` `|` `null`
 * result: [`CellWithStatus`](#type-cellwithstatus)
 
 Returns the status of a cell. The RPC returns extra information if it is a [live cell](#live-cell).
@@ -1092,6 +1093,7 @@ result.
 * `out_point` - Reference to the cell by transaction hash and output index.
 * `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client
 does not need the data, it should set this to `false` to save bandwidth.
+* `include_tx_pool` - Whether the RPC check live cell in TxPool, default is false.
 
 ###### Examples
 
