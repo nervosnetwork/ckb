@@ -25,9 +25,9 @@ ckb-resource = { path = "../../resource", version = "= 0.117.0-rc3"}
 ckb-build-info = { path = "../build-info", version = "= 0.117.0-rc3" }
 ckb-types = { path = "../types", version = "= 0.117.0-rc3" }
 ckb-constant = { path = "../constant", version = "= 0.117.0-rc3" }
-secio = { version="0.5.7", package="tentacle-secio" }
+secio = { version="0.6.0", package="tentacle-secio" }
 multiaddr = { version="0.3.0", package="tentacle-multiaddr" }
-rand = "0.7"
+rand = "0.8"
 sentry = { version = "0.26.0", optional = true }
 ckb-systemtime = { path = "../systemtime", version = "= 0.117.0-rc3" }
 url = { version = "2.2.2", features = ["serde"] }

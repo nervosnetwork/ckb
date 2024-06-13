@@ -31,4 +31,4 @@ ckb-chain = { path = "../../chain", version = "= 0.117.0-rc3" }
 ckb-shared = { path = "../../shared", version = "= 0.117.0-rc3" }
 ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.117.0-rc3" }
 ckb-systemtime = { path = "../../util/systemtime", version = "= 0.117.0-rc3", features = ["enable_faketime"]}
-rand = "0.7"
+rand = "0.8"

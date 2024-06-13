@@ -43,7 +43,7 @@ itertools.workspace = true
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.117.0-rc3" }
-rand = "0.7"
+rand = "0.8"
 ckb-dao = { path = "../util/dao", version = "= 0.117.0-rc3" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.117.0-rc3" }
 ckb-reward-calculator = { path = "../util/reward-calculator", version = "= 0.117.0-rc3" }
