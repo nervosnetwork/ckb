@@ -162,7 +162,7 @@ impl TXOSet {
             .map(|txo| {
                 let maximal_capacity = txo.capacity();
                 let minimal_capacity: u64 = txo.to_minimal_output().capacity().unpack();
-                let actual_capacity = rng.gen_range(minimal_capacity, maximal_capacity + 1);
+                let actual_capacity = rng.gen_range(minimal_capacity..=maximal_capacity);
                 let output = txo
                     .to_equivalent_output()
                     .as_builder()
