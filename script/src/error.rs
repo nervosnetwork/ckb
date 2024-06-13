@@ -100,7 +100,7 @@ impl TransactionScriptError {
     }
 }
 
-/// It is a delibrate choice here to implement StdError directly, instead of
+/// It is a deliberate choice here to implement StdError directly, instead of
 /// implementing thiserror::Error on TransactionScriptError. This way, calling
 /// root_cause() on ckb_error::Error would return TransactionScriptError structure,
 /// providing us enough information to inspect on all kinds of errors generated when
