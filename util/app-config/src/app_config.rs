@@ -92,6 +92,9 @@ pub struct CKBAppConfig {
     /// Indexer config options.
     #[serde(default)]
     pub indexer: IndexerConfig,
+    /// Fee estimator config options.
+    #[serde(default)]
+    pub fee_estimator: FeeEstimatorConfig,
 }
 
 /// The miner config file for `ckb miner`. Usually it is the `ckb-miner.toml` in the CKB root

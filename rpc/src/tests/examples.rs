@@ -15,6 +15,7 @@ use std::hash;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
+use ckb_jsonrpc_types::RecommendedFeeRates;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView},
     h256,
@@ -389,6 +390,7 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "get_pool_tx_detail_info" => {
             response.result["timestamp"] = example.response.result["timestamp"].clone()
         }
+        "get_fee_estimates" => replace_rpc_response::<RecommendedFeeRates>(example, response),
         _ => {}
     }
 }

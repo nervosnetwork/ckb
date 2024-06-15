@@ -218,3 +218,7 @@ block_uncles_cache_size    = 30
 # db_port = 5432
 # db_user = "postgres"
 # db_password = "123456"
+#
+# # [fee_estimator]
+# # Specifies the fee estimates algorithm. Current algorithms: ConfirmationFraction, WeightUnitsFlow.
+# # algorithm = "WeightUnitsFlow"

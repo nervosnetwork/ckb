@@ -59,6 +59,8 @@ pub(crate) struct CKBAppConfig {
     notify: crate::NotifyConfig,
     #[serde(default)]
     indexer_v2: crate::IndexerConfig,
+    #[serde(default)]
+    fee_estimator: crate::FeeEstimatorConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -106,6 +108,7 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             alert_signature,
             notify,
             indexer_v2,
+            fee_estimator,
         } = input;
         #[cfg(not(feature = "with_sentry"))]
         let _ = sentry;
@@ -131,6 +134,7 @@ impl From<CKBAppConfig> for crate::CKBAppConfig {
             alert_signature,
             notify,
             indexer: indexer_v2,
+            fee_estimator,
         }
     }
 }
