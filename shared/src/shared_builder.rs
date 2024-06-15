@@ -180,6 +180,18 @@ impl SharedBuilder {
                 .unwrap()
                 .path()
                 .to_path_buf();
+
+            if std::fs::read_dir(&db_base_dir)
+                .expect("read db_base_dir must be ok")
+                .count()
+                != 0
+            {
+                panic!(
+                    "In test code, Shared::with_temp_db created a db path should be empty: {}, db_id: {}",
+                    db_base_dir.display(), db_id,
+                );
+            }
+
             let db_dir = db_base_dir.join(format!("db_{db_id}"));
             RocksDB::open_in(db_dir, COLUMNS)
         };
