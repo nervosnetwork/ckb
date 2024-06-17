@@ -7,7 +7,6 @@ edition = "2021"
 description = "ckb network implementation"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-exclude = [ "fuzz" ]
 
 [dependencies]
 rand = "0.7"
