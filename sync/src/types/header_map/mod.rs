@@ -13,15 +13,18 @@ mod backend_sled;
 mod kernel_lru;
 mod memory;
 
-pub(crate) use self::{
-    backend::KeyValueBackend, backend_sled::SledBackend, kernel_lru::HeaderMapKernel,
-    memory::MemoryMap,
-};
+#[cfg(feature = "fuzz")]
+mod backend_sync;
+
+pub(crate) use self::{backend::KeyValueBackend, kernel_lru::HeaderMapKernel, memory::MemoryMap};
 
 use super::HeaderIndexView;
 
 pub struct HeaderMap {
-    inner: Arc<HeaderMapKernel<SledBackend>>,
+    #[cfg(feature = "fuzz")]
+    inner: Arc<HeaderMapKernel<backend_sync::SyncBackend>>,
+    #[cfg(not(feature = "fuzz"))]
+    inner: Arc<HeaderMapKernel<backend_sled::SledBackend>>,
 }
 
 const INTERVAL: Duration = Duration::from_millis(500);

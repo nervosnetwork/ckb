@@ -1,5 +1,5 @@
 [package]
-name = "ckb-network-fuzz"
+name = "ckb-fuzz"
 version = "0.117.0-pre"
 publish = false
 edition = "2021"
@@ -14,17 +14,58 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 ipnetwork = "0.18"
+futures = "0.3"
+tokio = { version = "1", features = ["sync", "macros"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 
 [dependencies.ckb-network]
-path = ".."
+path = "../network"
 features = ["fuzz"]
+
+[dependencies.ckb-chain]
+path = "../chain"
+
+[dependencies.ckb-sync]
+path = "../sync"
+features = ["fuzz"]
+
+[dependencies.ckb-shared]
+path = "../shared"
+features = ["fuzz"]
+
+[dependencies.ckb-chain-spec]
+path = "../spec"
+
+[dependencies.ckb-launcher]
+path = "../util/launcher/"
+features = ["fuzz"]
+
+[dependencies.ckb-channel]
+path = "../util/channel"
+
+[dependencies.ckb-app-config]
+path = "../util/app-config"
+
+[dependencies.ckb-build-info]
+path = "../util/build-info"
+
+[dependencies.ckb-async-runtime]
+path = "../util/runtime"
 
 # Prevent this from interfering with workspaces
 [workspace]
 members = ["."]
 
+[profile.dev]
+debug = 1
+overflow-checks = true
+
 [profile.release]
 debug = 1
+overflow-checks = true
+
+[build]
+rustflags = ["-C", "instrument-coverage"]
 
 [[bin]]
 name = "fuzz_compress"
@@ -47,5 +88,11 @@ doc = false
 [[bin]]
 name = "fuzz_peer_store"
 path = "fuzz_targets/fuzz_peer_store.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_p2p"
+path = "fuzz_targets/fuzz_p2p.rs"
 test = false
 doc = false

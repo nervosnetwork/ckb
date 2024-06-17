@@ -195,6 +195,30 @@ impl SharedBuilder {
             async_handle: runtime.get_or_init(new_background_runtime).clone(),
         })
     }
+
+    #[cfg(feature = "fuzz")]
+    pub fn new_test(handle: Handle) -> Self {
+        use once_cell::unsync;
+
+        thread_local! {
+            static RUNTIME_HANDLE: unsync::OnceCell<Handle> = unsync::OnceCell::new();
+        }
+
+        let db = {
+            let db_dir = PathBuf::from("/tmp/tmp.db");
+            RocksDB::open_in(db_dir, COLUMNS)
+        };
+        SharedBuilder {
+            db,
+            ancient_path: None,
+            consensus: Consensus::default(),
+            tx_pool_config: None,
+            notify_config: None,
+            store_config: None,
+            block_assembler_config: None,
+            async_handle: handle,
+        }
+    }
 }
 
 impl SharedBuilder {

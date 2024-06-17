@@ -433,3 +433,49 @@ impl Launcher {
         network_controller
     }
 }
+
+#[cfg(feature = "fuzz")]
+pub fn new_ckb_protocol(
+    proto_id: SupportProtocols,
+    sync_shared: Option<Arc<SyncShared>>,
+    version: Option<Version>,
+    alert_signature: Option<ckb_app_config::NetworkAlertConfig>,
+) -> Option<Box<dyn ckb_network::CKBProtocolHandler>> {
+    fn new_chain_controller() -> ChainController {
+        use ckb_channel::{self as channel};
+        let (process_block_sender, _process_block_receiver) = channel::bounded(0);
+        let (truncate_sender, _truncate_receiver) = channel::bounded(0);
+
+        ChainController::new(process_block_sender, truncate_sender)
+    }
+
+    match proto_id {
+        SupportProtocols::Sync => Some(Box::new(Synchronizer::new(
+            new_chain_controller(),
+            Arc::clone(&sync_shared.unwrap()),
+        ))),
+        SupportProtocols::RelayV2 => Some(Box::new(Relayer::new(
+            new_chain_controller(),
+            Arc::clone(&sync_shared.unwrap()),
+        ))),
+        SupportProtocols::RelayV3 => Some(Box::new(
+            Relayer::new(new_chain_controller(), Arc::clone(&sync_shared.unwrap())).v3(),
+        )),
+        SupportProtocols::Time => Some(Box::new(NetTimeProtocol::default())),
+        SupportProtocols::Alert => {
+            let alert_signature_config = alert_signature.unwrap_or_default();
+            Some(Box::new(AlertRelayer::new(
+                version.unwrap().short(),
+                sync_shared.unwrap().shared().notify_controller().clone(),
+                alert_signature_config,
+            )))
+        }
+        SupportProtocols::LightClient => Some(Box::new(LightClientProtocol::new(
+            sync_shared.unwrap().shared().clone(),
+        ))),
+        SupportProtocols::Filter => Some(Box::new(BlockFilter::new(Arc::clone(
+            &sync_shared.unwrap(),
+        )))),
+        _ => None,
+    }
+}

@@ -5,7 +5,7 @@ use libfuzzer_sys::fuzz_target;
 use ckb_network::{
     multiaddr::MultiAddr, peer_store::types::BannedAddr, peer_store::PeerStore, Flags, PeerId,
 };
-use ckb_network_fuzz::BufManager;
+use ckb_fuzz::BufManager;
 
 fn new_multi_addr(data: &mut BufManager) -> (MultiAddr, Flags) {
     let flags = data.get();
