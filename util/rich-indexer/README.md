@@ -13,6 +13,7 @@ In order to run a CKB node with the Rich-Indexer enabled, it is recommended to a
 
 - Processor: 4 core
 - RAM: 8 GB
+- Disk: Solid State Drive (SSD) to ensure performance
 
 ## Quick Start
 
@@ -57,7 +58,7 @@ Note that CKB starting options `--indexer` and `--rich-indexer` can only be used
 
 ## Enabling Rich Indexer with PostgreSQL
 
-To enable PostgreSQL, you must first set up a functional PostgreSQL service on your own. Please refer to [Server Administration](https://www.postgresql.org/docs/16/admin.html) for guidance. It is recommended to install version 12 or above.
+To enable PostgreSQL, you must first set up a functional PostgreSQL service on your own. Please refer to [Server Administration](https://www.postgresql.org/docs/16/admin.html) for guidance. It is recommended to install version 16 or above.
 
 For hardware with 4 cores and 8 GB of RAM, it is recommended to make the following two configuration parameter adjustments in PostgreSQL to achieve optimal query performance.
 
