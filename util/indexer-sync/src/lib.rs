@@ -161,7 +161,9 @@ impl IndexerSyncService {
                                     block.number(),
                                     block.hash()
                                 );
-                                indexer.append(&block).expect("append block should be OK");
+                                if let Err(e) = indexer.append(&block) {
+                                    error!("Failed to append block: {}. Will attempt to retry.", e);
+                                }
                             } else {
                                 info!(
                                     "{} rollback {}, {}",
@@ -178,7 +180,11 @@ impl IndexerSyncService {
                     }
                 }
                 Ok(None) => match self.get_block_by_number(0) {
-                    Some(block) => indexer.append(&block).expect("append block should be OK"),
+                    Some(block) => {
+                        if let Err(e) = indexer.append(&block) {
+                            error!("Failed to append block: {}. Will attempt to retry.", e);
+                        }
+                    }
                     None => {
                         error!("CKB node returns an empty genesis block");
                         break;
