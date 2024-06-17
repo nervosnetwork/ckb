@@ -1105,13 +1105,11 @@ where
             .generate_syscalls(script_version, script_group, snapshot2_context)
     }
 
-    /// Runs a single program, then returns the exit code together with the entire
-    /// machine to the caller for more inspections.
-    pub fn detailed_run(
+    /// Create a scheduler to manage virtual machine instances.
+    pub fn create_scheduler(
         &self,
         script_group: &ScriptGroup,
-        max_cycles: Cycle,
-    ) -> Result<(i8, Cycle), ScriptError> {
+    ) -> Result<Scheduler<DL>, ScriptError> {
         let program = self.extract_script(&script_group.script)?;
         let tx_data = TxData {
             rtx: Arc::clone(&self.rtx),
@@ -1120,7 +1118,21 @@ where
             script_group: Arc::new(script_group.clone()),
         };
         let version = self.select_version(&script_group.script)?;
-        let mut scheduler = Scheduler::new(tx_data, version, self.syscalls_generator.clone());
+        Ok(Scheduler::new(
+            tx_data,
+            version,
+            self.syscalls_generator.clone(),
+        ))
+    }
+
+    /// Runs a single program, then returns the exit code together with the entire
+    /// machine to the caller for more inspections.
+    pub fn detailed_run(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<(i8, Cycle), ScriptError> {
+        let mut scheduler = self.create_scheduler(script_group)?;
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(error),

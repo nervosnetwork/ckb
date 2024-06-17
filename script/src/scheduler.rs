@@ -42,28 +42,28 @@ pub struct Scheduler<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    tx_data: TxData<DL>,
+    pub tx_data: TxData<DL>,
     // In fact, Scheduler here has the potential to totally replace
     // TransactionScriptsVerifier, nonetheless much of current syscall
     // implementation is strictly tied to TransactionScriptsVerifier, we
     // are using it here to save some extra code.
-    script_version: ScriptVersion,
-    syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
+    pub script_version: ScriptVersion,
+    pub syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
 
-    total_cycles: Cycle,
-    current_iteration_cycles: Cycle,
-    next_vm_id: VmId,
-    next_fd_slot: u64,
-    states: BTreeMap<VmId, VmState>,
-    fds: BTreeMap<Fd, VmId>,
-    inherited_fd: BTreeMap<VmId, Vec<Fd>>,
-    instantiated: BTreeMap<VmId, (MachineContext<DL>, Machine)>,
-    suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
-    terminated_vms: BTreeMap<VmId, i8>,
+    pub total_cycles: Cycle,
+    pub current_iteration_cycles: Cycle,
+    pub next_vm_id: VmId,
+    pub next_fd_slot: u64,
+    pub states: BTreeMap<VmId, VmState>,
+    pub fds: BTreeMap<Fd, VmId>,
+    pub inherited_fd: BTreeMap<VmId, Vec<Fd>>,
+    pub instantiated: BTreeMap<VmId, (MachineContext<DL>, Machine)>,
+    pub suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
+    pub terminated_vms: BTreeMap<VmId, i8>,
 
     // MessageBox is expected to be empty before returning from `run`
     // function, there is no need to persist messages.
-    message_box: Arc<Mutex<Vec<Message>>>,
+    pub message_box: Arc<Mutex<Vec<Message>>>,
 }
 
 impl<DL> Scheduler<DL>
@@ -97,6 +97,14 @@ where
 
     pub fn consumed_cycles(&self) -> Cycle {
         self.total_cycles
+    }
+
+    pub fn consumed_cycles_add(&mut self, cycles: Cycle) -> Result<(), Error> {
+        self.total_cycles = self
+            .total_cycles
+            .checked_add(cycles)
+            .ok_or(Error::CyclesExceeded)?;
+        Ok(())
     }
 
     /// Resume a previously suspended scheduler state
@@ -195,10 +203,7 @@ where
         while self.states[&ROOT_VM_ID] != VmState::Terminated {
             self.current_iteration_cycles = 0;
             let iterate_return = self.iterate(pause.clone(), limit_cycles);
-            self.total_cycles = self
-                .total_cycles
-                .checked_add(self.current_iteration_cycles)
-                .ok_or(Error::CyclesExceeded)?;
+            self.consumed_cycles_add(self.current_iteration_cycles)?;
             limit_cycles = limit_cycles
                 .checked_sub(self.current_iteration_cycles)
                 .ok_or(Error::CyclesExceeded)?;
@@ -210,14 +215,14 @@ where
         Ok((root_vm.1.machine.exit_code(), self.total_cycles))
     }
 
-    // This is internal function that does the actual VM execution loop.
-    // Here both pause signal and limit_cycles are provided so as to simplify
-    // branches.
-    fn iterate(&mut self, pause: Pause, limit_cycles: Cycle) -> Result<(), Error> {
-        // 1. Process all pending VM reads & writes
+    pub fn iterate_prepare_machine(
+        &mut self,
+        pause: Pause,
+        limit_cycles: Cycle,
+    ) -> Result<(u64, &mut Machine), Error> {
+        // Process all pending VM reads & writes.
         self.process_io()?;
-        // 2. Run an actual VM
-        // Find a runnable VM that has the largest ID
+        // Find a runnable VM that has the largest ID.
         let vm_id_to_run = self
             .states
             .iter()
@@ -228,25 +233,28 @@ where
         let vm_id_to_run = vm_id_to_run.ok_or_else(|| {
             Error::Unexpected("A deadlock situation has been reached!".to_string())
         })?;
-        let result = {
-            let total_cycles = self.total_cycles;
-            let (context, machine) = self.ensure_get_instantiated(&vm_id_to_run)?;
-            context.set_base_cycles(total_cycles);
-            machine.set_max_cycles(limit_cycles);
-            machine.machine.set_pause(pause);
-            let result = machine.run();
-            let cycles = machine.machine.cycles();
-            machine.machine.set_cycles(0);
-            self.current_iteration_cycles = self
-                .current_iteration_cycles
-                .checked_add(cycles)
-                .ok_or(Error::CyclesOverflow)?;
-            result
-        };
-        // 3. Process message box, update VM states accordingly
+        let total_cycles = self.total_cycles;
+        let (context, machine) = self.ensure_get_instantiated(&vm_id_to_run)?;
+        context.set_base_cycles(total_cycles);
+        machine.set_max_cycles(limit_cycles);
+        machine.machine.set_pause(pause);
+        Ok((vm_id_to_run, machine))
+    }
+
+    pub fn iterate_process_results(
+        &mut self,
+        vm_id_to_run: u64,
+        result: Result<i8, Error>,
+        cycles: u64,
+    ) -> Result<(), Error> {
+        self.current_iteration_cycles = self
+            .current_iteration_cycles
+            .checked_add(cycles)
+            .ok_or(Error::CyclesOverflow)?;
+        // Process message box, update VM states accordingly
         self.process_message_box()?;
         assert!(self.message_box.lock().expect("lock").is_empty());
-        // 4. If the VM terminates, update VMs in join state, also closes its fds
+        // If the VM terminates, update VMs in join state, also closes its fds
         match result {
             Ok(code) => {
                 self.terminated_vms.insert(vm_id_to_run, code);
@@ -294,6 +302,17 @@ where
             Err(Error::Yield) => Ok(()),
             Err(e) => Err(e),
         }
+    }
+
+    // This is internal function that does the actual VM execution loop.
+    // Here both pause signal and limit_cycles are provided so as to simplify
+    // branches.
+    fn iterate(&mut self, pause: Pause, limit_cycles: Cycle) -> Result<(), Error> {
+        let (id, vm) = self.iterate_prepare_machine(pause, limit_cycles)?;
+        let result = vm.run();
+        let cycles = vm.machine.cycles();
+        vm.machine.set_cycles(0);
+        self.iterate_process_results(id, result, cycles)
     }
 
     fn process_message_box(&mut self) -> Result<(), Error> {
@@ -699,7 +718,7 @@ where
         Ok(())
     }
 
-    fn boot_vm(
+    pub fn boot_vm(
         &mut self,
         data_piece_id: &DataPieceId,
         offset: u64,

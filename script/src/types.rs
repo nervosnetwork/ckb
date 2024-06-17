@@ -317,7 +317,7 @@ pub enum ChunkCommand {
 }
 
 #[derive(Clone)]
-pub(crate) struct MachineContext<
+pub struct MachineContext<
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 > {
     pub(crate) base_cycles: Arc<Mutex<u64>>,

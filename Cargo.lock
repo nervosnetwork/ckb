@@ -1798,8 +1798,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.24.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ce46f3e3800634212bd9a62ba2554a30ba4e60dee0a7040f9314f053c28ab27"
+source = "git+https://github.com/libraries/ckb-vm?branch=spawn-debugger-3#2b738a4170e453871136cc76df11807c7e1293a2"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1816,8 +1815,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm-definitions"
 version = "0.24.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef1e029aaf2138739b89664dec6ebc0648cba3430122b9848eab2ee7fefbcc0d"
+source = "git+https://github.com/libraries/ckb-vm?branch=spawn-debugger-3#2b738a4170e453871136cc76df11807c7e1293a2"
 dependencies = [
  "paste",
 ]
