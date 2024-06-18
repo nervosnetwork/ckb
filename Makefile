@@ -86,7 +86,7 @@ integration-release: submodule-init setup-ckb-test build
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
-integration-cov: cov-install-tools submodule-init setup-ckb-test ## Run integration tests and genearte coverage report.
+integration-cov: cov-install-tools submodule-init setup-ckb-test ## Run integration tests and generate coverage report.
 	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
 	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 build --features deadlock_detection
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/debug/ckb ${CKB_TEST_ARGS}
