@@ -17,7 +17,7 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     info!("ckb version: {}", version);
     info!("run rpc server with {} threads", rpc_threads_num);
     let (mut rpc_handle, _rpc_stop_rx, _runtime) = new_global_runtime(Some(rpc_threads_num));
-    let mut launcher = Launcher::new(args, version, async_handle, rpc_handle.clone());
+    let launcher = Launcher::new(args, version, async_handle, rpc_handle.clone());
 
     let block_assembler_config = launcher.sanitize_block_assembler_config()?;
     let miner_enable = block_assembler_config.is_some();
@@ -44,8 +44,6 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
         launcher.args.config.memory_tracker.interval,
         Some(shared.store().db().inner()),
     );
-
-    launcher.check_assume_valid_target(&shared);
 
     let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
