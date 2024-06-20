@@ -56,10 +56,6 @@ path = "../util/runtime"
 [workspace]
 members = ["."]
 
-[profile.dev]
-debug = 1
-overflow-checks = true
-
 [profile.release]
 debug = 1
 overflow-checks = true
@@ -94,5 +90,11 @@ doc = false
 [[bin]]
 name = "fuzz_p2p"
 path = "fuzz_targets/fuzz_p2p.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_service_proto"
+path = "fuzz_targets/fuzz_service_proto.rs"
 test = false
 doc = false
