@@ -14,7 +14,7 @@ fn get_proto_type(data: &mut BufManager) -> Result<SupportProtocols, ()> {
     if data.is_end() {
         return Err(());
     }
-    let id = data.get::<u8>();
+    let id = data.get::<u8>() % 7;
 
     // SupportProtocols::Sync => 100,
     // SupportProtocols::RelayV2 => 101,
@@ -25,13 +25,13 @@ fn get_proto_type(data: &mut BufManager) -> Result<SupportProtocols, ()> {
     // SupportProtocols::Filter => 121,
 
     match id {
-        100 => Ok(SupportProtocols::Sync),
-        101 => Ok(SupportProtocols::RelayV2),
-        103 => Ok(SupportProtocols::RelayV3),
-        102 => Ok(SupportProtocols::Time),
-        110 => Ok(SupportProtocols::Alert),
-        120 => Ok(SupportProtocols::LightClient),
-        121 => Ok(SupportProtocols::Filter),
+        0 => Ok(SupportProtocols::Sync),
+        1 => Ok(SupportProtocols::RelayV2),
+        2 => Ok(SupportProtocols::RelayV3),
+        3 => Ok(SupportProtocols::Time),
+        4 => Ok(SupportProtocols::Alert),
+        5 => Ok(SupportProtocols::LightClient),
+        6 => Ok(SupportProtocols::Filter),
 
         _ => Err(()),
     }
@@ -130,9 +130,11 @@ fn run(data: &[u8]) -> Result<(), ()> {
 
         let _r = proto.init(nc.clone()).await;
         proto.connected(nc.clone(), 0.into(), "").await;
-        proto
-            .received(nc.clone(), 0.into(), Bytes::from(data.other()))
-            .await;
+        //
+        let bufs = data.get_bufs(0xFFFFFFFF, 7, 1000);
+        for buf in bufs {
+            proto.received(nc.clone(), 0.into(), Bytes::from(buf)).await;
+        }
         proto.disconnected(nc, 0.into()).await;
     });
     Ok(())

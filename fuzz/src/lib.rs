@@ -50,6 +50,35 @@ impl<'a> BufManager<'a> {
     pub fn is_end(&self) -> bool {
         self.offset >= self.buf.len()
     }
+
+    pub fn get_bufs(
+        &mut self,
+        total_size: usize,
+        max_num: usize,
+        max_buf_len: usize,
+    ) -> Vec<Vec<u8>> {
+        let count = self.get::<u8>() as usize % max_num;
+
+        let mut buf_lens = Vec::<usize>::new();
+        let mut total_out_len = 0;
+        for _ in 0..count {
+            let l = self.get::<u16>() as usize % max_buf_len;
+            buf_lens.push(l);
+            total_out_len += l;
+        }
+
+        let total_size = total_size.min(self.buf.len() - self.offset);
+        for it in &mut buf_lens {
+            *it = (*it as f64 / total_out_len as f64 * total_size as f64) as usize;
+        }
+
+        let mut r = Vec::new();
+        for len in &buf_lens {
+            r.push(self.get_buf(len.clone()));
+        }
+
+        r
+    }
 }
 
 pub trait FromBytes<T> {
@@ -103,6 +132,25 @@ impl FromBytes<usize> for usize {
     }
     fn from_bytes(d: &[u8]) -> usize {
         usize::from_le_bytes(d.try_into().unwrap())
+    }
+}
+impl FromBytes<bool> for bool {
+    fn type_size() -> usize {
+        1
+    }
+    fn from_bytes(d: &[u8]) -> bool {
+        let d = u8::from_le_bytes(d.try_into().unwrap());
+        d != 0
+    }
+}
+
+impl FromBytes<std::time::Duration> for std::time::Duration {
+    fn type_size() -> usize {
+        8
+    }
+    fn from_bytes(d: &[u8]) -> std::time::Duration {
+        let d = u64::from_le_bytes(d.try_into().unwrap());
+        std::time::Duration::from_micros(d)
     }
 }
 
