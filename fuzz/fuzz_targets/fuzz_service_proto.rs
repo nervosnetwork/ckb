@@ -1,6 +1,12 @@
 #![no_main]
-
 use libfuzzer_sys::fuzz_target;
+
+// Note
+//  If you want to use this fuzz, need to replace tentacle and related dependencies in Cargo.toml.
+// [replace]
+// "tentacle:0.4.2" = {path = '../../tentacle/tentacle'}
+// "tentacle-multiaddr:0.3.4" = {path = '../../tentacle/multiaddr'}
+// "tentacle-secio:0.5.7" = {path = '../../tentacle/secio'}
 
 use ckb_network::{
     virtual_p2p::{Bytes, ProtocolContext, SessionContext},

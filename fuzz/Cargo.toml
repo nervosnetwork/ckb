@@ -88,8 +88,8 @@ test = false
 doc = false
 
 [[bin]]
-name = "fuzz_p2p"
-path = "fuzz_targets/fuzz_p2p.rs"
+name = "fuzz_ckb_protocol_handler"
+path = "fuzz_targets/fuzz_ckb_protocol_handler.rs"
 test = false
 doc = false
 
