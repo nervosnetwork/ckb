@@ -3,15 +3,15 @@ pub mod ckb_protocol_ctx;
 use ckb_network::Flags;
 use ckb_network::PeerId;
 
-pub struct BufManager<'a> {
-    buf: &'a [u8],
+pub struct BufManager {
+    buf: Vec<u8>,
     offset: usize,
 }
 
-impl<'a> BufManager<'a> {
-    pub fn new(data: &'a [u8]) -> Self {
+impl BufManager {
+    pub fn new(data: &[u8]) -> Self {
         Self {
-            buf: data,
+            buf: data.to_vec(),
             offset: 0,
         }
     }

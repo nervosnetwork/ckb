@@ -1,15 +1,13 @@
 use crate::network::NetworkState;
-use p2p::{
-    service::{ServiceError, ServiceEvent, SessionType, TargetProtocol, TargetSession},
-    traits::ServiceProtocol,
-    ProtocolId, SessionId,
-};
+use p2p::traits::ServiceProtocol;
 use std::{sync::Arc, time::Duration};
 
 pub use p2p::{
     bytes::Bytes,
-    context::{ProtocolContext, SessionContext},
+    channel::mpsc::channel,
+    context::{ProtocolContext, ServiceContext, SessionContext},
     service::ServiceAsyncControl,
+    ProtocolId,
 };
 
 pub fn new_discovery_service_proto(
