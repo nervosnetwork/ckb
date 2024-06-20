@@ -1566,7 +1566,7 @@ async fn output_data_filter_mode_rpc() {
         .unwrap();
     assert_eq!(1, cells.objects.len(),);
 
-    // test get_cells_capacity rpc with output_data Partial search mode
+    // test get_cells_capacity rpc with output_data Prefix search mode
     let cells = rpc
         .get_cells_capacity(IndexerSearchKey {
             script: lock_script11.clone().into(),
