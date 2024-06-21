@@ -1,0 +1,51 @@
+[package]
+name = "ckb-network-fuzz"
+version = "0.117.0-pre"
+publish = false
+edition = "2021"
+license = "MIT"
+description = "ckb network fuzz testing"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ipnetwork = "0.18"
+
+[dependencies.ckb-network]
+path = ".."
+features = ["fuzz"]
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_compress"
+path = "fuzz_targets/fuzz_compress.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_decompress"
+path = "fuzz_targets/fuzz_decompress.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_addr_manager"
+path = "fuzz_targets/fuzz_addr_manager.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_peer_store"
+path = "fuzz_targets/fuzz_peer_store.rs"
+test = false
+doc = false
