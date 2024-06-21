@@ -927,7 +927,7 @@ dependencies = [
  "ckb-fixed-hash",
  "ckb-hash",
  "ckb-occupied-capacity",
- "molecule 0.8.0",
+ "molecule",
  "numext-fixed-uint",
 ]
 
@@ -1495,7 +1495,7 @@ dependencies = [
  "ckb-vm",
  "daggy",
  "faster-hex",
- "molecule 0.7.5",
+ "molecule",
  "proptest",
  "rand 0.8.5",
  "serde",
@@ -1732,7 +1732,7 @@ dependencies = [
  "derive_more",
  "golomb-coded-set",
  "merkle-cbt",
- "molecule 0.8.0",
+ "molecule",
  "numext-fixed-uint",
  "once_cell",
  "paste",
@@ -3570,17 +3570,6 @@ dependencies = [
 
 [[package]]
 name = "molecule"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4fd9767ab5e5f2ea40f71ff4c8bdb633c50509052e093c2fdd0e390a749dfa3"
-dependencies = [
- "bytes",
- "cfg-if",
- "faster-hex",
-]
-
-[[package]]
-name = "molecule"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6efe1c7efcd0bdf4ca590e104bcb13087d9968956ae4ae98e92fb8c1da0f3730"
@@ -5384,7 +5373,7 @@ dependencies = [
  "js-sys",
  "libc",
  "log",
- "molecule 0.8.0",
+ "molecule",
  "nohash-hasher",
  "once_cell",
  "parking_lot 0.12.1",
@@ -5427,7 +5416,7 @@ dependencies = [
  "getrandom 0.2.12",
  "hmac",
  "log",
- "molecule 0.8.0",
+ "molecule",
  "openssl",
  "openssl-sys",
  "rand 0.8.5",
