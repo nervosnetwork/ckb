@@ -52,7 +52,7 @@ impl AddrManager {
         for i in 0..self.random_ids.len() {
             // reuse the for loop to shuffle random ids
             // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
-            let j = rng.gen_range(i, self.random_ids.len());
+            let j = rng.gen_range(i..self.random_ids.len());
             self.swap_random_id(j, i);
             let addr_info: AddrInfo = self.id_to_info[&self.random_ids[i]].to_owned();
             if let Some(socket_addr) = multiaddr_to_socketaddr(&addr_info.addr) {

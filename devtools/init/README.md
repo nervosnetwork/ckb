@@ -1,26 +1,26 @@
 # CKB Init Scripts
 
-## Run CKB in deamon mode
+## Run CKB in daemon mode
 
-CKB has a builtin deamon mode, command to run CKB in deamon mode(only for Linux/MacOS):
-
-```bash
-ckb run --deamon
-```
-
-Check deamon satus:
+CKB has a builtin daemon mode, command to run CKB in daemon mode(only for Linux/MacOS):
 
 ```bash
-ckb deamon --check
+ckb run --daemon
 ```
 
-Stop deamon process:
+Check daemon status:
 
 ```bash
-ckb deamon --stop
+ckb daemon --check
 ```
 
-The deamon mode is only for Linux/MacOS, and the CKB service will not be started automatically after reboot.
+Stop daemon process:
+
+```bash
+ckb daemon --stop
+```
+
+The daemon mode is only for Linux/MacOS, and the CKB service will not be started automatically after reboot.
 
 ## Init/Service Scripts
 

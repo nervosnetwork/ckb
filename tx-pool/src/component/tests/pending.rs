@@ -163,7 +163,7 @@ fn test_remove_entry() {
 }
 
 #[test]
-fn test_fill_proposals() {
+fn test_get_proposals() {
     let mut pool = PoolMap::new(1000);
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
@@ -193,30 +193,26 @@ fn test_fill_proposals() {
     let id2 = tx2.proposal_short_id();
     let id3 = tx3.proposal_short_id();
 
-    let mut ret = HashSet::new();
-    pool.fill_proposals(10, &HashSet::new(), &mut ret, Status::Pending);
+    let ret = pool.get_proposals(10, &HashSet::new());
     assert_eq!(
         ret,
         HashSet::from_iter(vec![id1.clone(), id2.clone(), id3.clone()])
     );
 
-    let mut ret = HashSet::new();
-    pool.fill_proposals(1, &HashSet::new(), &mut ret, Status::Pending);
+    let ret = pool.get_proposals(1, &HashSet::new());
     assert_eq!(ret.len(), 1);
 
-    let mut ret = HashSet::new();
-    pool.fill_proposals(2, &HashSet::new(), &mut ret, Status::Pending);
+    let ret = pool.get_proposals(2, &HashSet::new());
     assert_eq!(ret.len(), 2);
 
-    let mut ret = HashSet::new();
     let mut exclusion = HashSet::new();
     exclusion.insert(id2);
-    pool.fill_proposals(2, &exclusion, &mut ret, Status::Pending);
+    let ret = pool.get_proposals(2, &exclusion);
     assert_eq!(ret, HashSet::from_iter(vec![id1, id3]));
 }
 
 #[test]
-fn test_fill_proposals_with_high_score() {
+fn test_get_proposals_with_high_score() {
     let mut pool = PoolMap::new(1000);
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
@@ -242,25 +238,21 @@ fn test_fill_proposals_with_high_score() {
     let id2 = tx2.proposal_short_id();
     let id3 = tx3.proposal_short_id();
 
-    let mut ret = HashSet::new();
-    pool.fill_proposals(10, &HashSet::new(), &mut ret, Status::Pending);
+    let ret = pool.get_proposals(10, &HashSet::new());
     assert_eq!(
         ret,
         HashSet::from_iter(vec![id3.clone(), id2.clone(), id1.clone()])
     );
 
-    let mut ret = HashSet::new();
-    pool.fill_proposals(1, &HashSet::new(), &mut ret, Status::Pending);
+    let ret = pool.get_proposals(1, &HashSet::new());
     assert_eq!(ret, HashSet::from_iter(vec![id3.clone()]));
 
-    let mut ret = HashSet::new();
-    pool.fill_proposals(2, &HashSet::new(), &mut ret, Status::Pending);
+    let ret = pool.get_proposals(2, &HashSet::new());
     assert_eq!(ret, HashSet::from_iter(vec![id3.clone(), id2.clone()]));
 
-    let mut ret = HashSet::new();
     let mut exclusion = HashSet::new();
     exclusion.insert(id2);
-    pool.fill_proposals(2, &exclusion, &mut ret, Status::Pending);
+    let ret = pool.get_proposals(2, &exclusion);
     assert_eq!(ret, HashSet::from_iter(vec![id1, id3]));
 }
 

@@ -50,7 +50,7 @@ fn kill_process(pid_file: &PathBuf, name: &str) -> Result<(), ExitCode> {
         .parse::<i32>()
         .map_err(|_| ExitCode::Failure)?;
     eprintln!(
-        "stopping {} deamon service with pid {} ...",
+        "stopping {} daemon service with pid {} ...",
         name,
         pid.to_string().red()
     );

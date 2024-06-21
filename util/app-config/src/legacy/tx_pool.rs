@@ -12,7 +12,7 @@ const DEFAULT_MIN_RBF_RATE: FeeRate = FeeRate::from_u64(1500);
 // default max tx verify cycles
 const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 // default max ancestors count
-const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
+const DEFAULT_MAX_ANCESTORS_COUNT: usize = 2_000;
 // Default expiration time for pool transactions in hours
 const DEFAULT_EXPIRY_HOURS: u8 = 12;
 // Default max_tx_pool_size 180mb
