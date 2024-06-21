@@ -58,7 +58,7 @@ fn partition_nonce(id: u128, total: u128) -> Range<u128> {
 fn nonce_generator(range: Range<u128>) -> impl FnMut() -> u128 {
     let mut rng = rand::thread_rng();
     let Range { start, end } = range;
-    move || rng.gen_range(start..end)
+    move || rng.gen_range(start, end)
 }
 
 const PROGRESS_BAR_TEMPLATE: &str = "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] {msg}";

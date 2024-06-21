@@ -32,7 +32,7 @@ use p2p::{
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
     multiaddr::{Multiaddr, Protocol},
-    secio::{self, error::SecioError, PeerId, SecioKeyPair},
+    secio::{self, error::SecioError, PeerId},
     service::{
         ProtocolHandle, Service, ServiceAsyncControl, ServiceError, ServiceEvent, TargetProtocol,
         TargetSession,
@@ -762,7 +762,7 @@ impl ServiceHandle for EventHandler {
 
 /// Ckb network service, use to start p2p network
 pub struct NetworkService {
-    p2p_service: Service<EventHandler, SecioKeyPair>,
+    p2p_service: Service<EventHandler>,
     network_state: Arc<NetworkState>,
     ping_controller: Option<Sender<()>>,
     // Background services
@@ -890,7 +890,7 @@ impl NetworkService {
             network_state: Arc::clone(&network_state),
         };
         service_builder = service_builder
-            .handshake_type(network_state.local_private_key.clone().into())
+            .key_pair(network_state.local_private_key.clone())
             .upnp(config.upnp)
             .yamux_config(yamux_config)
             .forever(true)

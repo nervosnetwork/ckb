@@ -99,7 +99,7 @@ fn net_service_start() -> Node {
     );
 
     let mut p2p_service = service_builder
-        .handshake_type(network_state.local_private_key().clone().into())
+        .key_pair(network_state.local_private_key().clone())
         .upnp(config.upnp)
         .forever(true)
         .build(EventHandler::new(Arc::clone(&network_state)));
