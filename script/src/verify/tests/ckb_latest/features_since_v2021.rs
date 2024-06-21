@@ -768,6 +768,11 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
         );
     }
     assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
+    if script_version < crate::ScriptVersion::V2 {
+        assert_eq!(cycles, 3387236);
+    } else {
+        assert_eq!(cycles, 3276322);
+    }
 }
 
 #[test]
@@ -909,6 +914,13 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
         );
     }
     assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
+    if script_version <= ScriptVersion::V0 {
+        assert_eq!(cycles, 3405227);
+    } else if script_version == ScriptVersion::V1 {
+        assert_eq!(cycles, 3387236);
+    } else if script_version == ScriptVersion::V2 {
+        assert_eq!(cycles, 3276322);
+    }
 }
 
 #[test]
