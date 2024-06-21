@@ -370,6 +370,7 @@ impl Fd {
     }
 }
 
+/// VM is in waiting-to-read state.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ReadState {
     pub fd: Fd,
@@ -378,6 +379,7 @@ pub struct ReadState {
     pub length_addr: u64,
 }
 
+/// VM is in waiting-to-write state.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WriteState {
     pub fd: Fd,
@@ -387,15 +389,23 @@ pub struct WriteState {
     pub length_addr: u64,
 }
 
+/// VM State.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VmState {
+    /// Runnable.
     Runnable,
+    /// Terminated.
     Terminated,
+    /// Wait.
     Wait {
+        /// Target vm id.
         target_vm_id: VmId,
+        /// Exit code addr.
         exit_code_addr: u64,
     },
+    /// WaitForWrite.
     WaitForWrite(WriteState),
+    /// WaitForRead.
     WaitForRead(ReadState),
 }
 
@@ -440,16 +450,26 @@ pub enum Message {
     Close(VmId, Fd),
 }
 
+/// A pointer to the data that is part of the transaction.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DataPieceId {
+    /// Target program. Usually located in cell data.
     Program,
+    /// The nth input cell data.
     Input(u32),
+    /// The nth output data.
     Output(u32),
+    /// The nth cell dep cell data.
     CellDep(u32),
+    /// The nth group input cell data.
     GroupInput(u32),
+    /// The nth group output data.
     GroupOutput(u32),
+    /// The nth witness.
     Witness(u32),
+    /// The nth witness group input.
     WitnessGroupInput(u32),
+    /// The nth witness group output.
     WitnessGroupOutput(u32),
 }
 
@@ -523,12 +543,15 @@ impl FullSuspendedState {
 /// Context data for current running transaction & script
 #[derive(Clone)]
 pub struct TxData<DL> {
+    /// ResolvedTransaction.
     pub rtx: Arc<ResolvedTransaction>,
+    /// Data loader.
     pub data_loader: DL,
-    // Ideally one might not want to keep program here, since program is totally
-    // deducible from rtx + data_loader, however, for a demo here, program
-    // does help us save some extra coding.
+    /// Ideally one might not want to keep program here, since program is totally
+    /// deducible from rtx + data_loader, however, for a demo here, program
+    /// does help us save some extra coding.
     pub program: Bytes,
+    /// The script group to which the current program belongs.
     pub script_group: Arc<ScriptGroup>,
 }
 
@@ -604,8 +627,11 @@ where
     }
 }
 
+/// The scheduler's running mode.
 #[derive(Clone)]
 pub enum RunMode {
+    /// Continues running until cycles are exhausted.
     LimitCycles(Cycle),
+    /// Continues running until a Pause signal is received.
     Pause(Pause),
 }

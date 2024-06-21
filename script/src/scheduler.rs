@@ -27,9 +27,13 @@ use ckb_vm::{
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
+/// Root process's id.
 pub const ROOT_VM_ID: VmId = FIRST_VM_ID;
+/// The maximum number of VMs that can be created at the same time.
 pub const MAX_VMS_COUNT: u64 = 16;
+/// The maximum number of instantiated VMs.
 pub const MAX_INSTANTIATED_VMS: usize = 4;
+/// The maximum number of fds.
 pub const MAX_FDS: u64 = 64;
 
 /// A single Scheduler instance is used to verify a single script
@@ -42,27 +46,40 @@ pub struct Scheduler<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
+    /// Context data for current running transaction & script.
     pub tx_data: TxData<DL>,
-    // In fact, Scheduler here has the potential to totally replace
-    // TransactionScriptsVerifier, nonetheless much of current syscall
-    // implementation is strictly tied to TransactionScriptsVerifier, we
-    // are using it here to save some extra code.
+    /// In fact, Scheduler here has the potential to totally replace
+    /// TransactionScriptsVerifier, nonetheless much of current syscall
+    /// implementation is strictly tied to TransactionScriptsVerifier, we
+    /// are using it here to save some extra code.
     pub script_version: ScriptVersion,
+    /// Generate system calls.
     pub syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
 
+    /// Total cycles.
     pub total_cycles: Cycle,
+    /// Current iteration cycles. This value is periodically added to
+    /// total_cycles and cleared
     pub current_iteration_cycles: Cycle,
+    /// Next vm id used by spawn.
     pub next_vm_id: VmId,
+    /// Next fd used by pipe.
     pub next_fd_slot: u64,
+    /// Used to store VM state.
     pub states: BTreeMap<VmId, VmState>,
+    /// Used to confirm the owner of fd.
     pub fds: BTreeMap<Fd, VmId>,
+    /// Verify the VM's inherited fd list.
     pub inherited_fd: BTreeMap<VmId, Vec<Fd>>,
+    /// Instantiated vms.
     pub instantiated: BTreeMap<VmId, (MachineContext<DL>, Machine)>,
+    /// Suspended vms.
     pub suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
+    /// Terminated vms.
     pub terminated_vms: BTreeMap<VmId, i8>,
 
-    // MessageBox is expected to be empty before returning from `run`
-    // function, there is no need to persist messages.
+    /// MessageBox is expected to be empty before returning from `run`
+    /// function, there is no need to persist messages.
     pub message_box: Arc<Mutex<Vec<Message>>>,
 }
 
@@ -95,10 +112,12 @@ where
         }
     }
 
+    /// Return total cycles.
     pub fn consumed_cycles(&self) -> Cycle {
         self.total_cycles
     }
 
+    /// Add cycles to total cycles.
     pub fn consumed_cycles_add(&mut self, cycles: Cycle) -> Result<(), Error> {
         self.total_cycles = self
             .total_cycles
@@ -215,6 +234,7 @@ where
         Ok((root_vm.1.machine.exit_code(), self.total_cycles))
     }
 
+    /// Returns the machine that needs to be executed in the current iterate.
     pub fn iterate_prepare_machine(
         &mut self,
         pause: Pause,
@@ -241,6 +261,7 @@ where
         Ok((vm_id_to_run, machine))
     }
 
+    /// Process machine execution results in the current iterate.
     pub fn iterate_process_results(
         &mut self,
         vm_id_to_run: u64,
@@ -718,6 +739,7 @@ where
         Ok(())
     }
 
+    /// Boot a vm by given program and args.
     pub fn boot_vm(
         &mut self,
         data_piece_id: &DataPieceId,
