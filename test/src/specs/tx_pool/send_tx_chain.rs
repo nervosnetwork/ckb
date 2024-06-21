@@ -12,7 +12,8 @@ use ckb_types::{
 
 pub struct SendTxChain;
 
-const MAX_ANCESTORS_COUNT: usize = 125;
+const MAX_ANCESTORS_COUNT: usize = 2000;
+const PROPOSAL_LIMIT: usize = 1500;
 
 impl Spec for SendTxChain {
     fn run(&self, nodes: &mut Vec<Node>) {
@@ -69,7 +70,23 @@ impl Spec for SendTxChain {
         let template = node0.new_block(None, None, None);
         let block_with_proposals = template
             .as_advanced_builder()
-            .set_proposals(txs.iter().map(|tx| tx.proposal_short_id()).collect())
+            .set_proposals(
+                txs.iter()
+                    .take(PROPOSAL_LIMIT)
+                    .map(|tx| tx.proposal_short_id())
+                    .collect(),
+            )
+            .set_transactions(vec![template.transaction(0).unwrap()])
+            .build();
+        node0.submit_block(&block_with_proposals);
+        let block_with_proposals = template
+            .as_advanced_builder()
+            .set_proposals(
+                txs.iter()
+                    .skip(PROPOSAL_LIMIT)
+                    .map(|tx| tx.proposal_short_id())
+                    .collect(),
+            )
             .set_transactions(vec![template.transaction(0).unwrap()])
             .build();
         node0.submit_block(&block_with_proposals);

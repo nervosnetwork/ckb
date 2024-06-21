@@ -402,10 +402,7 @@ impl TxPool {
         limit: usize,
         exclusion: &HashSet<ProposalShortId>,
     ) -> HashSet<ProposalShortId> {
-        let mut proposals = HashSet::with_capacity(limit);
-        self.pool_map
-            .fill_proposals(limit, exclusion, &mut proposals, Status::Pending);
-        proposals
+        self.pool_map.get_proposals(limit, exclusion)
     }
 
     /// Returns tx from tx-pool or storage corresponding to the id.
@@ -426,7 +423,7 @@ impl TxPool {
     pub(crate) fn get_ids(&self) -> TxPoolIds {
         let pending = self
             .pool_map
-            .score_sorted_iter_by(vec![Status::Pending, Status::Gap])
+            .score_sorted_iter_by_statuses(vec![Status::Pending, Status::Gap])
             .map(|entry| entry.transaction().hash())
             .collect();
 
@@ -442,7 +439,7 @@ impl TxPool {
     pub(crate) fn get_all_entry_info(&self) -> TxPoolEntryInfo {
         let pending = self
             .pool_map
-            .score_sorted_iter_by(vec![Status::Pending, Status::Gap])
+            .score_sorted_iter_by_statuses(vec![Status::Pending, Status::Gap])
             .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 

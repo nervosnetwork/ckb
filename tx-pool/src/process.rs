@@ -73,9 +73,9 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn fetch_tx_verify_cache(&self, hash: &Byte32) -> Option<CacheEntry> {
+    pub(crate) async fn fetch_tx_verify_cache(&self, tx: &TransactionView) -> Option<CacheEntry> {
         let guard = self.txs_verify_cache.read().await;
-        guard.peek(hash).cloned()
+        guard.peek(&tx.witness_hash()).cloned()
     }
 
     async fn fetch_txs_verify_cache(
@@ -84,8 +84,11 @@ impl TxPoolService {
     ) -> HashMap<Byte32, CacheEntry> {
         let guard = self.txs_verify_cache.read().await;
         txs.filter_map(|tx| {
-            let hash = tx.hash();
-            guard.peek(&hash).cloned().map(|value| (hash, value))
+            let wtx_hash = tx.witness_hash();
+            guard
+                .peek(&wtx_hash)
+                .cloned()
+                .map(|value| (wtx_hash, value))
         })
         .collect()
     }
@@ -654,7 +657,7 @@ impl TxPoolService {
         declared_cycles: Option<Cycle>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
-        let tx_hash = tx.hash();
+        let wtx_hash = tx.witness_hash();
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
 
@@ -670,7 +673,7 @@ impl TxPoolService {
             return None;
         }
 
-        let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
+        let verify_cache = self.fetch_tx_verify_cache(&tx).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status.with_env(tip_header));
@@ -708,7 +711,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, verified);
+                guard.put(wtx_hash, verified);
             });
         }
 
@@ -725,15 +728,13 @@ impl TxPoolService {
     }
 
     pub(crate) async fn _test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
-        let tx_hash = tx.hash();
-
         let (pre_check_ret, snapshot) = self.pre_check(&tx).await;
 
         let (_tip_hash, rtx, status, _fee, _tx_size) = pre_check_ret?;
 
         // skip check the delay window
 
-        let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
+        let verify_cache = self.fetch_tx_verify_cache(&tx).await;
         let max_cycles = self.consensus.max_block_cycles();
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status.with_env(tip_header));

@@ -1,5 +1,3 @@
-use std::{thread::sleep, time::Duration};
-
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, always_success_consensus, ckb_testnet_consensus};
 use ckb_types::{
@@ -145,11 +143,17 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
     let tip_block = store.get_block(&tip.hash()).unwrap();
     let mut parent_tx_hash = tip_block.transactions().first().unwrap().hash();
 
-    // generate 30 child-spends-parent txs
-    for i in 0..130 {
+    // generate 2000 child-spends-parent txs
+    for i in 0..2001 {
         let input = CellInput::new(OutPoint::new(parent_tx_hash.clone(), 0), 0);
         let output = CellOutputBuilder::default()
-            .capacity(Capacity::bytes(1000 - i).unwrap().pack())
+            .capacity(
+                Capacity::bytes(1000)
+                    .unwrap()
+                    .safe_sub(Capacity::shannons(i * 41 * 1000))
+                    .unwrap()
+                    .pack(),
+            )
             .lock(always_success_cell().2.clone())
             .build();
         let cell_dep = CellDep::new_builder()
@@ -162,43 +166,22 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
             .cell_dep(cell_dep)
             .build();
         let new_tx: ckb_jsonrpc_types::Transaction = tx.data().into();
-        suite.rpc(&RpcTestRequest {
+        let response = suite.rpc(&RpcTestRequest {
             id: 42,
             jsonrpc: "2.0".to_string(),
             method: "send_transaction".to_string(),
             params: vec![json!(new_tx), json!("passthrough")],
         });
+        if i != 2000 {
+            assert_eq!(response.error.to_string(), "null".to_string());
+        } else {
+            assert!(response
+                .error
+                .to_string()
+                .contains("ExceededMaximumAncestorsCount"));
+        }
         parent_tx_hash = tx.hash();
     }
-
-    suite.wait_block_template_array_ge("proposals", 125);
-
-    // 130 txs will be added to proposal list
-    while store.get_tip_header().unwrap().number() != (tip.number() + 2) {
-        sleep(Duration::from_millis(400));
-        suite.rpc(&RpcTestRequest {
-            id: 42,
-            jsonrpc: "2.0".to_string(),
-            method: "generate_block".to_string(),
-            params: vec![],
-        });
-    }
-
-    // the default value of pool config `max_ancestors_count` is 125,
-    // only 125 txs will be added to committed list of the block template
-    suite.wait_block_template_array_ge("transactions", 1);
-
-    let response = suite.rpc(&RpcTestRequest {
-        id: 42,
-        jsonrpc: "2.0".to_string(),
-        method: "get_block_template".to_string(),
-        params: vec![],
-    });
-
-    assert_eq!(
-        125,
-        response.result["transactions"].as_array().unwrap().len()
-    );
 }
 
 fn build_tx(

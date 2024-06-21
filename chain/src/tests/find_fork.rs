@@ -303,7 +303,7 @@ fn test_find_fork_case4() {
     );
 }
 
-// this case is create for issuse from https://github.com/nervosnetwork/ckb/pull/1470
+// this case is create for issues from https://github.com/nervosnetwork/ckb/pull/1470
 #[test]
 fn repeatedly_switch_fork() {
     let (shared, _) = SharedBuilder::with_temp_db()
