@@ -14,4 +14,4 @@ ckb-logger = { path = "../logger", version = "= 0.117.0-pre" }
 ckb-crypto = { path = "../crypto", version = "= 0.117.0-pre" }
 
 [dev-dependencies]
-rand = "0.8"
+rand = "0.7"

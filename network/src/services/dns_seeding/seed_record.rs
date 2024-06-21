@@ -108,7 +108,7 @@ impl SeedRecord {
 
         let data = Self::data_to_sign(ip, port, peer_id.as_ref(), valid_until);
         let hash = blake2b_256(data);
-        let message = Message::from_digest_slice(&hash).expect("create message error");
+        let message = Message::from_slice(&hash).expect("create message error");
 
         if let Ok(pubkey) = SECP256K1.recover_ecdsa(&message, &signature) {
             Ok(SeedRecord {

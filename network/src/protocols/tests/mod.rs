@@ -218,7 +218,7 @@ fn net_service_start(
         .insert_protocol(feeler_meta);
 
     let mut p2p_service = service_builder
-        .handshake_type(network_state.local_private_key().clone().into())
+        .key_pair(network_state.local_private_key().clone())
         .upnp(config.upnp)
         .forever(true)
         .build(EventHandler {

@@ -30,7 +30,7 @@ impl Pubkey {
         let recoverable_signature = signature.to_recoverable()?;
         let signature = recoverable_signature.to_standard();
 
-        let message = SecpMessage::from_digest_slice(message.as_bytes())?;
+        let message = SecpMessage::from_slice(message.as_bytes())?;
         context.verify_ecdsa(&message, &signature, &pubkey)?;
         Ok(())
     }

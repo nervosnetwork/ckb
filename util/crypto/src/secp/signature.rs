@@ -90,7 +90,7 @@ impl Signature {
     pub fn recover(&self, message: &Message) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
         let recoverable_signature = self.to_recoverable()?;
-        let message = SecpMessage::from_digest_slice(message.as_bytes())?;
+        let message = SecpMessage::from_slice(message.as_bytes())?;
         let pubkey = context.recover_ecdsa(&message, &recoverable_signature)?;
         let serialized = pubkey.serialize_uncompressed();
 

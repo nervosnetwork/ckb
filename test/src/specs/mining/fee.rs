@@ -77,7 +77,7 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
             .map(|cell| {
                 let minimal_capacity = cell.occupied_capacity().unwrap().as_u64();
                 let maximal_capacity = cell.capacity().as_u64();
-                let random_capacity = rng.gen_range(minimal_capacity..=maximal_capacity);
+                let random_capacity = rng.gen_range(minimal_capacity, maximal_capacity + 1);
                 let output = CellOutput::new_builder()
                     .capacity(random_capacity.pack())
                     .lock(cell.cell_output.lock())
@@ -133,7 +133,7 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
             .map(|cell| {
                 let minimal_capacity = cell.occupied_capacity().unwrap().as_u64();
                 let maximal_capacity = cell.capacity().as_u64();
-                let random_capacity = rng.gen_range(minimal_capacity..=maximal_capacity);
+                let random_capacity = rng.gen_range(minimal_capacity, maximal_capacity + 1);
                 let output = CellOutput::new_builder()
                     .capacity(random_capacity.pack())
                     .lock(cell.cell_output.lock())

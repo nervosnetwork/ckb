@@ -15,12 +15,12 @@ ckb-types = { path = "../util/types", version = "= 0.117.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.117.0-pre" }
 ckb-hash = { path = "../util/hash", version = "= 0.117.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.117.0-pre" }
-rand = "0.8"
-rand_distr = "0.4"
+rand = "0.7"
+rand_distr = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.117.0-pre" }
-hyper = { version = "0.14", features = ["client", "http2", "http1", "server"] }
+hyper = { version = "0.14", features = ["client", "http2", "http1", "server"]  }
 hyper-tls = "0.5"
 futures = "0.3"
 lru = "0.7.1"
@@ -31,4 +31,4 @@ console = ">=0.9.1, <1.0.0"
 eaglesong = "0.1"
 base64 = "0.21.0"
 jsonrpc-core = "18.0"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync"]  }

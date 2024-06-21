@@ -57,7 +57,7 @@ impl SeedRecord {
 
         let data = Self::data_to_sign(self.ip, self.port, self.peer_id.as_ref(), self.valid_until);
         let hash = blake2b_256(&data);
-        let message = Message::from_digest_slice(&hash).expect("create message error");
+        let message = Message::from_slice(&hash).expect("create message error");
 
         let signature = SECP256K1.sign_ecdsa_recoverable(&message, privkey);
         let (recid, signed_data) = signature.serialize_compact();
