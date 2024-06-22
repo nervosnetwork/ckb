@@ -807,10 +807,12 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
         );
     }
     assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
+    // Note that different rand versions may cause different randomly
+    // generated tx data, which in turn leads to different final cycles.
     if script_version < crate::ScriptVersion::V2 {
-        assert_eq!(cycles, 3387236);
+        assert_eq!(cycles, 3334802);
     } else {
-        assert_eq!(cycles, 3276322);
+        assert_eq!(cycles, 3225879);
     }
 }
 
@@ -1014,12 +1016,14 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
         assert!(cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND);
     }
     assert_eq!(cycles, cycles_once);
+    // Note that different rand versions may cause different randomly
+    // generated tx data, which in turn leads to different final cycles.
     if script_version <= ScriptVersion::V0 {
-        assert_eq!(cycles, 3405227);
+        assert_eq!(cycles, 3352333);
     } else if script_version == ScriptVersion::V1 {
-        assert_eq!(cycles, 3387236);
+        assert_eq!(cycles, 3334802);
     } else if script_version == ScriptVersion::V2 {
-        assert_eq!(cycles, 3276322);
+        assert_eq!(cycles, 3225879);
     }
 }
 
