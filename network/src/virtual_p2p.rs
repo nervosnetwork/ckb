@@ -1,5 +1,4 @@
 use crate::network::NetworkState;
-use p2p::traits::ServiceProtocol;
 use std::{sync::Arc, time::Duration};
 
 pub use p2p::{
@@ -7,6 +6,7 @@ pub use p2p::{
     channel::mpsc::channel,
     context::{ProtocolContext, ServiceContext, SessionContext},
     service::ServiceAsyncControl,
+    traits::ServiceProtocol,
     ProtocolId,
 };
 
