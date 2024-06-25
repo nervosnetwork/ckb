@@ -313,7 +313,7 @@ impl Spec for TxPoolOrphanDoubleSpend {
         let script = node0.always_success_script();
         let new_output1 = CellOutputBuilder::default()
             .capacity(capacity_bytes!(200).pack())
-            .lock(script.clone())
+            .lock(script)
             .build();
         let new_output2 = new_output1.clone();
         let new_output3 = new_output1.clone();

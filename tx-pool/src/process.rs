@@ -274,7 +274,7 @@ impl TxPoolService {
                                 "{} is resolved as Dead, but there is no conflicted tx",
                                 rtx.transaction.proposal_short_id()
                             );
-                            return Err(Reject::Resolve(OutPointError::Dead(out.clone())));
+                            return Err(Reject::Resolve(OutPointError::Dead(out)));
                         }
                         // we also return Ok here, so that the entry will be continue to be verified before submit
                         // we only want to put it into conflicts pool after the verification stage passed

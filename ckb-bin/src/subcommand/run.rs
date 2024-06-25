@@ -48,13 +48,13 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
 
     let network_controller = launcher.start_network_and_rpc(
         &shared,
-        chain_controller.clone(),
+        chain_controller,
         miner_enable,
         pack.take_relay_tx_receiver(),
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();
-    tx_pool_builder.start(network_controller.clone());
+    tx_pool_builder.start(network_controller);
 
     info!("CKB service started ...");
     ctrlc::set_handler(|| {
