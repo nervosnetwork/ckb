@@ -9,6 +9,7 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
+        hardfork::{HardForks, CKB2021, CKB2023},
         Capacity, HeaderView, ScriptHashType, TransactionBuilder, TransactionInfo,
     },
     h256,
@@ -96,7 +97,13 @@ fn run(data: &[u8]) {
     };
 
     let provider = MockDataLoader {};
-    let consensus = ConsensusBuilder::default().build();
+    let hardfork_switch = HardForks {
+        ckb2021: CKB2021::new_dev_default(),
+        ckb2023: CKB2023::new_dev_default(),
+    };
+    let consensus = ConsensusBuilder::default()
+        .hardfork_switch(hardfork_switch)
+        .build();
     let tx_verify_env =
         TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
     let verifier = TransactionScriptsVerifier::new(
