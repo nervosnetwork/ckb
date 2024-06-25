@@ -314,7 +314,7 @@ impl TxPoolService {
         if self.verify_queue_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
-        self.enqueue_verify_queue(tx.clone(), remote).await
+        self.enqueue_verify_queue(tx, remote).await
     }
 
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
