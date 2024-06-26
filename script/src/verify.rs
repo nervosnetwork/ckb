@@ -1179,7 +1179,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .add_cycles_no_checking(program_bytes_cycles)
                 .map_err(ScriptError::VMInternalError)?;
             let mut context = context.lock().unwrap();
-            context.set_pause(machine.machine.pause().clone());
+            context.set_pause(machine.machine.pause());
             vec![ResumableMachine::initial(machine)]
         };
 
