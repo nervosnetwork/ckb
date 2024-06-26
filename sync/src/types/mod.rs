@@ -21,6 +21,7 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_tx_pool::service::TxVerificationResult;
+use ckb_types::BlockNumberAndHash;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
@@ -398,53 +399,6 @@ impl InflightState {
         Self {
             peer,
             timestamp: unix_time_as_millis(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BlockNumberAndHash {
-    pub number: BlockNumber,
-    pub hash: Byte32,
-}
-
-impl BlockNumberAndHash {
-    pub fn new(number: BlockNumber, hash: Byte32) -> Self {
-        Self { number, hash }
-    }
-
-    pub fn number(&self) -> BlockNumber {
-        self.number
-    }
-
-    pub fn hash(&self) -> Byte32 {
-        self.hash.clone()
-    }
-}
-
-impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
-    fn from(inner: (BlockNumber, Byte32)) -> Self {
-        Self {
-            number: inner.0,
-            hash: inner.1,
-        }
-    }
-}
-
-impl From<&core::HeaderView> for BlockNumberAndHash {
-    fn from(header: &core::HeaderView) -> Self {
-        Self {
-            number: header.number(),
-            hash: header.hash(),
-        }
-    }
-}
-
-impl From<core::HeaderView> for BlockNumberAndHash {
-    fn from(header: core::HeaderView) -> Self {
-        Self {
-            number: header.number(),
-            hash: header.hash(),
         }
     }
 }
