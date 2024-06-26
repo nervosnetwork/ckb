@@ -47,7 +47,7 @@ impl IndexerService {
             ckb_db,
             pool_service,
             &config.into(),
-            async_handle.clone(),
+            async_handle,
             config.init_tip_hash.clone(),
         );
 
@@ -1802,8 +1802,8 @@ mod tests {
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(1000).pack())
-                    .lock(lock_script1.clone())
-                    .type_(Some(type_script1.clone()).pack())
+                    .lock(lock_script1)
+                    .type_(Some(type_script1).pack())
                     .build(),
             )
             .output_data(Default::default())
@@ -1816,7 +1816,7 @@ mod tests {
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(2000).pack())
                     .lock(lock_script11.clone())
-                    .type_(Some(type_script11.clone()).pack())
+                    .type_(Some(type_script11).pack())
                     .build(),
             )
             .output_data(data.to_vec().pack())
@@ -1824,8 +1824,8 @@ mod tests {
 
         let block0 = BlockBuilder::default()
             .transaction(cellbase0)
-            .transaction(tx00.clone())
-            .transaction(tx01.clone())
+            .transaction(tx00)
+            .transaction(tx01)
             .header(HeaderBuilder::default().number(0.pack()).build())
             .build();
 
@@ -2001,7 +2001,7 @@ mod tests {
         // test get_cells_capacity rpc with output_data Partial search mode
         let cells_capacity = rpc
             .get_cells_capacity(IndexerSearchKey {
-                script: lock_script11.clone().into(),
+                script: lock_script11.into(),
                 filter: Some(IndexerSearchKeyFilter {
                     output_data: Some(JsonBytes::from_vec(vec![])),
                     output_data_filter_mode: Some(IndexerSearchMode::Partial),
