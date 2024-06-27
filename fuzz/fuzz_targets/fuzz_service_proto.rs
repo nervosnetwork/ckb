@@ -20,7 +20,7 @@ use std::{
     collections::HashMap,
     sync::{atomic::AtomicBool, Arc},
 };
-use tokio::time::{self, Duration};
+use tokio::time::{sleep, Duration};
 
 use ckb_fuzz::BufManager;
 
@@ -87,6 +87,8 @@ impl ServiceProtoTest {
             ProtocolId::default(),
         );
 
+        self.service_protocol.init(&mut proto_ctx).await;
+
         self.service_protocol
             .connected(proto_ctx.as_mut(&session_ctx), "")
             .await;
@@ -120,11 +122,10 @@ fuzz_target!(|data: &[u8]| {
 
     let _r = rt.block_on(async move {
         tokio::select! {
-            _ = t.run() => println!(""),
-            _ = time::sleep(Duration::from_millis(100)) => println!("Timeout or Poll::Pending"),
-
+            _ = t.run() => (),
+            _ = sleep(Duration::from_millis(500)) => {
+                // panic!("pass");
+            },
         }
     });
-
-    println!("---- mk0");
 });
