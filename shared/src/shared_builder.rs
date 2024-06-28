@@ -205,7 +205,7 @@ impl SharedBuilder {
         }
 
         let db = {
-            let db_dir = PathBuf::from("/tmp/tmp.db");
+            let db_dir = std::env::temp_dir();
             RocksDB::open_in(db_dir, COLUMNS)
         };
         SharedBuilder {
