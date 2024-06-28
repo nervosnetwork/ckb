@@ -11,6 +11,9 @@ repository = "https://github.com/nervosnetwork/ckb"
 [package.metadata]
 cargo-fuzz = true
 
+[features]
+binary_fuzz_service_proto = []
+
 [dependencies]
 libfuzzer-sys = "0.4"
 ipnetwork = "0.18"
@@ -61,7 +64,7 @@ debug = 1
 overflow-checks = true
 
 [build]
-rustflags = ["-C", "instrument-coverage"]
+rustflags = ["-C", "instrument-coverage", "-C", "sanitizer=address"]
 
 [[bin]]
 name = "fuzz_compress"

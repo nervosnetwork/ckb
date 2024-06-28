@@ -131,7 +131,7 @@ fn run(data: &[u8]) -> Result<(), ()> {
         let _r = proto.init(nc.clone()).await;
         proto.connected(nc.clone(), 0.into(), "").await;
         //
-        let bufs = data.get_bufs(0xFFFFFFFF, 7, 1000);
+        let bufs = data.get_bufs(0xFFFFFFFF, 15, 4000);
         for buf in bufs {
             proto.received(nc.clone(), 0.into(), Bytes::from(buf)).await;
         }

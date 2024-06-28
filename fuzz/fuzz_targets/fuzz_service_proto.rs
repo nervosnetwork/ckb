@@ -2,15 +2,18 @@
 use libfuzzer_sys::fuzz_target;
 
 // Note
-//  If you want to use this fuzz, need to replace tentacle and related dependencies in Cargo.toml.
+// This bin depends on feature: binary_fuzz_service_proto and needs to replace tentacle
+//  https://github.com/joii2020/tentacle/tree/dev
+// Mainly add pub attributes to some functions for testing calls
 // [replace]
 // "tentacle:0.4.2" = {path = '../../tentacle/tentacle'}
 // "tentacle-multiaddr:0.3.4" = {path = '../../tentacle/multiaddr'}
 // "tentacle-secio:0.5.7" = {path = '../../tentacle/secio'}
 
+#[cfg(feature = "binary_fuzz_service_proto")]
 use ckb_network::{
     virtual_p2p::{
-        channel, Bytes, ProtocolContext, ProtocolId, ServiceContext, ServiceProtocol,
+        p2p::channel::mpsc::channel, Bytes, ProtocolContext, ProtocolId, ServiceContext, ServiceProtocol,
         SessionContext,
     },
     NetworkState,
@@ -24,12 +27,14 @@ use tokio::time::{sleep, Duration};
 
 use ckb_fuzz::BufManager;
 
+#[cfg(feature = "binary_fuzz_service_proto")]
 struct ServiceProtoTest {
     data: BufManager,
     service_protocol: Box<dyn ServiceProtocol>,
     _channel_id: usize,
 }
 
+#[cfg(feature = "binary_fuzz_service_proto")]
 impl ServiceProtoTest {
     fn new(data: &[u8]) -> Result<Self, ()> {
         let mut data = BufManager::new(&data);
@@ -108,6 +113,7 @@ impl ServiceProtoTest {
     }
 }
 
+#[cfg(feature = "binary_fuzz_service_proto")]
 fuzz_target!(|data: &[u8]| {
     let t = ServiceProtoTest::new(data);
     if t.is_err() {
@@ -129,3 +135,6 @@ fuzz_target!(|data: &[u8]| {
         }
     });
 });
+
+#[cfg(not(feature = "binary_fuzz_service_proto"))]
+fuzz_target!(|_data: &[u8]| { panic!("unsupport") });

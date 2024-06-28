@@ -1,9 +1,9 @@
 use crate::network::NetworkState;
 use std::{sync::Arc, time::Duration};
 
+pub use p2p;
 pub use p2p::{
     bytes::Bytes,
-    channel::mpsc::channel,
     context::{ProtocolContext, ServiceContext, SessionContext},
     service::ServiceAsyncControl,
     traits::ServiceProtocol,
