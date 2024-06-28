@@ -64,7 +64,7 @@ impl RpcServer {
         };
 
         let tcp_address = if let Some(addr) = config.tcp_listen_address {
-            let local_addr = handler.block_on(Self::start_tcp_server(rpc, addr));
+            let local_addr = handler.block_on(Self::start_tcp_server(rpc, addr, handler.clone()));
             if let Ok(addr) = &local_addr {
                 info!("Listen TCP RPCServer on address: {}", addr);
             };
@@ -137,11 +137,12 @@ impl RpcServer {
     async fn start_tcp_server(
         rpc: Arc<MetaIoHandler<Option<Session>>>,
         tcp_listen_address: String,
+        handler: Handle,
     ) -> Result<SocketAddr, AnyError> {
         // TCP server with line delimited json codec.
         let listener = TcpListener::bind(tcp_listen_address).await?;
         let tcp_address = listener.local_addr()?;
-        tokio::spawn(async move {
+        handler.spawn(async move {
             let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
             let stream_config = StreamServerConfig::default()
                 .with_channel_size(4)

@@ -44,15 +44,18 @@ pub struct Launcher {
     pub version: Version,
     /// ckb global runtime handle
     pub async_handle: Handle,
+    /// rpc global runtime handle
+    pub rpc_handle: Handle,
 }
 
 impl Launcher {
     /// Construct new Launcher from cli args
-    pub fn new(args: RunArgs, version: Version, async_handle: Handle) -> Self {
+    pub fn new(args: RunArgs, version: Version, async_handle: Handle, rpc_handle: Handle) -> Self {
         Launcher {
             args,
             version,
             async_handle,
+            rpc_handle,
         }
     }
 
@@ -428,8 +431,7 @@ impl Launcher {
         builder.enable_subscription(shared.clone());
         let io_handler = builder.build();
 
-        let async_handle = shared.async_handle();
-        let _rpc = RpcServer::new(rpc_config, io_handler, async_handle.clone());
+        let _rpc = RpcServer::new(rpc_config, io_handler, self.rpc_handle.clone());
 
         network_controller
     }
