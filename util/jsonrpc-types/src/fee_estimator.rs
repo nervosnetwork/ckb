@@ -3,41 +3,44 @@ use serde::{Deserialize, Serialize};
 
 use schemars::JsonSchema;
 
-/// Recommended fee rates.
-#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct RecommendedFeeRates {
-    /// Default fee rate.
-    #[serde(rename = "no_priority")]
-    pub default: u64,
-    /// Low-priority fee rate.
-    #[serde(rename = "low_priority")]
-    pub low: u64,
-    /// Medium-priority fee rate.
-    #[serde(rename = "medium_priority")]
-    pub medium: u64,
-    /// High-priority fee rate.
-    #[serde(rename = "high_priority")]
-    pub high: u64,
+/// The fee estimate mode.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EstimateMode {
+    /// No priority, expect the transaction to be committed in 1 hour.
+    NoPriority,
+    /// Low priority, expect the transaction to be committed in 30 minutes.
+    LowPriority,
+    /// Medium priority, expect the transaction to be committed in 10 minutes.
+    MediumPriority,
+    /// High priority, expect the transaction to be committed as soon as possible.
+    HighPriority,
 }
 
-impl From<RecommendedFeeRates> for core::RecommendedFeeRates {
-    fn from(json: RecommendedFeeRates) -> Self {
-        core::RecommendedFeeRates {
-            default: core::FeeRate::from_u64(json.default),
-            low: core::FeeRate::from_u64(json.low),
-            medium: core::FeeRate::from_u64(json.medium),
-            high: core::FeeRate::from_u64(json.high),
+impl Default for EstimateMode {
+    fn default() -> Self {
+        Self::NoPriority
+    }
+}
+
+impl From<EstimateMode> for core::EstimateMode {
+    fn from(json: EstimateMode) -> Self {
+        match json {
+            EstimateMode::NoPriority => core::EstimateMode::NoPriority,
+            EstimateMode::LowPriority => core::EstimateMode::LowPriority,
+            EstimateMode::MediumPriority => core::EstimateMode::MediumPriority,
+            EstimateMode::HighPriority => core::EstimateMode::HighPriority,
         }
     }
 }
 
-impl From<core::RecommendedFeeRates> for RecommendedFeeRates {
-    fn from(data: core::RecommendedFeeRates) -> Self {
-        RecommendedFeeRates {
-            default: data.default.as_u64(),
-            low: data.low.as_u64(),
-            medium: data.medium.as_u64(),
-            high: data.high.as_u64(),
+impl From<core::EstimateMode> for EstimateMode {
+    fn from(data: core::EstimateMode) -> Self {
+        match data {
+            core::EstimateMode::NoPriority => EstimateMode::NoPriority,
+            core::EstimateMode::LowPriority => EstimateMode::LowPriority,
+            core::EstimateMode::MediumPriority => EstimateMode::MediumPriority,
+            core::EstimateMode::HighPriority => EstimateMode::HighPriority,
         }
     }
 }

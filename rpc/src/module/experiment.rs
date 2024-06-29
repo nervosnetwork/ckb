@@ -3,8 +3,8 @@ use crate::module::chain::CyclesEstimator;
 use async_trait::async_trait;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
-    Capacity, DaoWithdrawingCalculationKind, EstimateCycles, OutPoint, RecommendedFeeRates,
-    Transaction,
+    Capacity, DaoWithdrawingCalculationKind, EstimateCycles, EstimateMode, OutPoint, Transaction,
+    Uint64,
 };
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -166,13 +166,29 @@ pub trait ExperimentRpc {
 
     /// Get fee estimates.
     ///
+    /// ## Params
+    ///
+    /// * `estimate_mode` - True to enable a simple fallback algorithm, when lack of historical empirical data to estimate fee rates with configured algorithm.
+    ///
+    ///   Default: `no_priority`.
+    ///
+    /// * `enable_fallback` - True to enable a simple fallback algorithm, when lack of historical empirical data to estimate fee rates with configured algorithm.
+    ///
+    ///   Default: `true`.
+    ///
+    /// ### The fallback algorithm
+    ///
+    /// Since CKB transaction confirmation involves a two-step process—1) propose and 2) commit, it is complex to
+    /// predict the transaction fee accurately with the expectation that it will be included within a certain block height.
+    ///
+    /// This algorithm relies on two assumptions and uses a simple strategy to estimate the transaction fee: 1) all transactions
+    /// in the pool are waiting to be proposed, and 2) no new transactions will be added to the pool.
+    ///
+    /// In practice, this simple algorithm should achieve good accuracy fee rate and running performance.
+    ///
     /// ## Returns
     ///
-    /// Recommended fee rates in 4 levels of priorities:
-    /// - No priority (about 2 hours).
-    /// - Low priority (about 1 hour).
-    /// - Medium priority (about 10 minutes).
-    /// - High priority (as soon as possible).
+    /// The estimated fee rate in shannons per kilobyte.
     ///
     /// ## Examples
     ///
@@ -182,7 +198,7 @@ pub trait ExperimentRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "method": "get_fee_estimates",
+    ///   "method": "estimate_fee_rate",
     ///   "params": []
     /// }
     /// ```
@@ -193,16 +209,15 @@ pub trait ExperimentRpc {
     /// {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
-    ///   "result": {
-    ///     "no_priority": 1000,
-    ///     "low_priority": 1000,
-    ///     "medium_priority": 1000,
-    ///     "high_priority": 1000
-    ///   }
+    ///   "result": "0x3e8"
     /// }
     /// ```
-    #[rpc(name = "get_fee_estimates")]
-    fn get_fee_estimates(&self) -> Result<RecommendedFeeRates>;
+    #[rpc(name = "estimate_fee_rate")]
+    fn estimate_fee_rate(
+        &self,
+        estimate_mode: Option<EstimateMode>,
+        enable_fallback: Option<bool>,
+    ) -> Result<Uint64>;
 }
 
 #[derive(Clone)]
@@ -283,18 +298,19 @@ impl ExperimentRpc for ExperimentRpcImpl {
         }
     }
 
-    fn get_fee_estimates(&self) -> Result<RecommendedFeeRates> {
-        let tx_pool = self.shared.tx_pool_controller();
-        let fee_rates_res = tx_pool
-            .get_fee_estimates()
-            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
-        if let Ok(Some(fee_rates)) = fee_rates_res {
-            Ok(fee_rates)
-        } else {
-            // TODO merge code from PR#4465
-            let msg = "fallback fee estimates algorithm is unfinished";
-            let err = RPCError::custom(RPCError::CKBInternalError, msg.to_owned());
-            Err(err)
-        }
+    fn estimate_fee_rate(
+        &self,
+        estimate_mode: Option<EstimateMode>,
+        enable_fallback: Option<bool>,
+    ) -> Result<Uint64> {
+        let estimate_mode = estimate_mode.unwrap_or_default();
+        let enable_fallback = enable_fallback.unwrap_or(true);
+        self.shared
+            .tx_pool_controller()
+            .estimate_fee_rate(estimate_mode.into(), enable_fallback)
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?
+            .map_err(RPCError::from_any_error)
+            .map(core::FeeRate::as_u64)
+            .map(Into::into)
     }
 }

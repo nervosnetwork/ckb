@@ -11,7 +11,7 @@ use std::{
 use ckb_types::{
     core::{
         tx_pool::{get_transaction_weight, TxEntryInfo},
-        BlockNumber, BlockView, FeeRate, RecommendedFeeRates,
+        BlockNumber, BlockView, FeeRate,
     },
     packed::Byte32,
 };
@@ -254,7 +254,7 @@ impl TxConfirmStat {
         confirm_blocks: usize,
         required_samples: usize,
         required_confirm_rate: f64,
-    ) -> Option<FeeRate> {
+    ) -> Result<FeeRate, Error> {
         // A tx need 1 block to propose, then 2 block to get confirmed
         // so at least confirm blocks is 3 blocks.
         if confirm_blocks < 3 || required_samples == 0 {
@@ -263,7 +263,7 @@ impl TxConfirmStat {
                 confirm_blocks,
                 required_samples
             );
-            return None;
+            return Err(Error::LackData);
         }
         let mut confirmed_txs = 0f64;
         let mut txs_count = 0f64;
@@ -323,7 +323,8 @@ impl TxConfirmStat {
                     if bucket.txs_count >= half_count {
                         return bucket
                             .avg_fee_rate()
-                            .map(|fee_rate| cmp::max(fee_rate, self.min_fee_rate));
+                            .map(|fee_rate| cmp::max(fee_rate, self.min_fee_rate))
+                            .ok_or(Error::NoProperFeeRate);
                     } else {
                         half_count -= bucket.txs_count;
                     }
@@ -334,7 +335,7 @@ impl TxConfirmStat {
             ckb_logger::trace!("no best bucket");
         }
 
-        None
+        Err(Error::NoProperFeeRate)
     }
 }
 
@@ -428,7 +429,7 @@ impl Algorithm {
     }
 
     /// estimate a fee rate for confirm target
-    fn estimate(&self, expect_confirm_blocks: BlockNumber) -> Option<FeeRate> {
+    fn estimate(&self, expect_confirm_blocks: BlockNumber) -> Result<FeeRate, Error> {
         let min_estimate_samples = constants::MIN_TARGET as usize * 2;
         self.tx_confirm_stat.estimate_median(
             expect_confirm_blocks as usize,
@@ -475,60 +476,11 @@ impl Algorithm {
         let _ = self.drop_tx(tx_hash);
     }
 
-    pub fn get_fee_estimates(&self) -> Result<Option<RecommendedFeeRates>, Error> {
+    pub fn estimate_fee_rate(&self, target_blocks: BlockNumber) -> Result<FeeRate, Error> {
         if !self.is_ready {
             return Err(Error::NotReady);
         }
-
-        let high = if let Some(fee_rate) = self.estimate(constants::HIGH_TARGET) {
-            fee_rate
-        } else {
-            return Ok(None);
-        };
-
-        let medium = if let Some(fee_rate) = self.estimate(constants::MEDIUM_TARGET) {
-            fee_rate
-        } else {
-            let rates = RecommendedFeeRates {
-                default: high,
-                low: high,
-                medium: high,
-                high,
-            };
-            return Ok(Some(rates));
-        };
-
-        let low = if let Some(fee_rate) = self.estimate(constants::LOW_TARGET) {
-            fee_rate
-        } else {
-            let rates = RecommendedFeeRates {
-                default: medium,
-                low: medium,
-                medium,
-                high,
-            };
-            return Ok(Some(rates));
-        };
-
-        let default = if let Some(fee_rate) = self.estimate(constants::DEFAULT_TARGET) {
-            fee_rate
-        } else {
-            let rates = RecommendedFeeRates {
-                default: low,
-                low,
-                medium,
-                high,
-            };
-            return Ok(Some(rates));
-        };
-
-        let rates = RecommendedFeeRates {
-            default,
-            low,
-            medium,
-            high,
-        };
-        Ok(Some(rates))
+        self.estimate(target_blocks)
     }
 }
 
@@ -569,32 +521,32 @@ mod tests {
         // test basic median fee rate
         assert_eq!(
             stat.estimate_median(5, 3, 1f64),
-            Some(FeeRate::from_u64(3000))
+            Ok(FeeRate::from_u64(3000))
         );
         // test different required samples
         assert_eq!(
             stat.estimate_median(10, 1, 1f64),
-            Some(FeeRate::from_u64(1500))
+            Ok(FeeRate::from_u64(1500))
         );
         assert_eq!(
             stat.estimate_median(10, 3, 1f64),
-            Some(FeeRate::from_u64(2050))
+            Ok(FeeRate::from_u64(2050))
         );
         assert_eq!(
             stat.estimate_median(10, 4, 1f64),
-            Some(FeeRate::from_u64(2050))
+            Ok(FeeRate::from_u64(2050))
         );
         assert_eq!(
             stat.estimate_median(15, 2, 1f64),
-            Some(FeeRate::from_u64(1000))
+            Ok(FeeRate::from_u64(1000))
         );
         assert_eq!(
             stat.estimate_median(15, 3, 1f64),
-            Some(FeeRate::from_u64(1200))
+            Ok(FeeRate::from_u64(1200))
         );
         // test return zero if confirm_blocks or required_samples is zero
-        assert_eq!(stat.estimate_median(0, 4, 1f64), None);
-        assert_eq!(stat.estimate_median(15, 0, 1f64), None);
-        assert_eq!(stat.estimate_median(0, 3, 1f64), None);
+        assert_eq!(stat.estimate_median(0, 4, 1f64), Err(Error::LackData));
+        assert_eq!(stat.estimate_median(15, 0, 1f64), Err(Error::LackData));
+        assert_eq!(stat.estimate_median(0, 3, 1f64), Err(Error::LackData));
     }
 }

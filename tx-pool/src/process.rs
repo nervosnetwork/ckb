@@ -12,7 +12,8 @@ use crate::util::{
 };
 use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_error::{AnyError, InternalErrorKind};
-use ckb_jsonrpc_types::{BlockTemplate, RecommendedFeeRates};
+use ckb_fee_estimator::FeeEstimator;
+use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
@@ -21,7 +22,10 @@ use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
-    core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
+    core::{
+        cell::ResolvedTransaction, BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView,
+        TransactionView,
+    },
     packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashSet;
@@ -1094,12 +1098,31 @@ impl TxPoolService {
         self.fee_estimator.update_ibd_state(in_ibd);
     }
 
-    pub(crate) async fn get_fee_estimates(&self) -> Result<Option<RecommendedFeeRates>, AnyError> {
+    pub(crate) async fn estimate_fee_rate(
+        &self,
+        estimate_mode: EstimateMode,
+        enable_fallback: bool,
+    ) -> Result<FeeRate, AnyError> {
         let all_entry_info = self.tx_pool.read().await.get_all_entry_info();
-        self.fee_estimator
-            .get_fee_estimates(all_entry_info)
-            .map(|inner| inner.map(Into::into))
-            .map_err(Into::into)
+        match self
+            .fee_estimator
+            .estimate_fee_rate(estimate_mode, all_entry_info)
+        {
+            Ok(fee_rate) => Ok(fee_rate),
+            Err(err) => {
+                if enable_fallback {
+                    let target_blocks =
+                        FeeEstimator::target_blocks_for_estimate_mode(estimate_mode);
+                    self.tx_pool
+                        .read()
+                        .await
+                        .estimate_fee_rate(target_blocks)
+                        .map_err(Into::into)
+                } else {
+                    Err(err.into())
+                }
+            }
+        }
     }
 
     // # Notice

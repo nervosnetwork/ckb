@@ -38,7 +38,7 @@ pub use self::bytes::JsonBytes;
 pub use self::cell::{CellData, CellInfo, CellWithStatus};
 pub use self::debug::{ExtraLoggerConfig, MainLoggerConfig};
 pub use self::experiment::{DaoWithdrawingCalculationKind, EstimateCycles};
-pub use self::fee_estimator::RecommendedFeeRates;
+pub use self::fee_estimator::EstimateMode;
 pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
 pub use self::info::{ChainInfo, DeploymentInfo, DeploymentPos, DeploymentState, DeploymentsInfo};

@@ -32,7 +32,7 @@ mod views;
 pub use advanced_builders::{BlockBuilder, HeaderBuilder, TransactionBuilder};
 pub use blockchain::DepType;
 pub use extras::{BlockExt, EpochExt, EpochNumberWithFraction, TransactionInfo};
-pub use fee_estimator::RecommendedFeeRates;
+pub use fee_estimator::EstimateMode;
 pub use fee_rate::FeeRate;
 pub use reward::{BlockEconomicState, BlockIssuance, BlockReward, MinerReward};
 pub use transaction_meta::{TransactionMeta, TransactionMetaBuilder};

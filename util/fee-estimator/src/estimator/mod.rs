@@ -3,13 +3,13 @@ use std::sync::Arc;
 use ckb_types::{
     core::{
         tx_pool::{TxEntryInfo, TxPoolEntryInfo},
-        BlockView, RecommendedFeeRates,
+        BlockNumber, BlockView, EstimateMode, FeeRate,
     },
     packed::Byte32,
 };
 use ckb_util::RwLock;
 
-use crate::Error;
+use crate::{constants, Error};
 
 mod confirmation_fraction;
 mod weight_units_flow;
@@ -35,6 +35,16 @@ impl FeeEstimator {
     pub fn new_confirmation_fraction() -> Self {
         let algo = confirmation_fraction::Algorithm::new();
         FeeEstimator::ConfirmationFraction(Arc::new(RwLock::new(algo)))
+    }
+
+    /// Target blocks for the provided estimate mode.
+    pub const fn target_blocks_for_estimate_mode(estimate_mode: EstimateMode) -> BlockNumber {
+        match estimate_mode {
+            EstimateMode::NoPriority => constants::DEFAULT_TARGET,
+            EstimateMode::LowPriority => constants::LOW_TARGET,
+            EstimateMode::MediumPriority => constants::MEDIUM_TARGET,
+            EstimateMode::HighPriority => constants::HIGH_TARGET,
+        }
     }
 
     /// Creates a new weight-units flow fee estimator.
@@ -78,15 +88,19 @@ impl FeeEstimator {
         }
     }
 
-    /// Gets fee estimates.
-    pub fn get_fee_estimates(
+    /// Estimates fee rate.
+    pub fn estimate_fee_rate(
         &self,
+        estimate_mode: EstimateMode,
         all_entry_info: TxPoolEntryInfo,
-    ) -> Result<Option<RecommendedFeeRates>, Error> {
+    ) -> Result<FeeRate, Error> {
+        let target_blocks = Self::target_blocks_for_estimate_mode(estimate_mode);
         match self {
-            Self::Dummy => Ok(None),
-            Self::ConfirmationFraction(algo) => algo.read().get_fee_estimates(),
-            Self::WeightUnitsFlow(algo) => algo.read().get_fee_estimates(all_entry_info),
+            Self::Dummy => Err(Error::Dummy),
+            Self::ConfirmationFraction(algo) => algo.read().estimate_fee_rate(target_blocks),
+            Self::WeightUnitsFlow(algo) => {
+                algo.read().estimate_fee_rate(target_blocks, all_entry_info)
+            }
         }
     }
 }

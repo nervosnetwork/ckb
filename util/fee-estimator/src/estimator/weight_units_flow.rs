@@ -57,7 +57,7 @@ use std::collections::HashMap;
 use ckb_chain_spec::consensus::MAX_BLOCK_BYTES;
 use ckb_types::core::{
     tx_pool::{get_transaction_weight, TxEntryInfo, TxPoolEntryInfo},
-    BlockNumber, BlockView, FeeRate, RecommendedFeeRates,
+    BlockNumber, BlockView, FeeRate,
 };
 
 use crate::{constants, Error};
@@ -161,10 +161,11 @@ impl Algorithm {
             .or_insert_with(|| vec![item]);
     }
 
-    pub fn get_fee_estimates(
+    pub fn estimate_fee_rate(
         &self,
+        target_blocks: BlockNumber,
         all_entry_info: TxPoolEntryInfo,
-    ) -> Result<Option<RecommendedFeeRates>, Error> {
+    ) -> Result<FeeRate, Error> {
         if !self.is_ready {
             return Err(Error::NotReady);
         }
@@ -180,63 +181,7 @@ impl Algorithm {
             current_txs
         };
 
-        let high = if let Some(fee_rate) =
-            self.do_estimate(constants::HIGH_TARGET, &sorted_current_txs)?
-        {
-            fee_rate
-        } else {
-            return Ok(None);
-        };
-
-        let medium = if let Ok(Some(fee_rate)) =
-            self.do_estimate(constants::MEDIUM_TARGET, &sorted_current_txs)
-        {
-            fee_rate
-        } else {
-            let rates = RecommendedFeeRates {
-                default: high,
-                low: high,
-                medium: high,
-                high,
-            };
-            return Ok(Some(rates));
-        };
-
-        let low = if let Ok(Some(fee_rate)) =
-            self.do_estimate(constants::LOW_TARGET, &sorted_current_txs)
-        {
-            fee_rate
-        } else {
-            let rates = RecommendedFeeRates {
-                default: medium,
-                low: medium,
-                medium,
-                high,
-            };
-            return Ok(Some(rates));
-        };
-
-        let default = if let Ok(Some(fee_rate)) =
-            self.do_estimate(constants::DEFAULT_TARGET, &sorted_current_txs)
-        {
-            fee_rate
-        } else {
-            let rates = RecommendedFeeRates {
-                default: low,
-                low,
-                medium,
-                high,
-            };
-            return Ok(Some(rates));
-        };
-
-        let rates = RecommendedFeeRates {
-            default,
-            low,
-            medium,
-            high,
-        };
-        Ok(Some(rates))
+        self.do_estimate(target_blocks, &sorted_current_txs)
     }
 }
 
@@ -245,7 +190,7 @@ impl Algorithm {
         &self,
         target_blocks: BlockNumber,
         sorted_current_txs: &[TxStatus],
-    ) -> Result<Option<FeeRate>, Error> {
+    ) -> Result<FeeRate, Error> {
         ckb_logger::debug!(
             "boot: {}, current: {}, target: {target_blocks} blocks",
             self.boot_tip,
@@ -261,7 +206,7 @@ impl Algorithm {
         {
             fee_rate
         } else {
-            return Ok(Some(constants::LOWEST_FEE_RATE));
+            return Ok(constants::LOWEST_FEE_RATE);
         };
 
         ckb_logger::debug!("max fee rate of current transactions: {max_fee_rate}");
@@ -338,11 +283,11 @@ impl Algorithm {
             );
             if passed {
                 let fee_rate = Self::lowest_fee_rate_by_bucket_index(bucket_index);
-                return Ok(Some(fee_rate));
+                return Ok(fee_rate);
             }
         }
 
-        Ok(None)
+        Err(Error::NoProperFeeRate)
     }
 
     fn sorted_flowed(&self, historical_tip: BlockNumber) -> Vec<TxStatus> {

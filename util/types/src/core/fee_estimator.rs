@@ -1,14 +1,18 @@
-use crate::core::FeeRate;
-
-/// Recommended fee rates.
+/// The fee estimate mode.
 #[derive(Clone, Copy, Debug)]
-pub struct RecommendedFeeRates {
-    /// Default fee rate.
-    pub default: FeeRate,
-    /// Low-priority fee rate.
-    pub low: FeeRate,
-    /// Medium-priority fee rate.
-    pub medium: FeeRate,
-    /// High-priority fee rate.
-    pub high: FeeRate,
+pub enum EstimateMode {
+    /// No priority, expect the transaction to be committed in 1 hour.
+    NoPriority,
+    /// Low priority, expect the transaction to be committed in 30 minutes.
+    LowPriority,
+    /// Medium priority, expect the transaction to be committed in 10 minutes.
+    MediumPriority,
+    /// High priority, expect the transaction to be committed as soon as possible.
+    HighPriority,
+}
+
+impl Default for EstimateMode {
+    fn default() -> Self {
+        Self::NoPriority
+    }
 }

@@ -14,16 +14,17 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_jsonrpc_types::{BlockTemplate, RecommendedFeeRates};
+use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{error, info};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_types::core::tx_pool::{EntryCompleted, PoolTxDetailInfo, TransactionWithStatus, TxStatus};
+use ckb_types::core::FeeRate;
 use ckb_types::{
     core::{
         tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TRANSACTION_SIZE_LIMIT},
-        BlockView, Cycle, TransactionView, UncleBlockView, Version,
+        BlockView, Cycle, EstimateMode, TransactionView, UncleBlockView, Version,
     },
     packed::{Byte32, ProposalShortId},
 };
@@ -88,7 +89,7 @@ pub(crate) type ChainReorgArgs = (
     Arc<Snapshot>,
 );
 
-pub(crate) type FeeEstimatesResult = Result<Option<RecommendedFeeRates>, AnyError>;
+pub(crate) type FeeEstimatesResult = Result<FeeRate, AnyError>;
 
 pub(crate) enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
@@ -111,7 +112,7 @@ pub(crate) enum Message {
     GetPoolTxDetails(Request<Byte32, PoolTxDetailInfo>),
 
     UpdateIBDState(Request<bool, ()>),
-    GetFeeEstimates(Request<(), FeeEstimatesResult>),
+    EstimateFeeRate(Request<(EstimateMode, bool), FeeEstimatesResult>),
 
     // test
     #[cfg(feature = "internal")]
@@ -334,9 +335,13 @@ impl TxPoolController {
         send_message!(self, UpdateIBDState, in_ibd)
     }
 
-    /// Gets fee estimates.
-    pub fn get_fee_estimates(&self) -> Result<FeeEstimatesResult, AnyError> {
-        send_message!(self, GetFeeEstimates, ())
+    /// Estimates fee rate.
+    pub fn estimate_fee_rate(
+        &self,
+        estimate_mode: EstimateMode,
+        enable_fallback: bool,
+    ) -> Result<FeeEstimatesResult, AnyError> {
+        send_message!(self, EstimateFeeRate, (estimate_mode, enable_fallback))
     }
 
     /// Sends suspend chunk process cmd
@@ -933,8 +938,13 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("Responder sending update_ibd_state failed {:?}", e)
             };
         }
-        Message::GetFeeEstimates(Request { responder, .. }) => {
-            let fee_estimates_result = service.get_fee_estimates().await;
+        Message::EstimateFeeRate(Request {
+            responder,
+            arguments: (estimate_mode, enable_fallback),
+        }) => {
+            let fee_estimates_result = service
+                .estimate_fee_rate(estimate_mode, enable_fallback)
+                .await;
             if let Err(e) = responder.send(fee_estimates_result) {
                 error!("Responder sending fee_estimates_result failed {:?}", e)
             };
