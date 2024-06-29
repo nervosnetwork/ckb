@@ -92,3 +92,24 @@ impl fmt::Debug for AnyError {
         self.0.fmt(f)
     }
 }
+/// Return whether the error's kind is `InternalErrorKind::Database`
+///
+/// ### Panic
+///
+/// Panic if the error kind is `InternalErrorKind::DataCorrupted`.
+/// If the database is corrupted, panic is better than handle it silently.
+pub fn is_internal_db_error(error: &Error) -> bool {
+    if error.kind() == ErrorKind::Internal {
+        let error_kind = error
+            .downcast_ref::<InternalError>()
+            .expect("error kind checked")
+            .kind();
+        if error_kind == InternalErrorKind::DataCorrupted {
+            panic!("{}", error)
+        } else {
+            return error_kind == InternalErrorKind::Database
+                || error_kind == InternalErrorKind::System;
+        }
+    }
+    false
+}

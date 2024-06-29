@@ -1,13 +1,14 @@
-use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::types::{ActiveChain, HeaderIndex, PendingCompactBlockMap};
+use crate::types::{ActiveChain, PendingCompactBlockMap};
 use crate::utils::send_message_to;
 use crate::SyncShared;
 use crate::{attempt, Status, StatusCode};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_shared::block_status::BlockStatus;
+use ckb_shared::types::HeaderIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
@@ -34,7 +35,7 @@ use std::time::Instant;
 pub struct CompactBlockProcess<'a> {
     message: packed::CompactBlockReader<'a>,
     relayer: &'a Relayer,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -42,7 +43,7 @@ impl<'a> CompactBlockProcess<'a> {
     pub fn new(
         message: packed::CompactBlockReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         CompactBlockProcess {
@@ -116,16 +117,15 @@ impl<'a> CompactBlockProcess<'a> {
                         >= block.epoch().number()
                 });
                 shrink_to_fit!(pending_compact_blocks, 20);
-                let status = self
-                    .relayer
-                    .accept_block(self.nc.as_ref(), self.peer, block);
+                self.relayer
+                    .accept_block(Arc::clone(&self.nc), self.peer, block, "CompactBlock");
 
                 if let Some(metrics) = ckb_metrics::handle() {
                     metrics
                         .ckb_relay_cb_verify_duration
                         .observe(instant.elapsed().as_secs_f64());
                 }
-                status
+                Status::ok()
             }
             ReconstructionResult::Missing(transactions, uncles) => {
                 let missing_transactions: Vec<u32> =
@@ -231,7 +231,7 @@ fn contextual_check(
     compact_block_header: &HeaderView,
     shared: &Arc<SyncShared>,
     active_chain: &ActiveChain,
-    nc: &Arc<dyn CKBProtocolContext>,
+    nc: &Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 ) -> Status {
     let block_hash = compact_block_header.hash();
@@ -331,7 +331,7 @@ fn contextual_check(
             return Status::ignored();
         } else {
             shared
-                .state()
+                .shared()
                 .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
             return StatusCode::CompactBlockHasInvalidHeader
                 .with_context(format!("{block_hash} {err}"));

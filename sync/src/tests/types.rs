@@ -1,3 +1,4 @@
+use ckb_shared::types::HeaderIndexView;
 use ckb_types::{
     core::{BlockNumber, EpochNumberWithFraction, HeaderBuilder},
     packed::Byte32,
@@ -10,7 +11,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
-use crate::types::{HeaderIndexView, TtlFilter, FILTER_TTL};
+use crate::types::{TtlFilter, FILTER_TTL};
 
 const SKIPLIST_LENGTH: u64 = 10_000;
 

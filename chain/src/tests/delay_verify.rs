@@ -46,7 +46,7 @@ fn test_dead_cell_in_same_block() {
 
     for block in chain1.blocks() {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -55,7 +55,7 @@ fn test_dead_cell_in_same_block() {
 
     for block in chain2.blocks().iter().take(switch_fork_number + 1) {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -65,7 +65,7 @@ fn test_dead_cell_in_same_block() {
     assert_error_eq!(
         OutPointError::Dead(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -107,7 +107,7 @@ fn test_dead_cell_in_different_block() {
 
     for block in chain1.blocks() {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -116,7 +116,7 @@ fn test_dead_cell_in_different_block() {
 
     for block in chain2.blocks().iter().take(switch_fork_number + 2) {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -126,7 +126,7 @@ fn test_dead_cell_in_different_block() {
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 0)),
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -169,7 +169,7 @@ fn test_invalid_out_point_index_in_same_block() {
 
     for block in chain1.blocks() {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -178,7 +178,7 @@ fn test_invalid_out_point_index_in_same_block() {
 
     for block in chain2.blocks().iter().take(switch_fork_number + 1) {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -188,7 +188,7 @@ fn test_invalid_out_point_index_in_same_block() {
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -232,7 +232,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     for block in chain1.blocks() {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -241,7 +241,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     for block in chain2.blocks().iter().take(switch_fork_number + 2) {
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(block.clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -251,7 +251,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     assert_error_eq!(
         OutPointError::Unknown(OutPoint::new(tx1_hash, 1)),
         chain_controller
-            .internal_process_block(
+            .blocking_process_block_with_switch(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
                 Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
             )
@@ -295,7 +295,7 @@ fn test_full_dead_transaction() {
         .build();
 
     chain_controller
-        .internal_process_block(
+        .blocking_process_block_with_switch(
             Arc::new(block.clone()),
             Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
         )
@@ -373,7 +373,7 @@ fn test_full_dead_transaction() {
                     .build()
             };
             chain_controller
-                .internal_process_block(
+                .blocking_process_block_with_switch(
                     Arc::new(new_block.clone()),
                     Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
                 )
@@ -456,7 +456,7 @@ fn test_full_dead_transaction() {
                         .build()
                 };
                 chain_controller
-                    .internal_process_block(
+                    .blocking_process_block_with_switch(
                         Arc::new(new_block.clone()),
                         Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
                     )
@@ -528,7 +528,7 @@ fn test_full_dead_transaction() {
                         .build()
                 };
                 chain_controller
-                    .internal_process_block(
+                    .blocking_process_block_with_switch(
                         Arc::new(new_block.clone()),
                         Switch::DISABLE_EPOCH | Switch::DISABLE_EXTENSION,
                     )

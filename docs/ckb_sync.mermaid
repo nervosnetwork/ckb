@@ -1,0 +1,50 @@
+sequenceDiagram
+  autonumber
+
+  participant S as Synchronizer
+  participant BP as BlockProcess
+  participant C as ChainService
+
+
+  box crate:ckb_sync
+    participant S
+    participant BP
+  end
+
+
+  box crate:ckb_chain
+    participant C
+  end
+
+  Note left of S: synchronizer received <br>Block(122) from remote peer
+
+  Note over S: try_process SyncMessageUnionReader::SendBlock
+
+
+  S->>+BP: BlockProcess::execute(Block(122))
+  BP->>+C: process_block(Block(122))
+  Note over BP: waiting ChainService to return<br>the result of process_block(Block(123))
+  Note over C: insert_block(Block(122))
+  C->>-BP: return result of process_block(Block(122))
+  BP->>-S: return result of BlockProcess::execute(Block(122))
+
+  alt block is Valid
+    Note over S: going on
+  else block is Invalid
+    Note over S: punish the malicious peer
+  end
+
+  Note left of S: synchronizer received <br>Block(123) from remote peer
+  Note over S: try_process SyncMessageUnionReader::SendBlock
+  S->>+BP: BlockProcess::execute(Block(123))
+  BP->>+C: process_block(Block(123))
+  Note over BP: waiting ChainService to return<br>the result of process_block(Block(123))
+  Note over C: insert_block(Block(123))
+  C->>-BP: return result of process_block(Block(123))
+  BP->>-S: return result of BlockProcess::execute(Block(123))
+
+  alt block is Valid
+    Note over S: going on
+  else block is Invalid
+    Note over S: punish the malicious peer
+  end

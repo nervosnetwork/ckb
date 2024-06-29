@@ -1,4 +1,4 @@
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_types::core;
 #[cfg(feature = "progress_bar")]
@@ -39,7 +39,7 @@ impl Import {
             let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
-                    .process_block(block)
+                    .blocking_process_block(block)
                     .expect("import occur malformation data");
             }
         }
@@ -64,7 +64,7 @@ impl Import {
             let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
-                    .process_block(block)
+                    .blocking_process_block(block)
                     .expect("import occur malformation data");
             }
             progress_bar.inc(s.as_bytes().len() as u64);
