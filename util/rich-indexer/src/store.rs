@@ -5,13 +5,14 @@ use log::LevelFilter;
 use once_cell::sync::OnceCell;
 use sqlx::{
     any::{Any, AnyArguments, AnyConnectOptions, AnyPool, AnyPoolOptions, AnyRow},
+    migrate::Migrator,
     query::{Query, QueryAs},
     ConnectOptions, IntoArguments, Row, Transaction,
 };
 
 use std::fs::OpenOptions;
 use std::marker::{Send, Unpin};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
@@ -20,6 +21,7 @@ const SQL_SQLITE_CREATE_TABLE: &str = include_str!("../resources/create_sqlite_t
 const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../resources/create_sqlite_index.sql");
 const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgres_table.sql");
 const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
+const SQL_MIGRATIONS: &str = "./util/rich-indexer/resources/migrations";
 
 #[derive(Clone, Default)]
 pub struct SQLXPool {
@@ -36,13 +38,6 @@ impl Debug for SQLXPool {
 }
 
 impl SQLXPool {
-    pub fn new() -> Self {
-        SQLXPool {
-            pool: Arc::new(OnceCell::new()),
-            db_driver: DBDriver::default(),
-        }
-    }
-
     pub async fn connect(&mut self, db_config: &RichIndexerConfig) -> Result<()> {
         let pool_options = AnyPoolOptions::new()
             .max_connections(10)
@@ -50,7 +45,7 @@ impl SQLXPool {
             .acquire_timeout(Duration::from_secs(60))
             .max_lifetime(Duration::from_secs(1800))
             .idle_timeout(Duration::from_secs(30));
-        match db_config.db_type {
+        let pool = match db_config.db_type {
             DBDriver::Sqlite => {
                 let require_init = is_sqlite_require_init(db_config);
                 let uri = build_url_for_sqlite(db_config);
@@ -59,13 +54,13 @@ impl SQLXPool {
                 let pool = pool_options.connect_with(connection_options).await?;
                 log::info!("SQLite is connected.");
                 self.pool
-                    .set(pool)
+                    .set(pool.clone())
                     .map_err(|_| anyhow!("set pool failed!"))?;
                 if require_init {
                     self.create_tables_for_sqlite().await?;
                 }
                 self.db_driver = DBDriver::Sqlite;
-                Ok(())
+                pool
             }
             DBDriver::Postgres => {
                 let require_init = self.is_postgres_require_init(db_config).await?;
@@ -75,15 +70,23 @@ impl SQLXPool {
                 let pool = pool_options.connect_with(connection_options).await?;
                 log::info!("PostgreSQL is connected.");
                 self.pool
-                    .set(pool)
+                    .set(pool.clone())
                     .map_err(|_| anyhow!("set pool failed"))?;
                 if require_init {
                     self.create_tables_for_postgres().await?;
                 }
                 self.db_driver = DBDriver::Postgres;
-                Ok(())
+                pool
             }
-        }
+        };
+
+        // Run migrations
+        log::info!("Running migrations...");
+        let migrator = Migrator::new(Path::new(SQL_MIGRATIONS)).await?;
+        migrator.run(&pool).await?;
+        log::info!("Migrations are done.");
+
+        Ok(())
     }
 
     pub async fn fetch_count(&self, table_name: &str) -> Result<u64> {
