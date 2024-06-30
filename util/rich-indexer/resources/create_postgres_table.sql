@@ -58,7 +58,8 @@ CREATE TABLE output(
     capacity BIGINT NOT NULL,
     lock_script_id BIGINT,
     type_script_id BIGINT,
-    data BYTEA
+    data BYTEA,
+    is_spent BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE input(

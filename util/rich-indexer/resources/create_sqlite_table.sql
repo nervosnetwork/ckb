@@ -58,7 +58,8 @@ CREATE TABLE output(
     capacity INTEGER NOT NULL,
     lock_script_id INTEGER,
     type_script_id INTEGER,
-    data BLOB
+    data BLOB,
+    is_spent INTEGER DEFAULT 0
 );
 
 CREATE TABLE input(
