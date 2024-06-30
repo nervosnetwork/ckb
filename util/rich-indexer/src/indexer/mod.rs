@@ -197,6 +197,9 @@ impl AsyncRichIndexer {
         if tx_index != 0 {
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
                 let out_point = input.previous_output();
+                if spend_cell(&out_point, tx).await? {
+                    break;
+                }
                 if self.custom_filters.is_cell_filter_enabled() {
                     if let Some((output_id, output, output_data)) =
                         query_output_cell(&out_point, tx).await?
