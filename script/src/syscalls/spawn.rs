@@ -234,17 +234,20 @@ where
                 update_caller_machine(machine, data, machine_child.machine.cycles(), &spawn_data)?;
                 Ok(true)
             }
-            Err(VMError::CyclesExceeded) => {
-                let mut context = self
-                    .context
-                    .lock()
-                    .map_err(|e| VMError::Unexpected(format!("Failed to acquire lock: {}", e)))?;
-                context
-                    .suspended_machines
-                    .push(ResumableMachine::spawn(machine_child, spawn_data));
-                Err(VMError::CyclesExceeded)
+            Err(err) => {
+                // `CyclesExceeded` for old version snapshot
+                // `Pause` for new version suspend with pause signal
+                // Maybe we need to cleanup in future
+                if matches!(err, VMError::Pause | VMError::CyclesExceeded) {
+                    let mut context = self.context.lock().map_err(|e| {
+                        VMError::Unexpected(format!("Failed to acquire lock: {}", e))
+                    })?;
+                    context
+                        .suspended_machines
+                        .push(ResumableMachine::spawn(machine_child, spawn_data));
+                }
+                Err(err)
             }
-            Err(err) => Err(err),
         }
     }
 }
@@ -276,8 +279,14 @@ pub fn build_child_machine<
         cycles_limit,
         (callee_memory_limit * SPAWN_MEMORY_PAGE_SIZE) as usize,
     );
-    let machine_builder =
-        DefaultMachineBuilder::new(machine_core).instruction_cycle_func(Box::new(estimate_cycles));
+    let pause = context
+        .lock()
+        .map_err(|e| VMError::Unexpected(format!("Failed to acquire lock: {}", e)))?
+        .pause
+        .clone();
+    let machine_builder = DefaultMachineBuilder::new(machine_core)
+        .instruction_cycle_func(Box::new(estimate_cycles))
+        .pause(pause);
     let machine_syscalls = syscalls_generator.generate_same_syscalls(script_version, script_group);
     let machine_builder = machine_syscalls
         .into_iter()

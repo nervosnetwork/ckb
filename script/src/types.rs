@@ -5,7 +5,7 @@ use ckb_types::{
     packed::{Byte32, Script},
 };
 use ckb_vm::{
-    machine::{VERSION0, VERSION1, VERSION2},
+    machine::{Pause, VERSION0, VERSION1, VERSION2},
     snapshot::{make_snapshot, Snapshot},
     Error as VMInternalError, SupportMachine, ISA_A, ISA_B, ISA_IMC, ISA_MOP,
 };
@@ -119,6 +119,17 @@ pub(crate) type Machine = TraceMachine<CoreMachine>;
 pub struct MachineContext {
     /// A stack of ResumableMachines.
     pub suspended_machines: Vec<ResumableMachine>,
+    /// A pause will be set for suspend machines.
+    /// The child machine will reuse parent machine's pause,
+    /// so that when parent is paused, all its children will be paused.
+    pub pause: Pause,
+}
+
+impl MachineContext {
+    /// Creates a new MachineContext struct
+    pub fn set_pause(&mut self, pause: Pause) {
+        self.pause = pause;
+    }
 }
 
 /// Data structure captured all environment data for a suspended machine
@@ -163,6 +174,7 @@ impl TryFrom<&SpawnData> for ResumePoint {
             caller_content_addr,
             caller_content_length_addr,
             cycles_base,
+            ..
         } = value;
         Ok(ResumePoint::Spawn {
             callee_peak_memory: *callee_peak_memory,
@@ -213,6 +225,10 @@ impl ResumableMachine {
 
     pub(crate) fn cycles(&self) -> Cycle {
         self.machine().machine.cycles()
+    }
+
+    pub(crate) fn pause(&self) -> Pause {
+        self.machine().machine.pause()
     }
 
     pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
@@ -439,4 +455,15 @@ impl std::fmt::Debug for TransactionState {
             .field("limit_cycles", &self.limit_cycles)
             .finish()
     }
+}
+
+/// ChunkCommand is used to control the verification process to suspend or resume
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub enum ChunkCommand {
+    /// Suspend the verification process
+    Suspend,
+    /// Resume the verification process
+    Resume,
+    /// Stop the verification process
+    Stop,
 }

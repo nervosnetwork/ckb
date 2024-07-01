@@ -1,22 +1,70 @@
+use crate::component::tests::util::build_tx;
+use crate::component::verify_queue::{Entry, VerifyQueue};
 use ckb_types::core::TransactionBuilder;
+use tokio::select;
+use tokio::sync::watch;
+use tokio::time::sleep;
 
-use crate::component::chunk::{ChunkQueue, Entry};
-
-#[test]
-fn basic() {
+#[tokio::test]
+async fn verify_queue_basic() {
     let tx = TransactionBuilder::default().build();
     let entry = Entry {
         tx: tx.clone(),
         remote: None,
     };
+    let tx2 = build_tx(vec![(&tx.hash(), 0)], 1);
+
     let id = tx.proposal_short_id();
-    let mut queue = ChunkQueue::new();
+    let (exit_tx, mut exit_rx) = watch::channel(());
+    let mut queue = VerifyQueue::new();
+    let queue_rx = queue.subscribe();
+    let count = tokio::spawn(async move {
+        let mut count = 0;
+        loop {
+            select! {
+                _ = queue_rx.notified() => {
+                    count += 1;
+                }
+                _ = exit_rx.changed() => {
+                    break;
+                }
+            }
+        }
+        count
+    });
 
-    assert!(queue.add_tx(tx.clone(), None));
-    assert_eq!(queue.pop_front().as_ref(), Some(&entry));
-    assert!(queue.contains_key(&id));
-    assert!(!queue.add_tx(tx, None));
+    assert!(queue.add_tx(tx.clone(), None).unwrap());
+    sleep(std::time::Duration::from_millis(100)).await;
 
-    queue.clean_front();
+    assert!(!queue.add_tx(tx.clone(), None).unwrap());
+
+    assert_eq!(queue.pop_first().as_ref(), Some(&entry));
+    assert!(!queue.contains_key(&id));
+
+    assert!(queue.add_tx(tx.clone(), None).unwrap());
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    assert_eq!(queue.pop_first().as_ref(), Some(&entry));
+
+    assert!(queue.add_tx(tx.clone(), None).unwrap());
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    assert!(queue.add_tx(tx2.clone(), None).unwrap());
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    exit_tx.send(()).unwrap();
+    let counts = count.await.unwrap();
+    assert_eq!(counts, 4);
+
+    let cur = queue.pop_first();
+    assert_eq!(cur.unwrap().tx, tx);
+
+    assert!(!queue.is_empty());
+    let cur = queue.pop_first();
+    assert_eq!(cur.unwrap().tx, tx2);
+
+    assert!(queue.is_empty());
+
+    queue.clear();
     assert!(!queue.contains_key(&id));
 }

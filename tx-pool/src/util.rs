@@ -2,6 +2,7 @@ use crate::error::Reject;
 use crate::pool::TxPool;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
+use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::ChainStore;
@@ -15,7 +16,7 @@ use ckb_verification::{
     TimeRelativeTransactionVerifier, TxVerifyEnv,
 };
 use std::sync::Arc;
-use tokio::task::block_in_place;
+use tokio::{sync::watch, task::block_in_place};
 
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
     let short_id = tx.proposal_short_id();
@@ -82,39 +83,37 @@ pub(crate) fn non_contextual_verify(
     Ok(())
 }
 
-pub(crate) fn verify_rtx(
+pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
     tx_env: Arc<TxVerifyEnv>,
     cache_entry: &Option<CacheEntry>,
     max_tx_verify_cycles: Cycle,
+    command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
 ) -> Result<Completed, Reject> {
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
-    if let Some(ref cached) = cache_entry {
-        match cached {
-            CacheEntry::Completed(completed) => {
-                TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
-                    .verify()
-                    .map(|_| *completed)
-                    .map_err(Reject::Verification)
-            }
-            CacheEntry::Suspended(suspended) => {
-                ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
-                    .complete(max_tx_verify_cycles, false, &suspended.snap)
-                    .and_then(|result| {
-                        DaoScriptSizeVerifier::new(
-                            rtx,
-                            snapshot.cloned_consensus(),
-                            snapshot.as_data_loader(),
-                        )
-                        .verify()?;
-                        Ok(result)
-                    })
-                    .map_err(Reject::Verification)
-            }
-        }
+    if let Some(ref completed) = cache_entry {
+        TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+            .verify()
+            .map(|_| *completed)
+            .map_err(Reject::Verification)
+    } else if let Some(command_rx) = command_rx {
+        ContextualTransactionVerifier::new(
+            Arc::clone(&rtx),
+            consensus,
+            data_loader,
+            Arc::clone(&tx_env),
+        )
+        .verify_with_pause(max_tx_verify_cycles, command_rx)
+        .await
+        .and_then(|result| {
+            DaoScriptSizeVerifier::new(rtx, snapshot.cloned_consensus(), snapshot.as_data_loader())
+                .verify()?;
+            Ok(result)
+        })
+        .map_err(Reject::Verification)
     } else {
         block_in_place(|| {
             ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)

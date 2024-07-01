@@ -1499,6 +1499,7 @@ dependencies = [
  "serde",
  "tempfile",
  "tiny-keccak",
+ "tokio",
 ]
 
 [[package]]
@@ -1688,6 +1689,7 @@ dependencies = [
  "ckb-metrics",
  "ckb-network",
  "ckb-reward-calculator",
+ "ckb-script",
  "ckb-snapshot",
  "ckb-stop-handler",
  "ckb-store",
@@ -1699,6 +1701,7 @@ dependencies = [
  "hyper",
  "lru",
  "multi_index_map",
+ "num_cpus",
  "rand 0.8.5",
  "rustc-hash",
  "sentry",
@@ -1763,6 +1766,7 @@ dependencies = [
  "ckb-verification-traits",
  "derive_more",
  "lru",
+ "tokio",
 ]
 
 [[package]]
@@ -1802,8 +1806,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.24.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2c3d68dc7f891e5555c7ebc054722b28ab005e51c5076f54c20d36002dc8e83"
+source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#9cd3c20b009ea8e74a46143cafdde0acac9e323b"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1820,8 +1823,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm-definitions"
 version = "0.24.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2fdf9c8ee14409b2208d23b9ad88828242d7881153ddc04872b66d2e018a52f"
+source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#9cd3c20b009ea8e74a46143cafdde0acac9e323b"
 dependencies = [
  "paste",
 ]

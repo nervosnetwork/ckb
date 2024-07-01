@@ -16,6 +16,7 @@ use crate::{
         TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
+    ChunkCommand,
 };
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
@@ -36,9 +37,15 @@ use ckb_vm::{
     snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::RwLock,
+};
+use tokio::sync::{
+    oneshot,
+    watch::{self, Receiver},
+};
 
 #[cfg(test)]
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -68,33 +75,43 @@ enum DataGuard {
 }
 
 /// LazyData wrapper make sure not-loaded data will be loaded only after one access
-#[derive(Debug, PartialEq, Eq, Clone)]
-struct LazyData(RefCell<DataGuard>);
+#[derive(Debug, Clone)]
+struct LazyData(Arc<RwLock<DataGuard>>);
 
 impl LazyData {
     fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
         match &cell_meta.mem_cell_data {
-            Some(data) => LazyData(RefCell::new(DataGuard::Loaded(data.to_owned()))),
-            None => LazyData(RefCell::new(DataGuard::NotLoaded(
+            Some(data) => LazyData(Arc::new(RwLock::new(DataGuard::Loaded(data.to_owned())))),
+            None => LazyData(Arc::new(RwLock::new(DataGuard::NotLoaded(
                 cell_meta.out_point.clone(),
-            ))),
+            )))),
         }
     }
 
-    fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Bytes {
-        let guard = self.0.borrow().to_owned();
+    fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Result<Bytes, ScriptError> {
+        let guard = self
+            .0
+            .read()
+            .map_err(|_| ScriptError::Other("RwLock poisoned".into()))?
+            .to_owned();
         match guard {
             DataGuard::NotLoaded(out_point) => {
-                let data = data_loader.get_cell_data(&out_point).expect("cell data");
-                self.0.replace(DataGuard::Loaded(data.to_owned()));
-                data
+                let data = data_loader
+                    .get_cell_data(&out_point)
+                    .ok_or(ScriptError::Other("cell data not found".into()))?;
+                let mut write_guard = self
+                    .0
+                    .write()
+                    .map_err(|_| ScriptError::Other("RwLock poisoned".into()))?;
+                *write_guard = DataGuard::Loaded(data.clone());
+                Ok(data)
             }
-            DataGuard::Loaded(bytes) => bytes,
+            DataGuard::Loaded(bytes) => Ok(bytes),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 enum Binaries {
     Unique(Byte32, LazyData),
     Duplicate(Byte32, LazyData),
@@ -517,7 +534,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         match script_hash_type {
             ScriptHashType::Data | ScriptHashType::Data1 | ScriptHashType::Data2 => {
                 if let Some(lazy) = self.binaries_by_data_hash.get(&script.code_hash()) {
-                    Ok(lazy.access(&self.data_loader))
+                    Ok(lazy.access(&self.data_loader)?)
                 } else {
                     Err(ScriptError::ScriptNotFound(script.code_hash()))
                 }
@@ -525,8 +542,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             ScriptHashType::Type => {
                 if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
                     match bin {
-                        Binaries::Unique(_, ref lazy) => Ok(lazy.access(&self.data_loader)),
-                        Binaries::Duplicate(_, ref lazy) => Ok(lazy.access(&self.data_loader)),
+                        Binaries::Unique(_, ref lazy) => Ok(lazy.access(&self.data_loader)?),
+                        Binaries::Duplicate(_, ref lazy) => Ok(lazy.access(&self.data_loader)?),
                         Binaries::Multiple => Err(ScriptError::MultipleMatches),
                     }
                 } else {
@@ -663,6 +680,42 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         }
 
         Ok(VerifyResult::Completed(cycles))
+    }
+
+    /// Performing a resumable verification on the transaction scripts with signal channel,
+    /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
+    /// otherwise, it will return until the verification is completed.
+    pub async fn resumable_verify_with_signal(
+        &self,
+        limit_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, Error> {
+        let mut cycles = 0;
+
+        let groups: Vec<_> = self.groups().collect();
+        for (_hash, group) in groups.iter() {
+            // vm should early return invalid cycles
+            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
+            })?;
+
+            match self
+                .verify_group_with_signal(group, remain_cycles, command_rx)
+                .await
+            {
+                Ok(used_cycles) => {
+                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
+                }
+                Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(cycles)
     }
 
     /// Resuming an suspended verify from snapshot
@@ -970,6 +1023,27 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         }
     }
 
+    async fn verify_group_with_signal(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, ScriptError> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: &self.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            verifier.verify()
+        } else {
+            self.chunk_run_with_signal(group, max_cycles, command_rx)
+                .await
+        }
+    }
+
     /// Finds the script group from cell deps.
     pub fn find_script_group(
         &self,
@@ -1048,6 +1122,68 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         } else {
             Err(ScriptError::validation_failure(&script_group.script, code))
         }
+    }
+
+    async fn chunk_run_with_signal(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, ScriptError> {
+        let context: Arc<Mutex<MachineContext>> = Default::default();
+
+        let map_vm_internal_error = |error: VMInternalError| match error {
+            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+            _ => ScriptError::VMInternalError(error),
+        };
+
+        let machines = {
+            // No snapshots are available, create machine from scratch
+            let mut machine = self.build_machine(script_group, max_cycles, Arc::clone(&context))?;
+            let program = self.extract_script(&script_group.script)?;
+            let bytes = machine
+                .load_program(&program, &[])
+                .map_err(map_vm_internal_error)?;
+            let program_bytes_cycles = transferred_byte_cycles(bytes);
+            // NOTE: previously, we made a distinction between machines
+            // that completes program loading without errors, and machines
+            // that fail program loading due to cycle limits. For the latter
+            // one, we won't generate any snapshots. Starting from this version,
+            // we will remove this distinction: when loading program exceeds
+            // maximum cycles, the error will be triggered when executing the
+            // first instruction. As a result, now all ResumableMachine will
+            // be transformed to snapshots. This is due to several considerations:
+            //
+            // * Let's do a little bit math: right now CKB has a block limit of
+            // ~570KB, a single transaction is further limited to 512KB in RPC,
+            // the biggest program one can load is either 512KB or ~570KB depending
+            // on which limit to use. The cycles consumed to load a program, is
+            // thus at most 131072 or ~145920, which is far less than the cycle
+            // limit for running a single transaction (70 million or more). In
+            // reality it might be extremely rare that loading a program would
+            // result in exceeding cycle limits. Removing the distinction here,
+            // would help simply the code.
+            // * If you pay attention to the code now, we already have this behavior
+            // in the code: most syscalls use +add_cycles_no_checking+ in the code,
+            // meaning an error would not be immediately generated when cycle limit
+            // is reached, the error would be raised when executing the first instruction
+            // after the syscall. What's more, when spawn is loading a program
+            // to its child machine, it also uses +add_cycles_no_checking+ so it
+            // won't generate errors immediately. This means that all spawned machines
+            // will be in a state that a program is loaded, regardless of the fact if
+            // loading a program in spawn reaches the cycle limit or not. As a
+            // result, we definitely want to pull the trigger, so we can have unified
+            // behavior everywhere.
+            machine
+                .machine
+                .add_cycles_no_checking(program_bytes_cycles)
+                .map_err(ScriptError::VMInternalError)?;
+            let mut context = context.lock().unwrap();
+            context.set_pause(machine.machine.pause());
+            vec![ResumableMachine::initial(machine)]
+        };
+
+        run_vms_with_signal(script_group, machines, context, command_rx).await
     }
 
     fn chunk_run(
@@ -1200,7 +1336,7 @@ fn run_vms(
                 }
             }
             Err(error) => match error {
-                VMInternalError::CyclesExceeded => {
+                VMInternalError::CyclesExceeded | VMInternalError::Pause => {
                     let mut new_suspended_machines: Vec<_> = {
                         let mut context = context.lock().map_err(|e| {
                             ScriptError::Other(format!("Failed to acquire lock: {}", e))
@@ -1226,6 +1362,155 @@ fn run_vms(
             &script_group.script,
             exit_code,
         ))
+    }
+}
+
+// Run a series of VMs with control signal, will only return when verification finished
+// Or send `Stop` command when verification is suspended
+async fn run_vms_with_signal(
+    script_group: &ScriptGroup,
+    machines: Vec<ResumableMachine>,
+    context: Arc<Mutex<MachineContext>>,
+    signal: &mut Receiver<ChunkCommand>,
+) -> Result<Cycle, ScriptError> {
+    if machines.is_empty() {
+        return Err(ScriptError::Other(
+            "To resume VMs, at least one VM must be available!".to_string(),
+        ));
+    }
+
+    let mut pause = machines[0].pause();
+    let (finish_tx, mut finish_rx) = oneshot::channel::<(Result<i8, ckb_vm::Error>, u64)>();
+
+    // send initial `Resume` command to child
+    // it's maybe useful to set initial command to `signal.borrow().to_owned()`
+    // so that we can control the initial state of child, which is useful for testing purpose
+    let (child_tx, child_rx) = watch::channel(ChunkCommand::Resume);
+    let jh =
+        tokio::spawn(async move { run_vms_child(machines, child_rx, finish_tx, context).await });
+
+    loop {
+        tokio::select! {
+            Ok(_) = signal.changed() => {
+                let command = signal.borrow().to_owned();
+                //info!("[verify-test] run_vms_with_signal: {:?}", command);
+                match command {
+                    ChunkCommand::Suspend => {
+                        pause.interrupt();
+                    }
+                    ChunkCommand::Resume | ChunkCommand::Stop => {
+                        pause.free();
+                        let _ = child_tx.send(command);
+                    }
+                }
+            }
+            Ok(res) = &mut finish_rx => {
+                let _ = jh.await;
+                match res {
+                    (Ok(0), cycles) => {
+                        return Ok(cycles);
+                    }
+                    (Ok(exit_code), _) => {
+                        return Err(ScriptError::validation_failure(
+                            &script_group.script,
+                            exit_code
+                        ))},
+                    (Err(err), _) => {
+                        return Err(ScriptError::VMInternalError(err));
+                    }
+                }
+
+            }
+            else => { break Err(ScriptError::validation_failure(&script_group.script, 0)) }
+        }
+    }
+}
+
+async fn run_vms_child(
+    mut machines: Vec<ResumableMachine>,
+    mut child_rx: watch::Receiver<ChunkCommand>,
+    finish_tx: oneshot::Sender<(Result<i8, ckb_vm::Error>, u64)>,
+    context: Arc<Mutex<MachineContext>>,
+) {
+    let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
+    // mark changed to make sure child start to run verification immediately
+    child_rx.mark_changed();
+    loop {
+        let _ = child_rx.changed().await;
+        match *child_rx.borrow() {
+            ChunkCommand::Stop => {
+                let exit = (Err(ckb_vm::Error::External("stopped".into())), cycles);
+                let _ = finish_tx.send(exit);
+                return;
+            }
+            ChunkCommand::Suspend => {
+                continue;
+            }
+            ChunkCommand::Resume => {
+                //info!("[verify-test] run_vms_child: resume");
+            }
+        }
+        if machines.is_empty() {
+            finish_tx
+                .send((Ok(exit_code), cycles))
+                .expect("send finished");
+            return;
+        }
+
+        while let Some(mut machine) = machines.pop() {
+            if let Some(callee_spawn_data) = &spawn_data {
+                update_caller_machine(
+                    &mut machine.machine_mut().machine,
+                    exit_code,
+                    cycles,
+                    callee_spawn_data,
+                )
+                .unwrap();
+            }
+
+            let res = machine.run();
+            match res {
+                Ok(code) => {
+                    exit_code = code;
+                    cycles = machine.cycles();
+                    if let ResumableMachine::Spawn(_, data) = machine {
+                        spawn_data = Some(data);
+                    } else {
+                        spawn_data = None;
+                    }
+                    if machines.is_empty() {
+                        finish_tx.send((Ok(exit_code), cycles)).unwrap();
+                        return;
+                    }
+                }
+                Err(VMInternalError::Pause) => {
+                    let mut new_suspended_machines: Vec<_> = {
+                        let mut context = context
+                            .lock()
+                            .map_err(|e| {
+                                ScriptError::Other(format!("Failed to acquire lock: {}", e))
+                            })
+                            .unwrap();
+                        context.suspended_machines.drain(..).collect()
+                    };
+                    // The inner most machine lives at the top of the vector,
+                    // reverse the list for natural order.
+                    new_suspended_machines.reverse();
+                    machines.push(machine);
+                    machines.append(&mut new_suspended_machines);
+                    // break run machines iteration loop
+                    // wait for Resume command to begin next iteration
+                    // info!("[verify-test] run_vms_child: suspend at {:?}", cycles);
+                    break;
+                }
+                _ => {
+                    // other error happened here, for example CyclesExceeded,
+                    // we need to return as verification failed
+                    finish_tx.send((res, machine.cycles())).expect("send error");
+                    return;
+                }
+            };
+        }
     }
 }
 
