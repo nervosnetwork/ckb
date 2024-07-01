@@ -136,7 +136,7 @@ impl Spec for TxPoolLimitAncestorCount {
             tx_c
         };
 
-        let mut prev = tx_c.clone();
+        let mut prev = tx_c;
         // Create transaction chain
         for i in 0..2000 {
             let input =

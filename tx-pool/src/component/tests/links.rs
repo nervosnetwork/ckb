@@ -22,7 +22,7 @@ fn test_link_map() {
 
     map.add_parent(&id1, id2.clone());
     map.add_parent(&id2, id3.clone());
-    map.add_parent(&id3, id4.clone());
+    map.add_parent(&id3, id4);
     let parents = map.calc_relation_ids([id1.clone()].into(), Relation::Parents);
     assert_eq!(parents.len(), 4);
 
