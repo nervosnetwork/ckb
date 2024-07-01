@@ -2,6 +2,7 @@
 #![allow(missing_docs)]
 extern crate rustc_hash;
 extern crate slab;
+use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
@@ -13,7 +14,8 @@ use multi_index_map::MultiIndexMap;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100;
+// 256mb for total_tx_size limit, default max_tx_pool_size is 180mb
+const DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE: usize = 256_000_000;
 const SHRINK_THRESHOLD: usize = 100;
 
 /// The verify queue Entry to verify.
@@ -30,25 +32,27 @@ impl PartialEq for Entry {
 }
 
 #[derive(MultiIndexMap, Clone)]
-pub struct VerifyEntry {
+struct VerifyEntry {
     /// The transaction id
     #[multi_index(hashed_unique)]
-    pub id: ProposalShortId,
+    id: ProposalShortId,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     /// This field is used to sort the txs in the queue
     /// We may add more other sort keys in the future
     #[multi_index(ordered_non_unique)]
-    pub added_time: u64,
+    added_time: u64,
     /// other sort key
-    pub inner: Entry,
+    inner: Entry,
 }
 
 /// The verify queue is a priority queue of transactions to verify.
-pub struct VerifyQueue {
+pub(crate) struct VerifyQueue {
     /// inner tx entry
     inner: MultiIndexVerifyEntryMap,
     /// subscribe this notify to get be notified when there is item in the queue
     ready_rx: Arc<Notify>,
+    /// total tx size in the queue, will reject new transaction if exceed the limit
+    total_tx_size: usize,
 }
 
 impl VerifyQueue {
@@ -57,12 +61,8 @@ impl VerifyQueue {
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
             ready_rx: Arc::new(Notify::new()),
+            total_tx_size: 0,
         }
-    }
-
-    /// Returns the number of txs in the queue.
-    pub fn len(&self) -> usize {
-        self.inner.len()
     }
 
     /// Returns true if the queue contains no txs.
@@ -72,8 +72,8 @@ impl VerifyQueue {
     }
 
     /// Returns true if the queue is full.
-    pub fn is_full(&self) -> bool {
-        self.len() >= DEFAULT_MAX_VERIFY_TRANSACTIONS
+    pub fn is_full(&self, add_tx_size: usize) -> bool {
+        add_tx_size >= DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE - self.total_tx_size
     }
 
     /// Returns true if the queue contains a tx with the specified id.
@@ -94,6 +94,15 @@ impl VerifyQueue {
     /// Remove a tx from the queue
     pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
         self.inner.remove_by_id(id).map(|e| {
+            let tx_size = e.inner.tx.data().serialized_size_in_block();
+            let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
+                error!(
+                    "verify_queue total_tx_size {} overflown by sub {}",
+                    self.total_tx_size, tx_size
+                );
+                0
+            });
+            self.total_tx_size = total_tx_size;
             self.shrink_to_fit();
             e.inner
         })
@@ -102,9 +111,8 @@ impl VerifyQueue {
     /// Remove multiple txs from the queue
     pub fn remove_txs(&mut self, ids: impl Iterator<Item = ProposalShortId>) {
         for id in ids {
-            self.inner.remove_by_id(&id);
+            self.remove_tx(&id);
         }
-        self.shrink_to_fit();
     }
 
     /// Returns the first entry in the queue and remove it
@@ -134,9 +142,10 @@ impl VerifyQueue {
         if self.contains_key(&tx.proposal_short_id()) {
             return Ok(false);
         }
-        if self.is_full() {
+        let tx_size = tx.data().serialized_size_in_block();
+        if self.is_full(tx_size) {
             return Err(Reject::Full(format!(
-                "chunk is full, failed to add tx: {:#x}",
+                "verify_queue total_tx_size exceeded, failed to add tx: {:#x}",
                 tx.hash()
             )));
         }
@@ -145,6 +154,13 @@ impl VerifyQueue {
             added_time: unix_time_as_millis(),
             inner: Entry { tx, remote },
         });
+        self.total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
+            error!(
+                "verify_queue total_tx_size {} overflown by add {}",
+                self.total_tx_size, tx_size
+            );
+            self.total_tx_size
+        });
         self.ready_rx.notify_one();
         Ok(true)
     }
@@ -152,6 +168,7 @@ impl VerifyQueue {
     /// Clears the map, removing all elements.
     pub fn clear(&mut self) {
         self.inner.clear();
-        self.shrink_to_fit()
+        self.total_tx_size = 0;
+        self.shrink_to_fit();
     }
 }

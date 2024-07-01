@@ -1,6 +1,8 @@
+use std::thread::available_parallelism;
+
 use crate::helper::deadlock_detection;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_async_runtime::Handle;
+use ckb_async_runtime::{new_global_runtime, Handle};
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;
@@ -11,8 +13,11 @@ use ckb_types::core::cell::setup_system_cell_cache;
 pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), ExitCode> {
     deadlock_detection();
 
+    let rpc_threads_num = calc_rpc_threads_num(&args);
     info!("ckb version: {}", version);
-    let mut launcher = Launcher::new(args, version, async_handle);
+    info!("run rpc server with {} threads", rpc_threads_num);
+    let (mut rpc_handle, _rpc_stop_rx, _runtime) = new_global_runtime(Some(rpc_threads_num));
+    let launcher = Launcher::new(args, version, async_handle, rpc_handle.clone());
 
     let block_assembler_config = launcher.sanitize_block_assembler_config()?;
     let miner_enable = block_assembler_config.is_some();
@@ -40,21 +45,19 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
         Some(shared.store().db().inner()),
     );
 
-    launcher.check_assume_valid_target(&shared);
-
     let chain_controller = launcher.start_chain_service(&shared, pack.take_proposal_table());
 
     launcher.start_block_filter(&shared);
 
     let network_controller = launcher.start_network_and_rpc(
         &shared,
-        chain_controller.clone(),
+        chain_controller,
         miner_enable,
         pack.take_relay_tx_receiver(),
     );
 
     let tx_pool_builder = pack.take_tx_pool_builder();
-    tx_pool_builder.start(network_controller.clone());
+    tx_pool_builder.start(network_controller);
 
     info!("CKB service started ...");
     ctrlc::set_handler(|| {
@@ -63,7 +66,14 @@ pub fn run(args: RunArgs, version: Version, async_handle: Handle) -> Result<(), 
     })
     .expect("Error setting Ctrl-C handler");
 
+    rpc_handle.drop_guard();
     wait_all_ckb_services_exit();
 
     Ok(())
+}
+
+fn calc_rpc_threads_num(args: &RunArgs) -> usize {
+    let system_parallelism: usize = available_parallelism().unwrap().into();
+    let default_num = usize::max(system_parallelism, 1);
+    args.config.rpc.threads.unwrap_or(default_num)
 }

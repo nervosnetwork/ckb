@@ -4228,12 +4228,16 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": {
+    "assume_valid_target": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "assume_valid_target_reached": true,
     "best_known_block_number": "0x400",
     "best_known_block_timestamp": "0x5cd2b117",
     "fast_time": "0x3e8",
     "ibd": true,
     "inflight_blocks_count": "0x0",
     "low_time": "0x5dc",
+    "min_chain_work": "0x0",
+    "min_chain_work_reached": true,
     "normal_time": "0x4e2",
     "orphan_blocks_count": "0x0",
     "orphan_blocks_size": "0x0"
@@ -6923,6 +6927,10 @@ The overall chain synchronization state of this local node.
 
 `SyncState` is a JSON object with the following fields.
 
+* `assume_valid_target`: [`Byte32`](#type-byte32) - The assume_valid_target specified by ckb, if no assume_valid_target, this will be all zero.
+
+* `assume_valid_target_reached`: `boolean` - Is ckb reached the assume_valid_target? If no assume_valid_target, this will be true.
+
 * `best_known_block_number`: [`Uint64`](#type-uint64) - This is the best known block number observed by the local node from the P2P network.
 
     The best here means that the block leads a chain which has the best known accumulated difficulty.
@@ -6942,6 +6950,10 @@ The overall chain synchronization state of this local node.
 * `inflight_blocks_count`: [`Uint64`](#type-uint64) - Count of downloading blocks.
 
 * `low_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
+
+* `min_chain_work`: [`Uint128`](#type-uint128) - This field acts as a security measure to ensure that a node only synchronizes with other nodes that have a significant amount of computational work invested in them, thereby preventing certain types of attacks and ensuring network integrity. Only the mainnet uses a hardcoded value for this field.
+
+* `min_chain_work_reached`: `boolean` - Is ckb reached the min_chain_work?
 
 * `normal_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms
 
