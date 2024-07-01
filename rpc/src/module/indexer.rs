@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::error::RPCError;
 use async_trait::async_trait;
 use ckb_indexer::IndexerHandle;
@@ -7,6 +9,7 @@ use ckb_jsonrpc_types::{
 };
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
+use tokio::sync::Semaphore;
 
 /// RPC Module Indexer.
 #[rpc(openrpc)]
@@ -394,7 +397,7 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_cells")]
-    fn get_cells(
+    async fn get_cells(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -810,7 +813,7 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_transactions")]
-    fn get_transactions(
+    async fn get_transactions(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
@@ -877,7 +880,7 @@ pub trait IndexerRpc {
     /// }
     /// ```
     #[rpc(name = "get_cells_capacity")]
-    fn get_cells_capacity(
+    async fn get_cells_capacity(
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>>;
@@ -886,11 +889,15 @@ pub trait IndexerRpc {
 #[derive(Clone)]
 pub(crate) struct IndexerRpcImpl {
     pub(crate) handle: IndexerHandle,
+    pub(crate) slow_query_parallelism: Arc<Semaphore>,
 }
 
 impl IndexerRpcImpl {
-    pub fn new(handle: IndexerHandle) -> Self {
-        IndexerRpcImpl { handle }
+    pub fn new(handle: IndexerHandle, slow_query_limit: usize) -> Self {
+        IndexerRpcImpl {
+            handle,
+            slow_query_parallelism: Arc::new(Semaphore::new(slow_query_limit)),
+        }
     }
 }
 
@@ -902,34 +909,43 @@ impl IndexerRpc for IndexerRpcImpl {
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    fn get_cells(
+    async fn get_cells(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>> {
+        let _permit = Arc::clone(&self.slow_query_parallelism)
+            .acquire_owned()
+            .await;
         self.handle
             .get_cells(search_key, order, limit, after)
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    fn get_transactions(
+    async fn get_transactions(
         &self,
         search_key: IndexerSearchKey,
         order: IndexerOrder,
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>> {
+        let _permit = Arc::clone(&self.slow_query_parallelism)
+            .acquire_owned()
+            .await;
         self.handle
             .get_transactions(search_key, order, limit, after)
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
     }
 
-    fn get_cells_capacity(
+    async fn get_cells_capacity(
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>> {
+        let _permit = Arc::clone(&self.slow_query_parallelism)
+            .acquire_owned()
+            .await;
         self.handle
             .get_cells_capacity(search_key)
             .map_err(|e| RPCError::custom(RPCError::Indexer, e))
