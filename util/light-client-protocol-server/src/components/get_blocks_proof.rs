@@ -85,7 +85,7 @@ impl<'a> GetBlocksProofProcess<'a> {
             block_headers.push(header.data());
             if ckb2023 {
                 let uncles = snapshot
-                    .get_block_uncles(&block_hash)
+                    .get_block_uncles(header.num_hash())
                     .expect("block uncles must be stored");
                 let extension = snapshot.get_block_extension(&block_hash);
 

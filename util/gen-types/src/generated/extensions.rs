@@ -4724,7 +4724,8 @@ impl ::core::fmt::Debug for TransactionKey {
 impl ::core::fmt::Display for TransactionKey {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_hash", self.block_hash())?;
+        write!(f, "{}: {}", "block_number", self.block_number())?;
+        write!(f, ", {}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "index", self.index())?;
         write!(f, " }}")
     }
@@ -4736,18 +4737,21 @@ impl ::core::default::Default for TransactionKey {
     }
 }
 impl TransactionKey {
-    const DEFAULT_VALUE: [u8; 36] = [
+    const DEFAULT_VALUE: [u8; 44] = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    pub const TOTAL_SIZE: usize = 36;
-    pub const FIELD_SIZES: [usize; 2] = [32, 4];
-    pub const FIELD_COUNT: usize = 2;
+    pub const TOTAL_SIZE: usize = 44;
+    pub const FIELD_SIZES: [usize; 3] = [8, 32, 4];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn block_number(&self) -> BeUint64 {
+        BeUint64::new_unchecked(self.0.slice(0..8))
+    }
     pub fn block_hash(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(0..32))
+        Byte32::new_unchecked(self.0.slice(8..40))
     }
     pub fn index(&self) -> BeUint32 {
-        BeUint32::new_unchecked(self.0.slice(32..36))
+        BeUint32::new_unchecked(self.0.slice(40..44))
     }
     pub fn as_reader<'r>(&'r self) -> TransactionKeyReader<'r> {
         TransactionKeyReader::new_unchecked(self.as_slice())
@@ -4776,6 +4780,7 @@ impl molecule::prelude::Entity for TransactionKey {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
+            .block_number(self.block_number())
             .block_hash(self.block_hash())
             .index(self.index())
     }
@@ -4799,20 +4804,24 @@ impl<'r> ::core::fmt::Debug for TransactionKeyReader<'r> {
 impl<'r> ::core::fmt::Display for TransactionKeyReader<'r> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_hash", self.block_hash())?;
+        write!(f, "{}: {}", "block_number", self.block_number())?;
+        write!(f, ", {}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "index", self.index())?;
         write!(f, " }}")
     }
 }
 impl<'r> TransactionKeyReader<'r> {
-    pub const TOTAL_SIZE: usize = 36;
-    pub const FIELD_SIZES: [usize; 2] = [32, 4];
-    pub const FIELD_COUNT: usize = 2;
+    pub const TOTAL_SIZE: usize = 44;
+    pub const FIELD_SIZES: [usize; 3] = [8, 32, 4];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn block_number(&self) -> BeUint64Reader<'r> {
+        BeUint64Reader::new_unchecked(&self.as_slice()[0..8])
+    }
     pub fn block_hash(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[0..32])
+        Byte32Reader::new_unchecked(&self.as_slice()[8..40])
     }
     pub fn index(&self) -> BeUint32Reader<'r> {
-        BeUint32Reader::new_unchecked(&self.as_slice()[32..36])
+        BeUint32Reader::new_unchecked(&self.as_slice()[40..44])
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for TransactionKeyReader<'r> {
@@ -4838,13 +4847,18 @@ impl<'r> molecule::prelude::Reader<'r> for TransactionKeyReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct TransactionKeyBuilder {
+    pub(crate) block_number: BeUint64,
     pub(crate) block_hash: Byte32,
     pub(crate) index: BeUint32,
 }
 impl TransactionKeyBuilder {
-    pub const TOTAL_SIZE: usize = 36;
-    pub const FIELD_SIZES: [usize; 2] = [32, 4];
-    pub const FIELD_COUNT: usize = 2;
+    pub const TOTAL_SIZE: usize = 44;
+    pub const FIELD_SIZES: [usize; 3] = [8, 32, 4];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn block_number(mut self, v: BeUint64) -> Self {
+        self.block_number = v;
+        self
+    }
     pub fn block_hash(mut self, v: Byte32) -> Self {
         self.block_hash = v;
         self
@@ -4861,6 +4875,7 @@ impl molecule::prelude::Builder for TransactionKeyBuilder {
         Self::TOTAL_SIZE
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.block_hash.as_slice())?;
         writer.write_all(self.index.as_slice())?;
         Ok(())
@@ -5071,12 +5086,12 @@ impl ::core::default::Default for TransactionInfo {
     }
 }
 impl TransactionInfo {
-    const DEFAULT_VALUE: [u8; 52] = [
+    const DEFAULT_VALUE: [u8; 60] = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    pub const TOTAL_SIZE: usize = 52;
-    pub const FIELD_SIZES: [usize; 3] = [8, 8, 36];
+    pub const TOTAL_SIZE: usize = 60;
+    pub const FIELD_SIZES: [usize; 3] = [8, 8, 44];
     pub const FIELD_COUNT: usize = 3;
     pub fn block_number(&self) -> Uint64 {
         Uint64::new_unchecked(self.0.slice(0..8))
@@ -5085,7 +5100,7 @@ impl TransactionInfo {
         Uint64::new_unchecked(self.0.slice(8..16))
     }
     pub fn key(&self) -> TransactionKey {
-        TransactionKey::new_unchecked(self.0.slice(16..52))
+        TransactionKey::new_unchecked(self.0.slice(16..60))
     }
     pub fn as_reader<'r>(&'r self) -> TransactionInfoReader<'r> {
         TransactionInfoReader::new_unchecked(self.as_slice())
@@ -5145,8 +5160,8 @@ impl<'r> ::core::fmt::Display for TransactionInfoReader<'r> {
     }
 }
 impl<'r> TransactionInfoReader<'r> {
-    pub const TOTAL_SIZE: usize = 52;
-    pub const FIELD_SIZES: [usize; 3] = [8, 8, 36];
+    pub const TOTAL_SIZE: usize = 60;
+    pub const FIELD_SIZES: [usize; 3] = [8, 8, 44];
     pub const FIELD_COUNT: usize = 3;
     pub fn block_number(&self) -> Uint64Reader<'r> {
         Uint64Reader::new_unchecked(&self.as_slice()[0..8])
@@ -5155,7 +5170,7 @@ impl<'r> TransactionInfoReader<'r> {
         Uint64Reader::new_unchecked(&self.as_slice()[8..16])
     }
     pub fn key(&self) -> TransactionKeyReader<'r> {
-        TransactionKeyReader::new_unchecked(&self.as_slice()[16..52])
+        TransactionKeyReader::new_unchecked(&self.as_slice()[16..60])
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for TransactionInfoReader<'r> {
@@ -5186,8 +5201,8 @@ pub struct TransactionInfoBuilder {
     pub(crate) key: TransactionKey,
 }
 impl TransactionInfoBuilder {
-    pub const TOTAL_SIZE: usize = 52;
-    pub const FIELD_SIZES: [usize; 3] = [8, 8, 36];
+    pub const TOTAL_SIZE: usize = 60;
+    pub const FIELD_SIZES: [usize; 3] = [8, 8, 44];
     pub const FIELD_COUNT: usize = 3;
     pub fn block_number(mut self, v: Uint64) -> Self {
         self.block_number = v;

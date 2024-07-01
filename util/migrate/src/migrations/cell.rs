@@ -5,10 +5,12 @@ use ckb_db_schema::COLUMN_CELL;
 use ckb_error::Error;
 use ckb_migration_template::multi_thread_migration;
 use ckb_store::{ChainDB, ChainStore, StoreWriteBatch};
+use ckb_types::core::BlockNumber;
 use ckb_types::{
     core::{BlockView, TransactionView},
     packed,
     prelude::*,
+    BlockNumberAndHash,
 };
 use std::sync::Arc;
 
@@ -34,7 +36,8 @@ impl Migration for CellMigration {
                         .and_then(|hash| chain_db.get_block(&hash)).expect("DB data integrity");
 
                     if block.transactions().len() > 1 {
-                        hashes.push(block.hash());
+                        let num_hash = BlockNumberAndHash::new(block.number(), block.hash());
+                        hashes.push(num_hash);
                     }
                     insert_block_cell(&mut wb, &block);
 
@@ -55,10 +58,12 @@ impl Migration for CellMigration {
 
                 pbi.set_length(size + hashes.len() as u64);
 
-                for hash in hashes {
-                    let txs = chain_db.get_block_body(&hash);
+                for num_hash in hashes {
 
-                    delete_consumed_cell(&mut wb, &txs);
+                    let block_number = num_hash.number();
+                    let txs = chain_db.get_block_body(num_hash);
+
+                    delete_consumed_cell(&mut wb, block_number, &txs);
                     if wb.size_in_bytes() > MAX_DELETE_BATCH_SIZE {
                         chain_db.write(&wb).unwrap();
                         wb.clear().unwrap();
@@ -76,8 +81,8 @@ impl Migration for CellMigration {
 
 // https://github.com/facebook/rocksdb/issues/1295
 fn clean_cell_column(db: &mut RocksDB) -> Result<(), Error> {
-    db.drop_cf(COLUMN_CELL)?;
-    db.create_cf(COLUMN_CELL)?;
+    db.drop_cf(COLUMN_CELL::NAME)?;
+    db.create_cf(COLUMN_CELL::NAME)?;
     Ok(())
 }
 
@@ -129,12 +134,16 @@ fn insert_block_cell(batch: &mut StoreWriteBatch, block: &BlockView) {
     batch.insert_cells(new_cells).unwrap();
 }
 
-fn delete_consumed_cell(batch: &mut StoreWriteBatch, transactions: &[TransactionView]) {
+fn delete_consumed_cell(
+    batch: &mut StoreWriteBatch,
+    block_number: BlockNumber,
+    transactions: &[TransactionView],
+) {
     // mark inputs dead
     // skip cellbase
     let deads = transactions
         .iter()
         .skip(1)
         .flat_map(|tx| tx.input_pts_iter());
-    batch.delete_cells(deads).unwrap();
+    batch.delete_cells(block_number, deads).unwrap();
 }

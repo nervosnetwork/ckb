@@ -3,7 +3,7 @@ use ckb_channel::select;
 use ckb_channel::unbounded;
 use ckb_channel::Receiver;
 use ckb_db::{ReadOnlyDB, RocksDB};
-use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
+use ckb_db_schema::COLUMN_META;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info};
 use ckb_stop_handler::register_thread;
@@ -79,7 +79,7 @@ impl MigrationWorker {
                                 pb
                             };
                             if let Ok(db) = task.migrate(self.db.clone(), Arc::new(pb)) {
-                                db.put_default(MIGRATION_VERSION_KEY, task.version())
+                                db.put_default(COLUMN_META::MIGRATION_VERSION_KEY, task.version())
                                 .map_err(|err| {
                                     internal_error(format!("failed to migrate the database: {err}"))
                                 })
@@ -117,7 +117,7 @@ impl Migrations {
     ///   Requires upgrade the executable binary.
     pub fn check(&self, db: &ReadOnlyDB, include_background: bool) -> Ordering {
         let db_version = match db
-            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
             .expect("get the version of database")
         {
             Some(version_bytes) => {
@@ -152,7 +152,7 @@ impl Migrations {
     /// Check if the migrations will consume a lot of time.
     pub fn expensive(&self, db: &ReadOnlyDB, include_background: bool) -> bool {
         let db_version = match db
-            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
             .expect("get the version of database")
         {
             Some(version_bytes) => {
@@ -178,7 +178,7 @@ impl Migrations {
     /// Check if all the pending migrations will be executed in background.
     pub fn can_run_in_background(&self, db: &ReadOnlyDB) -> bool {
         let db_version = match db
-            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
             .expect("get the version of database")
         {
             Some(version_bytes) => {
@@ -198,7 +198,7 @@ impl Migrations {
     }
 
     fn is_non_empty_rdb(&self, db: &ReadOnlyDB) -> bool {
-        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY) {
+        if let Ok(v) = db.get_pinned(COLUMN_META::NAME, COLUMN_META::META_TIP_HEADER_KEY) {
             if v.is_some() {
                 return true;
             }
@@ -207,7 +207,7 @@ impl Migrations {
     }
 
     fn is_non_empty_db(&self, db: &RocksDB) -> bool {
-        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY) {
+        if let Ok(v) = db.get_pinned(COLUMN_META::NAME, COLUMN_META::META_TIP_HEADER_KEY) {
             if v.is_some() {
                 return true;
             }
@@ -232,7 +232,7 @@ impl Migrations {
                 pb
             };
             db = m.migrate(db, Arc::new(pb))?;
-            db.put_default(MIGRATION_VERSION_KEY, m.version())
+            db.put_default(COLUMN_META::MIGRATION_VERSION_KEY, m.version())
                 .map_err(|err| internal_error(format!("failed to migrate the database: {err}")))?;
         }
         mpb.join_and_clear().expect("MultiProgress join");
@@ -273,7 +273,7 @@ impl Migrations {
 
     fn get_migration_version(&self, db: &RocksDB) -> Result<Option<String>, Error> {
         let raw = db
-            .get_pinned_default(MIGRATION_VERSION_KEY)
+            .get_pinned_default(COLUMN_META::MIGRATION_VERSION_KEY)
             .map_err(|err| {
                 internal_error(format!("failed to get the version of database: {err}"))
             })?;
@@ -289,7 +289,7 @@ impl Migrations {
         if db_version.is_none() {
             if let Some(m) = self.migrations.values().last() {
                 info!("Init database version {}", m.version());
-                db.put_default(MIGRATION_VERSION_KEY, m.version())
+                db.put_default(COLUMN_META::MIGRATION_VERSION_KEY, m.version())
                     .map_err(|err| {
                         internal_error(format!("failed to migrate the database: {err}"))
                     })?;

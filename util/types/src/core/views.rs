@@ -11,7 +11,7 @@ use crate::{
     packed,
     prelude::*,
     utilities::merkle_root,
-    U256,
+    BlockNumberAndHash, U256,
 };
 
 /*
@@ -497,6 +497,15 @@ impl HeaderView {
     pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
         self.hash = hash;
         self
+    }
+
+    /// Get Header's BlockNumberAndHash
+    pub fn num_hash(&self) -> BlockNumberAndHash {
+        BlockNumberAndHash::new(self.number(), self.hash())
+    }
+    /// Get Header's Parent BlockNumberAndHash
+    pub fn parent_num_hash(&self) -> BlockNumberAndHash {
+        BlockNumberAndHash::new(self.number().saturating_sub(1), self.parent_hash())
     }
 }
 

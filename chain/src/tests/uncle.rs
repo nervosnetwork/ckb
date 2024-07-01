@@ -29,7 +29,10 @@ fn test_get_block_body_after_inserting() {
         chain_service
             .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
-        let len = shared.snapshot().get_block_body(&blk.hash()).len();
+        let len = shared
+            .snapshot()
+            .get_block_body(blk.number(), &blk.hash())
+            .len();
         assert_eq!(len, 1, "[fork1] snapshot.get_block_body({})", blk.hash(),);
     }
     for blk in fork2.blocks() {
@@ -40,7 +43,7 @@ fn test_get_block_body_after_inserting() {
         assert!(snapshot.get_block_header(&blk.hash()).is_some());
         assert!(snapshot.get_block_uncles(&blk.hash()).is_some());
         assert!(snapshot.get_block_proposal_txs_ids(&blk.hash()).is_some());
-        let len = snapshot.get_block_body(&blk.hash()).len();
+        let len = snapshot.get_block_body(blk.number(), &blk.hash()).len();
         assert_eq!(len, 1, "[fork2] snapshot.get_block_body({})", blk.hash(),);
     }
 }

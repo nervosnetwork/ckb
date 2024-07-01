@@ -63,8 +63,9 @@ fn save_and_get_block_ext() {
     };
 
     let hash = block.hash();
+    let number = block.number();
     let txn = store.begin_transaction();
-    txn.insert_block_ext(&hash, &ext).unwrap();
+    txn.insert_block_ext(number, &hash, &ext).unwrap();
     txn.commit().unwrap();
     assert_eq!(ext, store.get_block_ext(&hash).unwrap());
 }
@@ -109,7 +110,7 @@ fn freeze_blockv0() {
 
     let txn = store.begin_transaction();
     txn.insert_raw(
-        COLUMN_BLOCK_HEADER,
+        COLUMN_BLOCK_HEADER::NAME,
         block_hash.as_slice(),
         header.pack().as_slice(),
     )
@@ -145,7 +146,7 @@ fn freeze_blockv1_with_extension() {
 
     let txn = store.begin_transaction();
     txn.insert_raw(
-        COLUMN_BLOCK_HEADER,
+        COLUMN_BLOCK_HEADER::NAME,
         block_hash.as_slice(),
         header.pack().as_slice(),
     )

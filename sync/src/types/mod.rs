@@ -2050,12 +2050,12 @@ impl ActiveChain {
         self.snapshot().get_block_ext(h)
     }
 
-    pub fn get_block_filter(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
-        self.store().get_block_filter(hash)
+    pub fn get_block_filter(&self, num_hash: &BlockNumberAndHash) -> Option<packed::Bytes> {
+        self.store().get_block_filter(num_hash)
     }
 
-    pub fn get_block_filter_hash(&self, hash: &packed::Byte32) -> Option<packed::Byte32> {
-        self.store().get_block_filter_hash(hash)
+    pub fn get_block_filter_hash(&self, num_hash: BlockNumberAndHash) -> Option<packed::Byte32> {
+        self.store().get_block_filter_hash(num_hash)
     }
 
     pub fn get_latest_built_filter_block_number(&self) -> BlockNumber {
