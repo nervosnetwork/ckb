@@ -51,27 +51,25 @@ impl AsyncRichIndexerHandle {
                 .join("ckb_transaction")
                 .on("output.tx_id = ckb_transaction.id");
         }
-        query_builder
-            .left()
-            .join("input")
-            .on("output.id = input.output_id");
         if let Some(ref filter) = search_key.filter {
             if filter.script.is_some() || filter.script_len_range.is_some() {
                 match search_key.script_type {
                     IndexerScriptType::Lock => {
                         query_builder
+                            .left()
                             .join(name!("script";"type_script"))
                             .on("output.type_script_id = type_script.id");
                     }
                     IndexerScriptType::Type => {
                         query_builder
+                            .left()
                             .join(name!("script";"lock_script"))
                             .on("output.lock_script_id = lock_script.id");
                     }
                 }
             }
         }
-        query_builder.and_where("input.output_id IS NULL"); // live cells
+        query_builder.and_where("output.is_spent = 0"); // live cells
 
         // filter cells in pool
         let mut dead_cells = Vec::new();
