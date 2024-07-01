@@ -2109,7 +2109,7 @@ fn test_load_cell_data_size_zero() {
 
     let data = Bytes::from(data.to_vec());
     let dep_cell = build_cell_meta(10000, data.clone());
-    let input_cell = build_cell_meta(100, data.clone());
+    let input_cell = build_cell_meta(100, data);
 
     let data_loader = new_mock_data_loader();
 
@@ -2154,7 +2154,7 @@ fn test_load_cell_data_size_zero_index_out_of_bound() {
 
     let data = Bytes::from(data.to_vec());
     let dep_cell = build_cell_meta(10000, data.clone());
-    let input_cell = build_cell_meta(100, data.clone());
+    let input_cell = build_cell_meta(100, data);
 
     let data_loader = new_mock_data_loader();
 

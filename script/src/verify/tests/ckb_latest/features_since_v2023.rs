@@ -751,7 +751,7 @@ fn check_spawn_configurable_once(spawn_from: SpawnFrom) {
         SpawnFrom::TxInputCell => {
             let input_spawn_callee_output = CellOutputBuilder::default()
                 .capacity(capacity_bytes!(1000).pack())
-                .lock(always_success_script.clone())
+                .lock(always_success_script)
                 .build();
             let input_spawn_callee = CellMetaBuilder::from_cell_output(
                 input_spawn_callee_output,
@@ -770,7 +770,7 @@ fn check_spawn_configurable_once(spawn_from: SpawnFrom) {
                 .output(
                     CellOutputBuilder::default()
                         .capacity(capacity_bytes!(100).pack())
-                        .lock(always_success_script.clone())
+                        .lock(always_success_script)
                         .build(),
                 )
                 .output_data(spawn_callee_cell_data.pack())
