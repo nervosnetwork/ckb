@@ -173,6 +173,11 @@ impl Client {
     }
 
     pub(crate) fn submit_block(&self, work_id: &str, block: Block) -> Result<(), RpcError> {
+        info!(
+            "submit work_id: {} block: {}",
+            work_id,
+            block.header().raw().number()
+        );
         let parent = block.header().raw().parent_hash();
         let future = self
             .send_submit_block_request(work_id, block)
@@ -278,6 +283,11 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
             .is_ok()
         {
             let work: Work = block_template.into();
+            info!(
+                "new work: {} block_template_number: {}",
+                work_id,
+                work.block.header().raw().number()
+            );
             if let Err(e) = self.new_work_tx.send(Works::New(work)) {
                 error!("notify_new_block error: {:?}", e);
             }

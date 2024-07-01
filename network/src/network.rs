@@ -594,6 +594,7 @@ impl ServiceHandle for EventHandler {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
                 let message = format!("ProtocolError id={proto_id}");
                 // Ban because misbehave of remote peer
+                info!("id: {} proto_id: {}, error: {}", id, proto_id, error);
                 self.network_state.ban_session(
                     &context.control().clone().into(),
                     id,
@@ -632,7 +633,7 @@ impl ServiceHandle for EventHandler {
                 debug!("SessionBlocked: {}", session_context.id);
             }
             ServiceError::ProtocolHandleError { proto_id, error } => {
-                debug!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id);
+                info!("ProtocolHandleError: {:?}, proto_id: {}", error, proto_id);
 
                 let ProtocolHandleErrorKind::AbnormallyClosed(opt_session_id) = error;
                 {
@@ -1254,6 +1255,10 @@ impl NetworkController {
 
     /// Ban an ip
     pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) {
+        info!(
+            "Ban ip: {}, until: {}, reason: {}",
+            address, ban_until, ban_reason
+        );
         self.disconnect_peers_in_ip_range(address, &ban_reason);
         self.network_state
             .peer_store
@@ -1282,6 +1287,10 @@ impl NetworkController {
 
     /// Ban an peer through peer index
     pub fn ban_peer(&self, peer_index: PeerIndex, duration: Duration, reason: String) {
+        info!(
+            "Ban peer: {}, until: {:?}, reason: {}",
+            peer_index, duration, reason
+        );
         self.network_state
             .ban_session(&self.p2p_control, peer_index, duration, reason);
     }

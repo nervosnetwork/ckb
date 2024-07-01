@@ -15,7 +15,7 @@ use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::{
     BlockTemplate as JsonBlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
-use ckb_logger::{debug, error, trace};
+use ckb_logger::{debug, error, info};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -228,7 +228,7 @@ impl BlockAssembler {
         current.size.total = total_size;
         current.size.proposals = proposals_size;
 
-        trace!(
+        info!(
             "[BlockAssembler] update_full {} uncles-{} proposals-{} txs-{}",
             current.template.number,
             current.template.uncles.len(),
@@ -272,7 +272,7 @@ impl BlockAssembler {
         }
         let template = builder.build();
 
-        trace!(
+        info!(
             "[BlockAssembler] update_blank {} uncles-{} proposals-{} txs-{}",
             template.number,
             template.uncles.len(),
@@ -326,7 +326,7 @@ impl BlockAssembler {
                     current.size.uncles = new_uncle_size;
                     current.size.total = new_total_size;
 
-                    trace!(
+                    info!(
                         "[BlockAssembler] update_uncles-{} epoch-{} uncles-{} proposals-{} txs-{}",
                         current.template.number,
                         current.template.epoch.number(),
@@ -367,7 +367,7 @@ impl BlockAssembler {
             current.size.proposals = new_proposals_size;
             current.size.total = new_total_size;
 
-            trace!(
+            info!(
                 "[BlockAssembler] update_proposals-{} epoch-{} uncles-{} proposals-{} txs-{}",
                 current.template.number,
                 current.template.epoch.number(),
@@ -436,7 +436,7 @@ impl BlockAssembler {
             current.size.txs = new_txs_size;
             current.size.total = new_total_size;
 
-            trace!(
+            info!(
                 "[BlockAssembler] update_transactions-{} epoch-{} uncles-{} proposals-{} txs-{}",
                 current.template.number,
                 current.template.epoch.number(),
@@ -781,7 +781,10 @@ impl BlockTemplateBuilder {
         let max_block_bytes = consensus.max_block_bytes();
         let cycles_limit = consensus.max_block_cycles();
         let uncles_count_limit = consensus.max_uncles_num() as u8;
-
+        info!(
+            "block_template_builder new candidate_number: {}",
+            candidate_number
+        );
         Self {
             version,
             compact_target: current_epoch.compact_target(),
