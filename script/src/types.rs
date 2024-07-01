@@ -1,13 +1,11 @@
-use crate::ScriptError;
 use ckb_error::Error;
 use ckb_types::{
     core::{Cycle, ScriptHashType},
     packed::{Byte32, Script},
 };
 use ckb_vm::{
-    machine::{Pause, VERSION0, VERSION1, VERSION2},
-    snapshot::{make_snapshot, Snapshot},
-    Error as VMInternalError, SupportMachine, ISA_A, ISA_B, ISA_IMC, ISA_MOP,
+    machine::{VERSION0, VERSION1, VERSION2},
+    ISA_A, ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -18,6 +16,18 @@ use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 
 #[cfg(not(has_asm))]
 use ckb_vm::{DefaultCoreMachine, TraceMachine, WXorXMemory};
+
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
+use ckb_vm::snapshot2::Snapshot2Context;
+
+use ckb_types::core::cell::ResolvedTransaction;
+use ckb_vm::{
+    bytes::Bytes,
+    machine::Pause,
+    snapshot2::{DataSource, Snapshot2},
+    RISCV_GENERAL_REGISTER_NUMBER,
+};
+use std::mem::size_of;
 
 /// The type of CKB-VM ISA.
 pub type VmIsa = u8;
@@ -39,6 +49,11 @@ pub type CoreMachine = Box<AsmCoreMachine>;
 pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
 #[cfg(all(not(has_asm), feature = "flatmemory"))]
 pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
+
+#[cfg(has_asm)]
+pub(crate) type Machine = AsmMachine;
+#[cfg(not(has_asm))]
+pub(crate) type Machine = TraceMachine<CoreMachine>;
 
 pub(crate) type Indices = Arc<Vec<usize>>;
 
@@ -105,155 +120,6 @@ impl ScriptVersion {
         let version = self.vm_version();
         CoreMachineType::new(isa, version, max_cycles)
     }
-}
-
-#[cfg(has_asm)]
-pub(crate) type Machine = AsmMachine;
-#[cfg(not(has_asm))]
-pub(crate) type Machine = TraceMachine<CoreMachine>;
-
-/// Common data that would be shared amongst multiple VM instances.
-/// One sample usage right now, is to capture suspended machines in
-/// a chain of spawned machines.
-#[derive(Default)]
-pub struct MachineContext {
-    /// A stack of ResumableMachines.
-    pub suspended_machines: Vec<ResumableMachine>,
-    /// A pause will be set for suspend machines.
-    /// The child machine will reuse parent machine's pause,
-    /// so that when parent is paused, all its children will be paused.
-    pub pause: Pause,
-}
-
-impl MachineContext {
-    /// Creates a new MachineContext struct
-    pub fn set_pause(&mut self, pause: Pause) {
-        self.pause = pause;
-    }
-}
-
-/// Data structure captured all environment data for a suspended machine
-#[derive(Clone, Debug)]
-pub enum ResumePoint {
-    Initial,
-    Spawn {
-        callee_peak_memory: u64,
-        callee_memory_limit: u64,
-        content: Vec<u8>,
-        content_length: u64,
-        caller_exit_code_addr: u64,
-        caller_content_addr: u64,
-        caller_content_length_addr: u64,
-        cycles_base: u64,
-    },
-}
-
-/// Data structure captured all the required data for a spawn syscall
-#[derive(Clone, Debug)]
-pub struct SpawnData {
-    pub(crate) callee_peak_memory: u64,
-    pub(crate) callee_memory_limit: u64,
-    pub(crate) content: Arc<Mutex<Vec<u8>>>,
-    pub(crate) content_length: u64,
-    pub(crate) caller_exit_code_addr: u64,
-    pub(crate) caller_content_addr: u64,
-    pub(crate) caller_content_length_addr: u64,
-    pub(crate) cycles_base: u64,
-}
-
-impl TryFrom<&SpawnData> for ResumePoint {
-    type Error = VMInternalError;
-
-    fn try_from(value: &SpawnData) -> Result<Self, Self::Error> {
-        let SpawnData {
-            callee_peak_memory,
-            callee_memory_limit,
-            content,
-            content_length,
-            caller_exit_code_addr,
-            caller_content_addr,
-            caller_content_length_addr,
-            cycles_base,
-            ..
-        } = value;
-        Ok(ResumePoint::Spawn {
-            callee_peak_memory: *callee_peak_memory,
-            callee_memory_limit: *callee_memory_limit,
-            content: content
-                .lock()
-                .map_err(|e| VMInternalError::Unexpected(format!("Lock error: {}", e)))?
-                .clone(),
-            content_length: *content_length,
-            caller_exit_code_addr: *caller_exit_code_addr,
-            caller_content_addr: *caller_content_addr,
-            caller_content_length_addr: *caller_content_length_addr,
-            cycles_base: *cycles_base,
-        })
-    }
-}
-
-/// An enumerated type indicating the type of the Machine.
-pub enum ResumableMachine {
-    /// Root machine instance.
-    Initial(Machine),
-    /// A machine which created by spawn syscall.
-    Spawn(Machine, SpawnData),
-}
-
-impl ResumableMachine {
-    pub(crate) fn initial(machine: Machine) -> Self {
-        ResumableMachine::Initial(machine)
-    }
-
-    pub(crate) fn spawn(machine: Machine, data: SpawnData) -> Self {
-        ResumableMachine::Spawn(machine, data)
-    }
-
-    pub(crate) fn machine(&self) -> &Machine {
-        match self {
-            ResumableMachine::Initial(machine) => machine,
-            ResumableMachine::Spawn(machine, _) => machine,
-        }
-    }
-
-    pub(crate) fn machine_mut(&mut self) -> &mut Machine {
-        match self {
-            ResumableMachine::Initial(machine) => machine,
-            ResumableMachine::Spawn(machine, _) => machine,
-        }
-    }
-
-    pub(crate) fn cycles(&self) -> Cycle {
-        self.machine().machine.cycles()
-    }
-
-    pub(crate) fn pause(&self) -> Pause {
-        self.machine().machine.pause()
-    }
-
-    pub(crate) fn set_max_cycles(&mut self, cycles: Cycle) {
-        set_vm_max_cycles(self.machine_mut(), cycles)
-    }
-
-    /// Add cycles to current machine.
-    pub fn add_cycles(&mut self, cycles: Cycle) -> Result<(), VMInternalError> {
-        self.machine_mut().machine.add_cycles(cycles)
-    }
-
-    /// Run machine.
-    pub fn run(&mut self) -> Result<i8, VMInternalError> {
-        self.machine_mut().run()
-    }
-}
-
-#[cfg(has_asm)]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
-    vm.set_max_cycles(cycles)
-}
-
-#[cfg(not(has_asm))]
-pub(crate) fn set_vm_max_cycles(vm: &mut Machine, cycles: Cycle) {
-    vm.machine.inner_mut().set_max_cycles(cycles)
 }
 
 /// A script group is defined as scripts that share the same hash.
@@ -325,7 +191,7 @@ pub struct TransactionSnapshot {
     /// current suspended script index
     pub current: usize,
     /// vm snapshots
-    pub snaps: Vec<(Snapshot, Cycle, ResumePoint)>,
+    pub state: Option<FullSuspendedState>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles when snapshot create
@@ -337,29 +203,25 @@ pub struct TransactionSnapshot {
 pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
-    /// vm states
-    pub vms: Vec<ResumableMachine>,
+    /// vm scheduler suspend state
+    pub state: Option<FullSuspendedState>,
     /// current consumed cycle
     pub current_cycles: Cycle,
     /// limit cycles
     pub limit_cycles: Cycle,
-    /// machine context for the vms included in this state
-    pub machine_context: Arc<Mutex<MachineContext>>,
 }
 
 impl TransactionState {
     /// Creates a new TransactionState struct
     pub fn new(
-        vms: Vec<ResumableMachine>,
-        machine_context: Arc<Mutex<MachineContext>>,
+        state: Option<FullSuspendedState>,
         current: usize,
         current_cycles: Cycle,
         limit_cycles: Cycle,
     ) -> Self {
         TransactionState {
             current,
-            vms,
-            machine_context,
+            state,
             current_cycles,
             limit_cycles,
         }
@@ -398,29 +260,15 @@ impl TryFrom<TransactionState> for TransactionSnapshot {
     fn try_from(state: TransactionState) -> Result<Self, Self::Error> {
         let TransactionState {
             current,
-            vms,
+            state,
             current_cycles,
             limit_cycles,
             ..
         } = state;
 
-        let mut snaps = Vec::with_capacity(vms.len());
-        for mut vm in vms {
-            let snapshot = make_snapshot(&mut vm.machine_mut().machine)
-                .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?;
-            let cycles = vm.cycles();
-            let resume_point = match vm {
-                ResumableMachine::Initial(_) => ResumePoint::Initial,
-                ResumableMachine::Spawn(_, data) => (&data)
-                    .try_into()
-                    .map_err(|e| ScriptError::VMInternalError(e).unknown_source())?,
-            };
-            snaps.push((snapshot, cycles, resume_point));
-        }
-
         Ok(TransactionSnapshot {
             current,
-            snaps,
+            state,
             current_cycles,
             limit_cycles,
         })
@@ -466,4 +314,324 @@ pub enum ChunkCommand {
     Resume,
     /// Stop the verification process
     Stop,
+}
+
+#[derive(Clone)]
+pub struct MachineContext<
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+> {
+    pub(crate) base_cycles: Arc<Mutex<u64>>,
+    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+}
+
+impl<DL> MachineContext<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+{
+    pub fn new(tx_data: TxData<DL>) -> Self {
+        Self {
+            base_cycles: Arc::new(Mutex::new(0)),
+            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(tx_data))),
+        }
+    }
+
+    pub fn snapshot2_context(&self) -> &Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>> {
+        &self.snapshot2_context
+    }
+
+    pub fn set_base_cycles(&mut self, base_cycles: u64) {
+        *self.base_cycles.lock().expect("lock") = base_cycles;
+    }
+}
+
+pub type VmId = u64;
+pub const FIRST_VM_ID: VmId = 0;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Fd(pub(crate) u64);
+
+pub const FIRST_FD_SLOT: u64 = 2;
+
+impl Fd {
+    pub fn create(slot: u64) -> (Fd, Fd, u64) {
+        (Fd(slot), Fd(slot + 1), slot + 2)
+    }
+
+    pub fn other_fd(&self) -> Fd {
+        Fd(self.0 ^ 0x1)
+    }
+
+    pub fn is_read(&self) -> bool {
+        self.0 % 2 == 0
+    }
+
+    pub fn is_write(&self) -> bool {
+        self.0 % 2 == 1
+    }
+}
+
+/// VM is in waiting-to-read state.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ReadState {
+    pub fd: Fd,
+    pub length: u64,
+    pub buffer_addr: u64,
+    pub length_addr: u64,
+}
+
+/// VM is in waiting-to-write state.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct WriteState {
+    pub fd: Fd,
+    pub consumed: u64,
+    pub length: u64,
+    pub buffer_addr: u64,
+    pub length_addr: u64,
+}
+
+/// VM State.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum VmState {
+    /// Runnable.
+    Runnable,
+    /// Terminated.
+    Terminated,
+    /// Wait.
+    Wait {
+        /// Target vm id.
+        target_vm_id: VmId,
+        /// Exit code addr.
+        exit_code_addr: u64,
+    },
+    /// WaitForWrite.
+    WaitForWrite(WriteState),
+    /// WaitForRead.
+    WaitForRead(ReadState),
+}
+
+#[derive(Clone, Debug)]
+pub struct SpawnArgs {
+    pub data_piece_id: DataPieceId,
+    pub offset: u64,
+    pub length: u64,
+    pub argv: Vec<Bytes>,
+    pub fds: Vec<Fd>,
+    pub process_id_addr: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct WaitArgs {
+    pub target_id: VmId,
+    pub exit_code_addr: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct PipeArgs {
+    pub fd1_addr: u64,
+    pub fd2_addr: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct FdArgs {
+    pub fd: Fd,
+    pub length: u64,
+    pub buffer_addr: u64,
+    pub length_addr: u64,
+}
+
+#[derive(Clone, Debug)]
+pub enum Message {
+    Spawn(VmId, SpawnArgs),
+    Wait(VmId, WaitArgs),
+    Pipe(VmId, PipeArgs),
+    FdRead(VmId, FdArgs),
+    FdWrite(VmId, FdArgs),
+    InheritedFileDescriptor(VmId, FdArgs),
+    Close(VmId, Fd),
+}
+
+/// A pointer to the data that is part of the transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DataPieceId {
+    /// Target program. Usually located in cell data.
+    Program,
+    /// The nth input cell data.
+    Input(u32),
+    /// The nth output data.
+    Output(u32),
+    /// The nth cell dep cell data.
+    CellDep(u32),
+    /// The nth group input cell data.
+    GroupInput(u32),
+    /// The nth group output data.
+    GroupOutput(u32),
+    /// The nth witness.
+    Witness(u32),
+    /// The nth witness group input.
+    WitnessGroupInput(u32),
+    /// The nth witness group output.
+    WitnessGroupOutput(u32),
+}
+
+impl TryFrom<(u64, u64, u64)> for DataPieceId {
+    type Error = String;
+
+    fn try_from(value: (u64, u64, u64)) -> Result<Self, Self::Error> {
+        let (source, index, place) = value;
+        let index: u32 =
+            u32::try_from(index).map_err(|e| format!("Error casting index to u32: {}", e))?;
+        match (source, place) {
+            (1, 0) => Ok(DataPieceId::Input(index)),
+            (2, 0) => Ok(DataPieceId::Output(index)),
+            (3, 0) => Ok(DataPieceId::CellDep(index)),
+            (0x0100000000000001, 0) => Ok(DataPieceId::GroupInput(index)),
+            (0x0100000000000002, 0) => Ok(DataPieceId::GroupOutput(index)),
+            (1, 1) => Ok(DataPieceId::Witness(index)),
+            (2, 1) => Ok(DataPieceId::Witness(index)),
+            (0x0100000000000001, 1) => Ok(DataPieceId::WitnessGroupInput(index)),
+            (0x0100000000000002, 1) => Ok(DataPieceId::WitnessGroupOutput(index)),
+            _ => Err(format!("Invalid source value: {:#x}", source)),
+        }
+    }
+}
+
+/// Full state representing all VM instances from verifying a CKB script.
+/// It should be serializable to binary formats, while also be able to
+/// fully recover the running environment with the full transaction environment.
+#[derive(Clone, Debug)]
+pub struct FullSuspendedState {
+    pub total_cycles: Cycle,
+    pub next_vm_id: VmId,
+    pub next_fd_slot: u64,
+    pub vms: Vec<(VmId, VmState, Snapshot2<DataPieceId>)>,
+    pub fds: Vec<(Fd, VmId)>,
+    pub inherited_fd: Vec<(VmId, Vec<Fd>)>,
+    pub terminated_vms: Vec<(VmId, i8)>,
+    pub instantiated_ids: Vec<VmId>,
+}
+
+impl FullSuspendedState {
+    pub fn size(&self) -> u64 {
+        (size_of::<Cycle>()
+            + size_of::<VmId>()
+            + size_of::<u64>()
+            + self.vms.iter().fold(0, |mut acc, (_, _, snapshot)| {
+                acc += size_of::<VmId>() + size_of::<VmState>();
+                acc += snapshot.pages_from_source.len()
+                    * (size_of::<u64>()
+                        + size_of::<u8>()
+                        + size_of::<DataPieceId>()
+                        + size_of::<u64>()
+                        + size_of::<u64>());
+                for dirty_page in &snapshot.dirty_pages {
+                    acc += size_of::<u64>() + size_of::<u8>() + dirty_page.2.len();
+                }
+                acc += size_of::<u32>()
+                    + RISCV_GENERAL_REGISTER_NUMBER * size_of::<u64>()
+                    + size_of::<u64>()
+                    + size_of::<u64>()
+                    + size_of::<u64>();
+                acc
+            })
+            + (self.fds.len() * (size_of::<Fd>() + size_of::<VmId>()))) as u64
+            + (self.inherited_fd.len() * (size_of::<Fd>())) as u64
+            + (self.terminated_vms.len() * (size_of::<VmId>() + size_of::<i8>())) as u64
+            + (self.instantiated_ids.len() * size_of::<VmId>()) as u64
+    }
+}
+
+/// Context data for current running transaction & script
+#[derive(Clone)]
+pub struct TxData<DL> {
+    /// ResolvedTransaction.
+    pub rtx: Arc<ResolvedTransaction>,
+    /// Data loader.
+    pub data_loader: DL,
+    /// Ideally one might not want to keep program here, since program is totally
+    /// deducible from rtx + data_loader, however, for a demo here, program
+    /// does help us save some extra coding.
+    pub program: Bytes,
+    /// The script group to which the current program belongs.
+    pub script_group: Arc<ScriptGroup>,
+}
+
+impl<DL> DataSource<DataPieceId> for TxData<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+{
+    fn load_data(&self, id: &DataPieceId, offset: u64, length: u64) -> Option<(Bytes, u64)> {
+        match id {
+            DataPieceId::Program => {
+                // This is just a shortcut so we don't have to copy over the logic in extract_script,
+                // ideally you can also only define the rest 5, then figure out a way to convert
+                // script group to the actual cell dep index.
+                Some(self.program.clone())
+            }
+            DataPieceId::Input(i) => self
+                .rtx
+                .resolved_inputs
+                .get(*i as usize)
+                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+            DataPieceId::Output(i) => self
+                .rtx
+                .transaction
+                .outputs_data()
+                .get(*i as usize)
+                .map(|data| data.raw_data()),
+            DataPieceId::CellDep(i) => self
+                .rtx
+                .resolved_cell_deps
+                .get(*i as usize)
+                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+            DataPieceId::GroupInput(i) => self
+                .script_group
+                .input_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.resolved_inputs.get(*gi))
+                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+            DataPieceId::GroupOutput(i) => self
+                .script_group
+                .output_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.transaction.outputs_data().get(*gi))
+                .map(|data| data.raw_data()),
+            DataPieceId::Witness(i) => self
+                .rtx
+                .transaction
+                .witnesses()
+                .get(*i as usize)
+                .map(|data| data.raw_data()),
+            DataPieceId::WitnessGroupInput(i) => self
+                .script_group
+                .input_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
+                .map(|data| data.raw_data()),
+            DataPieceId::WitnessGroupOutput(i) => self
+                .script_group
+                .output_indices
+                .get(*i as usize)
+                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
+                .map(|data| data.raw_data()),
+        }
+        .map(|data| {
+            let offset = std::cmp::min(offset as usize, data.len());
+            let full_length = data.len() - offset;
+            let real_length = if length > 0 {
+                std::cmp::min(full_length, length as usize)
+            } else {
+                full_length
+            };
+            (data.slice(offset..offset + real_length), full_length as u64)
+        })
+    }
+}
+
+/// The scheduler's running mode.
+#[derive(Clone)]
+pub enum RunMode {
+    /// Continues running until cycles are exhausted.
+    LimitCycles(Cycle),
+    /// Continues running until a Pause signal is received.
+    Pause(Pause),
 }

@@ -14,7 +14,7 @@ cargo install cargo-fuzz
 
 run fuzz test
 ```
-cargo +nightly fuzz run transaction_scripts_verifier_data1
+cargo +nightly fuzz run -j $(nproc) transaction_scripts_verifier_data1
 ```
 
 generate coverage report

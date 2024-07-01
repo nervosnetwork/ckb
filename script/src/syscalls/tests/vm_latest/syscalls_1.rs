@@ -14,14 +14,17 @@ use ckb_types::{
 use ckb_vm::{
     memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
     registers::{A0, A1, A2, A3, A4, A5, A7},
+    snapshot2::Snapshot2Context,
     CoreMachine, Error as VMError, Memory, Syscalls, RISCV_PAGESIZE,
 };
 use proptest::{collection::size_range, prelude::*};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::SCRIPT_VERSION;
 use crate::syscalls::{tests::utils::*, *};
+use crate::types::TxData;
+use crate::types::{ScriptGroup, ScriptGroupType};
 
 fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
     let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
@@ -1450,20 +1453,28 @@ fn _test_load_cell_data_as_code(
 
     let data = Bytes::from(data.to_owned());
     let dep_cell = build_cell_meta(10000, data.clone());
-    let output = build_cell_meta(100, data.clone());
     let input_cell = build_cell_meta(100, data.clone());
 
-    let outputs = Arc::new(vec![output]);
-    let group_inputs = Arc::new(vec![0]);
-    let group_outputs = Arc::new(vec![0]);
     let data_loader = new_mock_data_loader();
     let rtx = Arc::new(ResolvedTransaction {
-        transaction: TransactionBuilder::default().build(),
+        transaction: TransactionBuilder::default()
+            .output_data(data.pack())
+            .build(),
         resolved_cell_deps: vec![dep_cell],
         resolved_inputs: vec![input_cell],
         resolved_dep_groups: vec![],
     });
-    let mut load_code = LoadCellData::new(data_loader, rtx, outputs, group_inputs, group_outputs);
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: vec![0],
+            output_indices: vec![0],
+        }),
+    }))));
 
     prop_assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
@@ -1474,7 +1485,7 @@ fn _test_load_cell_data_as_code(
     } else {
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        let flags = FLAG_EXECUTABLE | FLAG_FREEZED | FLAG_DIRTY;
+        let flags = FLAG_EXECUTABLE | FLAG_FREEZED;
         prop_assert_eq!(
             machine
                 .memory_mut()
@@ -1515,21 +1526,28 @@ fn _test_load_cell_data(
 
     let data = Bytes::from(data.to_owned());
     let dep_cell = build_cell_meta(10000, data.clone());
-    let output = build_cell_meta(100, data.clone());
     let input_cell = build_cell_meta(100, data.clone());
-
-    let outputs = Arc::new(vec![output]);
-    let group_inputs = Arc::new(vec![0]);
-    let group_outputs = Arc::new(vec![0]);
     let data_loader = new_mock_data_loader();
 
     let rtx = Arc::new(ResolvedTransaction {
-        transaction: TransactionBuilder::default().build(),
+        transaction: TransactionBuilder::default()
+            .output_data(data.pack())
+            .build(),
         resolved_cell_deps: vec![dep_cell],
         resolved_inputs: vec![input_cell],
         resolved_dep_groups: vec![],
     });
-    let mut load_code = LoadCellData::new(data_loader, rtx, outputs, group_inputs, group_outputs);
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: vec![0],
+            output_indices: vec![0],
+        }),
+    }))));
 
     prop_assert!(load_code.ecall(&mut machine).is_ok());
 
@@ -1537,8 +1555,11 @@ fn _test_load_cell_data(
         prop_assert_eq!(machine.registers()[A0], u64::from(code));
     } else {
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-
-        let flags = FLAG_WRITABLE | FLAG_DIRTY;
+        let flags = if data.len() < RISCV_PAGESIZE {
+            FLAG_WRITABLE | FLAG_DIRTY
+        } else {
+            FLAG_WRITABLE
+        };
         prop_assert_eq!(
             machine
                 .memory_mut()
@@ -1618,9 +1639,6 @@ fn test_load_overflowed_cell_data_as_code() {
     let dep_cell = build_cell_meta(10000, dep_cell_data);
 
     let data_loader = new_mock_data_loader();
-    let outputs = Arc::new(vec![]);
-    let group_inputs = Arc::new(vec![]);
-    let group_outputs = Arc::new(vec![]);
 
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default().build(),
@@ -1629,7 +1647,17 @@ fn test_load_overflowed_cell_data_as_code() {
         resolved_dep_groups: vec![],
     });
 
-    let mut load_code = LoadCellData::new(data_loader, rtx, outputs, group_inputs, group_outputs);
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: Default::default(),
+            output_indices: Default::default(),
+        }),
+    }))));
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
@@ -1637,7 +1665,61 @@ fn test_load_overflowed_cell_data_as_code() {
     assert_eq!(result.unwrap_err(), VMError::MemOutOfBound);
 }
 
-fn _test_load_cell_data_on_freezed_memory(as_code: bool, data: &[u8]) -> Result<(), TestCaseError> {
+fn _test_load_cell_data_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseError> {
+    let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
+    let addr = 8192;
+    let addr_size = 4096;
+    let size_addr = 100;
+
+    prop_assert!(machine
+        .memory_mut()
+        .store64(&size_addr, &(data.len() as u64))
+        .is_ok());
+    prop_assert!(machine
+        .memory_mut()
+        .init_pages(addr, addr_size, FLAG_EXECUTABLE | FLAG_FREEZED, None, 0)
+        .is_ok());
+
+    machine.set_register(A0, addr); // addr
+    machine.set_register(A1, size_addr); // size
+    machine.set_register(A2, 0); // content offset
+    machine.set_register(A3, 0); //index
+    machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
+    machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+
+    let dep_cell_data = Bytes::from(data.to_owned());
+    let dep_cell = build_cell_meta(10000, dep_cell_data);
+
+    let data_loader = new_mock_data_loader();
+
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction: TransactionBuilder::default().build(),
+        resolved_cell_deps: vec![dep_cell],
+        resolved_inputs: vec![],
+        resolved_dep_groups: vec![],
+    });
+
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: Default::default(),
+            output_indices: Default::default(),
+        }),
+    }))));
+
+    prop_assert!(load_code.ecall(&mut machine).is_err());
+
+    for i in addr..addr + addr_size {
+        assert_eq!(machine.memory_mut().load8(&i), Ok(0));
+    }
+    Ok(())
+}
+
+fn _test_load_cell_data_as_code_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseError> {
     let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
     let addr = 8192;
     let addr_size = 4096;
@@ -1653,20 +1735,12 @@ fn _test_load_cell_data_on_freezed_memory(as_code: bool, data: &[u8]) -> Result<
     machine.set_register(A3, data.len() as u64); // content size
     machine.set_register(A4, 0); //index
     machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
-    let syscall = if as_code {
-        LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER
-    } else {
-        LOAD_CELL_DATA_SYSCALL_NUMBER
-    };
-    machine.set_register(A7, syscall); // syscall number
+    machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
     let dep_cell_data = Bytes::from(data.to_owned());
     let dep_cell = build_cell_meta(10000, dep_cell_data);
 
     let data_loader = new_mock_data_loader();
-    let outputs = Arc::new(vec![]);
-    let group_inputs = Arc::new(vec![]);
-    let group_outputs = Arc::new(vec![]);
 
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default().build(),
@@ -1675,7 +1749,17 @@ fn _test_load_cell_data_on_freezed_memory(as_code: bool, data: &[u8]) -> Result<
         resolved_dep_groups: vec![],
     });
 
-    let mut load_code = LoadCellData::new(data_loader, rtx, outputs, group_inputs, group_outputs);
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: Default::default(),
+            output_indices: Default::default(),
+        }),
+    }))));
 
     prop_assert!(load_code.ecall(&mut machine).is_err());
 
@@ -1691,12 +1775,12 @@ proptest! {
     })]
     #[test]
     fn test_load_code_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-        _test_load_cell_data_on_freezed_memory(true, data)?;
+        _test_load_cell_data_as_code_on_freezed_memory(data)?;
     }
 
     #[test]
     fn test_load_data_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-        _test_load_cell_data_on_freezed_memory(false, data)?;
+        _test_load_cell_data_on_freezed_memory(data)?;
     }
 }
 
@@ -1718,9 +1802,6 @@ fn test_load_code_unaligned_error() {
     let dep_cell = build_cell_meta(10000, dep_cell_data);
 
     let data_loader = new_mock_data_loader();
-    let outputs = Arc::new(vec![]);
-    let group_inputs = Arc::new(vec![]);
-    let group_outputs = Arc::new(vec![]);
 
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default().build(),
@@ -1729,7 +1810,17 @@ fn test_load_code_unaligned_error() {
         resolved_dep_groups: vec![],
     });
 
-    let mut load_code = LoadCellData::new(data_loader, rtx, outputs, group_inputs, group_outputs);
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: Default::default(),
+            output_indices: Default::default(),
+        }),
+    }))));
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
@@ -1759,9 +1850,6 @@ fn test_load_code_slice_out_of_bound_error() {
     let dep_cell = build_cell_meta(10000, dep_cell_data);
 
     let data_loader = new_mock_data_loader();
-    let outputs = Arc::new(vec![]);
-    let group_inputs = Arc::new(vec![]);
-    let group_outputs = Arc::new(vec![]);
 
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default().build(),
@@ -1770,7 +1858,17 @@ fn test_load_code_slice_out_of_bound_error() {
         resolved_dep_groups: vec![],
     });
 
-    let mut load_code = LoadCellData::new(data_loader, rtx, outputs, group_inputs, group_outputs);
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: Default::default(),
+            output_indices: Default::default(),
+        }),
+    }))));
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
@@ -1803,9 +1901,6 @@ fn test_load_code_not_enough_space_error() {
     let dep_cell = build_cell_meta(10000, dep_cell_data);
 
     let data_loader = new_mock_data_loader();
-    let outputs = Arc::new(vec![]);
-    let group_inputs = Arc::new(vec![]);
-    let group_outputs = Arc::new(vec![]);
 
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default().build(),
@@ -1814,7 +1909,17 @@ fn test_load_code_not_enough_space_error() {
         resolved_dep_groups: vec![],
     });
 
-    let mut load_code = LoadCellData::new(data_loader, rtx, outputs, group_inputs, group_outputs);
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: Default::default(),
+            output_indices: Default::default(),
+        }),
+    }))));
 
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
@@ -1984,4 +2089,92 @@ proptest! {
 fn _test_input_field_bound(field: u64) -> Result<(), TestCaseError> {
     prop_assert!(InputField::parse_from_u64(field).is_err());
     Ok(())
+}
+
+#[test]
+fn test_load_cell_data_size_zero() {
+    let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
+    let size_addr: u64 = 100;
+    let addr = 4096;
+    let data = [0xff; 256];
+
+    machine.set_register(A0, addr); // addr
+    machine.set_register(A1, size_addr); // size
+    machine.set_register(A2, 0); // offset
+    machine.set_register(A3, 0); // index
+    machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
+    machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+
+    machine.memory_mut().store64(&size_addr, &0).unwrap();
+
+    let data = Bytes::from(data.to_vec());
+    let dep_cell = build_cell_meta(10000, data.clone());
+    let input_cell = build_cell_meta(100, data);
+
+    let data_loader = new_mock_data_loader();
+
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction: TransactionBuilder::default().build(),
+        resolved_cell_deps: vec![dep_cell],
+        resolved_inputs: vec![input_cell],
+        resolved_dep_groups: vec![],
+    });
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: vec![0],
+            output_indices: vec![0],
+        }),
+    }))));
+    load_code.ecall(&mut machine).unwrap();
+    assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+    assert_eq!(machine.memory_mut().load64(&size_addr).unwrap(), 256);
+    assert_eq!(machine.memory_mut().load64(&addr).unwrap(), 0);
+}
+
+#[test]
+fn test_load_cell_data_size_zero_index_out_of_bound() {
+    let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
+    let size_addr: u64 = 100;
+    let addr = 4096;
+    let data = [0xff; 256];
+
+    machine.set_register(A0, addr); // addr
+    machine.set_register(A1, size_addr); // size
+    machine.set_register(A2, 0); // offset
+    machine.set_register(A3, 8); // index
+    machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
+    machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+
+    machine.memory_mut().store64(&size_addr, &0).unwrap();
+
+    let data = Bytes::from(data.to_vec());
+    let dep_cell = build_cell_meta(10000, data.clone());
+    let input_cell = build_cell_meta(100, data);
+
+    let data_loader = new_mock_data_loader();
+
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction: TransactionBuilder::default().build(),
+        resolved_cell_deps: vec![dep_cell],
+        resolved_inputs: vec![input_cell],
+        resolved_dep_groups: vec![],
+    });
+    let mut load_code = LoadCellData::new(Arc::new(Mutex::new(Snapshot2Context::new(TxData {
+        rtx,
+        data_loader,
+        program: Bytes::new(),
+        script_group: Arc::new(ScriptGroup {
+            script: Default::default(),
+            group_type: ScriptGroupType::Lock,
+            input_indices: vec![0],
+            output_indices: vec![0],
+        }),
+    }))));
+    load_code.ecall(&mut machine).unwrap();
+    assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
 }

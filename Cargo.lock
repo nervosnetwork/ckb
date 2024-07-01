@@ -1493,7 +1493,9 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-vm",
+ "daggy",
  "faster-hex",
+ "molecule",
  "proptest",
  "rand 0.8.5",
  "serde",
@@ -1805,8 +1807,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.9"
-source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#9cd3c20b009ea8e74a46143cafdde0acac9e323b"
+version = "0.24.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddff96029d3298cb630e95f29d4b9a93384e938a0b75758684aa8794b53bdd1a"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1822,8 +1825,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.9"
-source = "git+https://github.com/chenyukang/ckb-vm.git?branch=yukang-local-changes#9cd3c20b009ea8e74a46143cafdde0acac9e323b"
+version = "0.24.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c280bf1d589d23ab0358f58601c2187fc6be86a131644583ef72ea96a0a13ddd"
 dependencies = [
  "paste",
 ]
@@ -2186,6 +2190,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8bfdaacb3c887a54d41bdf48d3af8873b3f5566469f8ba21b92057509f116e"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "daggy"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91a9304e55e9d601a39ae4deaba85406d5c0980e106f65afcf0460e9af1e7602"
+dependencies = [
+ "petgraph",
 ]
 
 [[package]]

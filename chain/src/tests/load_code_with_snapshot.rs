@@ -113,7 +113,7 @@ fn test_load_code() {
     let tx_status = tx_pool.get_tx_status(tx.hash());
     assert_eq!(
         tx_status.unwrap().unwrap(),
-        (TxStatus::Pending, Some(11174))
+        (TxStatus::Pending, Some(11325))
     );
 }
 

@@ -201,38 +201,6 @@ impl TransactionScriptsVerifierWithEnv {
             .await
     }
 
-    pub(crate) async fn verify_complete_async(
-        &self,
-        version: ScriptVersion,
-        rtx: &ResolvedTransaction,
-        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
-        skip_debug_pause: bool,
-    ) -> Result<Cycle, Error> {
-        let data_loader = self.store.as_data_loader();
-        let epoch = match version {
-            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
-            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
-            ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
-        };
-        let header = HeaderView::new_advanced_builder()
-            .epoch(epoch.pack())
-            .build();
-        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
-        let verifier = TransactionScriptsVerifier::new(
-            Arc::new(rtx.clone()),
-            data_loader,
-            Arc::clone(&self.consensus),
-            tx_env,
-        );
-
-        if skip_debug_pause {
-            verifier.set_skip_pause(true);
-        }
-        verifier
-            .resumable_verify_with_signal(Cycle::MAX, command_rx)
-            .await
-    }
-
     // If the max cycles is meaningless, please use `verify_without_limit`,
     // so reviewers or developers can understand the intentions easier.
     pub(crate) fn verify(
@@ -266,6 +234,7 @@ impl TransactionScriptsVerifierWithEnv {
             let cycles;
             let mut times = 0usize;
             times += 1;
+
             let mut init_snap = match verifier.resumable_verify(max_cycles).unwrap() {
                 VerifyResult::Suspended(state) => Some(state.try_into().unwrap()),
                 VerifyResult::Completed(cycle) => {
@@ -277,19 +246,52 @@ impl TransactionScriptsVerifierWithEnv {
             loop {
                 times += 1;
                 let snap = init_snap.take().unwrap();
-                match verifier.resume_from_snap(&snap, max_cycles).unwrap() {
-                    VerifyResult::Suspended(state) => {
+                match verifier.resume_from_snap(&snap, max_cycles) {
+                    Ok(VerifyResult::Suspended(state)) => {
                         init_snap = Some(state.try_into().unwrap());
                     }
-                    VerifyResult::Completed(cycle) => {
+                    Ok(VerifyResult::Completed(cycle)) => {
                         cycles = cycle;
                         break;
                     }
+                    Err(e) => return Err(e),
                 }
             }
 
             Ok((cycles, times))
         })
+    }
+
+    pub(crate) async fn verify_complete_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        skip_debug_pause: bool,
+    ) -> Result<Cycle, Error> {
+        let data_loader = self.store.as_data_loader();
+        let epoch = match version {
+            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
+            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
+            ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
+        };
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
+        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
+        let verifier = TransactionScriptsVerifier::new(
+            Arc::new(rtx.clone()),
+            data_loader,
+            Arc::clone(&self.consensus),
+            tx_env,
+        );
+
+        if skip_debug_pause {
+            verifier.set_skip_pause(true);
+        }
+        verifier
+            .resumable_verify_with_signal(Cycle::MAX, command_rx)
+            .await
     }
 
     pub(crate) fn verify_map<R, F>(
@@ -311,12 +313,18 @@ impl TransactionScriptsVerifierWithEnv {
             .epoch(epoch.pack())
             .build();
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
-        let verifier = TransactionScriptsVerifier::new(
+        let mut verifier = TransactionScriptsVerifier::new(
             Arc::new(rtx.clone()),
             data_loader,
             Arc::clone(&self.consensus),
             tx_env,
         );
+        verifier.set_debug_printer(Box::new(move |_hash: &Byte32, message: &str| {
+            print!("{}", message);
+            if !message.ends_with('\n') {
+                println!();
+            }
+        }));
         verify_func(verifier)
     }
 }
