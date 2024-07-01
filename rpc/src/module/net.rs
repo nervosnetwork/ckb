@@ -7,6 +7,7 @@ use ckb_jsonrpc_types::{
 use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::prelude::Pack;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 use std::sync::Arc;
@@ -361,12 +362,16 @@ pub trait NetRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": {
+    ///     "assume_valid_target": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    ///     "assume_valid_target_reached": true,
     ///     "best_known_block_number": "0x400",
     ///     "best_known_block_timestamp": "0x5cd2b117",
     ///     "fast_time": "0x3e8",
     ///     "ibd": true,
     ///     "inflight_blocks_count": "0x0",
     ///     "low_time": "0x5dc",
+    ///     "min_chain_work": "0x0",
+    ///     "min_chain_work_reached": true,
     ///     "normal_time": "0x4e2",
     ///     "orphan_blocks_count": "0x0",
     ///     "orphan_blocks_size": "0x0"
@@ -719,8 +724,22 @@ impl NetRpc for NetRpcImpl {
         let state = chain.shared().state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
         let best_known = state.shared_best_header();
+        let min_chain_work = {
+            let mut min_chain_work_500k_u128: [u8; 16] = [0; 16];
+            min_chain_work_500k_u128
+                .copy_from_slice(&self.sync_shared.state().min_chain_work().to_le_bytes()[..16]);
+            u128::from_le_bytes(min_chain_work_500k_u128)
+        };
         let sync_state = SyncState {
             ibd: chain.is_initial_block_download(),
+            assume_valid_target_reached: state.assume_valid_target().is_none(),
+            assume_valid_target: state
+                .assume_valid_target_specified()
+                .unwrap_or_default()
+                .pack()
+                .into(),
+            min_chain_work: min_chain_work.into(),
+            min_chain_work_reached: state.min_chain_work_ready(),
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
             orphan_blocks_count: (state.orphan_pool().len() as u64).into(),
