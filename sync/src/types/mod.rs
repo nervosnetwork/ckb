@@ -1244,6 +1244,17 @@ impl SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
 
+    /// Check whether the data already exists in the database before starting
+    fn check_assume_valid_target_already_exists(sync_config: &SyncConfig, shared: &Shared) -> bool {
+        if let Some(ref target) = sync_config.assume_valid_target {
+            if shared.snapshot().block_exists(&target.pack()) {
+                info!("assume valid target is already in db, CKB will do full verification from now on");
+                return true;
+            }
+        }
+        false
+    }
+
     /// Generate a global sync state through configuration
     pub fn with_tmpdir<P>(
         shared: Shared,
@@ -1286,7 +1297,14 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
-            assume_valid_target: Mutex::new(sync_config.assume_valid_target),
+            assume_valid_target: Mutex::new({
+                if Self::check_assume_valid_target_already_exists(&sync_config, &shared) {
+                    None
+                } else {
+                    sync_config.assume_valid_target.clone()
+                }
+            }),
+            assume_valid_target_specified: sync_config.assume_valid_target,
             min_chain_work: sync_config.min_chain_work,
         };
 
@@ -1647,12 +1665,17 @@ pub struct SyncState {
     /* cached for sending bulk */
     tx_relay_receiver: Receiver<TxVerificationResult>,
     assume_valid_target: Mutex<Option<H256>>,
+    assume_valid_target_specified: Option<H256>,
     min_chain_work: U256,
 }
 
 impl SyncState {
     pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
         self.assume_valid_target.lock()
+    }
+
+    pub fn assume_valid_target_specified(&self) -> Option<H256> {
+        self.assume_valid_target_specified.clone()
     }
 
     pub fn min_chain_work(&self) -> &U256 {
