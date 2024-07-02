@@ -14,13 +14,17 @@ use ckb_jsonrpc_types::{
 use ckb_types::h256;
 use ckb_types::prelude::*;
 
+use std::path::PathBuf;
+
 const MEMORY_DB: &str = ":memory:";
 const BLOCK_DIR: &str = "./src/tests/data/blocks/";
+const MIGRATIONS_PATH: &str = "./resources/migrations";
 
 async fn connect_sqlite(store_path: &str) -> SQLXPool {
     let mut pool = SQLXPool::default();
     let config = RichIndexerConfig {
         store: store_path.into(),
+        migrations_path: PathBuf::from(MIGRATIONS_PATH),
         ..Default::default()
     };
     pool.connect(&config).await.unwrap();

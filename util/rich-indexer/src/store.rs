@@ -12,7 +12,7 @@ use sqlx::{
 
 use std::fs::OpenOptions;
 use std::marker::{Send, Unpin};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
@@ -21,7 +21,6 @@ const SQL_SQLITE_CREATE_TABLE: &str = include_str!("../resources/create_sqlite_t
 const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../resources/create_sqlite_index.sql");
 const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgres_table.sql");
 const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
-const SQL_MIGRATIONS: &str = "./util/rich-indexer/resources/migrations";
 
 #[derive(Clone, Default)]
 pub struct SQLXPool {
@@ -82,7 +81,7 @@ impl SQLXPool {
 
         // Run migrations
         log::info!("Running migrations...");
-        let migrator = Migrator::new(Path::new(SQL_MIGRATIONS)).await?;
+        let migrator = Migrator::new(db_config.migrations_path.clone()).await?;
         migrator.run(&pool).await?;
         log::info!("Migrations are done.");
 
