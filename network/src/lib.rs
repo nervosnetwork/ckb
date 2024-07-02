@@ -21,6 +21,9 @@ mod services;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "fuzz")]
+pub mod virtual_p2p;
+
 pub use crate::{
     behaviour::Behaviour,
     errors::Error,
