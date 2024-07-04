@@ -480,13 +480,7 @@ impl TxPoolService {
                                 tx_hash: tx_hash.clone(),
                             });
                         }
-
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -514,12 +508,7 @@ impl TxPoolService {
                     }
                     Err(reject) => {
                         debug!("after_process {} reject: {} ", tx_hash, reject);
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -628,12 +617,7 @@ impl TxPoolService {
                                         tx_hash: orphan.tx.hash(),
                                     });
                                 }
-                                if matches!(
-                                    reject,
-                                    Reject::Resolve(..)
-                                        | Reject::Verification(..)
-                                        | Reject::RBFRejected(..)
-                                ) {
+                                if reject.should_recorded() {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
