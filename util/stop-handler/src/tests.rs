@@ -113,7 +113,7 @@ impl TestStopMemo {
 
 #[test]
 fn basic() {
-    let (mut handle, mut stop_recv, _runtime) = new_global_runtime();
+    let (mut handle, mut stop_recv, _runtime) = new_global_runtime(None);
 
     ctrlc::set_handler(move || {
         broadcast_exit_signals();

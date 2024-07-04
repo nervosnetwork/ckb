@@ -1,4 +1,4 @@
-use crate::{BlockNumber, Byte32, Timestamp, Uint64};
+use crate::{BlockNumber, Byte32, Timestamp, Uint128, Uint64};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -258,6 +258,18 @@ pub struct SyncState {
     /// During IBD, the local node only synchronizes the chain with one selected remote node and
     /// stops responding to most P2P requests.
     pub ibd: bool,
+    /// Is ckb reached the assume_valid_target? If no assume_valid_target, this will be true.
+    pub assume_valid_target_reached: bool,
+    /// The assume_valid_target specified by ckb, if no assume_valid_target, this will be all zero.
+    pub assume_valid_target: Byte32,
+    /// Is ckb reached the min_chain_work?
+    pub min_chain_work_reached: bool,
+    /// This field acts as a security measure to ensure that a node only
+    /// synchronizes with other nodes that have a significant amount of
+    /// computational work invested in them, thereby preventing certain types
+    /// of attacks and ensuring network integrity. Only the mainnet uses a
+    /// hardcoded value for this field.
+    pub min_chain_work: Uint128,
     /// This is the best known block number observed by the local node from the P2P network.
     ///
     /// The best here means that the block leads a chain which has the best known accumulated

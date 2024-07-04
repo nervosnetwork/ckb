@@ -182,7 +182,7 @@ block_uncles_cache_size    = 30
 # The command `ckb init` also accepts options to generate the block assembler
 # directly. See `ckb init --help` for details.
 #
-#     ckb init <lock_arg>
+#     ckb init --ba-arg <lock_arg>
 #
 # # {{
 # _ => {block_assembler}
@@ -193,8 +193,8 @@ block_uncles_cache_size    = 30
 # #
 # # Block assembler will notify new block template through http post to specified endpoints when update
 # notify = ["http://127.0.0.1:8888"]
-# # Or you may want use more flexible scripts, block template as arg.
-# notify_scripts = ["{cmd} {blocktemplate}"]
+# # Execute command when the block template changes, first arg is block template.
+# notify_scripts = ["your_notify_scripts.sh"]
 #
 # # CKB built-in indexer/rich-indexer settings.
 # # Utilize the `ckb reset-data --indexer` and `ckb reset-data --rich-indexer` subcommands to efficiently clean existing indexes.

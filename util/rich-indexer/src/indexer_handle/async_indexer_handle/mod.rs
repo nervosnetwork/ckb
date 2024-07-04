@@ -9,7 +9,7 @@ use ckb_app_config::DBDriver;
 use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::{
     IndexerRange, IndexerScriptType, IndexerSearchKey, IndexerSearchKeyFilter, IndexerSearchMode,
-    IndexerTip,
+    IndexerTip, JsonBytes,
 };
 use ckb_types::H256;
 use num_bigint::BigUint;
@@ -99,7 +99,7 @@ fn build_query_script_sql(
         Some(IndexerSearchMode::Partial) => {
             match db_driver {
                 DBDriver::Postgres => {
-                    query_builder.and_where(format!("position(${} in args) > 0", param_index));
+                    query_builder.and_where(format!("args LIKE ${}", param_index));
                 }
                 DBDriver::Sqlite => {
                     query_builder.and_where(format!("instr(args, ${}) > 0", param_index));
@@ -140,7 +140,7 @@ fn build_query_script_id_sql(
         Some(IndexerSearchMode::Partial) => {
             match db_driver {
                 DBDriver::Postgres => {
-                    query_builder.and_where(format!("position(${} in args) > 0", param_index));
+                    query_builder.and_where(format!("args LIKE ${}", param_index));
                 }
                 DBDriver::Sqlite => {
                     query_builder.and_where(format!("instr(args, ${}) > 0", param_index));
@@ -229,10 +229,7 @@ fn build_cell_filter(
                 Some(IndexerSearchMode::Partial) => {
                     match db_driver {
                         DBDriver::Postgres => {
-                            query_builder.and_where(format!(
-                                "position(${} in output.data) > 0",
-                                param_index
-                            ));
+                            query_builder.and_where(format!("output.data LIKE ${}", param_index));
                         }
                         DBDriver::Sqlite => {
                             query_builder
@@ -314,6 +311,35 @@ pub(crate) fn convert_max_values_in_search_filter(
             block_range: convert_range(&f.block_range),
         }
     })
+}
+
+/// Escapes special characters and wraps data with '%' for PostgreSQL LIKE queries.
+///
+/// This function escapes the characters '%', '\' and '_' in the input `JsonBytes` by prefixing them with '\'.
+/// It then wraps the processed data with '%' at both the start and end for use in PostgreSQL LIKE queries.
+/// Note: This function is not suitable for SQLite queries if the data contains NUL characters (0x00),
+/// as SQLite treats NUL as the end of the string.
+fn escape_and_wrap_for_postgres_like(data: &JsonBytes) -> Vec<u8> {
+    // 0x5c is the default escape character '\'
+    // 0x25 is the '%' wildcard
+    // 0x5f is the '_' wildcard
+
+    let mut new_data: Vec<u8> = data
+        .as_bytes()
+        .iter()
+        .flat_map(|&b| {
+            if b == 0x25 || b == 0x5c || b == 0x5f {
+                vec![0x5c, b]
+            } else {
+                vec![b]
+            }
+        })
+        .collect();
+
+    new_data.insert(0, 0x25); // Start with %
+    new_data.push(0x25); // End with %
+
+    new_data
 }
 
 #[cfg(test)]

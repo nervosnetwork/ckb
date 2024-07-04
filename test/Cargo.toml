@@ -31,7 +31,7 @@ ckb-error = { path = "../error", version = "= 0.117.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.117.0-pre" }
 tempfile = "3"
 reqwest = { version = "=0.11.20", features = ["blocking", "json"] }
-rand = "0.7"
+rand = "0.8"
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.117.0-pre" }
 serde_json = "1.0"
 lazy_static = "1.4.0"
@@ -44,7 +44,12 @@ log = "0.4"
 nix = { version = "0.24.0", default-features = false, features = ["signal"] }
 
 [target.'cfg(target_os="windows")'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_System_Console"] }
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_System_Console",
+] }
 
 # Prevent this from interfering with workspaces
 [workspace]

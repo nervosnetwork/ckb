@@ -785,6 +785,7 @@ pub trait ChainRpc {
     /// * `out_point` - Reference to the cell by transaction hash and output index.
     /// * `with_data` - Whether the RPC should return cell data. Cell data can be huge, if the client
     /// does not need the data, it should set this to `false` to save bandwidth.
+    /// * `include_tx_pool` - Whether the RPC check live cell in TxPool, default is false.
     ///
     /// ## Examples
     ///
@@ -832,7 +833,12 @@ pub trait ChainRpc {
     /// }
     /// ```
     #[rpc(name = "get_live_cell")]
-    fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus>;
+    fn get_live_cell(
+        &self,
+        out_point: OutPoint,
+        with_data: bool,
+        include_tx_pool: Option<bool>,
+    ) -> Result<CellWithStatus>;
 
     /// Returns the highest block number in the [canonical chain](#canonical-chain).
     ///
@@ -1813,12 +1819,23 @@ impl ChainRpc for ChainRpcImpl {
             }))
     }
 
-    fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
-        let cell_status = self
-            .shared
-            .snapshot()
-            .as_ref()
-            .cell(&out_point.into(), with_data);
+    fn get_live_cell(
+        &self,
+        out_point: OutPoint,
+        with_data: bool,
+        include_tx_pool: Option<bool>,
+    ) -> Result<CellWithStatus> {
+        let cell_status: CellStatus = if include_tx_pool.unwrap_or_default() {
+            self.shared
+                .tx_pool_controller()
+                .get_live_cell(out_point.into(), with_data)
+                .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?
+        } else {
+            self.shared
+                .snapshot()
+                .as_ref()
+                .cell(&out_point.into(), with_data)
+        };
         Ok(cell_status.into())
     }
 

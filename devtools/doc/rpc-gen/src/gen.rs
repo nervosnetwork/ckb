@@ -261,7 +261,7 @@ fn capitlize(s: &str) -> String {
     if s.is_empty() {
         return s.to_owned();
     }
-    s[0..1].to_uppercase().to_string() + &s[1..]
+    s[0..1].to_uppercase() + &s[1..]
 }
 
 fn strip_prefix_space(content: &str) -> String {
@@ -440,7 +440,7 @@ fn gen_type(ty: &Value) -> String {
                         .map(|t| format!("`{}`", gen_type(t)))
                         .collect::<Vec<_>>()
                         .join(" `|` ");
-                    ty.to_string()
+                    ty
                 } else if ty.as_str() == Some("object") {
                     // json schemars bug!
                     // type is `HashMap` here

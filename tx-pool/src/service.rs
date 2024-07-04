@@ -19,14 +19,17 @@ use ckb_logger::{error, info};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
-use ckb_types::core::tx_pool::{EntryCompleted, PoolTxDetailInfo, TransactionWithStatus, TxStatus};
-use ckb_types::core::FeeRate;
+use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        tx_pool::{Reject, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TRANSACTION_SIZE_LIMIT},
-        BlockView, Cycle, EstimateMode, TransactionView, UncleBlockView, Version,
+        cell::{CellProvider, CellStatus, OverlayCellProvider},
+        tx_pool::{
+            EntryCompleted, PoolTxDetailInfo, Reject, TransactionWithStatus, TxPoolEntryInfo,
+            TxPoolIds, TxPoolInfo, TxStatus, TRANSACTION_SIZE_LIMIT,
+        },
+        BlockView, Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView, Version,
     },
-    packed::{Byte32, ProposalShortId},
+    packed::{Byte32, OutPoint, ProposalShortId},
 };
 use ckb_util::{LinkedHashMap, LinkedHashSet};
 use ckb_verification::cache::TxVerificationCache;
@@ -41,6 +44,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::task::block_in_place;
 use tokio_util::sync::CancellationToken;
 
+use crate::pool_cell::PoolCell;
 #[cfg(feature = "internal")]
 use crate::{component::entry::TxEntry, process::PlugTarget};
 
@@ -102,6 +106,7 @@ pub(crate) enum Message {
     FetchTxs(Request<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(Request<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
+    GetLiveCell(Request<(OutPoint, bool), CellStatus>),
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
@@ -265,6 +270,15 @@ impl TxPoolController {
     /// Return tx-pool information
     pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, AnyError> {
         send_message!(self, GetTxPoolInfo, ())
+    }
+
+    /// Return tx-pool information
+    pub fn get_live_cell(
+        &self,
+        out_point: OutPoint,
+        with_data: bool,
+    ) -> Result<CellStatus, AnyError> {
+        send_message!(self, GetLiveCell, (out_point, with_data))
     }
 
     /// Return fresh proposals
@@ -705,6 +719,15 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("Responder sending get_tx_pool_info failed {:?}", e);
             };
         }
+        Message::GetLiveCell(Request {
+            responder,
+            arguments: (out_point, with_data),
+        }) => {
+            let live_cell_status = service.get_live_cell(out_point, with_data).await;
+            if let Err(e) = responder.send(live_cell_status) {
+                error!("Responder sending get_live_cell failed {:?}", e);
+            };
+        }
         Message::BlockTemplate(Request {
             responder,
             arguments: (_bytes_limit, _proposals_limit, _max_version),
@@ -998,6 +1021,27 @@ impl TxPoolService {
             last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
             tx_size_limit: TRANSACTION_SIZE_LIMIT,
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
+        }
+    }
+
+    /// Get Live Cell Status
+    async fn get_live_cell(&self, out_point: OutPoint, eager_load: bool) -> CellStatus {
+        let tx_pool = self.tx_pool.read().await;
+        let snapshot = tx_pool.snapshot();
+        let pool_cell = PoolCell::new(&tx_pool.pool_map, false);
+        let provider = OverlayCellProvider::new(&pool_cell, snapshot);
+
+        match provider.cell(&out_point, false) {
+            CellStatus::Live(mut cell_meta) => {
+                if eager_load {
+                    if let Some((data, data_hash)) = snapshot.get_cell_data(&out_point) {
+                        cell_meta.mem_cell_data = Some(data);
+                        cell_meta.mem_cell_data_hash = Some(data_hash);
+                    }
+                }
+                CellStatus::live_cell(cell_meta)
+            }
+            _ => CellStatus::Unknown,
         }
     }
 

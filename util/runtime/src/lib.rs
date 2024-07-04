@@ -3,7 +3,7 @@
 use ckb_spawn::Spawn;
 use core::future::Future;
 use std::sync::atomic::{AtomicU32, Ordering};
-
+use std::thread::available_parallelism;
 use tokio::runtime::Builder;
 use tokio::runtime::Handle as TokioHandle;
 
@@ -88,9 +88,10 @@ impl Handle {
 }
 
 /// Create a new runtime with unique name.
-fn new_runtime() -> Runtime {
+fn new_runtime(worker_num: Option<usize>) -> Runtime {
     Builder::new_multi_thread()
         .enable_all()
+        .worker_threads(worker_num.unwrap_or_else(|| available_parallelism().unwrap().into()))
         .thread_name_fn(|| {
             static ATOMIC_ID: AtomicU32 = AtomicU32::new(0);
             let id = ATOMIC_ID
@@ -121,8 +122,8 @@ fn new_runtime() -> Runtime {
 }
 
 /// Create new threaded_scheduler tokio Runtime, return `Runtime`
-pub fn new_global_runtime() -> (Handle, Receiver<()>, Runtime) {
-    let runtime = new_runtime();
+pub fn new_global_runtime(worker_num: Option<usize>) -> (Handle, Receiver<()>, Runtime) {
+    let runtime = new_runtime(worker_num);
     let handle = runtime.handle().clone();
     let (guard, handle_stop_rx): (Sender<()>, Receiver<()>) = tokio::sync::mpsc::channel::<()>(1);
 
@@ -132,7 +133,7 @@ pub fn new_global_runtime() -> (Handle, Receiver<()>, Runtime) {
 /// Create new threaded_scheduler tokio Runtime, return `Handle` and background thread join handle,
 /// NOTICE: This is only used in testing
 pub fn new_background_runtime() -> Handle {
-    let runtime = new_runtime();
+    let runtime = new_runtime(None);
     let handle = runtime.handle().clone();
 
     let (guard, mut handle_stop_rx): (Sender<()>, Receiver<()>) =

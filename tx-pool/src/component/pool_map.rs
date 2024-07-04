@@ -581,7 +581,7 @@ impl PoolMap {
     // FIXME: In the scenario that a transaction passed all RBF rules, and then removed the conflicted
     // transaction in txpool, then failed with max ancestor limits, we now need to rollback the removing.
     // this is not an issue currently, because RBF have a rule that not allow any unknown inputs except
-    // the conflicted inputs, so the new transcation can not be in a long transaction chain.
+    // the conflicted inputs, so the new transaction can not be in a long transaction chain.
     // but it's still safer to report an error before any writing kind of operation.
     fn check_and_record_ancestors(
         &mut self,

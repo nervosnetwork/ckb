@@ -250,7 +250,7 @@ impl Migrations {
         let all_can_resume = migrations.iter().all(|(_, m)| m.can_resume());
         let tasks = Arc::new(Mutex::new(migrations));
         let (tx, rx) = unbounded();
-        let worker = MigrationWorker::new(tasks, db.clone(), rx);
+        let worker = MigrationWorker::new(tasks, db, rx);
 
         let exit_signal = ckb_stop_handler::new_crossbeam_exit_rx();
         let clone = v.to_string();
