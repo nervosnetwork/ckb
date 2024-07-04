@@ -3,6 +3,7 @@
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
+use crate::component::entry;
 use crate::component::pool_map::{PoolEntry, Status};
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
@@ -295,7 +296,8 @@ impl TxPoolController {
         send_message!(self, GetTransactionWithStatus, hash)
     }
 
-    /// Return txs for network
+    /// Mainly used for compact block reconstruction and block proposal pre-broadcasting
+    /// Orphan/conflicted/etc transactions that are returned for compact block reconstruction.
     pub fn fetch_txs(
         &self,
         short_ids: HashSet<ProposalShortId>,
@@ -304,6 +306,7 @@ impl TxPoolController {
     }
 
     /// Return txs with cycles
+    /// Mainly for relay transactions
     pub fn fetch_txs_with_cycles(
         &self,
         short_ids: HashSet<ProposalShortId>,
@@ -852,11 +855,13 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: short_ids,
         }) => {
             let tx_pool = service.tx_pool.read().await;
+            let orphan = service.orphan.read().await;
             let txs = short_ids
                 .into_iter()
                 .filter_map(|short_id| {
                     tx_pool
                         .get_tx_from_pool_or_store(&short_id)
+                        .or_else(|| orphan.get(&short_id).map(|entry| &entry.tx).cloned())
                         .map(|tx| (short_id, tx))
                 })
                 .collect();

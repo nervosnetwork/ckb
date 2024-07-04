@@ -151,6 +151,7 @@ impl OrphanPool {
                 .insert(tx.proposal_short_id());
         }
 
+         // DoS prevention: do not allow OrphanPool to grow unbounded
         self.limit_size()
     }
 
