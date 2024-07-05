@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE,
-    SUCCESS, WAIT_FAILURE,
+    INVALID_FD, LOAD_ELF_CYCLES_BASE, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SUCCESS,
+    WAIT_FAILURE,
 };
 use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
@@ -702,7 +702,7 @@ where
         let snapshot = &self.suspended[id];
         self.current_iteration_cycles = self
             .current_iteration_cycles
-            .checked_add(SPAWN_EXTRA_CYCLES_BASE)
+            .checked_add(LOAD_ELF_CYCLES_BASE)
             .ok_or(Error::CyclesExceeded)?;
         let (context, mut machine) = self.create_dummy_vm(id)?;
         {
@@ -724,7 +724,7 @@ where
         }
         self.current_iteration_cycles = self
             .current_iteration_cycles
-            .checked_add(SPAWN_EXTRA_CYCLES_BASE)
+            .checked_add(LOAD_ELF_CYCLES_BASE)
             .ok_or(Error::CyclesExceeded)?;
         let (context, machine) = self
             .instantiated

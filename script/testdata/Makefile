@@ -48,6 +48,7 @@ ALL_BINS := jalr_zero \
             exec_caller_big_offset_length \
             exec_configurable_callee \
             exec_configurable_caller \
+            infinite_exec \
             infinite_loop \
             load_code_to_stack_then_reuse \
             load_is_even_into_global \
@@ -121,6 +122,7 @@ cpop_lock: cpop_lock.c
 mop_adc_lock: mop_adc_lock.S
 current_cycles: current_cycles.c
 current_cycles_with_snapshot: current_cycles_with_snapshot.c
+infinite_exec: infinite_exec.c
 infinite_loop: infinite_loop.c
 vm_version: vm_version.c
 vm_version_2: vm_version_2.c

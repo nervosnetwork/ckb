@@ -1,6 +1,6 @@
 use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
-    INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SPAWN, SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
+    INDEX_OUT_OF_BOUND, LOAD_ELF_CYCLES_BASE, SLICE_OUT_OF_BOUND, SPAWN, YIELD_CYCLES_BASE,
 };
 use crate::types::{DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -141,8 +141,8 @@ where
                 return Ok(true);
             }
         }
-        machine.add_cycles_no_checking(SPAWN_EXTRA_CYCLES_BASE)?;
-        machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
+        machine.add_cycles_no_checking(LOAD_ELF_CYCLES_BASE)?;
+        machine.add_cycles_no_checking(YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?

@@ -1326,3 +1326,40 @@ fn check_spawn_saturate_memory() {
     let result = simple_spawn_test("testdata/spawn_saturate_memory", &[0]);
     assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
 }
+
+#[test]
+fn check_infinite_exec() {
+    let script_version = SCRIPT_VERSION;
+
+    let (exec_caller_cell, exec_caller_data_hash) = load_cell_from_path("testdata/infinite_exec");
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(exec_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify(script_version, &rtx, 70000000);
+    if script_version >= ScriptVersion::V1 {
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("ExceededMaximumCycles"))
+    } else {
+        assert!(result.is_err())
+    }
+}

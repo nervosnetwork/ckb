@@ -1,4 +1,4 @@
-use crate::syscalls::{SPAWN_YIELD_CYCLES_BASE, WAIT};
+use crate::syscalls::{WAIT, YIELD_CYCLES_BASE};
 use crate::types::{Message, VmId, WaitArgs};
 use ckb_vm::{
     registers::{A0, A1, A7},
@@ -29,7 +29,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Wait {
         }
         let target_id = machine.registers()[A0].to_u64();
         let exit_code_addr = machine.registers()[A1].to_u64();
-        machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
+        machine.add_cycles_no_checking(YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?

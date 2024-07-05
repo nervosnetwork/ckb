@@ -1,4 +1,4 @@
-use crate::syscalls::{CLOSE, SPAWN_YIELD_CYCLES_BASE};
+use crate::syscalls::{CLOSE, YIELD_CYCLES_BASE};
 use crate::types::{Fd, Message, VmId};
 use ckb_vm::{
     registers::{A0, A7},
@@ -28,7 +28,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Close {
             return Ok(false);
         }
         let fd = Fd(machine.registers()[A0].to_u64());
-        machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
+        machine.add_cycles_no_checking(YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?

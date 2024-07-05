@@ -1,7 +1,7 @@
 use crate::scheduler::Scheduler;
 #[cfg(test)]
 use crate::syscalls::Pause;
-use crate::syscalls::{InheritedFd, ProcessID};
+use crate::syscalls::{InheritedFd, ProcessID, LOAD_ELF_CYCLES_BASE};
 use crate::types::{DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID};
 use crate::{
     error::{ScriptError, TransactionScriptError},
@@ -169,13 +169,19 @@ where
     }
 
     /// Build syscall: exec
-    pub fn build_exec(&self, group_inputs: Indices, group_outputs: Indices) -> Exec<DL> {
+    pub fn build_exec(
+        &self,
+        group_inputs: Indices,
+        group_outputs: Indices,
+        load_elf_base_fee: u64,
+    ) -> Exec<DL> {
         Exec::new(
             self.data_loader.clone(),
             Arc::clone(&self.rtx),
             Arc::clone(&self.outputs),
             group_inputs,
             group_outputs,
+            load_elf_base_fee,
         )
     }
 
@@ -320,6 +326,11 @@ where
                 Box::new(self.build_exec(
                     Arc::clone(&script_group_input_indices),
                     Arc::clone(&script_group_output_indices),
+                    if script_version >= ScriptVersion::V2 {
+                        LOAD_ELF_CYCLES_BASE
+                    } else {
+                        0
+                    },
                 )),
                 Box::new(self.build_current_cycles()),
             ]);
