@@ -98,7 +98,7 @@ pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 #[cfg(test)]
 pub const DEBUG_PAUSE: u64 = 2178;
 
-pub const EXEC_LOAD_ELF_V2_CYCLES_BASE: u64 = 50_000;
+pub const EXEC_LOAD_ELF_V2_CYCLES_BASE: u64 = 75_000;
 pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
 pub const SPAWN_YIELD_CYCLES_BASE: u64 = 800;
 

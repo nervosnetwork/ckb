@@ -385,7 +385,7 @@ fn check_exec_from_witness() {
     if script_version == ScriptVersion::V1 {
         assert_eq!(result.ok(), Some(1200));
     } else if script_version == ScriptVersion::V2 {
-        assert_eq!(result.ok(), Some(51198));
+        assert_eq!(result.ok(), Some(76198));
     }
 }
 
