@@ -18,7 +18,6 @@ use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
@@ -469,7 +468,11 @@ impl TxPoolService {
                 }
                 Err(reject) => {
                     debug!("after_process {} remote reject: {} ", tx_hash, reject);
-                    if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
+                    if is_missing_input(reject) {
+                        self.send_result_to_relayer(TxVerificationResult::UnknownParents {
+                            peer,
+                            parents: tx.unique_parents(),
+                        });
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
@@ -1242,9 +1245,4 @@ fn _update_tx_pool_for_reorg(
 
     // Remove transactions from the pool until its size <= size_limit.
     let _ = tx_pool.limit_size(callbacks, None);
-}
-
-pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {
-    !tx.input_pts_iter()
-        .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
 }
