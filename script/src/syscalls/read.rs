@@ -1,4 +1,4 @@
-use crate::syscalls::{INVALID_FD, READ, YIELD_CYCLES_BASE};
+use crate::syscalls::{INVALID_FD, READ, SPAWN_YIELD_CYCLES_BASE};
 use crate::types::{Fd, FdArgs, Message, VmId};
 use ckb_vm::{
     registers::{A0, A1, A2, A7},
@@ -41,7 +41,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Read {
             machine.set_register(A0, Mac::REG::from_u8(INVALID_FD));
             return Ok(true);
         }
-        machine.add_cycles_no_checking(YIELD_CYCLES_BASE)?;
+        machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?

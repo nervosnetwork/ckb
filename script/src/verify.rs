@@ -1,7 +1,7 @@
 use crate::scheduler::Scheduler;
 #[cfg(test)]
 use crate::syscalls::Pause;
-use crate::syscalls::{InheritedFd, ProcessID, LOAD_ELF_CYCLES_BASE};
+use crate::syscalls::{InheritedFd, ProcessID, EXEC_LOAD_ELF_V2_CYCLES_BASE};
 use crate::types::{DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID};
 use crate::{
     error::{ScriptError, TransactionScriptError},
@@ -327,7 +327,7 @@ where
                     Arc::clone(&script_group_input_indices),
                     Arc::clone(&script_group_output_indices),
                     if script_version >= ScriptVersion::V2 {
-                        LOAD_ELF_CYCLES_BASE
+                        EXEC_LOAD_ELF_V2_CYCLES_BASE
                     } else {
                         0
                     },

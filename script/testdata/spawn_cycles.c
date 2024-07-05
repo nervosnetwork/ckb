@@ -6,7 +6,7 @@
 
 const uint64_t SYSCALL_CYCLES_BASE = 500;
 const uint64_t SPAWN_EXTRA_CYCLES_BASE = 100000;
-const uint64_t SPAWN_YIELD_CYCLES_BASE = 800;
+const uint64_t SPAWN_SPAWN_YIELD_CYCLES_BASE = 800;
 
 int tic() {
     static uint64_t tic = 0;
@@ -19,7 +19,7 @@ int tic() {
 uint64_t cal_cycles(uint64_t nbase, uint64_t yield, uint64_t extra) {
     uint64_t r = 0;
     r += SYSCALL_CYCLES_BASE * nbase;
-    r += SPAWN_YIELD_CYCLES_BASE * yield;
+    r += SPAWN_SPAWN_YIELD_CYCLES_BASE * yield;
     r += SPAWN_EXTRA_CYCLES_BASE * extra;
     return r;
 }
