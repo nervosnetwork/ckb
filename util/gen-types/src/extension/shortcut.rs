@@ -10,7 +10,7 @@ impl packed::Byte32 {
 
     /// Creates a new `Byte32` whose bits are all ones.
     pub fn max_value() -> Self {
-        [u8::max_value(); 32].pack()
+        [u8::max_value(); 32].into()
     }
 
     /// Checks whether all bits in self are zeros.
@@ -20,7 +20,7 @@ impl packed::Byte32 {
 
     /// Creates a new `Bytes32`.
     pub fn new(v: [u8; 32]) -> Self {
-        v.pack()
+        v.into()
     }
 }
 
@@ -29,7 +29,7 @@ impl packed::ProposalShortId {
     pub fn from_tx_hash(h: &packed::Byte32) -> Self {
         let mut inner = [0u8; 10];
         inner.copy_from_slice(&h.as_slice()[..10]);
-        inner.pack()
+        inner.into()
     }
 
     /// Creates a new `ProposalShortId` whose bits are all zeros.
@@ -39,7 +39,7 @@ impl packed::ProposalShortId {
 
     /// Creates a new `ProposalShortId`.
     pub fn new(v: [u8; 10]) -> Self {
-        v.pack()
+        v.into()
     }
 }
 
@@ -48,20 +48,20 @@ impl packed::OutPoint {
     pub fn new(tx_hash: packed::Byte32, index: u32) -> Self {
         packed::OutPoint::new_builder()
             .tx_hash(tx_hash)
-            .index(index.pack())
+            .index(index.into())
             .build()
     }
 
     /// Creates a new null `OutPoint`.
     pub fn null() -> Self {
         packed::OutPoint::new_builder()
-            .index(u32::max_value().pack())
+            .index(u32::max_value().into())
             .build()
     }
 
     /// Checks whether self is a null `OutPoint`.
     pub fn is_null(&self) -> bool {
-        self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
+        self.tx_hash().is_zero() && Into::<u32>::into(self.index().as_reader()) == u32::max_value()
     }
 
     /// Generates a binary data to be used as a key for indexing cells in storage.
@@ -82,7 +82,7 @@ impl packed::OutPoint {
     ///   order, so as to traverse cells in the forward order too.
     pub fn to_cell_key(&self) -> Vec<u8> {
         let mut key = Vec::with_capacity(36);
-        let index: u32 = self.index().unpack();
+        let index: u32 = self.index().as_reader().into();
         key.extend_from_slice(self.tx_hash().as_slice());
         key.extend_from_slice(&index.to_be_bytes());
         key
@@ -93,7 +93,7 @@ impl packed::CellInput {
     /// Creates a new `CellInput`.
     pub fn new(previous_output: packed::OutPoint, block_number: BlockNumber) -> Self {
         packed::CellInput::new_builder()
-            .since(block_number.pack())
+            .since(block_number.into())
             .previous_output(previous_output)
             .build()
     }
@@ -110,7 +110,7 @@ impl packed::Script {
             .lock(self)
             .build()
             .as_bytes()
-            .pack()
+            .into()
     }
 
     /// Converts from bytes of [`CellbaseWitness`](struct.CellbaseWitness.html).
