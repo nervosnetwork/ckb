@@ -751,6 +751,17 @@ impl Relayer {
                     TxVerificationResult::Reject { tx_hash } => {
                         self.shared.state().remove_from_known_txs(&tx_hash);
                     }
+                    TxVerificationResult::UnknownParents { peer, parents } => {
+                        let tx_hashes: Vec<_> = {
+                            let mut tx_filter = self.shared.state().tx_filter();
+                            tx_filter.remove_expired();
+                            parents
+                                .into_iter()
+                                .filter(|tx_hash| !tx_filter.contains(tx_hash))
+                                .collect()
+                        };
+                        self.shared.state().add_ask_for_txs(peer, tx_hashes);
+                    }
                 }
             }
         }

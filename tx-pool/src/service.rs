@@ -3,7 +3,6 @@
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::chunk_process::ChunkCommand;
-use crate::component::entry;
 use crate::component::pool_map::{PoolEntry, Status};
 use crate::component::{chunk::ChunkQueue, orphan::OrphanPool};
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
@@ -679,6 +678,13 @@ pub enum TxVerificationResult {
         with_vm_2023: bool,
         /// transaction hash
         tx_hash: Byte32,
+    },
+    /// tx parent is unknown
+    UnknownParents {
+        /// original peer
+        peer: PeerIndex,
+        /// parents hashes
+        parents: HashSet<Byte32>,
     },
     /// tx is rejected
     Reject {
