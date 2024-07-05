@@ -458,7 +458,10 @@ impl TxPoolService {
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(_) => {
-                    debug!("after_process remote send_result_to_relayer {}", tx_hash);
+                    debug!(
+                        "after_process remote send_result_to_relayer {} {}",
+                        tx_hash, peer
+                    );
                     self.send_result_to_relayer(TxVerificationResult::Ok {
                         original_peer: Some(peer),
                         with_vm_2023,
@@ -467,7 +470,10 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!("after_process {} remote reject: {} ", tx_hash, reject);
+                    debug!(
+                        "after_process {} {} remote reject: {} ",
+                        tx_hash, peer, reject
+                    );
                     if is_missing_input(reject) {
                         self.send_result_to_relayer(TxVerificationResult::UnknownParents {
                             peer,
