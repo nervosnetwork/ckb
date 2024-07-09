@@ -527,7 +527,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             }
         }
         if ret.is_ok() {
-            Ok(Some(block.hash().unpack()))
+            Ok(Some(block.hash().into()))
         } else {
             error!("process_block_without_verify error: {:?}", ret);
             Ok(None)
@@ -538,7 +538,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let header = {
             let snapshot = self.shared.snapshot();
             let header = snapshot
-                .get_block_header(&target_tip_hash.pack())
+                .get_block_header(&target_tip_hash.into())
                 .ok_or_else(|| {
                     RPCError::custom(RPCError::Invalid, "block not found".to_string())
                 })?;
@@ -612,7 +612,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             error!("Send notify_txs request error {}", e);
             return Err(RPCError::ckb_internal_error(e));
         }
-        Ok(tx_hash.unpack())
+        Ok(tx_hash.into())
     }
 
     fn generate_block_with_template(&self, block_template: BlockTemplate) -> Result<H256> {
@@ -628,7 +628,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let snapshot: &Snapshot = &self.shared.snapshot();
         let consensus = snapshot.consensus();
         let parent_header = snapshot
-            .get_block_header(&block_template.parent_hash.pack())
+            .get_block_header(&(&block_template.parent_hash).into())
             .expect("parent header should be stored");
         let mut seen_inputs = HashSet::new();
 
@@ -688,6 +688,6 @@ impl IntegrationTestRpcImpl {
             error!("Broadcast new block failed: {:?}", err);
         }
 
-        Ok(block_view.header().hash().unpack())
+        Ok(block_view.header().hash().into())
     }
 }

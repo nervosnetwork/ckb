@@ -20,9 +20,12 @@ fn test_missing_txs() {
     // Case: miss tx.0
     {
         let compact_block_builder = CompactBlockBuilder::default();
-        let short_ids = prepare.iter().map(|tx| tx.proposal_short_id());
+        let short_ids = prepare
+            .iter()
+            .map(|tx| tx.proposal_short_id())
+            .collect::<Vec<packed::ProposalShortId>>();
         let transactions: Vec<TransactionView> = prepare.iter().skip(1).cloned().collect();
-        let compact = compact_block_builder.short_ids(short_ids.pack()).build();
+        let compact = compact_block_builder.short_ids(short_ids.into()).build();
         assert_eq!(
             relayer.reconstruct_block(
                 &relayer.shared().active_chain(),
@@ -38,7 +41,10 @@ fn test_missing_txs() {
     // Case: miss multiple txs
     {
         let compact_block_builder = CompactBlockBuilder::default();
-        let short_ids = prepare.iter().map(|tx| tx.proposal_short_id());
+        let short_ids = prepare
+            .iter()
+            .map(|tx| tx.proposal_short_id())
+            .collect::<Vec<packed::ProposalShortId>>();
         let transactions: Vec<TransactionView> =
             prepare.iter().skip(1).step_by(2).cloned().collect();
         let missing = prepare
@@ -47,7 +53,7 @@ fn test_missing_txs() {
             .step_by(2)
             .map(|(i, _)| i)
             .collect();
-        let compact = compact_block_builder.short_ids(short_ids.pack()).build();
+        let compact = compact_block_builder.short_ids(short_ids.into()).build();
         assert_eq!(
             relayer.reconstruct_block(
                 &relayer.shared().active_chain(),
@@ -104,7 +110,7 @@ fn test_reconstruct_transactions_and_uncles() {
 
     // BLOCK_VALID
     let ext = packed::BlockExtBuilder::default()
-        .verified(Some(true).pack())
+        .verified(Some(true).into())
         .build();
 
     let compact = packed::CompactBlock::build_from_block(&block, &prefilled);
@@ -127,7 +133,7 @@ fn test_reconstruct_transactions_and_uncles() {
     {
         let db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle).unwrap();
-        db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
+        db_txn.insert_block_ext(&uncle_hash, &ext.into()).unwrap();
         db_txn.commit().unwrap();
     }
     relayer.shared().shared().refresh_snapshot();
@@ -149,7 +155,7 @@ fn test_reconstruct_invalid_uncles() {
     let uncle = BlockBuilder::default().build();
     // BLOCK_VALID
     let ext = packed::BlockExtBuilder::default()
-        .verified(Some(false).pack())
+        .verified(Some(false).into())
         .build();
 
     let block = BlockBuilder::default()
@@ -163,7 +169,7 @@ fn test_reconstruct_invalid_uncles() {
         let db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle).unwrap();
         db_txn.attach_block(&uncle).unwrap();
-        db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
+        db_txn.insert_block_ext(&uncle_hash, &ext.into()).unwrap();
         db_txn.commit().unwrap();
     }
     relayer.shared().shared().refresh_snapshot();

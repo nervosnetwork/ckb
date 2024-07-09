@@ -26,9 +26,9 @@ impl From<&bool> for packed::Bool {
     }
 }
 
-impl<'r> Into<bool> for packed::BoolReader<'r> {
-    fn into(self) -> bool {
-        match self.as_slice()[0] {
+impl<'r> From<packed::BoolReader<'r>> for bool {
+    fn from(value: packed::BoolReader<'r>) -> bool {
+        match value.as_slice()[0] {
             0 => false,
             1 => true,
             _ => unreachable!(),
@@ -119,10 +119,10 @@ impl From<&usize> for packed::Uint32 {
     }
 }
 
-impl<'r> Into<u32> for packed::Uint32Reader<'r> {
-    fn into(self) -> u32 {
+impl<'r> From<packed::Uint32Reader<'r>> for u32 {
+    fn from(value: packed::Uint32Reader<'r>) -> u32 {
         let mut b = [0u8; 4];
-        b.copy_from_slice(self.as_slice());
+        b.copy_from_slice(value.as_slice());
         u32::from_le_bytes(b)
     }
 }
@@ -136,10 +136,10 @@ impl<'r> Unpack<u32> for packed::Uint32Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(u32, Uint32);
 
-impl<'r> Into<u64> for packed::Uint64Reader<'r> {
-    fn into(self) -> u64 {
+impl<'r> From<packed::Uint64Reader<'r>> for u64 {
+    fn from(value: packed::Uint64Reader<'r>) -> u64 {
         let mut b = [0u8; 8];
-        b.copy_from_slice(self.as_slice());
+        b.copy_from_slice(value.as_slice());
         u64::from_le_bytes(b)
     }
 }
@@ -153,10 +153,10 @@ impl<'r> Unpack<u64> for packed::Uint64Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(u64, Uint64);
 
-impl<'r> Into<u128> for packed::Uint128Reader<'r> {
-    fn into(self) -> u128 {
+impl<'r> From<packed::Uint128Reader<'r>> for u128 {
+    fn from(value: packed::Uint128Reader<'r>) -> u128 {
         let mut b = [0u8; 16];
-        b.copy_from_slice(self.as_slice());
+        b.copy_from_slice(value.as_slice());
         u128::from_le_bytes(b)
     }
 }
@@ -170,9 +170,9 @@ impl<'r> Unpack<u128> for packed::Uint128Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(u128, Uint128);
 
-impl<'r> Into<usize> for packed::Uint32Reader<'r> {
-    fn into(self) -> usize {
-        let x: u32 = self.into();
+impl<'r> From<packed::Uint32Reader<'r>> for usize {
+    fn from(value: packed::Uint32Reader<'r>) -> usize {
+        let x: u32 = value.into();
         x as usize
     }
 }
@@ -239,10 +239,10 @@ impl From<&usize> for packed::BeUint32 {
     }
 }
 
-impl<'r> Into<u32> for packed::BeUint32Reader<'r> {
-    fn into(self) -> u32 {
+impl<'r> From<packed::BeUint32Reader<'r>> for u32 {
+    fn from(value: packed::BeUint32Reader<'r>) -> u32 {
         let mut b = [0u8; 4];
-        b.copy_from_slice(self.as_slice());
+        b.copy_from_slice(value.as_slice());
         u32::from_be_bytes(b)
     }
 }
@@ -256,10 +256,10 @@ impl<'r> Unpack<u32> for packed::BeUint32Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(u32, BeUint32);
 
-impl<'r> Into<u64> for packed::BeUint64Reader<'r> {
-    fn into(self) -> u64 {
+impl<'r> From<packed::BeUint64Reader<'r>> for u64 {
+    fn from(value: packed::BeUint64Reader<'r>) -> u64 {
         let mut b = [0u8; 8];
-        b.copy_from_slice(self.as_slice());
+        b.copy_from_slice(value.as_slice());
         u64::from_be_bytes(b)
     }
 }
@@ -273,9 +273,9 @@ impl<'r> Unpack<u64> for packed::BeUint64Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(u64, BeUint64);
 
-impl<'r> Into<usize> for packed::BeUint32Reader<'r> {
-    fn into(self) -> usize {
-        let x: u32 = self.into();
+impl<'r> From<packed::BeUint32Reader<'r>> for usize {
+    fn from(value: packed::BeUint32Reader<'r>) -> usize {
+        let x: u32 = value.into();
         x as usize
     }
 }
@@ -320,9 +320,9 @@ impl<const N: usize> From<&[u8; N]> for packed::Bytes {
     }
 }
 
-impl<'r> Into<Vec<u8>> for packed::BytesReader<'r> {
-    fn into(self) -> Vec<u8> {
-        self.raw_data().to_owned()
+impl<'r> From<packed::BytesReader<'r>> for Vec<u8> {
+    fn from(value: packed::BytesReader<'r>) -> Vec<u8> {
+        value.raw_data().to_owned()
     }
 }
 impl_conversion_for_entity_from!(Vec<u8>, Bytes);
@@ -386,9 +386,9 @@ impl<'r> Unpack<Option<Vec<u64>>> for packed::Uint64VecOptReader<'r> {
     }
 }
 
-impl<'r> Into<Option<Vec<u64>>> for packed::Uint64VecOptReader<'r> {
-    fn into(self) -> Option<Vec<u64>> {
-        self.to_opt().map(|x| x.into())
+impl<'r> From<packed::Uint64VecOptReader<'r>> for Option<Vec<u64>> {
+    fn from(value: packed::Uint64VecOptReader<'r>) -> Option<Vec<u64>> {
+        value.to_opt().map(|x| x.into())
     }
 }
 

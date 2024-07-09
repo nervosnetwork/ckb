@@ -144,10 +144,10 @@ impl Spec for ChainFork3 {
                 .get(0)
                 .unwrap()
                 .to_entity();
-            let old_capacity: Capacity = old_output.capacity().unpack();
+            let old_capacity: Capacity = old_output.capacity().into();
             let new_output = old_output
                 .as_builder()
-                .capacity(old_capacity.safe_add(capacity_bytes!(1)).unwrap().pack())
+                .capacity(old_capacity.safe_add(capacity_bytes!(1)).unwrap().into())
                 .build();
             transaction
                 .as_advanced_builder()
@@ -214,7 +214,7 @@ impl Spec for ChainFork4 {
                 .unwrap()
                 .to_entity()
                 .as_builder()
-                .capacity(capacity_bytes!(1).pack())
+                .capacity(capacity_bytes!(1).into())
                 .build();
             transaction
                 .as_advanced_builder()
@@ -344,7 +344,7 @@ impl Spec for ChainFork6 {
         node1.mine(2);
         info!("Generate 1 block (F) with spending non-existent transaction on node1");
         let block = node1.new_block(None, None, None);
-        let invalid_transaction = node1.new_transaction(h256!("0x1").pack());
+        let invalid_transaction = node1.new_transaction(h256!("0x1").into());
         let invalid_block = block
             .as_advanced_builder()
             .transaction(invalid_transaction)
@@ -405,7 +405,7 @@ impl Spec for ChainFork7 {
         let previous_output = input
             .previous_output()
             .as_builder()
-            .index(999u32.pack())
+            .index(999u32.into())
             .build();
         let input = input.as_builder().previous_output(previous_output).build();
         let invalid_transaction = transaction
@@ -576,7 +576,7 @@ impl Spec for ForksContainSameUncle {
         let block_b = node_b
             .new_block_builder(None, None, None)
             .set_uncles(vec![uncle.as_uncle()])
-            .timestamp((block_a.timestamp() + 2).pack())
+            .timestamp((block_a.timestamp() + 2).into())
             .build();
         node_a.submit_block(&block_a);
         node_b.submit_block(&block_b);

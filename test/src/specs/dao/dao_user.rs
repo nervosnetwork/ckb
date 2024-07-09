@@ -2,7 +2,7 @@ use crate::utils::since_from_absolute_epoch_number;
 use crate::{Node, TXOSet, TXO};
 use ckb_chain_spec::OUTPUT_INDEX_DAO;
 use ckb_types::core::{EpochNumberWithFraction, HeaderView};
-use ckb_types::packed::WitnessArgs;
+use ckb_types::packed::{self, WitnessArgs};
 use ckb_types::{
     bytes::Bytes,
     core::{ScriptHashType, TransactionBuilder, TransactionView},
@@ -41,7 +41,7 @@ impl<'a> DAOUser<'a> {
             .iter()
             .map(|txo| CellInput::new(txo.out_point(), 0))
             .collect::<Vec<_>>();
-        let output_data = Bytes::from(&[0u8; 8][..]).pack();
+        let output_data: packed::Bytes = Bytes::from(&[0u8; 8][..]).into();
         let outputs = {
             // TRICK: When we change the always_outputs to deposit_outputs, the always_output's
             // capacity will be insufficient. So here uses part of always_outputs' capacity
@@ -51,9 +51,9 @@ impl<'a> DAOUser<'a> {
             (0..outputs_len)
                 .map(|_| {
                     CellOutput::new_builder()
-                        .capacity(capacity.pack())
+                        .capacity(capacity.into())
                         .lock(node.always_success_script())
-                        .type_(Some(self.dao_type_script()).pack())
+                        .type_(Some(self.dao_type_script()).into())
                         .build()
                 })
                 .collect::<Vec<_>>()
@@ -83,14 +83,14 @@ impl<'a> DAOUser<'a> {
             .map(|(txo, _)| CellInput::new(txo.out_point(), 0));
         let outputs = deposit_utxo_headers.iter().map(|(txo, _)| {
             CellOutput::new_builder()
-                .capacity(txo.capacity().pack())
+                .capacity(txo.capacity().into())
                 .lock(txo.lock())
                 .type_(txo.type_())
                 .build()
         });
         let outputs_data = deposit_utxo_headers.iter().map(|(_, header)| {
             let deposit_number = header.number();
-            Bytes::from(deposit_number.to_le_bytes().to_vec()).pack()
+            Bytes::from(deposit_number.to_le_bytes().to_vec()).into()
         });
         let cell_deps = vec![node.always_success_cell_dep(), self.dao_cell_dep()];
         // NOTE: dao.c uses `deposit_header` to ensure the prepare_output.capacity == deposit_output.capacity
@@ -108,10 +108,10 @@ impl<'a> DAOUser<'a> {
                     .position(|hash| hash == &header.hash())
                     .unwrap() as u64;
                 WitnessArgs::new_builder()
-                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())).pack())
+                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())).into())
                     .build()
                     .as_bytes()
-                    .pack()
+                    .into()
             })
             .collect::<Vec<_>>();
         let tx = TransactionBuilder::default()
@@ -148,7 +148,7 @@ impl<'a> DAOUser<'a> {
             })
             .sum::<u64>();
         let output = CellOutput::new_builder()
-            .capacity(output_capacity.pack())
+            .capacity(output_capacity.into())
             .lock(node.always_success_script())
             .build();
         let cell_deps = vec![node.always_success_cell_dep(), self.dao_cell_dep()];
@@ -167,10 +167,10 @@ impl<'a> DAOUser<'a> {
                     .position(|hash| hash == &header.hash())
                     .unwrap() as u64;
                 WitnessArgs::new_builder()
-                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())).pack())
+                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())).into())
                     .build()
                     .as_bytes()
-                    .pack()
+                    .into()
             })
             .collect::<Vec<_>>();
         let tx = TransactionBuilder::default()
@@ -220,7 +220,7 @@ impl<'a> DAOUser<'a> {
                 let header = self
                     .node
                     .rpc_client()
-                    .get_header(block_hash.pack())
+                    .get_header(block_hash.into())
                     .expect("get utxo transaction block header")
                     .into();
                 (txo, header)
@@ -240,7 +240,7 @@ impl<'a> DAOUser<'a> {
                 .expect("get deposit transaction block hash");
             let deposit_header = node
                 .rpc_client()
-                .get_header(deposit_hash.pack())
+                .get_header(deposit_hash.into())
                 .expect("get deposit transaction block header");
             EpochNumberWithFraction::from_full_value(deposit_header.inner.epoch.value())
         };

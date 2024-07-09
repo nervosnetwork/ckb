@@ -1,21 +1,25 @@
 use super::helper::new_index_transaction;
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::{Status, StatusCode};
-use ckb_types::packed::{CompactBlock, CompactBlockBuilder};
+use ckb_types::packed::{self, CompactBlock, CompactBlockBuilder};
 use ckb_types::prelude::*;
 
 // block_short_ids: vec![None, Some(1), None, Some(3), Some(4), None]
 fn build_compact_block() -> CompactBlock {
-    let prefilled_iter = vec![0, 2, 5].into_iter().map(new_index_transaction);
+    let prefilled_iter = vec![0, 2, 5]
+        .into_iter()
+        .map(new_index_transaction)
+        .collect::<Vec<packed::IndexTransaction>>();
 
     let short_ids = vec![1, 3, 4]
         .into_iter()
         .map(new_index_transaction)
-        .map(|tx| tx.transaction().proposal_short_id());
+        .map(|tx| tx.transaction().proposal_short_id())
+        .collect::<Vec<packed::ProposalShortId>>();
 
     CompactBlockBuilder::default()
-        .short_ids(short_ids.pack())
-        .prefilled_transactions(prefilled_iter.pack())
+        .short_ids(short_ids.into())
+        .prefilled_transactions(prefilled_iter.into())
         .build()
 }
 

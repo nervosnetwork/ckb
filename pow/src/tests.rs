@@ -1,10 +1,9 @@
 use crate::pow_message;
 use ckb_hash::blake2b_256;
-use ckb_types::prelude::*;
 
 #[test]
 fn test_pow_message() {
-    let zero_hash = blake2b_256([]).pack();
+    let zero_hash = blake2b_256([]).into();
     let nonce = u128::max_value();
     let message = pow_message(&zero_hash, nonce);
     assert_eq!(

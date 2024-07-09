@@ -30,9 +30,9 @@ async fn get_last_state_proof_with_the_genesis_block() {
         let content = packed::GetLastStateProof::new_builder()
             .last_hash(tip_header.hash())
             .start_hash(genesis_header.hash())
-            .start_number(0u64.pack())
-            .last_n_blocks(10u64.pack())
-            .difficulty_boundary(genesis_header.difficulty().pack())
+            .start_number(0u64.into())
+            .last_n_blocks(10u64.into())
+            .difficulty_boundary(genesis_header.difficulty().into())
             .build();
         packed::LightClientMessage::new_builder()
             .set(content)
@@ -64,7 +64,7 @@ async fn get_last_state_proof_with_the_genesis_block() {
     {
         let parent_chain_root = verifiable_tip_header.parent_chain_root();
         let proof: MMRProof = {
-            let mmr_size = leaf_index_to_mmr_size(parent_chain_root.end_number().unpack());
+            let mmr_size = leaf_index_to_mmr_size(parent_chain_root.end_number().into());
             let proof = content.proof().into_iter().collect();
             MMRProof::new(mmr_size, proof)
         };

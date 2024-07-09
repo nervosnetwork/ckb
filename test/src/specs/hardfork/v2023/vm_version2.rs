@@ -147,7 +147,7 @@ impl NewScript {
         let tx_template = TransactionView::new_advanced_builder();
         let cell_input = inputs.next().unwrap();
         let cell_output = packed::CellOutput::new_builder()
-            .type_(Some(type_script).pack())
+            .type_(Some(type_script).into())
             .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
             .unwrap();
         let tx = tx_template
@@ -239,7 +239,7 @@ impl<'a> CheckVmVersionTestRunner<'a> {
                 TransactionView::new_advanced_builder().cell_dep(cell_dep),
                 packed::CellOutput::new_builder()
                     .lock(self.node.always_success_script())
-                    .type_(Some(script).pack()),
+                    .type_(Some(script).into()),
             )
         } else {
             (
@@ -250,7 +250,7 @@ impl<'a> CheckVmVersionTestRunner<'a> {
         let cell_input = inputs.next().unwrap();
         let input_cell = self.get_previous_output(&cell_input);
         let cell_output = co_builder
-            .capacity((input_cell.capacity.value() - 1).pack())
+            .capacity((input_cell.capacity.value() - 1).into())
             .build();
         let tx = tx_builder
             .cell_dep(self.node.always_success_cell_dep())
@@ -298,7 +298,7 @@ impl<'a> CheckVmVersionTestRunner<'a> {
 
     fn get_previous_output(&self, cell_input: &packed::CellInput) -> rpc::CellOutput {
         let previous_output = cell_input.previous_output();
-        let previous_output_index: usize = previous_output.index().unpack();
+        let previous_output_index: usize = previous_output.index().into();
 
         if let Either::Left(tx) = self
             .node

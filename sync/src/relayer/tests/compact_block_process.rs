@@ -112,9 +112,9 @@ fn test_unknow_parent() {
     let block = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(5.pack())
-                .epoch(EpochNumberWithFraction::new(1, 5, 1000).pack())
-                .timestamp(unix_time_as_millis().pack())
+                .number(5.into())
+                .epoch(EpochNumberWithFraction::new(1, 5, 1000).into())
+                .timestamp(unix_time_as_millis().into())
                 .build(),
         )
         .transaction(TransactionBuilder::default().build())
@@ -144,7 +144,7 @@ fn test_unknow_parent() {
     let locator_hash = active_chain.get_locator((&header).into());
 
     let content = packed::GetHeaders::new_builder()
-        .block_locator_hashes(locator_hash.pack())
+        .block_locator_hashes(locator_hash.into())
         .hash_stop(packed::Byte32::zero())
         .build();
     let message = packed::SyncMessage::new_builder().set(content).build();
@@ -211,7 +211,7 @@ fn test_header_invalid() {
 
     // Better block but block number is invalid
     let header = new_header_builder(relayer.shared.shared(), &parent)
-        .number(4.pack())
+        .number(4.into())
         .build();
 
     let block = BlockBuilder::default()
@@ -269,10 +269,10 @@ fn test_send_missing_indexes() {
             TransactionBuilder::default()
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(Capacity::bytes(1).unwrap().pack())
+                        .capacity(Capacity::bytes(1).unwrap().into())
                         .build(),
                 )
-                .output_data(Bytes::new().pack())
+                .output_data(Bytes::new().into())
                 .build(),
         )
         .uncle(uncle.as_uncle())
@@ -305,8 +305,8 @@ fn test_send_missing_indexes() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes([1u32].pack())
-        .uncle_indexes([0u32].pack())
+        .indexes([1u32].into())
+        .uncle_indexes([0u32].into())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
@@ -322,7 +322,7 @@ fn test_send_missing_indexes() {
 
     let content = packed::GetBlockProposal::new_builder()
         .block_hash(block.header().hash())
-        .proposals(vec![proposal_id].into_iter().pack())
+        .proposals(vec![proposal_id].into())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
@@ -350,12 +350,12 @@ fn test_accept_block() {
     );
 
     let mock_block_1 = BlockBuilder::default()
-        .number(4.pack())
-        .epoch(EpochNumberWithFraction::new(1, 4, 1000).pack())
+        .number(4.into())
+        .epoch(EpochNumberWithFraction::new(1, 4, 1000).into())
         .build();
     let mock_compact_block_1 = CompactBlock::build_from_block(&mock_block_1, &Default::default());
 
-    let mock_block_2 = block.as_advanced_builder().number(7.pack()).build();
+    let mock_block_2 = block.as_advanced_builder().number(7.into()).build();
     let mock_compact_block_2 = CompactBlock::build_from_block(&mock_block_2, &Default::default());
     {
         let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
@@ -502,11 +502,11 @@ fn test_collision() {
     let missing_tx = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1000).unwrap().pack())
+                .capacity(Capacity::bytes(1000).unwrap().into())
                 .build(),
         )
         .input(CellInput::new(OutPoint::new(last_cellbase.hash(), 0), 0))
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let fake_hash = missing_tx
@@ -569,7 +569,7 @@ fn test_collision() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes([1u32].pack())
+        .indexes([1u32].into())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();

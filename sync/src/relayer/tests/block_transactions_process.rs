@@ -26,22 +26,24 @@ fn test_accept_block() {
     let tx2 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1).unwrap().pack())
+                .capacity(Capacity::bytes(1).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let tx3 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(2).unwrap().pack())
+                .capacity(Capacity::bytes(2).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
     let uncle = BlockBuilder::default()
-        .proposals(vec![tx3.proposal_short_id()].pack())
+        .proposals(Into::<packed::ProposalShortIdVec>::into(vec![
+            tx3.proposal_short_id()
+        ]))
         .build();
 
     let block = BlockBuilder::default()
@@ -70,8 +72,8 @@ fn test_accept_block() {
 
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .transactions(vec![tx2.data()].pack())
-        .uncles(vec![uncle.as_uncle().data()].pack())
+        .transactions(vec![tx2.data()].into())
+        .uncles(vec![uncle.as_uncle().data()].into())
         .build();
 
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
@@ -104,10 +106,10 @@ fn test_unknown_request() {
     let tx2 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1).unwrap().pack())
+                .capacity(Capacity::bytes(1).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let block = BlockBuilder::default()
@@ -133,7 +135,7 @@ fn test_unknown_request() {
 
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .transactions(vec![tx2.data()].pack())
+        .transactions(vec![tx2.data()].into())
         .build();
 
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
@@ -157,14 +159,14 @@ fn test_invalid_transaction_root() {
     let tx2 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1).unwrap().pack())
+                .capacity(Capacity::bytes(1).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let prefilled = IndexTransaction::new_builder()
-        .index(0u32.pack())
+        .index(0u32.into())
         .transaction(tx1.data())
         .build();
 
@@ -178,8 +180,8 @@ fn test_invalid_transaction_root() {
 
     let compact_block = packed::CompactBlock::new_builder()
         .header(header_with_invalid_tx_root)
-        .short_ids(vec![tx2.proposal_short_id()].pack())
-        .prefilled_transactions(vec![prefilled].pack())
+        .short_ids(vec![tx2.proposal_short_id()].into())
+        .prefilled_transactions(vec![prefilled].into())
         .build();
 
     let block_hash = compact_block.header().calc_header_hash();
@@ -198,7 +200,7 @@ fn test_invalid_transaction_root() {
 
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
         .block_hash(block_hash)
-        .transactions(vec![tx2.data()].pack())
+        .transactions(vec![tx2.data()].into())
         .build();
 
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
@@ -234,19 +236,19 @@ fn test_collision_and_send_missing_indexes() {
     let tx2 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1000).unwrap().pack())
+                .capacity(Capacity::bytes(1000).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
     let tx3 = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new(last_cellbase.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(2).unwrap().pack())
+                .capacity(Capacity::bytes(2).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let fake_hash = tx3
@@ -294,7 +296,7 @@ fn test_collision_and_send_missing_indexes() {
 
     let block_transactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .transactions(vec![tx2.data()].pack())
+        .transactions(vec![tx2.data()].into())
         .build();
 
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
@@ -313,7 +315,7 @@ fn test_collision_and_send_missing_indexes() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes([1u32, 2u32].pack())
+        .indexes([1u32, 2u32].into())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
@@ -337,7 +339,7 @@ fn test_collision_and_send_missing_indexes() {
     // resend BlockTransactions with all the transactions without prefilled
     let new_block_transactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .transactions(vec![tx2.data(), tx3.data()].pack())
+        .transactions(vec![tx2.data(), tx3.data()].into())
         .build();
 
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
@@ -370,18 +372,18 @@ fn test_missing() {
     let tx2 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1).unwrap().pack())
+                .capacity(Capacity::bytes(1).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
     let tx3 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(2).unwrap().pack())
+                .capacity(Capacity::bytes(2).unwrap().into())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let block = BlockBuilder::default()
@@ -408,7 +410,7 @@ fn test_missing() {
 
     let block_transactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .transactions(vec![tx2.data()].pack())
+        .transactions(vec![tx2.data()].into())
         .build();
 
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
@@ -427,7 +429,7 @@ fn test_missing() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes([1, 2u32].pack())
+        .indexes([1, 2u32].into())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
 

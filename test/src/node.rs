@@ -345,7 +345,7 @@ impl Node {
         let timestamp = block.timestamp();
         let uncle = block
             .as_advanced_builder()
-            .timestamp((timestamp + 1).pack())
+            .timestamp((timestamp + 1).into())
             .build();
         (block, uncle)
     }
@@ -381,7 +381,7 @@ impl Node {
         let res = self
             .rpc_client()
             .send_transaction_result(transaction.data().into())?
-            .pack();
+            .into();
         Ok(res)
     }
 
@@ -573,7 +573,7 @@ impl Node {
             .cell_dep(always_success_cell_dep)
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity.pack())
+                    .capacity(capacity.into())
                     .lock(always_success_script)
                     .build(),
             )
@@ -599,7 +599,7 @@ impl Node {
             .cell_dep(always_failure_cell_dep)
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100).pack())
+                    .capacity(capacity_bytes!(100).into())
                     .lock(always_failure_script)
                     .build(),
             )

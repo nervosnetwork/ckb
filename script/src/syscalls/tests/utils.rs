@@ -41,7 +41,7 @@ pub(crate) fn new_mock_data_loader() -> MockDataLoader {
 
 pub(crate) fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
     let capacity = Capacity::bytes(capacity_bytes).expect("capacity bytes overflow");
-    let builder = CellOutput::new_builder().capacity(capacity.pack());
+    let builder = CellOutput::new_builder().capacity(capacity.into());
     let data_hash = CellOutput::calc_data_hash(&data);
     CellMeta {
         out_point: OutPoint::default(),

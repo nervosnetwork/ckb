@@ -13,18 +13,18 @@ fn test_block_short_ids() {
     ];
     let prefilled_transactions = vec![
         IndexTransactionBuilder::default()
-            .index(0u32.pack())
+            .index(0u32.into())
             .transaction(TransactionBuilder::default().build().data())
             .build(),
         IndexTransactionBuilder::default()
-            .index(2u32.pack())
+            .index(2u32.into())
             .transaction(TransactionBuilder::default().build().data())
             .build(),
     ];
 
     let compact_block = compact_block_builder
-        .short_ids(short_ids.into_iter().pack())
-        .prefilled_transactions(prefilled_transactions.into_iter().pack())
+        .short_ids(short_ids.into())
+        .prefilled_transactions(prefilled_transactions.into())
         .build();
 
     assert_eq!(

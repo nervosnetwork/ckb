@@ -41,7 +41,7 @@ fn check_vm_version() {
         .code_hash(vm_version_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(vm_version_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -73,7 +73,7 @@ fn check_get_memory_limit() {
         .code_hash(memory_limit_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(memory_limit_script)
         .build();
 
@@ -105,7 +105,7 @@ fn check_set_content() {
         .code_hash(set_content_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(memory_limit_script)
         .build();
 
@@ -140,7 +140,7 @@ fn check_spawn_strcat() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -173,7 +173,7 @@ fn check_spawn_strcat_data_hash() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -206,7 +206,7 @@ fn check_spawn_get_memory_limit() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -239,7 +239,7 @@ fn check_spawn_set_content() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -272,7 +272,7 @@ fn check_spawn_out_of_cycles() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -312,7 +312,7 @@ fn check_spawn_exec() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -349,7 +349,7 @@ fn check_spawn_strcat_wrap() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -386,7 +386,7 @@ fn check_spawn_out_of_cycles_wrap() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -428,7 +428,7 @@ fn check_spawn_recursive() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -463,7 +463,7 @@ fn check_spawn_big_memory_size() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -494,7 +494,7 @@ fn check_spawn_big_content_length() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -525,7 +525,7 @@ fn check_peak_memory_4m_to_32m() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -556,7 +556,7 @@ fn check_peak_memory_2m_to_32m() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -587,7 +587,7 @@ fn check_peak_memory_512k_to_32m() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -622,7 +622,7 @@ fn check_spawn_snapshot() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -663,7 +663,7 @@ fn check_spawn_state() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -728,7 +728,7 @@ fn check_spawn_current_memory() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -761,7 +761,7 @@ fn check_spawn_current_cycles() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -791,7 +791,7 @@ fn check_spawn_times_bug_1() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -823,7 +823,7 @@ fn check_spawn_times_bug_2() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);

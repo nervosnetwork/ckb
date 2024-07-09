@@ -1,7 +1,4 @@
-use ckb_types::{
-    core::{BlockBuilder, BlockNumber, EpochNumberWithFraction},
-    prelude::*,
-};
+use ckb_types::core::{BlockBuilder, BlockNumber, EpochNumberWithFraction};
 
 use crate::block_assembler::candidate_uncles::{
     CandidateUncles, MAX_CANDIDATE_UNCLES, MAX_PER_HEIGHT,
@@ -30,8 +27,8 @@ fn test_candidate_uncles_max_size() {
     for i in 0..(MAX_CANDIDATE_UNCLES + 3) {
         let number = i as BlockNumber;
         let block = BlockBuilder::default()
-            .number(number.pack())
-            .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 10000).pack())
+            .number(number.into())
+            .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 10000).into())
             .build()
             .as_uncle();
         blocks.push(block);
@@ -60,7 +57,7 @@ fn test_candidate_uncles_max_per_height() {
     let mut blocks = Vec::new();
     for i in 0..(MAX_PER_HEIGHT + 3) {
         let block = BlockBuilder::default()
-            .timestamp((i as u64).pack())
+            .timestamp((i as u64).into())
             .build()
             .as_uncle();
         blocks.push(block);

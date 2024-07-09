@@ -32,8 +32,8 @@ impl DiscoveryMessage {
                 listen_port,
                 required_flags,
             } => {
-                let version = version.pack();
-                let count = count.pack();
+                let version = version.into();
+                let count = count.into();
                 let listen_port = packed::PortOpt::new_builder()
                     .set(listen_port.map(|port| {
                         let port_le = port.to_le_bytes();
@@ -43,7 +43,7 @@ impl DiscoveryMessage {
                             .build()
                     }))
                     .build();
-                let required_flags = required_flags.bits().pack();
+                let required_flags = required_flags.bits().into();
                 let get_node = packed::GetNodes2::new_builder()
                     .listen_port(listen_port)
                     .count(count)
@@ -70,7 +70,7 @@ impl DiscoveryMessage {
                         )
                     }
                     let bytes_vec = packed::BytesVec::new_builder().set(vec_addrs).build();
-                    let flags = item.flags.bits().pack();
+                    let flags = item.flags.bits().into();
                     let node = packed::Node2::new_builder()
                         .addresses(bytes_vec)
                         .flags(flags)
@@ -118,7 +118,7 @@ impl DiscoveryMessage {
                     let get_nodes2 =
                         packed::GetNodes2::from_compatible_slice(reader.as_slice()).ok()?;
                     let reader = get_nodes2.as_reader();
-                    Flags::from_bits_truncate(reader.required_flags().unpack())
+                    Flags::from_bits_truncate(reader.required_flags().into())
                 } else {
                     Flags::COMPATIBILITY
                 };
@@ -146,7 +146,7 @@ impl DiscoveryMessage {
                         let node2 =
                             packed::Node2::from_compatible_slice(node_reader.as_slice()).ok()?;
                         let reader = node2.as_reader();
-                        Flags::from_bits_truncate(reader.flags().unpack())
+                        Flags::from_bits_truncate(reader.flags().into())
                     } else {
                         Flags::COMPATIBILITY
                     };

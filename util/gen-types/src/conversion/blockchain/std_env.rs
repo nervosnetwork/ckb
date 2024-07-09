@@ -29,9 +29,9 @@ impl<'r> Unpack<Capacity> for packed::Uint64Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(Capacity, Uint64);
 
-impl<'r> Into<Capacity> for packed::Uint64Reader<'r> {
-    fn into(self) -> Capacity {
-        Capacity::shannons(self.into())
+impl<'r> From<packed::Uint64Reader<'r>> for Capacity {
+    fn from(value: packed::Uint64Reader<'r>) -> Capacity {
+        Capacity::shannons(value.into())
     }
 }
 impl_conversion_for_entity_from!(Capacity, Uint64);
@@ -62,9 +62,9 @@ impl<'r> Unpack<U256> for packed::Uint256Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(U256, Uint256);
 
-impl<'r> Into<U256> for packed::Uint256Reader<'r> {
-    fn into(self) -> U256 {
-        U256::from_little_endian(self.as_slice()).expect("internal error: fail to unpack U256")
+impl<'r> From<packed::Uint256Reader<'r>> for U256 {
+    fn from(value: packed::Uint256Reader<'r>) -> U256 {
+        U256::from_little_endian(value.as_slice()).expect("internal error: fail to unpack U256")
     }
 }
 impl_conversion_for_entity_from!(U256, Uint256);
@@ -94,9 +94,9 @@ impl<'r> Unpack<H256> for packed::Byte32Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(H256, Byte32);
 
-impl<'r> Into<H256> for packed::Byte32Reader<'r> {
-    fn into(self) -> H256 {
-        H256::from_slice(self.as_slice()).expect("internal error: fail to unpack H256")
+impl<'r> From<packed::Byte32Reader<'r>> for H256 {
+    fn from(value: packed::Byte32Reader<'r>) -> H256 {
+        H256::from_slice(value.as_slice()).expect("internal error: fail to unpack H256")
     }
 }
 impl_conversion_for_entity_from!(H256, Byte32);

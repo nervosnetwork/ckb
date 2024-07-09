@@ -1,5 +1,4 @@
 use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
-use ckb_types::prelude::*;
 
 pub struct RpcTransactionProof;
 
@@ -10,7 +9,7 @@ impl Spec for RpcTransactionProof {
 
         let tx_hash = node0.generate_transaction();
         node0.mine_until_transaction_confirm(&tx_hash);
-        let tx_hashes = vec![tx_hash.unpack()];
+        let tx_hashes = vec![tx_hash.into()];
         let proof = node0
             .rpc_client()
             .inner()

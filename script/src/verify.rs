@@ -394,7 +394,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 .map(|(index, (cell_output, data))| {
                     let out_point = OutPoint::new_builder()
                         .tx_hash(tx_hash.clone())
-                        .index(index.pack())
+                        .index(index.into())
                         .build();
                     let data_hash = CellOutput::calc_data_hash(&data);
                     CellMeta {
@@ -914,7 +914,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         group: &ScriptGroup,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
             let verifier = TypeIdSystemScript {
@@ -952,7 +952,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         max_cycles: Cycle,
         snaps: &[(Snapshot, Cycle, ResumePoint)],
     ) -> Result<ChunkState, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
             let verifier = TypeIdSystemScript {

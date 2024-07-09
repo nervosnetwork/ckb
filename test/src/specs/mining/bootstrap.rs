@@ -20,8 +20,8 @@ impl Spec for BootstrapCellbase {
         node.mine(DEFAULT_TX_PROPOSAL_WINDOW.1 + 1);
 
         let miner = packed::Script::new_builder()
-            .args(Bytes::from(vec![2, 1]).pack())
-            .code_hash(h256!("0xa2").pack())
+            .args(Bytes::from(vec![2, 1]).into())
+            .code_hash(h256!("0xa2").into())
             .hash_type(ScriptHashType::Data.into())
             .build();
 

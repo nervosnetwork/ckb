@@ -79,27 +79,27 @@ async fn with_custom_block_filter() {
     let indexer_handle = AsyncRichIndexerHandle::new(storage, None);
 
     let lock_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"lock_script1".to_vec()).pack())
+        .args(Bytes::from(b"lock_script1".to_vec()).into())
         .build();
 
     let lock_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"lock_script2".to_vec()).pack())
+        .args(Bytes::from(b"lock_script2".to_vec()).into())
         .build();
 
     let type_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"type_script1".to_vec()).pack())
+        .args(Bytes::from(b"type_script1".to_vec()).into())
         .build();
 
     let type_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"type_script2".to_vec()).pack())
+        .args(Bytes::from(b"type_script2".to_vec()).into())
         .build();
 
     let cellbase0 = TransactionBuilder::default()
@@ -107,7 +107,7 @@ async fn with_custom_block_filter() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
                 .build(),
         )
@@ -117,9 +117,9 @@ async fn with_custom_block_filter() {
     let tx00 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1.clone()).pack())
+                .type_(Some(type_script1.clone()).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -128,9 +128,9 @@ async fn with_custom_block_filter() {
     let tx01 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).pack())
+                .capacity(capacity_bytes!(2000).into())
                 .lock(lock_script2.clone())
-                .type_(Some(type_script2.clone()).pack())
+                .type_(Some(type_script2.clone()).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -140,19 +140,19 @@ async fn with_custom_block_filter() {
         .transaction(cellbase0)
         .transaction(tx00.clone())
         .transaction(tx01.clone())
-        .header(HeaderBuilder::default().number(0.pack()).build())
+        .header(HeaderBuilder::default().number(0.into()).build())
         .build();
     indexer.append(&block0).await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
     assert_eq!(0u64, tip.block_number.value());
-    assert_eq!(block0.hash(), tip.block_hash.pack());
+    assert_eq!(block0.hash(), tip.block_hash.into());
 
     let cellbase1 = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(1))
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
                 .build(),
         )
@@ -163,9 +163,9 @@ async fn with_custom_block_filter() {
         .input(CellInput::new(OutPoint::new(tx00.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1).pack())
+                .type_(Some(type_script1).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -175,9 +175,9 @@ async fn with_custom_block_filter() {
         .input(CellInput::new(OutPoint::new(tx01.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).pack())
+                .capacity(capacity_bytes!(2000).into())
                 .lock(lock_script2)
-                .type_(Some(type_script2).pack())
+                .type_(Some(type_script2).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -189,10 +189,10 @@ async fn with_custom_block_filter() {
         .transaction(tx11)
         .header(
             HeaderBuilder::default()
-                .number(1.pack())
+                .number(1.into())
                 .parent_hash(block0.hash())
                 .epoch(
-                    EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000).pack(),
+                    EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000).into(),
                 )
                 .build(),
         )
@@ -201,7 +201,7 @@ async fn with_custom_block_filter() {
     indexer.append(&block1).await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
     assert_eq!(1, tip.block_number.value());
-    assert_eq!(block1.hash(), tip.block_hash.pack());
+    assert_eq!(block1.hash(), tip.block_hash.into());
     assert_eq!(
         2, // cellbase1, tx10
         indexer_handle
@@ -242,7 +242,7 @@ async fn with_custom_block_filter() {
     indexer.rollback().await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
     assert_eq!(0, tip.block_number.value());
-    assert_eq!(block0.hash(), tip.block_hash.pack());
+    assert_eq!(block0.hash(), tip.block_hash.into());
     assert_eq!(
         0,
         indexer_handle
@@ -293,27 +293,27 @@ async fn with_custom_cell_filter() {
     let indexer_handle = AsyncRichIndexerHandle::new(storage, None);
 
     let lock_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"lock_script1".to_vec()).pack())
+        .args(Bytes::from(b"lock_script1".to_vec()).into())
         .build();
 
     let lock_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"lock_script2".to_vec()).pack())
+        .args(Bytes::from(b"lock_script2".to_vec()).into())
         .build();
 
     let type_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"type_script1".to_vec()).pack())
+        .args(Bytes::from(b"type_script1".to_vec()).into())
         .build();
 
     let type_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).pack())
+        .code_hash(H256(rand::random()).into())
         .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"type_script2".to_vec()).pack())
+        .args(Bytes::from(b"type_script2".to_vec()).into())
         .build();
 
     let cellbase0 = TransactionBuilder::default()
@@ -321,7 +321,7 @@ async fn with_custom_cell_filter() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
                 .build(),
         )
@@ -331,9 +331,9 @@ async fn with_custom_cell_filter() {
     let tx00 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1.clone()).pack())
+                .type_(Some(type_script1.clone()).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -342,9 +342,9 @@ async fn with_custom_cell_filter() {
     let tx01 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).pack())
+                .capacity(capacity_bytes!(2000).into())
                 .lock(lock_script2.clone())
-                .type_(Some(type_script2.clone()).pack())
+                .type_(Some(type_script2.clone()).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -354,12 +354,12 @@ async fn with_custom_cell_filter() {
         .transaction(cellbase0)
         .transaction(tx00.clone())
         .transaction(tx01.clone())
-        .header(HeaderBuilder::default().number(0.pack()).build())
+        .header(HeaderBuilder::default().number(0.into()).build())
         .build();
     indexer.append(&block0).await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
     assert_eq!(0, tip.block_number.value());
-    assert_eq!(block0.hash(), tip.block_hash.pack());
+    assert_eq!(block0.hash(), tip.block_hash.into());
     assert_eq!(
         1, // cellbase1, tx00
         indexer_handle
@@ -400,7 +400,7 @@ async fn with_custom_cell_filter() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
                 .build(),
         )
@@ -411,9 +411,9 @@ async fn with_custom_cell_filter() {
         .input(CellInput::new(OutPoint::new(tx00.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).pack())
+                .capacity(capacity_bytes!(1000).into())
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1).pack())
+                .type_(Some(type_script1).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -423,9 +423,9 @@ async fn with_custom_cell_filter() {
         .input(CellInput::new(OutPoint::new(tx01.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).pack())
+                .capacity(capacity_bytes!(2000).into())
                 .lock(lock_script2)
-                .type_(Some(type_script2).pack())
+                .type_(Some(type_script2).into())
                 .build(),
         )
         .output_data(Default::default())
@@ -437,10 +437,10 @@ async fn with_custom_cell_filter() {
         .transaction(tx11)
         .header(
             HeaderBuilder::default()
-                .number(1.pack())
+                .number(1.into())
                 .parent_hash(block0.hash())
                 .epoch(
-                    EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000).pack(),
+                    EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000).into(),
                 )
                 .build(),
         )
@@ -449,7 +449,7 @@ async fn with_custom_cell_filter() {
     indexer.append(&block1).await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
     assert_eq!(1, tip.block_number.value());
-    assert_eq!(block1.hash(), tip.block_hash.pack());
+    assert_eq!(block1.hash(), tip.block_hash.into());
     assert_eq!(
         1, // tx10
         indexer_handle
@@ -490,7 +490,7 @@ async fn with_custom_cell_filter() {
     indexer.rollback().await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
     assert_eq!(0, tip.block_number.value());
-    assert_eq!(block0.hash(), tip.block_hash.pack());
+    assert_eq!(block0.hash(), tip.block_hash.into());
     assert_eq!(
         1, // tx00
         indexer_handle

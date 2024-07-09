@@ -7,7 +7,7 @@ use ckb_jsonrpc_types::{
 use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::prelude::Pack;
+use ckb_types::packed;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 use std::sync::Arc;
@@ -733,11 +733,10 @@ impl NetRpc for NetRpcImpl {
         let sync_state = SyncState {
             ibd: chain.is_initial_block_download(),
             assume_valid_target_reached: state.assume_valid_target().is_none(),
-            assume_valid_target: state
-                .assume_valid_target_specified()
-                .unwrap_or_default()
-                .pack()
-                .into(),
+            assume_valid_target: Into::<packed::Byte32>::into(
+                state.assume_valid_target_specified().unwrap_or_default(),
+            )
+            .into(),
             min_chain_work: min_chain_work.into(),
             min_chain_work_reached: state.min_chain_work_ready(),
             best_known_block_number: best_known.number().into(),

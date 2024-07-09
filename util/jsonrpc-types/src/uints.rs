@@ -140,6 +140,27 @@ macro_rules! impl_serde_deserialize {
         }
     };
 }
+macro_rules! impl_from_and_into {
+    ($packed:ident, $inner:ident) => {
+        impl From<JsonUint<$inner>> for packed::$packed {
+            fn from(value: JsonUint<$inner>) -> Self {
+                (&value).into()
+            }
+        }
+
+        impl From<&JsonUint<$inner>> for packed::$packed {
+            fn from(value: &JsonUint<$inner>) -> Self {
+                value.value().into()
+            }
+        }
+
+        impl From<packed::$packed> for JsonUint<$inner> {
+            fn from(value: packed::$packed) -> JsonUint<$inner> {
+                Into::<$inner>::into(value).into()
+            }
+        }
+    };
+}
 
 macro_rules! impl_pack_and_unpack {
     ($packed:ident, $inner:ident) => {
@@ -166,6 +187,10 @@ impl_serde_deserialize!(Uint128Visitor, u128);
 impl_pack_and_unpack!(Uint32, u32);
 impl_pack_and_unpack!(Uint64, u64);
 impl_pack_and_unpack!(Uint128, u128);
+
+impl_from_and_into!(Uint32, u32);
+impl_from_and_into!(Uint64, u64);
+impl_from_and_into!(Uint128, u128);
 
 impl From<core::Capacity> for JsonUint<u64> {
     fn from(value: core::Capacity) -> Self {

@@ -45,7 +45,7 @@ impl<'a> From<&'a packed::ProposalShortId> for ProposalShortId {
 
 impl From<ProposalShortId> for packed::ProposalShortId {
     fn from(json: ProposalShortId) -> Self {
-        json.into_inner().pack()
+        json.into_inner().into()
     }
 }
 

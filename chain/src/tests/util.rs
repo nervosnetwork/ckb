@@ -42,18 +42,18 @@ pub(crate) fn start_chain_with_tx_pool_config(
                     .input(CellInput::new(OutPoint::null(), 0))
                     .output(
                         CellOutput::new_builder()
-                            .capacity(capacity_bytes!(50_000).pack())
+                            .capacity(capacity_bytes!(50_000).into())
                             .lock(always_success_script.clone())
                             .build(),
                     )
-                    .output_data(data.pack())
+                    .output_data(data.into())
                     .build()
             })
             .collect();
 
         let genesis_block = BlockBuilder::default()
             .dao(dao)
-            .compact_target(DIFF_TWO.pack())
+            .compact_target(DIFF_TWO.into())
             .transaction(tx)
             .transactions(transactions)
             .build();
