@@ -118,7 +118,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         // send local time to inbound peers
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
             let now = ckb_systemtime::unix_time_as_millis();
-            let time = packed::Time::new_builder().timestamp(now.pack()).build();
+            let time = packed::Time::new_builder().timestamp(now.into()).build();
             let _status = send_message_to(nc.as_ref(), peer_index, &time);
         }
     }
@@ -137,7 +137,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         }
 
         let timestamp: u64 = match packed::TimeReader::from_slice(&data)
-            .map(|time| time.timestamp().unpack())
+            .map(|time| time.timestamp().into())
             .ok()
         {
             Some(timestamp) => timestamp,

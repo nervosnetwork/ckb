@@ -23,7 +23,7 @@ use std::{thread::sleep, time::Duration};
 use ckb_types::{
     core::{BlockBuilder, Capacity, EpochNumberWithFraction, Ratio},
     h256,
-    packed::{AlertBuilder, RawAlertBuilder},
+    packed::{self, AlertBuilder, RawAlertBuilder},
     prelude::*,
 };
 
@@ -40,9 +40,9 @@ pub(crate) fn always_success_consensus() -> Consensus {
     let always_success_tx = always_success_transaction();
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
-        .timestamp(GENESIS_TIMESTAMP.pack())
-        .compact_target(GENESIS_TARGET.pack())
-        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
+        .timestamp(GENESIS_TIMESTAMP.into())
+        .compact_target(GENESIS_TARGET.into())
+        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).into())
         .dao(dao)
         .transaction(always_success_tx)
         .build();
@@ -78,7 +78,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
             hash_type: ckb_jsonrpc_types::ScriptHashType::Type,
             args: json_bytes("0xb2e61ff569acf041b3c2c17724e2379c581eeac3"),
-            message: "message".pack().into(),
+            message: Into::<packed::Bytes>::into("message").into(),
             use_binary_version_as_message_prefix: true,
             binary_version: "TEST".to_string(),
             update_interval_millis: 800,
@@ -154,12 +154,12 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         let alert = AlertBuilder::default()
             .raw(
                 RawAlertBuilder::default()
-                    .id(42u32.pack())
-                    .min_version(Some("0.0.1".to_string()).pack())
-                    .max_version(Some("1.0.0".to_string()).pack())
-                    .priority(1u32.pack())
-                    .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).pack())
-                    .message("An example alert message!".pack())
+                    .id(42u32.into())
+                    .min_version(Some("0.0.1".to_string()).into())
+                    .max_version(Some("1.0.0".to_string()).into())
+                    .priority(1u32.into())
+                    .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).into())
+                    .message("An example alert message!".into())
                     .build(),
             )
             .build();
@@ -258,7 +258,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
                 parent
                     .header()
                     .as_advanced_builder()
-                    .timestamp((parent.header().timestamp() + 1).pack())
+                    .timestamp((parent.header().timestamp() + 1).into())
                     .build(),
             )
             .build();

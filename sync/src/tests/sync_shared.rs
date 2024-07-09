@@ -102,7 +102,7 @@ fn test_insert_parent_unknown_block() {
         let invalid_orphan = block
             .as_advanced_builder()
             .header(block.header())
-            .number(1000.pack())
+            .number(1000.into())
             .build();
 
         Arc::new(invalid_orphan)
@@ -256,7 +256,7 @@ fn test_switch_valid_fork() {
         .unwrap();
     for _ in 3..shared.active_chain().tip_number() {
         let block = inherit_block(fork_shared.shared(), &parent_header.hash())
-            .timestamp((parent_header.timestamp() + 3).pack())
+            .timestamp((parent_header.timestamp() + 3).into())
             .build();
         let arc_block = Arc::new(block.clone());
         assert!(fork_shared
@@ -281,7 +281,7 @@ fn test_switch_valid_fork() {
     // Make the fork switch as the main chain.
     for _ in tip_number..tip_number + 2 {
         let block = inherit_block(fork_shared.shared(), &parent_header.hash())
-            .timestamp((parent_header.timestamp() + 3).pack())
+            .timestamp((parent_header.timestamp() + 3).into())
             .build();
         let arc_block = Arc::new(block.clone());
         assert!(fork_shared

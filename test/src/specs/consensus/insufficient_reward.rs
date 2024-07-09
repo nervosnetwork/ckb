@@ -46,7 +46,7 @@ impl Spec for InsufficientReward {
 
         // build a block with insufficient reward
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(1).pack())
+            .capacity(capacity_bytes!(1).into())
             .lock(Default::default())
             .build();
         let cellbase = new_block_builder.clone().build().transactions()[0]

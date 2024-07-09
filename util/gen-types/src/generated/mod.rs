@@ -3,6 +3,8 @@
 #![doc(hidden)]
 #![allow(warnings)]
 #![allow(missing_docs)]
+#![allow(clippy::all)]
+#![allow(clippy::fallible_impl_from)]
 
 #[allow(clippy::all)]
 mod blockchain;

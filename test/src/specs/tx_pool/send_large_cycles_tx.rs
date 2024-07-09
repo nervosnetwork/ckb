@@ -325,8 +325,8 @@ impl RandomKey {
 fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView {
     let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 0);
     let lock = Script::new_builder()
-        .args(lock_arg.pack())
-        .code_hash(type_lock_script_code_hash().pack())
+        .args(lock_arg.into())
+        .code_hash(type_lock_script_code_hash().into())
         .hash_type(ScriptHashType::Type.into())
         .build();
     let cell_dep = CellDep::new_builder()
@@ -339,7 +339,7 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
         CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
     };
     let output1 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(lock)
         .build();
     let tx = TransactionBuilder::default()
@@ -348,9 +348,9 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
         .output(output1)
         .output_data(Default::default())
         .build();
-    let tx_hash: H256 = tx.hash().unpack();
+    let tx_hash: H256 = tx.hash().into();
     let witness = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+        .lock(Some(Bytes::from(vec![0u8; 65])).into())
         .build();
     let witness_len = witness.as_slice().len() as u64;
     let message = {
@@ -365,9 +365,9 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
     let sig = privkey.sign_recoverable(&message).expect("sign");
     let witness = witness
         .as_builder()
-        .lock(Some(Bytes::from(sig.serialize())).pack())
+        .lock(Some(Bytes::from(sig.serialize())).into())
         .build();
     tx.as_advanced_builder()
-        .witness(witness.as_bytes().pack())
+        .witness(witness.as_bytes().into())
         .build()
 }

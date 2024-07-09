@@ -70,7 +70,7 @@ async fn get_transactions_proof_with_missing_txs() {
 
     let tx3_hash = h256!("0x1");
 
-    let expected_missing_tx_hashes = vec![tx2.hash(), tx3_hash.pack()];
+    let expected_missing_tx_hashes = vec![tx2.hash(), (&tx3_hash).into()];
 
     let snapshot = chain.shared().snapshot();
 
@@ -84,7 +84,7 @@ async fn get_transactions_proof_with_missing_txs() {
     let data = {
         let content = packed::GetTransactionsProof::new_builder()
             .last_hash(snapshot.tip_header().hash())
-            .tx_hashes(vec![tx1.hash(), tx2.hash(), tx3_hash.pack()].pack())
+            .tx_hashes(vec![tx1.hash(), tx2.hash(), tx3_hash.into()].into())
             .build();
         packed::LightClientMessage::new_builder()
             .set(content)

@@ -116,8 +116,7 @@ impl Miner {
         let parent_hash = work.block.header().into_view().parent_hash();
         if !self.legacy_work.contains(&parent_hash) {
             let pow_hash = work.block.header().calc_pow_hash();
-            let (target, _) =
-                compact_to_target(work.block.header().raw().compact_target().unpack());
+            let (target, _) = compact_to_target(work.block.header().raw().compact_target().into());
             self.notify_workers(WorkerMessage::NewWork {
                 pow_hash,
                 work,
@@ -131,7 +130,7 @@ impl Miner {
         let raw_header = work.block.header().raw();
         let header = Header::new_builder()
             .raw(raw_header)
-            .nonce(nonce.pack())
+            .nonce(nonce.into())
             .build();
         let block = work
             .block

@@ -1,9 +1,6 @@
 use crate::utils::now_ms;
 use crate::{Node, Spec};
-use ckb_types::{
-    core::{EpochNumberWithFraction, HeaderView},
-    prelude::*,
-};
+use ckb_types::core::{EpochNumberWithFraction, HeaderView};
 
 pub struct RpcSubmitBlock;
 
@@ -19,7 +16,7 @@ impl Spec for RpcSubmitBlock {
         // build block with wrong block number
         let block = node0
             .new_block_builder(None, None, None)
-            .number(2.pack())
+            .number(2.into())
             .build();
         let block_err = node0
             .rpc_client()
@@ -41,7 +38,7 @@ impl Spec for RpcSubmitBlock {
         let epoch = EpochNumberWithFraction::new(tip_epoch.number() + 1, 0, 100);
         let block = node0
             .new_block_builder(None, None, None)
-            .epoch(epoch.pack())
+            .epoch(epoch.into())
             .build();
         let block_err = node0
             .rpc_client()
@@ -87,7 +84,7 @@ impl Spec for RpcSubmitBlock {
         // so here plus another 15s to make sure when submit the block it still out of the limit
         let block = node0
             .new_block_builder(None, None, None)
-            .timestamp((now_ms() + 30_000).pack())
+            .timestamp((now_ms() + 30_000).into())
             .build();
         let block_err = node0
             .rpc_client()
@@ -102,7 +99,7 @@ impl Spec for RpcSubmitBlock {
         let median_time = node0.rpc_client().get_blockchain_info().median_time.value();
         let block = node0
             .new_block_builder(None, None, None)
-            .timestamp((median_time - 1).pack())
+            .timestamp((median_time - 1).into())
             .build();
         let block_err = node0
             .rpc_client()

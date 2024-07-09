@@ -24,10 +24,10 @@ impl<'r> Unpack<[u8; 32]> for packed::Byte32Reader<'r> {
 }
 impl_conversion_for_entity_unpack!([u8; 32], Byte32);
 
-impl<'r> Into<[u8; 32]> for packed::Byte32Reader<'r> {
-    fn into(self) -> [u8; 32] {
+impl<'r> From<packed::Byte32Reader<'r>> for [u8; 32] {
+    fn from(value: packed::Byte32Reader<'r>) -> [u8; 32] {
         let mut b = [0u8; 32];
-        b.copy_from_slice(self.raw_data());
+        b.copy_from_slice(value.raw_data());
         b
     }
 }
@@ -48,10 +48,10 @@ impl<'r> Unpack<[u8; 10]> for packed::ProposalShortIdReader<'r> {
 }
 impl_conversion_for_entity_unpack!([u8; 10], ProposalShortId);
 
-impl<'r> Into<[u8; 10]> for packed::ProposalShortIdReader<'r> {
-    fn into(self) -> [u8; 10] {
+impl<'r> From<packed::ProposalShortIdReader<'r>> for [u8; 10] {
+    fn from(value: packed::ProposalShortIdReader<'r>) -> [u8; 10] {
         let mut b = [0u8; 10];
-        b.copy_from_slice(self.raw_data());
+        b.copy_from_slice(value.raw_data());
         b
     }
 }
@@ -88,9 +88,9 @@ impl<'r> Unpack<Bytes> for packed::BytesReader<'r> {
     }
 }
 
-impl<'r> Into<Bytes> for packed::BytesReader<'r> {
-    fn into(self) -> Bytes {
-        Bytes::from(self.raw_data().to_owned())
+impl<'r> From<packed::BytesReader<'r>> for Bytes {
+    fn from(value: packed::BytesReader<'r>) -> Bytes {
+        Bytes::from(value.raw_data().to_owned())
     }
 }
 
@@ -100,9 +100,9 @@ impl Unpack<Bytes> for packed::Bytes {
     }
 }
 
-impl Into<Bytes> for packed::Bytes {
-    fn into(self) -> Bytes {
-        self.raw_data()
+impl From<packed::Bytes> for Bytes {
+    fn from(value: packed::Bytes) -> Bytes {
+        value.raw_data()
     }
 }
 

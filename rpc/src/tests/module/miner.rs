@@ -31,7 +31,7 @@ fn test_get_block_template_cache() {
                 parent
                     .header()
                     .as_advanced_builder()
-                    .timestamp((parent.header().timestamp() + 1).pack())
+                    .timestamp((parent.header().timestamp() + 1).into())
                     .build(),
             )
             .build();
@@ -67,7 +67,7 @@ fn test_get_block_template_cache() {
 
         let input = CellInput::new(previous_output, 0);
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100).into())
             .lock(always_success_cell().2.clone())
             .build();
         let cell_dep = CellDep::new_builder()

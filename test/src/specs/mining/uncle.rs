@@ -1,6 +1,5 @@
 use crate::{Node, Spec};
 use ckb_types::core::{BlockView, EpochNumberWithFraction};
-use ckb_types::prelude::*;
 
 // Convention:
 //   main-block: a block on the main fork
@@ -86,9 +85,9 @@ impl Spec for UncleInheritFromForkUncle {
 
         let uncle_child = uncle_parent
             .as_advanced_builder()
-            .number((uncle_parent.number() + 1).pack())
+            .number((uncle_parent.number() + 1).into())
             .parent_hash(uncle_parent.hash())
-            .timestamp((uncle_parent.timestamp() + 1).pack())
+            .timestamp((uncle_parent.timestamp() + 1).into())
             .epoch(
                 {
                     let parent_epoch = uncle_parent.epoch();
@@ -97,7 +96,7 @@ impl Spec for UncleInheritFromForkUncle {
                     let epoch_length = parent_epoch.length();
                     EpochNumberWithFraction::new(epoch_number, epoch_index + 1, epoch_length)
                 }
-                .pack(),
+                .into(),
             )
             .build();
 

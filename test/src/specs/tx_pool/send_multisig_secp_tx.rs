@@ -53,7 +53,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             .dep_type(DepType::DepGroup.into())
             .build();
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100).into())
             .lock(node.always_success_script())
             .build();
         let input = CellInput::new(OutPoint::new(cellbase_hash, 0), 0);
@@ -69,7 +69,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             let mut lock = multi_sign_script.to_vec();
             lock.extend(vec![0u8; 65 * self.keys.len()]);
             WitnessArgs::new_builder()
-                .lock(Some(Bytes::from(lock)).pack())
+                .lock(Some(Bytes::from(lock)).into())
                 .build()
         };
         let witness_len = witness.as_slice().len() as u64;
@@ -90,14 +90,14 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
         });
         let witness = witness
             .as_builder()
-            .lock(Some(Bytes::from(lock)).pack())
+            .lock(Some(Bytes::from(lock)).into())
             .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
             .output(output)
             .output_data(Default::default())
-            .witness(witness.as_bytes().pack())
+            .witness(witness.as_bytes().into())
             .build();
         info!("Send 1 multisig tx use dep group");
 
@@ -136,7 +136,7 @@ fn gen_multi_sign_script(keys: &[Privkey], threshold: u8, require_first_n: u8) -
 fn type_lock_script_code_hash() -> H256 {
     build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL)
         .calc_script_hash()
-        .unpack()
+        .into()
 }
 
 fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> BlockAssemblerConfig {

@@ -168,13 +168,13 @@ impl Default for ConsensusBuilder {
             let occupied = empty_output
                 .occupied_capacity(Capacity::zero())
                 .expect("default occupied");
-            empty_output.as_builder().capacity(occupied.pack()).build()
+            empty_output.as_builder().capacity(occupied.into()).build()
         };
         let witness = Script::default().into_witness();
         let cellbase = TransactionBuilder::default()
             .input(input)
             .output(output)
-            .output_data(Bytes::new().pack())
+            .output_data(Bytes::new().into())
             .witness(witness)
             .build();
 
@@ -200,8 +200,8 @@ impl Default for ConsensusBuilder {
         .expect("genesis dao data calculation error!");
 
         let genesis_block = BlockBuilder::default()
-            .compact_target(DIFF_TWO.pack())
-            .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).pack())
+            .compact_target(DIFF_TWO.into())
+            .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).into())
             .dao(dao)
             .transaction(cellbase)
             .build();
@@ -964,7 +964,7 @@ impl Consensus {
 
     /// The network identify name, used for network identify protocol
     pub fn identify_name(&self) -> String {
-        let genesis_hash = format!("{:x}", Unpack::<H256>::unpack(&self.genesis_hash));
+        let genesis_hash = format!("{:x}", Into::<H256>::into(&self.genesis_hash));
         format!("/{}/{}", self.id, &genesis_hash[..8])
     }
 
@@ -1145,14 +1145,14 @@ impl From<Consensus> for ckb_jsonrpc_types::Consensus {
         };
         Self {
             id: consensus.id,
-            genesis_hash: consensus.genesis_hash.unpack(),
-            dao_type_hash: consensus.dao_type_hash.unpack(),
+            genesis_hash: consensus.genesis_hash.into(),
+            dao_type_hash: consensus.dao_type_hash.into(),
             secp256k1_blake160_sighash_all_type_hash: consensus
                 .secp256k1_blake160_sighash_all_type_hash
-                .map(|h| h.unpack()),
+                .map(|h| h.into()),
             secp256k1_blake160_multisig_all_type_hash: consensus
                 .secp256k1_blake160_multisig_all_type_hash
-                .map(|h| h.unpack()),
+                .map(|h| h.into()),
             initial_primary_epoch_reward: consensus.initial_primary_epoch_reward.into(),
             secondary_epoch_reward: consensus.secondary_epoch_reward.into(),
             max_uncles_num: (consensus.max_uncles_num as u64).into(),

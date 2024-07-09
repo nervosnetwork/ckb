@@ -120,7 +120,7 @@ fn check_vm_version() {
         .code_hash(vm_version_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(vm_version_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -141,6 +141,71 @@ fn check_vm_version() {
 }
 
 #[test]
+fn check_get_memory_limit() {
+    let script_version = SCRIPT_VERSION;
+
+    let (memory_limit_cell, memory_limit_data_hash) =
+        load_cell_from_path("testdata/get_memory_limit");
+
+    let memory_limit_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(memory_limit_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(memory_limit_script)
+        .build();
+
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![memory_limit_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_set_content() {
+    let script_version = SCRIPT_VERSION;
+
+    let (set_content_cell, set_content_data_hash) = load_cell_from_path("testdata/set_content");
+
+    let memory_limit_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(set_content_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(memory_limit_script)
+        .build();
+
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![set_content_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
 fn check_spawn_strcat() {
     let script_version = SCRIPT_VERSION;
 
@@ -154,7 +219,106 @@ fn check_spawn_strcat() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_strcat_data_hash() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_strcat_data_hash");
+    let (spawn_callee_cell, _spawn_callee_data_hash) =
+        load_cell_from_path("testdata/spawn_callee_strcat");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_get_memory_limit() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_get_memory_limit");
+    let (spawn_callee_cell, _spawn_callee_data_hash) =
+        load_cell_from_path("testdata/spawn_callee_get_memory_limit");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, spawn_callee_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_set_content() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_set_content");
+    let (spawn_callee_cell, _spawn_callee_data_hash) =
+        load_cell_from_path("testdata/spawn_callee_set_content");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -187,7 +351,7 @@ fn check_spawn_out_of_cycles() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -227,7 +391,7 @@ fn check_spawn_exec() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -264,7 +428,7 @@ fn check_spawn_strcat_wrap() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -301,7 +465,7 @@ fn check_spawn_out_of_cycles_wrap() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -343,7 +507,7 @@ fn check_spawn_recursive() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -368,6 +532,161 @@ fn check_spawn_recursive() {
 }
 
 #[test]
+fn check_spawn_big_memory_size() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_big_memory_size");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_spawn_big_content_length() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_big_content_length");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_peak_memory_4m_to_32m() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_peak_memory_4m_to_32m");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_peak_memory_2m_to_32m() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_peak_memory_2m_to_32m");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
+fn check_peak_memory_512k_to_32m() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_peak_memory_512k_to_32m");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
 fn check_spawn_snapshot() {
     let script_version = SCRIPT_VERSION;
     if script_version <= ScriptVersion::V1 {
@@ -383,7 +702,7 @@ fn check_spawn_snapshot() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -560,7 +879,7 @@ fn check_spawn_state() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -615,6 +934,37 @@ fn check_spawn_state() {
 }
 
 #[test]
+fn check_spawn_current_memory() {
+    let script_version = SCRIPT_VERSION;
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_current_memory");
+
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).into())
+        .lock(spawn_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify_without_limit(script_version, &rtx);
+    assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
+}
+
+#[test]
 fn check_spawn_current_cycles() {
     let script_version = SCRIPT_VERSION;
 
@@ -628,7 +978,7 @@ fn check_spawn_current_cycles() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -705,6 +1055,7 @@ fn check_spawn_configurable_once(spawn_from: SpawnFrom) {
         .code_hash(spawn_caller_data_hash)
         .args(args.pack())
         .build();
+
     let always_success_script = Script::new_builder()
         .hash_type(script_version.data_hash_type().into())
         .code_hash(always_success_data_hash)
@@ -1194,7 +1545,7 @@ fn check_spawn_huge_swap() {
         .code_hash(spawn_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(spawn_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);

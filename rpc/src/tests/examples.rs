@@ -102,10 +102,10 @@ fn collect_code_block(
 }
 
 fn construct_example_transaction() -> TransactionView {
-    let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().pack(), 0);
+    let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().into(), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100).into())
         .lock(always_success_cell().2.clone())
         .build();
     let cell_dep = CellDep::new_builder()
@@ -278,7 +278,7 @@ impl RpcTestSuite {
         let example_tx = construct_example_transaction();
         assert_eq!(
             EXAMPLE_TX_HASH,
-            example_tx.hash().unpack(),
+            example_tx.hash().into(),
             "Expect the example tx hash match the constant"
         );
         let example_tx: ckb_jsonrpc_types::Transaction = example_tx.data().into();

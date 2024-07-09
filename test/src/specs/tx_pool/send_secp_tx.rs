@@ -50,7 +50,7 @@ impl Spec for SendSecpTxUseDepGroup {
             .dep_type(DepType::DepGroup.into())
             .build();
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100).into())
             .lock(node.always_success_script())
             .build();
         let input = CellInput::new(OutPoint::new(cellbase_hash, 0), 0);
@@ -63,7 +63,7 @@ impl Spec for SendSecpTxUseDepGroup {
 
         let tx_hash = tx.hash();
         let witness = WitnessArgs::new_builder()
-            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+            .lock(Some(Bytes::from(vec![0u8; 65])).into())
             .build();
         let witness_len = witness.as_slice().len() as u64;
         let message = {
@@ -78,14 +78,14 @@ impl Spec for SendSecpTxUseDepGroup {
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = witness
             .as_builder()
-            .lock(Some(Bytes::from(sig.serialize())).pack())
+            .lock(Some(Bytes::from(sig.serialize())).into())
             .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
             .output(output)
             .output_data(Default::default())
-            .witness(witness.as_bytes().pack())
+            .witness(witness.as_bytes().into())
             .build();
         info!("Send 1 secp tx use dep group");
 
@@ -154,16 +154,16 @@ impl Spec for CheckTypical2In2OutTx {
             CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
         };
         let lock = Script::new_builder()
-            .args(self.lock_arg.pack())
-            .code_hash(type_lock_script_code_hash().pack())
+            .args((&self.lock_arg).into())
+            .code_hash(type_lock_script_code_hash().into())
             .hash_type(ScriptHashType::Type.into())
             .build();
         let output1 = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100).into())
             .lock(lock.clone())
             .build();
         let output2 = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100).into())
             .lock(lock)
             .build();
         let tx = TransactionBuilder::default()
@@ -176,9 +176,9 @@ impl Spec for CheckTypical2In2OutTx {
             .output_data(Default::default())
             .build();
 
-        let tx_hash: H256 = tx.hash().unpack();
+        let tx_hash: H256 = tx.hash().into();
         let witness = WitnessArgs::new_builder()
-            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+            .lock(Some(Bytes::from(vec![0u8; 65])).into())
             .build();
         let witness_len = witness.as_slice().len() as u64;
         let witness2 = Bytes::new();
@@ -197,20 +197,19 @@ impl Spec for CheckTypical2In2OutTx {
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = witness
             .as_builder()
-            .lock(Some(Bytes::from(sig.serialize())).pack())
+            .lock(Some(Bytes::from(sig.serialize())).into())
             .build();
         let tx = tx
             .as_advanced_builder()
-            .witness(witness.as_bytes().pack())
-            .witness(witness2.pack())
+            .witness(witness.as_bytes().into())
+            .witness(witness2.into())
             .build();
 
         info!("Send 1 secp tx use dep group");
         node.rpc_client()
             .inner()
             .send_transaction(tx.data().into(), None)
-            .expect("should pass default outputs validator")
-            .pack();
+            .expect("should pass default outputs validator");
         node.mine(20);
 
         assert!(is_transaction_committed(node, &tx));

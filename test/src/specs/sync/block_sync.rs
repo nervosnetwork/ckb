@@ -57,8 +57,8 @@ impl Spec for BlockSyncWithUncle {
         let node1 = &nodes[1];
 
         let new_builder = node1.new_block_builder(None, None, None);
-        let new_block1 = new_builder.clone().nonce(0.pack()).build();
-        let new_block2 = new_builder.nonce(1.pack()).build();
+        let new_block1 = new_builder.clone().nonce(0.into()).build();
+        let new_block2 = new_builder.nonce(1.into()).build();
 
         node1.submit_block(&new_block1);
         node1.submit_block(&new_block2);
@@ -329,7 +329,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         let b = a
             .data()
             .as_advanced_builder()
-            .timestamp((a.timestamp() + 1).pack())
+            .timestamp((a.timestamp() + 1).into())
             .build();
         assert_ne!(a.hash(), b.hash());
         node1.submit_block(&b);
@@ -432,7 +432,7 @@ impl Spec for SyncTooNewBlock {
         for _ in 0..3 {
             let too_new_block = node0
                 .new_block_builder(None, None, None)
-                .timestamp((now_ms() + future).pack())
+                .timestamp((now_ms() + future).into())
                 .build();
 
             // node1 sync node1 with too new block
@@ -472,7 +472,7 @@ impl Spec for HeaderSyncCycle {
         net.connect(node0);
 
         let send_headers = SendHeaders::new_builder()
-            .headers(Vec::new().pack())
+            .headers(Vec::new().into())
             .build();
 
         let msg = SyncMessage::new_builder()

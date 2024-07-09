@@ -28,11 +28,11 @@ fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> Block
         .transaction(cellbase)
         .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
         .parent_hash(parent_header.hash())
-        .timestamp(now.pack())
-        .epoch(epoch.number_with_fraction(number).pack())
-        .number(number.pack())
-        .compact_target(epoch.compact_target().pack())
-        .nonce(nonce.pack())
+        .timestamp(now.into())
+        .epoch(epoch.number_with_fraction(number).into())
+        .number(number.into())
+        .compact_target(epoch.compact_target().into())
+        .nonce(nonce.into())
         .build()
 }
 
@@ -169,7 +169,7 @@ fn test_invalid_target() {
     let uncle = chain2[16]
         .clone()
         .as_advanced_builder()
-        .compact_target(invalid_target.pack())
+        .compact_target(invalid_target.into())
         .build()
         .as_uncle();
     let block = chain2[18]
@@ -194,7 +194,7 @@ fn test_invalid_epoch() {
     let uncle = chain2[uncle_number]
         .clone()
         .as_advanced_builder()
-        .compact_target(chain1[block_number].compact_target().pack())
+        .compact_target(chain1[block_number].compact_target().into())
         .build()
         .as_uncle();
     let block = chain1[block_number]
@@ -245,7 +245,7 @@ fn test_uncle_proposals_hash() {
         .to_owned()
         .as_advanced_builder()
         .parent_hash(chain1[15].hash())
-        .proposal([1; 10].pack())
+        .proposal([1; 10].into())
         .build_unchecked()
         .as_uncle();
     let block = chain1[18]
@@ -270,7 +270,7 @@ fn test_uncle_duplicated_proposals() {
     let uncle = chain2[6]
         .to_owned()
         .as_advanced_builder()
-        .proposal([1; 10].pack())
+        .proposal([1; 10].into())
         .build()
         .as_uncle();
     let block = chain1[8]

@@ -31,7 +31,7 @@ pub(crate) fn build_tx(
         .iter()
         .map(|index| {
             let output = inputs.0.output(*index as usize).expect("output index");
-            let cap: Capacity = output.capacity().unpack();
+            let cap: Capacity = output.capacity().into();
             cap
         })
         .try_fold(Capacity::zero(), Capacity::safe_add)
@@ -45,13 +45,13 @@ pub(crate) fn build_tx(
             (0..outputs_len)
                 .map(|_| {
                     CellOutputBuilder::default()
-                        .capacity(per_output_capacity.pack())
+                        .capacity(per_output_capacity.into())
                         .lock(always_success_script.clone())
                         .build()
                 })
                 .collect::<Vec<CellOutput>>(),
         )
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
+        .outputs_data((0..outputs_len).map(|_| Bytes::new().into()))
         .cell_deps(cell_deps.1.iter().map(|index| {
             CellDep::new_builder()
                 .out_point(OutPoint::new(cell_deps.0.hash(), *index))
@@ -79,18 +79,18 @@ fn test_package_txs_with_deps() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx, &issue_tx]).unwrap();
@@ -98,7 +98,7 @@ fn test_package_txs_with_deps() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.pack())
+        .compact_target(DIFF_TWO.into())
         .dao(dao)
         .build();
 
@@ -211,25 +211,25 @@ fn test_package_txs_with_deps_unstable_sort() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
-        .output_data(Bytes::new().pack())
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
+        .output_data(Bytes::new().into())
+        .output_data(Bytes::new().into())
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx, &issue_tx]).unwrap();
@@ -237,7 +237,7 @@ fn test_package_txs_with_deps_unstable_sort() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.pack())
+        .compact_target(DIFF_TWO.into())
         .dao(dao)
         .build();
 
@@ -355,25 +355,25 @@ fn test_package_txs_with_deps2() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
-        .output_data(Bytes::new().pack())
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
+        .output_data(Bytes::new().into())
+        .output_data(Bytes::new().into())
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx, &issue_tx]).unwrap();
@@ -381,7 +381,7 @@ fn test_package_txs_with_deps2() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.pack())
+        .compact_target(DIFF_TWO.into())
         .dao(dao)
         .build();
 
@@ -492,18 +492,18 @@ fn test_package_txs_with_deps_priority() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000).into())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new().into())
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx, &issue_tx]).unwrap();
@@ -511,7 +511,7 @@ fn test_package_txs_with_deps_priority() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.pack())
+        .compact_target(DIFF_TWO.into())
         .dao(dao)
         .build();
 

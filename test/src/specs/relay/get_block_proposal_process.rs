@@ -46,7 +46,7 @@ impl Spec for ProposalRespondSizelimit {
 
         let content = packed::GetBlockProposal::new_builder()
             .block_hash(tip_hash)
-            .proposals(proposal_ids.pack())
+            .proposals(proposal_ids.into())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 

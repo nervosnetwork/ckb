@@ -65,11 +65,11 @@ macro_rules! impl_conversion_for_option_unpack {
     };
 }
 
-macro_rules! impl_conversion_for_option_into {
+macro_rules! impl_conversion_for_option_reader_from {
     ($original:ty, $entity:ident, $reader:ident) => {
-        impl<'r> Into<Option<$original>> for packed::$reader<'r> {
-            fn into(self) -> Option<$original> {
-                self.to_opt().map(|x| x.into())
+        impl<'r> From<packed::$reader<'r>> for Option<$original> {
+            fn from(value: packed::$reader<'r>) -> Option<$original> {
+                value.to_opt().map(|x| x.into())
             }
         }
         impl_conversion_for_entity_from!(Option<$original>, $entity);
@@ -86,7 +86,7 @@ macro_rules! impl_conversion_for_option {
 macro_rules! impl_conversion_for_option_from_into {
     ($original:ty, $entity:ident, $reader:ident, $entity_inner:ident) => {
         impl_conversion_for_option_from!($original, $entity, $entity_inner);
-        impl_conversion_for_option_into!($original, $entity, $reader);
+        impl_conversion_for_option_reader_from!($original, $entity, $reader);
     };
 }
 
@@ -137,11 +137,11 @@ macro_rules! impl_conversion_for_vector_unpack {
     };
 }
 
-macro_rules! impl_conversion_for_vector_into {
+macro_rules! impl_conversion_for_vector_reader_from {
     ($original:ty, $entity:ident, $reader:ident) => {
-        impl<'r> Into<Vec<$original>> for packed::$reader<'r> {
-            fn into(self) -> Vec<$original> {
-                self.iter().map(|x| x.into()).collect()
+        impl<'r> From<packed::$reader<'r>> for Vec<$original> {
+            fn from(value: packed::$reader<'r>) -> Vec<$original> {
+                value.iter().map(|x| x.into()).collect()
             }
         }
         impl_conversion_for_entity_from!(Vec<$original>, $entity);
@@ -158,7 +158,7 @@ macro_rules! impl_conversion_for_vector {
 macro_rules! impl_conversion_for_vector_from_into {
     ($original:ty, $entity:ident, $reader:ident) => {
         impl_conversion_for_vector_from!($original, $entity);
-        impl_conversion_for_vector_into!($original, $entity, $reader);
+        impl_conversion_for_vector_reader_from!($original, $entity, $reader);
     };
 }
 

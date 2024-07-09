@@ -162,8 +162,8 @@ impl MockChain {
         let cellbase = TransactionBuilder::default().build();
         BlockBuilder::default()
             .parent_hash(parent.hash())
-            .number((parent.number() + 1).pack())
-            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+            .number((parent.number() + 1).into())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).into())
             .transaction(cellbase)
             .build()
     }
@@ -175,16 +175,16 @@ impl MockChain {
         let version = self.compute_versionbits(parent).unwrap();
 
         let cellbase_witness = CellbaseWitness::new_builder()
-            .message(version.to_le_bytes().as_slice().pack())
+            .message(version.to_le_bytes().as_slice().into())
             .build();
 
-        let witness = cellbase_witness.as_bytes().pack();
+        let witness = cellbase_witness.as_bytes().into();
         let cellbase = TransactionBuilder::default().witness(witness).build();
 
         BlockBuilder::default()
             .parent_hash(parent.hash())
-            .number((parent.number() + 1).pack())
-            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+            .number((parent.number() + 1).into())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).into())
             .transaction(cellbase)
             .build()
     }
@@ -208,7 +208,7 @@ fn test_versionbits_active() {
         DEFAULT_ORPHAN_RATE_TARGET,
     );
     let genesis = BlockBuilder::default()
-        .epoch(epoch_ext.number_with_fraction(0).pack())
+        .epoch(epoch_ext.number_with_fraction(0).into())
         .transaction(cellbase)
         .build();
 
@@ -316,7 +316,7 @@ fn test_versionbits_failed() {
         DEFAULT_ORPHAN_RATE_TARGET,
     );
     let genesis = BlockBuilder::default()
-        .epoch(epoch_ext.number_with_fraction(0).pack())
+        .epoch(epoch_ext.number_with_fraction(0).into())
         .transaction(cellbase)
         .build();
 

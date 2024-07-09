@@ -41,23 +41,23 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                 .map(move |(index, (cell_output, data))| {
                     let out_point = packed::OutPoint::new_builder()
                         .tx_hash(tx_hash.clone())
-                        .index(index.pack())
+                        .index(index.into())
                         .build();
 
                     let entry = packed::CellEntryBuilder::default()
                         .output(cell_output)
                         .block_hash(block_hash.clone())
-                        .block_number(block_number.pack())
-                        .block_epoch(block_epoch.pack())
-                        .index(tx_index.pack())
-                        .data_size((data.len() as u64).pack())
+                        .block_number(block_number.into())
+                        .block_epoch(block_epoch.into())
+                        .index(tx_index.into())
+                        .data_size((data.len() as u64).into())
                         .build();
 
                     let data_entry = if !data.is_empty() {
                         let data_hash = packed::CellOutput::calc_data_hash(&data);
                         Some(
                             packed::CellDataEntryBuilder::default()
-                                .output_data(data.pack())
+                                .output_data(data.into())
                                 .output_data_hash(data_hash)
                                 .build(),
                         )
@@ -89,7 +89,7 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     for tx in transactions.iter().skip(1) {
         for pts in tx.input_pts_iter() {
             let tx_hash = pts.tx_hash();
-            let index: usize = pts.index().unpack();
+            let index: usize = pts.index().into();
             let indexes = input_pts.entry(tx_hash).or_insert_with(Vec::new);
             indexes.push(index);
         }
@@ -111,23 +111,23 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                         tx.output_with_data(*index).map(|(cell_output, data)| {
                             let out_point = packed::OutPoint::new_builder()
                                 .tx_hash(tx_hash.clone())
-                                .index(index.pack())
+                                .index(index.into())
                                 .build();
 
                             let entry = packed::CellEntryBuilder::default()
                                 .output(cell_output)
                                 .block_hash(block_hash.clone())
-                                .block_number(block_number.pack())
-                                .block_epoch(block_epoch.pack())
-                                .index(tx_index.pack())
-                                .data_size((data.len() as u64).pack())
+                                .block_number(block_number.into())
+                                .block_epoch(block_epoch.into())
+                                .index(tx_index.into())
+                                .data_size((data.len() as u64).into())
                                 .build();
 
                             let data_entry = if !data.is_empty() {
                                 let data_hash = packed::CellOutput::calc_data_hash(&data);
                                 Some(
                                     packed::CellDataEntryBuilder::default()
-                                        .output_data(data.pack())
+                                        .output_data(data.into())
                                         .output_data_hash(data_hash)
                                         .build(),
                                 )

@@ -152,7 +152,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
                     .unwrap()
                     .safe_sub(Capacity::shannons(i * 41 * 1000))
                     .unwrap()
-                    .pack(),
+                    .into(),
             )
             .lock(always_success_cell().2.clone())
             .build();
@@ -192,7 +192,7 @@ fn build_tx(
     let lock = packed::ScriptBuilder::default()
         .code_hash(code_hash.clone())
         .hash_type(hash_type.into())
-        .args(args.pack())
+        .args(args.as_slice().into())
         .build();
     core::TransactionBuilder::default()
         .output(packed::CellOutput::new_builder().lock(lock).build())
@@ -219,7 +219,7 @@ fn build_tx_with_type(
         .output(
             packed::CellOutput::new_builder()
                 .lock(lock)
-                .type_(Some(type_).pack())
+                .type_(Some(type_).into())
                 .build(),
         )
         .build()

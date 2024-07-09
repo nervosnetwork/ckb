@@ -33,8 +33,8 @@ const DEFAULT_CODE_HASH: H256 =
 
 fn script() -> Script {
     Script::new_builder()
-        .code_hash(DEFAULT_CODE_HASH.pack())
-        .args(Bytes::from(PUBKEY_HASH.as_bytes()).pack())
+        .code_hash(DEFAULT_CODE_HASH.into())
+        .args(Bytes::from(PUBKEY_HASH.as_bytes()).into())
         .hash_type(ScriptHashType::Type.into())
         .build()
 }
@@ -43,7 +43,7 @@ fn cell_dep(genesis: &BlockView) -> CellDep {
     let tx_hash = genesis.transaction(1).unwrap().hash();
     let out_point = OutPoint::new_builder()
         .tx_hash(tx_hash)
-        .index(0u32.pack())
+        .index(0u32.into())
         .build();
 
     CellDep::new_builder()
@@ -54,11 +54,11 @@ fn cell_dep(genesis: &BlockView) -> CellDep {
 
 fn block_assembler_config() -> BlockAssemblerConfig {
     let secp_script = script();
-    let args = JsonBytes::from_bytes(secp_script.args().unpack());
+    let args = JsonBytes::from_bytes(secp_script.args().into());
     let hash_type = ScriptHashType::try_from(secp_script.hash_type()).expect("checked data");
 
     BlockAssemblerConfig {
-        code_hash: secp_script.code_hash().unpack(),
+        code_hash: secp_script.code_hash().into(),
         hash_type: hash_type.into(),
         args,
         message: Default::default(),

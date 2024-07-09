@@ -15,7 +15,6 @@ use ckb_types::{
         Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView, Version,
     },
     packed::{Byte32, CellOutput},
-    prelude::*,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -507,7 +506,7 @@ impl CapacityVerifier {
                 return Err((TransactionError::InsufficientCellCapacity {
                     index,
                     inner: TransactionErrorSource::Outputs,
-                    capacity: output.capacity().unpack(),
+                    capacity: output.capacity().into(),
                     occupied_capacity: output.occupied_capacity(data_occupied_capacity)?,
                 })
                 .into());
@@ -738,7 +737,7 @@ impl<DL: HeaderFieldsProvider> SinceVerifier<DL> {
             .enumerate()
         {
             // ignore empty since
-            let since: u64 = input.since().unpack();
+            let since: u64 = input.since().into();
             if since == 0 {
                 continue;
             }

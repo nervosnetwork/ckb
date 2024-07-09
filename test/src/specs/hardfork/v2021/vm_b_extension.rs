@@ -80,7 +80,7 @@ impl Spec for CheckVmBExtension {
 
 impl BExtScript {
     fn new(node: &Node, cell_input: packed::CellInput) -> Self {
-        let data: packed::Bytes = include_bytes!("../../../../../script/testdata/cpop_lock").pack();
+        let data: packed::Bytes = include_bytes!("../../../../../script/testdata/cpop_lock").into();
         let tx = Self::deploy(node, &data, cell_input);
         let cell_dep = packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
@@ -105,7 +105,7 @@ impl BExtScript {
         let type_script = node.always_success_script();
         let tx_template = TransactionView::new_advanced_builder();
         let cell_output = packed::CellOutput::new_builder()
-            .type_(Some(type_script).pack())
+            .type_(Some(type_script).into())
             .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
             .unwrap();
         let tx = tx_template
@@ -220,12 +220,12 @@ impl<'a> CheckVmBExtensionTestRunner<'a> {
                 let mut vec = Vec::with_capacity(8 * 2);
                 vec.extend_from_slice(&num0.to_le_bytes());
                 vec.extend_from_slice(&num1.to_le_bytes());
-                vec.pack()
+                vec.into()
             };
             let script = self.script.as_script(vm_opt, args);
             packed::CellOutput::new_builder()
                 .lock(self.node.always_success_script())
-                .type_(Some(script).pack())
+                .type_(Some(script).into())
                 .build_exact_capacity(Capacity::shannons(0))
                 .unwrap()
         };

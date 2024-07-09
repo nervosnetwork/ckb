@@ -66,7 +66,7 @@ impl SnapshotExt for Snapshot {
             packed::VerifiableHeader::new_builder()
                 .header(block.data().header())
                 .uncles_hash(block.calc_uncles_hash())
-                .extension(Pack::pack(&block.extension()))
+                .extension(Into::into(block.extension()))
                 .parent_chain_root(parent_chain_root)
                 .build()
         })

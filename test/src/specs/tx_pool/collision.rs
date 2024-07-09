@@ -194,7 +194,7 @@ fn conflict_transactions_with_capacity(
         .unwrap();
     let txb = txa
         .as_advanced_builder()
-        .set_outputs_data(vec![output_data.pack()])
+        .set_outputs_data(vec![output_data.into()])
         .set_outputs(vec![output])
         .build();
     assert_ne!(txa.hash(), txb.hash());

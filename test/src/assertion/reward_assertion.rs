@@ -1,7 +1,6 @@
 use crate::Node;
 use ckb_types::core::{BlockEconomicState, BlockView, Capacity, Ratio, TransactionView};
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
-use ckb_types::prelude::*;
 use std::collections::HashMap;
 
 pub fn check_fee(node: &Node) {
@@ -113,7 +112,7 @@ impl RewardChecker {
     fn apply_new_transaction(&mut self, tx: &TransactionView) {
         for (index, output) in tx.outputs().into_iter().enumerate() {
             let out_point = OutPoint::new(tx.hash(), index as u32);
-            let capacity: u64 = output.capacity().unpack();
+            let capacity: u64 = output.capacity().into();
             self.cells_capacity.insert(out_point, capacity);
         }
 

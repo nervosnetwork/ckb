@@ -96,11 +96,11 @@ impl<'a> GetBlocksProofProcess<'a> {
 
         if ckb2023 {
             let proved_items = (
-                block_headers.pack(),
-                uncles_hash.pack(),
+                block_headers.into(),
+                uncles_hash.into(),
                 packed::BytesOptVec::new_builder().set(extensions).build(),
             );
-            let missing_items = missing.pack();
+            let missing_items = missing.into();
 
             self.protocol.reply_proof::<packed::SendBlocksProofV1>(
                 self.peer,
@@ -111,8 +111,8 @@ impl<'a> GetBlocksProofProcess<'a> {
                 missing_items,
             )
         } else {
-            let proved_items = block_headers.pack();
-            let missing_items = missing.pack();
+            let proved_items = block_headers.into();
+            let missing_items = missing.into();
 
             self.protocol.reply_proof::<packed::SendBlocksProof>(
                 self.peer,

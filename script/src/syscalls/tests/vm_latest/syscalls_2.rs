@@ -87,14 +87,14 @@ fn _test_load_extension(
             block_epoch: header.epoch(),
             index: 1,
         }),
-        cell_output: CellOutput::new_builder().capacity(100.pack()).build(),
+        cell_output: CellOutput::new_builder().capacity(100.into()).build(),
         data_bytes: 0,
         mem_cell_data: None,
         mem_cell_data_hash: None,
     };
 
     let mut extensions = HashMap::default();
-    extensions.insert(header.hash(), data.pack());
+    extensions.insert(header.hash(), (&data).into());
     let data_loader = MockDataLoader {
         extensions,
         ..Default::default()

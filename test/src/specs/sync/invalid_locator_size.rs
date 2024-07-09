@@ -21,13 +21,13 @@ impl Spec for InvalidLocatorSize {
         net.connect(node0);
 
         let hashes: Vec<Byte32> = (0..=MAX_LOCATOR_SIZE)
-            .map(|_| h256!("0x1").pack())
+            .map(|_| h256!("0x1").into())
             .collect();
 
         let message = SyncMessage::new_builder()
             .set(
                 GetHeaders::new_builder()
-                    .block_locator_hashes(hashes.pack())
+                    .block_locator_hashes(hashes.into())
                     .build(),
             )
             .build()
