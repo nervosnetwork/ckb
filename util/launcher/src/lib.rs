@@ -26,7 +26,7 @@ use ckb_rpc::ServiceBuilder;
 use ckb_shared::Shared;
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
-use ckb_store::{ChainDB, ChainStore};
+use ckb_store::ChainDB;
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
@@ -217,16 +217,6 @@ impl Launcher {
         self.check_spec(&shared)?;
 
         Ok((shared, pack))
-    }
-
-    /// Check whether the data already exists in the database before starting
-    pub fn check_assume_valid_target(&mut self, shared: &Shared) {
-        if let Some(ref target) = self.args.config.network.sync.assume_valid_target {
-            if shared.snapshot().block_exists(&target.pack()) {
-                info!("assume valid target is already in db, CKB will do full verification from now on");
-                self.args.config.network.sync.assume_valid_target.take();
-            }
-        }
     }
 
     /// Start chain service, return ChainController
