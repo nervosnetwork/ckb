@@ -99,6 +99,10 @@ impl VerifyQueue {
         self.inner.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
     /// Returns true if the queue is full.
     pub fn is_full(&self, add_tx_size: usize) -> bool {
         add_tx_size >= DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE - self.total_tx_size

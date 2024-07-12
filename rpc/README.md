@@ -7241,6 +7241,8 @@ Transaction pool information.
 
     Transactions with a large size close to the block size limit may not be packaged, because the block header and cellbase are occupied, so the tx-pool is limited to accepting transaction up to tx_size_limit.
 
+* `verify_queue_size`: [`Uint64`](#type-uint64) - verify_queue size
+
 ### Type `TxStatus`
 Transaction status and the block hash if it is committed.
 
