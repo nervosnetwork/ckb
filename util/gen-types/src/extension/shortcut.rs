@@ -48,14 +48,14 @@ impl packed::OutPoint {
     pub fn new(tx_hash: packed::Byte32, index: u32) -> Self {
         packed::OutPoint::new_builder()
             .tx_hash(tx_hash)
-            .index(index.into())
+            .index(index)
             .build()
     }
 
     /// Creates a new null `OutPoint`.
     pub fn null() -> Self {
         packed::OutPoint::new_builder()
-            .index(u32::max_value().into())
+            .index(u32::max_value())
             .build()
     }
 
@@ -93,7 +93,7 @@ impl packed::CellInput {
     /// Creates a new `CellInput`.
     pub fn new(previous_output: packed::OutPoint, block_number: BlockNumber) -> Self {
         packed::CellInput::new_builder()
-            .since(block_number.into())
+            .since(block_number)
             .previous_output(previous_output)
             .build()
     }

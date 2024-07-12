@@ -27,7 +27,7 @@ impl Spec for InvalidLocatorSize {
         let message = SyncMessage::new_builder()
             .set(
                 GetHeaders::new_builder()
-                    .block_locator_hashes(hashes.into())
+                    .block_locator_hashes(hashes)
                     .build(),
             )
             .build()

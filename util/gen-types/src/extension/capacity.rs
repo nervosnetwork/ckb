@@ -71,7 +71,7 @@ impl packed::CellOutputBuilder {
                     .transpose()
                     .and_then(|y| y.unwrap_or_else(Capacity::zero).safe_add(x))
             })
-            .map(|x| self.capacity(x.into()).build())
+            .map(|x| self.capacity(x).build())
     }
 }
 

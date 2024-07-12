@@ -81,12 +81,8 @@ fn create_cellbase(
         builder.build()
     } else {
         builder
-            .output(
-                CellOutputBuilder::default()
-                    .capacity(reward.total.into())
-                    .build(),
-            )
-            .output_data(Bytes::new().into())
+            .output(CellOutputBuilder::default().capacity(reward.total).build())
+            .output_data(Bytes::new())
             .build()
     }
 }
@@ -119,11 +115,11 @@ fn gen_block(
     BlockBuilder::default()
         .transaction(cellbase)
         .parent_hash(parent_header.hash())
-        .timestamp(now.into())
-        .epoch(epoch.number_with_fraction(number).into())
-        .number(number.into())
-        .compact_target(epoch.compact_target().into())
-        .nonce(nonce.into())
+        .timestamp(now)
+        .epoch(epoch.number_with_fraction(number))
+        .number(number)
+        .compact_target(epoch.compact_target())
+        .nonce(nonce)
         .dao(dao)
         .extension(Some(bytes))
         .build()
@@ -634,8 +630,7 @@ fn test_sync_process() {
             headers
                 .iter()
                 .map(|h| h.data())
-                .collect::<Vec<packed::Header>>()
-                .into(),
+                .collect::<Vec<packed::Header>>(),
         )
         .build();
 
@@ -699,8 +694,7 @@ fn test_sync_process() {
             headers
                 .iter()
                 .map(|h| h.data())
-                .collect::<Vec<packed::Header>>()
-                .into(),
+                .collect::<Vec<packed::Header>>(),
         )
         .build();
     assert_eq!(
@@ -778,7 +772,7 @@ fn test_chain_sync_timeout() {
 
     let consensus = Consensus::default();
     let block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(3u64)).into())
+        .compact_target(difficulty_to_compact(U256::from(3u64)))
         .transaction(consensus.genesis_block().transactions()[0].clone())
         .build();
     let consensus = ConsensusBuilder::default().genesis_block(block).build();
@@ -975,7 +969,7 @@ fn test_n_sync_started() {
 
     let consensus = Consensus::default();
     let block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(3u64)).into())
+        .compact_target(difficulty_to_compact(U256::from(3u64)))
         .transaction(consensus.genesis_block().transactions()[0].clone())
         .build();
     let consensus = ConsensusBuilder::default().genesis_block(block).build();
@@ -1122,9 +1116,7 @@ fn test_fix_last_common_header() {
             .map(|number| graph.get(&f_(number)).cloned().unwrap())
             .map(|block| block.header().data())
             .collect::<Vec<_>>();
-        let sendheaders = SendHeadersBuilder::default()
-            .headers(fork_headers.into())
-            .build();
+        let sendheaders = SendHeadersBuilder::default().headers(fork_headers).build();
         synchronizer.on_connected(&nc, peer);
         assert!(
             HeadersProcess::new(sendheaders.as_reader(), &synchronizer, peer, &nc)
@@ -1199,7 +1191,7 @@ fn get_blocks_process() {
 
     let genesis_hash = shared.consensus().genesis_hash();
     let message_with_genesis = packed::GetBlocks::new_builder()
-        .block_hashes(vec![genesis_hash].into())
+        .block_hashes(vec![genesis_hash])
         .build();
 
     let nc = mock_network_context(1);
@@ -1212,7 +1204,7 @@ fn get_blocks_process() {
 
     let hash = shared.snapshot().get_block_hash(1).unwrap();
     let message_with_dup = packed::GetBlocks::new_builder()
-        .block_hashes(vec![hash.clone(), hash].into())
+        .block_hashes(vec![hash.clone(), hash])
         .build();
 
     let nc = mock_network_context(1);

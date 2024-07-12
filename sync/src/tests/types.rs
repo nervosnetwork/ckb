@@ -24,9 +24,14 @@ fn test_get_ancestor_use_skip_list() {
 
     let mut parent_hash = None;
     for number in 0..SKIPLIST_LENGTH {
-        let mut header_builder = HeaderBuilder::default()
-            .number(number.into())
-            .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).into());
+        let mut header_builder =
+            HeaderBuilder::default()
+                .number(number)
+                .epoch(EpochNumberWithFraction::new(
+                    number / 1000,
+                    number % 1000,
+                    1000,
+                ));
         if let Some(parent_hash) = parent_hash.take() {
             header_builder = header_builder.parent_hash(parent_hash);
         }

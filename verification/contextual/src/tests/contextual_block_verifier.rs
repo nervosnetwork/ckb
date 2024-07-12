@@ -14,7 +14,8 @@ use ckb_types::{
         TransactionView, UncleBlockView,
     },
     packed::{
-        self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
+        self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId,
+        Script,
     },
     prelude::*,
     utilities::DIFF_TWO,
@@ -36,11 +37,15 @@ fn gen_block(
     let cellbase = create_cellbase(number);
     let header = HeaderBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp(now.into())
-        .number(number.into())
-        .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).into())
-        .compact_target(compact_target.into())
-        .nonce(nonce.into())
+        .timestamp(now)
+        .number(number)
+        .epoch(EpochNumberWithFraction::new(
+            number / 1000,
+            number % 1000,
+            1000,
+        ))
+        .compact_target(compact_target)
+        .nonce(nonce)
         .build();
 
     BlockBuilder::default()
@@ -59,9 +64,9 @@ fn create_transaction(
 ) -> TransactionView {
     let capacity = 100_000_000 / 100_usize;
     let output = CellOutputBuilder::default()
-        .capacity(Capacity::bytes(capacity).unwrap().into())
+        .capacity(Capacity::bytes(capacity).unwrap())
         .lock(always_success_script.to_owned())
-        .type_(Some(always_success_script.to_owned()).into())
+        .type_(Some(always_success_script.to_owned()))
         .build();
     let inputs: Vec<CellInput> = (0..100)
         .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), 0))
@@ -99,7 +104,7 @@ fn create_cellbase(number: BlockNumber) -> TransactionView {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutputBuilder::default().build())
-        .output_data(Bytes::new().into())
+        .output_data(Bytes::new())
         .build()
 }
 
@@ -112,13 +117,13 @@ fn setup_env() -> (ChainController, Shared, Byte32, Script, OutPoint) {
         .output(always_success_cell.clone())
         .outputs(vec![
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1_000_000).into())
+                .capacity(capacity_bytes!(1_000_000))
                 .lock(always_success_script.clone())
-                .type_(Some(always_success_script.clone()).into())
+                .type_(Some(always_success_script.clone()))
                 .build();
             100
         ])
-        .output_data(always_success_cell_data.to_owned().into())
+        .output_data(always_success_cell_data.to_owned())
         .outputs_data(vec![Bytes::new().into(); 100])
         .build();
     let tx_hash = tx.data().calc_tx_hash();
@@ -145,8 +150,8 @@ pub fn test_should_have_no_output_in_cellbase_no_finalization_target() {
     let number = parent.number() + 1;
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(Default::default())
-        .output_data(Default::default())
+        .output(CellOutput::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let cellbase = ResolvedTransaction {
@@ -164,7 +169,7 @@ pub fn test_should_have_no_output_in_cellbase_no_finalization_target() {
 #[test]
 fn test_epoch_number() {
     let actual_epoch = EpochNumberWithFraction::new(2, 0, 1);
-    let block = BlockBuilder::default().epoch(actual_epoch.into()).build();
+    let block = BlockBuilder::default().epoch(actual_epoch).build();
     let mut epoch = EpochExt::default();
     epoch.set_length(1);
 
@@ -184,8 +189,8 @@ fn test_epoch_difficulty() {
     epoch.set_length(1);
 
     let block = BlockBuilder::default()
-        .epoch(epoch.number_with_fraction(0).into())
-        .compact_target(0x200c_30c3u32.into())
+        .epoch(epoch.number_with_fraction(0))
+        .compact_target(0x200c_30c3u32)
         .build();
 
     assert_error_eq!(

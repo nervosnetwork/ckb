@@ -86,13 +86,13 @@ impl From<Alert> for packed::Alert {
             signatures,
         } = json;
         let raw = packed::RawAlert::new_builder()
-            .id(id.into())
-            .cancel(cancel.into())
-            .min_version(min_version.into())
-            .max_version(max_version.into())
-            .priority(priority.into())
-            .notice_until(notice_until.into())
-            .message(message.into())
+            .id(id)
+            .cancel(cancel)
+            .min_version(min_version)
+            .max_version(max_version)
+            .priority(priority)
+            .notice_until(notice_until)
+            .message(message)
             .build();
         packed::Alert::new_builder()
             .raw(raw)
@@ -100,8 +100,7 @@ impl From<Alert> for packed::Alert {
                 signatures
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::Bytes>>()
-                    .into(),
+                    .collect::<Vec<packed::Bytes>>(),
             )
             .build()
     }

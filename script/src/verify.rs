@@ -407,7 +407,7 @@ where
                 .map(|(index, (cell_output, data))| {
                     let out_point = OutPoint::new_builder()
                         .tx_hash(tx_hash.clone())
-                        .index(index.into())
+                        .index(index)
                         .build();
                     let data_hash = CellOutput::calc_data_hash(&data);
                     CellMeta {
@@ -1078,7 +1078,7 @@ where
         max_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<Cycle, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
             let verifier = TypeIdSystemScript {

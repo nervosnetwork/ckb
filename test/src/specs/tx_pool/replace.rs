@@ -28,7 +28,7 @@ impl Spec for RbfEnable {
         let tx1 = node0.new_transaction(tx_hash_0);
 
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
@@ -59,7 +59,7 @@ impl Spec for RbfBasic {
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(99).into())
+            .capacity(capacity_bytes!(99))
             .build();
 
         let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
@@ -76,7 +76,7 @@ impl Spec for RbfBasic {
 
         // Set tx2 fee to a higher value, tx1 capacity is 99, set tx2 capacity to 95 for +4 fee.
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(95).into())
+            .capacity(capacity_bytes!(95))
             .build();
 
         let tx2 = tx2_temp
@@ -230,14 +230,14 @@ impl Spec for RbfSameInputwithLessFee {
         let tx2_temp = node0.new_transaction(tx_hash_0);
 
         let output1 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80).into())
+            .capacity(capacity_bytes!(80))
             .build();
 
         let tx1 = tx1.as_advanced_builder().set_outputs(vec![output1]).build();
 
         // Set tx2 fee to a lower value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(90).into())
+            .capacity(capacity_bytes!(90))
             .build();
 
         let tx2 = tx2_temp
@@ -300,7 +300,7 @@ impl Spec for RbfTooManyDescendants {
 
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx2 = tx0_temp
@@ -363,7 +363,7 @@ impl Spec for RbfContainNewTx {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx2 = clone_tx
@@ -438,7 +438,7 @@ impl Spec for RbfContainInvalidInput {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx2 = clone_tx
@@ -492,7 +492,7 @@ impl Spec for RbfChildPayForParent {
         let max_count = 5;
 
         let output5 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(50).into())
+            .capacity(capacity_bytes!(50))
             .build();
 
         while txs.len() <= max_count {
@@ -524,7 +524,7 @@ impl Spec for RbfChildPayForParent {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value, but not enough to pay for tx4
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let new_tx = clone_tx
@@ -552,7 +552,7 @@ impl Spec for RbfChildPayForParent {
 
         // let's try a new transaction with new higher fee
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(45).into())
+            .capacity(capacity_bytes!(45))
             .build();
         let new_tx_ok = clone_tx
             .as_advanced_builder()
@@ -609,7 +609,7 @@ impl Spec for RbfContainInvalidCells {
 
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
         let tx2 = clone_tx
             .as_advanced_builder()
@@ -688,7 +688,7 @@ impl Spec for RbfRejectReplaceProposed {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx1_hash = txs[2].hash();
@@ -798,7 +798,7 @@ impl Spec for RbfReplaceProposedSuccess {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).into())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx1_hash = txs[2].hash();
@@ -893,7 +893,7 @@ impl Spec for RbfConcurrency {
         ];
         for fee in fees.iter() {
             let tx2_temp = node0.new_transaction(tx_hash_0.clone());
-            let output = CellOutputBuilder::default().capacity(fee.into()).build();
+            let output = CellOutputBuilder::default().capacity(fee).build();
 
             let tx2 = tx2_temp
                 .as_advanced_builder()
@@ -974,7 +974,7 @@ impl Spec for RbfCellDepsCheck {
         // Create a child transaction with celldep
         let tx = always_success_transaction(node0, input_c);
         let cell_dep_to_last = CellDepBuilder::default()
-            .dep_type(DepType::Code.into())
+            .dep_type(DepType::Code)
             .out_point(OutPoint::new(prev.hash(), 0))
             .build();
         let tx_c = tx
@@ -988,7 +988,7 @@ impl Spec for RbfCellDepsCheck {
 
         // Create a new transaction for cell dep with high fee
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80).into())
+            .capacity(capacity_bytes!(80))
             .build();
         let new_tx = tx_a
             .as_advanced_builder()
@@ -1160,7 +1160,7 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     let tx1 = node0.new_transaction(tx_hash_0.clone());
 
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(90).into())
+        .capacity(capacity_bytes!(90))
         .build();
 
     let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
@@ -1186,7 +1186,7 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     // node0 will accept it and node1 will reject it and put it in conflicts pool
     let tx2_temp = node0.new_transaction(tx_hash_0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(95).into())
+        .capacity(capacity_bytes!(95))
         .build();
 
     let tx2 = tx2_temp

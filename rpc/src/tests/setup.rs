@@ -40,9 +40,9 @@ pub(crate) fn always_success_consensus() -> Consensus {
     let always_success_tx = always_success_transaction();
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
-        .timestamp(GENESIS_TIMESTAMP.into())
-        .compact_target(GENESIS_TARGET.into())
-        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).into())
+        .timestamp(GENESIS_TIMESTAMP)
+        .compact_target(GENESIS_TARGET)
+        .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0))
         .dao(dao)
         .transaction(always_success_tx)
         .build();
@@ -154,12 +154,12 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         let alert = AlertBuilder::default()
             .raw(
                 RawAlertBuilder::default()
-                    .id(42u32.into())
-                    .min_version(Some("0.0.1".to_string()).into())
-                    .max_version(Some("1.0.0".to_string()).into())
-                    .priority(1u32.into())
-                    .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).into())
-                    .message("An example alert message!".into())
+                    .id(42u32)
+                    .min_version(Some("0.0.1".to_string()))
+                    .max_version(Some("1.0.0".to_string()))
+                    .priority(1u32)
+                    .notice_until(ALERT_UNTIL_TIMESTAMP * 1000)
+                    .message("An example alert message!")
                     .build(),
             )
             .build();
@@ -258,7 +258,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
                 parent
                     .header()
                     .as_advanced_builder()
-                    .timestamp((parent.header().timestamp() + 1).into())
+                    .timestamp(parent.header().timestamp() + 1)
                     .build(),
             )
             .build();

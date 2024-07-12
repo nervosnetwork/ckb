@@ -189,7 +189,7 @@ impl StoreTransaction {
         self.insert_raw(
             COLUMN_NUMBER_HASH,
             packed::NumberHash::new_builder()
-                .number(block.number().into())
+                .number(block.number())
                 .block_hash(hash.clone())
                 .build()
                 .as_slice(),
@@ -203,7 +203,7 @@ impl StoreTransaction {
         for (index, tx) in block.transactions().into_iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
-                .index(index.into())
+                .index(index)
                 .build();
             let tx_data = Into::<packed::TransactionView>::into(tx);
             self.insert_raw(COLUMN_BLOCK_BODY, key.as_slice(), tx_data.as_slice())?;
@@ -222,7 +222,7 @@ impl StoreTransaction {
         self.delete(
             COLUMN_NUMBER_HASH,
             packed::NumberHash::new_builder()
-                .number(block.number().into())
+                .number(block.number())
                 .block_hash(hash.clone())
                 .build()
                 .as_slice(),
@@ -232,7 +232,7 @@ impl StoreTransaction {
         for index in 0..txs_len {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
-                .index(index.into())
+                .index(index)
                 .build();
             self.delete(COLUMN_BLOCK_BODY, key.as_slice())?;
         }
@@ -260,7 +260,7 @@ impl StoreTransaction {
         for (index, tx_hash) in block.tx_hashes().iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(block_hash.clone())
-                .index(index.into())
+                .index(index)
                 .build();
             let info = packed::TransactionInfo::new_builder()
                 .key(key)

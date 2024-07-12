@@ -55,8 +55,7 @@ pub fn build_block_transactions(block: &BlockView) -> Bytes {
                 .into_iter()
                 .map(|view| view.data())
                 .skip(1)
-                .collect::<Vec<packed::Transaction>>()
-                .into(),
+                .collect::<Vec<packed::Transaction>>(),
         )
         .build();
 
@@ -72,13 +71,7 @@ pub fn build_header(header: &HeaderView) -> Bytes {
 
 pub fn build_headers(headers: &[HeaderView]) -> Bytes {
     let send_headers = SendHeaders::new_builder()
-        .headers(
-            headers
-                .iter()
-                .map(|view| view.data())
-                .collect::<Vec<_>>()
-                .into(),
-        )
+        .headers(headers.iter().map(|view| view.data()).collect::<Vec<_>>())
         .build();
 
     SyncMessage::new_builder()
@@ -100,8 +93,7 @@ pub fn build_get_blocks(hashes: &[Byte32]) -> Bytes {
             hashes
                 .iter()
                 .map(ToOwned::to_owned)
-                .collect::<Vec<packed::Byte32>>()
-                .into(),
+                .collect::<Vec<packed::Byte32>>(),
         )
         .build();
 
@@ -116,13 +108,13 @@ pub fn build_relay_txs(transactions: &[(TransactionView, u64)]) -> Bytes {
         .iter()
         .map(|(tx, cycles)| {
             RelayTransaction::new_builder()
-                .cycles(cycles.into())
+                .cycles(cycles)
                 .transaction(tx.data())
                 .build()
         })
         .collect::<Vec<packed::RelayTransaction>>();
     let txs = RelayTransactions::new_builder()
-        .transactions(transactions.into())
+        .transactions(transactions)
         .build();
 
     RelayMessage::new_builder().set(txs).build().as_bytes()
@@ -134,8 +126,7 @@ pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
             hashes
                 .iter()
                 .map(ToOwned::to_owned)
-                .collect::<Vec<Byte32>>()
-                .into(),
+                .collect::<Vec<Byte32>>(),
         )
         .build();
 

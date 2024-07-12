@@ -25,7 +25,7 @@ fn test_missing_txs() {
             .map(|tx| tx.proposal_short_id())
             .collect::<Vec<packed::ProposalShortId>>();
         let transactions: Vec<TransactionView> = prepare.iter().skip(1).cloned().collect();
-        let compact = compact_block_builder.short_ids(short_ids.into()).build();
+        let compact = compact_block_builder.short_ids(short_ids).build();
         assert_eq!(
             relayer.reconstruct_block(
                 &relayer.shared().active_chain(),
@@ -53,7 +53,7 @@ fn test_missing_txs() {
             .step_by(2)
             .map(|(i, _)| i)
             .collect();
-        let compact = compact_block_builder.short_ids(short_ids.into()).build();
+        let compact = compact_block_builder.short_ids(short_ids).build();
         assert_eq!(
             relayer.reconstruct_block(
                 &relayer.shared().active_chain(),
@@ -110,7 +110,7 @@ fn test_reconstruct_transactions_and_uncles() {
 
     // BLOCK_VALID
     let ext = packed::BlockExtBuilder::default()
-        .verified(Some(true).into())
+        .verified(Some(true))
         .build();
 
     let compact = packed::CompactBlock::build_from_block(&block, &prefilled);
@@ -155,7 +155,7 @@ fn test_reconstruct_invalid_uncles() {
     let uncle = BlockBuilder::default().build();
     // BLOCK_VALID
     let ext = packed::BlockExtBuilder::default()
-        .verified(Some(false).into())
+        .verified(Some(false))
         .build();
 
     let block = BlockBuilder::default()

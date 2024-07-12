@@ -33,22 +33,19 @@ const DEFAULT_CODE_HASH: H256 =
 
 fn script() -> Script {
     Script::new_builder()
-        .code_hash(DEFAULT_CODE_HASH.into())
-        .args(Bytes::from(PUBKEY_HASH.as_bytes()).into())
-        .hash_type(ScriptHashType::Type.into())
+        .code_hash(DEFAULT_CODE_HASH)
+        .args(Bytes::from(PUBKEY_HASH.as_bytes()))
+        .hash_type(ScriptHashType::Type)
         .build()
 }
 
 fn cell_dep(genesis: &BlockView) -> CellDep {
     let tx_hash = genesis.transaction(1).unwrap().hash();
-    let out_point = OutPoint::new_builder()
-        .tx_hash(tx_hash)
-        .index(0u32.into())
-        .build();
+    let out_point = OutPoint::new_builder().tx_hash(tx_hash).index(0u32).build();
 
     CellDep::new_builder()
         .out_point(out_point)
-        .dep_type(DepType::DepGroup.into())
+        .dep_type(DepType::DepGroup)
         .build()
 }
 

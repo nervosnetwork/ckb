@@ -164,24 +164,39 @@ impl Uint32Builder {
     pub const TOTAL_SIZE: usize = 4;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 4;
-    pub fn set(mut self, v: [Byte; 4]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 4]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
 }
@@ -453,40 +468,67 @@ impl Uint64Builder {
     pub const TOTAL_SIZE: usize = 8;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 8;
-    pub fn set(mut self, v: [Byte; 8]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 8]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
-    pub fn nth4(mut self, v: Byte) -> Self {
-        self.0[4] = v;
+    pub fn nth4<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[4] = v.into();
         self
     }
-    pub fn nth5(mut self, v: Byte) -> Self {
-        self.0[5] = v;
+    pub fn nth5<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[5] = v.into();
         self
     }
-    pub fn nth6(mut self, v: Byte) -> Self {
-        self.0[6] = v;
+    pub fn nth6<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[6] = v.into();
         self
     }
-    pub fn nth7(mut self, v: Byte) -> Self {
-        self.0[7] = v;
+    pub fn nth7<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[7] = v.into();
         self
     }
 }
@@ -835,72 +877,123 @@ impl Uint128Builder {
     pub const TOTAL_SIZE: usize = 16;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 16;
-    pub fn set(mut self, v: [Byte; 16]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 16]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
-    pub fn nth4(mut self, v: Byte) -> Self {
-        self.0[4] = v;
+    pub fn nth4<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[4] = v.into();
         self
     }
-    pub fn nth5(mut self, v: Byte) -> Self {
-        self.0[5] = v;
+    pub fn nth5<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[5] = v.into();
         self
     }
-    pub fn nth6(mut self, v: Byte) -> Self {
-        self.0[6] = v;
+    pub fn nth6<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[6] = v.into();
         self
     }
-    pub fn nth7(mut self, v: Byte) -> Self {
-        self.0[7] = v;
+    pub fn nth7<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[7] = v.into();
         self
     }
-    pub fn nth8(mut self, v: Byte) -> Self {
-        self.0[8] = v;
+    pub fn nth8<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[8] = v.into();
         self
     }
-    pub fn nth9(mut self, v: Byte) -> Self {
-        self.0[9] = v;
+    pub fn nth9<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[9] = v.into();
         self
     }
-    pub fn nth10(mut self, v: Byte) -> Self {
-        self.0[10] = v;
+    pub fn nth10<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[10] = v.into();
         self
     }
-    pub fn nth11(mut self, v: Byte) -> Self {
-        self.0[11] = v;
+    pub fn nth11<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[11] = v.into();
         self
     }
-    pub fn nth12(mut self, v: Byte) -> Self {
-        self.0[12] = v;
+    pub fn nth12<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[12] = v.into();
         self
     }
-    pub fn nth13(mut self, v: Byte) -> Self {
-        self.0[13] = v;
+    pub fn nth13<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[13] = v.into();
         self
     }
-    pub fn nth14(mut self, v: Byte) -> Self {
-        self.0[14] = v;
+    pub fn nth14<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[14] = v.into();
         self
     }
-    pub fn nth15(mut self, v: Byte) -> Self {
-        self.0[15] = v;
+    pub fn nth15<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[15] = v.into();
         self
     }
 }
@@ -1396,136 +1489,235 @@ impl Byte32Builder {
     pub const TOTAL_SIZE: usize = 32;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 32;
-    pub fn set(mut self, v: [Byte; 32]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 32]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
-    pub fn nth4(mut self, v: Byte) -> Self {
-        self.0[4] = v;
+    pub fn nth4<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[4] = v.into();
         self
     }
-    pub fn nth5(mut self, v: Byte) -> Self {
-        self.0[5] = v;
+    pub fn nth5<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[5] = v.into();
         self
     }
-    pub fn nth6(mut self, v: Byte) -> Self {
-        self.0[6] = v;
+    pub fn nth6<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[6] = v.into();
         self
     }
-    pub fn nth7(mut self, v: Byte) -> Self {
-        self.0[7] = v;
+    pub fn nth7<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[7] = v.into();
         self
     }
-    pub fn nth8(mut self, v: Byte) -> Self {
-        self.0[8] = v;
+    pub fn nth8<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[8] = v.into();
         self
     }
-    pub fn nth9(mut self, v: Byte) -> Self {
-        self.0[9] = v;
+    pub fn nth9<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[9] = v.into();
         self
     }
-    pub fn nth10(mut self, v: Byte) -> Self {
-        self.0[10] = v;
+    pub fn nth10<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[10] = v.into();
         self
     }
-    pub fn nth11(mut self, v: Byte) -> Self {
-        self.0[11] = v;
+    pub fn nth11<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[11] = v.into();
         self
     }
-    pub fn nth12(mut self, v: Byte) -> Self {
-        self.0[12] = v;
+    pub fn nth12<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[12] = v.into();
         self
     }
-    pub fn nth13(mut self, v: Byte) -> Self {
-        self.0[13] = v;
+    pub fn nth13<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[13] = v.into();
         self
     }
-    pub fn nth14(mut self, v: Byte) -> Self {
-        self.0[14] = v;
+    pub fn nth14<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[14] = v.into();
         self
     }
-    pub fn nth15(mut self, v: Byte) -> Self {
-        self.0[15] = v;
+    pub fn nth15<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[15] = v.into();
         self
     }
-    pub fn nth16(mut self, v: Byte) -> Self {
-        self.0[16] = v;
+    pub fn nth16<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[16] = v.into();
         self
     }
-    pub fn nth17(mut self, v: Byte) -> Self {
-        self.0[17] = v;
+    pub fn nth17<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[17] = v.into();
         self
     }
-    pub fn nth18(mut self, v: Byte) -> Self {
-        self.0[18] = v;
+    pub fn nth18<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[18] = v.into();
         self
     }
-    pub fn nth19(mut self, v: Byte) -> Self {
-        self.0[19] = v;
+    pub fn nth19<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[19] = v.into();
         self
     }
-    pub fn nth20(mut self, v: Byte) -> Self {
-        self.0[20] = v;
+    pub fn nth20<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[20] = v.into();
         self
     }
-    pub fn nth21(mut self, v: Byte) -> Self {
-        self.0[21] = v;
+    pub fn nth21<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[21] = v.into();
         self
     }
-    pub fn nth22(mut self, v: Byte) -> Self {
-        self.0[22] = v;
+    pub fn nth22<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[22] = v.into();
         self
     }
-    pub fn nth23(mut self, v: Byte) -> Self {
-        self.0[23] = v;
+    pub fn nth23<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[23] = v.into();
         self
     }
-    pub fn nth24(mut self, v: Byte) -> Self {
-        self.0[24] = v;
+    pub fn nth24<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[24] = v.into();
         self
     }
-    pub fn nth25(mut self, v: Byte) -> Self {
-        self.0[25] = v;
+    pub fn nth25<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[25] = v.into();
         self
     }
-    pub fn nth26(mut self, v: Byte) -> Self {
-        self.0[26] = v;
+    pub fn nth26<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[26] = v.into();
         self
     }
-    pub fn nth27(mut self, v: Byte) -> Self {
-        self.0[27] = v;
+    pub fn nth27<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[27] = v.into();
         self
     }
-    pub fn nth28(mut self, v: Byte) -> Self {
-        self.0[28] = v;
+    pub fn nth28<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[28] = v.into();
         self
     }
-    pub fn nth29(mut self, v: Byte) -> Self {
-        self.0[29] = v;
+    pub fn nth29<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[29] = v.into();
         self
     }
-    pub fn nth30(mut self, v: Byte) -> Self {
-        self.0[30] = v;
+    pub fn nth30<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[30] = v.into();
         self
     }
-    pub fn nth31(mut self, v: Byte) -> Self {
-        self.0[31] = v;
+    pub fn nth31<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[31] = v.into();
         self
     }
 }
@@ -2053,136 +2245,235 @@ impl Uint256Builder {
     pub const TOTAL_SIZE: usize = 32;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 32;
-    pub fn set(mut self, v: [Byte; 32]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 32]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
-    pub fn nth4(mut self, v: Byte) -> Self {
-        self.0[4] = v;
+    pub fn nth4<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[4] = v.into();
         self
     }
-    pub fn nth5(mut self, v: Byte) -> Self {
-        self.0[5] = v;
+    pub fn nth5<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[5] = v.into();
         self
     }
-    pub fn nth6(mut self, v: Byte) -> Self {
-        self.0[6] = v;
+    pub fn nth6<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[6] = v.into();
         self
     }
-    pub fn nth7(mut self, v: Byte) -> Self {
-        self.0[7] = v;
+    pub fn nth7<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[7] = v.into();
         self
     }
-    pub fn nth8(mut self, v: Byte) -> Self {
-        self.0[8] = v;
+    pub fn nth8<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[8] = v.into();
         self
     }
-    pub fn nth9(mut self, v: Byte) -> Self {
-        self.0[9] = v;
+    pub fn nth9<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[9] = v.into();
         self
     }
-    pub fn nth10(mut self, v: Byte) -> Self {
-        self.0[10] = v;
+    pub fn nth10<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[10] = v.into();
         self
     }
-    pub fn nth11(mut self, v: Byte) -> Self {
-        self.0[11] = v;
+    pub fn nth11<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[11] = v.into();
         self
     }
-    pub fn nth12(mut self, v: Byte) -> Self {
-        self.0[12] = v;
+    pub fn nth12<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[12] = v.into();
         self
     }
-    pub fn nth13(mut self, v: Byte) -> Self {
-        self.0[13] = v;
+    pub fn nth13<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[13] = v.into();
         self
     }
-    pub fn nth14(mut self, v: Byte) -> Self {
-        self.0[14] = v;
+    pub fn nth14<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[14] = v.into();
         self
     }
-    pub fn nth15(mut self, v: Byte) -> Self {
-        self.0[15] = v;
+    pub fn nth15<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[15] = v.into();
         self
     }
-    pub fn nth16(mut self, v: Byte) -> Self {
-        self.0[16] = v;
+    pub fn nth16<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[16] = v.into();
         self
     }
-    pub fn nth17(mut self, v: Byte) -> Self {
-        self.0[17] = v;
+    pub fn nth17<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[17] = v.into();
         self
     }
-    pub fn nth18(mut self, v: Byte) -> Self {
-        self.0[18] = v;
+    pub fn nth18<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[18] = v.into();
         self
     }
-    pub fn nth19(mut self, v: Byte) -> Self {
-        self.0[19] = v;
+    pub fn nth19<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[19] = v.into();
         self
     }
-    pub fn nth20(mut self, v: Byte) -> Self {
-        self.0[20] = v;
+    pub fn nth20<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[20] = v.into();
         self
     }
-    pub fn nth21(mut self, v: Byte) -> Self {
-        self.0[21] = v;
+    pub fn nth21<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[21] = v.into();
         self
     }
-    pub fn nth22(mut self, v: Byte) -> Self {
-        self.0[22] = v;
+    pub fn nth22<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[22] = v.into();
         self
     }
-    pub fn nth23(mut self, v: Byte) -> Self {
-        self.0[23] = v;
+    pub fn nth23<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[23] = v.into();
         self
     }
-    pub fn nth24(mut self, v: Byte) -> Self {
-        self.0[24] = v;
+    pub fn nth24<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[24] = v.into();
         self
     }
-    pub fn nth25(mut self, v: Byte) -> Self {
-        self.0[25] = v;
+    pub fn nth25<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[25] = v.into();
         self
     }
-    pub fn nth26(mut self, v: Byte) -> Self {
-        self.0[26] = v;
+    pub fn nth26<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[26] = v.into();
         self
     }
-    pub fn nth27(mut self, v: Byte) -> Self {
-        self.0[27] = v;
+    pub fn nth27<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[27] = v.into();
         self
     }
-    pub fn nth28(mut self, v: Byte) -> Self {
-        self.0[28] = v;
+    pub fn nth28<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[28] = v.into();
         self
     }
-    pub fn nth29(mut self, v: Byte) -> Self {
-        self.0[29] = v;
+    pub fn nth29<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[29] = v.into();
         self
     }
-    pub fn nth30(mut self, v: Byte) -> Self {
-        self.0[30] = v;
+    pub fn nth30<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[30] = v.into();
         self
     }
-    pub fn nth31(mut self, v: Byte) -> Self {
-        self.0[31] = v;
+    pub fn nth31<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[31] = v.into();
         self
     }
 }
@@ -2496,18 +2787,24 @@ impl BytesBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Byte) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Byte>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Byte) -> Option<Byte> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Byte>
+    where
+        T: ::core::convert::Into<Byte>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for BytesBuilder {
@@ -2717,8 +3014,11 @@ impl<'r> molecule::prelude::Reader<'r> for BytesOptReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct BytesOptBuilder(pub(crate) Option<Bytes>);
 impl BytesOptBuilder {
-    pub fn set(mut self, v: Option<Bytes>) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Option<Bytes>>,
+    {
+        self.0 = v.into();
         self
     }
 }
@@ -2979,18 +3279,24 @@ impl BytesOptVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: BytesOpt) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = BytesOpt>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: BytesOpt) -> Option<BytesOpt> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<BytesOpt>
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for BytesOptVecBuilder {
@@ -3327,18 +3633,24 @@ impl BytesVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Bytes) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Bytes>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Bytes) -> Option<Bytes> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Bytes>
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for BytesVecBuilder {
@@ -3632,18 +3944,24 @@ impl Byte32VecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Byte32) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Byte32>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Byte32) -> Option<Byte32> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Byte32>
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for Byte32VecBuilder {
@@ -3862,8 +4180,11 @@ impl<'r> molecule::prelude::Reader<'r> for ScriptOptReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct ScriptOptBuilder(pub(crate) Option<Script>);
 impl ScriptOptBuilder {
-    pub fn set(mut self, v: Option<Script>) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Option<Script>>,
+    {
+        self.0 = v.into();
         self
     }
 }
@@ -4110,48 +4431,81 @@ impl ProposalShortIdBuilder {
     pub const TOTAL_SIZE: usize = 10;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 10;
-    pub fn set(mut self, v: [Byte; 10]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 10]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
-    pub fn nth4(mut self, v: Byte) -> Self {
-        self.0[4] = v;
+    pub fn nth4<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[4] = v.into();
         self
     }
-    pub fn nth5(mut self, v: Byte) -> Self {
-        self.0[5] = v;
+    pub fn nth5<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[5] = v.into();
         self
     }
-    pub fn nth6(mut self, v: Byte) -> Self {
-        self.0[6] = v;
+    pub fn nth6<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[6] = v.into();
         self
     }
-    pub fn nth7(mut self, v: Byte) -> Self {
-        self.0[7] = v;
+    pub fn nth7<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[7] = v.into();
         self
     }
-    pub fn nth8(mut self, v: Byte) -> Self {
-        self.0[8] = v;
+    pub fn nth8<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[8] = v.into();
         self
     }
-    pub fn nth9(mut self, v: Byte) -> Self {
-        self.0[9] = v;
+    pub fn nth9<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[9] = v.into();
         self
     }
 }
@@ -4470,18 +4824,24 @@ impl UncleBlockVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: UncleBlock) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<UncleBlock>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = UncleBlock>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: UncleBlock) -> Option<UncleBlock> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<UncleBlock>
+    where
+        T: ::core::convert::Into<UncleBlock>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for UncleBlockVecBuilder {
@@ -4818,18 +5178,24 @@ impl TransactionVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Transaction) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Transaction>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Transaction>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Transaction) -> Option<Transaction> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Transaction>
+    where
+        T: ::core::convert::Into<Transaction>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for TransactionVecBuilder {
@@ -5123,8 +5489,11 @@ impl ProposalShortIdVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: ProposalShortId) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortId>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = ProposalShortId>>(
@@ -5134,10 +5503,13 @@ impl ProposalShortIdVecBuilder {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: ProposalShortId) -> Option<ProposalShortId> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<ProposalShortId>
+    where
+        T: ::core::convert::Into<ProposalShortId>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for ProposalShortIdVecBuilder {
@@ -5406,18 +5778,24 @@ impl CellDepVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: CellDep) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<CellDep>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = CellDep>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: CellDep) -> Option<CellDep> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<CellDep>
+    where
+        T: ::core::convert::Into<CellDep>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for CellDepVecBuilder {
@@ -5686,18 +6064,24 @@ impl CellInputVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: CellInput) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<CellInput>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = CellInput>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: CellInput) -> Option<CellInput> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<CellInput>
+    where
+        T: ::core::convert::Into<CellInput>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for CellInputVecBuilder {
@@ -6009,18 +6393,24 @@ impl CellOutputVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: CellOutput) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<CellOutput>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = CellOutput>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: CellOutput) -> Option<CellOutput> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<CellOutput>
+    where
+        T: ::core::convert::Into<CellOutput>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for CellOutputVecBuilder {
@@ -6368,16 +6758,25 @@ pub struct ScriptBuilder {
 }
 impl ScriptBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn code_hash(mut self, v: Byte32) -> Self {
-        self.code_hash = v;
+    pub fn code_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.code_hash = v.into();
         self
     }
-    pub fn hash_type(mut self, v: Byte) -> Self {
-        self.hash_type = v;
+    pub fn hash_type<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.hash_type = v.into();
         self
     }
-    pub fn args(mut self, v: Bytes) -> Self {
-        self.args = v;
+    pub fn args<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.args = v.into();
         self
     }
 }
@@ -6555,12 +6954,18 @@ impl OutPointBuilder {
     pub const TOTAL_SIZE: usize = 36;
     pub const FIELD_SIZES: [usize; 2] = [32, 4];
     pub const FIELD_COUNT: usize = 2;
-    pub fn tx_hash(mut self, v: Byte32) -> Self {
-        self.tx_hash = v;
+    pub fn tx_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.tx_hash = v.into();
         self
     }
-    pub fn index(mut self, v: Uint32) -> Self {
-        self.index = v;
+    pub fn index<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.index = v.into();
         self
     }
 }
@@ -6722,12 +7127,18 @@ impl CellInputBuilder {
     pub const TOTAL_SIZE: usize = 44;
     pub const FIELD_SIZES: [usize; 2] = [8, 36];
     pub const FIELD_COUNT: usize = 2;
-    pub fn since(mut self, v: Uint64) -> Self {
-        self.since = v;
+    pub fn since<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.since = v.into();
         self
     }
-    pub fn previous_output(mut self, v: OutPoint) -> Self {
-        self.previous_output = v;
+    pub fn previous_output<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<OutPoint>,
+    {
+        self.previous_output = v.into();
         self
     }
 }
@@ -6991,16 +7402,25 @@ pub struct CellOutputBuilder {
 }
 impl CellOutputBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn capacity(mut self, v: Uint64) -> Self {
-        self.capacity = v;
+    pub fn capacity<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.capacity = v.into();
         self
     }
-    pub fn lock(mut self, v: Script) -> Self {
-        self.lock = v;
+    pub fn lock<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Script>,
+    {
+        self.lock = v.into();
         self
     }
-    pub fn type_(mut self, v: ScriptOpt) -> Self {
-        self.type_ = v;
+    pub fn type_<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ScriptOpt>,
+    {
+        self.type_ = v.into();
         self
     }
 }
@@ -7178,12 +7598,18 @@ impl CellDepBuilder {
     pub const TOTAL_SIZE: usize = 37;
     pub const FIELD_SIZES: [usize; 2] = [36, 1];
     pub const FIELD_COUNT: usize = 2;
-    pub fn out_point(mut self, v: OutPoint) -> Self {
-        self.out_point = v;
+    pub fn out_point<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<OutPoint>,
+    {
+        self.out_point = v.into();
         self
     }
-    pub fn dep_type(mut self, v: Byte) -> Self {
-        self.dep_type = v;
+    pub fn dep_type<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.dep_type = v.into();
         self
     }
 }
@@ -7497,28 +7923,46 @@ pub struct RawTransactionBuilder {
 }
 impl RawTransactionBuilder {
     pub const FIELD_COUNT: usize = 6;
-    pub fn version(mut self, v: Uint32) -> Self {
-        self.version = v;
+    pub fn version<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.version = v.into();
         self
     }
-    pub fn cell_deps(mut self, v: CellDepVec) -> Self {
-        self.cell_deps = v;
+    pub fn cell_deps<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<CellDepVec>,
+    {
+        self.cell_deps = v.into();
         self
     }
-    pub fn header_deps(mut self, v: Byte32Vec) -> Self {
-        self.header_deps = v;
+    pub fn header_deps<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.header_deps = v.into();
         self
     }
-    pub fn inputs(mut self, v: CellInputVec) -> Self {
-        self.inputs = v;
+    pub fn inputs<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<CellInputVec>,
+    {
+        self.inputs = v.into();
         self
     }
-    pub fn outputs(mut self, v: CellOutputVec) -> Self {
-        self.outputs = v;
+    pub fn outputs<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<CellOutputVec>,
+    {
+        self.outputs = v.into();
         self
     }
-    pub fn outputs_data(mut self, v: BytesVec) -> Self {
-        self.outputs_data = v;
+    pub fn outputs_data<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesVec>,
+    {
+        self.outputs_data = v.into();
         self
     }
 }
@@ -7793,12 +8237,18 @@ pub struct TransactionBuilder {
 }
 impl TransactionBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn raw(mut self, v: RawTransaction) -> Self {
-        self.raw = v;
+    pub fn raw<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<RawTransaction>,
+    {
+        self.raw = v.into();
         self
     }
-    pub fn witnesses(mut self, v: BytesVec) -> Self {
-        self.witnesses = v;
+    pub fn witnesses<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesVec>,
+    {
+        self.witnesses = v.into();
         self
     }
 }
@@ -8057,44 +8507,74 @@ impl RawHeaderBuilder {
     pub const TOTAL_SIZE: usize = 192;
     pub const FIELD_SIZES: [usize; 10] = [4, 4, 8, 8, 8, 32, 32, 32, 32, 32];
     pub const FIELD_COUNT: usize = 10;
-    pub fn version(mut self, v: Uint32) -> Self {
-        self.version = v;
+    pub fn version<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.version = v.into();
         self
     }
-    pub fn compact_target(mut self, v: Uint32) -> Self {
-        self.compact_target = v;
+    pub fn compact_target<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.compact_target = v.into();
         self
     }
-    pub fn timestamp(mut self, v: Uint64) -> Self {
-        self.timestamp = v;
+    pub fn timestamp<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.timestamp = v.into();
         self
     }
-    pub fn number(mut self, v: Uint64) -> Self {
-        self.number = v;
+    pub fn number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.number = v.into();
         self
     }
-    pub fn epoch(mut self, v: Uint64) -> Self {
-        self.epoch = v;
+    pub fn epoch<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.epoch = v.into();
         self
     }
-    pub fn parent_hash(mut self, v: Byte32) -> Self {
-        self.parent_hash = v;
+    pub fn parent_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.parent_hash = v.into();
         self
     }
-    pub fn transactions_root(mut self, v: Byte32) -> Self {
-        self.transactions_root = v;
+    pub fn transactions_root<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.transactions_root = v.into();
         self
     }
-    pub fn proposals_hash(mut self, v: Byte32) -> Self {
-        self.proposals_hash = v;
+    pub fn proposals_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.proposals_hash = v.into();
         self
     }
-    pub fn extra_hash(mut self, v: Byte32) -> Self {
-        self.extra_hash = v;
+    pub fn extra_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.extra_hash = v.into();
         self
     }
-    pub fn dao(mut self, v: Byte32) -> Self {
-        self.dao = v;
+    pub fn dao<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.dao = v.into();
         self
     }
 }
@@ -8267,12 +8747,18 @@ impl HeaderBuilder {
     pub const TOTAL_SIZE: usize = 208;
     pub const FIELD_SIZES: [usize; 2] = [192, 16];
     pub const FIELD_COUNT: usize = 2;
-    pub fn raw(mut self, v: RawHeader) -> Self {
-        self.raw = v;
+    pub fn raw<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<RawHeader>,
+    {
+        self.raw = v.into();
         self
     }
-    pub fn nonce(mut self, v: Uint128) -> Self {
-        self.nonce = v;
+    pub fn nonce<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint128>,
+    {
+        self.nonce = v.into();
         self
     }
 }
@@ -8524,12 +9010,18 @@ pub struct UncleBlockBuilder {
 }
 impl UncleBlockBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn header(mut self, v: Header) -> Self {
-        self.header = v;
+    pub fn header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.header = v.into();
         self
     }
-    pub fn proposals(mut self, v: ProposalShortIdVec) -> Self {
-        self.proposals = v;
+    pub fn proposals<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.proposals = v.into();
         self
     }
 }
@@ -8828,20 +9320,32 @@ pub struct BlockBuilder {
 }
 impl BlockBuilder {
     pub const FIELD_COUNT: usize = 4;
-    pub fn header(mut self, v: Header) -> Self {
-        self.header = v;
+    pub fn header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.header = v.into();
         self
     }
-    pub fn uncles(mut self, v: UncleBlockVec) -> Self {
-        self.uncles = v;
+    pub fn uncles<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<UncleBlockVec>,
+    {
+        self.uncles = v.into();
         self
     }
-    pub fn transactions(mut self, v: TransactionVec) -> Self {
-        self.transactions = v;
+    pub fn transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<TransactionVec>,
+    {
+        self.transactions = v.into();
         self
     }
-    pub fn proposals(mut self, v: ProposalShortIdVec) -> Self {
-        self.proposals = v;
+    pub fn proposals<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.proposals = v.into();
         self
     }
 }
@@ -9165,24 +9669,39 @@ pub struct BlockV1Builder {
 }
 impl BlockV1Builder {
     pub const FIELD_COUNT: usize = 5;
-    pub fn header(mut self, v: Header) -> Self {
-        self.header = v;
+    pub fn header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.header = v.into();
         self
     }
-    pub fn uncles(mut self, v: UncleBlockVec) -> Self {
-        self.uncles = v;
+    pub fn uncles<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<UncleBlockVec>,
+    {
+        self.uncles = v.into();
         self
     }
-    pub fn transactions(mut self, v: TransactionVec) -> Self {
-        self.transactions = v;
+    pub fn transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<TransactionVec>,
+    {
+        self.transactions = v.into();
         self
     }
-    pub fn proposals(mut self, v: ProposalShortIdVec) -> Self {
-        self.proposals = v;
+    pub fn proposals<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.proposals = v.into();
         self
     }
-    pub fn extension(mut self, v: Bytes) -> Self {
-        self.extension = v;
+    pub fn extension<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.extension = v.into();
         self
     }
 }
@@ -9453,12 +9972,18 @@ pub struct CellbaseWitnessBuilder {
 }
 impl CellbaseWitnessBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn lock(mut self, v: Script) -> Self {
-        self.lock = v;
+    pub fn lock<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Script>,
+    {
+        self.lock = v.into();
         self
     }
-    pub fn message(mut self, v: Bytes) -> Self {
-        self.message = v;
+    pub fn message<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.message = v.into();
         self
     }
 }
@@ -9730,16 +10255,25 @@ pub struct WitnessArgsBuilder {
 }
 impl WitnessArgsBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn lock(mut self, v: BytesOpt) -> Self {
-        self.lock = v;
+    pub fn lock<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
+        self.lock = v.into();
         self
     }
-    pub fn input_type(mut self, v: BytesOpt) -> Self {
-        self.input_type = v;
+    pub fn input_type<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
+        self.input_type = v.into();
         self
     }
-    pub fn output_type(mut self, v: BytesOpt) -> Self {
-        self.output_type = v;
+    pub fn output_type<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
+        self.output_type = v.into();
         self
     }
 }

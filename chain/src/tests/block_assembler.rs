@@ -14,7 +14,7 @@ use ckb_types::{
         TransactionBuilder, TransactionView,
     },
     h256,
-    packed::{Block, CellInput, CellOutput, CellOutputBuilder, CellbaseWitness, OutPoint},
+    packed::{self, Block, CellInput, CellOutput, CellOutputBuilder, CellbaseWitness, OutPoint},
     prelude::*,
 };
 use ckb_verification::{BlockVerifier, HeaderVerifier};
@@ -104,18 +104,18 @@ fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> Block
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let header = HeaderBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp((parent_header.timestamp() + 10).into())
-        .number(number.into())
-        .epoch(epoch.number_with_fraction(number).into())
-        .compact_target(epoch.compact_target().into())
-        .nonce(nonce.into())
+        .timestamp(parent_header.timestamp() + 10)
+        .number(number)
+        .epoch(epoch.number_with_fraction(number))
+        .compact_target(epoch.compact_target())
+        .nonce(nonce)
         .dao(dao)
         .build();
 
     BlockBuilder::default()
         .header(header)
         .transaction(cellbase)
-        .proposal([1; 10].into())
+        .proposal([1; 10])
         .build_unchecked()
 }
 
@@ -124,10 +124,10 @@ fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> TransactionView {
         .input(CellInput::new_cellbase_input(number))
         .output(
             CellOutput::new_builder()
-                .capacity(epoch.block_reward(number).unwrap().into())
+                .capacity(epoch.block_reward(number).unwrap())
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build()
 }
 
@@ -383,7 +383,7 @@ fn build_tx(parent_tx: &TransactionView, inputs: &[u32], outputs_len: usize) -> 
             (0..outputs_len)
                 .map(|_| {
                     CellOutputBuilder::default()
-                        .capacity(per_output_capacity.into())
+                        .capacity(per_output_capacity)
                         .build()
                 })
                 .collect::<Vec<CellOutput>>(),

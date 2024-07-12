@@ -128,10 +128,7 @@ impl Miner {
     fn submit_nonce(&mut self, pow_hash: Byte32, work: Work, nonce: u128) {
         self.notify_workers(WorkerMessage::Stop);
         let raw_header = work.block.header().raw();
-        let header = Header::new_builder()
-            .raw(raw_header)
-            .nonce(nonce.into())
-            .build();
+        let header = Header::new_builder().raw(raw_header).nonce(nonce).build();
         let block = work
             .block
             .as_advanced_builder()

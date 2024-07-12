@@ -60,9 +60,9 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
                 }
             }
             let content = packed::BlockFilterHashes::new_builder()
-                .start_number(start_number.into())
+                .start_number(start_number)
                 .parent_block_filter_hash(parent_block_filter_hash)
-                .block_filter_hashes(block_filter_hashes.into())
+                .block_filter_hashes(block_filter_hashes)
                 .build();
 
             let message = packed::BlockFilterMessage::new_builder()

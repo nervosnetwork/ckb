@@ -241,7 +241,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer> RewardVerifier<'a, 'b, CS> {
 
         let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
         let output = CellOutput::new_builder()
-            .capacity(block_reward.total.into())
+            .capacity(block_reward.total)
             .lock(target_lock.clone())
             .build();
         let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;

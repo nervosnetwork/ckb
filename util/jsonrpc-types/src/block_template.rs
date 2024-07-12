@@ -115,17 +115,17 @@ impl From<BlockTemplate> for packed::Block {
             ..
         } = block_template;
         let raw = packed::RawHeader::new_builder()
-            .version(version.into())
-            .compact_target(compact_target.into())
-            .parent_hash(parent_hash.into())
-            .timestamp(current_time.into())
-            .number(number.into())
-            .epoch(epoch.into())
-            .dao(dao.into())
+            .version(version)
+            .compact_target(compact_target)
+            .parent_hash(parent_hash)
+            .timestamp(current_time)
+            .number(number)
+            .epoch(epoch)
+            .dao(dao)
             .build();
         let header = packed::Header::new_builder().raw(raw).build();
         let txs = packed::TransactionVec::new_builder()
-            .push(cellbase.into())
+            .push(cellbase)
             .extend(transactions.into_iter().map(|tx| tx.into()))
             .build();
         if let Some(extension) = extension {
@@ -136,16 +136,14 @@ impl From<BlockTemplate> for packed::Block {
                     uncles
                         .into_iter()
                         .map(|u| u.into())
-                        .collect::<Vec<packed::UncleBlock>>()
-                        .into(),
+                        .collect::<Vec<packed::UncleBlock>>(),
                 )
                 .transactions(txs)
                 .proposals(
                     proposals
                         .into_iter()
                         .map(|p| p.into())
-                        .collect::<Vec<packed::ProposalShortId>>()
-                        .into(),
+                        .collect::<Vec<packed::ProposalShortId>>(),
                 )
                 .extension(extension)
                 .build()
@@ -157,16 +155,14 @@ impl From<BlockTemplate> for packed::Block {
                     uncles
                         .into_iter()
                         .map(|u| u.into())
-                        .collect::<Vec<packed::UncleBlock>>()
-                        .into(),
+                        .collect::<Vec<packed::UncleBlock>>(),
                 )
                 .transactions(txs)
                 .proposals(
                     proposals
                         .into_iter()
                         .map(|p| p.into())
-                        .collect::<Vec<packed::ProposalShortId>>()
-                        .into(),
+                        .collect::<Vec<packed::ProposalShortId>>(),
                 )
                 .build()
         }
@@ -197,13 +193,12 @@ impl From<UncleTemplate> for packed::UncleBlock {
             proposals, header, ..
         } = template;
         packed::UncleBlock::new_builder()
-            .header(header.into())
+            .header(header)
             .proposals(
                 proposals
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::ProposalShortId>>()
-                    .into(),
+                    .collect::<Vec<packed::ProposalShortId>>(),
             )
             .build()
     }

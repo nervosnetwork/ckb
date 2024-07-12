@@ -85,19 +85,16 @@ impl Spec for UncleInheritFromForkUncle {
 
         let uncle_child = uncle_parent
             .as_advanced_builder()
-            .number((uncle_parent.number() + 1).into())
+            .number(uncle_parent.number() + 1)
             .parent_hash(uncle_parent.hash())
-            .timestamp((uncle_parent.timestamp() + 1).into())
-            .epoch(
-                {
-                    let parent_epoch = uncle_parent.epoch();
-                    let epoch_number = parent_epoch.number();
-                    let epoch_index = parent_epoch.index();
-                    let epoch_length = parent_epoch.length();
-                    EpochNumberWithFraction::new(epoch_number, epoch_index + 1, epoch_length)
-                }
-                .into(),
-            )
+            .timestamp(uncle_parent.timestamp() + 1)
+            .epoch({
+                let parent_epoch = uncle_parent.epoch();
+                let epoch_number = parent_epoch.number();
+                let epoch_index = parent_epoch.index();
+                let epoch_length = parent_epoch.length();
+                EpochNumberWithFraction::new(epoch_number, epoch_index + 1, epoch_length)
+            })
             .build();
 
         let longer_fork = (0..=target_node.get_tip_block_number()).map(|_| {

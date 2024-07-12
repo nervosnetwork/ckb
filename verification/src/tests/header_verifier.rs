@@ -40,7 +40,7 @@ pub fn test_version() {
         .build();
 
     let header = HeaderBuilder::default()
-        .version((consensus.block_version() + 1).into())
+        .version(consensus.block_version() + 1)
         .build();
     let verifier = VersionVerifier::new(&header, &consensus);
 
@@ -53,8 +53,8 @@ pub fn test_version() {
     );
     let epoch = EpochNumberWithFraction::new(10, 40, 1000);
     let header = HeaderBuilder::default()
-        .version((consensus.block_version() + 1).into())
-        .epoch(epoch.into())
+        .version(consensus.block_version() + 1)
+        .epoch(epoch)
         .build();
     let verifier = VersionVerifier::new(&header, &consensus);
     assert!(verifier.verify().is_ok());
@@ -69,7 +69,7 @@ fn test_timestamp() {
     let timestamp = unix_time_as_millis() + 1;
     let header = HeaderBuilder::new_with_number(100)
         .parent_hash(parent_hash)
-        .timestamp(timestamp.into())
+        .timestamp(timestamp)
         .build();
     let timestamp_verifier = TimestampVerifier::new(
         &fake_block_median_time_context,
@@ -91,7 +91,7 @@ fn test_timestamp_too_old() {
     let timestamp = unix_time_as_millis() - 1;
     let header = HeaderBuilder::new_with_number(100)
         .parent_hash(parent_hash)
-        .timestamp(timestamp.into())
+        .timestamp(timestamp)
         .build();
     let timestamp_verifier = TimestampVerifier::new(
         &fake_block_median_time_context,
@@ -119,7 +119,7 @@ fn test_timestamp_too_new() {
     let timestamp = max + 1;
     let header = HeaderBuilder::new_with_number(100)
         .parent_hash(parent_hash)
-        .timestamp(timestamp.into())
+        .timestamp(timestamp)
         .build();
     let timestamp_verifier = TimestampVerifier::new(
         &fake_block_median_time_context,
@@ -161,9 +161,7 @@ fn test_epoch() {
         ];
 
         for epoch_malformed in epochs_malformed {
-            let malformed = HeaderBuilder::default()
-                .epoch(epoch_malformed.into())
-                .build();
+            let malformed = HeaderBuilder::default().epoch(epoch_malformed).build();
             let result = EpochVerifier::new(parent, &malformed).verify();
             assert!(result.is_err(), "input: {epoch_malformed:#}");
             assert_error_eq!(
@@ -207,7 +205,7 @@ fn test_epoch() {
         ];
 
         for (parent, epoch_current) in epochs {
-            let current = HeaderBuilder::default().epoch(epoch_current.into()).build();
+            let current = HeaderBuilder::default().epoch(epoch_current).build();
 
             let result = EpochVerifier::new(parent, &current).verify();
             assert!(result.is_err(), "current: {current:#}, parent: {parent:#}");
@@ -236,7 +234,7 @@ fn test_epoch() {
             ),
         ];
         for (parent, epoch_current) in epochs {
-            let current = HeaderBuilder::default().epoch(epoch_current.into()).build();
+            let current = HeaderBuilder::default().epoch(epoch_current).build();
 
             let result = EpochVerifier::new(parent, &current).verify();
             assert!(result.is_ok(), "current: {current:#}, parent: {parent:#}");

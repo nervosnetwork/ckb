@@ -28,11 +28,11 @@ fn test_hint_instructions() {
         load_cell_from_path("testdata/cadd_hint_lock");
 
     let always_success_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(always_success_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(always_success_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -79,12 +79,12 @@ fn test_b_extension() {
     let (cpop_lock_cell, cpop_lock_data_hash) = load_cell_from_path("testdata/cpop_lock");
 
     let cpop_lock_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(cpop_lock_data_hash)
         .args(args)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(cpop_lock_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -128,11 +128,11 @@ fn test_cycles_difference() {
         load_cell_from_path("testdata/mop_adc_lock");
 
     let always_success_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(always_success_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(always_success_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -167,11 +167,11 @@ fn check_current_cycles() {
         load_cell_from_path("testdata/current_cycles");
 
     let current_cycles_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(current_cycles_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(current_cycles_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -199,11 +199,11 @@ fn check_current_cycles_with_snapshot() {
         load_cell_from_path("testdata/current_cycles_with_snapshot");
 
     let current_cycles_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(current_cycles_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(current_cycles_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -244,11 +244,11 @@ fn check_vm_version() {
     let (vm_version_cell, vm_version_data_hash) = load_cell_from_path("testdata/vm_version");
 
     let vm_version_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(vm_version_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(vm_version_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -276,11 +276,11 @@ fn check_vm_version_with_snapshot() {
         load_cell_from_path("testdata/vm_version_with_snapshot");
 
     let vm_version_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(vm_version_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(vm_version_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -323,11 +323,11 @@ fn check_exec_from_cell_data() {
     let (exec_callee_cell, _exec_callee_data_hash) = load_cell_from_path("testdata/exec_callee");
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(exec_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -356,11 +356,11 @@ fn check_exec_from_witness() {
     let (exec_callee_cell, _exec_caller_data_hash) = load_cell_from_path("testdata/exec_callee");
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(exec_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -399,11 +399,11 @@ fn check_exec_wrong_callee_format() {
         load_cell_from_slice(&[0x00, 0x01, 0x02, 0x03]);
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(exec_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -433,11 +433,11 @@ async fn async_check_exec_wrong_callee_format() {
         load_cell_from_slice(&[0x00, 0x01, 0x02, 0x03]);
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100))
         .lock(exec_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -469,11 +469,11 @@ fn check_exec_big_offset_length() {
         load_cell_from_slice(&[0x00, 0x01, 0x02, 0x03]);
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(exec_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
@@ -503,22 +503,22 @@ fn _check_type_id_one_in_one_out_resume(step_cycles: Cycle) -> Result<(), TestCa
     let always_success_out_point = OutPoint::new(h256!("0x11").into(), 0);
 
     let type_id_script = Script::new_builder()
-        .args(Bytes::from(h256!("0x1111").as_ref()).into())
-        .code_hash(TYPE_ID_CODE_HASH.into())
-        .hash_type(ScriptHashType::Type.into())
+        .args(Bytes::from(h256!("0x1111").as_ref()))
+        .code_hash(TYPE_ID_CODE_HASH)
+        .hash_type(ScriptHashType::Type)
         .build();
 
     let input = CellInput::new(OutPoint::new(h256!("0x1234").into(), 8), 0);
     let input_cell = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(1000).into())
+        .capacity(capacity_bytes!(1000))
         .lock(always_success_script.clone())
-        .type_(Some(type_id_script.clone()).into())
+        .type_(Some(type_id_script.clone()))
         .build();
 
     let output_cell = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(990).into())
+        .capacity(capacity_bytes!(990))
         .lock(always_success_script.clone())
-        .type_(Some(type_id_script).into())
+        .type_(Some(type_id_script))
         .build();
 
     let transaction = TransactionBuilder::default()
@@ -653,22 +653,22 @@ fn _check_type_id_one_in_one_out_resume_with_state(
     let always_success_out_point = OutPoint::new(h256!("0x11").into(), 0);
 
     let type_id_script = Script::new_builder()
-        .args(Bytes::from(h256!("0x1111").as_ref()).into())
-        .code_hash(TYPE_ID_CODE_HASH.into())
-        .hash_type(ScriptHashType::Type.into())
+        .args(Bytes::from(h256!("0x1111").as_ref()))
+        .code_hash(TYPE_ID_CODE_HASH)
+        .hash_type(ScriptHashType::Type)
         .build();
 
     let input = CellInput::new(OutPoint::new(h256!("0x1234").into(), 8), 0);
     let input_cell = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(1000).into())
+        .capacity(capacity_bytes!(1000))
         .lock(always_success_script.clone())
-        .type_(Some(type_id_script.clone()).into())
+        .type_(Some(type_id_script.clone()))
         .build();
 
     let output_cell = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(990).into())
+        .capacity(capacity_bytes!(990))
         .lock(always_success_script.clone())
-        .type_(Some(type_id_script).into())
+        .type_(Some(type_id_script))
         .build();
 
     let transaction = TransactionBuilder::default()
@@ -1052,12 +1052,12 @@ fn load_code_into_global() {
             load_cell_from_path("testdata/load_is_even_into_global");
 
         let dyn_lock_script = Script::new_builder()
-            .hash_type(script_version.data_hash_type().into())
+            .hash_type(script_version.data_hash_type())
             .code_hash(dyn_lock_data_hash)
             .args(args)
             .build();
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).into())
+            .capacity(capacity_bytes!(100))
             .lock(dyn_lock_script)
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
@@ -1108,12 +1108,12 @@ fn load_code_with_snapshot() {
             load_cell_from_path("testdata/load_is_even_with_snapshot");
 
         let dyn_lock_script = Script::new_builder()
-            .hash_type(script_version.data_hash_type().into())
+            .hash_type(script_version.data_hash_type())
             .code_hash(dyn_lock_data_hash)
             .args(args)
             .build();
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).into())
+            .capacity(capacity_bytes!(100))
             .lock(dyn_lock_script)
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
@@ -1206,12 +1206,12 @@ fn load_code_with_snapshot_more_times() {
         };
 
         let lock_script = Script::new_builder()
-            .hash_type(script_version.data_hash_type().into())
+            .hash_type(script_version.data_hash_type())
             .code_hash(lock_data_hash)
             .args(args)
             .build();
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).into())
+            .capacity(capacity_bytes!(100))
             .lock(lock_script)
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
@@ -1343,12 +1343,12 @@ fn test_exec(
             always_success_cell();
 
         let exec_caller_script = Script::new_builder()
-            .hash_type(script_version.data_hash_type().into())
+            .hash_type(script_version.data_hash_type())
             .code_hash(exec_caller_data_hash)
             .args(args)
             .build();
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).into())
+            .capacity(capacity_bytes!(100))
             .lock(exec_caller_script.clone())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
@@ -1383,8 +1383,8 @@ fn test_exec(
             ExecFrom::GroupOutputWitness => {
                 let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
                 let output = CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100).into())
-                    .type_(Some(exec_caller_script).into())
+                    .capacity(capacity_bytes!(100))
+                    .type_(Some(exec_caller_script))
                     .build();
                 let tx = TransactionBuilder::default()
                     .output(output)
@@ -1394,7 +1394,7 @@ fn test_exec(
             }
             ExecFrom::TxInputCell => {
                 let callee_output = CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000).into())
+                    .capacity(capacity_bytes!(1000))
                     .lock(always_success_script.clone())
                     .build();
                 let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
@@ -1407,9 +1407,9 @@ fn test_exec(
             }
             ExecFrom::GroupInputCell => {
                 let caller_output = CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100).into())
+                    .capacity(capacity_bytes!(100))
                     .lock(exec_caller_script)
-                    .type_(Some(always_success_script.clone()).into())
+                    .type_(Some(always_success_script.clone()))
                     .build();
                 let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
                 let caller_cell =
@@ -1422,25 +1422,25 @@ fn test_exec(
             ExecFrom::TxOutputCell => {
                 let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
                 let callee_output = CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100).into())
+                    .capacity(capacity_bytes!(100))
                     .lock(always_success_script.clone())
                     .build();
                 let tx = TransactionBuilder::default()
                     .input(input)
                     .output(callee_output)
-                    .output_data(exec_callee_cell_data.into())
+                    .output_data(exec_callee_cell_data)
                     .build();
                 (tx, vec![create_dummy_cell(output)])
             }
             ExecFrom::GroupOutputCell => {
                 let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
                 let callee_output = CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100).into())
-                    .type_(Some(exec_caller_script).into())
+                    .capacity(capacity_bytes!(100))
+                    .type_(Some(exec_caller_script))
                     .build();
                 let tx = TransactionBuilder::default()
                     .output(callee_output)
-                    .output_data(exec_callee_cell_data.into())
+                    .output_data(exec_callee_cell_data)
                     .build();
                 (tx, vec![])
             }
@@ -1798,16 +1798,13 @@ fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
         .out_point(dep_out_point.clone())
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(Capacity::bytes(data.len()).unwrap().into())
-        .type_(
-            Some(
-                Script::new_builder()
-                    .code_hash(h256!("0x123456abcd90").into())
-                    .hash_type(ScriptHashType::Data.into())
-                    .build(),
-            )
-            .into(),
-        )
+        .capacity(Capacity::bytes(data.len()).unwrap())
+        .type_(Some(
+            Script::new_builder()
+                .code_hash(h256!("0x123456abcd90"))
+                .hash_type(ScriptHashType::Data)
+                .build(),
+        ))
         .build();
     let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
     let dep_cell = CellMetaBuilder::from_cell_output(output, data.clone())
@@ -1820,16 +1817,13 @@ fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
         .out_point(dep_out_point2.clone())
         .build();
     let output2 = CellOutputBuilder::default()
-        .capacity(Capacity::bytes(data.len()).unwrap().into())
-        .type_(
-            Some(
-                Script::new_builder()
-                    .code_hash(h256!("0x123456abcd90").into())
-                    .hash_type(ScriptHashType::Data.into())
-                    .build(),
-            )
-            .into(),
-        )
+        .capacity(Capacity::bytes(data.len()).unwrap())
+        .type_(Some(
+            Script::new_builder()
+                .code_hash(h256!("0x123456abcd90"))
+                .hash_type(ScriptHashType::Data)
+                .build(),
+        ))
         .build();
     let dep_cell2 = CellMetaBuilder::from_cell_output(output2, data)
         .transaction_info(default_transaction_info())
@@ -1837,9 +1831,9 @@ fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
         .build();
 
     let script = Script::new_builder()
-        .args(Bytes::from(args).into())
+        .args(Bytes::from(args))
         .code_hash(type_hash)
-        .hash_type(ScriptHashType::Type.into())
+        .hash_type(ScriptHashType::Type)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
 
@@ -1850,7 +1844,7 @@ fn check_signature_referenced_via_type_hash_ok_with_multiple_matches() {
         .build();
 
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(script)
         .build();
     let dummy_cell = create_dummy_cell(output);
@@ -1880,11 +1874,11 @@ fn check_exec_callee_pause() {
         load_cell_from_path("testdata/exec_callee_pause");
 
     let exec_caller_script = Script::new_builder()
-        .hash_type(script_version.data_hash_type().into())
+        .hash_type(script_version.data_hash_type())
         .code_hash(exec_caller_data_hash)
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100))
         .lock(exec_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);

@@ -147,7 +147,7 @@ impl Spec for ChainFork3 {
             let old_capacity: Capacity = old_output.capacity().into();
             let new_output = old_output
                 .as_builder()
-                .capacity(old_capacity.safe_add(capacity_bytes!(1)).unwrap().into())
+                .capacity(old_capacity.safe_add(capacity_bytes!(1)).unwrap())
                 .build();
             transaction
                 .as_advanced_builder()
@@ -214,7 +214,7 @@ impl Spec for ChainFork4 {
                 .unwrap()
                 .to_entity()
                 .as_builder()
-                .capacity(capacity_bytes!(1).into())
+                .capacity(capacity_bytes!(1))
                 .build();
             transaction
                 .as_advanced_builder()
@@ -402,11 +402,7 @@ impl Spec for ChainFork7 {
         let block = node1.new_block(None, None, None);
         let transaction = node1.new_transaction_spend_tip_cellbase();
         let input = transaction.inputs().as_reader().get(0).unwrap().to_entity();
-        let previous_output = input
-            .previous_output()
-            .as_builder()
-            .index(999u32.into())
-            .build();
+        let previous_output = input.previous_output().as_builder().index(999u32).build();
         let input = input.as_builder().previous_output(previous_output).build();
         let invalid_transaction = transaction
             .as_advanced_builder()
@@ -576,7 +572,7 @@ impl Spec for ForksContainSameUncle {
         let block_b = node_b
             .new_block_builder(None, None, None)
             .set_uncles(vec![uncle.as_uncle()])
-            .timestamp((block_a.timestamp() + 2).into())
+            .timestamp(block_a.timestamp() + 2)
             .build();
         node_a.submit_block(&block_a);
         node_b.submit_block(&block_b);

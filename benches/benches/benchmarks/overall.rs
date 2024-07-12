@@ -92,21 +92,21 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .map(|i| {
             let data = Bytes::from(i.to_le_bytes().to_vec());
             let output = CellOutput::new_builder()
-                .capacity(capacity_bytes!(50_000).into())
+                .capacity(capacity_bytes!(50_000))
                 .lock(secp_script.clone())
                 .build();
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0))
                 .output(output.clone())
                 .output(output)
-                .output_data(data.clone().into())
-                .output_data(data.into())
+                .output_data(&data)
+                .output_data(&data)
                 .build()
         })
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(1000u64)).into())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)))
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)
@@ -207,7 +207,7 @@ fn bench(c: &mut Criterion) {
                             let raw_header = raw_block.header().raw();
                             let header = Header::new_builder()
                                 .raw(raw_header)
-                                .nonce(random::<u128>().into())
+                                .nonce(random::<u128>())
                                 .build();
                             let block = raw_block.as_builder().header(header).build().into_view();
 

@@ -36,7 +36,7 @@ impl MockChain {
         let always_success_tx = TransactionView::new_advanced_builder()
             .input(packed::CellInput::new(packed::OutPoint::null(), 0))
             .output(always_success_cell.clone())
-            .output_data(always_success_cell_data.into())
+            .output_data(always_success_cell_data)
             .witness(always_success_script.clone().into_witness())
             .build();
         let always_success_out_point = packed::OutPoint::new(always_success_tx.hash(), 0);
@@ -48,8 +48,8 @@ impl MockChain {
 
         let (shared, mut pack) = {
             let genesis = BlockView::new_advanced_builder()
-                .timestamp(unix_time_as_millis().into())
-                .compact_target(DIFF_TWO.into())
+                .timestamp(unix_time_as_millis())
+                .compact_target(DIFF_TWO)
                 .transaction(always_success_tx)
                 .dao(dao)
                 .build();
@@ -202,7 +202,7 @@ impl MockChain {
         let header_dep = block.hash();
         let (_, _, always_success_script) = always_success_cell();
         let output = packed::CellOutput::new_builder()
-            .capacity(output_capacity.into())
+            .capacity(output_capacity)
             .lock(always_success_script.to_owned())
             .build();
         TransactionView::new_advanced_builder()
@@ -210,7 +210,7 @@ impl MockChain {
             .header_dep(header_dep)
             .input(input)
             .output(output)
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .build()
     }
 }

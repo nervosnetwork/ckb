@@ -105,9 +105,9 @@ impl From<Script> for packed::Script {
         } = json;
         let hash_type: core::ScriptHashType = hash_type.into();
         packed::Script::new_builder()
-            .args(args.into_bytes().into())
-            .code_hash(code_hash.into())
-            .hash_type(hash_type.into())
+            .args(args.into_bytes())
+            .code_hash(code_hash)
+            .hash_type(hash_type)
             .build()
     }
 }
@@ -182,8 +182,8 @@ impl From<CellOutput> for packed::CellOutput {
         }
         .build();
         packed::CellOutput::new_builder()
-            .capacity(capacity.into())
-            .lock(lock.into())
+            .capacity(capacity)
+            .lock(lock)
             .type_(type_)
             .build()
     }
@@ -225,8 +225,8 @@ impl From<OutPoint> for packed::OutPoint {
         let OutPoint { tx_hash, index } = json;
         let index = index.value();
         packed::OutPoint::new_builder()
-            .tx_hash(tx_hash.into())
-            .index(index.into())
+            .tx_hash(tx_hash)
+            .index(index)
             .build()
     }
 }
@@ -273,8 +273,8 @@ impl From<CellInput> for packed::CellInput {
             since,
         } = json;
         packed::CellInput::new_builder()
-            .previous_output(previous_output.into())
-            .since(since.into())
+            .previous_output(previous_output)
+            .since(since)
             .build()
     }
 }
@@ -359,8 +359,8 @@ impl From<CellDep> for packed::CellDep {
         } = json;
         let dep_type: core::DepType = dep_type.into();
         packed::CellDep::new_builder()
-            .out_point(out_point.into())
-            .dep_type(dep_type.into())
+            .out_point(out_point)
+            .dep_type(dep_type)
             .build()
     }
 }
@@ -506,41 +506,36 @@ impl From<Transaction> for packed::Transaction {
             outputs_data,
         } = json;
         let raw = packed::RawTransaction::new_builder()
-            .version(version.into())
+            .version(version)
             .cell_deps(
                 cell_deps
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::CellDep>>()
-                    .into(),
+                    .collect::<Vec<packed::CellDep>>(),
             )
             .header_deps(
                 header_deps
                     .iter()
                     .map(Pack::pack)
-                    .collect::<Vec<packed::Byte32>>()
-                    .into(),
+                    .collect::<Vec<packed::Byte32>>(),
             )
             .inputs(
                 inputs
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::CellInput>>()
-                    .into(),
+                    .collect::<Vec<packed::CellInput>>(),
             )
             .outputs(
                 outputs
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::CellOutput>>()
-                    .into(),
+                    .collect::<Vec<packed::CellOutput>>(),
             )
             .outputs_data(
                 outputs_data
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::Bytes>>()
-                    .into(),
+                    .collect::<Vec<packed::Bytes>>(),
             )
             .build();
         packed::Transaction::new_builder()
@@ -549,8 +544,7 @@ impl From<Transaction> for packed::Transaction {
                 witnesses
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::Bytes>>()
-                    .into(),
+                    .collect::<Vec<packed::Bytes>>(),
             )
             .build()
     }
@@ -867,21 +861,18 @@ impl From<Header> for packed::Header {
             nonce,
         } = json;
         let raw = packed::RawHeader::new_builder()
-            .version(version.into())
-            .parent_hash(parent_hash.into())
-            .timestamp(timestamp.into())
-            .number(number.into())
-            .epoch(epoch.into())
-            .transactions_root(transactions_root.into())
-            .proposals_hash(proposals_hash.into())
-            .compact_target(compact_target.into())
-            .extra_hash(extra_hash.into())
-            .dao(dao.into())
+            .version(version)
+            .parent_hash(parent_hash)
+            .timestamp(timestamp)
+            .number(number)
+            .epoch(epoch)
+            .transactions_root(transactions_root)
+            .proposals_hash(proposals_hash)
+            .compact_target(compact_target)
+            .extra_hash(extra_hash)
+            .dao(dao)
             .build();
-        packed::Header::new_builder()
-            .raw(raw)
-            .nonce(nonce.into())
-            .build()
+        packed::Header::new_builder().raw(raw).nonce(nonce).build()
     }
 }
 
@@ -957,13 +948,12 @@ impl From<UncleBlock> for packed::UncleBlock {
     fn from(json: UncleBlock) -> Self {
         let UncleBlock { header, proposals } = json;
         packed::UncleBlock::new_builder()
-            .header(header.into())
+            .header(header)
             .proposals(
                 proposals
                     .into_iter()
                     .map(Into::into)
-                    .collect::<Vec<packed::ProposalShortId>>()
-                    .into(),
+                    .collect::<Vec<packed::ProposalShortId>>(),
             )
             .build()
     }
@@ -1119,54 +1109,48 @@ impl From<Block> for packed::Block {
         if let Some(extension) = extension {
             let extension: packed::Bytes = extension.into();
             packed::BlockV1::new_builder()
-                .header(header.into())
+                .header(header)
                 .uncles(
                     uncles
                         .into_iter()
                         .map(Into::into)
-                        .collect::<Vec<packed::UncleBlock>>()
-                        .into(),
+                        .collect::<Vec<packed::UncleBlock>>(),
                 )
                 .transactions(
                     transactions
                         .into_iter()
                         .map(Into::into)
-                        .collect::<Vec<packed::Transaction>>()
-                        .into(),
+                        .collect::<Vec<packed::Transaction>>(),
                 )
                 .proposals(
                     proposals
                         .into_iter()
                         .map(Into::into)
-                        .collect::<Vec<packed::ProposalShortId>>()
-                        .into(),
+                        .collect::<Vec<packed::ProposalShortId>>(),
                 )
                 .extension(extension)
                 .build()
                 .as_v0()
         } else {
             packed::Block::new_builder()
-                .header(header.into())
+                .header(header)
                 .uncles(
                     uncles
                         .into_iter()
                         .map(Into::into)
-                        .collect::<Vec<packed::UncleBlock>>()
-                        .into(),
+                        .collect::<Vec<packed::UncleBlock>>(),
                 )
                 .transactions(
                     transactions
                         .into_iter()
                         .map(Into::into)
-                        .collect::<Vec<packed::Transaction>>()
-                        .into(),
+                        .collect::<Vec<packed::Transaction>>(),
                 )
                 .proposals(
                     proposals
                         .into_iter()
                         .map(Into::into)
-                        .collect::<Vec<packed::ProposalShortId>>()
-                        .into(),
+                        .collect::<Vec<packed::ProposalShortId>>(),
                 )
                 .build()
         }

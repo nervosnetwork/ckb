@@ -22,7 +22,7 @@ impl Spec for DifferentTxsWithSameInputWithOutRBF {
 
         // Set tx2 fee to a higher value, tx1 capacity is 100, set tx2 capacity to 80 for +20 fee.
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80).into())
+            .capacity(capacity_bytes!(80))
             .build();
 
         let tx2 = tx2_temp

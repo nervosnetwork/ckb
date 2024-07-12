@@ -281,7 +281,7 @@ impl BlockFetchCMD {
 
     fn send_getblocks(v_fetch: Vec<packed::Byte32>, nc: &ServiceControl, peer: PeerIndex) {
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().into())
+            .block_hashes(v_fetch.clone())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
 
@@ -790,7 +790,7 @@ impl Synchronizer {
         peer: PeerIndex,
     ) {
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().into())
+            .block_hashes(v_fetch.clone())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
 

@@ -340,7 +340,7 @@ impl MinerRpc for MinerRpcImpl {
             let tip_header = packed::VerifiableHeader::new_builder()
                 .header(header.data())
                 .uncles_hash(block.calc_uncles_hash())
-                .extension(block.extension().into())
+                .extension(block.extension())
                 .parent_chain_root(parent_chain_root)
                 .build();
             let light_client_message = {

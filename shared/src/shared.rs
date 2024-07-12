@@ -277,12 +277,12 @@ impl Shared {
     fn compact_block_body(&self, start: &packed::Byte32, end: &packed::Byte32) {
         let start_t = packed::TransactionKey::new_builder()
             .block_hash(start.clone())
-            .index(0u32.into())
+            .index(0u32)
             .build();
 
         let end_t = packed::TransactionKey::new_builder()
             .block_hash(end.clone())
-            .index(TX_INDEX_UPPER_BOUND.into())
+            .index(TX_INDEX_UPPER_BOUND)
             .build();
 
         if let Err(e) = self.store.compact_range(

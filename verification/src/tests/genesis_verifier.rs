@@ -9,8 +9,8 @@ pub fn test_genesis_non_zero_number() {
     let genesis_block = Consensus::default().genesis_block().to_owned();
     let genesis_block = genesis_block
         .as_advanced_builder()
-        .number(42.into())
-        .epoch(EpochNumberWithFraction::from_full_value(0).into())
+        .number(42)
+        .epoch(EpochNumberWithFraction::from_full_value(0))
         .build();
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
@@ -30,7 +30,7 @@ pub fn test_genesis_non_zero_parent_hash() {
     let genesis_block = Consensus::default().genesis_block().to_owned();
     let genesis_block = genesis_block
         .as_advanced_builder()
-        .parent_hash([42u8; 32].into())
+        .parent_hash([42u8; 32])
         .build();
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)

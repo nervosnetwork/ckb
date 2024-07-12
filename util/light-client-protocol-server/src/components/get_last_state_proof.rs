@@ -162,7 +162,7 @@ impl<'a> BlockSampler<'a> {
                 let header = packed::VerifiableHeader::new_builder()
                     .header(ancestor_header.data())
                     .uncles_hash(uncles_hash)
-                    .extension(Into::into(extension))
+                    .extension(extension)
                     .parent_chain_root(parent_chain_root)
                     .build();
 

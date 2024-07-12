@@ -800,7 +800,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
 
         let tx_hash = tx.hash();
         match submit_tx.unwrap() {
-            Ok(_) => Ok(tx_hash.unpack()),
+            Ok(_) => Ok(tx_hash.into()),
             Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
         }
     }

@@ -32,18 +32,16 @@ impl DiscoveryMessage {
                 listen_port,
                 required_flags,
             } => {
-                let version = version.into();
-                let count = count.into();
                 let listen_port = packed::PortOpt::new_builder()
                     .set(listen_port.map(|port| {
                         let port_le = port.to_le_bytes();
                         packed::Uint16::new_builder()
-                            .nth0(port_le[0].into())
-                            .nth1(port_le[1].into())
+                            .nth0(port_le[0])
+                            .nth1(port_le[1])
                             .build()
                     }))
                     .build();
-                let required_flags = required_flags.bits().into();
+                let required_flags = required_flags.bits();
                 let get_node = packed::GetNodes2::new_builder()
                     .listen_port(listen_port)
                     .count(count)
@@ -70,7 +68,7 @@ impl DiscoveryMessage {
                         )
                     }
                     let bytes_vec = packed::BytesVec::new_builder().set(vec_addrs).build();
-                    let flags = item.flags.bits().into();
+                    let flags = item.flags.bits();
                     let node = packed::Node2::new_builder()
                         .addresses(bytes_vec)
                         .flags(flags)

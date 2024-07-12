@@ -513,8 +513,11 @@ pub struct PingMessageBuilder {
 }
 impl PingMessageBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn payload(mut self, v: PingPayload) -> Self {
-        self.payload = v;
+    pub fn payload<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<PingPayload>,
+    {
+        self.payload = v.into();
         self
     }
 }
@@ -746,8 +749,11 @@ pub struct PingBuilder {
 }
 impl PingBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn nonce(mut self, v: Uint32) -> Self {
-        self.nonce = v;
+    pub fn nonce<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.nonce = v.into();
         self
     }
 }
@@ -979,8 +985,11 @@ pub struct PongBuilder {
 }
 impl PongBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn nonce(mut self, v: Uint32) -> Self {
-        self.nonce = v;
+    pub fn nonce<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.nonce = v.into();
         self
     }
 }
@@ -1239,18 +1248,24 @@ impl NodeVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Node) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Node>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Node>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Node) -> Option<Node> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Node>
+    where
+        T: ::core::convert::Into<Node>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for NodeVecBuilder {
@@ -1587,18 +1602,24 @@ impl Node2VecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Node2) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Node2>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Node2>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Node2) -> Option<Node2> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Node2>
+    where
+        T: ::core::convert::Into<Node2>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for Node2VecBuilder {
@@ -1851,16 +1872,25 @@ impl Uint16Builder {
     pub const TOTAL_SIZE: usize = 2;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 2;
-    pub fn set(mut self, v: [Byte; 2]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 2]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
 }
@@ -2067,8 +2097,11 @@ impl<'r> molecule::prelude::Reader<'r> for PortOptReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct PortOptBuilder(pub(crate) Option<Uint16>);
 impl PortOptBuilder {
-    pub fn set(mut self, v: Option<Uint16>) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Option<Uint16>>,
+    {
+        self.0 = v.into();
         self
     }
 }
@@ -2612,8 +2645,11 @@ pub struct DiscoveryMessageBuilder {
 }
 impl DiscoveryMessageBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn payload(mut self, v: DiscoveryPayload) -> Self {
-        self.payload = v;
+    pub fn payload<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<DiscoveryPayload>,
+    {
+        self.payload = v.into();
         self
     }
 }
@@ -2882,16 +2918,25 @@ pub struct GetNodesBuilder {
 }
 impl GetNodesBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn version(mut self, v: Uint32) -> Self {
-        self.version = v;
+    pub fn version<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.version = v.into();
         self
     }
-    pub fn count(mut self, v: Uint32) -> Self {
-        self.count = v;
+    pub fn count<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.count = v.into();
         self
     }
-    pub fn listen_port(mut self, v: PortOpt) -> Self {
-        self.listen_port = v;
+    pub fn listen_port<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<PortOpt>,
+    {
+        self.listen_port = v.into();
         self
     }
 }
@@ -3187,20 +3232,32 @@ pub struct GetNodes2Builder {
 }
 impl GetNodes2Builder {
     pub const FIELD_COUNT: usize = 4;
-    pub fn version(mut self, v: Uint32) -> Self {
-        self.version = v;
+    pub fn version<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.version = v.into();
         self
     }
-    pub fn count(mut self, v: Uint32) -> Self {
-        self.count = v;
+    pub fn count<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.count = v.into();
         self
     }
-    pub fn listen_port(mut self, v: PortOpt) -> Self {
-        self.listen_port = v;
+    pub fn listen_port<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<PortOpt>,
+    {
+        self.listen_port = v.into();
         self
     }
-    pub fn required_flags(mut self, v: Uint64) -> Self {
-        self.required_flags = v;
+    pub fn required_flags<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.required_flags = v.into();
         self
     }
 }
@@ -3463,12 +3520,18 @@ pub struct NodesBuilder {
 }
 impl NodesBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn announce(mut self, v: Bool) -> Self {
-        self.announce = v;
+    pub fn announce<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bool>,
+    {
+        self.announce = v.into();
         self
     }
-    pub fn items(mut self, v: NodeVec) -> Self {
-        self.items = v;
+    pub fn items<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<NodeVec>,
+    {
+        self.items = v.into();
         self
     }
 }
@@ -3723,12 +3786,18 @@ pub struct Nodes2Builder {
 }
 impl Nodes2Builder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn announce(mut self, v: Bool) -> Self {
-        self.announce = v;
+    pub fn announce<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bool>,
+    {
+        self.announce = v.into();
         self
     }
-    pub fn items(mut self, v: Node2Vec) -> Self {
-        self.items = v;
+    pub fn items<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Node2Vec>,
+    {
+        self.items = v.into();
         self
     }
 }
@@ -3965,8 +4034,11 @@ pub struct NodeBuilder {
 }
 impl NodeBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn addresses(mut self, v: BytesVec) -> Self {
-        self.addresses = v;
+    pub fn addresses<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesVec>,
+    {
+        self.addresses = v.into();
         self
     }
 }
@@ -4218,12 +4290,18 @@ pub struct Node2Builder {
 }
 impl Node2Builder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn addresses(mut self, v: BytesVec) -> Self {
-        self.addresses = v;
+    pub fn addresses<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesVec>,
+    {
+        self.addresses = v.into();
         self
     }
-    pub fn flags(mut self, v: Uint64) -> Self {
-        self.flags = v;
+    pub fn flags<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.flags = v.into();
         self
     }
 }
@@ -4487,18 +4565,24 @@ impl AddressVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Address) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Address>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Address>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Address) -> Option<Address> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Address>
+    where
+        T: ::core::convert::Into<Address>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for AddressVecBuilder {
@@ -4808,8 +4892,11 @@ pub struct AddressBuilder {
 }
 impl AddressBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn bytes(mut self, v: Bytes) -> Self {
-        self.bytes = v;
+    pub fn bytes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.bytes = v.into();
         self
     }
 }
@@ -5079,16 +5166,25 @@ pub struct IdentifyMessageBuilder {
 }
 impl IdentifyMessageBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn listen_addrs(mut self, v: AddressVec) -> Self {
-        self.listen_addrs = v;
+    pub fn listen_addrs<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<AddressVec>,
+    {
+        self.listen_addrs = v.into();
         self
     }
-    pub fn observed_addr(mut self, v: Address) -> Self {
-        self.observed_addr = v;
+    pub fn observed_addr<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Address>,
+    {
+        self.observed_addr = v.into();
         self
     }
-    pub fn identify(mut self, v: Bytes) -> Self {
-        self.identify = v;
+    pub fn identify<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.identify = v.into();
         self
     }
 }

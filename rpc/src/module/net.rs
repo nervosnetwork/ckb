@@ -741,7 +741,11 @@ impl NetRpc for NetRpcImpl {
             ibd: chain.is_initial_block_download(),
             assume_valid_target_reached: shared.assume_valid_target().is_none(),
             assume_valid_target: Into::<packed::Byte32>::into(
-                state.assume_valid_target_specified().unwrap_or_default(),
+                shared
+                    .assume_valid_target_specified()
+                    .as_ref()
+                    .clone()
+                    .unwrap_or_default(),
             )
             .into(),
             min_chain_work: min_chain_work.into(),
@@ -752,9 +756,9 @@ impl NetRpc for NetRpcImpl {
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
             unverified_tip_number: unverified_tip.number().into(),
-            unverified_tip_hash: unverified_tip.hash().unpack(),
+            unverified_tip_hash: unverified_tip.hash().into(),
             tip_number: chain.tip_number().into(),
-            tip_hash: chain.tip_hash().unpack(),
+            tip_hash: chain.tip_hash().into(),
             fast_time: fast_time.into(),
             normal_time: normal_time.into(),
             low_time: low_time.into(),

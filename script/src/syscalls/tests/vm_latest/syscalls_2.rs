@@ -87,7 +87,7 @@ fn _test_load_extension(
             block_epoch: header.epoch(),
             index: 1,
         }),
-        cell_output: CellOutput::new_builder().capacity(100.into()).build(),
+        cell_output: CellOutput::new_builder().capacity(100).build(),
         data_bytes: 0,
         mem_cell_data: None,
         mem_cell_data_hash: None,

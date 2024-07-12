@@ -526,27 +526,27 @@ fn test_dep_group() {
         .input(CellInput::new(OutPoint::new(h256!("0x2").into(), 0), 0))
         .output(
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(1000).unwrap().into())
+                .capacity(Capacity::bytes(1000).unwrap())
                 .build(),
         )
-        .output_data((&tx2_data).into())
+        .output_data(&tx2_data)
         .build();
     let tx2_out_point = OutPoint::new(tx2.hash(), 0);
 
     // Transaction use dep group
     let dep = CellDep::new_builder()
         .out_point(tx2_out_point.clone())
-        .dep_type(DepType::DepGroup.into())
+        .dep_type(DepType::DepGroup)
         .build();
     let tx3 = TransactionBuilder::default()
         .cell_dep(dep)
         .input(CellInput::new(OutPoint::new(h256!("0x3").into(), 0), 0))
         .output(
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(3).unwrap().into())
+                .capacity(Capacity::bytes(3).unwrap())
                 .build(),
         )
-        .output_data(Bytes::new().into())
+        .output_data(Bytes::new())
         .build();
     let tx3_out_point = OutPoint::new(tx3.hash(), 0);
 
@@ -716,12 +716,12 @@ fn test_container_bench_add_limits() {
                         .previous_output(
                             OutPoint::new_builder()
                                 .tx_hash(prev_tx.transaction().hash())
-                                .index(0u32.into())
+                                .index(0u32)
                                 .build(),
                         )
                         .build(),
                 )
-                .witness(Bytes::new().into())
+                .witness(Bytes::new())
                 .build(),
             rng.gen_range(0..1000),
             Capacity::shannons(200),
@@ -748,26 +748,26 @@ fn test_pool_map_bench() {
     let mut time_spend = vec![];
     for i in 0..20000 {
         let lock_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()).into())
-            .hash_type(ScriptHashType::Data.into())
-            .args(Bytes::from(b"lock_script1".to_vec()).into())
+            .code_hash(H256(rand::random()))
+            .hash_type(ScriptHashType::Data)
+            .args(Bytes::from(b"lock_script1".to_vec()))
             .build();
 
         let type_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()).into())
-            .hash_type(ScriptHashType::Data.into())
-            .args(Bytes::from(b"type_script1".to_vec()).into())
+            .code_hash(H256(rand::random()))
+            .hash_type(ScriptHashType::Data)
+            .args(Bytes::from(b"type_script1".to_vec()))
             .build();
 
         let tx = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000).into())
+                    .capacity(capacity_bytes!(1000))
                     .lock(lock_script1)
-                    .type_(Some(type_script1).into())
+                    .type_(Some(type_script1))
                     .build(),
             )
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .build();
 
         let entry = TxEntry::dummy_resolve(

@@ -51,9 +51,9 @@ impl<'a> GetBlockFiltersProcess<'a> {
                 }
             }
             let content = packed::BlockFilters::new_builder()
-                .start_number(start_number.into())
-                .block_hashes(block_hashes.into())
-                .filters(filters.into())
+                .start_number(start_number)
+                .block_hashes(block_hashes)
+                .filters(filters)
                 .build();
 
             let message = packed::BlockFilterMessage::new_builder()

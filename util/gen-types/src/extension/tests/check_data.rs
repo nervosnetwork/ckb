@@ -1,17 +1,25 @@
-use crate::{borrow::ToOwned, packed, prelude::*};
+use crate::{
+    borrow::ToOwned,
+    packed::{self, Bytes, CellOutput},
+    prelude::*,
+};
 
 fn create_transaction(
     outputs: &[&packed::CellOutput],
     outputs_data: &[&[u8]],
     cell_deps: &[&packed::CellDep],
 ) -> packed::Transaction {
-    let outputs_iter = outputs.iter().map(|d| d.to_owned().to_owned());
-    let outputs_data_iter = outputs_data.iter().map(|d| d.to_owned().to_owned().pack());
-    let cell_deps_iter = cell_deps.iter().map(|d| d.to_owned().to_owned());
+    let outputs_iter: Vec<CellOutput> = outputs.iter().map(|d| d.to_owned().to_owned()).collect();
+    let outputs_data_iter: Vec<Bytes> = outputs_data
+        .iter()
+        .map(|d| Into::<Bytes>::into(d.to_owned()))
+        .collect();
+    let cell_deps_iter: Vec<packed::CellDep> =
+        cell_deps.iter().map(|d| d.to_owned().to_owned()).collect();
     let raw = packed::RawTransaction::new_builder()
-        .outputs(outputs_iter.pack())
-        .outputs_data(outputs_data_iter.pack())
-        .cell_deps(cell_deps_iter.pack())
+        .outputs(outputs_iter)
+        .outputs_data(outputs_data_iter)
+        .cell_deps(cell_deps_iter)
         .build();
     packed::Transaction::new_builder().raw(raw).build()
 }
@@ -31,10 +39,10 @@ fn check_data() {
     for ht in 0..4 {
         if ht != 3 {
             for dt in 0..2 {
-                let ht_right = ht.into();
-                let dt_right = dt.into();
-                let ht_error = 3.into();
-                let dt_error = 2.into();
+                let ht_right = ht;
+                let dt_right = dt;
+                let ht_error = 3;
+                let dt_error = 2;
 
                 let script_right = packed::Script::new_builder().hash_type(ht_right).build();
                 let script_error = packed::Script::new_builder().hash_type(ht_error).build();

@@ -20,7 +20,7 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
             let block = node.new_block(None, None, None);
             let uncle = block
                 .as_advanced_builder()
-                .timestamp((block.timestamp() + 1).into())
+                .timestamp(block.timestamp() + 1)
                 .set_proposals(vec![tx.proposal_short_id()])
                 .build();
             node.submit_block(&block);

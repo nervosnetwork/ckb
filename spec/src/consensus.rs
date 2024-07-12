@@ -168,13 +168,13 @@ impl Default for ConsensusBuilder {
             let occupied = empty_output
                 .occupied_capacity(Capacity::zero())
                 .expect("default occupied");
-            empty_output.as_builder().capacity(occupied.into()).build()
+            empty_output.as_builder().capacity(occupied).build()
         };
         let witness = Script::default().into_witness();
         let cellbase = TransactionBuilder::default()
             .input(input)
             .output(output)
-            .output_data(Bytes::new().into())
+            .output_data(Bytes::new())
             .witness(witness)
             .build();
 
@@ -200,8 +200,8 @@ impl Default for ConsensusBuilder {
         .expect("genesis dao data calculation error!");
 
         let genesis_block = BlockBuilder::default()
-            .compact_target(DIFF_TWO.into())
-            .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0).into())
+            .compact_target(DIFF_TWO)
+            .epoch(EpochNumberWithFraction::new_unchecked(0, 0, 0))
             .dao(dao)
             .transaction(cellbase)
             .build();
