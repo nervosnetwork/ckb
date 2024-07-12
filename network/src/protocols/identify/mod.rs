@@ -588,9 +588,9 @@ impl Identify {
     fn new(name: String, flags: Flags, client_version: String) -> Self {
         Identify {
             encode_data: packed::Identify::new_builder()
-                .name(name.as_str().into())
-                .flag(flags.bits().into())
-                .client_version(client_version.as_str().into())
+                .name(name.as_str())
+                .flag(flags.bits())
+                .client_version(client_version.as_str())
                 .build()
                 .as_bytes(),
             name,

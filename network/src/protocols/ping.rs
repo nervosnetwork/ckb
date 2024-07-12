@@ -291,10 +291,10 @@ impl PingMessage {
     fn build_ping(nonce: u32) -> Bytes {
         let nonce_le = nonce.to_le_bytes();
         let nonce = packed::Uint32::new_builder()
-            .nth0(nonce_le[0].into())
-            .nth1(nonce_le[1].into())
-            .nth2(nonce_le[2].into())
-            .nth3(nonce_le[3].into())
+            .nth0(nonce_le[0])
+            .nth1(nonce_le[1])
+            .nth2(nonce_le[2])
+            .nth3(nonce_le[3])
             .build();
         let ping = packed::Ping::new_builder().nonce(nonce).build();
         let payload = packed::PingPayload::new_builder().set(ping).build();
@@ -307,10 +307,10 @@ impl PingMessage {
     fn build_pong(nonce: u32) -> Bytes {
         let nonce_le = nonce.to_le_bytes();
         let nonce = packed::Uint32::new_builder()
-            .nth0(nonce_le[0].into())
-            .nth1(nonce_le[1].into())
-            .nth2(nonce_le[2].into())
-            .nth3(nonce_le[3].into())
+            .nth0(nonce_le[0])
+            .nth1(nonce_le[1])
+            .nth2(nonce_le[2])
+            .nth3(nonce_le[3])
             .build();
         let pong = packed::Pong::new_builder().nonce(nonce).build();
         let payload = packed::PingPayload::new_builder().set(pong).build();

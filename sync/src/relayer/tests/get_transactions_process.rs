@@ -13,7 +13,7 @@ fn test_duplicate() {
     let tx = new_transaction(&relayer, 1, &always_success_out_point);
     let tx_hash = tx.hash();
     let content = packed::GetRelayTransactions::new_builder()
-        .tx_hashes(vec![tx_hash.clone(), tx_hash].into())
+        .tx_hashes(vec![tx_hash.clone(), tx_hash])
         .build();
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);

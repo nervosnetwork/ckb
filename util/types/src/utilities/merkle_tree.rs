@@ -15,7 +15,7 @@ impl Merge for MergeByte32 {
         blake2b.update(left.as_slice());
         blake2b.update(right.as_slice());
         blake2b.finalize(&mut ret);
-        ret.pack()
+        ret.into()
     }
 }
 

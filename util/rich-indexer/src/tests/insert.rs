@@ -6,7 +6,7 @@ use ckb_types::{
         capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
         ScriptHashType, TransactionBuilder,
     },
-    packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
+    packed::{self, CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
     H256,
 };
 use tokio::test;
@@ -79,27 +79,27 @@ async fn with_custom_block_filter() {
     let indexer_handle = AsyncRichIndexerHandle::new(storage, None);
 
     let lock_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"lock_script1".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(b"lock_script1".to_vec()))
         .build();
 
     let lock_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"lock_script2".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Type)
+        .args(Bytes::from(b"lock_script2".to_vec()))
         .build();
 
     let type_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"type_script1".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(b"type_script1".to_vec()))
         .build();
 
     let type_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"type_script2".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Type)
+        .args(Bytes::from(b"type_script2".to_vec()))
         .build();
 
     let cellbase0 = TransactionBuilder::default()
@@ -107,40 +107,40 @@ async fn with_custom_block_filter() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx00 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1.clone()).into())
+                .type_(Some(type_script1.clone()))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx01 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).into())
+                .capacity(capacity_bytes!(2000))
                 .lock(lock_script2.clone())
-                .type_(Some(type_script2.clone()).into())
+                .type_(Some(type_script2.clone()))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let block0 = BlockBuilder::default()
         .transaction(cellbase0)
         .transaction(tx00.clone())
         .transaction(tx01.clone())
-        .header(HeaderBuilder::default().number(0.into()).build())
+        .header(HeaderBuilder::default().number(0).build())
         .build();
     indexer.append(&block0).await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
@@ -152,35 +152,35 @@ async fn with_custom_block_filter() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx10 = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new(tx00.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1).into())
+                .type_(Some(type_script1))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx11 = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new(tx01.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).into())
+                .capacity(capacity_bytes!(2000))
                 .lock(lock_script2)
-                .type_(Some(type_script2).into())
+                .type_(Some(type_script2))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let block1 = BlockBuilder::default()
@@ -189,11 +189,13 @@ async fn with_custom_block_filter() {
         .transaction(tx11)
         .header(
             HeaderBuilder::default()
-                .number(1.into())
+                .number(1)
                 .parent_hash(block0.hash())
-                .epoch(
-                    EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000).into(),
-                )
+                .epoch(EpochNumberWithFraction::new(
+                    block0.number() + 1,
+                    block0.number(),
+                    1000,
+                ))
                 .build(),
         )
         .build();
@@ -293,27 +295,27 @@ async fn with_custom_cell_filter() {
     let indexer_handle = AsyncRichIndexerHandle::new(storage, None);
 
     let lock_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"lock_script1".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(b"lock_script1".to_vec()))
         .build();
 
     let lock_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"lock_script2".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Type)
+        .args(Bytes::from(b"lock_script2".to_vec()))
         .build();
 
     let type_script1 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Data.into())
-        .args(Bytes::from(b"type_script1".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(b"type_script1".to_vec()))
         .build();
 
     let type_script2 = ScriptBuilder::default()
-        .code_hash(H256(rand::random()).into())
-        .hash_type(ScriptHashType::Type.into())
-        .args(Bytes::from(b"type_script2".to_vec()).into())
+        .code_hash(H256(rand::random()))
+        .hash_type(ScriptHashType::Type)
+        .args(Bytes::from(b"type_script2".to_vec()))
         .build();
 
     let cellbase0 = TransactionBuilder::default()
@@ -321,40 +323,40 @@ async fn with_custom_cell_filter() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx00 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1.clone()).into())
+                .type_(Some(type_script1.clone()))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx01 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).into())
+                .capacity(capacity_bytes!(2000))
                 .lock(lock_script2.clone())
-                .type_(Some(type_script2.clone()).into())
+                .type_(Some(type_script2.clone()))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let block0 = BlockBuilder::default()
         .transaction(cellbase0)
         .transaction(tx00.clone())
         .transaction(tx01.clone())
-        .header(HeaderBuilder::default().number(0.into()).build())
+        .header(HeaderBuilder::default().number(0).build())
         .build();
     indexer.append(&block0).await.unwrap();
     let tip = indexer_handle.get_indexer_tip().await.unwrap().unwrap();
@@ -400,35 +402,35 @@ async fn with_custom_cell_filter() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx10 = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new(tx00.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000).into())
+                .capacity(capacity_bytes!(1000))
                 .lock(lock_script1.clone())
-                .type_(Some(type_script1).into())
+                .type_(Some(type_script1))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx11 = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new(tx01.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(2000).into())
+                .capacity(capacity_bytes!(2000))
                 .lock(lock_script2)
-                .type_(Some(type_script2).into())
+                .type_(Some(type_script2))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let block1 = BlockBuilder::default()
@@ -437,11 +439,13 @@ async fn with_custom_cell_filter() {
         .transaction(tx11)
         .header(
             HeaderBuilder::default()
-                .number(1.into())
+                .number(1)
                 .parent_hash(block0.hash())
-                .epoch(
-                    EpochNumberWithFraction::new(block0.number() + 1, block0.number(), 1000).into(),
-                )
+                .epoch(EpochNumberWithFraction::new(
+                    block0.number() + 1,
+                    block0.number(),
+                    1000,
+                ))
                 .build(),
         )
         .build();

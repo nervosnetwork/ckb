@@ -139,8 +139,11 @@ impl<'r> molecule::prelude::Reader<'r> for BoolOptReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct BoolOptBuilder(pub(crate) Option<Bool>);
 impl BoolOptBuilder {
-    pub fn set(mut self, v: Option<Bool>) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Option<Bool>>,
+    {
+        self.0 = v.into();
         self
     }
 }
@@ -308,8 +311,11 @@ impl<'r> molecule::prelude::Reader<'r> for Byte32OptReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct Byte32OptBuilder(pub(crate) Option<Byte32>);
 impl Byte32OptBuilder {
-    pub fn set(mut self, v: Option<Byte32>) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Option<Byte32>>,
+    {
+        self.0 = v.into();
         self
     }
 }
@@ -480,12 +486,18 @@ impl BoolBuilder {
     pub const TOTAL_SIZE: usize = 1;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 1;
-    pub fn set(mut self, v: [Byte; 1]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 1]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
 }
@@ -717,24 +729,39 @@ impl BeUint32Builder {
     pub const TOTAL_SIZE: usize = 4;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 4;
-    pub fn set(mut self, v: [Byte; 4]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 4]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
 }
@@ -1006,40 +1033,67 @@ impl BeUint64Builder {
     pub const TOTAL_SIZE: usize = 8;
     pub const ITEM_SIZE: usize = 1;
     pub const ITEM_COUNT: usize = 8;
-    pub fn set(mut self, v: [Byte; 8]) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<[Byte; 8]>,
+    {
+        self.0 = v.into();
         self
     }
-    pub fn nth0(mut self, v: Byte) -> Self {
-        self.0[0] = v;
+    pub fn nth0<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[0] = v.into();
         self
     }
-    pub fn nth1(mut self, v: Byte) -> Self {
-        self.0[1] = v;
+    pub fn nth1<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[1] = v.into();
         self
     }
-    pub fn nth2(mut self, v: Byte) -> Self {
-        self.0[2] = v;
+    pub fn nth2<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[2] = v.into();
         self
     }
-    pub fn nth3(mut self, v: Byte) -> Self {
-        self.0[3] = v;
+    pub fn nth3<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[3] = v.into();
         self
     }
-    pub fn nth4(mut self, v: Byte) -> Self {
-        self.0[4] = v;
+    pub fn nth4<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[4] = v.into();
         self
     }
-    pub fn nth5(mut self, v: Byte) -> Self {
-        self.0[5] = v;
+    pub fn nth5<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[5] = v.into();
         self
     }
-    pub fn nth6(mut self, v: Byte) -> Self {
-        self.0[6] = v;
+    pub fn nth6<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[6] = v.into();
         self
     }
-    pub fn nth7(mut self, v: Byte) -> Self {
-        self.0[7] = v;
+    pub fn nth7<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte>,
+    {
+        self.0[7] = v.into();
         self
     }
 }
@@ -1311,18 +1365,24 @@ impl Uint32VecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Uint32) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Uint32>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Uint32) -> Option<Uint32> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Uint32>
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for Uint32VecBuilder {
@@ -1591,18 +1651,24 @@ impl Uint64VecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Uint64) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Uint64>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Uint64) -> Option<Uint64> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Uint64>
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for Uint64VecBuilder {
@@ -1871,18 +1937,24 @@ impl Uint256VecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Uint256) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint256>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Uint256>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Uint256) -> Option<Uint256> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Uint256>
+    where
+        T: ::core::convert::Into<Uint256>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for Uint256VecBuilder {
@@ -2101,8 +2173,11 @@ impl<'r> molecule::prelude::Reader<'r> for CellOutputOptReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct CellOutputOptBuilder(pub(crate) Option<CellOutput>);
 impl CellOutputOptBuilder {
-    pub fn set(mut self, v: Option<CellOutput>) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Option<CellOutput>>,
+    {
+        self.0 = v.into();
         self
     }
 }
@@ -2320,18 +2395,24 @@ impl HeaderVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: Header) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = Header>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: Header) -> Option<Header> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<Header>
+    where
+        T: ::core::convert::Into<Header>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for HeaderVecBuilder {
@@ -2600,18 +2681,24 @@ impl OutPointVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: OutPoint) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<OutPoint>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = OutPoint>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: OutPoint) -> Option<OutPoint> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<OutPoint>
+    where
+        T: ::core::convert::Into<OutPoint>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for OutPointVecBuilder {
@@ -2830,8 +2917,11 @@ impl<'r> molecule::prelude::Reader<'r> for Uint64VecOptReader<'r> {
 #[derive(Clone, Debug, Default)]
 pub struct Uint64VecOptBuilder(pub(crate) Option<Uint64Vec>);
 impl Uint64VecOptBuilder {
-    pub fn set(mut self, v: Option<Uint64Vec>) -> Self {
-        self.0 = v;
+    pub fn set<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Option<Uint64Vec>>,
+    {
+        self.0 = v.into();
         self
     }
 }
@@ -3104,44 +3194,74 @@ impl HeaderDigestBuilder {
     pub const TOTAL_SIZE: usize = 120;
     pub const FIELD_SIZES: [usize; 10] = [32, 32, 8, 8, 8, 8, 8, 8, 4, 4];
     pub const FIELD_COUNT: usize = 10;
-    pub fn children_hash(mut self, v: Byte32) -> Self {
-        self.children_hash = v;
+    pub fn children_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.children_hash = v.into();
         self
     }
-    pub fn total_difficulty(mut self, v: Uint256) -> Self {
-        self.total_difficulty = v;
+    pub fn total_difficulty<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint256>,
+    {
+        self.total_difficulty = v.into();
         self
     }
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
-    pub fn end_number(mut self, v: Uint64) -> Self {
-        self.end_number = v;
+    pub fn end_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.end_number = v.into();
         self
     }
-    pub fn start_epoch(mut self, v: Uint64) -> Self {
-        self.start_epoch = v;
+    pub fn start_epoch<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_epoch = v.into();
         self
     }
-    pub fn end_epoch(mut self, v: Uint64) -> Self {
-        self.end_epoch = v;
+    pub fn end_epoch<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.end_epoch = v.into();
         self
     }
-    pub fn start_timestamp(mut self, v: Uint64) -> Self {
-        self.start_timestamp = v;
+    pub fn start_timestamp<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_timestamp = v.into();
         self
     }
-    pub fn end_timestamp(mut self, v: Uint64) -> Self {
-        self.end_timestamp = v;
+    pub fn end_timestamp<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.end_timestamp = v.into();
         self
     }
-    pub fn start_compact_target(mut self, v: Uint32) -> Self {
-        self.start_compact_target = v;
+    pub fn start_compact_target<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.start_compact_target = v.into();
         self
     }
-    pub fn end_compact_target(mut self, v: Uint32) -> Self {
-        self.end_compact_target = v;
+    pub fn end_compact_target<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.end_compact_target = v.into();
         self
     }
 }
@@ -3315,12 +3435,18 @@ impl HeaderViewBuilder {
     pub const TOTAL_SIZE: usize = 240;
     pub const FIELD_SIZES: [usize; 2] = [32, 208];
     pub const FIELD_COUNT: usize = 2;
-    pub fn hash(mut self, v: Byte32) -> Self {
-        self.hash = v;
+    pub fn hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.hash = v.into();
         self
     }
-    pub fn data(mut self, v: Header) -> Self {
-        self.data = v;
+    pub fn data<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.data = v.into();
         self
     }
 }
@@ -3563,12 +3689,18 @@ pub struct UncleBlockVecViewBuilder {
 }
 impl UncleBlockVecViewBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn hashes(mut self, v: Byte32Vec) -> Self {
-        self.hashes = v;
+    pub fn hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.hashes = v.into();
         self
     }
-    pub fn data(mut self, v: UncleBlockVec) -> Self {
-        self.data = v;
+    pub fn data<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<UncleBlockVec>,
+    {
+        self.data = v.into();
         self
     }
 }
@@ -3847,16 +3979,25 @@ pub struct TransactionViewBuilder {
 }
 impl TransactionViewBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn hash(mut self, v: Byte32) -> Self {
-        self.hash = v;
+    pub fn hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.hash = v.into();
         self
     }
-    pub fn witness_hash(mut self, v: Byte32) -> Self {
-        self.witness_hash = v;
+    pub fn witness_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.witness_hash = v.into();
         self
     }
-    pub fn data(mut self, v: Transaction) -> Self {
-        self.data = v;
+    pub fn data<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Transaction>,
+    {
+        self.data = v.into();
         self
     }
 }
@@ -4180,24 +4321,39 @@ pub struct BlockExtBuilder {
 }
 impl BlockExtBuilder {
     pub const FIELD_COUNT: usize = 5;
-    pub fn total_difficulty(mut self, v: Uint256) -> Self {
-        self.total_difficulty = v;
+    pub fn total_difficulty<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint256>,
+    {
+        self.total_difficulty = v.into();
         self
     }
-    pub fn total_uncles_count(mut self, v: Uint64) -> Self {
-        self.total_uncles_count = v;
+    pub fn total_uncles_count<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.total_uncles_count = v.into();
         self
     }
-    pub fn received_at(mut self, v: Uint64) -> Self {
-        self.received_at = v;
+    pub fn received_at<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.received_at = v.into();
         self
     }
-    pub fn txs_fees(mut self, v: Uint64Vec) -> Self {
-        self.txs_fees = v;
+    pub fn txs_fees<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64Vec>,
+    {
+        self.txs_fees = v.into();
         self
     }
-    pub fn verified(mut self, v: BoolOpt) -> Self {
-        self.verified = v;
+    pub fn verified<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BoolOpt>,
+    {
+        self.verified = v.into();
         self
     }
 }
@@ -4563,32 +4719,53 @@ pub struct BlockExtV1Builder {
 }
 impl BlockExtV1Builder {
     pub const FIELD_COUNT: usize = 7;
-    pub fn total_difficulty(mut self, v: Uint256) -> Self {
-        self.total_difficulty = v;
+    pub fn total_difficulty<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint256>,
+    {
+        self.total_difficulty = v.into();
         self
     }
-    pub fn total_uncles_count(mut self, v: Uint64) -> Self {
-        self.total_uncles_count = v;
+    pub fn total_uncles_count<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.total_uncles_count = v.into();
         self
     }
-    pub fn received_at(mut self, v: Uint64) -> Self {
-        self.received_at = v;
+    pub fn received_at<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.received_at = v.into();
         self
     }
-    pub fn txs_fees(mut self, v: Uint64Vec) -> Self {
-        self.txs_fees = v;
+    pub fn txs_fees<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64Vec>,
+    {
+        self.txs_fees = v.into();
         self
     }
-    pub fn verified(mut self, v: BoolOpt) -> Self {
-        self.verified = v;
+    pub fn verified<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BoolOpt>,
+    {
+        self.verified = v.into();
         self
     }
-    pub fn cycles(mut self, v: Uint64VecOpt) -> Self {
-        self.cycles = v;
+    pub fn cycles<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64VecOpt>,
+    {
+        self.cycles = v.into();
         self
     }
-    pub fn txs_sizes(mut self, v: Uint64VecOpt) -> Self {
-        self.txs_sizes = v;
+    pub fn txs_sizes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64VecOpt>,
+    {
+        self.txs_sizes = v.into();
         self
     }
 }
@@ -4864,36 +5041,60 @@ impl EpochExtBuilder {
     pub const TOTAL_SIZE: usize = 108;
     pub const FIELD_SIZES: [usize; 8] = [32, 32, 4, 8, 8, 8, 8, 8];
     pub const FIELD_COUNT: usize = 8;
-    pub fn previous_epoch_hash_rate(mut self, v: Uint256) -> Self {
-        self.previous_epoch_hash_rate = v;
+    pub fn previous_epoch_hash_rate<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint256>,
+    {
+        self.previous_epoch_hash_rate = v.into();
         self
     }
-    pub fn last_block_hash_in_previous_epoch(mut self, v: Byte32) -> Self {
-        self.last_block_hash_in_previous_epoch = v;
+    pub fn last_block_hash_in_previous_epoch<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.last_block_hash_in_previous_epoch = v.into();
         self
     }
-    pub fn compact_target(mut self, v: Uint32) -> Self {
-        self.compact_target = v;
+    pub fn compact_target<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.compact_target = v.into();
         self
     }
-    pub fn number(mut self, v: Uint64) -> Self {
-        self.number = v;
+    pub fn number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.number = v.into();
         self
     }
-    pub fn base_block_reward(mut self, v: Uint64) -> Self {
-        self.base_block_reward = v;
+    pub fn base_block_reward<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.base_block_reward = v.into();
         self
     }
-    pub fn remainder_reward(mut self, v: Uint64) -> Self {
-        self.remainder_reward = v;
+    pub fn remainder_reward<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.remainder_reward = v.into();
         self
     }
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
-    pub fn length(mut self, v: Uint64) -> Self {
-        self.length = v;
+    pub fn length<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.length = v.into();
         self
     }
 }
@@ -5061,12 +5262,18 @@ impl TransactionKeyBuilder {
     pub const TOTAL_SIZE: usize = 36;
     pub const FIELD_SIZES: [usize; 2] = [32, 4];
     pub const FIELD_COUNT: usize = 2;
-    pub fn block_hash(mut self, v: Byte32) -> Self {
-        self.block_hash = v;
+    pub fn block_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.block_hash = v.into();
         self
     }
-    pub fn index(mut self, v: BeUint32) -> Self {
-        self.index = v;
+    pub fn index<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BeUint32>,
+    {
+        self.index = v.into();
         self
     }
 }
@@ -5228,12 +5435,18 @@ impl NumberHashBuilder {
     pub const TOTAL_SIZE: usize = 40;
     pub const FIELD_SIZES: [usize; 2] = [8, 32];
     pub const FIELD_COUNT: usize = 2;
-    pub fn number(mut self, v: Uint64) -> Self {
-        self.number = v;
+    pub fn number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.number = v.into();
         self
     }
-    pub fn block_hash(mut self, v: Byte32) -> Self {
-        self.block_hash = v;
+    pub fn block_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.block_hash = v.into();
         self
     }
 }
@@ -5405,16 +5618,25 @@ impl TransactionInfoBuilder {
     pub const TOTAL_SIZE: usize = 52;
     pub const FIELD_SIZES: [usize; 3] = [8, 8, 36];
     pub const FIELD_COUNT: usize = 3;
-    pub fn block_number(mut self, v: Uint64) -> Self {
-        self.block_number = v;
+    pub fn block_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.block_number = v.into();
         self
     }
-    pub fn block_epoch(mut self, v: Uint64) -> Self {
-        self.block_epoch = v;
+    pub fn block_epoch<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.block_epoch = v.into();
         self
     }
-    pub fn key(mut self, v: TransactionKey) -> Self {
-        self.key = v;
+    pub fn key<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<TransactionKey>,
+    {
+        self.key = v.into();
         self
     }
 }
@@ -5733,28 +5955,46 @@ pub struct CellEntryBuilder {
 }
 impl CellEntryBuilder {
     pub const FIELD_COUNT: usize = 6;
-    pub fn output(mut self, v: CellOutput) -> Self {
-        self.output = v;
+    pub fn output<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<CellOutput>,
+    {
+        self.output = v.into();
         self
     }
-    pub fn block_hash(mut self, v: Byte32) -> Self {
-        self.block_hash = v;
+    pub fn block_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.block_hash = v.into();
         self
     }
-    pub fn block_number(mut self, v: Uint64) -> Self {
-        self.block_number = v;
+    pub fn block_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.block_number = v.into();
         self
     }
-    pub fn block_epoch(mut self, v: Uint64) -> Self {
-        self.block_epoch = v;
+    pub fn block_epoch<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.block_epoch = v.into();
         self
     }
-    pub fn index(mut self, v: Uint32) -> Self {
-        self.index = v;
+    pub fn index<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.index = v.into();
         self
     }
-    pub fn data_size(mut self, v: Uint64) -> Self {
-        self.data_size = v;
+    pub fn data_size<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.data_size = v.into();
         self
     }
 }
@@ -6028,12 +6268,18 @@ pub struct CellDataEntryBuilder {
 }
 impl CellDataEntryBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn output_data(mut self, v: Bytes) -> Self {
-        self.output_data = v;
+    pub fn output_data<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.output_data = v.into();
         self
     }
-    pub fn output_data_hash(mut self, v: Byte32) -> Self {
-        self.output_data_hash = v;
+    pub fn output_data_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.output_data_hash = v.into();
         self
     }
 }
@@ -6926,24 +7172,39 @@ pub struct CompactBlockBuilder {
 }
 impl CompactBlockBuilder {
     pub const FIELD_COUNT: usize = 5;
-    pub fn header(mut self, v: Header) -> Self {
-        self.header = v;
+    pub fn header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.header = v.into();
         self
     }
-    pub fn short_ids(mut self, v: ProposalShortIdVec) -> Self {
-        self.short_ids = v;
+    pub fn short_ids<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.short_ids = v.into();
         self
     }
-    pub fn prefilled_transactions(mut self, v: IndexTransactionVec) -> Self {
-        self.prefilled_transactions = v;
+    pub fn prefilled_transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<IndexTransactionVec>,
+    {
+        self.prefilled_transactions = v.into();
         self
     }
-    pub fn uncles(mut self, v: Byte32Vec) -> Self {
-        self.uncles = v;
+    pub fn uncles<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.uncles = v.into();
         self
     }
-    pub fn proposals(mut self, v: ProposalShortIdVec) -> Self {
-        self.proposals = v;
+    pub fn proposals<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.proposals = v.into();
         self
     }
 }
@@ -7298,28 +7559,46 @@ pub struct CompactBlockV1Builder {
 }
 impl CompactBlockV1Builder {
     pub const FIELD_COUNT: usize = 6;
-    pub fn header(mut self, v: Header) -> Self {
-        self.header = v;
+    pub fn header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.header = v.into();
         self
     }
-    pub fn short_ids(mut self, v: ProposalShortIdVec) -> Self {
-        self.short_ids = v;
+    pub fn short_ids<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.short_ids = v.into();
         self
     }
-    pub fn prefilled_transactions(mut self, v: IndexTransactionVec) -> Self {
-        self.prefilled_transactions = v;
+    pub fn prefilled_transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<IndexTransactionVec>,
+    {
+        self.prefilled_transactions = v.into();
         self
     }
-    pub fn uncles(mut self, v: Byte32Vec) -> Self {
-        self.uncles = v;
+    pub fn uncles<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.uncles = v.into();
         self
     }
-    pub fn proposals(mut self, v: ProposalShortIdVec) -> Self {
-        self.proposals = v;
+    pub fn proposals<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.proposals = v.into();
         self
     }
-    pub fn extension(mut self, v: Bytes) -> Self {
-        self.extension = v;
+    pub fn extension<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.extension = v.into();
         self
     }
 }
@@ -7595,12 +7874,18 @@ pub struct RelayTransactionBuilder {
 }
 impl RelayTransactionBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn cycles(mut self, v: Uint64) -> Self {
-        self.cycles = v;
+    pub fn cycles<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.cycles = v.into();
         self
     }
-    pub fn transaction(mut self, v: Transaction) -> Self {
-        self.transaction = v;
+    pub fn transaction<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Transaction>,
+    {
+        self.transaction = v.into();
         self
     }
 }
@@ -7864,8 +8149,11 @@ impl RelayTransactionVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: RelayTransaction) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<RelayTransaction>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = RelayTransaction>>(
@@ -7875,10 +8163,13 @@ impl RelayTransactionVecBuilder {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: RelayTransaction) -> Option<RelayTransaction> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<RelayTransaction>
+    where
+        T: ::core::convert::Into<RelayTransaction>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for RelayTransactionVecBuilder {
@@ -8192,8 +8483,11 @@ pub struct RelayTransactionsBuilder {
 }
 impl RelayTransactionsBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn transactions(mut self, v: RelayTransactionVec) -> Self {
-        self.transactions = v;
+    pub fn transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<RelayTransactionVec>,
+    {
+        self.transactions = v.into();
         self
     }
 }
@@ -8425,8 +8719,11 @@ pub struct RelayTransactionHashesBuilder {
 }
 impl RelayTransactionHashesBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn tx_hashes(mut self, v: Byte32Vec) -> Self {
-        self.tx_hashes = v;
+    pub fn tx_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.tx_hashes = v.into();
         self
     }
 }
@@ -8658,8 +8955,11 @@ pub struct GetRelayTransactionsBuilder {
 }
 impl GetRelayTransactionsBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn tx_hashes(mut self, v: Byte32Vec) -> Self {
-        self.tx_hashes = v;
+    pub fn tx_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.tx_hashes = v.into();
         self
     }
 }
@@ -8929,16 +9229,25 @@ pub struct GetBlockTransactionsBuilder {
 }
 impl GetBlockTransactionsBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn block_hash(mut self, v: Byte32) -> Self {
-        self.block_hash = v;
+    pub fn block_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.block_hash = v.into();
         self
     }
-    pub fn indexes(mut self, v: Uint32Vec) -> Self {
-        self.indexes = v;
+    pub fn indexes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32Vec>,
+    {
+        self.indexes = v.into();
         self
     }
-    pub fn uncle_indexes(mut self, v: Uint32Vec) -> Self {
-        self.uncle_indexes = v;
+    pub fn uncle_indexes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32Vec>,
+    {
+        self.uncle_indexes = v.into();
         self
     }
 }
@@ -9217,16 +9526,25 @@ pub struct BlockTransactionsBuilder {
 }
 impl BlockTransactionsBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn block_hash(mut self, v: Byte32) -> Self {
-        self.block_hash = v;
+    pub fn block_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.block_hash = v.into();
         self
     }
-    pub fn transactions(mut self, v: TransactionVec) -> Self {
-        self.transactions = v;
+    pub fn transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<TransactionVec>,
+    {
+        self.transactions = v.into();
         self
     }
-    pub fn uncles(mut self, v: UncleBlockVec) -> Self {
-        self.uncles = v;
+    pub fn uncles<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<UncleBlockVec>,
+    {
+        self.uncles = v.into();
         self
     }
 }
@@ -9488,12 +9806,18 @@ pub struct GetBlockProposalBuilder {
 }
 impl GetBlockProposalBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn block_hash(mut self, v: Byte32) -> Self {
-        self.block_hash = v;
+    pub fn block_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.block_hash = v.into();
         self
     }
-    pub fn proposals(mut self, v: ProposalShortIdVec) -> Self {
-        self.proposals = v;
+    pub fn proposals<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<ProposalShortIdVec>,
+    {
+        self.proposals = v.into();
         self
     }
 }
@@ -9730,8 +10054,11 @@ pub struct BlockProposalBuilder {
 }
 impl BlockProposalBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn transactions(mut self, v: TransactionVec) -> Self {
-        self.transactions = v;
+    pub fn transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<TransactionVec>,
+    {
+        self.transactions = v.into();
         self
     }
 }
@@ -9985,12 +10312,18 @@ pub struct IndexTransactionBuilder {
 }
 impl IndexTransactionBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn index(mut self, v: Uint32) -> Self {
-        self.index = v;
+    pub fn index<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.index = v.into();
         self
     }
-    pub fn transaction(mut self, v: Transaction) -> Self {
-        self.transaction = v;
+    pub fn transaction<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Transaction>,
+    {
+        self.transaction = v.into();
         self
     }
 }
@@ -10254,8 +10587,11 @@ impl IndexTransactionVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: IndexTransaction) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<IndexTransaction>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = IndexTransaction>>(
@@ -10265,10 +10601,13 @@ impl IndexTransactionVecBuilder {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: IndexTransaction) -> Option<IndexTransaction> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<IndexTransaction>
+    where
+        T: ::core::convert::Into<IndexTransaction>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for IndexTransactionVecBuilder {
@@ -11002,8 +11341,11 @@ impl GetBlockFiltersBuilder {
     pub const TOTAL_SIZE: usize = 8;
     pub const FIELD_SIZES: [usize; 1] = [8];
     pub const FIELD_COUNT: usize = 1;
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
 }
@@ -11265,16 +11607,25 @@ pub struct BlockFiltersBuilder {
 }
 impl BlockFiltersBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
-    pub fn block_hashes(mut self, v: Byte32Vec) -> Self {
-        self.block_hashes = v;
+    pub fn block_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.block_hashes = v.into();
         self
     }
-    pub fn filters(mut self, v: BytesVec) -> Self {
-        self.filters = v;
+    pub fn filters<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesVec>,
+    {
+        self.filters = v.into();
         self
     }
 }
@@ -11438,8 +11789,11 @@ impl GetBlockFilterHashesBuilder {
     pub const TOTAL_SIZE: usize = 8;
     pub const FIELD_SIZES: [usize; 1] = [8];
     pub const FIELD_COUNT: usize = 1;
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
 }
@@ -11722,16 +12076,25 @@ pub struct BlockFilterHashesBuilder {
 }
 impl BlockFilterHashesBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
-    pub fn parent_block_filter_hash(mut self, v: Byte32) -> Self {
-        self.parent_block_filter_hash = v;
+    pub fn parent_block_filter_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.parent_block_filter_hash = v.into();
         self
     }
-    pub fn block_filter_hashes(mut self, v: Byte32Vec) -> Self {
-        self.block_filter_hashes = v;
+    pub fn block_filter_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.block_filter_hashes = v.into();
         self
     }
 }
@@ -11896,8 +12259,11 @@ impl GetBlockFilterCheckPointsBuilder {
     pub const TOTAL_SIZE: usize = 8;
     pub const FIELD_SIZES: [usize; 1] = [8];
     pub const FIELD_COUNT: usize = 1;
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
 }
@@ -12151,12 +12517,18 @@ pub struct BlockFilterCheckPointsBuilder {
 }
 impl BlockFilterCheckPointsBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
-    pub fn block_filter_hashes(mut self, v: Byte32Vec) -> Self {
-        self.block_filter_hashes = v;
+    pub fn block_filter_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.block_filter_hashes = v.into();
         self
     }
 }
@@ -12840,12 +13212,18 @@ pub struct GetHeadersBuilder {
 }
 impl GetHeadersBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn hash_stop(mut self, v: Byte32) -> Self {
-        self.hash_stop = v;
+    pub fn hash_stop<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.hash_stop = v.into();
         self
     }
-    pub fn block_locator_hashes(mut self, v: Byte32Vec) -> Self {
-        self.block_locator_hashes = v;
+    pub fn block_locator_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.block_locator_hashes = v.into();
         self
     }
 }
@@ -13082,8 +13460,11 @@ pub struct GetBlocksBuilder {
 }
 impl GetBlocksBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn block_hashes(mut self, v: Byte32Vec) -> Self {
-        self.block_hashes = v;
+    pub fn block_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.block_hashes = v.into();
         self
     }
 }
@@ -13315,8 +13696,11 @@ pub struct SendHeadersBuilder {
 }
 impl SendHeadersBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn headers(mut self, v: HeaderVec) -> Self {
-        self.headers = v;
+    pub fn headers<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderVec>,
+    {
+        self.headers = v.into();
         self
     }
 }
@@ -13558,8 +13942,11 @@ pub struct SendBlockBuilder {
 }
 impl SendBlockBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn block(mut self, v: Block) -> Self {
-        self.block = v;
+    pub fn block<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Block>,
+    {
+        self.block = v.into();
         self
     }
 }
@@ -13854,20 +14241,32 @@ pub struct FilteredBlockBuilder {
 }
 impl FilteredBlockBuilder {
     pub const FIELD_COUNT: usize = 4;
-    pub fn header(mut self, v: Header) -> Self {
-        self.header = v;
+    pub fn header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.header = v.into();
         self
     }
-    pub fn witnesses_root(mut self, v: Byte32) -> Self {
-        self.witnesses_root = v;
+    pub fn witnesses_root<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.witnesses_root = v.into();
         self
     }
-    pub fn transactions(mut self, v: TransactionVec) -> Self {
-        self.transactions = v;
+    pub fn transactions<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<TransactionVec>,
+    {
+        self.transactions = v.into();
         self
     }
-    pub fn proof(mut self, v: MerkleProof) -> Self {
-        self.proof = v;
+    pub fn proof<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<MerkleProof>,
+    {
+        self.proof = v.into();
         self
     }
 }
@@ -14132,12 +14531,18 @@ pub struct MerkleProofBuilder {
 }
 impl MerkleProofBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn indices(mut self, v: Uint32Vec) -> Self {
-        self.indices = v;
+    pub fn indices<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32Vec>,
+    {
+        self.indices = v.into();
         self
     }
-    pub fn lemmas(mut self, v: Byte32Vec) -> Self {
-        self.lemmas = v;
+    pub fn lemmas<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.lemmas = v.into();
         self
     }
 }
@@ -14535,18 +14940,24 @@ impl HeaderDigestVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: HeaderDigest) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderDigest>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = HeaderDigest>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: HeaderDigest) -> Option<HeaderDigest> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<HeaderDigest>
+    where
+        T: ::core::convert::Into<HeaderDigest>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for HeaderDigestVecBuilder {
@@ -14897,20 +15308,32 @@ pub struct VerifiableHeaderBuilder {
 }
 impl VerifiableHeaderBuilder {
     pub const FIELD_COUNT: usize = 4;
-    pub fn header(mut self, v: Header) -> Self {
-        self.header = v;
+    pub fn header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Header>,
+    {
+        self.header = v.into();
         self
     }
-    pub fn uncles_hash(mut self, v: Byte32) -> Self {
-        self.uncles_hash = v;
+    pub fn uncles_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.uncles_hash = v.into();
         self
     }
-    pub fn extension(mut self, v: BytesOpt) -> Self {
-        self.extension = v;
+    pub fn extension<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
+        self.extension = v.into();
         self
     }
-    pub fn parent_chain_root(mut self, v: HeaderDigest) -> Self {
-        self.parent_chain_root = v;
+    pub fn parent_chain_root<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderDigest>,
+    {
+        self.parent_chain_root = v.into();
         self
     }
 }
@@ -15182,8 +15605,11 @@ impl VerifiableHeaderVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: VerifiableHeader) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = VerifiableHeader>>(
@@ -15193,10 +15619,13 @@ impl VerifiableHeaderVecBuilder {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: VerifiableHeader) -> Option<VerifiableHeader> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<VerifiableHeader>
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for VerifiableHeaderVecBuilder {
@@ -15537,18 +15966,24 @@ impl FilteredBlockVecBuilder {
         self.0 = v;
         self
     }
-    pub fn push(mut self, v: FilteredBlock) -> Self {
-        self.0.push(v);
+    pub fn push<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<FilteredBlock>,
+    {
+        self.0.push(v.into());
         self
     }
     pub fn extend<T: ::core::iter::IntoIterator<Item = FilteredBlock>>(mut self, iter: T) -> Self {
         self.0.extend(iter);
         self
     }
-    pub fn replace(&mut self, index: usize, v: FilteredBlock) -> Option<FilteredBlock> {
+    pub fn replace<T>(&mut self, index: usize, v: T) -> Option<FilteredBlock>
+    where
+        T: ::core::convert::Into<FilteredBlock>,
+    {
         self.0
             .get_mut(index)
-            .map(|item| ::core::mem::replace(item, v))
+            .map(|item| ::core::mem::replace(item, v.into()))
     }
 }
 impl molecule::prelude::Builder for FilteredBlockVecBuilder {
@@ -16407,8 +16842,11 @@ pub struct GetLastStateBuilder {
 }
 impl GetLastStateBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn subscribe(mut self, v: Bool) -> Self {
-        self.subscribe = v;
+    pub fn subscribe<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bool>,
+    {
+        self.subscribe = v.into();
         self
     }
 }
@@ -16654,8 +17092,11 @@ pub struct SendLastStateBuilder {
 }
 impl SendLastStateBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn last_header(mut self, v: VerifiableHeader) -> Self {
-        self.last_header = v;
+    pub fn last_header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
+        self.last_header = v.into();
         self
     }
 }
@@ -16989,28 +17430,46 @@ pub struct GetLastStateProofBuilder {
 }
 impl GetLastStateProofBuilder {
     pub const FIELD_COUNT: usize = 6;
-    pub fn last_hash(mut self, v: Byte32) -> Self {
-        self.last_hash = v;
+    pub fn last_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.last_hash = v.into();
         self
     }
-    pub fn start_hash(mut self, v: Byte32) -> Self {
-        self.start_hash = v;
+    pub fn start_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.start_hash = v.into();
         self
     }
-    pub fn start_number(mut self, v: Uint64) -> Self {
-        self.start_number = v;
+    pub fn start_number<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.start_number = v.into();
         self
     }
-    pub fn last_n_blocks(mut self, v: Uint64) -> Self {
-        self.last_n_blocks = v;
+    pub fn last_n_blocks<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.last_n_blocks = v.into();
         self
     }
-    pub fn difficulty_boundary(mut self, v: Uint256) -> Self {
-        self.difficulty_boundary = v;
+    pub fn difficulty_boundary<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint256>,
+    {
+        self.difficulty_boundary = v.into();
         self
     }
-    pub fn difficulties(mut self, v: Uint256Vec) -> Self {
-        self.difficulties = v;
+    pub fn difficulties<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint256Vec>,
+    {
+        self.difficulties = v.into();
         self
     }
 }
@@ -17313,16 +17772,25 @@ pub struct SendLastStateProofBuilder {
 }
 impl SendLastStateProofBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn last_header(mut self, v: VerifiableHeader) -> Self {
-        self.last_header = v;
+    pub fn last_header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
+        self.last_header = v.into();
         self
     }
-    pub fn proof(mut self, v: HeaderDigestVec) -> Self {
-        self.proof = v;
+    pub fn proof<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderDigestVec>,
+    {
+        self.proof = v.into();
         self
     }
-    pub fn headers(mut self, v: VerifiableHeaderVec) -> Self {
-        self.headers = v;
+    pub fn headers<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeaderVec>,
+    {
+        self.headers = v.into();
         self
     }
 }
@@ -17584,12 +18052,18 @@ pub struct GetBlocksProofBuilder {
 }
 impl GetBlocksProofBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn last_hash(mut self, v: Byte32) -> Self {
-        self.last_hash = v;
+    pub fn last_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.last_hash = v.into();
         self
     }
-    pub fn block_hashes(mut self, v: Byte32Vec) -> Self {
-        self.block_hashes = v;
+    pub fn block_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.block_hashes = v.into();
         self
     }
 }
@@ -17903,20 +18377,32 @@ pub struct SendBlocksProofBuilder {
 }
 impl SendBlocksProofBuilder {
     pub const FIELD_COUNT: usize = 4;
-    pub fn last_header(mut self, v: VerifiableHeader) -> Self {
-        self.last_header = v;
+    pub fn last_header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
+        self.last_header = v.into();
         self
     }
-    pub fn proof(mut self, v: HeaderDigestVec) -> Self {
-        self.proof = v;
+    pub fn proof<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderDigestVec>,
+    {
+        self.proof = v.into();
         self
     }
-    pub fn headers(mut self, v: HeaderVec) -> Self {
-        self.headers = v;
+    pub fn headers<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderVec>,
+    {
+        self.headers = v.into();
         self
     }
-    pub fn missing_block_hashes(mut self, v: Byte32Vec) -> Self {
-        self.missing_block_hashes = v;
+    pub fn missing_block_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.missing_block_hashes = v.into();
         self
     }
 }
@@ -18283,28 +18769,46 @@ pub struct SendBlocksProofV1Builder {
 }
 impl SendBlocksProofV1Builder {
     pub const FIELD_COUNT: usize = 6;
-    pub fn last_header(mut self, v: VerifiableHeader) -> Self {
-        self.last_header = v;
+    pub fn last_header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
+        self.last_header = v.into();
         self
     }
-    pub fn proof(mut self, v: HeaderDigestVec) -> Self {
-        self.proof = v;
+    pub fn proof<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderDigestVec>,
+    {
+        self.proof = v.into();
         self
     }
-    pub fn headers(mut self, v: HeaderVec) -> Self {
-        self.headers = v;
+    pub fn headers<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderVec>,
+    {
+        self.headers = v.into();
         self
     }
-    pub fn missing_block_hashes(mut self, v: Byte32Vec) -> Self {
-        self.missing_block_hashes = v;
+    pub fn missing_block_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.missing_block_hashes = v.into();
         self
     }
-    pub fn blocks_uncles_hash(mut self, v: Byte32Vec) -> Self {
-        self.blocks_uncles_hash = v;
+    pub fn blocks_uncles_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.blocks_uncles_hash = v.into();
         self
     }
-    pub fn blocks_extension(mut self, v: BytesOptVec) -> Self {
-        self.blocks_extension = v;
+    pub fn blocks_extension<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOptVec>,
+    {
+        self.blocks_extension = v.into();
         self
     }
 }
@@ -18578,12 +19082,18 @@ pub struct GetTransactionsProofBuilder {
 }
 impl GetTransactionsProofBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn last_hash(mut self, v: Byte32) -> Self {
-        self.last_hash = v;
+    pub fn last_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32>,
+    {
+        self.last_hash = v.into();
         self
     }
-    pub fn tx_hashes(mut self, v: Byte32Vec) -> Self {
-        self.tx_hashes = v;
+    pub fn tx_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.tx_hashes = v.into();
         self
     }
 }
@@ -18887,20 +19397,32 @@ pub struct SendTransactionsProofBuilder {
 }
 impl SendTransactionsProofBuilder {
     pub const FIELD_COUNT: usize = 4;
-    pub fn last_header(mut self, v: VerifiableHeader) -> Self {
-        self.last_header = v;
+    pub fn last_header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
+        self.last_header = v.into();
         self
     }
-    pub fn proof(mut self, v: HeaderDigestVec) -> Self {
-        self.proof = v;
+    pub fn proof<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderDigestVec>,
+    {
+        self.proof = v.into();
         self
     }
-    pub fn filtered_blocks(mut self, v: FilteredBlockVec) -> Self {
-        self.filtered_blocks = v;
+    pub fn filtered_blocks<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<FilteredBlockVec>,
+    {
+        self.filtered_blocks = v.into();
         self
     }
-    pub fn missing_tx_hashes(mut self, v: Byte32Vec) -> Self {
-        self.missing_tx_hashes = v;
+    pub fn missing_tx_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.missing_tx_hashes = v.into();
         self
     }
 }
@@ -19257,28 +19779,46 @@ pub struct SendTransactionsProofV1Builder {
 }
 impl SendTransactionsProofV1Builder {
     pub const FIELD_COUNT: usize = 6;
-    pub fn last_header(mut self, v: VerifiableHeader) -> Self {
-        self.last_header = v;
+    pub fn last_header<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<VerifiableHeader>,
+    {
+        self.last_header = v.into();
         self
     }
-    pub fn proof(mut self, v: HeaderDigestVec) -> Self {
-        self.proof = v;
+    pub fn proof<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<HeaderDigestVec>,
+    {
+        self.proof = v.into();
         self
     }
-    pub fn filtered_blocks(mut self, v: FilteredBlockVec) -> Self {
-        self.filtered_blocks = v;
+    pub fn filtered_blocks<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<FilteredBlockVec>,
+    {
+        self.filtered_blocks = v.into();
         self
     }
-    pub fn missing_tx_hashes(mut self, v: Byte32Vec) -> Self {
-        self.missing_tx_hashes = v;
+    pub fn missing_tx_hashes<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.missing_tx_hashes = v.into();
         self
     }
-    pub fn blocks_uncles_hash(mut self, v: Byte32Vec) -> Self {
-        self.blocks_uncles_hash = v;
+    pub fn blocks_uncles_hash<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Byte32Vec>,
+    {
+        self.blocks_uncles_hash = v.into();
         self
     }
-    pub fn blocks_extension(mut self, v: BytesOptVec) -> Self {
-        self.blocks_extension = v;
+    pub fn blocks_extension<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOptVec>,
+    {
+        self.blocks_extension = v.into();
         self
     }
 }
@@ -19531,8 +20071,11 @@ pub struct TimeBuilder {
 }
 impl TimeBuilder {
     pub const FIELD_COUNT: usize = 1;
-    pub fn timestamp(mut self, v: Uint64) -> Self {
-        self.timestamp = v;
+    pub fn timestamp<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.timestamp = v.into();
         self
     }
 }
@@ -19870,32 +20413,53 @@ pub struct RawAlertBuilder {
 }
 impl RawAlertBuilder {
     pub const FIELD_COUNT: usize = 7;
-    pub fn notice_until(mut self, v: Uint64) -> Self {
-        self.notice_until = v;
+    pub fn notice_until<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.notice_until = v.into();
         self
     }
-    pub fn id(mut self, v: Uint32) -> Self {
-        self.id = v;
+    pub fn id<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.id = v.into();
         self
     }
-    pub fn cancel(mut self, v: Uint32) -> Self {
-        self.cancel = v;
+    pub fn cancel<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.cancel = v.into();
         self
     }
-    pub fn priority(mut self, v: Uint32) -> Self {
-        self.priority = v;
+    pub fn priority<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint32>,
+    {
+        self.priority = v.into();
         self
     }
-    pub fn message(mut self, v: Bytes) -> Self {
-        self.message = v;
+    pub fn message<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.message = v.into();
         self
     }
-    pub fn min_version(mut self, v: BytesOpt) -> Self {
-        self.min_version = v;
+    pub fn min_version<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
+        self.min_version = v.into();
         self
     }
-    pub fn max_version(mut self, v: BytesOpt) -> Self {
-        self.max_version = v;
+    pub fn max_version<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesOpt>,
+    {
+        self.max_version = v.into();
         self
     }
 }
@@ -20174,12 +20738,18 @@ pub struct AlertBuilder {
 }
 impl AlertBuilder {
     pub const FIELD_COUNT: usize = 2;
-    pub fn raw(mut self, v: RawAlert) -> Self {
-        self.raw = v;
+    pub fn raw<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<RawAlert>,
+    {
+        self.raw = v.into();
         self
     }
-    pub fn signatures(mut self, v: BytesVec) -> Self {
-        self.signatures = v;
+    pub fn signatures<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<BytesVec>,
+    {
+        self.signatures = v.into();
         self
     }
 }
@@ -20454,16 +21024,25 @@ pub struct IdentifyBuilder {
 }
 impl IdentifyBuilder {
     pub const FIELD_COUNT: usize = 3;
-    pub fn flag(mut self, v: Uint64) -> Self {
-        self.flag = v;
+    pub fn flag<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Uint64>,
+    {
+        self.flag = v.into();
         self
     }
-    pub fn name(mut self, v: Bytes) -> Self {
-        self.name = v;
+    pub fn name<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.name = v.into();
         self
     }
-    pub fn client_version(mut self, v: Bytes) -> Self {
-        self.client_version = v;
+    pub fn client_version<T>(mut self, v: T) -> Self
+    where
+        T: ::core::convert::Into<Bytes>,
+    {
+        self.client_version = v.into();
         self
     }
 }

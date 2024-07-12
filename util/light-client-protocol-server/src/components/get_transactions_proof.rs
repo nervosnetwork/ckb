@@ -104,11 +104,11 @@ impl<'a> GetTransactionsProofProcess<'a> {
             let filtered_block = packed::FilteredBlock::new_builder()
                 .header(block.header().data())
                 .witnesses_root(block.calc_witnesses_root())
-                .transactions(txs.into())
+                .transactions(txs)
                 .proof(
                     packed::MerkleProof::new_builder()
-                        .indices(merkle_proof.indices().into())
-                        .lemmas(merkle_proof.lemmas().to_owned().into())
+                        .indices(merkle_proof.indices())
+                        .lemmas(merkle_proof.lemmas().to_owned())
                         .build(),
                 )
                 .build();

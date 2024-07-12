@@ -31,7 +31,7 @@ impl Spec for GetBlockFilterCheckPoints {
         let start_number: u64 = 0;
         let request = {
             let content = packed::GetBlockFilterCheckPoints::new_builder()
-                .start_number(start_number.into())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)
@@ -113,7 +113,7 @@ impl Spec for GetBlockFilterHashes {
         let start_number: u64 = 2;
         let request = {
             let content = packed::GetBlockFilterHashes::new_builder()
-                .start_number(start_number.into())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)
@@ -205,7 +205,7 @@ impl Spec for GetBlockFilters {
         let start_number: u64 = 42;
         let request = {
             let content = packed::GetBlockFilters::new_builder()
-                .start_number(start_number.into())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)
@@ -289,7 +289,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
         info!("start_number: {start_number}");
         let request = {
             let content = packed::GetBlockFilters::new_builder()
-                .start_number(start_number.into())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)

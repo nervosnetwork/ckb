@@ -47,11 +47,11 @@ pub(crate) fn create_cellbase(
         builder
             .output(
                 CellOutputBuilder::default()
-                    .capacity(reward.unwrap_or(capacity).into())
+                    .capacity(reward.unwrap_or(capacity))
                     .lock(reward_lock)
                     .build(),
             )
-            .output_data(Bytes::new().into())
+            .output_data(Bytes::new())
             .build()
     }
 }
@@ -91,10 +91,10 @@ pub(crate) fn gen_block(
 
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp((parent_header.timestamp() + 20_000).into())
-        .number(number.into())
-        .compact_target(epoch.compact_target().into())
-        .epoch(epoch.number_with_fraction(number).into())
+        .timestamp(parent_header.timestamp() + 20_000)
+        .number(number)
+        .compact_target(epoch.compact_target())
+        .epoch(epoch.number_with_fraction(number))
         .dao(dao)
         .transactions(txs)
         .uncles(uncles)
@@ -120,11 +120,11 @@ pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> Transa
     TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(input_cap.safe_sub(TX_FEE).unwrap().into())
+                .capacity(input_cap.safe_sub(TX_FEE).unwrap())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().into())
+        .output_data(Bytes::new())
         .input(CellInput::new(OutPoint::new(parent.hash(), index), 0))
         .cell_dep(
             CellDep::new_builder()
@@ -142,11 +142,11 @@ fn finalize_reward() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).into())
+                .capacity(capacity_bytes!(5_000))
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().into())
+        .output_data(Bytes::new())
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx, &tx]).unwrap();
@@ -154,7 +154,7 @@ fn finalize_reward() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(tx.clone())
-        .compact_target(DIFF_TWO.into())
+        .compact_target(DIFF_TWO)
         .dao(dao)
         .build();
 
@@ -181,14 +181,14 @@ fn finalize_reward() {
     let bob = ScriptBuilder::default()
         .args(bob_args)
         .code_hash(always_success_script.code_hash())
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data)
         .build();
 
     let alice_args: packed::Bytes = Bytes::from(b"a11ce".to_vec()).into();
     let alice = ScriptBuilder::default()
         .args(alice_args)
         .code_hash(always_success_script.code_hash())
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data)
         .build();
 
     for i in 1..23 {

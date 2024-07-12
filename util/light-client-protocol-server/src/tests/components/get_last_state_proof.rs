@@ -30,9 +30,9 @@ async fn get_last_state_proof_with_the_genesis_block() {
         let content = packed::GetLastStateProof::new_builder()
             .last_hash(tip_header.hash())
             .start_hash(genesis_header.hash())
-            .start_number(0u64.into())
-            .last_n_blocks(10u64.into())
-            .difficulty_boundary(genesis_header.difficulty().into())
+            .start_number(0u64)
+            .last_n_blocks(10u64)
+            .difficulty_boundary(genesis_header.difficulty())
             .build();
         packed::LightClientMessage::new_builder()
             .set(content)

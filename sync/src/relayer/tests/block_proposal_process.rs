@@ -20,8 +20,7 @@ fn test_no_unknown() {
             transactions
                 .into_iter()
                 .map(|tx| tx.data())
-                .collect::<Vec<Transaction>>()
-                .into(),
+                .collect::<Vec<Transaction>>(),
         )
         .build();
 
@@ -41,8 +40,7 @@ fn test_no_asked() {
             transactions
                 .into_iter()
                 .map(|tx| tx.data())
-                .collect::<Vec<Transaction>>()
-                .into(),
+                .collect::<Vec<Transaction>>(),
         )
         .build();
 
@@ -76,8 +74,7 @@ fn test_ok() {
             transactions
                 .into_iter()
                 .map(|tx| tx.data())
-                .collect::<Vec<Transaction>>()
-                .into(),
+                .collect::<Vec<Transaction>>(),
         )
         .build();
 
@@ -111,8 +108,7 @@ fn test_clear_expired_inflight_proposals() {
             transactions
                 .into_iter()
                 .map(|tx| tx.data())
-                .collect::<Vec<Transaction>>()
-                .into(),
+                .collect::<Vec<Transaction>>(),
         )
         .build();
 

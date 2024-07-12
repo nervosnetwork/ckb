@@ -23,7 +23,7 @@ use ckb_types::{
         TransactionBuilder, TransactionInfo, TransactionView,
     },
     h256,
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
+    packed::{self, Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
 };
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub fn test_empty() {
 #[test]
 pub fn test_version() {
     let transaction = TransactionBuilder::default()
-        .version((TX_VERSION + 1).into())
+        .version(TX_VERSION + 1)
         .build();
     let verifier = VersionVerifier::new(&transaction, TX_VERSION);
 
@@ -63,10 +63,10 @@ pub fn test_exceeded_maximum_block_bytes() {
     let transaction = TransactionBuilder::default()
         .output(
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
         )
-        .output_data(data.into())
+        .output_data(data)
         .build();
     let verifier = SizeVerifier::new(&transaction, 100);
 
@@ -85,10 +85,10 @@ pub fn test_capacity_outofbound() {
     let transaction = TransactionBuilder::default()
         .output(
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
         )
-        .output_data(data.into())
+        .output_data(data)
         .build();
 
     let rtx = Arc::new(ResolvedTransaction {
@@ -96,7 +96,7 @@ pub fn test_capacity_outofbound() {
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             Bytes::new(),
         )
@@ -123,11 +123,11 @@ pub fn test_skip_dao_capacity_check() {
     let transaction = TransactionBuilder::default()
         .output(
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(500).into())
-                .type_(Some(dao_type_script.clone()).into())
+                .capacity(capacity_bytes!(500))
+                .type_(Some(dao_type_script.clone()))
                 .build(),
         )
-        .output_data(Bytes::new().into())
+        .output_data(Bytes::new())
         .build();
 
     let rtx = Arc::new(ResolvedTransaction {
@@ -146,7 +146,7 @@ pub fn test_skip_dao_capacity_check() {
 pub fn test_inputs_cellbase_maturity() {
     let transaction = TransactionBuilder::default().build();
     let output = CellOutput::new_builder()
-        .capacity(capacity_bytes!(50).into())
+        .capacity(capacity_bytes!(50))
         .build();
     let base_epoch = EpochNumberWithFraction::new(10, 0, 10);
     let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
@@ -197,7 +197,7 @@ pub fn test_inputs_cellbase_maturity() {
 fn test_ignore_genesis_cellbase_maturity() {
     let transaction = TransactionBuilder::default().build();
     let output = CellOutput::new_builder()
-        .capacity(capacity_bytes!(50).into())
+        .capacity(capacity_bytes!(50))
         .build();
     let base_epoch = EpochNumberWithFraction::new(0, 0, 10);
     let cellbase_maturity = EpochNumberWithFraction::new(5, 0, 1);
@@ -236,7 +236,7 @@ fn test_ignore_genesis_cellbase_maturity() {
 pub fn test_deps_cellbase_maturity() {
     let transaction = TransactionBuilder::default().build();
     let output = CellOutput::new_builder()
-        .capacity(capacity_bytes!(50).into())
+        .capacity(capacity_bytes!(50))
         .build();
 
     let base_epoch = EpochNumberWithFraction::new(0, 0, 10);
@@ -296,10 +296,10 @@ pub fn test_capacity_invalid() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(100).into())
+                .capacity(capacity_bytes!(100))
                 .build(),
         ])
         .outputs_data(vec![Bytes::new().into(); 2])
@@ -313,14 +313,14 @@ pub fn test_capacity_invalid() {
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(49).into())
+                    .capacity(capacity_bytes!(49))
                     .build(),
                 Bytes::new(),
             )
             .build(),
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(100).into())
+                    .capacity(capacity_bytes!(100))
                     .build(),
                 Bytes::new(),
             )
@@ -389,8 +389,8 @@ fn verify_since(
     let tx_env = {
         let epoch = EpochNumberWithFraction::new(epoch_number, 0, 10);
         let header = HeaderView::new_advanced_builder()
-            .number(block_number.into())
-            .epoch(epoch.into())
+            .number(block_number)
+            .epoch(epoch)
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
         Arc::new(TxVerifyEnv::new_commit(&header))
@@ -444,7 +444,7 @@ fn create_resolve_tx_with_transaction_info(
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             Bytes::new(),
         )
@@ -503,8 +503,8 @@ fn test_fraction_epoch_since_verify() {
     let tx_env = {
         let epoch = EpochNumberWithFraction::new(16, 1, 10);
         let header = HeaderView::new_advanced_builder()
-            .number(block_number.into())
-            .epoch(epoch.into())
+            .number(block_number)
+            .epoch(epoch)
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
         Arc::new(TxVerifyEnv::new_commit(&header))
@@ -521,8 +521,8 @@ fn test_fraction_epoch_since_verify() {
     let tx_env = {
         let epoch = EpochNumberWithFraction::new(16, 5, 10);
         let header = HeaderView::new_advanced_builder()
-            .number(block_number.into())
-            .epoch(epoch.into())
+            .number(block_number)
+            .epoch(epoch)
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
         Arc::new(TxVerifyEnv::new_commit(&header))
@@ -547,8 +547,8 @@ fn test_fraction_epoch_since_verify_v2021() {
         let epoch = EpochNumberWithFraction::new(16, 5, 10);
         let parent_hash = Arc::new(median_time_context.get_block_hash(block_number - 1));
         let header = HeaderView::new_advanced_builder()
-            .number(block_number.into())
-            .epoch(epoch.into())
+            .number(block_number)
+            .epoch(epoch)
             .parent_hash(parent_hash.as_ref().to_owned())
             .build();
         Arc::new(TxVerifyEnv::new_commit(&header))
@@ -741,7 +741,7 @@ fn test_since_overflow() {
 #[test]
 pub fn test_outputs_data_length_mismatch() {
     let transaction = TransactionBuilder::default()
-        .output(Default::default())
+        .output(CellOutput::default())
         .build();
     let verifier = OutputsDataVerifier::new(&transaction);
 
@@ -754,8 +754,8 @@ pub fn test_outputs_data_length_mismatch() {
     );
 
     let transaction = TransactionBuilder::default()
-        .output(Default::default())
-        .output_data(Default::default())
+        .output(CellOutput::default())
+        .output_data(packed::Bytes::default())
         .build();
     let verifier = OutputsDataVerifier::new(&transaction);
 
@@ -812,7 +812,7 @@ fn build_consensus_with_dao_limiting_block(block_number: u64) -> (Arc<Consensus>
 
     let dao_type_script = Script::new_builder()
         .code_hash(dao_script.calc_script_hash())
-        .hash_type(ScriptHashType::Type.into())
+        .hash_type(ScriptHashType::Type)
         .build();
 
     (Arc::new(consensus), dao_type_script)
@@ -825,16 +825,12 @@ fn test_dao_disables_different_lock_script_size() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(200).into())
-                .lock(
-                    Script::new_builder()
-                        .args(Bytes::from(vec![1; 20]).into())
-                        .build(),
-                )
-                .type_(Some(dao_type_script.clone()).into())
+                .capacity(capacity_bytes!(200))
+                .lock(Script::new_builder().args(Bytes::from(vec![1; 20])).build())
+                .type_(Some(dao_type_script.clone()))
                 .build(),
         ])
         .outputs_data(vec![Bytes::new().into(); 2])
@@ -846,7 +842,7 @@ fn test_dao_disables_different_lock_script_size() {
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(50).into())
+                    .capacity(capacity_bytes!(50))
                     .build(),
                 Bytes::new(),
             )
@@ -858,9 +854,9 @@ fn test_dao_disables_different_lock_script_size() {
             .build(),
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(201).into())
-                    .lock(Script::new_builder().args(Bytes::new().into()).build())
-                    .type_(Some(dao_type_script).into())
+                    .capacity(capacity_bytes!(201))
+                    .lock(Script::new_builder().args(Bytes::new()).build())
+                    .type_(Some(dao_type_script))
                     .build(),
                 Bytes::from(vec![0; 8]),
             )
@@ -888,16 +884,12 @@ fn test_dao_disables_different_lock_script_size_before_limiting_block() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(200).into())
-                .lock(
-                    Script::new_builder()
-                        .args(Bytes::from(vec![1; 20]).into())
-                        .build(),
-                )
-                .type_(Some(dao_type_script.clone()).into())
+                .capacity(capacity_bytes!(200))
+                .lock(Script::new_builder().args(Bytes::from(vec![1; 20])).build())
+                .type_(Some(dao_type_script.clone()))
                 .build(),
         ])
         .outputs_data(vec![Bytes::new().into(); 2])
@@ -909,7 +901,7 @@ fn test_dao_disables_different_lock_script_size_before_limiting_block() {
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(50).into())
+                    .capacity(capacity_bytes!(50))
                     .build(),
                 Bytes::new(),
             )
@@ -921,9 +913,9 @@ fn test_dao_disables_different_lock_script_size_before_limiting_block() {
             .build(),
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(201).into())
-                    .lock(Script::new_builder().args(Bytes::new().into()).build())
-                    .type_(Some(dao_type_script).into())
+                    .capacity(capacity_bytes!(201))
+                    .lock(Script::new_builder().args(Bytes::new()).build())
+                    .type_(Some(dao_type_script))
                     .build(),
                 Bytes::from(vec![0; 8]),
             )
@@ -948,15 +940,11 @@ fn test_non_dao_allows_lock_script_size() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(200).into())
-                .lock(
-                    Script::new_builder()
-                        .args(Bytes::from(vec![1; 20]).into())
-                        .build(),
-                )
+                .capacity(capacity_bytes!(200))
+                .lock(Script::new_builder().args(Bytes::from(vec![1; 20])).build())
                 .build(),
         ])
         .outputs_data(vec![Bytes::new().into(); 2])
@@ -968,7 +956,7 @@ fn test_non_dao_allows_lock_script_size() {
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(50).into())
+                    .capacity(capacity_bytes!(50))
                     .build(),
                 Bytes::new(),
             )
@@ -980,8 +968,8 @@ fn test_non_dao_allows_lock_script_size() {
             .build(),
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(201).into())
-                    .lock(Script::new_builder().args(Bytes::new().into()).build())
+                    .capacity(capacity_bytes!(201))
+                    .lock(Script::new_builder().args(Bytes::new()).build())
                     .build(),
                 Bytes::from(vec![0; 8]),
             )
@@ -1006,16 +994,12 @@ fn test_dao_allows_different_lock_script_size_in_withdraw_phase_2() {
     let transaction = TransactionBuilder::default()
         .outputs(vec![
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(200).into())
-                .lock(
-                    Script::new_builder()
-                        .args(Bytes::from(vec![1; 20]).into())
-                        .build(),
-                )
-                .type_(Some(dao_type_script.clone()).into())
+                .capacity(capacity_bytes!(200))
+                .lock(Script::new_builder().args(Bytes::from(vec![1; 20])).build())
+                .type_(Some(dao_type_script.clone()))
                 .build(),
         ])
         .outputs_data(vec![Bytes::new().into(); 2])
@@ -1027,7 +1011,7 @@ fn test_dao_allows_different_lock_script_size_in_withdraw_phase_2() {
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(50).into())
+                    .capacity(capacity_bytes!(50))
                     .build(),
                 Bytes::new(),
             )
@@ -1039,9 +1023,9 @@ fn test_dao_allows_different_lock_script_size_in_withdraw_phase_2() {
             .build(),
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(201).into())
-                    .lock(Script::new_builder().args(Bytes::new().into()).build())
-                    .type_(Some(dao_type_script).into())
+                    .capacity(capacity_bytes!(201))
+                    .lock(Script::new_builder().args(Bytes::new()).build())
+                    .type_(Some(dao_type_script))
                     .build(),
                 Bytes::from(vec![1; 8]),
             )
@@ -1066,16 +1050,12 @@ fn test_dao_allows_different_lock_script_size_using_normal_cells_in_withdraw_pha
     let transaction = TransactionBuilder::default()
         .outputs(vec![
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).into())
+                .capacity(capacity_bytes!(50))
                 .build(),
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(200).into())
-                .lock(
-                    Script::new_builder()
-                        .args(Bytes::from(vec![1; 20]).into())
-                        .build(),
-                )
-                .type_(Some(dao_type_script).into())
+                .capacity(capacity_bytes!(200))
+                .lock(Script::new_builder().args(Bytes::from(vec![1; 20])).build())
+                .type_(Some(dao_type_script))
                 .build(),
         ])
         .outputs_data(vec![])
@@ -1087,7 +1067,7 @@ fn test_dao_allows_different_lock_script_size_using_normal_cells_in_withdraw_pha
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(50).into())
+                    .capacity(capacity_bytes!(50))
                     .build(),
                 Bytes::new(),
             )
@@ -1099,8 +1079,8 @@ fn test_dao_allows_different_lock_script_size_using_normal_cells_in_withdraw_pha
             .build(),
             CellMetaBuilder::from_cell_output(
                 CellOutput::new_builder()
-                    .capacity(capacity_bytes!(201).into())
-                    .lock(Script::new_builder().args(Bytes::new().into()).build())
+                    .capacity(capacity_bytes!(201))
+                    .lock(Script::new_builder().args(Bytes::new()).build())
                     .build(),
                 Bytes::from(vec![1; 8]),
             )

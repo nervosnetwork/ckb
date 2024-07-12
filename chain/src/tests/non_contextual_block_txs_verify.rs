@@ -42,11 +42,11 @@ pub(crate) fn create_cellbase(
         builder
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity.into())
+                    .capacity(capacity)
                     .lock(always_success_script.clone())
                     .build(),
             )
-            .output_data(Bytes::new().into())
+            .output_data(Bytes::new())
             .build()
     }
 }
@@ -72,10 +72,10 @@ pub(crate) fn gen_block(
 
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp((parent_header.timestamp() + 20_000).into())
-        .number(number.into())
-        .compact_target(epoch.compact_target().into())
-        .epoch(epoch.number_with_fraction(number).into())
+        .timestamp(parent_header.timestamp() + 20_000)
+        .number(number)
+        .compact_target(epoch.compact_target())
+        .epoch(epoch.number_with_fraction(number))
         .transactions(txs)
         .build();
 
@@ -101,7 +101,7 @@ pub(crate) fn create_transaction(
     let mut builder = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(input_cap.safe_sub(TX_FEE).unwrap().into())
+                .capacity(input_cap.safe_sub(TX_FEE).unwrap())
                 .lock(always_success_script.clone())
                 .build(),
         )
@@ -113,7 +113,7 @@ pub(crate) fn create_transaction(
         );
 
     if !missing_output_data {
-        builder = builder.output_data(Bytes::new().into())
+        builder = builder.output_data(Bytes::new())
     }
     builder.build()
 }
@@ -127,11 +127,11 @@ fn non_contextual_block_txs_verify() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).into())
+                .capacity(capacity_bytes!(5_000))
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new().into())
+        .output_data(Bytes::new())
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx, &issue_tx]).unwrap();
@@ -139,7 +139,7 @@ fn non_contextual_block_txs_verify() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.into())
+        .compact_target(DIFF_TWO)
         .dao(dao)
         .build();
 

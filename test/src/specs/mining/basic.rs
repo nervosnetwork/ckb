@@ -49,7 +49,7 @@ impl Spec for BlockTemplates {
                 block1
                     .header()
                     .as_advanced_builder()
-                    .timestamp((block1.header().timestamp() + 1).into())
+                    .timestamp(block1.header().timestamp() + 1)
                     .build(),
             )
             .build();

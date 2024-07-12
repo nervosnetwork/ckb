@@ -21,7 +21,7 @@ impl Spec for RelayTooNewBlock {
         let future = Duration::from_secs(6_000).as_millis() as u64;
         let too_new_block = node0
             .new_block_builder(None, None, None)
-            .timestamp((now_ms() + future).into())
+            .timestamp(now_ms() + future)
             .build();
 
         let _too_new_hash = node0.process_block_without_verify(&too_new_block, true);

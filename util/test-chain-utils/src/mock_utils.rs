@@ -25,7 +25,7 @@ pub fn create_always_success_tx() -> TransactionView {
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data.into())
+        .output_data(always_success_cell_data)
         .build()
 }
 
@@ -36,7 +36,7 @@ pub fn create_load_input_data_hash_cell_tx() -> TransactionView {
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(load_input_data_hash_cell_cell.clone())
-        .output_data(load_input_data_hash_cell_data.into())
+        .output_data(load_input_data_hash_cell_data)
         .build()
 }
 
@@ -47,7 +47,7 @@ pub fn create_load_input_one_byte_cell_tx() -> TransactionView {
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(load_input_one_byte_cell.clone())
-        .output_data(load_input_one_byte_cell_data.into())
+        .output_data(load_input_one_byte_cell_data)
         .build()
 }
 
@@ -97,11 +97,11 @@ pub fn create_cellbase(
         builder
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity.into())
+                    .capacity(capacity)
                     .lock(always_success_script.clone())
                     .build(),
             )
-            .output_data(Bytes::new().into())
+            .output_data(Bytes::new())
             .build()
     }
 }
@@ -139,7 +139,7 @@ pub fn create_multi_outputs_transaction(
             output_capacity
         };
         CellOutputBuilder::default()
-            .capacity(capacity.into())
+            .capacity(capacity)
             .lock(always_success_script.clone())
             .build()
     });
@@ -177,11 +177,11 @@ pub fn create_transaction_with_out_point(out_point: OutPoint, unique_data: u8) -
     TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).into())
+                .capacity(capacity_bytes!(100))
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(data.into())
+        .output_data(data)
         .input(CellInput::new(out_point, 0))
         .cell_dep(
             CellDep::new_builder()

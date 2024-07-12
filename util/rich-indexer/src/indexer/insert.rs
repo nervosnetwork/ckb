@@ -585,10 +585,10 @@ fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
 
     let mut lock_builder = ScriptBuilder::default();
     if let Some(lock_code_hash) = lock_code_hash {
-        lock_builder = lock_builder.code_hash(to_fixed_array::<32>(&lock_code_hash[0..32]).into());
+        lock_builder = lock_builder.code_hash(to_fixed_array::<32>(&lock_code_hash[0..32]));
     }
     if let Some(lock_args) = lock_args {
-        lock_builder = lock_builder.args(lock_args.into());
+        lock_builder = lock_builder.args(lock_args);
     }
     if let Some(lock_hash_type) = lock_hash_type {
         lock_builder = lock_builder.hash_type(Byte::new(lock_hash_type as u8));
@@ -597,10 +597,10 @@ fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
 
     let mut type_builder = ScriptBuilder::default();
     if let Some(type_code_hash) = type_code_hash {
-        type_builder = type_builder.code_hash(to_fixed_array::<32>(&type_code_hash[0..32]).into());
+        type_builder = type_builder.code_hash(to_fixed_array::<32>(&type_code_hash[0..32]));
     }
     if let Some(type_args) = type_args {
-        type_builder = type_builder.args(type_args.into());
+        type_builder = type_builder.args(type_args);
     }
     if let Some(type_hash_type) = type_hash_type {
         type_builder = type_builder.hash_type(Byte::new(type_hash_type as u8));
@@ -608,9 +608,9 @@ fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
     let type_script = type_builder.build();
 
     let cell_output = CellOutput::new_builder()
-        .capacity((capacity as u64).into())
+        .capacity(capacity as u64)
         .lock(lock_script)
-        .type_(Some(type_script).into())
+        .type_(Some(type_script))
         .build();
 
     Some((id, cell_output, data.into()))

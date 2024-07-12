@@ -84,15 +84,13 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                     transactions
                         .into_iter()
                         .map(|tx| tx.data())
-                        .collect::<Vec<Transaction>>()
-                        .into(),
+                        .collect::<Vec<Transaction>>(),
                 )
                 .uncles(
                     uncles
                         .into_iter()
                         .map(|uncle| uncle.data())
-                        .collect::<Vec<UncleBlock>>()
-                        .into(),
+                        .collect::<Vec<UncleBlock>>(),
                 )
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();

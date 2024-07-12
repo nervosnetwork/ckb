@@ -11,16 +11,16 @@ use crate::{
 fn mock_script(arg: Bytes) -> packed::Script {
     packed::ScriptBuilder::default()
         .code_hash(packed::Byte32::zero())
-        .args(arg.into())
-        .hash_type(core::ScriptHashType::Data.into())
+        .args(arg)
+        .hash_type(core::ScriptHashType::Data)
         .build()
 }
 
 fn mock_cell_output(arg: Bytes) -> packed::CellOutput {
     packed::CellOutputBuilder::default()
-        .capacity(core::Capacity::zero().into())
+        .capacity(core::Capacity::zero())
         .lock(packed::Script::default())
-        .type_(Some(mock_script(arg)).into())
+        .type_(Some(mock_script(arg)))
         .build()
 }
 
@@ -33,7 +33,7 @@ fn mock_full_tx(data: Bytes, arg: Bytes) -> core::TransactionView {
         .inputs(vec![mock_cell_input()])
         .outputs(vec![mock_cell_output(arg.clone())])
         .outputs_data(vec![data.into()])
-        .witness(arg.into())
+        .witness(arg)
         .build()
 }
 

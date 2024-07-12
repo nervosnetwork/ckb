@@ -85,8 +85,7 @@ impl<'a> GetHeadersProcess<'a> {
                     headers
                         .into_iter()
                         .map(|x| x.data())
-                        .collect::<Vec<packed::Header>>()
-                        .into(),
+                        .collect::<Vec<packed::Header>>(),
                 )
                 .build();
             let message = packed::SyncMessage::new_builder().set(content).build();

@@ -18,8 +18,8 @@ fn build_compact_block() -> CompactBlock {
         .collect::<Vec<packed::ProposalShortId>>();
 
     CompactBlockBuilder::default()
-        .short_ids(short_ids.into())
-        .prefilled_transactions(prefilled_iter.into())
+        .short_ids(short_ids)
+        .prefilled_transactions(prefilled_iter)
         .build()
 }
 

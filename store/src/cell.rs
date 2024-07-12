@@ -41,23 +41,23 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                 .map(move |(index, (cell_output, data))| {
                     let out_point = packed::OutPoint::new_builder()
                         .tx_hash(tx_hash.clone())
-                        .index(index.into())
+                        .index(index)
                         .build();
 
                     let entry = packed::CellEntryBuilder::default()
                         .output(cell_output)
                         .block_hash(block_hash.clone())
-                        .block_number(block_number.into())
-                        .block_epoch(block_epoch.into())
-                        .index(tx_index.into())
-                        .data_size((data.len() as u64).into())
+                        .block_number(block_number)
+                        .block_epoch(block_epoch)
+                        .index(tx_index)
+                        .data_size(data.len() as u64)
                         .build();
 
                     let data_entry = if !data.is_empty() {
                         let data_hash = packed::CellOutput::calc_data_hash(&data);
                         Some(
                             packed::CellDataEntryBuilder::default()
-                                .output_data(data.into())
+                                .output_data(data)
                                 .output_data_hash(data_hash)
                                 .build(),
                         )
@@ -111,23 +111,23 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
                         tx.output_with_data(*index).map(|(cell_output, data)| {
                             let out_point = packed::OutPoint::new_builder()
                                 .tx_hash(tx_hash.clone())
-                                .index(index.into())
+                                .index(index)
                                 .build();
 
                             let entry = packed::CellEntryBuilder::default()
                                 .output(cell_output)
                                 .block_hash(block_hash.clone())
-                                .block_number(block_number.into())
-                                .block_epoch(block_epoch.into())
-                                .index(tx_index.into())
-                                .data_size((data.len() as u64).into())
+                                .block_number(block_number)
+                                .block_epoch(block_epoch)
+                                .index(tx_index)
+                                .data_size(data.len() as u64)
                                 .build();
 
                             let data_entry = if !data.is_empty() {
                                 let data_hash = packed::CellOutput::calc_data_hash(&data);
                                 Some(
                                     packed::CellDataEntryBuilder::default()
-                                        .output_data(data.into())
+                                        .output_data(data)
                                         .output_data_hash(data_hash)
                                         .build(),
                                 )

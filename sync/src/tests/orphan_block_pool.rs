@@ -11,10 +11,14 @@ fn gen_block(parent_header: &HeaderView) -> BlockView {
     let number = parent_header.number() + 1;
     BlockBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp(unix_time_as_millis().into())
-        .number(number.into())
-        .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).into())
-        .nonce((parent_header.nonce() + 1).into())
+        .timestamp(unix_time_as_millis())
+        .number(number)
+        .epoch(EpochNumberWithFraction::new(
+            number / 1000,
+            number % 1000,
+            1000,
+        ))
+        .nonce(parent_header.nonce() + 1)
         .build()
 }
 
@@ -135,10 +139,10 @@ fn test_remove_expired_blocks() {
     for _ in 1..block_number {
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
-            .timestamp(unix_time_as_millis().into())
-            .number((parent.number() + 1).into())
-            .epoch(deprecated.into())
-            .nonce((parent.nonce() + 1).into())
+            .timestamp(unix_time_as_millis())
+            .number(parent.number() + 1)
+            .epoch(deprecated)
+            .nonce(parent.nonce() + 1)
             .build();
         pool.insert(new_block.clone());
         parent = new_block.header();

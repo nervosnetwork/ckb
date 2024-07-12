@@ -61,10 +61,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
                 .map(|cell_output| {
                     let old_capacity: Capacity = cell_output.capacity().into();
                     let new_capacity = old_capacity.safe_add(Capacity::one()).unwrap();
-                    cell_output
-                        .as_builder()
-                        .capacity(new_capacity.into())
-                        .build()
+                    cell_output.as_builder().capacity(new_capacity).build()
                 })
                 .collect();
             withdrawal

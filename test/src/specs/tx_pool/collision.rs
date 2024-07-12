@@ -4,8 +4,11 @@ use crate::util::check::{
 use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
-use ckb_types::core::{capacity_bytes, Capacity, TransactionView};
 use ckb_types::prelude::*;
+use ckb_types::{
+    core::{capacity_bytes, Capacity, TransactionView},
+    packed,
+};
 
 // Convention:
 //   * `tx1` and `tx2` are cousin transactions, with the same transaction content, except the
@@ -213,7 +216,7 @@ fn cousin_txs_with_same_hash_different_witness_hash(
     let tx1 = node.new_transaction_spend_tip_cellbase();
     let tx2 = tx1
         .as_advanced_builder()
-        .witness(Default::default())
+        .witness(packed::Bytes::default())
         .build();
     assert_eq!(tx1.hash(), tx2.hash());
     assert_eq!(tx1.proposal_short_id(), tx2.proposal_short_id());

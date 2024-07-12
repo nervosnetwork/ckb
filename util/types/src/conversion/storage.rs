@@ -169,9 +169,9 @@ impl_conversion_for_entity_from!(core::BlockExt, BlockExt);
 impl Pack<packed::BlockExtV1> for core::BlockExt {
     fn pack(&self) -> packed::BlockExtV1 {
         packed::BlockExtV1::new_builder()
-            .received_at(self.received_at.pack())
+            .received_at(self.received_at)
             .total_difficulty(self.total_difficulty.pack())
-            .total_uncles_count(self.total_uncles_count.pack())
+            .total_uncles_count(self.total_uncles_count)
             .verified(self.verified.pack())
             .txs_fees((self.txs_fees[..]).pack())
             .cycles(self.cycles.pack())
@@ -189,13 +189,13 @@ impl From<core::BlockExt> for packed::BlockExtV1 {
 impl From<&core::BlockExt> for packed::BlockExtV1 {
     fn from(value: &core::BlockExt) -> Self {
         packed::BlockExtV1::new_builder()
-            .received_at(value.received_at.into())
-            .total_difficulty((&value.total_difficulty).into())
-            .total_uncles_count(value.total_uncles_count.into())
-            .verified(value.verified.into())
-            .txs_fees((value.txs_fees[..]).into())
-            .cycles(value.cycles.pack())
-            .txs_sizes((&value.txs_sizes).into())
+            .received_at(value.received_at)
+            .total_difficulty(&value.total_difficulty)
+            .total_uncles_count(value.total_uncles_count)
+            .verified(value.verified)
+            .txs_fees(&value.txs_fees[..])
+            .cycles(&value.cycles)
+            .txs_sizes(&value.txs_sizes)
             .build()
     }
 }
@@ -233,14 +233,14 @@ impl_conversion_for_entity_from!(core::BlockExt, BlockExtV1);
 impl Pack<packed::EpochExt> for core::EpochExt {
     fn pack(&self) -> packed::EpochExt {
         packed::EpochExt::new_builder()
-            .number(self.number().pack())
+            .number(self.number())
             .base_block_reward(self.base_block_reward().pack())
             .remainder_reward(self.remainder_reward().pack())
             .previous_epoch_hash_rate(self.previous_epoch_hash_rate().pack())
             .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch())
-            .start_number(self.start_number().pack())
-            .length(self.length().pack())
-            .compact_target(self.compact_target().pack())
+            .start_number(self.start_number())
+            .length(self.length())
+            .compact_target(self.compact_target())
             .build()
     }
 }
@@ -254,14 +254,14 @@ impl From<core::EpochExt> for packed::EpochExt {
 impl From<&core::EpochExt> for packed::EpochExt {
     fn from(value: &core::EpochExt) -> Self {
         packed::EpochExt::new_builder()
-            .number(value.number().into())
-            .base_block_reward(value.base_block_reward().into())
-            .remainder_reward(value.remainder_reward().into())
-            .previous_epoch_hash_rate(value.previous_epoch_hash_rate().into())
+            .number(value.number())
+            .base_block_reward(value.base_block_reward())
+            .remainder_reward(value.remainder_reward())
+            .previous_epoch_hash_rate(value.previous_epoch_hash_rate())
             .last_block_hash_in_previous_epoch(value.last_block_hash_in_previous_epoch())
-            .start_number(value.start_number().into())
-            .length(value.length().into())
-            .compact_target(value.compact_target().into())
+            .start_number(value.start_number())
+            .length(value.length())
+            .compact_target(value.compact_target())
             .build()
     }
 }
@@ -304,11 +304,11 @@ impl Pack<packed::TransactionInfo> for core::TransactionInfo {
     fn pack(&self) -> packed::TransactionInfo {
         let key = packed::TransactionKey::new_builder()
             .block_hash(self.block_hash.clone())
-            .index(self.index.pack())
+            .index(self.index)
             .build();
         packed::TransactionInfo::new_builder()
             .key(key)
-            .block_number(self.block_number.pack())
+            .block_number(self.block_number)
             .block_epoch(self.block_epoch.pack())
             .build()
     }
@@ -324,12 +324,12 @@ impl From<&core::TransactionInfo> for packed::TransactionInfo {
     fn from(value: &core::TransactionInfo) -> Self {
         let key = packed::TransactionKey::new_builder()
             .block_hash(value.block_hash.clone())
-            .index(value.index.into())
+            .index(value.index)
             .build();
         packed::TransactionInfo::new_builder()
             .key(key)
-            .block_number(value.block_number.into())
-            .block_epoch(value.block_epoch.into())
+            .block_number(value.block_number)
+            .block_epoch(value.block_epoch)
             .build()
     }
 }

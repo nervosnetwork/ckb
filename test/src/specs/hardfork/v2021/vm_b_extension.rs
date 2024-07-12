@@ -84,7 +84,7 @@ impl BExtScript {
         let tx = Self::deploy(node, &data, cell_input);
         let cell_dep = packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
-            .dep_type(DepType::Code.into())
+            .dep_type(DepType::Code)
             .build();
         let data_hash = packed::CellOutput::calc_data_hash(&data.raw_data());
         let type_hash = tx
@@ -105,7 +105,7 @@ impl BExtScript {
         let type_script = node.always_success_script();
         let tx_template = TransactionView::new_advanced_builder();
         let cell_output = packed::CellOutput::new_builder()
-            .type_(Some(type_script).into())
+            .type_(Some(type_script))
             .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
             .unwrap();
         let tx = tx_template
@@ -131,7 +131,7 @@ impl BExtScript {
         };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
-            .hash_type(hash_type.into())
+            .hash_type(hash_type)
             .args(args)
             .build()
     }
@@ -139,7 +139,7 @@ impl BExtScript {
     fn as_type_script(&self, args: packed::Bytes) -> packed::Script {
         packed::Script::new_builder()
             .code_hash(self.type_hash.clone())
-            .hash_type(ScriptHashType::Type.into())
+            .hash_type(ScriptHashType::Type)
             .args(args)
             .build()
     }
@@ -225,7 +225,7 @@ impl<'a> CheckVmBExtensionTestRunner<'a> {
             let script = self.script.as_script(vm_opt, args);
             packed::CellOutput::new_builder()
                 .lock(self.node.always_success_script())
-                .type_(Some(script).into())
+                .type_(Some(script))
                 .build_exact_capacity(Capacity::shannons(0))
                 .unwrap()
         };
@@ -234,7 +234,7 @@ impl<'a> CheckVmBExtensionTestRunner<'a> {
             .cell_dep(self.script.cell_dep())
             .input(input)
             .output(output)
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .build();
         if let Some(errmsg) = expected.error_message() {
             assert_send_transaction_fail(self.node, &tx, errmsg);

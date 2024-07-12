@@ -31,8 +31,7 @@ fn save_and_get_block_with_transactions() {
         .transactions(
             (0..3)
                 .map(|_| packed::Transaction::new_builder().build())
-                .collect::<Vec<_>>()
-                .into(),
+                .collect::<Vec<_>>(),
         )
         .build()
         .into_view();
@@ -98,7 +97,7 @@ fn freeze_blockv0() {
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
 
-    let raw = packed::RawHeader::new_builder().number(1u64.into()).build();
+    let raw = packed::RawHeader::new_builder().number(1u64).build();
     let block = packed::Block::new_builder()
         .header(packed::Header::new_builder().raw(raw).build())
         .build()
@@ -132,7 +131,7 @@ fn freeze_blockv1_with_extension() {
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
 
     let extension: packed::Bytes = [1u8; 96].as_slice().into();
-    let raw = packed::RawHeader::new_builder().number(1u64.into()).build();
+    let raw = packed::RawHeader::new_builder().number(1u64).build();
     let block = packed::BlockV1::new_builder()
         .header(packed::Header::new_builder().raw(raw).build())
         .extension(extension)

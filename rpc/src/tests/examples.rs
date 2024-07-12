@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView},
     h256,
-    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
+    packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
     H256,
 };
@@ -105,7 +105,7 @@ fn construct_example_transaction() -> TransactionView {
     let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().into(), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100))
         .lock(always_success_cell().2.clone())
         .build();
     let cell_dep = CellDep::new_builder()
@@ -114,7 +114,7 @@ fn construct_example_transaction() -> TransactionView {
     TransactionBuilder::default()
         .input(input)
         .output(output)
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .cell_dep(cell_dep)
         .header_dep(always_success_consensus().genesis_hash())
         .build()

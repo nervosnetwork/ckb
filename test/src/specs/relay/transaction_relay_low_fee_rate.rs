@@ -5,7 +5,10 @@ use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
 use ckb_logger::debug;
-use ckb_types::core::{FeeRate, TransactionBuilder};
+use ckb_types::{
+    core::{FeeRate, TransactionBuilder},
+    packed,
+};
 
 pub struct TransactionRelayLowFeeRate;
 
@@ -23,7 +26,7 @@ impl Spec for TransactionRelayLowFeeRate {
         let low_fee = TransactionBuilder::default()
             .input(as_input(&cells[0]))
             .output(as_output(&cells[0]))
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .cell_dep(node0.always_success_cell_dep())
             .build();
 

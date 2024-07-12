@@ -14,10 +14,7 @@ impl Spec for RpcSubmitBlock {
         node1.mine_until_out_bootstrap_period();
 
         // build block with wrong block number
-        let block = node0
-            .new_block_builder(None, None, None)
-            .number(2.into())
-            .build();
+        let block = node0.new_block_builder(None, None, None).number(2).build();
         let block_err = node0
             .rpc_client()
             .submit_block("".to_owned(), block.data().into())
@@ -38,7 +35,7 @@ impl Spec for RpcSubmitBlock {
         let epoch = EpochNumberWithFraction::new(tip_epoch.number() + 1, 0, 100);
         let block = node0
             .new_block_builder(None, None, None)
-            .epoch(epoch.into())
+            .epoch(epoch)
             .build();
         let block_err = node0
             .rpc_client()
@@ -84,7 +81,7 @@ impl Spec for RpcSubmitBlock {
         // so here plus another 15s to make sure when submit the block it still out of the limit
         let block = node0
             .new_block_builder(None, None, None)
-            .timestamp((now_ms() + 30_000).into())
+            .timestamp(now_ms() + 30_000)
             .build();
         let block_err = node0
             .rpc_client()
@@ -99,7 +96,7 @@ impl Spec for RpcSubmitBlock {
         let median_time = node0.rpc_client().get_blockchain_info().median_time.value();
         let block = node0
             .new_block_builder(None, None, None)
-            .timestamp((median_time - 1).into())
+            .timestamp(median_time - 1)
             .build();
         let block_err = node0
             .rpc_client()

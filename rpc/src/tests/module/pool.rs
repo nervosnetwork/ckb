@@ -151,8 +151,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
                 Capacity::bytes(1000)
                     .unwrap()
                     .safe_sub(Capacity::shannons(i * 41 * 1000))
-                    .unwrap()
-                    .into(),
+                    .unwrap(),
             )
             .lock(always_success_cell().2.clone())
             .build();
@@ -162,7 +161,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         let tx = TransactionBuilder::default()
             .input(input)
             .output(output)
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .cell_dep(cell_dep)
             .build();
         let new_tx: ckb_jsonrpc_types::Transaction = tx.data().into();
@@ -191,8 +190,8 @@ fn build_tx(
 ) -> core::TransactionView {
     let lock = packed::ScriptBuilder::default()
         .code_hash(code_hash.clone())
-        .hash_type(hash_type.into())
-        .args(args.as_slice().into())
+        .hash_type(hash_type)
+        .args(args.as_slice())
         .build();
     core::TransactionBuilder::default()
         .output(packed::CellOutput::new_builder().lock(lock).build())
@@ -208,18 +207,18 @@ fn build_tx_with_type(
 ) -> core::TransactionView {
     let lock = packed::ScriptBuilder::default()
         .code_hash(lock_code_hash.clone())
-        .hash_type(lock_hash_type.into())
-        .args(lock_args.pack())
+        .hash_type(lock_hash_type)
+        .args(lock_args)
         .build();
     let type_ = packed::ScriptBuilder::default()
         .code_hash(type_code_hash.clone())
-        .hash_type(type_hash_type.into())
+        .hash_type(type_hash_type)
         .build();
     core::TransactionBuilder::default()
         .output(
             packed::CellOutput::new_builder()
                 .lock(lock)
-                .type_(Some(type_).into())
+                .type_(Some(type_))
                 .build(),
         )
         .build()

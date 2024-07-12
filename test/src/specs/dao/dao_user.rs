@@ -51,9 +51,9 @@ impl<'a> DAOUser<'a> {
             (0..outputs_len)
                 .map(|_| {
                     CellOutput::new_builder()
-                        .capacity(capacity.into())
+                        .capacity(capacity)
                         .lock(node.always_success_script())
-                        .type_(Some(self.dao_type_script()).into())
+                        .type_(Some(self.dao_type_script()))
                         .build()
                 })
                 .collect::<Vec<_>>()
@@ -68,7 +68,7 @@ impl<'a> DAOUser<'a> {
             .inputs(inputs)
             .outputs(outputs)
             .outputs_data(outputs_data)
-            .witness(Default::default())
+            .witness(packed::Bytes::default())
             .build();
         self.deposit_utxo = TXOSet::from(&tx);
         tx
@@ -83,7 +83,7 @@ impl<'a> DAOUser<'a> {
             .map(|(txo, _)| CellInput::new(txo.out_point(), 0));
         let outputs = deposit_utxo_headers.iter().map(|(txo, _)| {
             CellOutput::new_builder()
-                .capacity(txo.capacity().into())
+                .capacity(txo.capacity())
                 .lock(txo.lock())
                 .type_(txo.type_())
                 .build()
@@ -108,7 +108,7 @@ impl<'a> DAOUser<'a> {
                     .position(|hash| hash == &header.hash())
                     .unwrap() as u64;
                 WitnessArgs::new_builder()
-                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())).into())
+                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())))
                     .build()
                     .as_bytes()
                     .into()
@@ -148,7 +148,7 @@ impl<'a> DAOUser<'a> {
             })
             .sum::<u64>();
         let output = CellOutput::new_builder()
-            .capacity(output_capacity.into())
+            .capacity(output_capacity)
             .lock(node.always_success_script())
             .build();
         let cell_deps = vec![node.always_success_cell_dep(), self.dao_cell_dep()];
@@ -167,7 +167,7 @@ impl<'a> DAOUser<'a> {
                     .position(|hash| hash == &header.hash())
                     .unwrap() as u64;
                 WitnessArgs::new_builder()
-                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())).into())
+                    .input_type(Some(Bytes::from(index.to_le_bytes().to_vec())))
                     .build()
                     .as_bytes()
                     .into()
@@ -179,7 +179,7 @@ impl<'a> DAOUser<'a> {
             .cell_deps(cell_deps)
             .header_deps(header_deps)
             .witnesses(witnesses)
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .build();
         self.withdraw_utxo = TXOSet::from(&tx);
         tx
@@ -188,7 +188,7 @@ impl<'a> DAOUser<'a> {
     pub fn dao_type_script(&self) -> Script {
         Script::new_builder()
             .code_hash(self.node.consensus().dao_type_hash())
-            .hash_type(ScriptHashType::Type.into())
+            .hash_type(ScriptHashType::Type)
             .build()
     }
 

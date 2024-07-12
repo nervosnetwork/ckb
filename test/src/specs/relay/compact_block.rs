@@ -40,7 +40,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
             .new_block_builder(None, None, None)
             .header(
                 HeaderBuilder::default()
-                    .parent_hash(h256!("0x123456").into())
+                    .parent_hash(h256!("0x123456"))
                     .build(),
             )
             .build();
@@ -316,7 +316,7 @@ impl Spec for CompactBlockMissingWithDropTx {
 
         let content = packed::BlockTransactions::new_builder()
             .block_hash(new_block.hash())
-            .transactions(vec![new_tx_2.data()].into())
+            .transactions(vec![new_tx_2.data()])
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 
@@ -348,7 +348,7 @@ impl Spec for CompactBlockMissingWithDropTx {
 
         let content = packed::BlockTransactions::new_builder()
             .block_hash(new_block.hash())
-            .transactions(vec![new_tx_1.data(), new_tx_2.data()].into())
+            .transactions(vec![new_tx_1.data(), new_tx_2.data()])
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 

@@ -96,12 +96,12 @@ impl NewScript {
         let original_data = node.always_success_raw_data();
         let data = packed::Bytes::new_builder()
             .extend(original_data.as_ref().iter().map(|x| (*x).into()))
-            .push(id.into())
+            .push(id)
             .build();
         let tx = Self::deploy(node, &data, inputs);
         let cell_dep = packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
-            .dep_type(DepType::Code.into())
+            .dep_type(DepType::Code)
             .build();
         let data_hash = packed::CellOutput::calc_data_hash(&data.raw_data());
         let type_hash = tx
@@ -127,7 +127,7 @@ impl NewScript {
         let tx_template = TransactionView::new_advanced_builder();
         let cell_input = inputs.next().unwrap();
         let cell_output = packed::CellOutput::new_builder()
-            .type_(Some(type_script).into())
+            .type_(Some(type_script))
             .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
             .unwrap();
         let tx = tx_template
@@ -153,14 +153,14 @@ impl NewScript {
         };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
-            .hash_type(hash_type.into())
+            .hash_type(hash_type)
             .build()
     }
 
     fn as_type_script(&self) -> packed::Script {
         packed::Script::new_builder()
             .code_hash(self.type_hash.clone())
-            .hash_type(ScriptHashType::Type.into())
+            .hash_type(ScriptHashType::Type)
             .build()
     }
 }
@@ -218,7 +218,7 @@ impl<'a> CheckVmVersionTestRunner<'a> {
                 TransactionView::new_advanced_builder().cell_dep(cell_dep),
                 packed::CellOutput::new_builder()
                     .lock(self.node.always_success_script())
-                    .type_(Some(script).into()),
+                    .type_(Some(script)),
             )
         } else {
             (
@@ -228,14 +228,12 @@ impl<'a> CheckVmVersionTestRunner<'a> {
         };
         let cell_input = inputs.next().unwrap();
         let input_cell = self.get_previous_output(&cell_input);
-        let cell_output = co_builder
-            .capacity((input_cell.capacity.value() - 1).into())
-            .build();
+        let cell_output = co_builder.capacity(input_cell.capacity.value() - 1).build();
         let tx = tx_builder
             .cell_dep(self.node.always_success_cell_dep())
             .input(cell_input)
             .output(cell_output)
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .build();
         if let Some(errmsg) = expected.error_message() {
             assert_send_transaction_fail(self.node, &tx, errmsg);
@@ -266,7 +264,7 @@ impl<'a> CheckVmVersionTestRunner<'a> {
         .cell_dep(cell_dep)
         .input(input)
         .output(output)
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
         if let Some(errmsg) = expected.error_message() {
             assert_send_transaction_fail(self.node, &tx, errmsg);

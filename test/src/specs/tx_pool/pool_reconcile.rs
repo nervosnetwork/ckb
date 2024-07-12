@@ -161,7 +161,7 @@ impl Spec for PoolResolveConflictAfterReorg {
                     .build()
             }])
             .set_outputs(vec![CellOutputBuilder::default()
-                .capacity(capacity_bytes!(99).into())
+                .capacity(capacity_bytes!(99))
                 .build()])
             .build();
 

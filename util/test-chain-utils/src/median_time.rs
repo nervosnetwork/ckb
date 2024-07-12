@@ -48,16 +48,13 @@ impl MockMedianTime {
                     .map(|(idx, timestamp)| {
                         let number = idx as BlockNumber;
                         let header = HeaderBuilder::default()
-                            .timestamp(timestamp.into())
-                            .number(number.into())
-                            .epoch(
-                                EpochNumberWithFraction::new(
-                                    number % MOCK_EPOCH_LENGTH,
-                                    number / MOCK_EPOCH_LENGTH,
-                                    MOCK_EPOCH_LENGTH,
-                                )
-                                .into(),
-                            )
+                            .timestamp(timestamp)
+                            .number(number)
+                            .epoch(EpochNumberWithFraction::new(
+                                number % MOCK_EPOCH_LENGTH,
+                                number / MOCK_EPOCH_LENGTH,
+                                MOCK_EPOCH_LENGTH,
+                            ))
                             .parent_hash(parent_hash.clone())
                             .build();
                         parent_hash = header.hash();

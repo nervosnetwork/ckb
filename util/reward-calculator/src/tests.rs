@@ -128,12 +128,12 @@ fn test_proposal_reward() {
         .tx_proposal_window(ProposalWindow(2, 5))
         .build();
 
-    let tx1 = TransactionBuilder::default().version(100u32.into()).build();
-    let tx2 = TransactionBuilder::default().version(200u32.into()).build();
-    let tx3 = TransactionBuilder::default().version(300u32.into()).build();
-    let tx4 = TransactionBuilder::default().version(400u32.into()).build();
-    let tx5 = TransactionBuilder::default().version(500u32.into()).build();
-    let tx6 = TransactionBuilder::default().version(600u32.into()).build();
+    let tx1 = TransactionBuilder::default().version(100u32).build();
+    let tx2 = TransactionBuilder::default().version(200u32).build();
+    let tx3 = TransactionBuilder::default().version(300u32).build();
+    let tx4 = TransactionBuilder::default().version(400u32).build();
+    let tx5 = TransactionBuilder::default().version(500u32).build();
+    let tx6 = TransactionBuilder::default().version(600u32).build();
 
     let p1 = tx1.proposal_short_id();
     let p2 = tx2.proposal_short_id();
@@ -145,8 +145,8 @@ fn test_proposal_reward() {
     let block_10 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(10u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 10, 1000).into())
+                .number(10u64)
+                .epoch(EpochNumberWithFraction::new(1, 10, 1000))
                 .build(),
         )
         .proposal(p1.clone())
@@ -159,8 +159,8 @@ fn test_proposal_reward() {
     let block_11 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(11u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 11, 1000).into())
+                .number(11u64)
+                .epoch(EpochNumberWithFraction::new(1, 11, 1000))
                 .parent_hash(block_10.hash())
                 .build(),
         )
@@ -171,8 +171,8 @@ fn test_proposal_reward() {
     let block_12 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(12u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 12, 1000).into())
+                .number(12u64)
+                .epoch(EpochNumberWithFraction::new(1, 12, 1000))
                 .parent_hash(block_11.hash())
                 .build(),
         )
@@ -182,8 +182,8 @@ fn test_proposal_reward() {
     let block_13 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(13u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 13, 1000).into())
+                .number(13u64)
+                .epoch(EpochNumberWithFraction::new(1, 13, 1000))
                 .parent_hash(block_12.hash())
                 .build(),
         )
@@ -194,8 +194,8 @@ fn test_proposal_reward() {
     let block_14 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(14u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 14, 1000).into())
+                .number(14u64)
+                .epoch(EpochNumberWithFraction::new(1, 14, 1000))
                 .parent_hash(block_13.hash())
                 .build(),
         )
@@ -207,8 +207,8 @@ fn test_proposal_reward() {
     let block_15 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(15u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 15, 1000).into())
+                .number(15u64)
+                .epoch(EpochNumberWithFraction::new(1, 15, 1000))
                 .parent_hash(block_14.hash())
                 .build(),
         )
@@ -218,8 +218,8 @@ fn test_proposal_reward() {
     let block_16 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(16u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 16, 1000).into())
+                .number(16u64)
+                .epoch(EpochNumberWithFraction::new(1, 16, 1000))
                 .parent_hash(block_15.hash())
                 .build(),
         )
@@ -227,8 +227,8 @@ fn test_proposal_reward() {
     let block_17 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(17u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 17, 1000).into())
+                .number(17u64)
+                .epoch(EpochNumberWithFraction::new(1, 17, 1000))
                 .parent_hash(block_16.hash())
                 .build(),
         )
@@ -236,8 +236,8 @@ fn test_proposal_reward() {
     let block_18 = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(18u64.into())
-                .epoch(EpochNumberWithFraction::new(1, 18, 1000).into())
+                .number(18u64)
+                .epoch(EpochNumberWithFraction::new(1, 18, 1000))
                 .parent_hash(block_17.hash())
                 .build(),
         )

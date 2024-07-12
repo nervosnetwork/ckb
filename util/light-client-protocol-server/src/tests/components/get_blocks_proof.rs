@@ -62,7 +62,7 @@ async fn get_blocks_proof_with_missing_blocks() {
         request_block_hashes.extend_from_slice(&expected_missing_block_hashes[..]);
         let content = packed::GetBlocksProof::new_builder()
             .last_hash(snapshot.tip_header().hash())
-            .block_hashes(request_block_hashes.into())
+            .block_hashes(request_block_hashes)
             .build();
         packed::LightClientMessage::new_builder()
             .set(content)

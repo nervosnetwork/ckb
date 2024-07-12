@@ -14,15 +14,23 @@ trait BuilderBaseOnBlockNumber {
 impl BuilderBaseOnBlockNumber for HeaderBuilder {
     fn new_with_number(number: BlockNumber) -> HeaderBuilder {
         Self::default()
-            .number(number.into())
-            .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).into())
+            .number(number)
+            .epoch(EpochNumberWithFraction::new(
+                number / 1000,
+                number % 1000,
+                1000,
+            ))
     }
 }
 
 impl BuilderBaseOnBlockNumber for BlockBuilder {
     fn new_with_number(number: BlockNumber) -> BlockBuilder {
         Self::default()
-            .number(number.into())
-            .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).into())
+            .number(number)
+            .epoch(EpochNumberWithFraction::new(
+                number / 1000,
+                number % 1000,
+                1000,
+            ))
     }
 }

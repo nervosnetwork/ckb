@@ -44,9 +44,9 @@ impl Spec for AlertPropagation {
         let id1: u32 = 42;
         let warning1: Bytes = b"pretend we are in dangerous status".to_vec().into();
         let raw_alert = RawAlert::new_builder()
-            .id(id1.into())
-            .message((&warning1).into())
-            .notice_until(notice_until.into())
+            .id(id1)
+            .message(&warning1)
+            .notice_until(notice_until)
             .build();
         let alert = create_alert(raw_alert, &self.privkeys);
         node0.rpc_client().send_alert(alert.clone().into());
@@ -74,10 +74,10 @@ impl Spec for AlertPropagation {
         let id2: u32 = 43;
         let warning2: Bytes = b"alert is canceled".to_vec().into();
         let raw_alert2 = RawAlert::new_builder()
-            .id(id2.into())
-            .cancel(id1.into())
-            .message((&warning2).into())
-            .notice_until(notice_until.into())
+            .id(id2)
+            .cancel(id1)
+            .message(&warning2)
+            .notice_until(notice_until)
             .build();
         let alert2 = create_alert(raw_alert2, &self.privkeys);
         node0.rpc_client().send_alert(alert2.into());
@@ -156,6 +156,6 @@ fn create_alert(raw_alert: RawAlert, privkeys: &[Privkey]) -> Alert {
         .collect::<Vec<packed::Bytes>>();
     Alert::new_builder()
         .raw(raw_alert)
-        .signatures(signatures.into())
+        .signatures(signatures)
         .build()
 }
