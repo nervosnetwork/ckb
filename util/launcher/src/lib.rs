@@ -26,7 +26,7 @@ use ckb_rpc::ServiceBuilder;
 use ckb_shared::Shared;
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
-use ckb_store::{ChainDB, ChainStore};
+use ckb_store::ChainDB;
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
@@ -44,15 +44,18 @@ pub struct Launcher {
     pub version: Version,
     /// ckb global runtime handle
     pub async_handle: Handle,
+    /// rpc global runtime handle
+    pub rpc_handle: Handle,
 }
 
 impl Launcher {
     /// Construct new Launcher from cli args
-    pub fn new(args: RunArgs, version: Version, async_handle: Handle) -> Self {
+    pub fn new(args: RunArgs, version: Version, async_handle: Handle, rpc_handle: Handle) -> Self {
         Launcher {
             args,
             version,
             async_handle,
+            rpc_handle,
         }
     }
 
@@ -214,16 +217,6 @@ impl Launcher {
         self.check_spec(&shared)?;
 
         Ok((shared, pack))
-    }
-
-    /// Check whether the data already exists in the database before starting
-    pub fn check_assume_valid_target(&mut self, shared: &Shared) {
-        if let Some(ref target) = self.args.config.network.sync.assume_valid_target {
-            if shared.snapshot().block_exists(&target.pack()) {
-                info!("assume valid target is already in db, CKB will do full verification from now on");
-                self.args.config.network.sync.assume_valid_target.take();
-            }
-        }
     }
 
     /// Start chain service, return ChainController
@@ -428,8 +421,7 @@ impl Launcher {
         builder.enable_subscription(shared.clone());
         let io_handler = builder.build();
 
-        let async_handle = shared.async_handle();
-        let _rpc = RpcServer::new(rpc_config, io_handler, async_handle.clone());
+        let _rpc = RpcServer::new(rpc_config, io_handler, self.rpc_handle.clone());
 
         network_controller
     }

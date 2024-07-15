@@ -152,7 +152,7 @@ impl<'a> ServiceBuilder<'a> {
             );
         }
         let methods = IntegrationTestRpcImpl {
-            shared: shared.clone(),
+            shared,
             network_controller,
             chain,
         };

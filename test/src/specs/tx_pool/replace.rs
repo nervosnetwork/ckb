@@ -961,6 +961,7 @@ impl Spec for RbfCellDepsCheck {
             tx_a
         };
 
+        #[allow(clippy::redundant_clone)]
         let mut prev = tx_a.clone();
         // Create transaction chain
         for _i in 0..2 {

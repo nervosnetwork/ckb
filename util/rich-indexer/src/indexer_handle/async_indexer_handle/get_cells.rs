@@ -169,9 +169,18 @@ impl AsyncRichIndexerHandle {
                     .bind(search_key.script.args.as_bytes())
                     .bind(get_binary_upper_boundary(search_key.script.args.as_bytes()));
             }
-            Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
+            Some(IndexerSearchMode::Exact) => {
                 query = query.bind(search_key.script.args.as_bytes());
             }
+            Some(IndexerSearchMode::Partial) => match self.store.db_driver {
+                DBDriver::Postgres => {
+                    let new_args = escape_and_wrap_for_postgres_like(&search_key.script.args);
+                    query = query.bind(new_args);
+                }
+                DBDriver::Sqlite => {
+                    query = query.bind(search_key.script.args.as_bytes());
+                }
+            },
         }
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
@@ -190,9 +199,18 @@ impl AsyncRichIndexerHandle {
                             .bind(data.as_bytes())
                             .bind(get_binary_upper_boundary(data.as_bytes()));
                     }
-                    Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
+                    Some(IndexerSearchMode::Exact) => {
                         query = query.bind(data.as_bytes());
                     }
+                    Some(IndexerSearchMode::Partial) => match self.store.db_driver {
+                        DBDriver::Postgres => {
+                            let new_data = escape_and_wrap_for_postgres_like(data);
+                            query = query.bind(new_data);
+                        }
+                        DBDriver::Sqlite => {
+                            query = query.bind(data.as_bytes());
+                        }
+                    },
                 }
             }
         }

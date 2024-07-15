@@ -71,6 +71,26 @@ impl PeerStore {
         Ok(())
     }
 
+    #[cfg(feature = "fuzz")]
+    pub fn add_addr_fuzz(
+        &mut self,
+        addr: Multiaddr,
+        flags: Flags,
+        last_connected_at_ms: u64,
+        attempts_count: u32,
+    ) -> Result<()> {
+        if self.ban_list.is_addr_banned(&addr) {
+            return Ok(());
+        }
+        self.check_purge()?;
+        let score = self.score_config.default_score;
+        let mut addr_info = AddrInfo::new(addr, last_connected_at_ms, score, flags.bits());
+        addr_info.attempts_count = attempts_count;
+
+        self.addr_manager.add(addr_info);
+        Ok(())
+    }
+
     /// Add outbound peer address
     pub fn add_outbound_addr(&mut self, addr: Multiaddr, flags: Flags) {
         if self.ban_list.is_addr_banned(&addr) {

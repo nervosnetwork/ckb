@@ -17,8 +17,8 @@ ckb-traits = { path = "../../traits", version = "= 0.117.0-rc3" }
 ckb-chain-spec = { path = "../../spec", version = "= 0.117.0-rc3" }
 ckb-dao = { path = "../../util/dao", version = "= 0.117.0-rc3" }
 ckb-dao-utils = { path = "../../util/dao/utils", version = "= 0.117.0-rc3" }
-ckb-logger = {path = "../../util/logger", version = "= 0.117.0-rc3"}
-ckb-reward-calculator= { path = "../../util/reward-calculator", version = "= 0.117.0-rc3" }
+ckb-logger = { path = "../../util/logger", version = "= 0.117.0-rc3" }
+ckb-reward-calculator = { path = "../../util/reward-calculator", version = "= 0.117.0-rc3" }
 ckb-error = { path = "../../error", version = "= 0.117.0-rc3" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 ckb-async-runtime = { path = "../../util/runtime", version = "= 0.117.0-rc3" }
@@ -30,5 +30,7 @@ ckb-merkle-mountain-range = "0.5.2"
 ckb-chain = { path = "../../chain", version = "= 0.117.0-rc3" }
 ckb-shared = { path = "../../shared", version = "= 0.117.0-rc3" }
 ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.117.0-rc3" }
-ckb-systemtime = { path = "../../util/systemtime", version = "= 0.117.0-rc3", features = ["enable_faketime"]}
-rand = "0.7"
+ckb-systemtime = { path = "../../util/systemtime", version = "= 0.117.0-rc3", features = [
+    "enable_faketime",
+] }
+rand = "0.8"

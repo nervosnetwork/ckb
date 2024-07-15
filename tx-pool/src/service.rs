@@ -295,7 +295,8 @@ impl TxPoolController {
         send_message!(self, GetTransactionWithStatus, hash)
     }
 
-    /// Return txs for network
+    /// Mainly used for compact block reconstruction and block proposal pre-broadcasting
+    /// Orphan/conflicted/etc transactions that are returned for compact block reconstruction.
     pub fn fetch_txs(
         &self,
         short_ids: HashSet<ProposalShortId>,
@@ -304,6 +305,7 @@ impl TxPoolController {
     }
 
     /// Return txs with cycles
+    /// Mainly for relay transactions
     pub fn fetch_txs_with_cycles(
         &self,
         short_ids: HashSet<ProposalShortId>,
@@ -677,6 +679,13 @@ pub enum TxVerificationResult {
         /// transaction hash
         tx_hash: Byte32,
     },
+    /// tx parent is unknown
+    UnknownParents {
+        /// original peer
+        peer: PeerIndex,
+        /// parents hashes
+        parents: HashSet<Byte32>,
+    },
     /// tx is rejected
     Reject {
         /// transaction hash
@@ -852,11 +861,13 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: short_ids,
         }) => {
             let tx_pool = service.tx_pool.read().await;
+            let orphan = service.orphan.read().await;
             let txs = short_ids
                 .into_iter()
                 .filter_map(|short_id| {
                     tx_pool
                         .get_tx_from_pool_or_store(&short_id)
+                        .or_else(|| orphan.get(&short_id).map(|entry| &entry.tx).cloned())
                         .map(|tx| (short_id, tx))
                 })
                 .collect();

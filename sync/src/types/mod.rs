@@ -21,6 +21,7 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_tx_pool::service::TxVerificationResult;
+use ckb_types::BlockNumberAndHash;
 use ckb_types::{
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
@@ -398,53 +399,6 @@ impl InflightState {
         Self {
             peer,
             timestamp: unix_time_as_millis(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BlockNumberAndHash {
-    pub number: BlockNumber,
-    pub hash: Byte32,
-}
-
-impl BlockNumberAndHash {
-    pub fn new(number: BlockNumber, hash: Byte32) -> Self {
-        Self { number, hash }
-    }
-
-    pub fn number(&self) -> BlockNumber {
-        self.number
-    }
-
-    pub fn hash(&self) -> Byte32 {
-        self.hash.clone()
-    }
-}
-
-impl From<(BlockNumber, Byte32)> for BlockNumberAndHash {
-    fn from(inner: (BlockNumber, Byte32)) -> Self {
-        Self {
-            number: inner.0,
-            hash: inner.1,
-        }
-    }
-}
-
-impl From<&core::HeaderView> for BlockNumberAndHash {
-    fn from(header: &core::HeaderView) -> Self {
-        Self {
-            number: header.number(),
-            hash: header.hash(),
-        }
-    }
-}
-
-impl From<core::HeaderView> for BlockNumberAndHash {
-    fn from(header: core::HeaderView) -> Self {
-        Self {
-            number: header.number(),
-            hash: header.hash(),
         }
     }
 }
@@ -1290,6 +1244,17 @@ impl SyncShared {
         Self::with_tmpdir::<PathBuf>(shared, sync_config, None, tx_relay_receiver)
     }
 
+    /// Check whether the data already exists in the database before starting
+    fn check_assume_valid_target_already_exists(sync_config: &SyncConfig, shared: &Shared) -> bool {
+        if let Some(ref target) = sync_config.assume_valid_target {
+            if shared.snapshot().block_exists(&target.pack()) {
+                info!("assume valid target is already in db, CKB will do full verification from now on");
+                return true;
+            }
+        }
+        false
+    }
+
     /// Generate a global sync state through configuration
     pub fn with_tmpdir<P>(
         shared: Shared,
@@ -1332,7 +1297,14 @@ impl SyncShared {
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
             tx_relay_receiver,
-            assume_valid_target: Mutex::new(sync_config.assume_valid_target),
+            assume_valid_target: Mutex::new({
+                if Self::check_assume_valid_target_already_exists(&sync_config, &shared) {
+                    None
+                } else {
+                    sync_config.assume_valid_target.clone()
+                }
+            }),
+            assume_valid_target_specified: sync_config.assume_valid_target,
             min_chain_work: sync_config.min_chain_work,
         };
 
@@ -1693,12 +1665,17 @@ pub struct SyncState {
     /* cached for sending bulk */
     tx_relay_receiver: Receiver<TxVerificationResult>,
     assume_valid_target: Mutex<Option<H256>>,
+    assume_valid_target_specified: Option<H256>,
     min_chain_work: U256,
 }
 
 impl SyncState {
     pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
         self.assume_valid_target.lock()
+    }
+
+    pub fn assume_valid_target_specified(&self) -> Option<H256> {
+        self.assume_valid_target_specified.clone()
     }
 
     pub fn min_chain_work(&self) -> &U256 {

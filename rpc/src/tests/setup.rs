@@ -96,7 +96,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
 
     let network_controller = {
         let network_config = NetworkConfig {
-            path: temp_dir.path().join("network").to_path_buf(),
+            path: temp_dir.path().join("network"),
             ping_interval_secs: 1,
             ping_timeout_secs: 1,
             connect_outbound_interval_secs: 1,
@@ -221,7 +221,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
     let io_handler = builder.build();
     let shared_clone = shared.clone();
     let handler = shared_clone.async_handle().clone();
-    let rpc_server = RpcServer::new(rpc_config, io_handler, handler.clone());
+    let rpc_server = RpcServer::new(rpc_config, io_handler, handler);
 
     let rpc_client = reqwest::blocking::Client::new();
     let rpc_uri = format!(
