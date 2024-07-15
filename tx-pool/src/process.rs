@@ -18,7 +18,6 @@ use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
@@ -459,7 +458,10 @@ impl TxPoolService {
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(_) => {
-                    debug!("after_process remote send_result_to_relayer {}", tx_hash);
+                    debug!(
+                        "after_process remote send_result_to_relayer {} {}",
+                        tx_hash, peer
+                    );
                     self.send_result_to_relayer(TxVerificationResult::Ok {
                         original_peer: Some(peer),
                         with_vm_2023,
@@ -468,8 +470,15 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!("after_process {} remote reject: {} ", tx_hash, reject);
-                    if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
+                    debug!(
+                        "after_process {} {} remote reject: {} ",
+                        tx_hash, peer, reject
+                    );
+                    if is_missing_input(reject) {
+                        self.send_result_to_relayer(TxVerificationResult::UnknownParents {
+                            peer,
+                            parents: tx.unique_parents(),
+                        });
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
@@ -480,13 +489,7 @@ impl TxPoolService {
                                 tx_hash: tx_hash.clone(),
                             });
                         }
-
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -514,12 +517,7 @@ impl TxPoolService {
                     }
                     Err(reject) => {
                         debug!("after_process {} reject: {} ", tx_hash, reject);
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -628,12 +626,7 @@ impl TxPoolService {
                                         tx_hash: orphan.tx.hash(),
                                     });
                                 }
-                                if matches!(
-                                    reject,
-                                    Reject::Resolve(..)
-                                        | Reject::Verification(..)
-                                        | Reject::RBFRejected(..)
-                                ) {
+                                if reject.should_recorded() {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
@@ -1258,9 +1251,4 @@ fn _update_tx_pool_for_reorg(
 
     // Remove transactions from the pool until its size <= size_limit.
     let _ = tx_pool.limit_size(callbacks, None);
-}
-
-pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {
-    !tx.input_pts_iter()
-        .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
 }
