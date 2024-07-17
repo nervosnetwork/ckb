@@ -89,10 +89,17 @@ impl BlockFetchCMD {
         match self.can_start() {
             CanStart::Ready => {
                 for peer in peers {
+                    if ckb_stop_handler::has_received_stop_signal() {
+                        return;
+                    }
+
                     if let Some(fetch) =
                         BlockFetcher::new(Arc::clone(&self.sync_shared), peer, ibd_state).fetch()
                     {
                         for item in fetch {
+                            if ckb_stop_handler::has_received_stop_signal() {
+                                return;
+                            }
                             BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                         }
                     }
