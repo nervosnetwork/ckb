@@ -8,8 +8,9 @@ use ckb_db_schema::{
     Col, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
-    COLUMN_UNCLES, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH,
+    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -589,6 +590,25 @@ pub trait ChainStore: Send + Sync + Sized {
         } else {
             self.get_ancestor(&header.parent_hash(), number)
         }
+    }
+
+    /// Gets (block_hash, txs_len) pair by a block_number from COLUMN_NUMBER_HASH
+    fn get_block_hashes(&self, block_number: BlockNumber) -> Vec<(packed::Byte32, u32)> {
+        let pack_number: packed::Uint64 = block_number.pack();
+        let prefix = pack_number.as_slice();
+
+        self.get_iter(
+            COLUMN_NUMBER_HASH,
+            IteratorMode::From(prefix, Direction::Forward),
+        )
+        .take_while(|(key, _)| key.starts_with(prefix))
+        .map(|(key, value)| {
+            let reader = packed::NumberHashReader::from_slice_should_be_ok(key.as_ref());
+            let block_hash = reader.block_hash().to_entity();
+            let txs_len = packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).unpack();
+            (block_hash, txs_len)
+        })
+        .collect()
     }
 }
 
