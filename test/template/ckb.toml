@@ -79,6 +79,9 @@ enable_deprecated_rpc = true
 # threads number for RPC service, default value is the number of CPU cores
 # threads = 4
 
+# the largest rpc batch request size, default is 2000
+# rpc_batch_limit = 2000
+
 [tx_pool]
 max_tx_pool_size = 180_000_000 # 180mb
 min_fee_rate = 0 # Here fee_rate are calculated directly using size in units of shannons/KB

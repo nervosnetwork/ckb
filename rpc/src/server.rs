@@ -7,11 +7,19 @@ use ckb_async_runtime::Handle;
 use ckb_error::AnyError;
 use ckb_logger::info;
 
-use axum::http::StatusCode;
+use axum::{body::Bytes, http::StatusCode, response::Response, Json};
+
+use jsonrpc_core::{MetaIoHandler, Metadata, Request};
+
 use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
+use futures_util::future;
+use futures_util::future::Either::{Left, Right};
+use jsonrpc_core::types::error::ErrorCode;
+use jsonrpc_core::types::Response as RpcResponse;
+use jsonrpc_core::Error;
+
 use futures_util::{SinkExt, TryStreamExt};
-use jsonrpc_core::MetaIoHandler;
-use jsonrpc_utils::axum_utils::{handle_jsonrpc, handle_jsonrpc_ws};
+use jsonrpc_utils::axum_utils::handle_jsonrpc_ws;
 use jsonrpc_utils::pub_sub::Session;
 use jsonrpc_utils::stream::{serve_stream_sink, StreamMsg, StreamServerConfig};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -21,6 +29,10 @@ use tokio::net::TcpListener;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
+
+const DEFAULT_BATCH_LIMIT: usize = 2000;
+
+static JSONRPC_BATCH_LIMIT: once_cell::sync::OnceCell<usize> = once_cell::sync::OnceCell::new();
 
 #[doc(hidden)]
 #[derive(Debug)]
@@ -39,6 +51,9 @@ impl RpcServer {
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
     /// * `handler` - Tokio runtime handle.
     pub fn new(config: RpcConfig, io_handler: IoHandler, handler: Handle) -> Self {
+        let _ = JSONRPC_BATCH_LIMIT
+            .get_or_init(|| config.rpc_batch_limit.unwrap_or(DEFAULT_BATCH_LIMIT));
+
         let rpc = Arc::new(io_handler);
 
         let http_address = Self::start_server(
@@ -194,4 +209,56 @@ async fn get_error_handler() -> impl IntoResponse {
         StatusCode::METHOD_NOT_ALLOWED,
         "Used HTTP Method is not allowed. POST or OPTIONS is required",
     )
+}
+
+async fn handle_jsonrpc<T: Default + Metadata>(
+    Extension(io): Extension<Arc<MetaIoHandler<T>>>,
+    req_body: Bytes,
+) -> Response {
+    let make_error_response = |error| {
+        Json(jsonrpc_core::Failure {
+            jsonrpc: Some(jsonrpc_core::Version::V2),
+            id: jsonrpc_core::Id::Null,
+            error,
+        })
+        .into_response()
+    };
+
+    let req = match std::str::from_utf8(req_body.as_ref()) {
+        Ok(req) => req,
+        Err(_) => {
+            return make_error_response(jsonrpc_core::Error::parse_error());
+        }
+    };
+
+    let req = serde_json::from_str::<Request>(req);
+    let result = match req {
+        Err(_error) => Left(future::ready(Some(RpcResponse::from(
+            Error::new(ErrorCode::ParseError),
+            Some(jsonrpc_core::Version::V2),
+        )))),
+        Ok(request) => {
+            if let Request::Batch(ref arr) = request {
+                if let Some(batch_size) = JSONRPC_BATCH_LIMIT.get() {
+                    if arr.len() > *batch_size {
+                        return make_error_response(jsonrpc_core::Error::invalid_params(format!(
+                            "batch size is too large, expect it less than: {}",
+                            batch_size
+                        )));
+                    }
+                }
+            }
+            Right(io.handle_rpc_request(request, T::default()))
+        }
+    };
+
+    if let Some(response) = result.await {
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            serde_json::to_string(&response).unwrap(),
+        )
+            .into_response()
+    } else {
+        StatusCode::NO_CONTENT.into_response()
+    }
 }

@@ -1453,6 +1453,7 @@ dependencies = [
  "itertools 0.11.0",
  "jsonrpc-core",
  "jsonrpc-utils",
+ "once_cell",
  "pretty_assertions",
  "reqwest",
  "serde",
