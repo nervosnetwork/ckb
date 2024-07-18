@@ -253,11 +253,15 @@ async fn handle_jsonrpc<T: Default + Metadata>(
     };
 
     if let Some(response) = result.await {
-        (
-            [(axum::http::header::CONTENT_TYPE, "application/json")],
-            serde_json::to_string(&response).unwrap(),
-        )
-            .into_response()
+        serde_json::to_string(&response)
+            .map(|json| {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    json,
+                )
+                    .into_response()
+            })
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
     } else {
         StatusCode::NO_CONTENT.into_response()
     }
