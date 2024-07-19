@@ -30,8 +30,6 @@ use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 
-const DEFAULT_BATCH_LIMIT: usize = 2000;
-
 static JSONRPC_BATCH_LIMIT: once_cell::sync::OnceCell<usize> = once_cell::sync::OnceCell::new();
 
 #[doc(hidden)]
@@ -51,8 +49,9 @@ impl RpcServer {
     /// * `io_handler` - RPC methods handler. See [ServiceBuilder](../service_builder/struct.ServiceBuilder.html).
     /// * `handler` - Tokio runtime handle.
     pub fn new(config: RpcConfig, io_handler: IoHandler, handler: Handle) -> Self {
-        let _ = JSONRPC_BATCH_LIMIT
-            .get_or_init(|| config.rpc_batch_limit.unwrap_or(DEFAULT_BATCH_LIMIT));
+        if let Some(jsonrpc_batch_limit) = config.rpc_batch_limit {
+            let _ = JSONRPC_BATCH_LIMIT.get_or_init(|| jsonrpc_batch_limit);
+        }
 
         let rpc = Arc::new(io_handler);
 

@@ -79,7 +79,7 @@ enable_deprecated_rpc = true
 # threads number for RPC service, default value is the number of CPU cores
 # threads = 4
 
-# the largest rpc batch request size, default is 2000
+# the largest rpc batch request size, default is disabled
 # rpc_batch_limit = 2000
 
 [tx_pool]
