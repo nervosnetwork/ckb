@@ -1363,3 +1363,75 @@ fn check_infinite_exec() {
         assert!(result.is_err())
     }
 }
+
+#[test]
+fn check_fuzz_crash_1() {
+    let script_version = SCRIPT_VERSION;
+
+    let (exec_caller_cell, exec_caller_data_hash) = load_cell_from_path("testdata/crash-5a27052f");
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(exec_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify(script_version, &rtx, 70000000);
+    match script_version {
+        ScriptVersion::V0 => assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("MemWriteOnExecutablePage")),
+        ScriptVersion::V1 | ScriptVersion::V2 => assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("SourceEntry parse_from_u64 0")),
+    }
+}
+
+#[test]
+fn check_fuzz_crash_2() {
+    let script_version = SCRIPT_VERSION;
+    let (exec_caller_cell, exec_caller_data_hash) = load_cell_from_path("testdata/crash-45a6098d");
+    let exec_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(exec_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(exec_caller_script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![exec_caller_cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier.verify(script_version, &rtx, 70000000);
+    match script_version {
+        ScriptVersion::V0 => assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("MemWriteOnExecutablePage")),
+        ScriptVersion::V1 => assert_eq!(result.unwrap(), 58741),
+        ScriptVersion::V2 => assert_eq!(result.unwrap(), 58686),
+    }
+}

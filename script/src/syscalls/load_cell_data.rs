@@ -47,41 +47,43 @@ where
         };
         let addr = machine.registers()[A0].to_u64();
         let size_addr = machine.registers()[A1].clone();
-        let size = machine.memory_mut().load64(&size_addr)?.to_u64();
         let offset = machine.registers()[A2].to_u64();
         let mut sc = self
             .snapshot2_context
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
 
-        if size == 0 {
-            match sc.load_data(&data_piece_id, offset, u64::max_value()) {
-                Ok((cell, _)) => {
+        match sc.load_data(&data_piece_id, offset, u64::max_value()) {
+            Ok((cell, _)) => {
+                let size = machine.memory_mut().load64(&size_addr)?.to_u64();
+                if size == 0 {
                     machine
                         .memory_mut()
                         .store64(&size_addr, &Mac::REG::from_u64(cell.len() as u64))?;
                     machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
                     return Ok(());
                 }
-                Err(VMError::SnapshotDataLoadError) => {
-                    // This comes from TxData results in an out of bound error, to
-                    // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
-                    machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
-                    return Ok(());
-                }
-                Err(e) => return Err(e),
+                let (wrote_size, _) = match sc.store_bytes(
+                    machine,
+                    addr,
+                    &data_piece_id,
+                    offset,
+                    size,
+                    size_addr.to_u64(),
+                ) {
+                    Ok(val) => val,
+                    Err(VMError::SnapshotDataLoadError) => {
+                        // This comes from TxData results in an out of bound error, to
+                        // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
+                        machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                };
+                machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
+                machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+                return Ok(());
             }
-        }
-
-        let (wrote_size, _) = match sc.store_bytes(
-            machine,
-            addr,
-            &data_piece_id,
-            offset,
-            size,
-            size_addr.to_u64(),
-        ) {
-            Ok(val) => val,
             Err(VMError::SnapshotDataLoadError) => {
                 // This comes from TxData results in an out of bound error, to
                 // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
@@ -89,10 +91,7 @@ where
                 return Ok(());
             }
             Err(e) => return Err(e),
-        };
-        machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
-        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        Ok(())
+        }
     }
 
     fn load_data_as_code<Mac: SupportMachine>(&self, machine: &mut Mac) -> Result<(), VMError> {
