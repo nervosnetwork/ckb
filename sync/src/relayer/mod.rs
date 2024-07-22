@@ -21,7 +21,7 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{ActiveChain, BlockNumberAndHash, SyncShared};
+use crate::types::{ActiveChain, SyncShared};
 use crate::utils::{
     is_internal_db_error, metric_ckb_message_bytes, send_message_to, MetricDirection,
 };
@@ -35,6 +35,7 @@ use ckb_network::{
 };
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::service::TxVerificationResult;
+use ckb_types::BlockNumberAndHash;
 use ckb_types::{
     core::{self, BlockView},
     packed::{self, Byte32, ProposalShortId},
@@ -750,6 +751,17 @@ impl Relayer {
                     }
                     TxVerificationResult::Reject { tx_hash } => {
                         self.shared.state().remove_from_known_txs(&tx_hash);
+                    }
+                    TxVerificationResult::UnknownParents { peer, parents } => {
+                        let tx_hashes: Vec<_> = {
+                            let mut tx_filter = self.shared.state().tx_filter();
+                            tx_filter.remove_expired();
+                            parents
+                                .into_iter()
+                                .filter(|tx_hash| !tx_filter.contains(tx_hash))
+                                .collect()
+                        };
+                        self.shared.state().add_ask_for_txs(peer, tx_hashes);
                     }
                 }
             }

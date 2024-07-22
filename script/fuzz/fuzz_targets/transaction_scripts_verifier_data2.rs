@@ -98,12 +98,8 @@ fn run(data: &[u8]) {
 
     let provider = MockDataLoader {};
     let hardfork_switch = HardForks {
-        ckb2021: CKB2021::new_mirana().as_builder().build().unwrap(),
-        ckb2023: CKB2023::new_mirana()
-            .as_builder()
-            .rfc_0049(0)
-            .build()
-            .unwrap(),
+        ckb2021: CKB2021::new_dev_default(),
+        ckb2023: CKB2023::new_dev_default(),
     };
     let consensus = ConsensusBuilder::default()
         .hardfork_switch(hardfork_switch)

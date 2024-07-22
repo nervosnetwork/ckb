@@ -20,7 +20,7 @@ impl Privkey {
         let context = &SECP256K1;
         let message = message.as_ref();
         let privkey = SecretKey::from_slice(self.inner.as_bytes())?;
-        let message = SecpMessage::from_slice(message)?;
+        let message = SecpMessage::from_digest_slice(message)?;
         let data = context.sign_ecdsa_recoverable(&message, &privkey);
         let (rec_id, data) = data.serialize_compact();
         Ok(Signature::from_compact(rec_id, data))

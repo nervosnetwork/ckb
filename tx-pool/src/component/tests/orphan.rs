@@ -36,7 +36,7 @@ fn test_orphan_duplicated() {
     let tx5 = build_tx(vec![(&tx1.hash(), 0)], 2);
     orphan.add_orphan_tx(tx1.clone(), 0.into(), 0);
     orphan.add_orphan_tx(tx2.clone(), 0.into(), 0);
-    orphan.add_orphan_tx(tx3.clone(), 0.into(), 0);
+    orphan.add_orphan_tx(tx3, 0.into(), 0);
     orphan.add_orphan_tx(tx4.clone(), 0.into(), 0);
     orphan.add_orphan_tx(tx5.clone(), 0.into(), 0);
     assert_eq!(orphan.len(), 5);

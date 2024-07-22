@@ -59,7 +59,7 @@ impl<'a> GetBlocksProcess<'a> {
 
             if !active_chain.contains_block_status(&block_hash, BlockStatus::BLOCK_VALID) {
                 debug!(
-                    "Ignoring get_block {} request from peer={} as it is not unverified.",
+                    "Ignoring get_block {} request from peer={} as it is not verified.",
                     block_hash, self.peer
                 );
                 continue;

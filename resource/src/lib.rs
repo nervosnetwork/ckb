@@ -88,7 +88,7 @@ impl Resource {
         Resource::Bundled { bundled }
     }
 
-    /// Creates a reference to the resource recident in the file system.
+    /// Creates a reference to the resource resident in the file system.
     pub fn file_system(file: PathBuf) -> Resource {
         Resource::FileSystem { file }
     }

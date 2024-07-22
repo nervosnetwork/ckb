@@ -121,7 +121,7 @@ fn run_app_inner(
     matches: &ArgMatches,
 ) -> Result<(), ExitCode> {
     let is_silent_logging = is_silent_logging(cmd);
-    let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime();
+    let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime(None);
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 

@@ -194,9 +194,18 @@ pub async fn get_tx_with_cell(
                     .bind(search_key.script.args.as_bytes())
                     .bind(get_binary_upper_boundary(search_key.script.args.as_bytes()));
             }
-            Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
+            Some(IndexerSearchMode::Exact) => {
                 query = query.bind(search_key.script.args.as_bytes());
             }
+            Some(IndexerSearchMode::Partial) => match db_driver {
+                DBDriver::Postgres => {
+                    let new_args = escape_and_wrap_for_postgres_like(&search_key.script.args);
+                    query = query.bind(new_args);
+                }
+                DBDriver::Sqlite => {
+                    query = query.bind(search_key.script.args.as_bytes());
+                }
+            },
         }
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
@@ -215,9 +224,18 @@ pub async fn get_tx_with_cell(
                             .bind(data.as_bytes())
                             .bind(get_binary_upper_boundary(data.as_bytes()));
                     }
-                    Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
+                    Some(IndexerSearchMode::Exact) => {
                         query = query.bind(data.as_bytes());
                     }
+                    Some(IndexerSearchMode::Partial) => match db_driver {
+                        DBDriver::Postgres => {
+                            let new_data = escape_and_wrap_for_postgres_like(data);
+                            query = query.bind(new_data);
+                        }
+                        DBDriver::Sqlite => {
+                            query = query.bind(data.as_bytes());
+                        }
+                    },
                 }
             }
         }
@@ -326,9 +344,18 @@ pub async fn get_tx_with_cells(
                     .bind(search_key.script.args.as_bytes())
                     .bind(get_binary_upper_boundary(search_key.script.args.as_bytes()));
             }
-            Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
+            Some(IndexerSearchMode::Exact) => {
                 query = query.bind(search_key.script.args.as_bytes());
             }
+            Some(IndexerSearchMode::Partial) => match db_driver {
+                DBDriver::Postgres => {
+                    let new_args = escape_and_wrap_for_postgres_like(&search_key.script.args);
+                    query = query.bind(new_args);
+                }
+                DBDriver::Sqlite => {
+                    query = query.bind(search_key.script.args.as_bytes());
+                }
+            },
         }
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
@@ -347,9 +374,18 @@ pub async fn get_tx_with_cells(
                             .bind(data.as_bytes())
                             .bind(get_binary_upper_boundary(data.as_bytes()));
                     }
-                    Some(IndexerSearchMode::Exact) | Some(IndexerSearchMode::Partial) => {
+                    Some(IndexerSearchMode::Exact) => {
                         query = query.bind(data.as_bytes());
                     }
+                    Some(IndexerSearchMode::Partial) => match db_driver {
+                        DBDriver::Postgres => {
+                            let new_data = escape_and_wrap_for_postgres_like(data);
+                            query = query.bind(new_data);
+                        }
+                        DBDriver::Sqlite => {
+                            query = query.bind(data.as_bytes());
+                        }
+                    },
                 }
             }
         }
@@ -566,10 +602,7 @@ fn build_filter(
                 Some(IndexerSearchMode::Partial) => {
                     match db_driver {
                         DBDriver::Postgres => {
-                            query_builder.and_where(format!(
-                                "position(${} in output.data) > 0",
-                                param_index
-                            ));
+                            query_builder.and_where(format!("output.data LIKE ${}", param_index));
                         }
                         DBDriver::Sqlite => {
                             query_builder

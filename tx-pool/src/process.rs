@@ -18,7 +18,6 @@ use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
@@ -80,9 +79,9 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn fetch_tx_verify_cache(&self, hash: &Byte32) -> Option<CacheEntry> {
+    pub(crate) async fn fetch_tx_verify_cache(&self, tx: &TransactionView) -> Option<CacheEntry> {
         let guard = self.txs_verify_cache.read().await;
-        guard.peek(hash).cloned()
+        guard.peek(&tx.witness_hash()).cloned()
     }
 
     async fn fetch_txs_verify_cache(
@@ -91,8 +90,11 @@ impl TxPoolService {
     ) -> HashMap<Byte32, CacheEntry> {
         let guard = self.txs_verify_cache.read().await;
         txs.filter_map(|tx| {
-            let hash = tx.hash();
-            guard.peek(&hash).cloned().map(|value| (hash, value))
+            let wtx_hash = tx.witness_hash();
+            guard
+                .peek(&wtx_hash)
+                .cloned()
+                .map(|value| (wtx_hash, value))
         })
         .collect()
     }
@@ -271,7 +273,7 @@ impl TxPoolService {
                                 "{} is resolved as Dead, but there is no conflicted tx",
                                 rtx.transaction.proposal_short_id()
                             );
-                            return Err(Reject::Resolve(OutPointError::Dead(out.clone())));
+                            return Err(Reject::Resolve(OutPointError::Dead(out)));
                         }
                         // we also return Ok here, so that the entry will be continue to be verified before submit
                         // we only want to put it into conflicts pool after the verification stage passed
@@ -456,7 +458,10 @@ impl TxPoolService {
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(_) => {
-                    debug!("after_process remote send_result_to_relayer {}", tx_hash);
+                    debug!(
+                        "after_process remote send_result_to_relayer {} {}",
+                        tx_hash, peer
+                    );
                     self.send_result_to_relayer(TxVerificationResult::Ok {
                         original_peer: Some(peer),
                         with_vm_2023,
@@ -465,8 +470,15 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!("after_process {} remote reject: {} ", tx_hash, reject);
-                    if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
+                    debug!(
+                        "after_process {} {} remote reject: {} ",
+                        tx_hash, peer, reject
+                    );
+                    if is_missing_input(reject) {
+                        self.send_result_to_relayer(TxVerificationResult::UnknownParents {
+                            peer,
+                            parents: tx.unique_parents(),
+                        });
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
@@ -477,13 +489,7 @@ impl TxPoolService {
                                 tx_hash: tx_hash.clone(),
                             });
                         }
-
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -511,12 +517,7 @@ impl TxPoolService {
                     }
                     Err(reject) => {
                         debug!("after_process {} reject: {} ", tx_hash, reject);
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -625,12 +626,7 @@ impl TxPoolService {
                                         tx_hash: orphan.tx.hash(),
                                     });
                                 }
-                                if matches!(
-                                    reject,
-                                    Reject::Resolve(..)
-                                        | Reject::Verification(..)
-                                        | Reject::RBFRejected(..)
-                                ) {
+                                if reject.should_recorded() {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
@@ -678,7 +674,7 @@ impl TxPoolService {
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Option<(Result<ProcessResult, Reject>, Arc<Snapshot>)> {
         let limit_cycles = self.tx_pool_config.max_tx_verify_cycles;
-        let tx_hash = tx.hash();
+        let wtx_hash = tx.witness_hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
         let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
@@ -691,7 +687,7 @@ impl TxPoolService {
             return None;
         }
 
-        let cached = self.fetch_tx_verify_cache(&tx_hash).await;
+        let cached = self.fetch_tx_verify_cache(&tx).await;
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status.with_env(tip_header));
 
@@ -783,7 +779,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, CacheEntry::Completed(completed));
+                guard.put(wtx_hash, CacheEntry::Completed(completed));
             });
         }
 
@@ -800,11 +796,11 @@ impl TxPoolService {
         cached: CacheEntry,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<(), Reject> {
-        let tx_hash = tx.hash();
+        let wtx_hash = tx.witness_hash();
         let mut chunk = self.chunk.write().await;
         if chunk.add_tx(tx, remote) {
             let mut guard = self.txs_verify_cache.write().await;
-            guard.put(tx_hash, cached);
+            guard.put(wtx_hash, cached);
         }
 
         Ok(())
@@ -815,7 +811,7 @@ impl TxPoolService {
         tx: TransactionView,
         declared_cycles: Option<Cycle>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
-        let tx_hash = tx.hash();
+        let wtx_hash = tx.witness_hash();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
@@ -829,7 +825,7 @@ impl TxPoolService {
             return None;
         }
 
-        let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
+        let verify_cache = self.fetch_tx_verify_cache(&tx).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status.with_env(tip_header));
@@ -865,7 +861,7 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(tx_hash, CacheEntry::Completed(verified));
+                guard.put(wtx_hash, CacheEntry::Completed(verified));
             });
         }
 
@@ -873,15 +869,13 @@ impl TxPoolService {
     }
 
     pub(crate) async fn _test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
-        let tx_hash = tx.hash();
-
         let (pre_check_ret, snapshot) = self.pre_check(&tx).await;
 
         let (_tip_hash, rtx, status, _fee, _tx_size) = pre_check_ret?;
 
         // skip check the delay window
 
-        let verify_cache = self.fetch_tx_verify_cache(&tx_hash).await;
+        let verify_cache = self.fetch_tx_verify_cache(&tx).await;
         let max_cycles = self.consensus.max_block_cycles();
         let tip_header = snapshot.tip_header();
         let tx_env = Arc::new(status.with_env(tip_header));
@@ -1257,9 +1251,4 @@ fn _update_tx_pool_for_reorg(
 
     // Remove transactions from the pool until its size <= size_limit.
     let _ = tx_pool.limit_size(callbacks, None);
-}
-
-pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {
-    !tx.input_pts_iter()
-        .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
 }
