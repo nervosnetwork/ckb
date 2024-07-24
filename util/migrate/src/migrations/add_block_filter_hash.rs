@@ -6,6 +6,7 @@ use ckb_error::Error;
 use ckb_hash::blake2b_256;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::prelude::Entity;
+use ckb_types::BlockNumberAndHash;
 use std::sync::Arc;
 
 pub struct AddBlockFilterHash;
@@ -40,12 +41,12 @@ impl Migration for AddBlockFilterHash {
             let pb = ::std::sync::Arc::clone(&pb);
             let pbi = pb(latest_built_filter_data_block_number + 1);
             pbi.set_style(
-                    ProgressStyle::default_bar()
-                        .template(
-                            "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
-                        )
-                        .progress_chars("#>-"),
-                );
+                ProgressStyle::default_bar()
+                    .template(
+                        "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+                    )
+                    .progress_chars("#>-"),
+            );
             pbi.set_position(0);
             pbi.enable_steady_tick(5000);
 
@@ -58,8 +59,9 @@ impl Migration for AddBlockFilterHash {
                         break;
                     }
                     let block_hash = chain_db.get_block_hash(block_number).expect("index stored");
+                    let num_hash = BlockNumberAndHash::new(block_number, block_hash.clone());
                     let filter_data = chain_db
-                        .get_block_filter(&block_hash)
+                        .get_block_filter(&num_hash)
                         .expect("filter data stored");
                     parent_block_filter_hash = blake2b_256(
                         [
@@ -70,8 +72,8 @@ impl Migration for AddBlockFilterHash {
                     );
                     db_txn
                         .put(
-                            COLUMN_BLOCK_FILTER_HASH,
-                            block_hash.as_slice(),
+                            COLUMN_BLOCK_FILTER_HASH::NAME,
+                            COLUMN_BLOCK_FILTER_HASH::key(num_hash).as_ref(),
                             parent_block_filter_hash.as_slice(),
                         )
                         .expect("db transaction put should be ok");

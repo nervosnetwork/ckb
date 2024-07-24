@@ -25,6 +25,7 @@ use std::collections::HashMap;
 // Apply the effects of this block on the live cell set.
 pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
     let transactions = block.transactions();
+    let block_number = block.header().number();
 
     // add new live cells
     let new_cells = transactions
@@ -76,7 +77,7 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
         .iter()
         .skip(1)
         .flat_map(|tx| tx.input_pts_iter());
-    txn.delete_cells(deads)?;
+    txn.delete_cells(block_number, deads)?;
 
     Ok(())
 }
@@ -94,7 +95,6 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
             indexes.push(index);
         }
     }
-
     // restore inputs
     // skip cellbase
     let undo_deads = input_pts
@@ -145,7 +145,7 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
 
     // undo live cells
     let undo_cells = transactions.iter().flat_map(|tx| tx.output_pts_iter());
-    txn.delete_cells(undo_cells)?;
+    txn.delete_cells(block.number(), undo_cells)?;
 
     Ok(())
 }

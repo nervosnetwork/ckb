@@ -28,6 +28,7 @@ use ckb_types::core::service::PoolTransactionEntry;
 use ckb_types::core::tx_pool::Reject;
 use ckb_types::core::EpochExt;
 use ckb_types::core::HeaderView;
+use ckb_types::BlockNumberAndHash;
 use ckb_verification::cache::init_cache;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -244,12 +245,13 @@ impl SharedBuilder {
         let proposal_start = tip_number.saturating_sub(proposal_window.farthest());
         for bn in proposal_start..=tip_number {
             if let Some(hash) = store.get_block_hash(bn) {
+                let num_hash = BlockNumberAndHash::new(bn, hash);
                 let mut ids_set = HashSet::new();
-                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
+                if let Some(ids) = store.get_block_proposal_txs_ids(num_hash.clone()) {
                     ids_set.extend(ids)
                 }
 
-                if let Some(us) = store.get_block_uncles(&hash) {
+                if let Some(us) = store.get_block_uncles(num_hash) {
                     for u in us.data().into_iter() {
                         ids_set.extend(u.proposals().into_iter());
                     }

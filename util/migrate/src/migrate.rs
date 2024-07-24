@@ -42,7 +42,7 @@ impl Migrate {
     /// Open read only db
     pub fn open_read_only_db(&self) -> Result<Option<ReadOnlyDB>, Error> {
         // open cf meta column for empty check
-        ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META])
+        ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META::NAME])
     }
 
     /// Check if database's version is matched with the executable binary version.

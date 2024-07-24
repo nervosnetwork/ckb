@@ -25,6 +25,7 @@ impl ChainStore for StoreSnapshot {
     }
 
     fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
+        // println!("get col={:?} key={}", col, hex(key));
         self.inner
             .get_pinned(col, key)
             .expect("db operation should be ok")

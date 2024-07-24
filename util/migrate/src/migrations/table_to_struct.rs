@@ -2,7 +2,6 @@ use ckb_db::{Direction, IteratorMode, Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
 use ckb_db_schema::{
     COLUMN_BLOCK_HEADER, COLUMN_EPOCH, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
-    META_CURRENT_EPOCH_KEY,
 };
 use std::sync::Arc;
 
@@ -28,7 +27,7 @@ impl ChangeMoleculeTableToStruct {
             let mut header_view_migration = |key: &[u8], value: &[u8]| -> Result<()> {
                 // (1 total size field + 2 fields) * 4 byte per field
                 if value.len() != HEADER_SIZE {
-                    wb.put(COLUMN_BLOCK_HEADER, key, &value[12..])?;
+                    wb.put(COLUMN_BLOCK_HEADER::NAME, key, &value[12..])?;
                 }
 
                 Ok(())
@@ -36,8 +35,12 @@ impl ChangeMoleculeTableToStruct {
 
             let mode = self.mode(&next_key);
 
-            let (_count, nk) =
-                db.traverse(COLUMN_BLOCK_HEADER, &mut header_view_migration, mode, LIMIT)?;
+            let (_count, nk) = db.traverse(
+                COLUMN_BLOCK_HEADER::NAME,
+                &mut header_view_migration,
+                mode,
+                LIMIT,
+            )?;
             next_key = nk;
 
             if !wb.is_empty() {
@@ -57,13 +60,14 @@ impl ChangeMoleculeTableToStruct {
             let mut uncles_migration = |key: &[u8], value: &[u8]| -> Result<()> {
                 // (1 total size field + 2 fields) * 4 byte per field
                 if value.len() != HEADER_SIZE {
-                    wb.put(COLUMN_UNCLES, key, &value[12..])?;
+                    wb.put(COLUMN_UNCLES::NAME, key, &value[12..])?;
                 }
                 Ok(())
             };
 
             let mode = self.mode(&next_key);
-            let (_count, nk) = db.traverse(COLUMN_UNCLES, &mut uncles_migration, mode, LIMIT)?;
+            let (_count, nk) =
+                db.traverse(COLUMN_UNCLES::NAME, &mut uncles_migration, mode, LIMIT)?;
             next_key = nk;
 
             if !wb.is_empty() {
@@ -82,15 +86,19 @@ impl ChangeMoleculeTableToStruct {
             let mut transaction_info_migration = |key: &[u8], value: &[u8]| -> Result<()> {
                 // (1 total size field + 3 fields) * 4 byte per field
                 if value.len() != TRANSACTION_INFO_SIZE {
-                    wb.put(COLUMN_TRANSACTION_INFO, key, &value[16..])?;
+                    wb.put(COLUMN_TRANSACTION_INFO::NAME, key, &value[16..])?;
                 }
                 Ok(())
             };
 
             let mode = self.mode(&next_key);
 
-            let (_count, nk) =
-                db.traverse(COLUMN_UNCLES, &mut transaction_info_migration, mode, LIMIT)?;
+            let (_count, nk) = db.traverse(
+                COLUMN_UNCLES::NAME,
+                &mut transaction_info_migration,
+                mode,
+                LIMIT,
+            )?;
             next_key = nk;
 
             if !wb.is_empty() {
@@ -111,13 +119,14 @@ impl ChangeMoleculeTableToStruct {
                 // only migrates epoch_ext
                 if key.len() == 32 && value.len() != EPOCH_SIZE {
                     // (1 total size field + 8 fields) * 4 byte per field
-                    wb.put(COLUMN_EPOCH, key, &value[36..])?;
+                    wb.put(COLUMN_EPOCH::NAME, key, &value[36..])?;
                 }
                 Ok(())
             };
 
             let mode = self.mode(&next_key);
-            let (_count, nk) = db.traverse(COLUMN_EPOCH, &mut epoch_ext_migration, mode, LIMIT)?;
+            let (_count, nk) =
+                db.traverse(COLUMN_EPOCH::NAME, &mut epoch_ext_migration, mode, LIMIT)?;
             next_key = nk;
 
             if !wb.is_empty() {
@@ -166,9 +175,15 @@ impl Migration for ChangeMoleculeTableToStruct {
         pb.inc(1);
 
         let mut wb = db.new_write_batch();
-        if let Some(current_epoch) = db.get_pinned(COLUMN_META, META_CURRENT_EPOCH_KEY)? {
+        if let Some(current_epoch) =
+            db.get_pinned(COLUMN_META::NAME, COLUMN_META::META_CURRENT_EPOCH_KEY)?
+        {
             if current_epoch.len() != 108 {
-                wb.put(COLUMN_META, META_CURRENT_EPOCH_KEY, &current_epoch[36..])?;
+                wb.put(
+                    COLUMN_META::NAME,
+                    COLUMN_META::META_CURRENT_EPOCH_KEY,
+                    &current_epoch[36..],
+                )?;
             }
         }
         db.write(&wb)?;
