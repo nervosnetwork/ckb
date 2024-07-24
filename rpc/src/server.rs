@@ -24,13 +24,14 @@ use jsonrpc_utils::pub_sub::Session;
 use jsonrpc_utils::stream::{serve_stream_sink, StreamMsg, StreamServerConfig};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 
-static JSONRPC_BATCH_LIMIT: once_cell::sync::OnceCell<usize> = once_cell::sync::OnceCell::new();
+static JSONRPC_BATCH_LIMIT: OnceLock<usize> = OnceLock::new();
 
 #[doc(hidden)]
 #[derive(Debug)]
