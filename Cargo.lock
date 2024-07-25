@@ -379,12 +379,6 @@ dependencies = [
 
 [[package]]
 name = "bs58"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "771fe0050b883fcc3ea2359b1a96bcfbc090b7116eae7c3c512c7a083fdf23d3"
-
-[[package]]
-name = "bs58"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
@@ -1224,7 +1218,7 @@ version = "0.117.0-pre"
 dependencies = [
  "bitflags 1.3.2",
  "bloom-filters",
- "bs58 0.4.0",
+ "bs58",
  "ckb-app-config",
  "ckb-hash",
  "ckb-logger",
@@ -5381,7 +5375,7 @@ version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9e71b28bf0bbf274b92f47cb2c5b42755d84a11e2246cf7bcb7b65c89483b9"
 dependencies = [
- "bs58 0.5.1",
+ "bs58",
  "bytes",
  "serde",
  "sha2",
@@ -5394,7 +5388,7 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cac8b23a7879426a4961acea6ae66287f7fe9a934d131a722cbb88f145e97fea"
 dependencies = [
- "bs58 0.5.1",
+ "bs58",
  "bytes",
  "chacha20poly1305",
  "futures",
