@@ -68,13 +68,13 @@ impl ConsumeUnverifiedBlocks {
 
     pub(crate) fn start(mut self) {
         loop {
-            let _trace_begin_loop = minstant::Instant::now();
+            let trace_begin_loop = minstant::Instant::now();
             select! {
                 recv(self.unverified_block_rx) -> msg => match msg {
                     Ok(unverified_task) => {
                         // process this unverified block
                         if let Some(handle) = ckb_metrics::handle() {
-                            handle.ckb_chain_consume_unverified_block_waiting_block_duration.observe(_trace_begin_loop.elapsed().as_secs_f64())
+                            handle.ckb_chain_consume_unverified_block_waiting_block_duration.observe(trace_begin_loop.elapsed().as_secs_f64())
                         }
                         let _ = self.tx_pool_controller.suspend_chunk_process();
 
@@ -98,7 +98,7 @@ impl ConsumeUnverifiedBlocks {
                         let _ = self.tx_pool_controller.continue_chunk_process();
                     },
                     Err(err) => {
-                        info!("truncate_block_tx has been closed,err: {}", err);
+                        info!("truncate_block_tx has been closed, err: {}", err);
                         return;
                     },
                 },
@@ -882,8 +882,6 @@ impl ConsumeUnverifiedBlockProcessor {
         );
 
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
-
-        // NOTE: Dont update tx-pool when truncate
 
         Ok(())
     }
