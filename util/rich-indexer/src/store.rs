@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
+use include_dir::{include_dir, Dir};
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
 use sqlx::{
@@ -9,8 +10,9 @@ use sqlx::{
     query::{Query, QueryAs},
     ConnectOptions, IntoArguments, Row, Transaction,
 };
+use tempfile::tempdir;
 
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::marker::{Send, Unpin};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -21,6 +23,7 @@ const SQL_SQLITE_CREATE_TABLE: &str = include_str!("../resources/create_sqlite_t
 const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../resources/create_sqlite_index.sql");
 const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgres_table.sql");
 const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
+static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/resources/migrations");
 
 #[derive(Clone, Default)]
 pub struct SQLXPool {
@@ -81,7 +84,16 @@ impl SQLXPool {
 
         // Run migrations
         log::info!("Running migrations...");
-        let migrator = Migrator::new(db_config.migrations_path.clone()).await?;
+        let temp_dir = tempdir()?;
+        for file in MIGRATIONS_DIR.files() {
+            log::info!("Found migration file: {:?}", file.path());
+            let file_path = temp_dir.path().join(file.path());
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&file_path, file.contents())?;
+        }
+        let migrator = Migrator::new(temp_dir.path()).await?;
         migrator.run(&pool).await?;
         log::info!("Migrations are done.");
 

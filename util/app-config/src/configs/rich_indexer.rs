@@ -3,7 +3,6 @@ use std::{default::Default, path::PathBuf};
 
 const PGSQL: &str = "postgres://";
 const SQLITE: &str = "sqlite://";
-const SQL_MIGRATIONS_PATH: &str = "./util/rich-indexer/resources/migrations";
 
 /// Rich indexer database type.
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq, Eq, Copy)]
@@ -50,9 +49,6 @@ pub struct RichIndexerConfig {
     /// The database password.
     #[serde(default = "default_db_password")]
     pub db_password: String,
-    /// The migrations path with a default value
-    #[serde(default = "default_migrations_path", skip_deserializing)]
-    pub migrations_path: PathBuf,
 }
 
 impl Default for RichIndexerConfig {
@@ -65,7 +61,6 @@ impl Default for RichIndexerConfig {
             db_port: default_db_port(),
             db_user: default_db_user(),
             db_password: default_db_password(),
-            migrations_path: default_migrations_path(),
         }
     }
 }
@@ -88,8 +83,4 @@ fn default_db_user() -> String {
 
 fn default_db_password() -> String {
     "123456".to_string()
-}
-
-fn default_migrations_path() -> PathBuf {
-    PathBuf::from(SQL_MIGRATIONS_PATH)
 }
