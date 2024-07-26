@@ -95,6 +95,11 @@ impl Reject {
         }
     }
 
+    /// Returns true if the reject should be recorded.
+    pub fn should_recorded(&self) -> bool {
+        !matches!(self, Reject::Duplicated(..))
+    }
+
     /// Returns true if tx can be resubmitted, allowing relay
     /// * Declared wrong cycles should allow relay with the correct cycles
     /// * Reject but is not malformed and the fee rate reached the threshold,

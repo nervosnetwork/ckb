@@ -422,6 +422,13 @@ impl TransactionView {
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
     }
+
+    /// return deduplicate parent tx_hashes
+    pub fn unique_parents(&self) -> HashSet<packed::Byte32> {
+        self.input_pts_iter()
+            .map(|outpoint| outpoint.tx_hash())
+            .collect()
+    }
 }
 
 impl ExtraHashView {

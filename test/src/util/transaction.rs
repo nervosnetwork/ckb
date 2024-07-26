@@ -47,6 +47,26 @@ pub fn always_success_transactions_with_rand_data(
         .build()
 }
 
+pub fn send_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
+    let relay_tx = packed::RelayTransaction::new_builder()
+        .cycles(cycles.pack())
+        .transaction(tx.data())
+        .build();
+
+    let tx_msg = packed::RelayMessage::new_builder()
+        .set(
+            packed::RelayTransactions::new_builder()
+                .transactions(
+                    packed::RelayTransactionVec::new_builder()
+                        .set(vec![relay_tx])
+                        .build(),
+                )
+                .build(),
+        )
+        .build();
+    net.send(node, SupportProtocols::RelayV3, tx_msg.as_bytes());
+}
+
 pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
     let tx_hashes_msg = packed::RelayMessage::new_builder()
         .set(

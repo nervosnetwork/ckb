@@ -431,6 +431,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TxPoolOrphanNormal),
         Box::new(TxPoolOrphanReverse),
         Box::new(TxPoolOrphanUnordered),
+        Box::new(TxPoolOrphanPartialInputUnknown),
         Box::new(TxPoolOrphanDoubleSpend),
         Box::new(OrphanTxRejected),
         Box::new(GetRawTxPool),

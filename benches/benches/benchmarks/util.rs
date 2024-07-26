@@ -480,7 +480,7 @@ pub fn create_2out_transaction(
 
 pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -> Byte32 {
     let mut seen_inputs = HashSet::new();
-    // In case of resolving errors, we just output a dummp DAO field,
+    // In case of resolving errors, we just output a dummy DAO field,
     // since those should be the cases where we are testing invalid
     // blocks
     let transactions_provider = TransactionsProvider::new(txs.iter());
