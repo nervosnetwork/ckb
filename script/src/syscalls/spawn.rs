@@ -1,7 +1,7 @@
 use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
-    Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SPAWN, SPAWN_EXTRA_CYCLES_BASE,
-    SPAWN_YIELD_CYCLES_BASE,
+    Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
+    SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
 };
 use crate::types::{DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -55,11 +55,15 @@ where
             return Ok(false);
         }
         let index = machine.registers()[A0].to_u64();
-        let source = machine.registers()[A1].to_u64();
+        let mut source = machine.registers()[A1].to_u64();
         let place = machine.registers()[A2].to_u64();
         // To keep compatible with the old behavior. When Source is wrong, a
         // Vm internal error should be returned.
-        let _ = Source::parse_from_u64(source)?;
+        if let Source::Group(_) = Source::parse_from_u64(source)? {
+            source = source & SOURCE_ENTRY_MASK | SOURCE_GROUP_FLAG;
+        } else {
+            source = source & SOURCE_ENTRY_MASK;
+        }
         let data_piece_id = match DataPieceId::try_from((source, index, place)) {
             Ok(id) => id,
             Err(_) => {

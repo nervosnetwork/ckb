@@ -3,7 +3,8 @@ use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
         Source, INDEX_OUT_OF_BOUND, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER,
-        LOAD_CELL_DATA_SYSCALL_NUMBER, SLICE_OUT_OF_BOUND, SUCCESS,
+        LOAD_CELL_DATA_SYSCALL_NUMBER, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG,
+        SUCCESS,
     },
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -34,10 +35,14 @@ where
 
     fn load_data<Mac: SupportMachine>(&self, machine: &mut Mac) -> Result<(), VMError> {
         let index = machine.registers()[A3].to_u64();
-        let source = machine.registers()[A4].to_u64();
+        let mut source = machine.registers()[A4].to_u64();
         // To keep compatible with the old behavior. When Source is wrong, a
         // Vm internal error should be returned.
-        let _ = Source::parse_from_u64(source)?;
+        if let Source::Group(_) = Source::parse_from_u64(source)? {
+            source = source & SOURCE_ENTRY_MASK | SOURCE_GROUP_FLAG;
+        } else {
+            source = source & SOURCE_ENTRY_MASK;
+        }
         let data_piece_id = match DataPieceId::try_from((source, index, 0)) {
             Ok(id) => id,
             Err(_) => {
@@ -100,10 +105,14 @@ where
         let content_offset = machine.registers()[A2].to_u64();
         let content_size = machine.registers()[A3].to_u64();
         let index = machine.registers()[A4].to_u64();
-        let source = machine.registers()[A5].to_u64();
+        let mut source = machine.registers()[A5].to_u64();
         // To keep compatible with the old behavior. When Source is wrong, a
         // Vm internal error should be returned.
-        let _ = Source::parse_from_u64(source)?;
+        if let Source::Group(_) = Source::parse_from_u64(source)? {
+            source = source & SOURCE_ENTRY_MASK | SOURCE_GROUP_FLAG;
+        } else {
+            source = source & SOURCE_ENTRY_MASK;
+        }
         let data_piece_id = match DataPieceId::try_from((source, index, 0)) {
             Ok(id) => id,
             Err(_) => {
