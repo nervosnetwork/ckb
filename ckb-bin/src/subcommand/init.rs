@@ -10,7 +10,7 @@ use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME,
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
-use ckb_types::{prelude::*, H256};
+use ckb_types::H256;
 
 const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x
@@ -79,7 +79,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                     .build_consensus()
                     .expect("Build consensus failed")
                     .get_secp_type_script_hash()
-                    .unpack();
+                    .into();
                 format!("{hash:#x}")
             });
 

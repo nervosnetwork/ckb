@@ -20,7 +20,7 @@ pub fn always_success_transaction(node: &Node, cell: &CellMeta) -> TransactionVi
     TransactionBuilder::default()
         .input(as_input(cell))
         .output(as_output(cell))
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .cell_dep(node.always_success_cell_dep())
         .build()
 }
@@ -39,7 +39,7 @@ pub fn always_success_transactions_with_rand_data(
                     (0..1600)
                         .map(|_| rand::random::<u8>())
                         .collect::<Vec<_>>()
-                        .pack()
+                        .into()
                 })
                 .collect::<Vec<packed::Bytes>>(),
         )
@@ -49,7 +49,7 @@ pub fn always_success_transactions_with_rand_data(
 
 pub fn send_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
     let relay_tx = packed::RelayTransaction::new_builder()
-        .cycles(cycles.pack())
+        .cycles(cycles)
         .transaction(tx.data())
         .build();
 
@@ -71,7 +71,7 @@ pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
     let tx_hashes_msg = packed::RelayMessage::new_builder()
         .set(
             packed::RelayTransactionHashes::new_builder()
-                .tx_hashes(vec![tx.hash()].pack())
+                .tx_hashes(vec![tx.hash()])
                 .build(),
         )
         .build();
@@ -85,7 +85,7 @@ pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
     assert!(ret, "node should ask for tx");
 
     let relay_tx = packed::RelayTransaction::new_builder()
-        .cycles(cycles.pack())
+        .cycles(cycles)
         .transaction(tx.data())
         .build();
 

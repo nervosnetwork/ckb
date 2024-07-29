@@ -2,7 +2,6 @@ use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
     core::{BlockNumber, EpochNumberWithFraction, HeaderBuilder, HeaderView, TransactionInfo},
     packed::Byte32,
-    prelude::*,
 };
 use ckb_util::LinkedHashMap;
 use std::sync::Arc;
@@ -49,16 +48,13 @@ impl MockMedianTime {
                     .map(|(idx, timestamp)| {
                         let number = idx as BlockNumber;
                         let header = HeaderBuilder::default()
-                            .timestamp(timestamp.pack())
-                            .number(number.pack())
-                            .epoch(
-                                EpochNumberWithFraction::new(
-                                    number % MOCK_EPOCH_LENGTH,
-                                    number / MOCK_EPOCH_LENGTH,
-                                    MOCK_EPOCH_LENGTH,
-                                )
-                                .pack(),
-                            )
+                            .timestamp(timestamp)
+                            .number(number)
+                            .epoch(EpochNumberWithFraction::new(
+                                number % MOCK_EPOCH_LENGTH,
+                                number / MOCK_EPOCH_LENGTH,
+                                MOCK_EPOCH_LENGTH,
+                            ))
                             .parent_hash(parent_hash.clone())
                             .build();
                         parent_hash = header.hash();

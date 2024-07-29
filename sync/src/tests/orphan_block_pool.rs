@@ -1,7 +1,6 @@
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView};
-use ckb_types::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
@@ -12,10 +11,14 @@ fn gen_block(parent_header: &HeaderView) -> BlockView {
     let number = parent_header.number() + 1;
     BlockBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp(unix_time_as_millis().pack())
-        .number(number.pack())
-        .epoch(EpochNumberWithFraction::new(number / 1000, number % 1000, 1000).pack())
-        .nonce((parent_header.nonce() + 1).pack())
+        .timestamp(unix_time_as_millis())
+        .number(number)
+        .epoch(EpochNumberWithFraction::new(
+            number / 1000,
+            number % 1000,
+            1000,
+        ))
+        .nonce(parent_header.nonce() + 1)
         .build()
 }
 
@@ -136,10 +139,10 @@ fn test_remove_expired_blocks() {
     for _ in 1..block_number {
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
-            .timestamp(unix_time_as_millis().pack())
-            .number((parent.number() + 1).pack())
-            .epoch(deprecated.clone().pack())
-            .nonce((parent.nonce() + 1).pack())
+            .timestamp(unix_time_as_millis())
+            .number(parent.number() + 1)
+            .epoch(deprecated)
+            .nonce(parent.nonce() + 1)
             .build();
         pool.insert(new_block.clone());
         parent = new_block.header();

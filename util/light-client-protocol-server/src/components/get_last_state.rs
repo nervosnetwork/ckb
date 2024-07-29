@@ -26,7 +26,7 @@ impl<'a> GetLastStateProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
-        let subscribe: bool = self.message.subscribe().unpack();
+        let subscribe: bool = self.message.subscribe().into();
         if subscribe {
             self.nc.with_peer_mut(
                 self.peer,

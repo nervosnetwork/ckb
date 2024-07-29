@@ -4,7 +4,7 @@ use crate::component::tests::util::{
     MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
 };
 use ckb_types::core::{capacity_bytes, ScriptHashType};
-use ckb_types::packed::{CellOutputBuilder, ScriptBuilder};
+use ckb_types::packed::{self, CellOutputBuilder, ScriptBuilder};
 use ckb_types::H256;
 use std::time::Instant;
 
@@ -197,7 +197,7 @@ fn test_add_entry_from_detached() {
 fn test_add_roots() {
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&Byte32::zero(), 2)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 2)],
+        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 2)],
         3,
     );
 
@@ -517,36 +517,36 @@ fn test_get_ancestors() {
 
 #[test]
 fn test_dep_group() {
-    let tx1 = build_tx(vec![(&h256!("0x1").pack(), 0)], 1);
+    let tx1 = build_tx(vec![(&h256!("0x1").into(), 0)], 1);
     let tx1_out_point = OutPoint::new(tx1.hash(), 0);
 
     // Dep group cell
-    let tx2_data = vec![tx1_out_point.clone()].pack().as_bytes();
+    let tx2_data = Into::<packed::OutPointVec>::into(vec![tx1_out_point.clone()]).as_bytes();
     let tx2 = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new(h256!("0x2").pack(), 0), 0))
+        .input(CellInput::new(OutPoint::new(h256!("0x2").into(), 0), 0))
         .output(
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(1000).unwrap().pack())
+                .capacity(Capacity::bytes(1000).unwrap())
                 .build(),
         )
-        .output_data(tx2_data.pack())
+        .output_data(&tx2_data)
         .build();
     let tx2_out_point = OutPoint::new(tx2.hash(), 0);
 
     // Transaction use dep group
     let dep = CellDep::new_builder()
         .out_point(tx2_out_point.clone())
-        .dep_type(DepType::DepGroup.into())
+        .dep_type(DepType::DepGroup)
         .build();
     let tx3 = TransactionBuilder::default()
         .cell_dep(dep)
-        .input(CellInput::new(OutPoint::new(h256!("0x3").pack(), 0), 0))
+        .input(CellInput::new(OutPoint::new(h256!("0x3").into(), 0), 0))
         .output(
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(3).unwrap().pack())
+                .capacity(Capacity::bytes(3).unwrap())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .build();
     let tx3_out_point = OutPoint::new(tx3.hash(), 0);
 
@@ -590,9 +590,9 @@ fn test_dep_group() {
 fn test_resolve_conflict_header_dep() {
     let mut pool = PoolMap::new(DEFAULT_MAX_ANCESTORS_COUNT);
 
-    let header: Byte32 = h256!("0x1").pack();
+    let header: Byte32 = h256!("0x1").into();
     let tx = build_tx_with_header_dep(
-        vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)],
+        vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)],
         vec![header.clone()],
         1,
     );
@@ -672,12 +672,12 @@ fn test_max_ancestors_with_dep() {
     let mut pool = PoolMap::new(1);
     let tx1 = build_tx_with_dep(
         vec![(&Byte32::zero(), 0)],
-        vec![(&h256!("0x1").pack(), 0)],
+        vec![(&h256!("0x1").into(), 0)],
         1,
     );
     let tx1_id = tx1.proposal_short_id();
     let tx1_hash = tx1.hash();
-    let tx2 = build_tx_with_dep(vec![(&tx1_hash, 0)], vec![(&h256!("0x2").pack(), 0)], 1);
+    let tx2 = build_tx_with_dep(vec![(&tx1_hash, 0)], vec![(&h256!("0x2").into(), 0)], 1);
     let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
 
@@ -687,7 +687,7 @@ fn test_max_ancestors_with_dep() {
     assert!(pool
         .edges
         .deps
-        .contains_key(&OutPoint::new(h256!("0x1").pack(), 0)));
+        .contains_key(&OutPoint::new(h256!("0x1").into(), 0)));
     assert!(pool.calc_descendants(&tx1_id).is_empty());
 
     assert_eq!(pool.edges.inputs_len(), 1);
@@ -716,12 +716,12 @@ fn test_container_bench_add_limits() {
                         .previous_output(
                             OutPoint::new_builder()
                                 .tx_hash(prev_tx.transaction().hash())
-                                .index(0u32.pack())
+                                .index(0u32)
                                 .build(),
                         )
                         .build(),
                 )
-                .witness(Bytes::new().pack())
+                .witness(Bytes::new())
                 .build(),
             rng.gen_range(0..1000),
             Capacity::shannons(200),
@@ -748,26 +748,26 @@ fn test_pool_map_bench() {
     let mut time_spend = vec![];
     for i in 0..20000 {
         let lock_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()).pack())
-            .hash_type(ScriptHashType::Data.into())
-            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .code_hash(H256(rand::random()))
+            .hash_type(ScriptHashType::Data)
+            .args(Bytes::from(b"lock_script1".to_vec()))
             .build();
 
         let type_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()).pack())
-            .hash_type(ScriptHashType::Data.into())
-            .args(Bytes::from(b"type_script1".to_vec()).pack())
+            .code_hash(H256(rand::random()))
+            .hash_type(ScriptHashType::Data)
+            .args(Bytes::from(b"type_script1".to_vec()))
             .build();
 
         let tx = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000).pack())
+                    .capacity(capacity_bytes!(1000))
                     .lock(lock_script1)
-                    .type_(Some(type_script1).pack())
+                    .type_(Some(type_script1))
                     .build(),
             )
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .build();
 
         let entry = TxEntry::dummy_resolve(

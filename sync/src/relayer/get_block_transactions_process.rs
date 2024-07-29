@@ -4,6 +4,7 @@ use crate::{attempt, Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
+use ckb_types::packed::{Transaction, UncleBlock};
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 
@@ -65,7 +66,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .filter_map(|i| {
                     block
                         .transactions()
-                        .get(Unpack::<u32>::unpack(&i) as usize)
+                        .get(Into::<u32>::into(i) as usize)
                         .cloned()
                 })
                 .collect::<Vec<_>>();
@@ -74,13 +75,23 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .message
                 .uncle_indexes()
                 .iter()
-                .filter_map(|i| block.uncles().get(Unpack::<u32>::unpack(&i) as usize))
+                .filter_map(|i| block.uncles().get(Into::<u32>::into(i) as usize))
                 .collect::<Vec<_>>();
 
             let content = packed::BlockTransactions::new_builder()
                 .block_hash(block_hash)
-                .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
-                .uncles(uncles.into_iter().map(|uncle| uncle.data()).pack())
+                .transactions(
+                    transactions
+                        .into_iter()
+                        .map(|tx| tx.data())
+                        .collect::<Vec<Transaction>>(),
+                )
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(|uncle| uncle.data())
+                        .collect::<Vec<UncleBlock>>(),
+                )
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
 

@@ -33,7 +33,7 @@ impl<'a> GetBlockFilterCheckPointsProcess<'a> {
 
     pub fn execute(self) -> Status {
         let active_chain = self.filter.shared.active_chain();
-        let start_number: BlockNumber = self.message.to_entity().start_number().unpack();
+        let start_number: BlockNumber = self.message.to_entity().start_number().into();
         let latest: BlockNumber = active_chain.get_latest_built_filter_block_number();
 
         let mut block_filter_hashes = Vec::new();
@@ -52,8 +52,8 @@ impl<'a> GetBlockFilterCheckPointsProcess<'a> {
                 }
             }
             let content = packed::BlockFilterCheckPoints::new_builder()
-                .start_number(start_number.pack())
-                .block_filter_hashes(block_filter_hashes.pack())
+                .start_number(start_number)
+                .block_filter_hashes(block_filter_hashes)
                 .build();
 
             let message = packed::BlockFilterMessage::new_builder()

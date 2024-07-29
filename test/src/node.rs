@@ -16,7 +16,9 @@ use ckb_types::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
         ScriptHashType, TransactionView,
     },
-    packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
+    packed::{
+        self, Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script,
+    },
     prelude::*,
 };
 use std::borrow::Borrow;
@@ -214,7 +216,7 @@ impl Node {
         let always_success_code_hash = CellOutput::calc_data_hash(&always_success_raw);
         Script::new_builder()
             .code_hash(always_success_code_hash)
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data)
             .build()
     }
 
@@ -240,7 +242,7 @@ impl Node {
         let always_failure_code_hash = CellOutput::calc_data_hash(&always_failure_raw);
         Script::new_builder()
             .code_hash(always_failure_code_hash)
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data)
             .build()
     }
 
@@ -343,10 +345,7 @@ impl Node {
         // the new block in main fork which timestamp is greater than
         // or equal to the current time.
         let timestamp = block.timestamp();
-        let uncle = block
-            .as_advanced_builder()
-            .timestamp((timestamp + 1).pack())
-            .build();
+        let uncle = block.as_advanced_builder().timestamp(timestamp + 1).build();
         (block, uncle)
     }
 
@@ -381,7 +380,7 @@ impl Node {
         let res = self
             .rpc_client()
             .send_transaction_result(transaction.data().into())?
-            .pack();
+            .into();
         Ok(res)
     }
 
@@ -573,11 +572,11 @@ impl Node {
             .cell_dep(always_success_cell_dep)
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity.pack())
+                    .capacity(capacity)
                     .lock(always_success_script)
                     .build(),
             )
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .input(CellInput::new(OutPoint::new(hash, index), since))
             .build()
     }
@@ -599,11 +598,11 @@ impl Node {
             .cell_dep(always_failure_cell_dep)
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100).pack())
+                    .capacity(capacity_bytes!(100))
                     .lock(always_failure_script)
                     .build(),
             )
-            .output_data(Default::default())
+            .output_data(packed::Bytes::default())
             .input(CellInput::new(OutPoint::new(hash, 0), 0))
             .build()
     }

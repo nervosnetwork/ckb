@@ -3,7 +3,6 @@ use ckb_jsonrpc_types::{AlertMessage, ChainInfo, DeploymentInfo, DeploymentPos, 
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_traits::HeaderFieldsProvider;
-use ckb_types::prelude::Unpack;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
@@ -179,7 +178,7 @@ impl StatsRpc for StatsRpcImpl {
             .collect();
 
         Ok(DeploymentsInfo {
-            hash: snapshot.tip_hash().unpack(),
+            hash: snapshot.tip_hash().into(),
             epoch: snapshot.tip_header().epoch().number().into(),
             deployments,
         })

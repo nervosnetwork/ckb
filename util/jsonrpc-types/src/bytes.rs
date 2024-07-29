@@ -1,4 +1,4 @@
-use ckb_types::{bytes::Bytes, packed, prelude::*};
+use ckb_types::{bytes::Bytes, packed};
 use faster_hex::{hex_decode, hex_encode};
 use schemars::JsonSchema;
 use std::fmt;
@@ -72,7 +72,7 @@ impl<'a> From<&'a packed::Bytes> for JsonBytes {
 
 impl From<JsonBytes> for packed::Bytes {
     fn from(input: JsonBytes) -> Self {
-        input.0.pack()
+        input.0.into()
     }
 }
 

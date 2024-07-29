@@ -31,7 +31,7 @@ impl Spec for GetBlockFilterCheckPoints {
         let start_number: u64 = 0;
         let request = {
             let content = packed::GetBlockFilterCheckPoints::new_builder()
-                .start_number(start_number.pack())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)
@@ -45,7 +45,7 @@ impl Spec for GetBlockFilterCheckPoints {
         match packed::BlockFilterMessageReader::from_slice(&data) {
             Ok(msg) => match msg.to_enum() {
                 packed::BlockFilterMessageUnionReader::BlockFilterCheckPoints(reader) => {
-                    let resp_start_number: u64 = reader.start_number().unpack();
+                    let resp_start_number: u64 = reader.start_number().into();
                     assert_eq!(start_number, resp_start_number);
                     info!("start_number matched");
 
@@ -113,7 +113,7 @@ impl Spec for GetBlockFilterHashes {
         let start_number: u64 = 2;
         let request = {
             let content = packed::GetBlockFilterHashes::new_builder()
-                .start_number(start_number.pack())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)
@@ -127,7 +127,7 @@ impl Spec for GetBlockFilterHashes {
         match packed::BlockFilterMessageReader::from_slice(&data) {
             Ok(msg) => match msg.to_enum() {
                 packed::BlockFilterMessageUnionReader::BlockFilterHashes(reader) => {
-                    let resp_start_number: u64 = reader.start_number().unpack();
+                    let resp_start_number: u64 = reader.start_number().into();
                     assert_eq!(start_number, resp_start_number);
                     info!("start_number matched");
 
@@ -205,7 +205,7 @@ impl Spec for GetBlockFilters {
         let start_number: u64 = 42;
         let request = {
             let content = packed::GetBlockFilters::new_builder()
-                .start_number(start_number.pack())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)
@@ -219,7 +219,7 @@ impl Spec for GetBlockFilters {
         match packed::BlockFilterMessageReader::from_slice(&data) {
             Ok(msg) => match msg.to_enum() {
                 packed::BlockFilterMessageUnionReader::BlockFilters(reader) => {
-                    let resp_start_number: u64 = reader.start_number().unpack();
+                    let resp_start_number: u64 = reader.start_number().into();
                     assert_eq!(start_number, resp_start_number);
                     info!("start_number matched");
 
@@ -231,7 +231,7 @@ impl Spec for GetBlockFilters {
                     let filters: Vec<Bytes> = reader
                         .filters()
                         .iter()
-                        .map(|item| item.to_entity().unpack())
+                        .map(|item| item.to_entity().into())
                         .collect();
 
                     assert_eq!(
@@ -289,7 +289,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
         info!("start_number: {start_number}");
         let request = {
             let content = packed::GetBlockFilters::new_builder()
-                .start_number(start_number.pack())
+                .start_number(start_number)
                 .build();
             packed::BlockFilterMessage::new_builder()
                 .set(content)
@@ -303,7 +303,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
         match packed::BlockFilterMessageReader::from_slice(&data) {
             Ok(msg) => match msg.to_enum() {
                 packed::BlockFilterMessageUnionReader::BlockFilters(reader) => {
-                    let resp_start_number: u64 = reader.start_number().unpack();
+                    let resp_start_number: u64 = reader.start_number().into();
                     assert_eq!(start_number, resp_start_number);
                     info!("start_number matched");
 
@@ -315,7 +315,7 @@ impl Spec for GetBlockFiltersNotReachBatch {
                     let filters: Vec<Bytes> = reader
                         .filters()
                         .iter()
-                        .map(|item| item.to_entity().unpack())
+                        .map(|item| item.to_entity().into())
                         .collect();
 
                     assert_eq!(

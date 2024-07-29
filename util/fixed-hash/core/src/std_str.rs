@@ -1,6 +1,6 @@
 use crate::{error::FromStrError, H160, H256, H512, H520};
 
-pub(crate) const DICT_HEX_ERROR: u8 = u8::max_value();
+pub(crate) const DICT_HEX_ERROR: u8 = u8::MAX;
 pub(crate) static DICT_HEX_LO: [u8; 256] = {
     const ____: u8 = DICT_HEX_ERROR;
     [

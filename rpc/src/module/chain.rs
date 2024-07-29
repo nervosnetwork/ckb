@@ -1634,7 +1634,7 @@ impl ChainRpc for ChainRpcImpl {
         with_cycles: Option<bool>,
     ) -> Result<Option<BlockResponse>> {
         let snapshot = self.shared.snapshot();
-        let block_hash = block_hash.pack();
+        let block_hash = block_hash.into();
 
         self.get_block_by_hash(&snapshot, &block_hash, verbosity, with_cycles)
     }
@@ -1671,7 +1671,7 @@ impl ChainRpc for ChainRpcImpl {
         verbosity: Option<Uint32>,
     ) -> Result<Option<ResponseFormat<HeaderView>>> {
         let snapshot = self.shared.snapshot();
-        let block_hash = block_hash.pack();
+        let block_hash = block_hash.into();
         if !snapshot.is_main_chain(&block_hash) {
             return Ok(None);
         }
@@ -1729,7 +1729,7 @@ impl ChainRpc for ChainRpcImpl {
 
     fn get_block_filter(&self, block_hash: H256) -> Result<Option<BlockFilter>> {
         let store = self.shared.store();
-        let block_hash = block_hash.pack();
+        let block_hash = block_hash.into();
         if !store.is_main_chain(&block_hash) {
             return Ok(None);
         }
@@ -1750,7 +1750,7 @@ impl ChainRpc for ChainRpcImpl {
         verbosity: Option<Uint32>,
         only_committed: Option<bool>,
     ) -> Result<TransactionWithStatusResponse> {
-        let tx_hash = tx_hash.pack();
+        let tx_hash = tx_hash.into();
         let verbosity = verbosity
             .map(|v| v.value())
             .unwrap_or(DEFAULT_GET_TRANSACTION_VERBOSITY_LEVEL);
@@ -1782,7 +1782,7 @@ impl ChainRpc for ChainRpcImpl {
             .shared
             .snapshot()
             .get_block_hash(block_number.into())
-            .map(|h| h.unpack()))
+            .map(|h| h.into()))
     }
 
     fn get_tip_header(&self, verbosity: Option<Uint32>) -> Result<ResponseFormat<HeaderView>> {
@@ -1804,7 +1804,7 @@ impl ChainRpc for ChainRpcImpl {
 
     fn get_current_epoch(&self) -> Result<EpochView> {
         Ok(EpochView::from_ext(
-            self.shared.snapshot().epoch_ext().pack(),
+            self.shared.snapshot().epoch_ext().into(),
         ))
     }
 
@@ -1815,7 +1815,7 @@ impl ChainRpc for ChainRpcImpl {
             .and_then(|hash| {
                 snapshot
                     .get_epoch_ext(&hash)
-                    .map(|ext| EpochView::from_ext(ext.pack()))
+                    .map(|ext| EpochView::from_ext(ext.into()))
             }))
     }
 
@@ -1846,12 +1846,12 @@ impl ChainRpc for ChainRpcImpl {
     fn get_block_economic_state(&self, block_hash: H256) -> Result<Option<BlockEconomicState>> {
         let snapshot = self.shared.snapshot();
 
-        let block_number = if let Some(block_number) = snapshot.get_block_number(&block_hash.pack())
-        {
-            block_number
-        } else {
-            return Ok(None);
-        };
+        let block_number =
+            if let Some(block_number) = snapshot.get_block_number(&(&block_hash).into()) {
+                block_number
+            } else {
+                return Ok(None);
+            };
 
         let delay_length = snapshot.consensus().finalization_delay_length();
         let finalized_at_number = block_number + delay_length;
@@ -1859,7 +1859,7 @@ impl ChainRpc for ChainRpcImpl {
             return Ok(None);
         }
 
-        let block_hash = block_hash.pack();
+        let block_hash = (&block_hash).into();
         let finalized_at = if let Some(block_hash) = snapshot.get_block_hash(finalized_at_number) {
             block_hash
         } else {
@@ -1918,8 +1918,8 @@ impl ChainRpc for ChainRpcImpl {
     ) -> Result<TransactionProof> {
         let (block, leaf_indices) = self.get_tx_indices(tx_hashes, block_hash)?;
         Ok(TransactionProof {
-            block_hash: block.hash().unpack(),
-            witnesses_root: block.calc_witnesses_root().unpack(),
+            block_hash: block.hash().into(),
+            witnesses_root: block.calc_witnesses_root().into(),
             proof: CBMT::build_merkle_proof(
                 &block
                     .transactions()
@@ -1937,12 +1937,12 @@ impl ChainRpc for ChainRpcImpl {
         let snapshot = self.shared.snapshot();
 
         snapshot
-            .get_block(&tx_proof.block_hash.pack())
+            .get_block(&(&tx_proof.block_hash).into())
             .ok_or_else(|| {
                 RPCError::invalid_params(format!("Cannot find block {:#x}", tx_proof.block_hash))
             })
             .and_then(|block| {
-                let witnesses_root = tx_proof.witnesses_root.pack();
+                let witnesses_root = tx_proof.witnesses_root.into();
                 let merkle_proof = MerkleProof::new(
                     tx_proof
                         .proof
@@ -1954,7 +1954,7 @@ impl ChainRpc for ChainRpcImpl {
                         .proof
                         .lemmas
                         .into_iter()
-                        .map(|lemma| lemma.pack())
+                        .map(|lemma| lemma.into())
                         .collect(),
                 );
 
@@ -1966,7 +1966,7 @@ impl ChainRpc for ChainRpcImpl {
                                 if block.transactions_root()
                                     == merkle_root(&[raw_transactions_root, witnesses_root])
                                 {
-                                    Some(tx_hashes.iter().map(|hash| hash.unpack()).collect())
+                                    Some(tx_hashes.iter().map(|hash| hash.into()).collect())
                                 } else {
                                     None
                                 }
@@ -1983,7 +1983,7 @@ impl ChainRpc for ChainRpcImpl {
     ) -> Result<TransactionAndWitnessProof> {
         let (block, leaf_indices) = self.get_tx_indices(tx_hashes, block_hash)?;
         Ok(TransactionAndWitnessProof {
-            block_hash: block.hash().unpack(),
+            block_hash: block.hash().into(),
             transactions_proof: CBMT::build_merkle_proof(
                 &block
                     .transactions()
@@ -2006,7 +2006,7 @@ impl ChainRpc for ChainRpcImpl {
     ) -> Result<Vec<H256>> {
         let snapshot = self.shared.snapshot();
         snapshot
-            .get_block(&tx_proof.block_hash.pack())
+            .get_block(&(&tx_proof.block_hash).into())
             .ok_or_else(|| {
                 RPCError::invalid_params(format!("Cannot find block {:#x}", tx_proof.block_hash))
             })
@@ -2022,7 +2022,7 @@ impl ChainRpc for ChainRpcImpl {
                         .transactions_proof
                         .lemmas
                         .into_iter()
-                        .map(|lemma| lemma.pack())
+                        .map(|lemma| lemma.into())
                         .collect(),
                 );
                 let witnesses_merkle_proof = MerkleProof::new(
@@ -2036,7 +2036,7 @@ impl ChainRpc for ChainRpcImpl {
                         .witnesses_proof
                         .lemmas
                         .into_iter()
-                        .map(|lemma| lemma.pack())
+                        .map(|lemma| lemma.into())
                         .collect(),
                 );
 
@@ -2053,12 +2053,7 @@ impl ChainRpc for ChainRpcImpl {
                                                 witnesses_proof_root,
                                             ])
                                         {
-                                            Some(
-                                                tx_hashes
-                                                    .iter()
-                                                    .map(|hash| hash.unpack())
-                                                    .collect(),
-                                            )
+                                            Some(tx_hashes.iter().map(|hash| hash.into()).collect())
                                         } else {
                                             None
                                         }
@@ -2078,7 +2073,7 @@ impl ChainRpc for ChainRpcImpl {
         verbosity: Option<Uint32>,
     ) -> Result<Option<ResponseFormat<BlockView>>> {
         let snapshot = self.shared.snapshot();
-        let block_hash = block_hash.pack();
+        let block_hash = block_hash.into();
         if snapshot.is_main_chain(&block_hash) {
             return Ok(None);
         }
@@ -2106,7 +2101,7 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_block_median_time(&self, block_hash: H256) -> Result<Option<Timestamp>> {
-        let block_hash = block_hash.pack();
+        let block_hash = block_hash.into();
         let snapshot = self.shared.snapshot();
         if !snapshot.is_main_chain(&block_hash) {
             return Ok(None);
@@ -2158,7 +2153,7 @@ impl ChainRpcImpl {
             return Ok(TransactionWithStatus::with_committed(
                 None,
                 tx_info.block_number,
-                tx_info.block_hash.unpack(),
+                tx_info.block_hash.into(),
                 cycles,
                 None,
             ));
@@ -2206,7 +2201,7 @@ impl ChainRpcImpl {
             return Ok(TransactionWithStatus::with_committed(
                 Some(tx),
                 tx_info.block_number,
-                tx_info.block_hash.unpack(),
+                tx_info.block_hash.into(),
                 cycles,
                 None,
             ));
@@ -2292,7 +2287,7 @@ impl ChainRpcImpl {
         let mut retrieved_block_hash = None;
         let mut tx_indices = HashSet::new();
         for tx_hash in tx_hashes {
-            match snapshot.get_transaction_info(&tx_hash.pack()) {
+            match snapshot.get_transaction_info(&(&tx_hash).into()) {
                 Some(tx_info) => {
                     if retrieved_block_hash.is_none() {
                         retrieved_block_hash = Some(tx_info.block_hash);
@@ -2318,7 +2313,7 @@ impl ChainRpcImpl {
 
         let retrieved_block_hash = retrieved_block_hash.expect("checked len");
         if let Some(specified_block_hash) = block_hash {
-            if !retrieved_block_hash.eq(&specified_block_hash.pack()) {
+            if !retrieved_block_hash.eq(&specified_block_hash.into()) {
                 return Err(RPCError::invalid_params(
                     "Not all transactions found in specified block",
                 ));

@@ -28,11 +28,11 @@ fn load_cell_from_path(path: &str) -> (CellOutput, Bytes, Script) {
     let data: Bytes = buffer.into();
 
     let cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(data.len()).unwrap().pack())
+        .capacity(Capacity::bytes(data.len()).unwrap())
         .build();
 
     let script = Script::new_builder()
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data)
         .code_hash(CellOutput::calc_data_hash(&data))
         .build();
 
@@ -134,13 +134,13 @@ pub fn always_success_consensus() -> Consensus {
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data.pack())
+        .output_data(always_success_cell_data)
         .witness(always_success_script.clone().into_witness())
         .build();
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
-        .timestamp(GENESIS_TIMESTAMP.pack())
-        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
+        .timestamp(GENESIS_TIMESTAMP)
+        .compact_target(difficulty_to_compact(U256::from(1000u64)))
         .dao(dao)
         .transaction(always_success_tx)
         .build();
@@ -169,11 +169,11 @@ pub fn always_success_cellbase(
         builder.build()
     } else {
         let output = CellOutput::new_builder()
-            .capacity(reward.pack())
+            .capacity(reward)
             .lock(always_success_script.to_owned())
             .build();
 
-        builder.output(output).output_data(data.pack()).build()
+        builder.output(output).output_data(data).build()
     }
 }
 
@@ -203,7 +203,7 @@ pub fn ckb_testnet_consensus() -> Consensus {
 pub fn type_lock_script_code_hash() -> H256 {
     build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
         .calc_script_hash()
-        .unpack()
+        .into()
 }
 
 /// Return cell output and data in genesis block's cellbase transaction with index of SECP256K1/blake160 script,

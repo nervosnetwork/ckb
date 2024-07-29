@@ -1247,7 +1247,7 @@ impl SyncShared {
     /// Check whether the data already exists in the database before starting
     fn check_assume_valid_target_already_exists(sync_config: &SyncConfig, shared: &Shared) -> bool {
         if let Some(ref target) = sync_config.assume_valid_target {
-            if shared.snapshot().block_exists(&target.pack()) {
+            if shared.snapshot().block_exists(&target.into()) {
                 info!("assume valid target is already in db, CKB will do full verification from now on");
                 return true;
             }
@@ -1433,7 +1433,7 @@ impl SyncShared {
             let mut assume_valid_target = self.state.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
                 // if the target has been reached, delete it
-                let switch = if target == &Unpack::<H256>::unpack(&core::BlockView::hash(&block)) {
+                let switch = if target == &Into::<H256>::into(&core::BlockView::hash(&block)) {
                     assume_valid_target.take();
                     info!("assume valid target reached; CKB will do full verification from now on");
                     Switch::NONE
@@ -2305,7 +2305,7 @@ impl ActiveChain {
         );
         let locator_hash = self.get_locator(block_number_and_hash);
         let content = packed::GetHeaders::new_builder()
-            .block_locator_hashes(locator_hash.pack())
+            .block_locator_hashes(locator_hash)
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();

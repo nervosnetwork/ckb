@@ -6,7 +6,6 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::HeaderView,
     packed::{Byte32, CellOutput, OutPoint},
-    prelude::*,
     utilities::{build_filter_data, FilterDataProvider},
 };
 
@@ -26,7 +25,7 @@ impl<'a> FilterDataProvider for WrappedChainDB<'a> {
     fn cell(&self, out_point: &OutPoint) -> Option<CellOutput> {
         self.inner
             .get_transaction(&out_point.tx_hash())
-            .and_then(|(tx, _)| tx.outputs().get(out_point.index().unpack()))
+            .and_then(|(tx, _)| tx.outputs().get(out_point.index().into()))
     }
 }
 
@@ -153,7 +152,7 @@ impl BlockFilter {
         db_transaction
             .insert_block_filter(
                 &header.hash(),
-                &filter_data.pack(),
+                &filter_data.as_slice().into(),
                 &parent_block_filter_hash,
             )
             .expect("insert_block_filter should be ok");
