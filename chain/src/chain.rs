@@ -460,6 +460,7 @@ impl ChainService {
         // is_better_than
         let new_best_block = cannon_total_difficulty > current_total_difficulty;
 
+        let in_ibd = self.shared.is_initial_block_download();
         if new_best_block {
             debug!(
                 "Newly found best block : {} => {:#x}, difficulty diff = {:#x}",
@@ -517,6 +518,9 @@ impl ChainService {
                 ) {
                     error!("Notify update_tx_pool_for_reorg error {}", e);
                 }
+                if let Err(e) = tx_pool_controller.update_ibd_state(in_ibd) {
+                    error!("Notify update_ibd_state error {}", e);
+                }
             }
 
             let block_ref: &BlockView = &block;
@@ -545,6 +549,9 @@ impl ChainService {
                 let block_ref: &BlockView = &block;
                 if let Err(e) = tx_pool_controller.notify_new_uncle(block_ref.as_uncle()) {
                     error!("Notify new_uncle error {}", e);
+                }
+                if let Err(e) = tx_pool_controller.update_ibd_state(in_ibd) {
+                    error!("Notify update_ibd_state error {}", e);
                 }
             }
         }
