@@ -21,3 +21,7 @@ jobs:
           days-before-pr-stale: 45
           days-before-issue-close: 5
           days-before-pr-close: 10
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: pinned
+          exempt-pr-labels: pinned
