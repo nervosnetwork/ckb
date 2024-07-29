@@ -36,7 +36,7 @@ use ckb_vm::{
     snapshot::{resume, Snapshot},
     DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
 };
-use std::cell::RefCell;
+use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
@@ -67,29 +67,38 @@ enum DataGuard {
     Loaded(Bytes),
 }
 
+impl PartialEq for LazyData {
+    fn eq(&self, other: &Self) -> bool {
+        let self_guard = self.0.lock().unwrap();
+        let other_guard = other.0.lock().unwrap();
+        *self_guard == *other_guard
+    }
+}
+impl Eq for LazyData {}
+
 /// LazyData wrapper make sure not-loaded data will be loaded only after one access
-#[derive(Debug, PartialEq, Eq, Clone)]
-struct LazyData(RefCell<DataGuard>);
+#[derive(Debug, Clone)]
+struct LazyData(Arc<Mutex<DataGuard>>);
 
 impl LazyData {
     fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
         match &cell_meta.mem_cell_data {
-            Some(data) => LazyData(RefCell::new(DataGuard::Loaded(data.to_owned()))),
-            None => LazyData(RefCell::new(DataGuard::NotLoaded(
+            Some(data) => LazyData(Arc::new(Mutex::new(DataGuard::Loaded(data.to_owned())))),
+            None => LazyData(Arc::new(Mutex::new(DataGuard::NotLoaded(
                 cell_meta.out_point.clone(),
-            ))),
+            )))),
         }
     }
 
     fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Bytes {
-        let guard = self.0.borrow().to_owned();
-        match guard {
+        let mut guard = self.0.lock().expect("lazy data poisoned");
+        match &*guard {
+            DataGuard::Loaded(bytes) => bytes.clone(),
             DataGuard::NotLoaded(out_point) => {
-                let data = data_loader.get_cell_data(&out_point).expect("cell data");
-                self.0.replace(DataGuard::Loaded(data.to_owned()));
+                let data = data_loader.get_cell_data(out_point).expect("cell data");
+                *guard = DataGuard::Loaded(data.clone());
                 data
             }
-            DataGuard::Loaded(bytes) => bytes,
         }
     }
 }
@@ -605,22 +614,23 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     ///
     /// It returns the total consumed cycles on success, Otherwise it returns the verification error.
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
-        let mut cycles: Cycle = 0;
-
-        // Now run each script group
-        for (_hash, group) in self.groups() {
+        let cycles = std::sync::atomic::AtomicU64::new(0);
+        self.groups().par_bridge().try_for_each(|(_hash, group)| {
             // max_cycles must reduce by each group exec
-            let used_cycles = self
-                .verify_script_group(group, max_cycles - cycles)
-                .map_err(|e| {
-                    #[cfg(feature = "logging")]
-                    logging::on_script_error(_hash, &self.hash(), &e);
-                    e.source(group)
-                })?;
+            let used_cycles = self.verify_script_group(group, max_cycles).map_err(|e| {
+                #[cfg(feature = "logging")]
+                logging::on_script_error(_hash, &self.hash(), &e);
+                e.source(group)
+            })?;
 
-            cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
-        }
-        Ok(cycles)
+            let old_sum_cycles = cycles.fetch_add(used_cycles, std::sync::atomic::Ordering::SeqCst);
+            let sum_cycles = cycles.load(std::sync::atomic::Ordering::SeqCst);
+            if sum_cycles > max_cycles {
+                return Err(ScriptError::CyclesOverflow(old_sum_cycles, sum_cycles).source(group));
+            }
+            Ok(())
+        })?;
+        Ok(cycles.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     /// Performing a resumable verification on the transaction scripts.
