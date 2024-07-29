@@ -105,6 +105,32 @@ fn test_rpc_tcp() {
     assert_eq!(res.unwrap().result, "0x1e0014000000");
 }
 
+#[test]
+fn test_rpc_batch_request_limit() {
+    let suite = setup_rpc();
+    let single_request = RpcTestRequest {
+        id: 42,
+        jsonrpc: "2.0".to_string(),
+        method: "generate_epochs".to_string(),
+        params: vec!["0x20000000000".into()],
+    };
+
+    let mut batch_request = vec![];
+    for _i in 0..1001 {
+        batch_request.push(single_request.clone());
+    }
+
+    // exceed limit with 1001
+    let res = suite.rpc_batch(&batch_request);
+    assert!(res.is_err());
+    eprintln!("res: {:?}", res);
+
+    // batch request will success with 1000
+    batch_request.remove(0);
+    let res = suite.rpc_batch(&batch_request);
+    assert!(res.is_ok());
+}
+
 // setup a chain for integration test rpc
 fn setup_rpc() -> RpcTestSuite {
     const INITIAL_PRIMARY_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
