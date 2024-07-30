@@ -97,6 +97,18 @@ impl RocksDB {
         opts.create_missing_column_families(true);
         opts.enable_statistics();
 
+        #[cfg(feature = "fuzz")]
+        {
+            let mut env = rocksdb::Env::mem_env().unwrap();
+            env.set_low_priority_background_threads(0);
+            env.set_high_priority_background_threads(0);
+            env.set_background_threads(0);
+            opts.set_env(&env);
+
+            opts.set_max_background_jobs(0);
+            opts.set_max_subcompactions(0);
+        }
+
         let db = OptimisticTransactionDB::open_cf_descriptors(&opts, &config.path, cf_descriptors)
             .map_err(|err| internal_error(format!("failed to open database: {err}")))?;
 

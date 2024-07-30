@@ -56,8 +56,10 @@ ckb-systemtime = { path = "../util/systemtime", version = "= 0.117.0-pre", featu
     "enable_faketime",
 ] }
 ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.117.0-pre" }
+ckb-tx-pool = { path = "../tx-pool", version = "= 0.117.0-pre", features = ["internal"] }
 
 [features]
 default = []
 stats = []
 with_sentry = ["sentry"]
+fuzz = []

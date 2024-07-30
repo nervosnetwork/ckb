@@ -1,0 +1,103 @@
+[package]
+name = "ckb-fuzz"
+version = "0.117.0-pre"
+publish = false
+edition = "2021"
+license = "MIT"
+description = "ckb network fuzz testing"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[package.metadata]
+cargo-fuzz = true
+
+[features]
+binary_fuzz_service_proto = []
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ipnetwork = "0.18"
+futures = "0.3"
+tokio = { version = "1", features = ["sync", "macros"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+[dependencies.ckb-network]
+path = "../network"
+features = ["fuzz"]
+
+[dependencies.ckb-chain]
+path = "../chain"
+
+[dependencies.ckb-sync]
+path = "../sync"
+features = ["fuzz"]
+
+[dependencies.ckb-shared]
+path = "../shared"
+features = ["fuzz"]
+
+[dependencies.ckb-chain-spec]
+path = "../spec"
+
+[dependencies.ckb-launcher]
+path = "../util/launcher/"
+features = ["fuzz"]
+
+[dependencies.ckb-channel]
+path = "../util/channel"
+
+[dependencies.ckb-app-config]
+path = "../util/app-config"
+
+[dependencies.ckb-build-info]
+path = "../util/build-info"
+
+[dependencies.ckb-async-runtime]
+path = "../util/runtime"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+overflow-checks = true
+
+[build]
+rustflags = ["-C", "instrument-coverage", "-C", "sanitizer=address"]
+
+[[bin]]
+name = "fuzz_compress"
+path = "fuzz_targets/fuzz_compress.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_decompress"
+path = "fuzz_targets/fuzz_decompress.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_addr_manager"
+path = "fuzz_targets/fuzz_addr_manager.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_peer_store"
+path = "fuzz_targets/fuzz_peer_store.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_ckb_protocol_handler"
+path = "fuzz_targets/fuzz_ckb_protocol_handler.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_service_proto"
+path = "fuzz_targets/fuzz_service_proto.rs"
+test = false
+doc = false
