@@ -494,6 +494,10 @@ impl TxPoolServiceBuilder {
         let consensus = self.snapshot.cloned_consensus();
         let after_delay_window = after_delay_window(&self.snapshot);
 
+        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
+            self.tx_pool_config.max_tx_verify_cycles,
+        )));
+
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
         let txs = match tx_pool.load_from_file() {
             Ok(txs) => txs,
@@ -504,7 +508,6 @@ impl TxPoolServiceBuilder {
             }
         };
 
-        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new()));
         let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),

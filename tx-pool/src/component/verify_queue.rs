@@ -41,6 +41,11 @@ struct VerifyEntry {
     /// We may add more other sort keys in the future
     #[multi_index(ordered_non_unique)]
     added_time: u64,
+
+    /// whether the tx is a large cycle tx
+    #[multi_index(hashed_non_unique)]
+    is_large_cycle: bool,
+
     /// other sort key
     inner: Entry,
 }
@@ -53,26 +58,33 @@ pub(crate) struct VerifyQueue {
     ready_rx: Arc<Notify>,
     /// total tx size in the queue, will reject new transaction if exceed the limit
     total_tx_size: usize,
+    /// large cycle threshold, from `pool_config.max_tx_verify_cycles`
+    large_cycle_threshold: u64,
 }
 
 impl VerifyQueue {
     /// Create a new VerifyQueue
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(large_cycle_threshold: u64) -> Self {
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
             ready_rx: Arc::new(Notify::new()),
             total_tx_size: 0,
+            large_cycle_threshold,
         }
     }
 
     /// Returns true if the queue contains no txs.
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    #[cfg(test)]
+    pub fn total_tx_size(&self) -> usize {
+        self.total_tx_size
     }
 
     /// Returns true if the queue is full.
@@ -99,14 +111,13 @@ impl VerifyQueue {
     pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
         self.inner.remove_by_id(id).map(|e| {
             let tx_size = e.inner.tx.data().serialized_size_in_block();
-            let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
+            self.total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
                 error!(
                     "verify_queue total_tx_size {} overflown by sub {}",
                     self.total_tx_size, tx_size
                 );
                 0
             });
-            self.total_tx_size = total_tx_size;
             self.shrink_to_fit();
             e.inner
         })
@@ -120,8 +131,8 @@ impl VerifyQueue {
     }
 
     /// Returns the first entry in the queue and remove it
-    pub fn pop_first(&mut self) -> Option<Entry> {
-        if let Some(short_id) = self.peek() {
+    pub fn pop_first(&mut self, only_small_cycle: bool) -> Option<Entry> {
+        if let Some(short_id) = self.peek(only_small_cycle) {
             self.remove_tx(&short_id)
         } else {
             None
@@ -129,11 +140,13 @@ impl VerifyQueue {
     }
 
     /// Returns the first entry in the queue
-    pub fn peek(&self) -> Option<ProposalShortId> {
-        self.inner
-            .iter_by_added_time()
-            .next()
-            .map(|entry| entry.inner.tx.proposal_short_id())
+    pub fn peek(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
+        if only_small_cycle {
+            self.inner.iter_by_added_time().find(|e| !e.is_large_cycle)
+        } else {
+            self.inner.iter_by_added_time().next()
+        }
+        .map(|entry| entry.inner.tx.proposal_short_id())
     }
 
     /// If the queue did not have this tx present, true is returned.
@@ -147,6 +160,9 @@ impl VerifyQueue {
             return Ok(false);
         }
         let tx_size = tx.data().serialized_size_in_block();
+        let is_large_cycle = remote
+            .map(|(cycles, _)| cycles > self.large_cycle_threshold)
+            .unwrap_or(false);
         if self.is_full(tx_size) {
             return Err(Reject::Full(format!(
                 "verify_queue total_tx_size exceeded, failed to add tx: {:#x}",
@@ -157,6 +173,7 @@ impl VerifyQueue {
             id: tx.proposal_short_id(),
             added_time: unix_time_as_millis(),
             inner: Entry { tx, remote },
+            is_large_cycle,
         });
         self.total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
             error!(

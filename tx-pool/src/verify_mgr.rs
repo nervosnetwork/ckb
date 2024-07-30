@@ -8,12 +8,19 @@ use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 use tokio::task::JoinHandle;
 
+#[derive(Clone, Debug, PartialEq)]
+enum WorkerRole {
+    OnlySmallCycleTx,
+    SubmitTimeFirst,
+}
+
 struct Worker {
     tasks: Arc<RwLock<VerifyQueue>>,
     command_rx: watch::Receiver<ChunkCommand>,
     service: TxPoolService,
     exit_signal: CancellationToken,
     status: ChunkCommand,
+    role: WorkerRole,
 }
 
 impl Clone for Worker {
@@ -24,6 +31,7 @@ impl Clone for Worker {
             exit_signal: self.exit_signal.clone(),
             service: self.service.clone(),
             status: self.status.clone(),
+            role: self.role.clone(),
         }
     }
 }
@@ -34,6 +42,7 @@ impl Worker {
         tasks: Arc<RwLock<VerifyQueue>>,
         command_rx: watch::Receiver<ChunkCommand>,
         exit_signal: CancellationToken,
+        role: WorkerRole,
     ) -> Self {
         Worker {
             service,
@@ -41,6 +50,7 @@ impl Worker {
             command_rx,
             exit_signal,
             status: ChunkCommand::Resume,
+            role,
         }
     }
 
@@ -70,11 +80,16 @@ impl Worker {
                 return;
             }
             // cheap query to check queue is not empty
-            if self.tasks.read().await.peek().is_none() {
+            if self.tasks.read().await.is_empty() {
                 return;
             }
             // pick a entry to run verify
-            let entry = match self.tasks.write().await.pop_first() {
+            let entry = match self
+                .tasks
+                .write()
+                .await
+                .pop_first(self.role == WorkerRole::OnlySmallCycleTx)
+            {
                 Some(entry) => entry,
                 None => return,
             };
@@ -111,12 +126,17 @@ impl VerifyMgr {
     ) -> Self {
         // `num_cpus::get()` will always return at least 1,
         // don't use too many cpu cores to avoid high workload on the system
-        let worker_num = std::cmp::max(num_cpus::get() / 2, 1);
+        let worker_num = std::cmp::max(num_cpus::get() * 3 / 4, 1);
         let workers: Vec<_> = (0..worker_num)
             .map({
                 let tasks = Arc::clone(&service.verify_queue);
                 let signal_exit = signal_exit.clone();
-                move |_| {
+                move |idx| {
+                    let role = if idx == 0 && worker_num > 1 {
+                        WorkerRole::OnlySmallCycleTx
+                    } else {
+                        WorkerRole::SubmitTimeFirst
+                    };
                     let (child_tx, child_rx) = watch::channel(ChunkCommand::Resume);
                     (
                         child_tx,
@@ -125,6 +145,7 @@ impl VerifyMgr {
                             Arc::clone(&tasks),
                             child_rx,
                             signal_exit.clone(),
+                            role,
                         ),
                     )
                 }
