@@ -6,12 +6,12 @@ use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
-    core::{tx_pool::Reject, Capacity, Cycle, FeeRate, TransactionView},
+    core::{tx_pool::Reject, Cycle, TransactionView},
     packed::ProposalShortId,
 };
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
-use std::{cmp::Ordering, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Notify;
 
 // 256mb for total_tx_size limit, default max_tx_pool_size is 180mb
@@ -31,44 +31,16 @@ impl PartialEq for Entry {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub(crate) struct SortKey {
-    /// The unix timestamp when entering the Txpool, unit: Millisecond
-    /// This field is used to sort the txs in the queue
-    /// We may add more other sort keys in the future
-    pub(crate) added_time: u64,
-
-    /// The fee rate of the tx
-    pub(crate) fee_rate: FeeRate,
-}
-
-impl PartialOrd for SortKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// Sort by fee_rate desc, added_time asc
-impl Ord for SortKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.fee_rate == other.fee_rate {
-            self.added_time.cmp(&other.added_time)
-        } else {
-            other.fee_rate.cmp(&self.fee_rate)
-        }
-    }
-}
-
 #[derive(MultiIndexMap, Clone)]
 struct VerifyEntry {
     /// The transaction id
     #[multi_index(hashed_unique)]
     id: ProposalShortId,
-
-    /// The sort key, fee rate desc, added_time asc
+    /// The unix timestamp when entering the Txpool, unit: Millisecond
+    /// This field is used to sort the txs in the queue
+    /// We may add more other sort keys in the future
     #[multi_index(ordered_non_unique)]
-    sort_key: SortKey,
-
+    added_time: u64,
     /// other sort key
     inner: Entry,
 }
@@ -159,7 +131,7 @@ impl VerifyQueue {
     /// Returns the first entry in the queue
     pub fn peek(&self) -> Option<ProposalShortId> {
         self.inner
-            .iter_by_sort_key()
+            .iter_by_added_time()
             .next()
             .map(|entry| entry.inner.tx.proposal_short_id())
     }
@@ -169,13 +141,12 @@ impl VerifyQueue {
     pub fn add_tx(
         &mut self,
         tx: TransactionView,
-        fee: Capacity,
-        tx_size: usize,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         if self.contains_key(&tx.proposal_short_id()) {
             return Ok(false);
         }
+        let tx_size = tx.data().serialized_size_in_block();
         if self.is_full(tx_size) {
             return Err(Reject::Full(format!(
                 "verify_queue total_tx_size exceeded, failed to add tx: {:#x}",
@@ -184,10 +155,7 @@ impl VerifyQueue {
         }
         self.inner.insert(VerifyEntry {
             id: tx.proposal_short_id(),
-            sort_key: SortKey {
-                added_time: unix_time_as_millis(),
-                fee_rate: FeeRate::calculate(fee, tx_size as u64),
-            },
+            added_time: unix_time_as_millis(),
             inner: Entry { tx, remote },
         });
         self.total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
