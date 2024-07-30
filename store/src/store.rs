@@ -369,15 +369,6 @@ pub trait ChainStore: Send + Sync + Sized {
                 let data_hash = reader.output_data_hash().to_entity();
                 (data, data_hash)
             } else {
-                // impl packed::CellOutput {
-                //     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
-                //         if data.is_empty() {
-                //             packed::Byte32::zero()
-                //         } else {
-                //             blake2b_256(data).pack()
-                //         }
-                //     }
-                // }
                 (Bytes::new(), packed::Byte32::zero())
             }
         });
@@ -405,15 +396,6 @@ pub trait ChainStore: Send + Sync + Sized {
             if !raw.as_ref().is_empty() {
                 packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity()
             } else {
-                // impl packed::CellOutput {
-                //     pub fn calc_data_hash(data: &[u8]) -> packed::Byte32 {
-                //         if data.is_empty() {
-                //             packed::Byte32::zero()
-                //         } else {
-                //             blake2b_256(data).pack()
-                //         }
-                //     }
-                // }
                 packed::Byte32::zero()
             }
         });

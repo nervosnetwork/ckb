@@ -39,6 +39,8 @@ pub struct Config {
     pub max_request_body_size: usize,
     /// Number of RPC worker threads.
     pub threads: Option<usize>,
+    /// Number of RPC batch limit.
+    pub rpc_batch_limit: Option<usize>,
     /// Enabled RPC modules.
     pub modules: Vec<Module>,
     /// Rejects txs with scripts that might trigger known bugs

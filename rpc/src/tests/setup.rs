@@ -178,6 +178,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         ws_listen_address: None,
         max_request_body_size: 20_000_000,
         threads: None,
+        rpc_batch_limit: Some(1000),
         // enable all rpc modules in unit test
         modules: vec![
             RpcModule::Net,
