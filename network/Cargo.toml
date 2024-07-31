@@ -37,6 +37,7 @@ ckb-spawn = { path = "../util/spawn", version = "= 0.117.0" }
 socket2 = "0.5"
 bitflags = "1.0"
 
+curve25519-dalek = "4.1.2"
 p2p = { version = "0.6.1", package = "tentacle", features = [
     "upnp",
     "parking_lot",
