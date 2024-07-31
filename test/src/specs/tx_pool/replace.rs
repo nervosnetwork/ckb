@@ -1055,8 +1055,8 @@ impl Spec for RbfCyclingAttack {
         }
 
         // Create transaction chain,  B0 -> B1
-        let mut prev = tx_b.clone();
         let mut txs_chain_b = vec![tx_b.clone()];
+        let mut prev = tx_b;
         for _i in 0..1 {
             let input =
                 CellMetaBuilder::from_cell_output(prev.output(0).unwrap(), Default::default())
