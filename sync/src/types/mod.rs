@@ -1735,14 +1735,15 @@ impl SyncState {
     }
 
     pub fn may_set_shared_best_header(&self, header: HeaderIndexView) {
-        if !header.is_better_than(self.shared_best_header.read().total_difficulty()) {
+        let mut shared_best_header = self.shared_best_header.write();
+        if !header.is_better_than(shared_best_header.total_difficulty()) {
             return;
         }
 
         if let Some(metrics) = ckb_metrics::handle() {
             metrics.ckb_shared_best_number.set(header.number() as i64);
         }
-        *self.shared_best_header.write() = header;
+        *shared_best_header = header;
     }
 
     pub fn remove_header_view(&self, hash: &Byte32) {
@@ -2320,7 +2321,9 @@ impl ActiveChain {
                     BlockStatus::HEADER_VALID
                 } else {
                     let verified = self
-                        .snapshot
+                        .shared()
+                        .shared
+                        .snapshot()
                         .get_block_ext(block_hash)
                         .map(|block_ext| block_ext.verified);
                     match verified {

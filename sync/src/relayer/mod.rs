@@ -8,13 +8,13 @@ mod get_block_proposal_process;
 mod get_block_transactions_process;
 mod get_transactions_process;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod transaction_hashes_process;
 mod transactions_process;
 
 use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
-use self::compact_block_process::CompactBlockProcess;
+pub(crate) use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transactions_process::GetTransactionsProcess;
