@@ -6,5 +6,5 @@ mod compact_block_process;
 mod compact_block_verifier;
 mod get_block_proposal_process;
 mod get_transactions_process;
-mod helper;
+pub(crate) mod helper;
 mod reconstruct_block;

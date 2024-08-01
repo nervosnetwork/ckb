@@ -1,12 +1,15 @@
 use crate::block_status::BlockStatus;
+use crate::relayer::tests::helper::MockProtocolContext;
+use crate::relayer::CompactBlockProcess;
+use crate::synchronizer::HeadersProcess;
 use crate::tests::util::{build_chain, inherit_block};
-use crate::SyncShared;
+use crate::{Relayer, Status, SyncShared, Synchronizer};
 use ckb_chain::chain::ChainService;
 use ckb_shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
 use ckb_types::core::Capacity;
-use ckb_types::prelude::*;
+use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 
 #[test]
@@ -182,4 +185,149 @@ fn test_switch_valid_fork() {
             BlockStatus::BLOCK_VALID,
         );
     }
+}
+
+#[test]
+fn test_sync_relay_collaboration() {
+    let (shared, chain) = build_chain(2);
+    let sync_shared = Arc::new(shared);
+
+    let sync = Synchronizer::new(chain.clone(), Arc::clone(&sync_shared));
+    let relay = Relayer::new(chain, Arc::clone(&sync_shared));
+
+    let mock_relay_protocol_context =
+        MockProtocolContext::new(ckb_network::SupportProtocols::RelayV2);
+    let mock_sync_protocol_context = MockProtocolContext::new(ckb_network::SupportProtocols::Sync);
+
+    let relay_nc = Arc::new(mock_relay_protocol_context);
+    let sync_nc = Arc::new(mock_sync_protocol_context);
+
+    let new_block = {
+        let tip_hash = sync_shared.active_chain().tip_header().hash();
+        let next_block = inherit_block(sync_shared.shared(), &tip_hash).build();
+        Arc::new(next_block)
+    };
+
+    let compact_block_content =
+        packed::CompactBlock::build_from_block(&new_block, &std::collections::HashSet::new());
+
+    let headers_content = packed::SendHeaders::new_builder()
+        .headers([new_block.header()].map(|x| x.data()).pack())
+        .build();
+
+    // keep header process snapshot on old state, this is the bug reason
+    let header_process = HeadersProcess::new(
+        headers_content.as_reader(),
+        &sync,
+        1.into(),
+        sync_nc.as_ref(),
+    );
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block_content.as_reader(),
+        &relay,
+        relay_nc as _,
+        1.into(),
+    );
+
+    let status = compact_block_process.execute();
+
+    assert!(status.is_ok());
+    assert_eq!(sync_shared.active_chain().tip_number(), new_block.number());
+
+    let status = header_process.execute();
+    assert!(status.is_ok());
+
+    assert_eq!(
+        sync_shared
+            .active_chain()
+            .get_block_status(&new_block.hash()),
+        BlockStatus::BLOCK_VALID
+    )
+}
+
+#[test]
+fn test_sync_relay_collaboration2() {
+    let (shared, chain) = build_chain(2);
+    let sync_shared = Arc::new(shared);
+
+    let sync = Synchronizer::new(chain.clone(), Arc::clone(&sync_shared));
+    let relay = Relayer::new(chain, Arc::clone(&sync_shared));
+
+    let mock_relay_protocol_context =
+        MockProtocolContext::new(ckb_network::SupportProtocols::RelayV2);
+    let mock_sync_protocol_context = MockProtocolContext::new(ckb_network::SupportProtocols::Sync);
+
+    let relay_nc = Arc::new(mock_relay_protocol_context);
+    let sync_nc = Arc::new(mock_sync_protocol_context);
+
+    let new_block = {
+        let tip_hash = sync_shared.active_chain().tip_header().hash();
+        let next_block = inherit_block(sync_shared.shared(), &tip_hash).build();
+        Arc::new(next_block)
+    };
+
+    let new_block_1 = {
+        let tip_hash = sync_shared.active_chain().tip_header().hash();
+        let next_block = inherit_block(sync_shared.shared(), &tip_hash).build();
+        let next_timestamp = next_block.timestamp() + 2;
+        let new_block = new_block
+            .as_advanced_builder()
+            .timestamp(next_timestamp.pack())
+            .build();
+
+        Arc::new(new_block)
+    };
+
+    let compact_block_content =
+        packed::CompactBlock::build_from_block(&new_block, &std::collections::HashSet::new());
+
+    let compact_block_content_1 =
+        packed::CompactBlock::build_from_block(&new_block_1, &std::collections::HashSet::new());
+
+    let headers_content = packed::SendHeaders::new_builder()
+        .headers([new_block.header()].map(|x| x.data()).pack())
+        .build();
+
+    // keep header process snapshot on old state, this is the bug reason
+    let header_process = HeadersProcess::new(
+        headers_content.as_reader(),
+        &sync,
+        1.into(),
+        sync_nc.as_ref(),
+    );
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block_content.as_reader(),
+        &relay,
+        Arc::clone(&relay_nc) as _,
+        1.into(),
+    );
+
+    let status = compact_block_process.execute();
+
+    assert!(status.is_ok());
+    assert_eq!(sync_shared.active_chain().tip_number(), new_block.number());
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block_content_1.as_reader(),
+        &relay,
+        relay_nc as _,
+        1.into(),
+    );
+
+    let status = compact_block_process.execute();
+
+    assert_eq!(status, Status::ok());
+    assert_eq!(sync_shared.active_chain().tip_number(), new_block.number());
+
+    let status = header_process.execute();
+    assert!(status.is_ok());
+
+    assert_eq!(
+        sync_shared
+            .active_chain()
+            .get_block_status(&new_block.hash()),
+        BlockStatus::BLOCK_VALID
+    )
 }
