@@ -172,7 +172,7 @@ jobs:
 
   package-for-mac:
     name: package-for-mac
-    runs-on: macos-11
+    runs-on: macos-12
     strategy:
       matrix:
         include:
