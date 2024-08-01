@@ -206,25 +206,26 @@ impl TxPoolService {
     ) -> Vec<TransactionView> {
         let mut may_recovered_txs = vec![];
         let mut available_inputs = HashSet::new();
-        let mut all_removed = vec![];
 
         if conflicts.is_empty() {
             return may_recovered_txs;
         }
 
-        for id in conflicts.iter() {
-            all_removed.extend(tx_pool.pool_map.remove_entry_and_descendants(id));
+        let all_removed: Vec<_> = conflicts
+            .iter()
+            .flat_map(|id| tx_pool.pool_map.remove_entry_and_descendants(id))
+            .collect();
+
+        available_inputs.extend(
+            all_removed
+                .iter()
+                .flat_map(|removed| removed.transaction().input_pts_iter()),
+        );
+
+        for input in entry.transaction().input_pts_iter() {
+            available_inputs.remove(&input);
         }
 
-        for removed in all_removed.iter() {
-            available_inputs.extend(removed.transaction().input_pts_iter());
-        }
-
-        if !available_inputs.is_empty() {
-            for input in entry.transaction().input_pts_iter() {
-                available_inputs.remove(&input);
-            }
-        }
         may_recovered_txs = tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter());
         for old in all_removed {
             debug!(
@@ -240,6 +241,7 @@ impl TxPoolService {
             // after removing old tx from tx_pool, we call reject callbacks manually
             self.callbacks.call_reject(tx_pool, &old, reject);
         }
+        assert!(!may_recovered_txs.contains(entry.transaction()));
         may_recovered_txs
     }
 
