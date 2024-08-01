@@ -132,26 +132,11 @@ impl TxPoolService {
                     time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
-                // try to remove conflicted tx here
-                for id in conflicts.iter() {
-                    let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
-                    for old in removed {
-                        debug!(
-                            "remove conflict tx {} for RBF by new tx {}",
-                            old.transaction().hash(),
-                            entry.transaction().hash()
-                        );
-                        let reject = Reject::RBFRejected(format!(
-                            "replaced by tx {}",
-                            entry.transaction().hash()
-                        ));
-                        // RBF replace successfully, put old transactions into conflicts pool
-                        tx_pool.record_conflict(old.transaction().clone());
-                        // after removing old tx from tx_pool, we call reject callbacks manually
-                        self.callbacks.call_reject(tx_pool, &old, reject);
-                    }
-                }
+                let may_recovered_txs = self.process_rbf(tx_pool, &entry, &conflicts);
                 let evicted = _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
+
+                // in a corner case, a tx with lower fee rate may be rejected immediately
+                // after inserting into pool, return proper reject error here
                 for evict in evicted {
                     let reject = Reject::Invalidated(format!(
                         "invalidated by tx {}",
@@ -159,12 +144,23 @@ impl TxPoolService {
                     ));
                     self.callbacks.call_reject(tx_pool, &evict, reject);
                 }
+
                 tx_pool.remove_conflict(&entry.proposal_short_id());
-                // in a corner case, a tx with lower fee rate may be rejected immediately
-                // after inserting into pool, return proper reject error here
                 tx_pool
                     .limit_size(&self.callbacks, Some(&entry.proposal_short_id()))
                     .map_or(Ok(()), Err)?;
+
+                if !may_recovered_txs.is_empty() {
+                    let self_clone = self.clone();
+                    tokio::spawn(async move {
+                        // push the recovered txs back to verify queue, so that they can be verified and submitted again
+                        let mut queue = self_clone.verify_queue.write().await;
+                        for tx in may_recovered_txs {
+                            debug!("recover back: {:?}", tx.proposal_short_id());
+                            let _ = queue.add_tx(tx, None);
+                        }
+                    });
+                }
                 Ok(())
             })
             .await;
@@ -198,6 +194,55 @@ impl TxPoolService {
                 _ => {}
             }
         }
+    }
+
+    // try to remove conflicted tx here, the returned txs can be re-verified and re-submitted
+    // since they maybe not conflicted anymore
+    fn process_rbf(
+        &self,
+        tx_pool: &mut TxPool,
+        entry: &TxEntry,
+        conflicts: &HashSet<ProposalShortId>,
+    ) -> Vec<TransactionView> {
+        let mut may_recovered_txs = vec![];
+        let mut available_inputs = HashSet::new();
+
+        if conflicts.is_empty() {
+            return may_recovered_txs;
+        }
+
+        let all_removed: Vec<_> = conflicts
+            .iter()
+            .flat_map(|id| tx_pool.pool_map.remove_entry_and_descendants(id))
+            .collect();
+
+        available_inputs.extend(
+            all_removed
+                .iter()
+                .flat_map(|removed| removed.transaction().input_pts_iter()),
+        );
+
+        for input in entry.transaction().input_pts_iter() {
+            available_inputs.remove(&input);
+        }
+
+        may_recovered_txs = tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter());
+        for old in all_removed {
+            debug!(
+                "remove conflict tx {} for RBF by new tx {}",
+                old.transaction().hash(),
+                entry.transaction().hash()
+            );
+            let reject =
+                Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()));
+
+            // RBF replace successfully, put old transactions into conflicts pool
+            tx_pool.record_conflict(old.transaction().clone());
+            // after removing old tx from tx_pool, we call reject callbacks manually
+            self.callbacks.call_reject(tx_pool, &old, reject);
+        }
+        assert!(!may_recovered_txs.contains(entry.transaction()));
+        may_recovered_txs
     }
 
     pub(crate) async fn verify_queue_contains(&self, tx: &TransactionView) -> bool {

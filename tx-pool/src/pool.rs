@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 const CONFLICTES_CACHE_SIZE: usize = 10_000;
+const CONFLICTES_INPUTS_CACHE_SIZE: usize = 30_000;
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 
 /// Tx-pool implementation
@@ -44,6 +45,8 @@ pub struct TxPool {
     pub(crate) expiry: u64,
     // conflicted transaction cache
     pub(crate) conflicts_cache: lru::LruCache<ProposalShortId, TransactionView>,
+    // conflicted transaction outputs cache, input -> tx_short_id
+    pub(crate) conflicts_outputs_cache: lru::LruCache<OutPoint, ProposalShortId>,
 }
 
 impl TxPool {
@@ -59,6 +62,7 @@ impl TxPool {
             recent_reject,
             expiry,
             conflicts_cache: LruCache::new(CONFLICTES_CACHE_SIZE),
+            conflicts_outputs_cache: lru::LruCache::new(CONFLICTES_INPUTS_CACHE_SIZE),
         }
     }
 
@@ -158,6 +162,9 @@ impl TxPool {
 
     pub(crate) fn record_conflict(&mut self, tx: TransactionView) {
         let short_id = tx.proposal_short_id();
+        for inputs in tx.input_pts_iter() {
+            self.conflicts_outputs_cache.put(inputs, short_id.clone());
+        }
         self.conflicts_cache.put(short_id.clone(), tx);
         debug!(
             "record_conflict {:?} now cache size: {}",
@@ -167,12 +174,29 @@ impl TxPool {
     }
 
     pub(crate) fn remove_conflict(&mut self, short_id: &ProposalShortId) {
-        self.conflicts_cache.pop(short_id);
+        if let Some(tx) = self.conflicts_cache.pop(short_id) {
+            for inputs in tx.input_pts_iter() {
+                self.conflicts_outputs_cache.pop(&inputs);
+            }
+        }
         debug!(
             "remove_conflict {:?} now cache size: {}",
             short_id,
             self.conflicts_cache.len()
         );
+    }
+
+    pub(crate) fn get_conflicted_txs_from_inputs(
+        &self,
+        inputs: impl Iterator<Item = OutPoint>,
+    ) -> Vec<TransactionView> {
+        inputs
+            .filter_map(|input| {
+                self.conflicts_outputs_cache
+                    .peek(&input)
+                    .and_then(|id| self.conflicts_cache.peek(id).cloned())
+            })
+            .collect()
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -493,6 +517,7 @@ impl TxPool {
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
         self.conflicts_cache = LruCache::new(CONFLICTES_CACHE_SIZE);
+        self.conflicts_outputs_cache = lru::LruCache::new(CONFLICTES_INPUTS_CACHE_SIZE);
     }
 
     pub(crate) fn package_proposals(

@@ -1013,6 +1013,142 @@ impl Spec for RbfCellDepsCheck {
     }
 }
 
+pub struct RbfCyclingAttack;
+impl Spec for RbfCyclingAttack {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+
+        let initial_inputs = gen_spendable(node0, 3);
+        let input_a = &initial_inputs[0];
+        let input_b = &initial_inputs[1];
+        let input_c = &initial_inputs[2];
+
+        let input_c: CellInput = CellInput::new_builder()
+            .previous_output(input_c.out_point.clone())
+            .build();
+
+        // Commit transaction root
+        let tx_a = {
+            let tx_a = always_success_transaction(node0, input_a);
+            node0.submit_transaction(&tx_a);
+            tx_a
+        };
+
+        let tx_b = {
+            let tx_b = always_success_transaction(node0, input_b);
+            node0.submit_transaction(&tx_b);
+            tx_b
+        };
+
+        let mut prev = tx_a.clone();
+        // Create transaction chain,  A0 -> A1 -> A2
+        let mut txs_chain_a = vec![tx_a];
+        for _i in 0..2 {
+            let input =
+                CellMetaBuilder::from_cell_output(prev.output(0).unwrap(), Default::default())
+                    .out_point(OutPoint::new(prev.hash(), 0))
+                    .build();
+            let cur = always_success_transaction(node0, &input);
+            txs_chain_a.push(cur.clone());
+            let _ = node0.rpc_client().send_transaction(cur.data().into());
+            prev = cur.clone();
+        }
+
+        // Create transaction chain,  B0 -> B1
+        let mut txs_chain_b = vec![tx_b.clone()];
+        let mut prev = tx_b;
+        for _i in 0..1 {
+            let input =
+                CellMetaBuilder::from_cell_output(prev.output(0).unwrap(), Default::default())
+                    .out_point(OutPoint::new(prev.hash(), 0))
+                    .build();
+            let cur = always_success_transaction(node0, &input);
+            txs_chain_b.push(cur.clone());
+            let _ = node0.rpc_client().send_transaction(cur.data().into());
+            prev = cur.clone();
+        }
+        let tx_b1 = txs_chain_b[1].clone();
+        eprintln!("tx_b1 {:?}", tx_b1.proposal_short_id());
+
+        // Create a child transaction consume B0 and A1
+        // A0 ---> A1 ---> A2
+        //         |
+        //   ----------> B2
+        //  |
+        // B0 ---> B1
+        let tx_a1 = &txs_chain_a[1];
+        let tx_b0 = &txs_chain_b[0];
+
+        let input_a1: CellInput = CellInput::new_builder()
+            .previous_output(OutPoint::new(tx_a1.hash(), 0))
+            .build();
+        let input_b0 = CellInput::new_builder()
+            .previous_output(OutPoint::new(tx_b0.hash(), 0))
+            .build();
+
+        let tx_b2_output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(200).pack())
+            .build();
+        let tx_b2 = tx_a1
+            .as_advanced_builder()
+            .set_inputs(vec![input_a1, input_b0])
+            .set_outputs(vec![tx_b2_output])
+            .build();
+        let res = node0.rpc_client().send_transaction(tx_b2.data().into());
+        eprintln!("tx_b2 {:?}", res);
+
+        // after A2 and B1 is replaced by B2
+        // A0 ---> A1
+        //         |
+        //   ----------> B2
+        //  |
+        // B0
+        let res = node0.rpc_client().get_transaction(tx_b2.hash());
+        assert_eq!(res.tx_status.status, Status::Pending);
+        let res = node0.rpc_client().get_transaction(txs_chain_a[2].hash());
+        assert_eq!(res.tx_status.status, Status::Rejected);
+        let res = node0.rpc_client().get_transaction(txs_chain_b[1].hash());
+        assert_eq!(res.tx_status.status, Status::Rejected);
+
+        // tx_b1 is still rejected
+        let res = node0.rpc_client().get_transaction(tx_b1.hash());
+        assert_eq!(res.tx_status.status, Status::Rejected);
+
+        // Create a new transaction A3 consume A1, it will replace B2
+        let input_a1 = CellInput::new_builder()
+            .previous_output(OutPoint::new(tx_a1.hash(), 0))
+            .build();
+        let tx_a3_output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
+            .build();
+        let tx_a3 = tx_a1
+            .as_advanced_builder()
+            .set_inputs(vec![input_a1, input_c])
+            .set_outputs(vec![tx_a3_output])
+            .build();
+        let _res = node0.rpc_client().send_transaction(tx_a3.data().into());
+
+        // now result is:
+        // A0 ---> A1 -> A3
+        //
+        // B0 -> B1  (B1 is recovered back)
+        //
+        let res = node0.rpc_client().get_transaction(tx_a3.hash());
+        assert_eq!(res.tx_status.status, Status::Pending);
+        let res = node0.rpc_client().get_transaction(tx_b2.hash());
+        assert_eq!(res.tx_status.status, Status::Rejected);
+        eprintln!("tx_b1 {:?}", tx_b1.proposal_short_id());
+
+        // B1 is expected by recovered back
+        let res = node0.rpc_client().get_transaction(tx_b1.hash());
+        assert_eq!(res.tx_status.status, Status::Pending);
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_rbf_rate = ckb_types::core::FeeRate(1500);
+    }
+}
+
 fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     let node0 = &nodes[0];
     let node1 = &nodes[1];
