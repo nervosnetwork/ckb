@@ -200,6 +200,21 @@ fn test_accept_not_a_better_block() {
         peer_index,
     );
     assert_eq!(compact_block_process.execute(), Status::ok());
+
+    // wait chain_service processed the compact block, check block hash in snapshot
+    {
+        let now = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if now.elapsed().as_secs() > 5 {
+                panic!("wait chain_service processed the compact block timeout");
+            }
+            let snapshot = relayer.shared.shared().snapshot();
+            if snapshot.get_block(&uncle_block.header().hash()).is_some() {
+                break;
+            }
+        }
+    }
 }
 
 #[test]

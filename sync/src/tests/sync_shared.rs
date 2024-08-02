@@ -355,7 +355,7 @@ fn test_sync_relay_collaboration() {
     {
         let now = std::time::Instant::now();
         while sync_shared.active_chain().tip_number() != new_block.number() {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(100));
             if now.elapsed().as_secs() > 10 {
                 panic!("wait 10 seconds, but not sync yet.");
             }
@@ -442,7 +442,7 @@ fn test_sync_relay_collaboration2() {
     {
         let now = std::time::Instant::now();
         while sync_shared.active_chain().tip_number() != new_block.number() {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(100));
             if now.elapsed().as_secs() > 10 {
                 panic!("wait 10 seconds, but not sync yet.");
             }
@@ -465,7 +465,7 @@ fn test_sync_relay_collaboration2() {
     {
         let now = std::time::Instant::now();
         while sync_shared.active_chain().tip_number() != new_block.number() {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(100));
             if now.elapsed().as_secs() > 10 {
                 panic!("wait 10 seconds, but not sync yet.");
             }

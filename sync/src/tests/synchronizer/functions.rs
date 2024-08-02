@@ -51,6 +51,10 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchr
 
     let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
+    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
         Default::default(),
