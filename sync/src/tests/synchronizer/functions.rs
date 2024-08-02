@@ -1,4 +1,4 @@
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
 use ckb_dao::DaoCalculator;
@@ -8,6 +8,7 @@ use ckb_network::{
     SessionType, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
+use ckb_shared::types::HeaderIndex;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
@@ -36,7 +37,7 @@ use std::{
 
 use crate::{
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
-    types::{HeaderIndex, HeadersSyncController, IBDState, PeerState},
+    types::{HeadersSyncController, IBDState, PeerState},
     Status, StatusCode, SyncShared,
 };
 
@@ -48,8 +49,11 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchr
 
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+
+    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
@@ -144,7 +148,7 @@ fn insert_block(
     let block = gen_block(shared, &parent, &epoch, nonce);
 
     chain_controller
-        .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
+        .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_EXTENSION)
         .expect("process block ok");
 }
 
@@ -179,6 +183,7 @@ fn test_locator() {
 
 #[test]
 fn test_locate_latest_common_block() {
+    let _log_guard = ckb_logger_service::init_for_test("debug").expect("init log");
     let consensus = Consensus::default();
     let (chain_controller1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
     let (chain_controller2, shared2, synchronizer2) = start_chain(Some(consensus.clone()));
@@ -239,10 +244,10 @@ fn test_locate_latest_common_block2() {
         blocks.push(new_block.clone());
 
         chain_controller1
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain_controller2
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
     }
@@ -259,7 +264,7 @@ fn test_locate_latest_common_block2() {
         let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
         chain_controller2
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
     }
@@ -347,7 +352,7 @@ fn test_process_new_block() {
         let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
         chain_controller1
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
         blocks.push(new_block);
@@ -356,7 +361,7 @@ fn test_process_new_block() {
     blocks.into_iter().for_each(|block| {
         synchronizer
             .shared()
-            .insert_new_block(&synchronizer.chain, Arc::new(block))
+            .blocking_insert_new_block(&synchronizer.chain, Arc::new(block))
             .expect("Insert new block failed");
     });
     assert_eq!(&chain1_last_block.header(), shared2.snapshot().tip_header());
@@ -384,7 +389,7 @@ fn test_get_locator_response() {
         blocks.push(new_block.clone());
 
         chain_controller
-            .internal_process_block(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
     }
@@ -665,8 +670,10 @@ fn test_sync_process() {
 
     for block in &fetched_blocks {
         let block = SendBlockBuilder::default().block(block.data()).build();
+
+        let nc = Arc::new(mock_network_context(1));
         assert_eq!(
-            BlockProcess::new(block.as_reader(), &synchronizer1, peer1).execute(),
+            BlockProcess::new(block.as_reader(), &synchronizer1, peer1, nc).blocking_execute(),
             Status::ok(),
         );
     }
@@ -1091,7 +1098,10 @@ fn test_fix_last_common_header() {
     for number in 1..=main_tip_number {
         let key = m_(number);
         let block = graph.get(&key).cloned().unwrap();
-        synchronizer.chain.process_block(Arc::new(block)).unwrap();
+        synchronizer
+            .chain
+            .blocking_process_block(Arc::new(block))
+            .unwrap();
     }
     {
         let nc = mock_network_context(1);
@@ -1204,16 +1214,13 @@ fn get_blocks_process() {
 
 #[test]
 fn test_internal_db_error() {
-    use crate::utils::is_internal_db_error;
+    use ckb_error::is_internal_db_error;
 
     let consensus = Consensus::default();
     let mut builder = SharedBuilder::with_temp_db();
     builder = builder.consensus(consensus);
 
     let (shared, mut pack) = builder.build().unwrap();
-
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let _chain_controller = chain_service.start::<&str>(None);
 
     let sync_shared = Arc::new(SyncShared::new(
         shared,
@@ -1225,7 +1232,7 @@ fn test_internal_db_error() {
     let block = Arc::new(BlockBuilder::default().build());
 
     // mock process_block
-    faux::when!(chain_controller.process_block(Arc::clone(&block))).then_return(Err(
+    faux::when!(chain_controller.blocking_process_block(Arc::clone(&block))).then_return(Err(
         InternalErrorKind::Database.other("mocked db error").into(),
     ));
 
@@ -1233,7 +1240,7 @@ fn test_internal_db_error() {
 
     let status = synchronizer
         .shared()
-        .accept_block(&synchronizer.chain, Arc::clone(&block));
+        .blocking_insert_new_block(&synchronizer.chain, Arc::clone(&block));
 
     assert!(is_internal_db_error(&status.err().unwrap()));
 }

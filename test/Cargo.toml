@@ -29,6 +29,9 @@ ckb-logger-config = { path = "../util/logger-config", version = "= 0.118.0-pre" 
 ckb-logger-service = { path = "../util/logger-service", version = "= 0.118.0-pre" }
 ckb-error = { path = "../error", version = "= 0.118.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.118.0-pre" }
+ckb-db = { path = "../db", version = "= 0.118.0-pre" }
+ckb-store = { path = "../store", version = "= 0.118.0-pre" }
+ckb-shared = { path = "../shared", version = "= 0.118.0-pre" }
 tempfile = "3"
 reqwest = { version = "=0.11.20", features = ["blocking", "json"] }
 rand = "0.8"

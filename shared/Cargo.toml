@@ -27,11 +27,16 @@ ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.118.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.118.0-pre" }
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.118.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.118.0-pre" }
-ckb-app-config = {path = "../util/app-config", version = "= 0.118.0-pre"}
+ckb-app-config = { path = "../util/app-config", version = "= 0.118.0-pre" }
 ckb-migrate = { path = "../util/migrate", version = "= 0.118.0-pre" }
 once_cell = "1.8.0"
+ckb-util = { path = "../util", version = "= 0.118.0-pre" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.118.0-pre" }
+bitflags = "1.0"
+tokio = { version = "1", features = ["sync"] }
 tempfile.workspace = true
-
+sled = "0.34.7"
+dashmap = "4.0"
 
 [dev-dependencies]
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.118.0-pre", features = ["enable_faketime"] }
@@ -39,3 +44,4 @@ ckb-systemtime = { path = "../util/systemtime", version = "= 0.118.0-pre", featu
 [features]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-tx-pool/portable", "ckb-migrate/portable"]
 march-native = ["ckb-db/march-native", "ckb-store/march-native", "ckb-tx-pool/march-native", "ckb-migrate/march-native"]
+stats = []

@@ -1,4 +1,5 @@
 use crate::{BlockNumber, Byte32, Timestamp, Uint128, Uint64};
+use ckb_types::H256;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -288,10 +289,16 @@ pub struct SyncState {
     ///
     /// If this number is too high, it indicates that block download has stuck at some block.
     pub orphan_blocks_count: Uint64,
-    /// The size of all download orphan blocks
-    pub orphan_blocks_size: Uint64,
     /// Count of downloading blocks.
     pub inflight_blocks_count: Uint64,
+    /// The block number of current unverified tip block
+    pub unverified_tip_number: BlockNumber,
+    /// The block hash of current unverified tip block
+    pub unverified_tip_hash: H256,
+    /// The block number of current tip block
+    pub tip_number: BlockNumber,
+    /// The block hash of current tip block
+    pub tip_hash: H256,
     /// The download scheduler's time analysis data, the fast is the 1/3 of the cut-off point, unit ms
     pub fast_time: Uint64,
     /// The download scheduler's time analysis data, the normal is the 4/5 of the cut-off point, unit ms

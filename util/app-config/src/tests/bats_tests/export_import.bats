@@ -13,7 +13,8 @@ function export { #@test
 }
 
 _import() {
-  bash -c "ckb import -C ${CKB_DIRNAME} ${TMP_DIR}/ckb*.json"
+  bash -c "ckb init -C ${TMP_DIR}/import"
+  bash -c "ckb import -C ${TMP_DIR}/import ${TMP_DIR}/ckb*.json"
 }
 
 function ckb_import { #@test
@@ -27,4 +28,5 @@ setup_file() {
 
 teardown_file() {
   rm -f ${TMP_DIR}/ckb*.json
+  rm -rvf ${TMP_DIR}/import
 }
