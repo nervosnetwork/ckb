@@ -6,7 +6,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
-use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
+use ckb_db_schema::COLUMN_BLOCK_BODY;
 use ckb_error::{AnyError, Error};
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
@@ -187,23 +187,14 @@ impl Shared {
                     e
                 })?;
 
-                let pack_number: packed::Uint64 = number.pack();
-                let prefix = pack_number.as_slice();
-                for (key, value) in snapshot
-                    .get_iter(
-                        COLUMN_NUMBER_HASH,
-                        IteratorMode::From(prefix, Direction::Forward),
-                    )
-                    .take_while(|(key, _)| key.starts_with(prefix))
-                {
-                    let reader = packed::NumberHashReader::from_slice_should_be_ok(key.as_ref());
-                    let block_hash = reader.block_hash().to_entity();
-                    if &block_hash != hash {
-                        let txs =
-                            packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).unpack();
-                        side.insert(block_hash, (reader.number().to_entity(), txs));
-                    }
-                }
+                snapshot
+                    .get_block_hashes(number)
+                    .iter()
+                    .for_each(|(block_hash, txs_len)| {
+                        if &block_hash != hash {
+                            side.insert(block_hash, (reader.number().to_entity(), txs_len));
+                        }
+                    });
             }
             self.store.write_sync(&batch).map_err(|e| {
                 ckb_logger::error!("Freezer write_batch delete failed {}", e);
