@@ -3,3 +3,7 @@ target
 corpus
 artifacts
 coverage
+flamegraph.svg
+perf.data
+perf.data.old
+

@@ -3,14 +3,15 @@ use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 pub struct CurrentCycles {
-    base: u64,
+    base: Arc<Mutex<u64>>,
 }
 
 impl CurrentCycles {
-    pub fn new(base: u64) -> Self {
+    pub fn new(base: Arc<Mutex<u64>>) -> Self {
         Self { base }
     }
 }
@@ -26,6 +27,8 @@ impl<Mac: SupportMachine> Syscalls<Mac> for CurrentCycles {
         }
         let cycles = self
             .base
+            .lock()
+            .map_err(|e| VMError::Unexpected(e.to_string()))?
             .checked_add(machine.cycles())
             .ok_or(VMError::CyclesOverflow)?;
         machine.set_register(A0, Mac::REG::from_u64(cycles));

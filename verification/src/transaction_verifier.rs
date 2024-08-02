@@ -104,7 +104,10 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
 /// [`FeeCalculator`](./struct.FeeCalculator.html)
-pub struct ContextualTransactionVerifier<DL> {
+pub struct ContextualTransactionVerifier<DL>
+where
+    DL: Send + Sync + Clone + CellDataProvider + HeaderProvider + ExtensionProvider + 'static,
+{
     pub(crate) compatible: CompatibleVerifier,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
