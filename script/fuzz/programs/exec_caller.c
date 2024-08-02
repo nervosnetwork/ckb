@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <stdint.h>
 
 static inline long __internal_syscall(long n, long _a0, long _a1, long _a2,

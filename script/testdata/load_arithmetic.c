@@ -7,9 +7,10 @@
  *    - `num0 == num1` is zero at last.
  */
 
+#include <stdlib.h>
+#include "blockchain.h"
 #include "ckb_dlfcn.h"
 #include "ckb_syscalls.h"
-#include "blockchain.h"
 
 #ifdef DEBUG
 #include <stdio.h>
@@ -22,32 +23,28 @@
 #define CODE_BUFFER_SIZE (1024 * 32)
 #define CACHE_CAPACITY 4
 
-typedef uint64_t(arithmetic_func_t) (uint64_t);
+typedef uint64_t(arithmetic_func_t)(uint64_t);
 
-void try_pause() {
-    syscall(2178, 0, 0, 0, 0, 0, 0);
-}
+void try_pause() { syscall(2178, 0, 0, 0, 0, 0, 0); }
 
-uint64_t read_u64_le (const uint8_t *src) {
-    return *(const uint64_t *)src;
-}
+uint64_t read_u64_le(const uint8_t* src) { return *(const uint64_t*)src; }
 
-int load_arithmetic_func (arithmetic_func_t** func, uint8_t* code_hash, uint8_t* code_buffer) {
-    void *handle = NULL;
+int load_arithmetic_func(arithmetic_func_t** func, uint8_t* code_hash, uint8_t* code_buffer) {
+    void* handle = NULL;
     uint64_t consumed_size = 0;
     uint8_t hash_type = 0;
     int ret = ckb_dlopen2(code_hash, hash_type, code_buffer, CODE_BUFFER_SIZE, &handle, &consumed_size);
     if (ret != CKB_SUCCESS) {
         return -11;
     }
-    *func = (arithmetic_func_t*) ckb_dlsym(handle, "apply");
+    *func = (arithmetic_func_t*)ckb_dlsym(handle, "apply");
     if (*func == NULL) {
         return -12;
     }
     return CKB_SUCCESS;
 }
 
-int main (int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     int ret;
     uint64_t len = SCRIPT_SIZE;
     uint8_t script[SCRIPT_SIZE];
@@ -66,7 +63,7 @@ int main (int argc, char *argv[]) {
     mol_seg_t script_seg;
     mol_seg_t args_seg;
     mol_seg_t bytes_seg;
-    script_seg.ptr = (uint8_t *)script;
+    script_seg.ptr = (uint8_t*)script;
     script_seg.size = len;
     if (MolReader_Script_verify(&script_seg, false) != MOL_OK) {
         return -3;
@@ -79,8 +76,9 @@ int main (int argc, char *argv[]) {
     }
 
     volatile uint64_t num0 = read_u64_le(bytes_seg.ptr);
-    volatile uint64_t num1 = read_u64_le(bytes_seg.ptr+8);
-    sprintf(message, "before num0 = %ld, num1 = %ld", num0, num1); ckb_debug(message);
+    volatile uint64_t num1 = read_u64_le(bytes_seg.ptr + 8);
+    sprintf(message, "before num0 = %ld, num1 = %ld", num0, num1);
+    ckb_debug(message);
 
     if (num0 == num1) {
         return CKB_SUCCESS;
@@ -113,7 +111,7 @@ int main (int argc, char *argv[]) {
             for (int i = 0; i < cache_size; i++) {
                 if (0 == memcmp(code_hash_ptr, cached_code_hash[i], 32)) {
                     // Find the function from caches.
-                    tmp_func = (arithmetic_func_t*) cached_funcs[i];
+                    tmp_func = (arithmetic_func_t*)cached_funcs[i];
                     is_found = true;
                 }
             }
@@ -144,7 +142,7 @@ int main (int argc, char *argv[]) {
             // Cache the current function.
             if (cache_size < CACHE_CAPACITY) {
                 cached_code_hash[cache_size] = code_hash_ptr;
-                cached_funcs[cache_size] = (void*) tmp_func;
+                cached_funcs[cache_size] = (void*)tmp_func;
                 cache_size += 1;
             }
         }
@@ -156,7 +154,8 @@ int main (int argc, char *argv[]) {
         called_funcs_count += 1;
     }
 
-    sprintf(message, "after  num0 = %ld, num1 = %ld", num0, num1); ckb_debug(message);
+    sprintf(message, "after  num0 = %ld, num1 = %ld", num0, num1);
+    ckb_debug(message);
 
     if (num0 != num1) {
         return -5;
