@@ -41,7 +41,7 @@ where
         if let Source::Group(_) = Source::parse_from_u64(source)? {
             source = source & SOURCE_ENTRY_MASK | SOURCE_GROUP_FLAG;
         } else {
-            source = source & SOURCE_ENTRY_MASK;
+            source &= SOURCE_ENTRY_MASK;
         }
         let data_piece_id = match DataPieceId::try_from((source, index, 0)) {
             Ok(id) => id,
@@ -111,7 +111,7 @@ where
         if let Source::Group(_) = Source::parse_from_u64(source)? {
             source = source & SOURCE_ENTRY_MASK | SOURCE_GROUP_FLAG;
         } else {
-            source = source & SOURCE_ENTRY_MASK;
+            source &= SOURCE_ENTRY_MASK;
         }
         let data_piece_id = match DataPieceId::try_from((source, index, 0)) {
             Ok(id) => id,
