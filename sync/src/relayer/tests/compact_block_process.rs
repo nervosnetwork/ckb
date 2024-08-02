@@ -1,11 +1,12 @@
-use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{
     build_chain, gen_block, new_header_builder, MockProtocolContext,
 };
 use crate::{Status, StatusCode};
-use ckb_chain::chain::ChainService;
+use ckb_chain::start_chain_services;
 use ckb_network::{PeerIndex, SupportProtocols};
+use ckb_shared::block_status::BlockStatus;
+use ckb_shared::ChainServicesBuilder;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{PlugTarget, TxEntry};
@@ -56,7 +57,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_INVALID);
     }
 
@@ -76,7 +77,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_STORED);
     }
 
@@ -96,7 +97,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
-            .state()
+            .shared()
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_RECEIVED);
     }
 
@@ -199,6 +200,21 @@ fn test_accept_not_a_better_block() {
         peer_index,
     );
     assert_eq!(compact_block_process.execute(), Status::ok());
+
+    // wait chain_service processed the compact block, check block hash in snapshot
+    {
+        let now = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if now.elapsed().as_secs() > 5 {
+                panic!("wait chain_service processed the compact block timeout");
+            }
+            let snapshot = relayer.shared.shared().snapshot();
+            if snapshot.get_block(&uncle_block.header().hash()).is_some() {
+                break;
+            }
+        }
+    }
 }
 
 #[test]
@@ -333,6 +349,8 @@ fn test_send_missing_indexes() {
 
 #[test]
 fn test_accept_block() {
+    let _log_guard = ckb_logger_service::init_for_test("info,ckb-chain=debug").expect("init log");
+
     let (relayer, _) = build_chain(5);
     let parent = {
         let active_chain = relayer.shared.active_chain();
@@ -379,16 +397,18 @@ fn test_accept_block() {
     }
 
     {
-        let chain_controller = {
-            let proposal_window = ckb_proposal_table::ProposalTable::new(
-                relayer.shared().shared().consensus().tx_proposal_window(),
-            );
-            let chain_service =
-                ChainService::new(relayer.shared().shared().to_owned(), proposal_window);
-            chain_service.start::<&str>(None)
+        let proposal_table = ckb_proposal_table::ProposalTable::new(
+            relayer.shared().shared().consensus().tx_proposal_window(),
+        );
+        let chain_service_builder = ChainServicesBuilder {
+            shared: relayer.shared().shared().to_owned(),
+            proposal_table,
         };
+
+        let chain_controller = start_chain_services(chain_service_builder);
+
         chain_controller
-            .internal_process_block(Arc::new(uncle), Switch::DISABLE_EXTENSION)
+            .blocking_process_block_with_switch(Arc::new(uncle), Switch::DISABLE_EXTENSION)
             .unwrap();
     }
 

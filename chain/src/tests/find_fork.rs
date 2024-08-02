@@ -1,5 +1,8 @@
-use crate::chain::{ChainService, ForkChanges};
+use crate::consume_unverified::ConsumeUnverifiedBlockProcessor;
+use crate::utils::forkchanges::ForkChanges;
+use crate::{start_chain_services, UnverifiedBlock};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
+use ckb_proposal_table::ProposalTable;
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
@@ -11,8 +14,30 @@ use ckb_types::{
     U256,
 };
 use ckb_verification_traits::Switch;
+use dashmap::DashSet;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+fn process_block(
+    consume_unverified_block_processor: &mut ConsumeUnverifiedBlockProcessor,
+    blk: &BlockView,
+    switch: Switch,
+) {
+    let store = consume_unverified_block_processor.shared.store();
+    let db_txn = store.begin_transaction();
+    db_txn.insert_block(blk).unwrap();
+    db_txn.commit().unwrap();
+
+    let parent_header = store.get_block_header(&blk.parent_hash()).unwrap();
+    let unverified_block = UnverifiedBlock {
+        block: Arc::new(blk.to_owned()),
+        switch: Some(switch),
+        verify_callback: None,
+        parent_header,
+    };
+
+    consume_unverified_block_processor.consume_unverified_blocks(unverified_block);
+}
 
 // 0--1--2--3--4
 // \
@@ -21,8 +46,10 @@ use std::sync::Arc;
 #[test]
 fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let consensus = Consensus::default();
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let (shared, mut _pack) = builder.consensus(consensus).build().unwrap();
+
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
@@ -40,18 +67,32 @@ fn test_find_fork_case1() {
         fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
 
+    let is_pending_verify = Arc::new(DashSet::new());
+
+    let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
+        shared: shared.clone(),
+        is_pending_verify,
+        proposal_table,
+    };
+
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        println!("proceb1, fork1 block: {}-{}", blk.number(), blk.hash());
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     // fork2 total_difficulty 270
     for blk in fork2.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        println!("procb2, fork1 block: {}-{}", blk.number(), blk.hash());
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     let tip_number = { shared.snapshot().tip_number() };
@@ -72,7 +113,7 @@ fn test_find_fork_case1() {
 
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    consume_unverified_block_processor.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
@@ -93,8 +134,8 @@ fn test_find_fork_case1() {
 #[test]
 fn test_find_fork_case2() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let consensus = Consensus::default();
+    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -111,19 +152,29 @@ fn test_find_fork_case2() {
     for _ in 0..2 {
         fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
+        shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
+        proposal_table,
+    };
 
     // fork1 total_difficulty 400
     for blk in fork1.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     // fork2 total_difficulty 280
     for blk in fork2.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     let tip_number = { shared.snapshot().tip_number() };
@@ -144,7 +195,7 @@ fn test_find_fork_case2() {
 
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    consume_unverified_block_processor.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks()[1..].iter().cloned().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
@@ -165,8 +216,8 @@ fn test_find_fork_case2() {
 #[test]
 fn test_find_fork_case3() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let consensus = Consensus::default();
+    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -184,19 +235,28 @@ fn test_find_fork_case3() {
     for _ in 0..5 {
         fork2.gen_empty_block_with_diff(40u64, &mock_store)
     }
-
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
+        shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
+        proposal_table,
+    };
     // fork1 total_difficulty 240
     for blk in fork1.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     // fork2 total_difficulty 200
     for blk in fork2.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     let tip_number = { shared.snapshot().tip_number() };
@@ -216,7 +276,7 @@ fn test_find_fork_case3() {
     };
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    consume_unverified_block_processor.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
@@ -237,8 +297,8 @@ fn test_find_fork_case3() {
 #[test]
 fn test_find_fork_case4() {
     let builder = SharedBuilder::with_temp_db();
-    let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let consensus = Consensus::default();
+    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
 
     let genesis = shared
         .store()
@@ -256,19 +316,29 @@ fn test_find_fork_case4() {
     for _ in 0..2 {
         fork2.gen_empty_block_with_diff(80u64, &mock_store);
     }
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
+        shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
+        proposal_table,
+    };
 
     // fork1 total_difficulty 200
     for blk in fork1.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     // fork2 total_difficulty 160
     for blk in fork2.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     let tip_number = { shared.snapshot().tip_number() };
@@ -289,7 +359,7 @@ fn test_find_fork_case4() {
 
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
+    consume_unverified_block_processor.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
     let detached_blocks: HashSet<BlockView> = fork1.blocks().clone().into_iter().collect();
     let attached_blocks: HashSet<BlockView> = fork2.blocks().clone().into_iter().collect();
@@ -306,8 +376,9 @@ fn test_find_fork_case4() {
 // this case is create for issues from https://github.com/nervosnetwork/ckb/pull/1470
 #[test]
 fn repeatedly_switch_fork() {
-    let (shared, _) = SharedBuilder::with_temp_db()
-        .consensus(Consensus::default())
+    let consensus = Consensus::default();
+    let (shared, mut pack) = SharedBuilder::with_temp_db()
+        .consensus(consensus.clone())
         .build()
         .unwrap();
     let genesis = shared
@@ -318,11 +389,7 @@ fn repeatedly_switch_fork() {
     let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
     let mut fork2 = MockChain::new(genesis, shared.consensus());
 
-    let (shared, mut pack) = SharedBuilder::with_temp_db()
-        .consensus(Consensus::default())
-        .build()
-        .unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     for _ in 0..2 {
         fork1.gen_empty_block_with_nonce(1u128, &mock_store);
@@ -331,17 +398,27 @@ fn repeatedly_switch_fork() {
     for _ in 0..2 {
         fork2.gen_empty_block_with_nonce(2u128, &mock_store);
     }
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
+        shared: shared.clone(),
+        is_pending_verify: Arc::new(DashSet::new()),
+        proposal_table,
+    };
 
     for blk in fork1.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     for blk in fork2.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
-            .unwrap();
+        process_block(
+            &mut consume_unverified_block_processor,
+            blk,
+            Switch::DISABLE_ALL,
+        );
     }
 
     //switch fork1
@@ -360,8 +437,8 @@ fn repeatedly_switch_fork() {
         .nonce(1u128.pack())
         .uncle(uncle)
         .build();
-    chain_service
-        .process_block(Arc::new(new_block1.clone()), Switch::DISABLE_ALL)
+    chain_controller
+        .blocking_process_block_with_switch(Arc::new(new_block1.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     //switch fork2
@@ -379,8 +456,8 @@ fn repeatedly_switch_fork() {
         .nonce(2u128.pack())
         .build();
     parent = new_block2.clone();
-    chain_service
-        .process_block(Arc::new(new_block2), Switch::DISABLE_ALL)
+    chain_controller
+        .blocking_process_block_with_switch(Arc::new(new_block2), Switch::DISABLE_ALL)
         .unwrap();
     let epoch = shared
         .consensus()
@@ -394,8 +471,8 @@ fn repeatedly_switch_fork() {
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(2u128.pack())
         .build();
-    chain_service
-        .process_block(Arc::new(new_block3), Switch::DISABLE_ALL)
+    chain_controller
+        .blocking_process_block_with_switch(Arc::new(new_block3), Switch::DISABLE_ALL)
         .unwrap();
 
     //switch fork1
@@ -412,8 +489,8 @@ fn repeatedly_switch_fork() {
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(1u128.pack())
         .build();
-    chain_service
-        .process_block(Arc::new(new_block4.clone()), Switch::DISABLE_ALL)
+    chain_controller
+        .blocking_process_block_with_switch(Arc::new(new_block4.clone()), Switch::DISABLE_ALL)
         .unwrap();
 
     parent = new_block4;
@@ -429,8 +506,8 @@ fn repeatedly_switch_fork() {
         .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .nonce(1u128.pack())
         .build();
-    chain_service
-        .process_block(Arc::new(new_block5), Switch::DISABLE_ALL)
+    chain_controller
+        .blocking_process_block_with_switch(Arc::new(new_block5), Switch::DISABLE_ALL)
         .unwrap();
 }
 
@@ -448,7 +525,7 @@ fn test_fork_proposal_table() {
     };
 
     let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
-    let mut chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     let genesis = shared
         .store()
@@ -466,8 +543,8 @@ fn test_fork_proposal_table() {
     }
 
     for blk in mock.blocks() {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
+        chain_controller
+            .blocking_process_block_with_switch(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -483,8 +560,8 @@ fn test_fork_proposal_table() {
     }
 
     for blk in mock.blocks().iter().skip(3) {
-        chain_service
-            .process_block(Arc::new(blk.clone()), Switch::DISABLE_ALL)
+        chain_controller
+            .blocking_process_block_with_switch(Arc::new(blk.clone()), Switch::DISABLE_ALL)
             .unwrap();
     }
 
@@ -495,7 +572,7 @@ fn test_fork_proposal_table() {
     assert_eq!(
         &vec![
             packed::ProposalShortId::new([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
-            packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4])
+            packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
         ]
         .into_iter()
         .collect::<HashSet<_>>(),

@@ -4240,7 +4240,10 @@ Response
     "min_chain_work_reached": true,
     "normal_time": "0x4e2",
     "orphan_blocks_count": "0x0",
-    "orphan_blocks_size": "0x0"
+    "tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "tip_number": "0x400",
+    "unverified_tip_hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+    "unverified_tip_number": "0x400"
   }
 }
 ```
@@ -6963,7 +6966,13 @@ The overall chain synchronization state of this local node.
 
     If this number is too high, it indicates that block download has stuck at some block.
 
-* `orphan_blocks_size`: [`Uint64`](#type-uint64) - The size of all download orphan blocks
+* `tip_hash`: [`H256`](#type-h256) - The block hash of current tip block
+
+* `tip_number`: [`Uint64`](#type-uint64) - The block number of current tip block
+
+* `unverified_tip_hash`: [`H256`](#type-h256) - The block hash of current unverified tip block
+
+* `unverified_tip_number`: [`Uint64`](#type-uint64) - The block number of current unverified tip block
 
 ### Type `Timestamp`
 

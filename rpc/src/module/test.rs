@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
     Block, BlockTemplate, Byte32, EpochNumberWithFraction, OutputsValidator, Transaction,
@@ -609,8 +609,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         let block: Arc<BlockView> = Arc::new(block.into_view());
         let ret = self
             .chain
-            .internal_process_block(Arc::clone(&block), Switch::DISABLE_ALL);
-
+            .blocking_process_block_with_switch(Arc::clone(&block), Switch::DISABLE_ALL);
         if broadcast {
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(content).build();
@@ -815,7 +814,7 @@ impl IntegrationTestRpcImpl {
 
         // insert block to chain
         self.chain
-            .process_block(Arc::clone(&block_view))
+            .blocking_process_block(Arc::clone(&block_view))
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
         // announce new block

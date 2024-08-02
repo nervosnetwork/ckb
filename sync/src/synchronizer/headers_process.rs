@@ -1,4 +1,3 @@
-use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode};
@@ -6,6 +5,7 @@ use ckb_constant::sync::MAX_HEADERS_LEN;
 use ckb_error::Error;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_shared::block_status::BlockStatus;
 use ckb_traits::HeaderFieldsProvider;
 use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderVerifier};
@@ -281,19 +281,26 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
 
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
-        let shared = self.active_chain.shared();
-        let state = shared.state();
+        let sync_shared = self.active_chain.sync_shared();
+        let state = self.active_chain.state();
+        let shared = sync_shared.shared();
 
         // FIXME If status == BLOCK_INVALID then return early. But which error
         // type should we return?
         let status = self.active_chain.get_block_status(&self.header.hash());
         if status.contains(BlockStatus::HEADER_VALID) {
-            let header_index = shared
+            let header_index = sync_shared
                 .get_header_index_view(
                     &self.header.hash(),
                     status.contains(BlockStatus::BLOCK_STORED),
                 )
-                .expect("header with HEADER_VALID should exist")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "header {}-{} with HEADER_VALID should exist",
+                        self.header.number(),
+                        self.header.hash()
+                    )
+                })
                 .as_header_index();
             state
                 .peers()
@@ -307,7 +314,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.number(),
                 self.header.hash(),
             );
-            state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+            shared.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
@@ -318,7 +325,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.hash(),
             );
             if is_invalid {
-                state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+                shared.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             }
             return result;
         }
@@ -329,11 +336,11 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.number(),
                 self.header.hash(),
             );
-            state.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
+            shared.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
-        shared.insert_valid_header(self.peer, self.header);
+        sync_shared.insert_valid_header(self.peer, self.header);
         result
     }
 }
