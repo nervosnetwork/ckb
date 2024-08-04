@@ -64,7 +64,9 @@ impl Spec for SyncChurn {
                 node.stop();
                 node.start();
             }
-            restart_stopped_tx.send(()).unwrap();
+            if let Err(err) = restart_stopped_tx.send(()) {
+                info!("Restart thread has exited already: {:?}", err);
+            }
         });
 
         mining_thread.join().unwrap();
