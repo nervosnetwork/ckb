@@ -173,6 +173,10 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
 
     let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
+    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
     // Build 1 ~ (tip-1) heights
     for i in 0..tip {
         let parent = shared

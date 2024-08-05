@@ -24,7 +24,8 @@ use ckb_types::{
 };
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, RwLock};
@@ -752,6 +753,22 @@ impl Node {
         config.chain.spec.absolutize(root_dir);
 
         Ok(config)
+    }
+
+    pub fn access_log<F>(&self, line_checker: F) -> io::Result<bool>
+    where
+        F: Fn(&str) -> bool,
+    {
+        let file = File::open(self.log_path())?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            if line_checker(&line) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn access_db<F>(&self, f: F)

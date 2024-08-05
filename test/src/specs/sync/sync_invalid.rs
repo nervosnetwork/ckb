@@ -3,8 +3,9 @@ use ckb_app_config::CKBAppConfig;
 use ckb_logger::info;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::core;
+use ckb_types::core::BlockNumber;
 use ckb_types::packed;
-use ckb_types::prelude::{AsBlockBuilder, Builder, Entity, IntoUncleBlockView};
+use ckb_types::prelude::{Builder, Entity, IntoUncleBlockView};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -15,6 +16,21 @@ impl Spec for SyncInvalid {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         nodes[0].mine(20);
+
+        {
+            // wait for node[0] to find unverified blocks finished
+
+            let now = std::time::Instant::now();
+            while !nodes[0]
+                .access_log(|line: &str| line.contains("find unverified blocks finished"))
+                .expect("node[0] must have log")
+            {
+                if now.elapsed() > Duration::from_secs(60) {
+                    panic!("node[0] should find unverified blocks finished in 60s");
+                }
+                info!("waiting for node[0] to find unverified blocks finished");
+            }
+        }
         nodes[1].mine(1);
 
         nodes[0].connect(&nodes[1]);
@@ -29,21 +45,20 @@ impl Spec for SyncInvalid {
             );
         };
 
-        let insert_invalid_block = || {
-            let template = nodes[0].rpc_client().get_block_template(None, None, None);
-
-            let block = packed::Block::from(template)
-                .as_advanced_builder()
+        let insert_invalid_block = |number: BlockNumber| {
+            let block = nodes[0]
+                .new_block_builder_with_blocking(|template| template.number < number.into())
                 .uncle(packed::UncleBlock::new_builder().build().into_view())
                 .build();
             nodes[0]
                 .rpc_client()
                 .process_block_without_verify(block.data().into(), false);
+            info!("inserted invalid block {}", number);
         };
 
         info_nodes_tip();
-        insert_invalid_block();
-        insert_invalid_block();
+        insert_invalid_block(21);
+        insert_invalid_block(22);
         info_nodes_tip();
         assert_eq!(nodes[0].get_tip_block_number(), 22);
 
