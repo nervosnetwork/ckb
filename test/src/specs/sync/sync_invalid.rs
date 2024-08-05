@@ -87,14 +87,25 @@ impl Spec for SyncInvalid {
         )
         .hash();
 
-        assert!(!nodes[1].rpc_client().get_banned_addresses().is_empty());
-        assert!(nodes[1]
-            .rpc_client()
-            .get_banned_addresses()
-            .first()
-            .unwrap()
-            .ban_reason
-            .contains(&format!("{}", block_21_hash)));
+        {
+            let now = std::time::Instant::now();
+            while nodes[1].rpc_client().get_banned_addresses().is_empty()
+                || !nodes[1]
+                    .rpc_client()
+                    .get_banned_addresses()
+                    .first()
+                    .unwrap()
+                    .ban_reason
+                    .contains(&format!("{}", block_21_hash))
+            {
+                if now.elapsed() > Duration::from_secs(60) {
+                    panic!("node[1] should ban node[0] in 60s");
+                }
+                info!("waiting for node[1] to ban node[0]");
+                sleep(Duration::from_secs(1));
+            }
+        }
+
         info_nodes_tip();
 
         nodes[0].stop();
