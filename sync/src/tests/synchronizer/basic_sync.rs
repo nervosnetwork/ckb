@@ -121,6 +121,10 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
 
     let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
+    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
     for _i in 0..height {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
