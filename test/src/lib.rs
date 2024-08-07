@@ -11,9 +11,11 @@ mod txo;
 pub mod util;
 pub mod utils;
 pub mod worker;
+mod integration_test_main;
 
 use ckb_types::core::BlockNumber;
 
+pub use integration_test_main::integration_test_main;
 pub use net::Net;
 pub use node::Node;
 pub use specs::{Setup, Spec};

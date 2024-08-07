@@ -1,11 +1,11 @@
-use ckb_channel::unbounded;
-use ckb_logger::{error, info, warn};
-use ckb_test::specs::*;
-use ckb_test::{
+use crate::{
     global::{self, BINARY_PATH, PORT_COUNTER, VENDOR_PATH},
     worker::{Notify, Workers},
+    specs::*,
     Spec,
 };
+use ckb_channel::unbounded;
+use ckb_logger::{error, info, warn};
 use ckb_types::core::ScriptHashType;
 use ckb_util::Mutex;
 use clap::{App, Arg};
@@ -36,7 +36,7 @@ struct TestResult {
 }
 
 #[allow(clippy::cognitive_complexity)]
-fn main() {
+pub fn integration_test_main() {
     env::set_var("RUST_BACKTRACE", "full");
 
     let clap_app = clap_app();
@@ -522,8 +522,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
             "send_multisig_secp_tx_use_dep_group_type_hash",
             ScriptHashType::Type,
         )),
-        Box::<ckb_test::specs::CheckTypical2In2OutTx>::default(),
-        Box::<ckb_test::specs::AlertPropagation>::default(),
+        Box::<CheckTypical2In2OutTx>::default(),
+        Box::<AlertPropagation>::default(),
         // TODO These cases will fail occasionally because of some unknown
         // asynchronous issues.
         Box::new(IBDProcess),
