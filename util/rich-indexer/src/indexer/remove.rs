@@ -14,6 +14,9 @@ pub(crate) async fn rollback_block(tx: &mut Transaction<'_, Any>) -> Result<(), 
     let tx_id_list = query_tx_id_list_by_block_id(block_id, tx).await?;
     let output_lock_type_list = query_outputs_by_tx_id_list(&tx_id_list, tx).await?;
 
+    // update spent cells
+    reset_spent_cells(&tx_id_list, tx).await?;
+
     // remove transactions, associations, inputs, output
     remove_batch_by_blobs("ckb_transaction", "id", &tx_id_list, tx).await?;
     remove_batch_by_blobs("tx_association_cell_dep", "tx_id", &tx_id_list, tx).await?;
@@ -74,6 +77,28 @@ async fn remove_batch_by_blobs(
     // execute
     query
         .execute(tx)
+        .await
+        .map_err(|err| Error::DB(err.to_string()))?;
+
+    Ok(())
+}
+
+async fn reset_spent_cells(tx_id_list: &[i64], tx: &mut Transaction<'_, Any>) -> Result<(), Error> {
+    let query = SqlBuilder::update_table("output")
+        .set("is_spent", 0)
+        .and_where_in_query(
+            "id",
+            SqlBuilder::select_from("input")
+                .field("output_id")
+                .and_where_in("consumed_tx_id", tx_id_list)
+                .query()
+                .map_err(|err| Error::DB(err.to_string()))?,
+        )
+        .sql()
+        .map_err(|err| Error::DB(err.to_string()))?;
+
+    sqlx::query(&query)
+        .execute(&mut *tx)
         .await
         .map_err(|err| Error::DB(err.to_string()))?;
 
