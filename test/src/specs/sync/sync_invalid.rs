@@ -17,20 +17,9 @@ impl Spec for SyncInvalid {
     fn run(&self, nodes: &mut Vec<Node>) {
         nodes[0].mine(20);
 
-        {
-            // wait for node[0] to find unverified blocks finished
+        // wait for node[0] to find unverified blocks finished
+        nodes[0].wait_find_unverified_blocks_finished();
 
-            let now = std::time::Instant::now();
-            while !nodes[0]
-                .access_log(|line: &str| line.contains("find unverified blocks finished"))
-                .expect("node[0] must have log")
-            {
-                if now.elapsed() > Duration::from_secs(60) {
-                    panic!("node[0] should find unverified blocks finished in 60s");
-                }
-                info!("waiting for node[0] to find unverified blocks finished");
-            }
-        }
         nodes[1].mine(1);
 
         nodes[0].connect(&nodes[1]);
