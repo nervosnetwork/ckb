@@ -15,8 +15,8 @@ use crate::verify::{tests::utils::*, *};
 // check_spawn_set_content: set_content() with content < length, = length and > length.
 // check_spawn_out_of_cycles: child script out-of-cycles.
 // check_spawn_exec: A exec B spawn C.
-// check_spawn_strcat_wrap: A spawn B spwan C.
-// check_spawn_out_of_cycles_wrap: A spawn B spwan C, but C out-of-cycles.
+// check_spawn_strcat_wrap: A spawn B spawn C.
+// check_spawn_out_of_cycles_wrap: A spawn B spawn C, but C out-of-cycles.
 // check_spawn_recursive: A spawn A spawn A ... ... spawn A
 // check_spawn_big_memory_size: fails when memory_limit > 8.
 // check_spawn_big_content_length: fails when content_length > 256K.
