@@ -13,9 +13,18 @@ rust-version = "1.75.0"
 [build-dependencies]
 ckb-build-info = { path = "util/build-info", version = "= 0.118.0-pre" }
 
+[[bin]]
+name = "ckb"
+path = "src/main.rs"
+
+[[bin]]
+name = "ckb-test"
+path ="test/main.rs"
+
 [dependencies]
 ckb-build-info = { path = "util/build-info", version = "= 0.118.0-pre" }
 ckb-bin = { path = "ckb-bin", version = "= 0.118.0-pre" }
+ckb-test = { path = "test", version = "= 0.118.0-pre" }
 console-subscriber = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
@@ -23,6 +32,7 @@ console-subscriber = { version = "0.2.0", optional = true }
 [workspace]
 # To get a list sorted by dependencies, run devtools/ci/check-cyclic-dependencies.py
 members = [
+    "test",
     "util",
     "util/occupied-capacity/core",
     "util/channel",

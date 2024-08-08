@@ -54,15 +54,7 @@ windows-sys = { version = "0.52", features = [
     "Win32_System_Console",
 ] }
 
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
 
-[profile.release.build-override]
-opt-level = 3
-
-[profile.bench.build-override]
-opt-level = 3
 
 [features]
 default = []
