@@ -1,7 +1,7 @@
 use super::*;
 
 use ckb_indexer_sync::{CustomFilters, Pool};
-use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter, IndexerTx};
+use ckb_jsonrpc_types::{IndexerPagination, IndexerRange, IndexerSearchKeyFilter, IndexerTx};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -1339,37 +1339,66 @@ async fn script_search_mode_rpc() {
     );
 
     // test get_transactions rpc with exact search mode
-    let txs = rpc
-        .get_transactions(
-            IndexerSearchKey {
-                script: lock_script1.clone().into(),
-                script_search_mode: Some(IndexerSearchMode::Exact),
-                ..Default::default()
-            },
-            IndexerOrder::Asc,
-            1000.into(),
-            None,
-        )
-        .await
-        .unwrap();
+    let txs = {
+        let mut txs = IndexerPagination::new(Vec::new(), JsonBytes::from_bytes(Bytes::new()));
+        let mut last_key = None;
+
+        loop {
+            let txs_1 = rpc
+                .get_transactions(
+                    IndexerSearchKey {
+                        script: lock_script1.clone().into(),
+                        script_search_mode: Some(IndexerSearchMode::Exact),
+                        ..Default::default()
+                    },
+                    IndexerOrder::Asc,
+                    1000.into(),
+                    last_key.clone(),
+                )
+                .await
+                .unwrap();
+
+            if txs_1.objects.is_empty() {
+                break;
+            } else {
+                txs.objects.extend(txs_1.objects);
+                last_key = Some(txs_1.last_cursor);
+            }
+        }
+        txs
+    };
 
     assert_eq!(total_blocks as usize * 3 - 1, txs.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
 
     // test get_transactions rpc group by tx hash with exact search mode
-    let txs = rpc
-        .get_transactions(
-            IndexerSearchKey {
-                script: lock_script1.clone().into(),
-                script_search_mode: Some(IndexerSearchMode::Exact),
-                group_by_transaction: Some(true),
-                ..Default::default()
-            },
-            IndexerOrder::Asc,
-            1000.into(),
-            None,
-        )
-        .await
-        .unwrap();
+    let txs = {
+        let mut txs = IndexerPagination::new(Vec::new(), JsonBytes::from_bytes(Bytes::new()));
+        let mut last_key = None;
+
+        loop {
+            let txs_1 = rpc
+                .get_transactions(
+                    IndexerSearchKey {
+                        script: lock_script1.clone().into(),
+                        script_search_mode: Some(IndexerSearchMode::Exact),
+                        group_by_transaction: Some(true),
+                        ..Default::default()
+                    },
+                    IndexerOrder::Asc,
+                    1000.into(),
+                    last_key.clone(),
+                )
+                .await
+                .unwrap();
+            if txs_1.objects.is_empty() {
+                break;
+            } else {
+                txs.objects.extend(txs_1.objects);
+                last_key = Some(txs_1.last_cursor);
+            }
+        }
+        txs
+    };
 
     assert_eq!(
         total_blocks as usize * 2,

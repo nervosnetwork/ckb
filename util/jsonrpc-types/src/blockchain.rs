@@ -116,7 +116,7 @@ impl From<packed::Script> for Script {
     fn from(input: packed::Script) -> Script {
         Script {
             code_hash: input.code_hash().unpack(),
-            args: JsonBytes::from_bytes(input.args().unpack()),
+            args: JsonBytes::from_vec(input.args().unpack()),
             hash_type: core::ScriptHashType::try_from(input.hash_type())
                 .expect("checked data")
                 .into(),

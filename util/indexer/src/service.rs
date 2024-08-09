@@ -23,6 +23,10 @@ use std::sync::{Arc, RwLock};
 pub(crate) const SUBSCRIBER_NAME: &str = "Indexer";
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
 const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
+// We set the memory usage limit at 2 GB, meaning only 200 MB of data can be requested at a time.
+// The maximum cell data size is 500 KB, and 400 cells can be requested at one time.
+// related: https://github.com/serde-rs/json/issues/635
+const DEFAULT_REQUEST_LIMIT: usize = 400;
 
 /// Indexer service
 #[derive(Clone)]
@@ -164,7 +168,7 @@ impl IndexerHandle {
             ));
         }
 
-        let limit = limit.value() as usize;
+        let limit = std::cmp::min(limit.value() as usize, DEFAULT_REQUEST_LIMIT);
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
@@ -330,7 +334,7 @@ impl IndexerHandle {
         limit: Uint32,
         after_cursor: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
-        let limit = limit.value() as usize;
+        let limit = std::cmp::min(limit.value() as usize, DEFAULT_REQUEST_LIMIT);
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
@@ -1688,35 +1692,63 @@ mod tests {
         );
 
         // test get_transactions rpc with exact search mode
-        let txs = rpc
-            .get_transactions(
-                IndexerSearchKey {
-                    script: lock_script1.clone().into(),
-                    script_search_mode: Some(IndexerSearchMode::Exact),
-                    ..Default::default()
-                },
-                IndexerOrder::Asc,
-                1000.into(),
-                None,
-            )
-            .unwrap();
+        let txs = {
+            let mut txs = IndexerPagination::new(Vec::new(), JsonBytes::from_bytes(Bytes::new()));
+            let mut last_key = None;
+            loop {
+                let txs_1 = rpc
+                    .get_transactions(
+                        IndexerSearchKey {
+                            script: lock_script1.clone().into(),
+                            script_search_mode: Some(IndexerSearchMode::Exact),
+                            ..Default::default()
+                        },
+                        IndexerOrder::Asc,
+                        1000.into(),
+                        last_key.clone(),
+                    )
+                    .unwrap();
+
+                if txs_1.objects.is_empty() {
+                    break;
+                } else {
+                    txs.objects.extend(txs_1.objects);
+                    last_key = Some(txs_1.last_cursor);
+                }
+            }
+            txs
+        };
 
         assert_eq!(total_blocks as usize * 3 - 1, txs.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
 
         // test get_transactions rpc group by tx hash with exact search mode
-        let txs = rpc
-            .get_transactions(
-                IndexerSearchKey {
-                    script: lock_script1.clone().into(),
-                    script_search_mode: Some(IndexerSearchMode::Exact),
-                    group_by_transaction: Some(true),
-                    ..Default::default()
-                },
-                IndexerOrder::Asc,
-                1000.into(),
-                None,
-            )
-            .unwrap();
+        let txs = {
+            let mut txs = IndexerPagination::new(Vec::new(), JsonBytes::from_bytes(Bytes::new()));
+            let mut last_key = None;
+
+            loop {
+                let txs_1 = rpc
+                    .get_transactions(
+                        IndexerSearchKey {
+                            script: lock_script1.clone().into(),
+                            script_search_mode: Some(IndexerSearchMode::Exact),
+                            group_by_transaction: Some(true),
+                            ..Default::default()
+                        },
+                        IndexerOrder::Asc,
+                        1000.into(),
+                        last_key.clone(),
+                    )
+                    .unwrap();
+                if txs_1.objects.is_empty() {
+                    break;
+                } else {
+                    txs.objects.extend(txs_1.objects);
+                    last_key = Some(txs_1.last_cursor);
+                }
+            }
+            txs
+        };
 
         assert_eq!(
             total_blocks as usize * 2,

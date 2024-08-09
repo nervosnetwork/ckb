@@ -20,7 +20,7 @@ impl AsyncRichIndexerHandle {
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerTx>, Error> {
-        let limit = limit.value();
+        let limit = std::cmp::min(limit.value(), DEFAULT_REQUEST_LIMIT);
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
