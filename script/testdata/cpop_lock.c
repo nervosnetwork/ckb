@@ -4,9 +4,9 @@
  *    - `num0 == 0 && num1 == 0`
  *    - `cpop(num0) == num 1`
  */
-
-#include "ckb_syscalls.h"
+#include <stdlib.h>
 #include "blockchain.h"
+#include "ckb_syscalls.h"
 
 #ifdef DEBUG
 #include <stdio.h>
@@ -17,25 +17,22 @@
 
 #define SCRIPT_SIZE 32768
 
-static uint64_t cpop (uint64_t rs1) {
+static uint64_t cpop(uint64_t rs1) {
     uint64_t rd;
-    asm volatile (
+    asm volatile(
         "mv s2, %1\n"
         // "cpop s2, s2\n"
         ".byte 0x13,0x19,0x29,0x60\n"
         "mv %0, s2\n"
         : "=r"(rd)
         : "r"(rs1)
-        : "s2"
-    );
+        : "s2");
     return rd;
 }
 
-uint64_t read_u64_le (const uint8_t *src) {
-    return *(const uint64_t *)src;
-}
+uint64_t read_u64_le(const uint8_t *src) { return *(const uint64_t *)src; }
 
-int main (int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
     int ret;
     uint64_t len = SCRIPT_SIZE;
     uint8_t script[SCRIPT_SIZE];
@@ -67,17 +64,20 @@ int main (int argc, char *argv[]) {
     }
 
     volatile uint64_t num0 = read_u64_le(bytes_seg.ptr);
-    volatile uint64_t num1 = read_u64_le(bytes_seg.ptr+8);
+    volatile uint64_t num1 = read_u64_le(bytes_seg.ptr + 8);
 
-    sprintf(message, "num0 = %ld", num0); ckb_debug(message);
-    sprintf(message, "num1 = %ld", num1); ckb_debug(message);
+    sprintf(message, "num0 = %ld", num0);
+    ckb_debug(message);
+    sprintf(message, "num1 = %ld", num1);
+    ckb_debug(message);
 
     if (num0 == 0 && num1 == 0) {
         return CKB_SUCCESS;
     }
 
     volatile uint64_t num1_actual = cpop(num0);
-    sprintf(message, "cpop(%lx) = %ld (actual) == %ld (expected)", num0, num1_actual, num1); ckb_debug(message);
+    sprintf(message, "cpop(%lx) = %ld (actual) == %ld (expected)", num0, num1_actual, num1);
+    ckb_debug(message);
 
     if (num1 != num1_actual) {
         return -5;

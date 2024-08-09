@@ -53,52 +53,10 @@ fn test_current_cycles() {
 
     machine.set_cycles(cycles);
 
-    let result = CurrentCycles::new(0).ecall(&mut machine);
+    let result = CurrentCycles::new(Arc::new(Mutex::new(0))).ecall(&mut machine);
 
     assert!(result.unwrap());
     assert_eq!(machine.registers()[A0], cycles);
-}
-
-#[test]
-fn test_get_memory_limit() {
-    let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
-
-    machine.set_register(A0, 0);
-    machine.set_register(A1, 0);
-    machine.set_register(A2, 0);
-    machine.set_register(A3, 0);
-    machine.set_register(A4, 0);
-    machine.set_register(A5, 0);
-    machine.set_register(A7, GET_MEMORY_LIMIT);
-
-    let result = GetMemoryLimit::new(8).ecall(&mut machine);
-
-    assert!(result.unwrap());
-    assert_eq!(machine.registers()[A0], 8);
-}
-
-#[test]
-fn test_set_content() {
-    let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
-    machine.memory_mut().store64(&20000, &10).unwrap();
-    machine
-        .memory_mut()
-        .store_bytes(30000, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
-        .unwrap();
-
-    machine.set_register(A0, 30000);
-    machine.set_register(A1, 20000);
-    machine.set_register(A2, 0);
-    machine.set_register(A3, 0);
-    machine.set_register(A4, 0);
-    machine.set_register(A5, 0);
-    machine.set_register(A7, SET_CONTENT);
-
-    let content_data = Arc::new(Mutex::new(vec![]));
-    let result = SetContent::new(content_data, 5).ecall(&mut machine);
-
-    assert!(result.unwrap());
-    assert_eq!(machine.memory_mut().load64(&20000).unwrap(), 5);
 }
 
 fn _test_load_extension(

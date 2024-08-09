@@ -19,4 +19,5 @@ fn main() {
     if cfg!(any(feature = "asm", feature = "detect-asm")) && can_enable_asm {
         println!("cargo:rustc-cfg=has_asm");
     }
+    println!("cargo:rerun-if-changed=src");
 }

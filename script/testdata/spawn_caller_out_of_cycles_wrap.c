@@ -1,19 +1,3 @@
-#include <stdint.h>
-#include <string.h>
+#include "spawn_utils.h"
 
-#include "ckb_syscalls.h"
-
-int main() {
-  int8_t spawn_exit_code = 255;
-  spawn_args_t spgs = {
-      .memory_limit = 8,
-      .exit_code = &spawn_exit_code,
-      .content = NULL,
-      .content_length = NULL,
-  };
-  uint64_t success = ckb_spawn(2, 3, 0, 0, NULL, &spgs);
-  if (success != 0) {
-    return 1;
-  }
-  return spawn_exit_code;
-}
+int main() { return simple_spawn(2); }

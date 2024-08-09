@@ -59,6 +59,9 @@ pub struct TxPoolInfo {
     pub tx_size_limit: Uint64,
     /// Total limit on the size of transactions in the tx-pool
     pub max_tx_pool_size: Uint64,
+
+    /// verify_queue size
+    pub verify_queue_size: Uint64,
 }
 
 impl From<CoreTxPoolInfo> for TxPoolInfo {
@@ -76,6 +79,7 @@ impl From<CoreTxPoolInfo> for TxPoolInfo {
             last_txs_updated_at: tx_pool_info.last_txs_updated_at.into(),
             tx_size_limit: tx_pool_info.tx_size_limit.into(),
             max_tx_pool_size: tx_pool_info.max_tx_pool_size.into(),
+            verify_queue_size: (tx_pool_info.verify_queue_size as u64).into(),
         }
     }
 }

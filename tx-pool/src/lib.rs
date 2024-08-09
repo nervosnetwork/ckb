@@ -3,7 +3,6 @@
 
 pub mod block_assembler;
 mod callback;
-mod chunk_process;
 mod component;
 pub mod error;
 mod persisted;
@@ -12,6 +11,7 @@ mod pool_cell;
 mod process;
 pub mod service;
 mod util;
+mod verify_mgr;
 
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::TxEntry;

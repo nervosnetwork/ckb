@@ -1,8 +1,8 @@
+mod close;
 mod current_cycles;
-mod current_memory;
 mod debugger;
 mod exec;
-mod get_memory_limit;
+mod inherited_fd;
 mod load_block_extension;
 mod load_cell;
 mod load_cell_data;
@@ -12,10 +12,14 @@ mod load_script;
 mod load_script_hash;
 mod load_tx;
 mod load_witness;
-mod set_content;
+mod pipe;
+mod process_id;
+mod read;
 pub(crate) mod spawn;
 mod utils;
 mod vm_version;
+mod wait;
+mod write;
 
 #[cfg(test)]
 mod pause;
@@ -23,11 +27,11 @@ mod pause;
 #[cfg(test)]
 mod tests;
 
+pub use self::close::Close;
 pub use self::current_cycles::CurrentCycles;
-pub use self::current_memory::CurrentMemory;
 pub use self::debugger::Debugger;
 pub use self::exec::Exec;
-pub use self::get_memory_limit::GetMemoryLimit;
+pub use self::inherited_fd::InheritedFd;
 pub use self::load_block_extension::LoadBlockExtension;
 pub use self::load_cell::LoadCell;
 pub use self::load_cell_data::LoadCellData;
@@ -37,9 +41,13 @@ pub use self::load_script::LoadScript;
 pub use self::load_script_hash::LoadScriptHash;
 pub use self::load_tx::LoadTx;
 pub use self::load_witness::LoadWitness;
-pub use self::set_content::SetContent;
+pub use self::pipe::Pipe;
+pub use self::process_id::ProcessID;
+pub use self::read::Read;
 pub use self::spawn::Spawn;
 pub use self::vm_version::VMVersion;
+pub use self::wait::Wait;
+pub use self::write::Write;
 
 #[cfg(test)]
 pub use self::pause::Pause;
@@ -55,9 +63,11 @@ pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 pub const SLICE_OUT_OF_BOUND: u8 = 3;
 pub const WRONG_FORMAT: u8 = 4;
-pub const SPAWN_EXCEEDED_MAX_CONTENT_LENGTH: u8 = 5;
-pub const SPAWN_WRONG_MEMORY_LIMIT: u8 = 6;
-pub const SPAWN_EXCEEDED_MAX_PEAK_MEMORY: u8 = 7;
+pub const WAIT_FAILURE: u8 = 5;
+pub const INVALID_FD: u8 = 6;
+pub const OTHER_END_CLOSED: u8 = 7;
+pub const MAX_VMS_SPAWNED: u8 = 8;
+pub const MAX_FDS_CREATED: u8 = 9;
 
 pub const VM_VERSION: u64 = 2041;
 pub const CURRENT_CYCLES: u64 = 2042;
@@ -75,21 +85,22 @@ pub const LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
 pub const LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER: u64 = 2091;
 pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
-pub const SPAWN: u64 = 2101;
-pub const GET_MEMORY_LIMIT: u64 = 2102;
-pub const SET_CONTENT: u64 = 2103;
 pub const LOAD_BLOCK_EXTENSION: u64 = 2104;
-pub const CURRENT_MEMORY: u64 = 2105;
+pub const SPAWN: u64 = 2601;
+pub const WAIT: u64 = 2602;
+pub const PROCESS_ID: u64 = 2603;
+pub const PIPE: u64 = 2604;
+pub const WRITE: u64 = 2605;
+pub const READ: u64 = 2606;
+pub const INHERITED_FD: u64 = 2607;
+pub const CLOSE: u64 = 2608;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 #[cfg(test)]
 pub const DEBUG_PAUSE: u64 = 2178;
 
-pub const SPAWN_MAX_MEMORY: u64 = 8;
-pub const SPAWN_MAX_PEAK_MEMORY: u64 = 64; // 64 * 0.5M = 32M
-pub const SPAWN_MEMORY_PAGE_SIZE: u64 = 512 * 1024; // 0.5M
-pub const SPAWN_MAX_CONTENT_LENGTH: u64 = 256 * 1024; // 256K
+pub const EXEC_LOAD_ELF_V2_CYCLES_BASE: u64 = 75_000;
 pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
-pub const SPAWN_EXTRA_CYCLES_PER_MEMORY_PAGE: u64 = 8192;
+pub const SPAWN_YIELD_CYCLES_BASE: u64 = 800;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {

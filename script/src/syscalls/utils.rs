@@ -47,21 +47,3 @@ pub fn load_c_string<Mac: SupportMachine>(machine: &mut Mac, addr: u64) -> Resul
 
     Ok(Bytes::from(buffer))
 }
-
-pub fn load_bytes<Mac: SupportMachine>(
-    machine: &mut Mac,
-    addr: u64,
-    size: u64,
-) -> Result<Bytes, VMError> {
-    let mut buffer = Vec::new();
-    let mut addr = addr;
-    for _ in 0..size {
-        let byte = machine
-            .memory_mut()
-            .load8(&Mac::REG::from_u64(addr))?
-            .to_u8();
-        buffer.push(byte);
-        addr += 1;
-    }
-    Ok(Bytes::from(buffer))
-}

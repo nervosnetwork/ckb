@@ -9,19 +9,22 @@ LIB_TARGET := riscv64-unknown-linux-gnu
 LIB_CC :=      $(LIB_TARGET)-gcc
 LIB_OBJCOPY := $(LIB_TARGET)-objcopy
 
-# Tip: add `-DDEBUG` to enable the debug outputs
 COMMON_CFLAGS := -O3 \
                  -I deps/ckb-c-stdlib \
+                 -I deps/ckb-c-stdlib/libc \
                  -I deps/ckb-c-stdlib/molecule \
-                 -Wall -Werror -g
+                 -Wall -Werror \
+				 -fno-builtin -nostdinc -nostartfiles \
+				 -Wno-stringop-overflow
+# enable ckb-c-stdlib's printf
+COMMON_CFLAGS += -DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
+
 BIN_CFLAGS := $(COMMON_CFLAGS)
-LIB_CFLAGS := -shared -fPIC -nostdlib -nostartfiles -fvisibility=hidden $(COMMON_CFLAGS)
+LIB_CFLAGS := -shared -fPIC -nostdlib -fvisibility=hidden -D__SHARED_LIBRARY__ $(COMMON_CFLAGS)
 
 COMMON_LDFLAGS := -Wl,-static -fdata-sections -ffunction-sections -Wl,--gc-sections
 BIN_LDFLAGS := $(COMMON_LDFLAGS)
 LIB_LDFLAGS := $(COMMON_LDFLAGS)
-
-OBJCOPY_FLAGS := --strip-debug --strip-all
 
 # nervos/ckb-riscv-gnu-toolchain:bionic-20210804
 BIN_BUILDER_DOCKER := nervos/ckb-riscv-gnu-toolchain@sha256:cfeb97864cf2039a0900bfa83c3f112a780b2281bded395604b8a8a693c95e08
@@ -45,41 +48,41 @@ ALL_BINS := jalr_zero \
             exec_caller_big_offset_length \
             exec_configurable_callee \
             exec_configurable_caller \
+            infinite_exec \
+            infinite_loop \
             load_code_to_stack_then_reuse \
             load_is_even_into_global \
             load_is_even_with_snapshot \
             load_arithmetic \
             debugger \
-            get_memory_limit \
-            set_content \
-            spawn_big_content_length \
-            spawn_big_memory_size \
-            spawn_callee_exec_callee \
-            spawn_callee_exec_caller \
-            spawn_callee_get_memory_limit \
-            spawn_callee_out_of_cycles \
-            spawn_callee_set_content \
-            spawn_callee_strcat \
+			spawn_caller_strcat \
+			spawn_callee_strcat \
             spawn_caller_exec \
-            spawn_caller_get_memory_limit \
+            spawn_callee_exec_caller \
+            spawn_callee_exec_callee \
+            spawn_caller_strcat_wrap \
+            spawn_recursive \
+            spawn_callee_out_of_cycles \
             spawn_caller_out_of_cycles \
             spawn_caller_out_of_cycles_wrap \
-            spawn_caller_set_content \
-            spawn_caller_strcat_wrap \
-            spawn_caller_strcat \
-            spawn_caller_strcat_data_hash \
-            spawn_recursive \
-            spawn_current_memory \
             spawn_caller_current_cycles \
             spawn_callee_current_cycles \
-            spawn_peak_memory_512k_to_32m \
-            spawn_peak_memory_2m_to_32m \
-            spawn_peak_memory_4m_to_32m
+            spawn_times \
+            spawn_cases \
+            spawn_configurable_caller \
+            spawn_configurable_callee \
+            spawn_dag \
+            spawn_fuzzing \
+            spawn_huge_swap \
+            spawn_cycles \
+            spawn_io_cycles \
+            spawn_saturate_memory
+
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
 
-all-bins: clean-bins $(ALL_BINS)
-all-libs: clean-libs $(ALL_LIBS)
+all-bins: $(ALL_BINS)
+all-libs: $(ALL_LIBS)
 
 bins-in-docker:
 	docker run --rm -v `pwd`:/code $(BIN_BUILDER_DOCKER) bash -c "cd /code && make all-bins"
@@ -94,36 +97,38 @@ clean-bins:
 clean-libs:
 	-rm -f $(ALL_LIBS)
 
+fmt:
+	clang-format -i *.c *.h
+
 clean: clean-bins clean-libs
 
 %: %.c
 	$(BIN_CC) $(BIN_CFLAGS) $(BIN_LDFLAGS) -o $@ $<
-	$(BIN_OBJCOPY) $(OBJCOPY_FLAGS) $@
 
 %.lib: %.c
 	$(LIB_CC) $(LIB_CFLAGS) $(LIB_LDFLAGS) -o $@ $<
-	$(LIB_OBJCOPY) $(OBJCOPY_FLAGS) $@
 
 %: %.S
 	$(BIN_AS) -o $@.o $<
 	$(BIN_LD) -o $@ $@.o
 	@rm $@.o
-	$(BIN_OBJCOPY) $(OBJCOPY_FLAGS) $@
 
 jalr_zero: jalr_zero.S
 cadd_hint_lock: cadd_hint_lock.S
 	$(BIN_AS) -march=rv64imc -o $@.o $<
 	$(BIN_LD) -o $@ $@.o
 	@rm $@.o
-	$(BIN_OBJCOPY) $(OBJCOPY_FLAGS) $@
 cpop_lock: cpop_lock.c
 mop_adc_lock: mop_adc_lock.S
 current_cycles: current_cycles.c
 current_cycles_with_snapshot: current_cycles_with_snapshot.c
+infinite_exec: infinite_exec.c
+infinite_loop: infinite_loop.c
 vm_version: vm_version.c
 vm_version_2: vm_version_2.c
 vm_version_with_snapshot: vm_version_with_snapshot.c
 exec_callee: exec_callee.c
+exec_callee_pause: exec_callee_pause.c
 exec_caller_from_cell_data: exec_caller_from_cell_data.c
 exec_caller_from_witness: exec_caller_from_witness.c
 exec_caller_big_offset_length: exec_caller_big_offset_length.c
@@ -139,28 +144,25 @@ mul2.lib: mul2.c
 div2.lib: div2.c
 load_arithmetic: load_arithmetic.c
 
-get_memory_limit: get_memory_limit.c
-set_content: set_content.c
-spawn_big_content_length: spawn_big_content_length.c
-spawn_big_memory_size: spawn_big_memory_size.c
-spawn_callee_current_cycles: spawn_callee_current_cycles.c
-spawn_callee_exec_callee: spawn_callee_exec_callee.c
-spawn_callee_exec_caller: spawn_callee_exec_caller.c
-spawn_callee_get_memory_limit: spawn_callee_get_memory_limit.c
-spawn_callee_out_of_cycles: spawn_callee_out_of_cycles.c
-spawn_callee_set_content: spawn_callee_out_of_cycles.c
-spawn_callee_strcat: spawn_callee_strcat.c
-spawn_caller_current_cycles: spawn_caller_current_cycles.c
+spawn_caller_strcat: spawn_caller_strcat.c spawn_utils.h
+spawn_callee_strcat: spawn_callee_strcat.c spawn_utils.h
 spawn_caller_exec: spawn_caller_exec.c
-spawn_caller_get_memory_limit: spawn_caller_get_memory_limit.c
+spawn_callee_exec_caller: spawn_callee_exec_caller.c
+spawn_callee_exec_callee: spawn_callee_exec_callee.c
+spawn_caller_strcat_wrap: spawn_caller_strcat_wrap.c spawn_utils.h
+spawn_recursive: spawn_recursive.c spawn_utils.h
 spawn_caller_out_of_cycles: spawn_caller_out_of_cycles.c
+spawn_callee_out_of_cycles: spawn_callee_out_of_cycles.c
 spawn_caller_out_of_cycles_wrap: spawn_caller_out_of_cycles_wrap.c
-spawn_caller_set_content: spawn_caller_set_content.c
-spawn_caller_strcat_wrap: spawn_caller_strcat_wrap.c
-spawn_caller_strcat: spawn_caller_strcat.c
-spawn_caller_strcat_data_hash: spawn_caller_strcat_data_hash.c
-spawn_peak_memory_512k_to_32m: spawn_peak_memory_512k_to_32m.c
-spawn_peak_memory_2m_to_32m: spawn_peak_memory_2m_to_32m.c
-spawn_peak_memory_4m_to_32m: spawn_peak_memory_4m_to_32m.c
-spawn_recursive: spawn_recursive.c
-spawn_current_memory: spawn_current_memory.c
+spawn_caller_current_cycles: spawn_caller_current_cycles.c
+spawn_callee_current_cycles: spawn_callee_current_cycles.c
+spawn_times: spawn_times.c spawn_utils.h
+spawn_cases: spawn_cases.c spawn_utils.h
+spawn_configurable_caller: spawn_configurable_caller.c spawn_utils.h
+spawn_configurable_callee: spawn_configurable_callee.c spawn_utils.h
+spawn_dag: spawn_dag.c spawn_dag.h spawn_dag_escape_encoding.h
+spawn_fuzzing: spawn_fuzzing.c spawn_utils.h
+spawn_huge_swap: spawn_huge_swap.c spawn_utils.h
+spawn_cycles: spawn_cycles.c spawn_utils.h
+spawn_io_cycles: spawn_io_cycles.c spawn_utils.h
+spawn_saturate_memory: spawn_saturate_memory.c spawn_utils.h
