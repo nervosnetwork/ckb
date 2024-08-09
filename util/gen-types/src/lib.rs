@@ -19,8 +19,10 @@ pub use molecule::bytes;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "std")] {
+        #[allow(unused_imports)]
         use std::{vec, borrow};
     } else {
+        #[allow(unused_imports)]
         use alloc::{vec, borrow};
     }
 }

@@ -18,6 +18,8 @@ use sqlx::Row;
 
 use std::sync::{Arc, RwLock};
 
+const DEFAULT_REQUEST_LIMIT: u32 = 400;
+
 /// Async handle to the rich-indexer.
 #[derive(Clone)]
 pub struct AsyncRichIndexerHandle {

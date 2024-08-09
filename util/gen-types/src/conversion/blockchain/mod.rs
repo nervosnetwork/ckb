@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
 mod std_env;
 
-use crate::{borrow::ToOwned, bytes::Bytes, generated::packed, prelude::*, vec::Vec};
+use crate::{bytes::Bytes, generated::packed, prelude::*, vec::Vec};
 
 impl Pack<packed::Byte32> for [u8; 32] {
     fn pack(&self) -> packed::Byte32 {
@@ -46,13 +46,13 @@ impl Pack<packed::Bytes> for Bytes {
 
 impl<'r> Unpack<Bytes> for packed::BytesReader<'r> {
     fn unpack(&self) -> Bytes {
-        Bytes::from(self.raw_data().to_owned())
+        Bytes::from(self.raw_data().to_vec())
     }
 }
 
 impl Unpack<Bytes> for packed::Bytes {
     fn unpack(&self) -> Bytes {
-        self.raw_data()
+        Bytes::from(self.raw_data().to_vec())
     }
 }
 
