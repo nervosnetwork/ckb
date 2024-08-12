@@ -1501,12 +1501,15 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-vm",
+ "daggy",
  "faster-hex",
+ "molecule",
  "proptest",
  "rand 0.8.5",
  "serde",
  "tempfile",
  "tiny-keccak",
+ "tokio",
 ]
 
 [[package]]
@@ -1700,6 +1703,7 @@ dependencies = [
  "ckb-metrics",
  "ckb-network",
  "ckb-reward-calculator",
+ "ckb-script",
  "ckb-snapshot",
  "ckb-stop-handler",
  "ckb-store",
@@ -1711,6 +1715,7 @@ dependencies = [
  "hyper",
  "lru",
  "multi_index_map",
+ "num_cpus",
  "rand 0.8.5",
  "rustc-hash",
  "sentry",
@@ -1775,6 +1780,7 @@ dependencies = [
  "ckb-verification-traits",
  "derive_more",
  "lru",
+ "tokio",
 ]
 
 [[package]]
@@ -1813,9 +1819,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.9"
+version = "0.24.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2c3d68dc7f891e5555c7ebc054722b28ab005e51c5076f54c20d36002dc8e83"
+checksum = "ddff96029d3298cb630e95f29d4b9a93384e938a0b75758684aa8794b53bdd1a"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1831,9 +1837,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.9"
+version = "0.24.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2fdf9c8ee14409b2208d23b9ad88828242d7881153ddc04872b66d2e018a52f"
+checksum = "c280bf1d589d23ab0358f58601c2187fc6be86a131644583ef72ea96a0a13ddd"
 dependencies = [
  "paste",
 ]
@@ -2089,11 +2095,10 @@ dependencies = [
 
 [[package]]
 name = "crossbeam"
-version = "0.8.2"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2801af0d36612ae591caa9568261fddce32ce6e08a7275ea334a06a4ad021a2c"
+checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
 dependencies = [
- "cfg-if",
  "crossbeam-channel",
  "crossbeam-deque",
  "crossbeam-epoch",
@@ -2220,6 +2225,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8bfdaacb3c887a54d41bdf48d3af8873b3f5566469f8ba21b92057509f116e"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "daggy"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91a9304e55e9d601a39ae4deaba85406d5c0980e106f65afcf0460e9af1e7602"
+dependencies = [
+ "petgraph",
 ]
 
 [[package]]
@@ -3580,13 +3594,12 @@ dependencies = [
 
 [[package]]
 name = "minstant"
-version = "0.1.4"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8dfc09c8abbe145769b6d51fd03f84fdd459906cbd6ac54e438708f016b40bd"
+checksum = "1fb9b5c752f145ac5046bccc3c4f62892e3c950c1d1eab80c5949cd68a2078db"
 dependencies = [
  "ctor",
- "libc",
- "wasi 0.7.0",
+ "web-time",
 ]
 
 [[package]]
@@ -6198,12 +6211,6 @@ dependencies = [
 
 [[package]]
 name = "wasi"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b89c3ce4ce14bdc6fb6beaf9ec7928ca331de5df7e5ea278375642a2f478570d"
-
-[[package]]
-name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
@@ -6291,6 +6298,16 @@ name = "web-sys"
 version = "0.3.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77afa9a11836342370f4817622a2f0f418b134426d91a82dfb48f532d2ec13ef"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

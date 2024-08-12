@@ -21,8 +21,8 @@ pub use crate::error::{
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::HeaderVerifier;
 pub use crate::transaction_verifier::{
-    CapacityVerifier, ContextualTransactionVerifier, ContextualWithoutScriptTransactionVerifier,
-    DaoScriptSizeVerifier, NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
+    CapacityVerifier, ContextualTransactionVerifier, DaoScriptSizeVerifier,
+    NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
     TimeRelativeTransactionVerifier,
 };
 pub use ckb_script::{

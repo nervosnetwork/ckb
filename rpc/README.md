@@ -85,6 +85,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `notify_transaction`](#integration_test-notify_transaction)
         * [Method `generate_block_with_template`](#integration_test-generate_block_with_template)
         * [Method `calculate_dao_field`](#integration_test-calculate_dao_field)
+        * [Method `send_test_transaction`](#integration_test-send_test_transaction)
     * [Module Miner](#module-miner) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/miner_rpc_doc.json)
 
         * [Method `get_block_template`](#miner-get_block_template)
@@ -3549,6 +3550,95 @@ Response
 }
 ```
 
+<a id="integration_test-send_test_transaction"></a>
+#### Method `send_test_transaction`
+* `send_test_transaction(tx, outputs_validator)`
+    * `tx`: [`Transaction`](#type-transaction)
+    * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
+* result: [`H256`](#type-h256)
+
+Submits a new test local transaction into the transaction pool, only for testing.
+If the transaction is already in the pool, rebroadcast it to peers.
+
+###### Params
+
+* `transaction` - The transaction.
+* `outputs_validator` - Validates the transaction outputs before entering the tx-pool. (**Optional**, default is "passthrough").
+
+###### Errors
+
+* [`PoolRejectedTransactionByOutputsValidator (-1102)`](../enum.RPCError.html#variant.PoolRejectedTransactionByOutputsValidator) - The transaction is rejected by the validator specified by `outputs_validator`. If you really want to send transactions with advanced scripts, please set `outputs_validator` to "passthrough".
+* [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
+* [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
+* [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+* [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
+* [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+* [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
+
+###### Examples
+
+Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "send_test_transaction",
+  "params": [
+    {
+      "cell_deps": [
+        {
+          "dep_type": "code",
+          "out_point": {
+            "index": "0x0",
+            "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+          }
+        }
+      ],
+      "header_deps": [
+        "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+      ],
+      "inputs": [
+        {
+          "previous_output": {
+            "index": "0x0",
+            "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+          },
+          "since": "0x0"
+        }
+      ],
+      "outputs": [
+        {
+          "capacity": "0x2540be400",
+          "lock": {
+            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+            "hash_type": "data",
+            "args": "0x"
+          },
+          "type": null
+        }
+      ],
+      "outputs_data": [
+        "0x"
+      ],
+      "version": "0x0",
+      "witnesses": []
+    },
+    "passthrough"
+  ]
+}
+```
+
+Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3"
+}
+```
+
 ### Module `Miner`
 - [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/miner_rpc_doc.json)
 
@@ -4619,7 +4709,8 @@ Response
     "tip_number": "0x400",
     "total_tx_cycles": "0x219",
     "total_tx_size": "0x112",
-    "tx_size_limit": "0x7d000"
+    "tx_size_limit": "0x7d000",
+    "verify_queue_size": "0x0"
   }
 }
 ```
@@ -7159,6 +7250,8 @@ Transaction pool information.
 * `tx_size_limit`: [`Uint64`](#type-uint64) - Limiting transactions to tx_size_limit
 
     Transactions with a large size close to the block size limit may not be packaged, because the block header and cellbase are occupied, so the tx-pool is limited to accepting transaction up to tx_size_limit.
+
+* `verify_queue_size`: [`Uint64`](#type-uint64) - verify_queue size
 
 ### Type `TxStatus`
 Transaction status and the block hash if it is committed.

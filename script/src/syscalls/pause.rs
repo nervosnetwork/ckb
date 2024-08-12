@@ -28,6 +28,12 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Pause {
         if self.skip.load(Ordering::SeqCst) {
             return Ok(true);
         }
-        Err(VMError::CyclesExceeded)
+        // Note(yukang): this syscall is used for tests and debugging,
+        // old verify and tests logic use VMInternalError::CyclesExceeded as a flag to Suspend,
+        // in new verify VMInternalError::CycleExceeded is used to indicate cycles exceeded error only,
+        // VMInternalError::Pause is used to indicate the script execution should be paused.
+        // To keep compatibility with old tests, we should change to use VMInternalError::Pause
+        // and use VMInternalError::CyclesExceeded | VMInternalError::Pause as a flag to Suspend in tests code.
+        Err(VMError::Pause)
     }
 }
