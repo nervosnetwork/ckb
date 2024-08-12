@@ -12,6 +12,7 @@ impl Spec for RandomlyKill {
         let mut rng = thread_rng();
         let node = &mut nodes[0];
         for _ in 0..rng.gen_range(10..20) {
+            node.rpc_client().wait_rpc_ready();
             let n = rng.gen_range(0..10);
             // TODO: the kill of child process and mining are actually sequential here
             // We need to find some way to so these two things in parallel.

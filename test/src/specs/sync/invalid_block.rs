@@ -26,6 +26,10 @@ impl Spec for ChainContainsInvalidBlock {
         let good_node = nodes.pop().unwrap();
         let fresh_node = nodes.pop().unwrap();
 
+        // wait a few seconds to let find_unverified_block thread finish
+        #[cfg(target_os = "macos")]
+        std::thread::sleep(Duration::from_secs(3));
+
         // Build invalid chain on bad_node
         bad_node.mine(3);
         let invalid_block = bad_node

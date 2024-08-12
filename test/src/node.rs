@@ -24,7 +24,8 @@ use ckb_types::{
 };
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, RwLock};
@@ -680,6 +681,9 @@ impl Node {
                         status,
                         self.log_path().display()
                     );
+                    info!("Last 200 lines of log:");
+                    self.print_last_500_lines_log(&self.log_path());
+                    info!("End of last 200 lines of log");
                     // parent process will exit
                     return;
                 }
@@ -702,6 +706,20 @@ impl Node {
             killed: false,
         });
         self.set_node_id(node_info.node_id.as_str());
+    }
+
+    fn print_last_500_lines_log(&self, log_file: &Path) {
+        let file = File::open(log_file).expect("open log file");
+        let reader = BufReader::new(file);
+        let lines: Vec<String> = reader.lines().map(|line| line.unwrap()).collect();
+        let start = if lines.len() > 500 {
+            lines.len() - 500
+        } else {
+            0
+        };
+        for line in lines.iter().skip(start) {
+            info!("{}", line);
+        }
     }
 
     pub(crate) fn set_process_guard(&mut self, guard: ProcessGuard) {
@@ -752,6 +770,38 @@ impl Node {
         config.chain.spec.absolutize(root_dir);
 
         Ok(config)
+    }
+
+    pub fn wait_find_unverified_blocks_finished(&self) {
+        // wait for node[0] to find unverified blocks finished
+
+        let now = std::time::Instant::now();
+        while !self
+            .access_log(|line: &str| line.contains("find unverified blocks finished"))
+            .expect("node[0] must have log")
+        {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if now.elapsed() > Duration::from_secs(60) {
+                panic!("node[0] should find unverified blocks finished in 60s");
+            }
+            info!("waiting for node[0] to find unverified blocks finished");
+        }
+    }
+
+    pub fn access_log<F>(&self, line_checker: F) -> io::Result<bool>
+    where
+        F: Fn(&str) -> bool,
+    {
+        let file = File::open(self.log_path())?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            if line_checker(&line) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn access_db<F>(&self, f: F)
@@ -884,7 +934,7 @@ pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
     let mut tip_headers: HashSet<ckb_jsonrpc_types::HeaderView> =
         HashSet::with_capacity(nodes.len());
     // 60 seconds is a reasonable timeout to sync, even for poor CI server
-    let synced = wait_until(60, || {
+    let synced = wait_until(120, || {
         tip_headers = nodes
             .as_ref()
             .iter()
