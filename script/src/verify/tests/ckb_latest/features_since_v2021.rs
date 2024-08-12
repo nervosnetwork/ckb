@@ -835,10 +835,12 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
+        #[allow(unused_assignments)]
         let mut init_state: Option<TransactionState> = None;
 
-        if let VerifyResult::Suspended(state) = verifier.resumable_verify(step_cycles).unwrap() {
-            init_state = Some(state);
+        match verifier.resumable_verify(step_cycles).unwrap() {
+            VerifyResult::Suspended(state) => init_state = Some(state),
+            VerifyResult::Completed(cycle) => return Ok(cycle),
         }
 
         loop {
