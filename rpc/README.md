@@ -4709,7 +4709,8 @@ Response
     "tip_number": "0x400",
     "total_tx_cycles": "0x219",
     "total_tx_size": "0x112",
-    "tx_size_limit": "0x7d000"
+    "tx_size_limit": "0x7d000",
+    "verify_queue_size": "0x0"
   }
 }
 ```
