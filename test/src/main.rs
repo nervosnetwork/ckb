@@ -398,7 +398,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(RequestUnverifiedBlocks),
         Box::new(SyncTimeout),
-        Box::new(SyncChurn),
         Box::new(SyncInvalid),
         Box::new(GetBlockFilterCheckPoints),
         Box::new(GetBlockFilterHashes),
@@ -591,6 +590,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmVersion2),
         Box::new(CheckVmBExtension),
         Box::new(RandomlyKill),
+        // SyncChurn : This is a CPU-intensive operation, so we place it last.
+        Box::new(SyncChurn),
     ];
     specs.shuffle(&mut thread_rng());
     specs
