@@ -35,6 +35,9 @@ pub struct IndexerConfig {
     /// The init tip block hash
     #[serde(default)]
     pub init_tip_hash: Option<H256>,
+    /// Max iterator next limit count
+    #[serde(default = "default_iterator_next_limit")]
+    pub iterator_next_limit: usize,
     /// Rich indexer config options
     #[serde(default)]
     pub rich_indexer: RichIndexerConfig,
@@ -44,10 +47,15 @@ const fn default_poll_interval() -> u64 {
     2
 }
 
+const fn default_iterator_next_limit() -> usize {
+    100_000
+}
+
 impl Default for IndexerConfig {
     fn default() -> Self {
         IndexerConfig {
-            poll_interval: 2,
+            poll_interval: default_poll_interval(),
+            iterator_next_limit: default_iterator_next_limit(),
             index_tx_pool: false,
             store: PathBuf::new(),
             secondary_path: PathBuf::new(),
