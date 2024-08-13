@@ -926,6 +926,7 @@ Response
       "block_hash": null,
       "block_number": null,
       "status": "pending",
+      "tx_index": null,
       "reason": null
     }
   }
@@ -946,6 +947,7 @@ The response looks like below when `verbosity` is 0.
       "block_hash": null,
       "block_number": null,
       "status": "pending",
+      "tx_index": null,
       "reason": null
     }
   }
