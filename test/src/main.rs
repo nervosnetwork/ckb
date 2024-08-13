@@ -398,7 +398,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(RequestUnverifiedBlocks),
         Box::new(SyncTimeout),
-        Box::new(SyncChurn),
         Box::new(SyncInvalid),
         Box::new(GetBlockFilterCheckPoints),
         Box::new(GetBlockFilterHashes),
@@ -593,6 +592,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RandomlyKill),
     ];
     specs.shuffle(&mut thread_rng());
+    specs.append(&mut vec![Box::new(SyncChurn) as Box<dyn Spec>]);
     specs
 }
 
