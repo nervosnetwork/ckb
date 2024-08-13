@@ -148,11 +148,17 @@ fn main() {
     let mut test_results = Vec::new();
     let mut worker_running = worker_count;
     let mut done_specs = 0;
+    let mut started_sequential = false;
     while worker_running > 0 {
         if max_time > 0 && start_time.elapsed().as_secs() > max_time {
             // shutdown, specs running to long
             workers.shutdown();
             break;
+        }
+
+        if worker_running == 1 && !started_sequential {
+            started_sequential = true;
+            workers.start_sequencial()
         }
 
         let msg = match notify_rx.recv_timeout(Duration::from_secs(5)) {
@@ -590,9 +596,9 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmVersion2),
         Box::new(CheckVmBExtension),
         Box::new(RandomlyKill),
+        Box::new(SyncChurn),
     ];
     specs.shuffle(&mut thread_rng());
-    specs.insert(0, Box::new(SyncChurn) as Box<dyn Spec>);
     specs
 }
 
