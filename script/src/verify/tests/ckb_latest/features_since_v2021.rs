@@ -950,12 +950,12 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
     if script_version == crate::ScriptVersion::V2 {
         assert!(
             cycles >= TWO_IN_TWO_OUT_CYCLES - V2_CYCLE_BOUND,
-            "step_cycles {step_cycles}"
+            "cycles {cycles} step_cycles {step_cycles}"
         );
     } else {
         assert!(
             cycles >= TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
-            "step_cycles {step_cycles}"
+            "cycles {cycles} step_cycles {step_cycles}"
         );
     }
     assert_eq!(cycles, cycles_once, "step_cycles {step_cycles}");
