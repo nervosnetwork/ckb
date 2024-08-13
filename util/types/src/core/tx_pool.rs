@@ -355,6 +355,9 @@ pub struct TxPoolInfo {
     pub tx_size_limit: u64,
     /// Total limit on the size of transactions in the tx-pool
     pub max_tx_pool_size: u64,
+
+    /// verify queue number
+    pub verify_queue_size: usize,
 }
 
 /// A struct as a sorted key in tx-pool

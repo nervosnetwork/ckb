@@ -1,21 +1,22 @@
+use crate::scheduler::Scheduler;
 #[cfg(test)]
 use crate::syscalls::Pause;
+use crate::syscalls::{InheritedFd, ProcessID, EXEC_LOAD_ELF_V2_CYCLES_BASE};
+use crate::types::{DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID};
 use crate::{
-    cost_model::transferred_byte_cycles,
     error::{ScriptError, TransactionScriptError},
     syscalls::{
-        spawn::{build_child_machine, update_caller_machine},
-        CurrentCycles, CurrentMemory, Debugger, Exec, GetMemoryLimit, LoadBlockExtension, LoadCell,
-        LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness,
-        SetContent, Spawn, VMVersion,
+        Close, CurrentCycles, Debugger, Exec, LoadBlockExtension, LoadCell, LoadCellData,
+        LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, Pipe, Read, Spawn,
+        VMVersion, Wait, Write,
     },
     type_id::TypeIdSystemScript,
     types::{
-        CoreMachine, DebugPrinter, Indices, Machine, MachineContext, ResumableMachine, ResumePoint,
-        ScriptGroup, ScriptGroupType, ScriptVersion, SpawnData, TransactionSnapshot,
-        TransactionState, VerifyResult,
+        CoreMachine, DebugPrinter, Indices, ScriptGroup, ScriptGroupType, ScriptVersion,
+        TransactionSnapshot, TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
+    ChunkCommand,
 };
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
@@ -31,14 +32,17 @@ use ckb_types::{
     packed::{Byte32, CellOutput, OutPoint, Script},
     prelude::*,
 };
-use ckb_vm::{
-    cost_model::estimate_cycles,
-    snapshot::{resume, Snapshot},
-    DefaultMachineBuilder, Error as VMInternalError, SupportMachine, Syscalls,
-};
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use ckb_vm::machine::Pause as VMPause;
+use ckb_vm::{snapshot2::Snapshot2Context, Error as VMInternalError, Syscalls};
 use std::sync::{Arc, Mutex};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::RwLock,
+};
+use tokio::sync::{
+    oneshot,
+    watch::{self, Receiver},
+};
 
 #[cfg(test)]
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -47,17 +51,18 @@ use core::sync::atomic::{AtomicBool, Ordering};
 mod tests;
 
 pub enum ChunkState {
-    Suspended(Vec<ResumableMachine>, Arc<Mutex<MachineContext>>),
-    Completed(Cycle),
+    Suspended(Option<FullSuspendedState>),
+    // (total_cycles, consumed_cycles in last chunk)
+    Completed(Cycle, Cycle),
 }
 
 impl ChunkState {
-    pub fn suspended(machines: Vec<ResumableMachine>, context: Arc<Mutex<MachineContext>>) -> Self {
-        ChunkState::Suspended(machines, context)
+    pub fn suspended(state: FullSuspendedState) -> Self {
+        ChunkState::Suspended(Some(state))
     }
 
     pub fn suspended_type_id() -> Self {
-        ChunkState::Suspended(vec![], Default::default())
+        ChunkState::Suspended(None)
     }
 }
 
@@ -68,33 +73,43 @@ enum DataGuard {
 }
 
 /// LazyData wrapper make sure not-loaded data will be loaded only after one access
-#[derive(Debug, PartialEq, Eq, Clone)]
-struct LazyData(RefCell<DataGuard>);
+#[derive(Debug, Clone)]
+struct LazyData(Arc<RwLock<DataGuard>>);
 
 impl LazyData {
     fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
         match &cell_meta.mem_cell_data {
-            Some(data) => LazyData(RefCell::new(DataGuard::Loaded(data.to_owned()))),
-            None => LazyData(RefCell::new(DataGuard::NotLoaded(
+            Some(data) => LazyData(Arc::new(RwLock::new(DataGuard::Loaded(data.to_owned())))),
+            None => LazyData(Arc::new(RwLock::new(DataGuard::NotLoaded(
                 cell_meta.out_point.clone(),
-            ))),
+            )))),
         }
     }
 
-    fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Bytes {
-        let guard = self.0.borrow().to_owned();
+    fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Result<Bytes, ScriptError> {
+        let guard = self
+            .0
+            .read()
+            .map_err(|_| ScriptError::Other("RwLock poisoned".into()))?
+            .to_owned();
         match guard {
             DataGuard::NotLoaded(out_point) => {
-                let data = data_loader.get_cell_data(&out_point).expect("cell data");
-                self.0.replace(DataGuard::Loaded(data.to_owned()));
-                data
+                let data = data_loader
+                    .get_cell_data(&out_point)
+                    .ok_or(ScriptError::Other("cell data not found".into()))?;
+                let mut write_guard = self
+                    .0
+                    .write()
+                    .map_err(|_| ScriptError::Other("RwLock poisoned".into()))?;
+                *write_guard = DataGuard::Loaded(data.clone());
+                Ok(data)
             }
-            DataGuard::Loaded(bytes) => bytes,
+            DataGuard::Loaded(bytes) => Ok(bytes),
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 enum Binaries {
     Unique(Byte32, LazyData),
     Duplicate(Byte32, LazyData),
@@ -124,21 +139,28 @@ impl Binaries {
 ///
 /// TransactionScriptsSyscallsGenerator can be cloned.
 #[derive(Clone)]
-pub struct TransactionScriptsSyscallsGenerator<DL> {
+pub struct TransactionScriptsSyscallsGenerator<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+{
+    pub(crate) base_cycles: Arc<Mutex<u64>>,
     pub(crate) data_loader: DL,
-    debug_printer: DebugPrinter,
+    pub(crate) debug_printer: DebugPrinter,
+    pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
     pub(crate) outputs: Arc<Vec<CellMeta>>,
     pub(crate) rtx: Arc<ResolvedTransaction>,
     #[cfg(test)]
-    skip_pause: Arc<AtomicBool>,
+    pub(crate) skip_pause: Arc<AtomicBool>,
+    pub(crate) vm_id: VmId,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
-    TransactionScriptsSyscallsGenerator<DL>
+impl<DL> TransactionScriptsSyscallsGenerator<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     /// Build syscall: current_cycles
-    pub fn build_current_cycles(&self, base: u64) -> CurrentCycles {
-        CurrentCycles::new(base)
+    pub fn build_current_cycles(&self) -> CurrentCycles {
+        CurrentCycles::new(Arc::clone(&self.base_cycles))
     }
 
     /// Build syscall: vm_version
@@ -147,13 +169,19 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     }
 
     /// Build syscall: exec
-    pub fn build_exec(&self, group_inputs: Indices, group_outputs: Indices) -> Exec<DL> {
+    pub fn build_exec(
+        &self,
+        group_inputs: Indices,
+        group_outputs: Indices,
+        load_elf_base_fee: u64,
+    ) -> Exec<DL> {
         Exec::new(
             self.data_loader.clone(),
             Arc::clone(&self.rtx),
             Arc::clone(&self.outputs),
             group_inputs,
             group_outputs,
+            load_elf_base_fee,
         )
     }
 
@@ -176,16 +204,9 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     /// Build syscall: load_cell_data
     pub fn build_load_cell_data(
         &self,
-        group_inputs: Indices,
-        group_outputs: Indices,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> LoadCellData<DL> {
-        LoadCellData::new(
-            self.data_loader.clone(),
-            Arc::clone(&self.rtx),
-            Arc::clone(&self.outputs),
-            group_inputs,
-            group_outputs,
-        )
+        LoadCellData::new(snapshot2_context)
     }
 
     ///Build syscall: load_input
@@ -226,49 +247,55 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         LoadScript::new(script)
     }
 
-    /// Build syscall: get_memory_limit
-    pub fn build_get_memory_limit(&self, memory_limit: u64) -> GetMemoryLimit {
-        GetMemoryLimit::new(memory_limit)
-    }
-
-    /// Build syscall: set_content
-    pub fn build_set_content(
-        &self,
-        content: Arc<Mutex<Vec<u8>>>,
-        content_length: u64,
-    ) -> SetContent {
-        SetContent::new(content, content_length)
-    }
-
     /// Build syscall: spawn
     pub fn build_spawn(
         &self,
-        script_version: ScriptVersion,
-        script_group: &ScriptGroup,
-        peak_memory: u64,
-        cycles_base: u64,
-        context: Arc<Mutex<MachineContext>>,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> Spawn<DL> {
-        Spawn::new(
-            script_group.clone(),
-            script_version,
-            self.clone(),
-            peak_memory,
-            cycles_base,
-            context,
-        )
+        Spawn::new(self.vm_id, Arc::clone(&self.message_box), snapshot2_context)
     }
 
-    /// Build syscall: current_memory
-    pub fn build_current_memory(&self, current_memory: u64) -> CurrentMemory {
-        CurrentMemory::new(current_memory)
+    /// Build syscall: wait
+    pub fn build_wait(&self) -> Wait {
+        Wait::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
-    /// Generate same syscalls. The result does not contain spawn syscalls.
-    pub fn generate_same_syscalls(
+    /// Build syscall: process_id
+    pub fn build_process_id(&self) -> ProcessID {
+        ProcessID::new(self.vm_id)
+    }
+
+    /// Build syscall: pipe
+    pub fn build_pipe(&self) -> Pipe {
+        Pipe::new(self.vm_id, Arc::clone(&self.message_box))
+    }
+
+    /// Build syscall: write
+    pub fn build_write(&self) -> Write {
+        Write::new(self.vm_id, Arc::clone(&self.message_box))
+    }
+
+    /// Build syscall: read
+    pub fn build_read(&self) -> Read {
+        Read::new(self.vm_id, Arc::clone(&self.message_box))
+    }
+
+    /// Build syscall: inherited_fd
+    pub fn inherited_fd(&self) -> InheritedFd {
+        InheritedFd::new(self.vm_id, Arc::clone(&self.message_box))
+    }
+
+    /// Build syscall: close
+    pub fn close(&self) -> Close {
+        Close::new(self.vm_id, Arc::clone(&self.message_box))
+    }
+
+    /// Generate syscalls.
+    pub fn generate_syscalls(
         &self,
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
         let current_script_hash = script_group.script.calc_script_hash();
         let script_group_input_indices = Arc::new(script_group.input_indices.clone());
@@ -287,60 +314,42 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 Arc::clone(&script_group_output_indices),
             )),
             Box::new(self.build_load_script(script_group.script.clone())),
-            Box::new(self.build_load_cell_data(
-                Arc::clone(&script_group_input_indices),
-                Arc::clone(&script_group_output_indices),
-            )),
+            Box::new(self.build_load_cell_data(Arc::clone(&snapshot2_context))),
             Box::new(Debugger::new(
                 current_script_hash,
                 Arc::clone(&self.debug_printer),
             )),
         ];
-        #[cfg(test)]
-        syscalls.push(Box::new(Pause::new(Arc::clone(&self.skip_pause))));
         if script_version >= ScriptVersion::V1 {
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),
                 Box::new(self.build_exec(
                     Arc::clone(&script_group_input_indices),
                     Arc::clone(&script_group_output_indices),
+                    if script_version >= ScriptVersion::V2 {
+                        EXEC_LOAD_ELF_V2_CYCLES_BASE
+                    } else {
+                        0
+                    },
                 )),
+                Box::new(self.build_current_cycles()),
             ]);
-        }
-
-        if script_version >= ScriptVersion::V2 {
-            syscalls.push(Box::new(
-                self.build_load_block_extension(Arc::clone(&script_group_input_indices)),
-            ));
-        }
-        syscalls
-    }
-
-    /// Generate root syscalls.
-    pub fn generate_root_syscalls(
-        &self,
-        script_version: ScriptVersion,
-        script_group: &ScriptGroup,
-        context: Arc<Mutex<MachineContext>>,
-    ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
-        let mut syscalls = self.generate_same_syscalls(script_version, script_group);
-        if script_version >= ScriptVersion::V1 {
-            syscalls.push(Box::new(self.build_current_cycles(0)));
         }
         if script_version >= ScriptVersion::V2 {
             syscalls.append(&mut vec![
-                Box::new(self.build_get_memory_limit(8)),
-                Box::new(self.build_set_content(Arc::new(Mutex::new(vec![])), 0)),
-                Box::new(self.build_spawn(
-                    script_version,
-                    script_group,
-                    8,
-                    0,
-                    Arc::clone(&context),
-                )),
-                Box::new(self.build_current_memory(8)),
-            ])
+                Box::new(self.build_load_block_extension(Arc::clone(&script_group_input_indices))),
+                Box::new(self.build_spawn(Arc::clone(&snapshot2_context))),
+                Box::new(self.build_process_id()),
+                Box::new(self.build_pipe()),
+                Box::new(self.build_wait()),
+                Box::new(self.build_write()),
+                Box::new(self.build_read()),
+                Box::new(self.inherited_fd()),
+                Box::new(self.close()),
+            ]);
         }
+        #[cfg(test)]
+        syscalls.push(Box::new(Pause::new(Arc::clone(&self.skip_pause))));
         syscalls
     }
 }
@@ -349,7 +358,10 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 ///
 /// FlatBufferBuilder owned `Vec<u8>` that grows as needed, in the
 /// future, we might refactor this to share buffer to achieve zero-copy
-pub struct TransactionScriptsVerifier<DL> {
+pub struct TransactionScriptsVerifier<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+{
     data_loader: DL,
 
     rtx: Arc<ResolvedTransaction>,
@@ -366,11 +378,12 @@ pub struct TransactionScriptsVerifier<DL> {
     consensus: Arc<Consensus>,
     tx_env: Arc<TxVerifyEnv>,
 
-    generator: TransactionScriptsSyscallsGenerator<DL>,
+    syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
 }
 
-impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static>
-    TransactionScriptsVerifier<DL>
+impl<DL> TransactionScriptsVerifier<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     /// Creates a script verifier for the transaction.
     ///
@@ -462,13 +475,16 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         #[cfg(test)]
         let skip_pause = Arc::new(AtomicBool::new(false));
 
-        let generator = TransactionScriptsSyscallsGenerator {
+        let syscalls_generator = TransactionScriptsSyscallsGenerator {
+            base_cycles: Arc::new(Mutex::new(0)),
             data_loader: data_loader.clone(),
             debug_printer: Arc::clone(&debug_printer),
+            message_box: Arc::new(Mutex::new(Vec::new())),
             outputs: Arc::clone(&outputs),
             rtx: Arc::clone(&rtx),
             #[cfg(test)]
             skip_pause: Arc::clone(&skip_pause),
+            vm_id: FIRST_VM_ID,
         };
 
         TransactionScriptsVerifier {
@@ -482,7 +498,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             skip_pause,
             consensus,
             tx_env,
-            generator,
+            syscalls_generator,
         }
     }
 
@@ -496,7 +512,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     /// * `hash: &Byte32`: this is the script hash of currently running script group.
     /// * `message: &str`: message passed to the debug syscall.
     pub fn set_debug_printer<F: Fn(&Byte32, &str) + Sync + Send + 'static>(&mut self, func: F) {
-        self.generator.debug_printer = Arc::new(func);
+        self.syscalls_generator.debug_printer = Arc::new(func);
     }
 
     #[cfg(test)]
@@ -517,7 +533,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         match script_hash_type {
             ScriptHashType::Data | ScriptHashType::Data1 | ScriptHashType::Data2 => {
                 if let Some(lazy) = self.binaries_by_data_hash.get(&script.code_hash()) {
-                    Ok(lazy.access(&self.data_loader))
+                    Ok(lazy.access(&self.data_loader)?)
                 } else {
                     Err(ScriptError::ScriptNotFound(script.code_hash()))
                 }
@@ -525,8 +541,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             ScriptHashType::Type => {
                 if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
                     match bin {
-                        Binaries::Unique(_, ref lazy) => Ok(lazy.access(&self.data_loader)),
-                        Binaries::Duplicate(_, ref lazy) => Ok(lazy.access(&self.data_loader)),
+                        Binaries::Unique(_, ref lazy) => Ok(lazy.access(&self.data_loader)?),
+                        Binaries::Duplicate(_, ref lazy) => Ok(lazy.access(&self.data_loader)?),
                         Binaries::Multiple => Err(ScriptError::MultipleMatches),
                     }
                 } else {
@@ -636,22 +652,27 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     /// If verify is suspended, a state will returned.
     pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
         let mut cycles = 0;
+        let mut current_consumed_cycles = 0;
 
         let groups: Vec<_> = self.groups().collect();
         for (idx, (_hash, group)) in groups.iter().enumerate() {
             // vm should early return invalid cycles
-            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
-                    .source(group)
-            })?;
+            let remain_cycles = limit_cycles
+                .checked_sub(current_consumed_cycles)
+                .ok_or_else(|| {
+                    ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                        .source(group)
+                })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
-                Ok(ChunkState::Completed(used_cycles)) => {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
+                Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
+                    current_consumed_cycles =
+                        wrapping_cycles_add(current_consumed_cycles, consumed_cycles, group)?;
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
-                Ok(ChunkState::Suspended(vms, context)) => {
+                Ok(ChunkState::Suspended(state)) => {
                     let current = idx;
-                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    let state = TransactionState::new(state, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -663,6 +684,42 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         }
 
         Ok(VerifyResult::Completed(cycles))
+    }
+
+    /// Performing a resumable verification on the transaction scripts with signal channel,
+    /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
+    /// otherwise, it will return until the verification is completed.
+    pub async fn resumable_verify_with_signal(
+        &self,
+        limit_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, Error> {
+        let mut cycles = 0;
+
+        let groups: Vec<_> = self.groups().collect();
+        for (_hash, group) in groups.iter() {
+            // vm should early return invalid cycles
+            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
+            })?;
+
+            match self
+                .verify_group_with_signal(group, remain_cycles, command_rx)
+                .await
+            {
+                Ok(used_cycles) => {
+                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
+                }
+                Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(cycles)
     }
 
     /// Resuming an suspended verify from snapshot
@@ -683,7 +740,6 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         snap: &TransactionSnapshot,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
-        let current_group_used = snap.snaps.iter().map(|s| s.1).sum();
         let mut cycles = snap.current_cycles;
         let mut current_used = 0;
 
@@ -693,18 +749,14 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         })?;
 
         // continue snapshot current script
-        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.snaps) {
-            Ok(ChunkState::Completed(used_cycles)) => {
-                current_used = wrapping_cycles_add(
-                    current_used,
-                    wrapping_cycles_sub(used_cycles, current_group_used, current_group)?,
-                    current_group,
-                )?;
+        match self.verify_group_with_chunk(current_group, limit_cycles, &snap.state) {
+            Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
+                current_used = wrapping_cycles_add(current_used, consumed_cycles, current_group)?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
-            Ok(ChunkState::Suspended(vms, context)) => {
+            Ok(ChunkState::Suspended(state)) => {
                 let current = snap.current;
-                let state = TransactionState::new(vms, context, current, cycles, limit_cycles);
+                let state = TransactionState::new(state, current, cycles, limit_cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -714,21 +766,20 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             }
         }
 
-        let skip = snap.current + 1;
-        for (idx, (_hash, group)) in self.groups().enumerate().skip(skip) {
+        for (idx, (_hash, group)) in self.groups().enumerate().skip(snap.current + 1) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
                 ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
-                Ok(ChunkState::Completed(used_cycles)) => {
-                    current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
+                Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
+                    current_used = wrapping_cycles_add(current_used, consumed_cycles, group)?;
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
-                Ok(ChunkState::Suspended(vms, context)) => {
+                Ok(ChunkState::Suspended(state)) => {
                     let current = idx;
-                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    let state = TransactionState::new(state, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -762,9 +813,8 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
     ) -> Result<VerifyResult, Error> {
         let TransactionState {
             current,
-            mut vms,
+            state,
             current_cycles,
-            machine_context,
             ..
         } = state;
 
@@ -775,20 +825,16 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
             ScriptError::Other(format!("snapshot group missing {current:?}")).unknown_source()
         })?;
 
-        let resumed_script_result = if vms.is_empty() {
-            self.verify_group_with_chunk(current_group, limit_cycles, &[])
-        } else {
-            vms.iter_mut()
-                .for_each(|vm| vm.set_max_cycles(limit_cycles));
-            run_vms(current_group, limit_cycles, vms, &machine_context)
-        };
+        let resumed_script_result =
+            self.verify_group_with_chunk(current_group, limit_cycles, &state);
+
         match resumed_script_result {
-            Ok(ChunkState::Completed(used_cycles)) => {
-                current_used = wrapping_cycles_add(current_used, used_cycles, current_group)?;
+            Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
+                current_used = wrapping_cycles_add(current_used, consumed_cycles, current_group)?;
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
-            Ok(ChunkState::Suspended(vms, context)) => {
-                let state = TransactionState::new(vms, context, current, cycles, limit_cycles);
+            Ok(ChunkState::Suspended(state)) => {
+                let state = TransactionState::new(state, current, cycles, limit_cycles);
                 return Ok(VerifyResult::Suspended(state));
             }
             Err(e) => {
@@ -800,18 +846,20 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         for (idx, (_hash, group)) in self.groups().enumerate().skip(current + 1) {
             let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
-                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
-                    .source(group)
+                ScriptError::Other(format!(
+                    "expect invalid cycles {limit_cycles} {current_used} {cycles}"
+                ))
+                .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
-                Ok(ChunkState::Completed(used_cycles)) => {
-                    current_used = wrapping_cycles_add(current_used, used_cycles, group)?;
-                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
+                Ok(ChunkState::Completed(_, consumed_cycles)) => {
+                    current_used = wrapping_cycles_add(current_used, consumed_cycles, group)?;
+                    cycles = wrapping_cycles_add(cycles, consumed_cycles, group)?;
                 }
-                Ok(ChunkState::Suspended(vms, context)) => {
+                Ok(ChunkState::Suspended(state)) => {
                     let current = idx;
-                    let state = TransactionState::new(vms, context, current, cycles, remain_cycles);
+                    let state = TransactionState::new(state, current, cycles, remain_cycles);
                     return Ok(VerifyResult::Suspended(state));
                 }
                 Err(e) => {
@@ -853,11 +901,11 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
 
         // continue snapshot current script
         // max_cycles - cycles checked
-        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.snaps) {
-            Ok(ChunkState::Completed(used_cycles)) => {
+        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.state) {
+            Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
                 cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
             }
-            Ok(ChunkState::Suspended(_, _)) => {
+            Ok(ChunkState::Suspended(_)) => {
                 return Err(ScriptError::ExceededMaximumCycles(max_cycles)
                     .source(current_group)
                     .into());
@@ -875,11 +923,11 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                     .source(group)
             })?;
 
-            match self.verify_group_with_chunk(group, remain_cycles, &[]) {
-                Ok(ChunkState::Completed(used_cycles)) => {
+            match self.verify_group_with_chunk(group, remain_cycles, &None) {
+                Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
                 }
-                Ok(ChunkState::Suspended(_, _)) => {
+                Ok(ChunkState::Suspended(_)) => {
                     return Err(ScriptError::ExceededMaximumCycles(max_cycles)
                         .source(group)
                         .into());
@@ -950,7 +998,7 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         group: &ScriptGroup,
         max_cycles: Cycle,
-        snaps: &[(Snapshot, Cycle, ResumePoint)],
+        state: &Option<FullSuspendedState>,
     ) -> Result<ChunkState, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
@@ -961,12 +1009,87 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
                 max_cycles,
             };
             match verifier.verify() {
-                Ok(cycles) => Ok(ChunkState::Completed(cycles)),
+                Ok(cycles) => Ok(ChunkState::Completed(cycles, cycles)),
                 Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
                 Err(e) => Err(e),
             }
         } else {
-            self.chunk_run(group, max_cycles, snaps)
+            self.chunk_run(group, max_cycles, state)
+        }
+    }
+
+    fn chunk_run(
+        &self,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+        state: &Option<FullSuspendedState>,
+    ) -> Result<ChunkState, ScriptError> {
+        let program = self.extract_script(&script_group.script)?;
+        let tx_data = TxData {
+            rtx: Arc::clone(&self.rtx),
+            data_loader: self.data_loader.clone(),
+            program,
+            script_group: Arc::new(script_group.clone()),
+        };
+        let version = self.select_version(&script_group.script)?;
+        let mut scheduler = if let Some(state) = state {
+            Scheduler::resume(
+                tx_data,
+                version,
+                self.syscalls_generator.clone(),
+                state.clone(),
+            )
+        } else {
+            Scheduler::new(tx_data, version, self.syscalls_generator.clone())
+        };
+        let map_vm_internal_error = |error: VMInternalError| match error {
+            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+            _ => ScriptError::VMInternalError(error),
+        };
+        let previous_cycles = scheduler.consumed_cycles();
+        let res = scheduler.run(RunMode::LimitCycles(max_cycles));
+        match res {
+            Ok((exit_code, cycles)) => {
+                if exit_code == 0 {
+                    Ok(ChunkState::Completed(
+                        cycles,
+                        scheduler.consumed_cycles() - previous_cycles,
+                    ))
+                } else {
+                    Err(ScriptError::validation_failure(
+                        &script_group.script,
+                        exit_code,
+                    ))
+                }
+            }
+            Err(error) => match error {
+                VMInternalError::CyclesExceeded | VMInternalError::Pause => {
+                    let snapshot = scheduler.suspend().map_err(map_vm_internal_error)?;
+                    Ok(ChunkState::suspended(snapshot))
+                }
+                _ => Err(map_vm_internal_error(error)),
+            },
+        }
+    }
+
+    async fn verify_group_with_signal(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, ScriptError> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: &self.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            verifier.verify()
+        } else {
+            self.chunk_run_with_signal(group, max_cycles, command_rx)
+                .await
         }
     }
 
@@ -987,29 +1110,30 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         script_version: ScriptVersion,
         script_group: &ScriptGroup,
-        context: Arc<Mutex<MachineContext>>,
+        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>> {
-        self.generator
-            .generate_root_syscalls(script_version, script_group, context)
+        self.syscalls_generator
+            .generate_syscalls(script_version, script_group, snapshot2_context)
     }
 
-    fn build_machine(
+    /// Create a scheduler to manage virtual machine instances.
+    pub fn create_scheduler(
         &self,
         script_group: &ScriptGroup,
-        max_cycles: Cycle,
-        context: Arc<Mutex<MachineContext>>,
-    ) -> Result<Machine, ScriptError> {
-        let script_version = self.select_version(&script_group.script)?;
-        let core_machine = script_version.init_core_machine(max_cycles);
-        let machine_builder = DefaultMachineBuilder::<CoreMachine>::new(core_machine)
-            .instruction_cycle_func(Box::new(estimate_cycles));
-        let syscalls = self.generate_syscalls(script_version, script_group, context);
-        let machine_builder = syscalls
-            .into_iter()
-            .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
-        let default_machine = machine_builder.build();
-        let machine = Machine::new(default_machine);
-        Ok(machine)
+    ) -> Result<Scheduler<DL>, ScriptError> {
+        let program = self.extract_script(&script_group.script)?;
+        let tx_data = TxData {
+            rtx: Arc::clone(&self.rtx),
+            data_loader: self.data_loader.clone(),
+            program,
+            script_group: Arc::new(script_group.clone()),
+        };
+        let version = self.select_version(&script_group.script)?;
+        Ok(Scheduler::new(
+            tx_data,
+            version,
+            self.syscalls_generator.clone(),
+        ))
     }
 
     /// Runs a single program, then returns the exit code together with the entire
@@ -1018,214 +1142,129 @@ impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + C
         &self,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-    ) -> Result<(i8, Machine), ScriptError> {
-        let program = self.extract_script(&script_group.script)?;
-        let context = Default::default();
-        let mut machine = self.build_machine(script_group, max_cycles, context)?;
-
+    ) -> Result<(i8, Cycle), ScriptError> {
+        let mut scheduler = self.create_scheduler(script_group)?;
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(error),
         };
-
-        let bytes = machine
-            .load_program(&program, &[])
-            .map_err(map_vm_internal_error)?;
-        machine
-            .machine
-            .add_cycles_no_checking(transferred_byte_cycles(bytes))
-            .map_err(map_vm_internal_error)?;
-        let code = machine.run().map_err(map_vm_internal_error)?;
-
-        Ok((code, machine))
+        scheduler
+            .run(RunMode::LimitCycles(max_cycles))
+            .map_err(map_vm_internal_error)
     }
 
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
-        let (code, machine) = self.detailed_run(script_group, max_cycles)?;
+        let (code, cycles) = self.detailed_run(script_group, max_cycles)?;
 
         if code == 0 {
-            Ok(machine.machine.cycles())
+            Ok(cycles)
         } else {
             Err(ScriptError::validation_failure(&script_group.script, code))
         }
     }
 
-    fn chunk_run(
+    async fn chunk_run_with_signal(
         &self,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-        snaps: &[(Snapshot, Cycle, ResumePoint)],
-    ) -> Result<ChunkState, ScriptError> {
-        let context: Arc<Mutex<MachineContext>> = Default::default();
-
+        signal: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, ScriptError> {
+        let program = self.extract_script(&script_group.script)?;
+        let tx_data = TxData {
+            rtx: Arc::clone(&self.rtx),
+            data_loader: self.data_loader.clone(),
+            program,
+            script_group: Arc::new(script_group.clone()),
+        };
+        let version = self.select_version(&script_group.script)?;
+        let mut scheduler = Scheduler::new(tx_data, version, self.syscalls_generator.clone());
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
             _ => ScriptError::VMInternalError(error),
         };
 
-        let machines = if !snaps.is_empty() {
-            // Resume machines from snapshots
-            let mut machines = vec![];
-            for (sp, current_cycle, resume_point) in snaps {
-                let mut machine = match resume_point {
-                    ResumePoint::Initial => ResumableMachine::initial(self.build_machine(
-                        script_group,
-                        max_cycles,
-                        Arc::clone(&context),
-                    )?),
-                    ResumePoint::Spawn {
-                        callee_peak_memory,
-                        callee_memory_limit,
-                        content,
-                        content_length,
-                        caller_exit_code_addr,
-                        caller_content_addr,
-                        caller_content_length_addr,
-                        cycles_base,
-                    } => {
-                        let spawn_data = SpawnData {
-                            callee_peak_memory: *callee_peak_memory,
-                            callee_memory_limit: *callee_memory_limit,
-                            content: Arc::new(Mutex::new(content.clone())),
-                            content_length: *content_length,
-                            caller_exit_code_addr: *caller_exit_code_addr,
-                            caller_content_addr: *caller_content_addr,
-                            caller_content_length_addr: *caller_content_length_addr,
-                            cycles_base: *cycles_base,
-                        };
-                        let machine = build_child_machine(
-                            script_group,
-                            self.select_version(&script_group.script)?,
-                            &self.generator,
-                            max_cycles,
-                            &spawn_data,
-                            &context,
-                        )
-                        .map_err(map_vm_internal_error)?;
-                        ResumableMachine::spawn(machine, spawn_data)
+        let mut pause = VMPause::new();
+        let child_pause = pause.clone();
+        let (finish_tx, mut finish_rx) = oneshot::channel::<Result<(i8, Cycle), ckb_vm::Error>>();
+
+        // send initial `Resume` command to child
+        // it's maybe useful to set initial command to `signal.borrow().to_owned()`
+        // so that we can control the initial state of child, which is useful for testing purpose
+        let (child_tx, mut child_rx) = watch::channel(ChunkCommand::Resume);
+        let jh = tokio::spawn(async move {
+            child_rx.mark_changed();
+            loop {
+                let pause_cloned = child_pause.clone();
+                let _ = child_rx.changed().await;
+                match *child_rx.borrow() {
+                    ChunkCommand::Stop => {
+                        let exit = Err(ckb_vm::Error::External("stopped".into()));
+                        let _ = finish_tx.send(exit);
+                        return;
                     }
-                };
-                resume(&mut machine.machine_mut().machine, sp).map_err(map_vm_internal_error)?;
-                machine.machine_mut().machine.set_cycles(*current_cycle);
-                machines.push(machine);
+                    ChunkCommand::Suspend => {
+                        continue;
+                    }
+                    ChunkCommand::Resume => {
+                        //info!("[verify-test] run_vms_child: resume");
+                        let res = scheduler.run(RunMode::Pause(pause_cloned));
+                        match res {
+                            Ok(_) => {
+                                let _ = finish_tx.send(res);
+                                return;
+                            }
+                            Err(VMInternalError::Pause) => {
+                                // continue to wait for
+                            }
+                            _ => {
+                                let _ = finish_tx.send(res);
+                                return;
+                            }
+                        }
+                    }
+                }
             }
-            machines
-        } else {
-            // No snapshots are available, create machine from scratch
-            let mut machine = self.build_machine(script_group, max_cycles, Arc::clone(&context))?;
-            let program = self.extract_script(&script_group.script)?;
-            let bytes = machine
-                .load_program(&program, &[])
-                .map_err(map_vm_internal_error)?;
-            let program_bytes_cycles = transferred_byte_cycles(bytes);
-            // NOTE: previously, we made a distinction between machines
-            // that completes program loading without errors, and machines
-            // that fail program loading due to cycle limits. For the latter
-            // one, we won't generate any snapshots. Starting from this version,
-            // we will remove this distinction: when loading program exceeds
-            // maximum cycles, the error will be triggered when executing the
-            // first instruction. As a result, now all ResumableMachine will
-            // be transformed to snapshots. This is due to several considerations:
-            //
-            // * Let's do a little bit math: right now CKB has a block limit of
-            // ~570KB, a single transaction is further limited to 512KB in RPC,
-            // the biggest program one can load is either 512KB or ~570KB depending
-            // on which limit to use. The cycles consumed to load a program, is
-            // thus at most 131072 or ~145920, which is far less than the cycle
-            // limit for running a single transaction (70 million or more). In
-            // reality it might be extremely rare that loading a program would
-            // result in exceeding cycle limits. Removing the distinction here,
-            // would help simply the code.
-            // * If you pay attention to the code now, we already have this behavior
-            // in the code: most syscalls use +add_cycles_no_checking+ in the code,
-            // meaning an error would not be immediately generated when cycle limit
-            // is reached, the error would be raised when executing the first instruction
-            // after the syscall. What's more, when spawn is loading a program
-            // to its child machine, it also uses +add_cycles_no_checking+ so it
-            // won't generate errors immediately. This means that all spawned machines
-            // will be in a state that a program is loaded, regardless of the fact if
-            // loading a program in spawn reaches the cycle limit or not. As a
-            // result, we definitely want to pull the trigger, so we can have unified
-            // behavior everywhere.
-            machine
-                .machine
-                .add_cycles_no_checking(program_bytes_cycles)
-                .map_err(ScriptError::VMInternalError)?;
-            vec![ResumableMachine::initial(machine)]
-        };
+        });
 
-        run_vms(script_group, max_cycles, machines, &context)
-    }
-}
+        loop {
+            tokio::select! {
+                Ok(_) = signal.changed() => {
+                    let command = signal.borrow().to_owned();
+                    //info!("[verify-test] run_vms_with_signal: {:?}", command);
+                    match command {
+                        ChunkCommand::Suspend => {
+                            pause.interrupt();
+                        }
+                        ChunkCommand::Stop => {
+                            pause.interrupt();
+                            let _ = child_tx.send(command);
+                        }
+                        ChunkCommand::Resume => {
+                            pause.free();
+                            let _ = child_tx.send(command);
+                        }
+                    }
+                }
+                Ok(res) = &mut finish_rx => {
+                    let _ = jh.await;
+                    match res {
+                        Ok((0, cycles)) => {
+                            return Ok(cycles);
+                        }
+                        Ok((exit_code, _cycles)) => {
+                            return Err(ScriptError::validation_failure(
+                                &script_group.script,
+                                exit_code
+                            ))},
+                        Err(err) => {
+                            return Err(map_vm_internal_error(err));
+                        }
+                    }
 
-// Run a series of VMs that are just freshly resumed
-fn run_vms(
-    script_group: &ScriptGroup,
-    max_cycles: Cycle,
-    mut machines: Vec<ResumableMachine>,
-    context: &Arc<Mutex<MachineContext>>,
-) -> Result<ChunkState, ScriptError> {
-    let (mut exit_code, mut cycles, mut spawn_data) = (0, 0, None);
-
-    if machines.is_empty() {
-        return Err(ScriptError::Other(
-            "To resume VMs, at least one VM must be available!".to_string(),
-        ));
-    }
-
-    let map_vm_internal_error = |error: VMInternalError| match error {
-        VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-        _ => ScriptError::VMInternalError(error),
-    };
-
-    while let Some(mut machine) = machines.pop() {
-        if let Some(callee_spawn_data) = &spawn_data {
-            update_caller_machine(
-                &mut machine.machine_mut().machine,
-                exit_code,
-                cycles,
-                callee_spawn_data,
-            )
-            .map_err(map_vm_internal_error)?;
+                }
+                else => { break Err(ScriptError::validation_failure(&script_group.script, 0)) }
+            }
         }
-
-        match machine.run() {
-            Ok(code) => {
-                exit_code = code;
-                cycles = machine.cycles();
-                if let ResumableMachine::Spawn(_, data) = machine {
-                    spawn_data = Some(data);
-                } else {
-                    spawn_data = None;
-                }
-            }
-            Err(error) => match error {
-                VMInternalError::CyclesExceeded => {
-                    let mut new_suspended_machines: Vec<_> = {
-                        let mut context = context.lock().map_err(|e| {
-                            ScriptError::Other(format!("Failed to acquire lock: {}", e))
-                        })?;
-                        context.suspended_machines.drain(..).collect()
-                    };
-                    // The inner most machine lives at the top of the vector,
-                    // reverse the list for natural order.
-                    new_suspended_machines.reverse();
-                    machines.push(machine);
-                    machines.append(&mut new_suspended_machines);
-                    return Ok(ChunkState::suspended(machines, Arc::clone(context)));
-                }
-                _ => return Err(ScriptError::VMInternalError(error)),
-            },
-        };
-    }
-
-    if exit_code == 0 {
-        Ok(ChunkState::Completed(cycles))
-    } else {
-        Err(ScriptError::validation_failure(
-            &script_group.script,
-            exit_code,
-        ))
     }
 }
 
@@ -1235,15 +1274,6 @@ fn wrapping_cycles_add(
     group: &ScriptGroup,
 ) -> Result<Cycle, TransactionScriptError> {
     lhs.checked_add(rhs)
-        .ok_or_else(|| ScriptError::CyclesOverflow(lhs, rhs).source(group))
-}
-
-fn wrapping_cycles_sub(
-    lhs: Cycle,
-    rhs: Cycle,
-    group: &ScriptGroup,
-) -> Result<Cycle, TransactionScriptError> {
-    lhs.checked_sub(rhs)
         .ok_or_else(|| ScriptError::CyclesOverflow(lhs, rhs).source(group))
 }
 

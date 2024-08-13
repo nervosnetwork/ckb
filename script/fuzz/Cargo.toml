@@ -47,3 +47,9 @@ name = "syscall_exec"
 path = "fuzz_targets/syscall_exec.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "syscall_spawn"
+path = "fuzz_targets/syscall_spawn.rs"
+test = false
+doc = false

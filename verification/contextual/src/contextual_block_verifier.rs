@@ -379,7 +379,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         self.handle.spawn(async move {
             let mut guard = txs_verify_cache.write().await;
             for (k, v) in ret {
-                guard.put(k, CacheEntry::Completed(v));
+                guard.put(k, v);
             }
         });
     }
@@ -406,9 +406,8 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .map(|(index, tx)| {
                 let wtx_hash = tx.transaction.witness_hash();
 
-                if let Some(cache_entry) = fetched_cache.get(&wtx_hash) {
-                    match cache_entry {
-                        CacheEntry::Completed(completed) => TimeRelativeTransactionVerifier::new(
+                if let Some(completed) = fetched_cache.get(&wtx_hash) {
+                    TimeRelativeTransactionVerifier::new(
                             Arc::clone(tx),
                             Arc::clone(&self.context.consensus),
                             self.context.store.as_data_loader(),
@@ -422,27 +421,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                             }
                             .into()
                         })
-                        .map(|_| (wtx_hash, *completed)),
-                        CacheEntry::Suspended(suspended) => ContextualTransactionVerifier::new(
-                            Arc::clone(tx),
-                            Arc::clone(&self.context.consensus),
-                            self.context.store.as_data_loader(),
-                            Arc::clone(&tx_env),
-                        )
-                        .complete(
-                            self.context.consensus.max_block_cycles(),
-                            skip_script_verify,
-                            &suspended.snap,
-                        )
-                        .map_err(|error| {
-                            BlockTransactionsError {
-                                index: index as u32,
-                                error,
-                            }
-                            .into()
-                        })
-                        .map(|completed| (wtx_hash, completed)),
-                    }
+                        .map(|_| (wtx_hash, *completed))
                 } else {
                     ContextualTransactionVerifier::new(
                         Arc::clone(tx),
