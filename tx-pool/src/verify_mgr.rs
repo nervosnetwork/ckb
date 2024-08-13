@@ -88,7 +88,7 @@ impl Worker {
                 .tasks
                 .write()
                 .await
-                .pop_first(self.role == WorkerRole::OnlySmallCycleTx)
+                .pop_front(self.role == WorkerRole::OnlySmallCycleTx)
             {
                 Some(entry) => entry,
                 None => return,
