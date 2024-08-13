@@ -106,6 +106,8 @@ impl Worker {
                 self.service
                     .after_process(entry.tx, entry.remote, &snapshot, &res)
                     .await;
+            } else {
+                info!("_process_tx for tx: {} returned none", entry.tx.hash());
             }
         }
     }
