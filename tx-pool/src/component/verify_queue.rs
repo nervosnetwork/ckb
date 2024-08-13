@@ -131,7 +131,7 @@ impl VerifyQueue {
     }
 
     /// Returns the first entry in the queue and remove it
-    pub fn pop_first(&mut self, only_small_cycle: bool) -> Option<Entry> {
+    pub fn pop_front(&mut self, only_small_cycle: bool) -> Option<Entry> {
         if let Some(short_id) = self.peek(only_small_cycle) {
             self.remove_tx(&short_id)
         } else {
