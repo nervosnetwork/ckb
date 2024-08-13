@@ -94,7 +94,7 @@ impl Worker {
                 None => return,
             };
 
-            let (res, snapshot) = self
+            if let Some((res, snapshot)) = self
                 .service
                 ._process_tx(
                     entry.tx.clone(),
@@ -102,11 +102,11 @@ impl Worker {
                     Some(&mut self.command_rx),
                 )
                 .await
-                .expect("verify worker _process_tx failed");
-
-            self.service
-                .after_process(entry.tx, entry.remote, &snapshot, &res)
-                .await;
+            {
+                self.service
+                    .after_process(entry.tx, entry.remote, &snapshot, &res)
+                    .await;
+            }
         }
     }
 }
