@@ -1,4 +1,5 @@
 #include <stdlib.h>
+
 #include "sha3.h"
 
 #define SHA3_BLOCK_SIZE 32
@@ -7,15 +8,11 @@
 #define CUSTOM_PRINT_ERR 1
 
 #include "syscall.h"
-void custom_abort()
-{
-  syscall_errno(93, 10, 0, 0, 0, 0, 0);
-}
+void custom_abort() { syscall_errno(93, 10, 0, 0, 0, 0, 0); }
 
-int custom_print_err(const char * arg, ...)
-{
-  (void) arg;
-  return 0;
+int custom_print_err(const char* arg, ...) {
+    (void)arg;
+    return 0;
 }
 
 #include <secp256k1_static.h>
@@ -26,39 +23,40 @@ int custom_print_err(const char * arg, ...)
  */
 #include <secp256k1.c>
 
-int char_to_int(char ch)
-{
-  if (ch >= '0' && ch <= '9') {
-    return ch - '0';
-  }
-  if (ch >= 'a' && ch <= 'f') {
-    return ch - 'a' + 10;
-  }
-  return -1;
+int char_to_int(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    return -1;
 }
 
-int hex_to_bin(char* buf, size_t buf_len, const char* hex)
-{
-  int i = 0;
+int hex_to_bin(char* buf, size_t buf_len, const char* hex) {
+    int i = 0;
 
-  for (; i < buf_len && hex[i * 2] != '\0' && hex[i * 2 + 1] != '\0'; i++) {
-    int a = char_to_int(hex[i * 2]);
-    int b = char_to_int(hex[i * 2 + 1]);
+    for (; i < buf_len && hex[i * 2] != '\0' && hex[i * 2 + 1] != '\0'; i++) {
+        int a = char_to_int(hex[i * 2]);
+        int b = char_to_int(hex[i * 2 + 1]);
 
-    if (a < 0 || b < 0) {
-      return -1;
+        if (a < 0 || b < 0) {
+            return -1;
+        }
+
+        buf[i] = ((a & 0xF) << 4) | (b & 0xF);
     }
 
-    buf[i] = ((a & 0xF) << 4) | (b & 0xF);
-  }
-
-  if (i == buf_len && hex[i * 2] != '\0') {
-    return -1;
-  }
-  return i;
+    if (i == buf_len && hex[i * 2] != '\0') {
+        return -1;
+    }
+    return i;
 }
 
-#define CHECK_LEN(x) if ((x) <= 0) { return x; }
+#define CHECK_LEN(x) \
+    if ((x) <= 0) {  \
+        return x;    \
+    }
 
 /*
  * Arguments are listed in the following order:
@@ -80,56 +78,55 @@ int hex_to_bin(char* buf, size_t buf_len, const char* hex)
  * Note all hex values passed in as arguments must have lower case letters for
  * deterministic behavior.
  */
-int main(int argc, char* argv[])
-{
-  char buf[256];
-  int len;
+int main(int argc, char* argv[]) {
+    char buf[256];
+    int len;
 
-  if (argc < 4) {
-    return -1;
-  }
+    if (argc < 4) {
+        return -1;
+    }
 
-  secp256k1_context context;
-  int ret = secp256k1_context_initialize(&context, SECP256K1_CONTEXT_VERIFY);
-  if (ret == 0) {
-    return 4;
-  }
+    secp256k1_context context;
+    int ret = secp256k1_context_initialize(&context, SECP256K1_CONTEXT_VERIFY);
+    if (ret == 0) {
+        return 4;
+    }
 
-  len = hex_to_bin(buf, 65, argv[argc - 2]);
-  CHECK_LEN(len);
-  secp256k1_pubkey pubkey;
+    len = hex_to_bin(buf, 65, argv[argc - 2]);
+    CHECK_LEN(len);
+    secp256k1_pubkey pubkey;
 
-  ret = secp256k1_ec_pubkey_parse(&context, &pubkey, buf, len);
-  if (ret == 0) {
-    return 1;
-  }
+    ret = secp256k1_ec_pubkey_parse(&context, &pubkey, buf, len);
+    if (ret == 0) {
+        return 1;
+    }
 
-  len = hex_to_bin(buf, 256, argv[argc - 1]);
-  CHECK_LEN(len);
-  secp256k1_ecdsa_signature signature;
-  secp256k1_ecdsa_signature_parse_der(&context, &signature, buf, len);
-  if (ret == 0) {
-    return 3;
-  }
+    len = hex_to_bin(buf, 256, argv[argc - 1]);
+    CHECK_LEN(len);
+    secp256k1_ecdsa_signature signature;
+    secp256k1_ecdsa_signature_parse_der(&context, &signature, buf, len);
+    if (ret == 0) {
+        return 3;
+    }
 
-  sha3_ctx_t sha3_ctx;
-  unsigned char hash[SHA3_BLOCK_SIZE];
-  sha3_init(&sha3_ctx, SHA3_BLOCK_SIZE);
-  for (int i = 1; i < argc -2; i++) {
-    sha3_update(&sha3_ctx, argv[i], strlen(argv[i]));
-  }
-  sha3_final(hash, &sha3_ctx);
+    sha3_ctx_t sha3_ctx;
+    unsigned char hash[SHA3_BLOCK_SIZE];
+    sha3_init(&sha3_ctx, SHA3_BLOCK_SIZE);
+    for (int i = 1; i < argc - 2; i++) {
+        sha3_update(&sha3_ctx, argv[i], strlen(argv[i]));
+    }
+    sha3_final(hash, &sha3_ctx);
 
-  sha3_init(&sha3_ctx, SHA3_BLOCK_SIZE);
-  sha3_update(&sha3_ctx, hash, SHA3_BLOCK_SIZE);
-  sha3_final(hash, &sha3_ctx);
+    sha3_init(&sha3_ctx, SHA3_BLOCK_SIZE);
+    sha3_update(&sha3_ctx, hash, SHA3_BLOCK_SIZE);
+    sha3_final(hash, &sha3_ctx);
 
-  ret = secp256k1_ecdsa_verify(&context, &signature, hash, &pubkey);
-  if (ret == 1) {
-    ret = 0;
-  } else {
-    ret = 2;
-  }
+    ret = secp256k1_ecdsa_verify(&context, &signature, hash, &pubkey);
+    if (ret == 1) {
+        ret = 0;
+    } else {
+        ret = 2;
+    }
 
-  return ret;
+    return ret;
 }

@@ -7,7 +7,7 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockFilter, BlockNumber, BlockTemplate,
     BlockView, Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles,
-    HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, Timestamp,
+    HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, SyncState, Timestamp,
     Transaction, TransactionProof, TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64,
     Version,
 };
@@ -150,6 +150,10 @@ impl RpcClient {
             .expect("rpc call get_banned_addresses")
     }
 
+    pub fn sync_state(&self) -> SyncState {
+        self.inner.sync_state().expect("rpc call sync_state")
+    }
+
     pub fn clear_banned_addresses(&self) {
         self.inner
             .clear_banned_addresses()
@@ -167,6 +171,16 @@ impl RpcClient {
         self.inner
             .set_ban(address, command, ban_time, absolute, reason)
             .expect("rpc call set_ban")
+    }
+
+    pub fn wait_rpc_ready(&self) {
+        let now = std::time::Instant::now();
+        while self.inner.get_tip_block_number().is_err() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if now.elapsed() > std::time::Duration::from_secs(60) {
+                panic!("wait rpc ready timeout");
+            }
+        }
     }
 
     pub fn get_block_template(
@@ -322,6 +336,7 @@ jsonrpc!(
     pub fn get_current_epoch(&self) -> EpochView;
     pub fn get_epoch_by_number(&self, number: EpochNumber) -> Option<EpochView>;
 
+    pub fn sync_state(&self) -> SyncState;
     pub fn local_node_info(&self) -> LocalNode;
     pub fn get_peers(&self) -> Vec<RemoteNode>;
     pub fn get_banned_addresses(&self) -> Vec<BannedAddr>;

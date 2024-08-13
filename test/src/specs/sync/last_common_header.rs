@@ -32,7 +32,7 @@ impl Spec for LastCommonHeaderForPeerWithWorseChain {
         }
 
         // peer.last_common_header is expect to be advanced to peer.best_known_header
-        let last_common_header_synced = wait_until(10, || {
+        let last_common_header_synced = wait_until(20, || {
             let sync_state = node0
                 .rpc_client()
                 .get_peers()

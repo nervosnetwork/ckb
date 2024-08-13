@@ -229,7 +229,7 @@ fn finalize_reward() {
         parent = block.header().clone();
 
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
             .expect("process block ok");
         blocks.push(block);
     }
@@ -266,7 +266,7 @@ fn finalize_reward() {
     parent = block.header();
 
     chain_controller
-        .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
+        .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_EXTENSION)
         .expect("process block ok");
 
     let (target, reward) = RewardCalculator::new(shared.consensus(), shared.snapshot().as_ref())
@@ -300,6 +300,6 @@ fn finalize_reward() {
     );
 
     chain_controller
-        .internal_process_block(Arc::new(block), Switch::DISABLE_EXTENSION)
+        .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_EXTENSION)
         .expect("process block ok");
 }

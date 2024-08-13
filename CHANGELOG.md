@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## [v0.117.0](https://github.com/nervosnetwork/ckb/compare/v0.116.1...v0.117.0) (2024-07-29)
+
+## Features
+
+-   #4454: Add `include_tx_pool: Option<bool>` param to `ChainRpcImpl::get_live_cell`' (@eval-exec)
+
+    This is a breaking change to the RPC.
+
+-   #4486: Add `assume_valid_target_reached: bool` to `NetRpc::sync_state` (@eval-exec)
+
+    This is a breaking change to the RPC.
+
+## Bug Fixes
+
+-   #4484: Fix rich indexer `partial` query by args performance issue (@EthanYuan)
+-   #4505: Fix websocket subscription performance issue (@chenyukang)
+
+## Improvements
+
+-   #4487: tweak `max_ancestors_count` (@zhangsoledad)
+-   #4459: Use standalone runtime for RPC service (@chenyukang)
+-   #4511: Modify the record scope of tx-pool reject record and fix rule for orphan tx. (@zhangsoledad)
+-   #4531: Early return `process_fetch_cmd` if ckb received exit signal (@eval-exec)
+
 ## [v0.116.1](https://github.com/nervosnetwork/ckb/compare/v0.115.0...v0.116.1) (2024-05-11)
 
 ### Features

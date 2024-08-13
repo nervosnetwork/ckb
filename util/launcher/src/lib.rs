@@ -8,7 +8,7 @@ use ckb_app_config::{
 use ckb_async_runtime::Handle;
 use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
-use ckb_chain::chain::{ChainController, ChainService};
+use ckb_chain::ChainController;
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
@@ -19,11 +19,9 @@ use ckb_network::{
     NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
-use ckb_proposal_table::ProposalTable;
 use ckb_resource::Resource;
-use ckb_rpc::RpcServer;
-use ckb_rpc::ServiceBuilder;
-use ckb_shared::Shared;
+use ckb_rpc::{RpcServer, ServiceBuilder};
+use ckb_shared::{ChainServicesBuilder, Shared};
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 use ckb_store::ChainDB;
@@ -206,6 +204,8 @@ impl Launcher {
             .tx_pool_config(self.args.config.tx_pool.clone())
             .notify_config(self.args.config.notify.clone())
             .store_config(self.args.config.store)
+            .sync_config(self.args.config.network.sync.clone())
+            .header_map_tmp_dir(self.args.config.tmp_dir.clone())
             .block_assembler_config(block_assembler_config)
             .build()?;
 
@@ -220,9 +220,12 @@ impl Launcher {
     }
 
     /// Start chain service, return ChainController
-    pub fn start_chain_service(&self, shared: &Shared, table: ProposalTable) -> ChainController {
-        let chain_service = ChainService::new(shared.clone(), table);
-        let chain_controller = chain_service.start(Some("ChainService"));
+    pub fn start_chain_service(
+        &self,
+        shared: &Shared,
+        chain_services_builder: ChainServicesBuilder,
+    ) -> ChainController {
+        let chain_controller = ckb_chain::start_chain_services(chain_services_builder);
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
         chain_controller
     }
@@ -271,10 +274,9 @@ impl Launcher {
         miner_enable: bool,
         relay_tx_receiver: Receiver<TxVerificationResult>,
     ) -> NetworkController {
-        let sync_shared = Arc::new(SyncShared::with_tmpdir(
+        let sync_shared = Arc::new(SyncShared::new(
             shared.clone(),
             self.args.config.network.sync.clone(),
-            self.args.config.tmp_dir.as_ref(),
             relay_tx_receiver,
         ));
         let fork_enable = {
@@ -303,17 +305,18 @@ impl Launcher {
         let mut flags = Flags::all();
 
         if support_protocols.contains(&SupportProtocol::Relay) {
-            let relayer = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
+            let relayer_v3 = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared)).v3();
 
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::RelayV3,
-                Box::new(relayer.clone().v3()),
+                Box::new(relayer_v3),
                 Arc::clone(&network_state),
             ));
             if !fork_enable {
+                let relayer_v2 = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
                 protocols.push(CKBProtocol::new_with_support_protocol(
                     SupportProtocols::RelayV2,
-                    Box::new(relayer),
+                    Box::new(relayer_v2),
                     Arc::clone(&network_state),
                 ))
             }
@@ -407,10 +410,28 @@ impl Launcher {
                 chain_controller.clone(),
                 miner_enable,
             )
-            .enable_net(network_controller.clone(), sync_shared)
+            .enable_net(
+                network_controller.clone(),
+                sync_shared,
+                Arc::new(chain_controller.clone()),
+            )
             .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
             .enable_experiment(shared.clone())
-            .enable_integration_test(shared.clone(), network_controller.clone(), chain_controller)
+            .enable_integration_test(
+                shared.clone(),
+                network_controller.clone(),
+                chain_controller,
+                rpc_config
+                    .extra_well_known_lock_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
+                rpc_config
+                    .extra_well_known_type_scripts
+                    .iter()
+                    .map(|script| script.clone().into())
+                    .collect(),
+            )
             .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
             .enable_indexer(
                 shared.clone(),

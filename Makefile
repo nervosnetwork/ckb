@@ -4,7 +4,7 @@ MOLC    := moleculec
 MOLC_VERSION := 0.7.5
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::redundant_clone -D clippy::enum_glob_use -D clippy::fallible_impl_from \
-	-A clippy::mutable_key_type -A clippy::upper_case_acronyms
+	-A clippy::mutable_key_type -A clippy::upper_case_acronyms -A clippy::needless_return
 CKB_TEST_ARGS := -c 4 ${CKB_TEST_ARGS}
 CKB_FEATURES ?= deadlock_detection,with_sentry
 ALL_FEATURES := deadlock_detection,with_sentry,with_dns_seeding,profiling,march-native
@@ -125,13 +125,13 @@ check: setup-ckb-test ## Runs all of the compiler's checks.
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
 
-.PHONY: build-for-profiling-without-debug-symbols
-build-for-profiling-without-debug-symbols: ## Build binary with for profiling without debug symbols.
-	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --release --features "profiling"
+.PHONY: profiling
+profiling: ## Build binary with for profiling without debug symbols.
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,profiling"
 
-.PHONY: build-for-profiling
+.PHONY: profiling-with-debug-symbols
 build-for-profiling: ## Build binary with for profiling.
-	devtools/release/make-with-debug-symbols build-for-profiling-without-debug-symbols
+	devtools/release/make-with-debug-symbols profiling
 
 .PHONY: prod
 prod: ## Build binary for production release.

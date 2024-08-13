@@ -7,9 +7,10 @@
  *    - `number` is not even.
  */
 
+#include <stdlib.h>
+#include "blockchain.h"
 #include "ckb_dlfcn.h"
 #include "ckb_syscalls.h"
-#include "blockchain.h"
 
 #ifdef DEBUG
 #include <stdio.h>
@@ -19,15 +20,13 @@
 #endif
 
 #define SCRIPT_SIZE 32768
-#define CODE_BUFFER_SIZE  (100 * 1024)
+#define CODE_BUFFER_SIZE (100 * 1024)
 
 uint8_t CODE_BUFFER[CODE_BUFFER_SIZE] __attribute__((aligned(RISCV_PGSIZE)));
 
-uint64_t read_u64_le (const uint8_t *src) {
-    return *(const uint64_t *)src;
-}
+uint64_t read_u64_le(const uint8_t *src) { return *(const uint64_t *)src; }
 
-int main (int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
     int ret;
     uint64_t len = SCRIPT_SIZE;
     uint8_t script[SCRIPT_SIZE];
@@ -59,7 +58,8 @@ int main (int argc, char *argv[]) {
     }
 
     volatile uint64_t number = read_u64_le(bytes_seg.ptr);
-    sprintf(message, "number = %ld", number); ckb_debug(message);
+    sprintf(message, "number = %ld", number);
+    ckb_debug(message);
 
     if (number == 0) {
         return CKB_SUCCESS;
@@ -71,7 +71,7 @@ int main (int argc, char *argv[]) {
         uint64_t consumed_size = 0;
 
         uint8_t hash_type = 0;
-        ret = ckb_dlopen2(bytes_seg.ptr+8, hash_type, CODE_BUFFER, CODE_BUFFER_SIZE, &handle, &consumed_size);
+        ret = ckb_dlopen2(bytes_seg.ptr + 8, hash_type, CODE_BUFFER, CODE_BUFFER_SIZE, &handle, &consumed_size);
         if (ret != CKB_SUCCESS) {
             return ret;
         }
@@ -83,7 +83,8 @@ int main (int argc, char *argv[]) {
         is_even = func(number);
     }
 
-    sprintf(message, "is_even(%ld) = %d", number, is_even); ckb_debug(message);
+    sprintf(message, "is_even(%ld) = %d", number, is_even);
+    ckb_debug(message);
 
     if (is_even) {
         return -8;

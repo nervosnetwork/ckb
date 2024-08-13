@@ -1,5 +1,4 @@
 use crate::{Status, StatusCode};
-use ckb_error::{Error as CKBError, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex, ProtocolId, SupportProtocols};
 use ckb_types::packed::{RelayMessageReader, SyncMessageReader};
@@ -156,26 +155,4 @@ fn protocol_name(protocol_id: ProtocolId) -> String {
             "Unknown".to_owned()
         }
     }
-}
-
-/// return whether the error's kind is `InternalErrorKind::Database`
-///
-/// ### Panic
-///
-/// Panic if the error kind is `InternalErrorKind::DataCorrupted`.
-/// If the database is corrupted, panic is better than handle it silently.
-pub(crate) fn is_internal_db_error(error: &CKBError) -> bool {
-    if error.kind() == ErrorKind::Internal {
-        let error_kind = error
-            .downcast_ref::<InternalError>()
-            .expect("error kind checked")
-            .kind();
-        if error_kind == InternalErrorKind::DataCorrupted {
-            panic!("{}", error)
-        } else {
-            return error_kind == InternalErrorKind::Database
-                || error_kind == InternalErrorKind::System;
-        }
-    }
-    false
 }
