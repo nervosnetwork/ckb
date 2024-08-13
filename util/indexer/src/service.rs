@@ -19,6 +19,7 @@ use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
+use std::usize;
 
 pub(crate) const SUBSCRIBER_NAME: &str = "Indexer";
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
@@ -31,6 +32,7 @@ pub struct IndexerService {
     sync: IndexerSyncService,
     block_filter: Option<String>,
     cell_filter: Option<String>,
+    request_limit: usize,
 }
 
 impl IndexerService {
@@ -56,6 +58,7 @@ impl IndexerService {
             sync,
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
+            request_limit: config.request_limit.unwrap_or(usize::MAX),
         }
     }
 
@@ -67,6 +70,7 @@ impl IndexerService {
         IndexerHandle {
             store: self.store.clone(),
             pool: self.sync.pool(),
+            request_limit: self.request_limit,
         }
     }
 
@@ -124,6 +128,7 @@ impl IndexerService {
 pub struct IndexerHandle {
     pub(crate) store: RocksdbStore,
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
+    request_limit: usize,
 }
 
 impl IndexerHandle {
@@ -167,6 +172,12 @@ impl IndexerHandle {
         let limit = limit.value() as usize;
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
+        }
+        if limit > self.request_limit {
+            return Err(Error::invalid_params(format!(
+                "limit must be less than {}",
+                self.request_limit,
+            )));
         }
 
         let (prefix, from_key, direction, skip) = build_query_options(
@@ -333,6 +344,12 @@ impl IndexerHandle {
         let limit = limit.value() as usize;
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
+        }
+        if limit > self.request_limit {
+            return Err(Error::invalid_params(format!(
+                "limit must be less than {}",
+                self.request_limit,
+            )));
         }
 
         if search_key
@@ -926,12 +943,13 @@ mod tests {
 
     #[test]
     fn rpc() {
-        let store = new_store("rpc");
+        let store: RocksdbStore = new_store("rpc");
         let pool = Arc::new(RwLock::new(Pool::default()));
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
         let rpc = IndexerHandle {
             store,
             pool: Some(Arc::clone(&pool)),
+            request_limit: usize::MAX,
         };
 
         // setup test data
@@ -1516,7 +1534,11 @@ mod tests {
     fn script_search_mode_rpc() {
         let store = new_store("script_search_mode_rpc");
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
-        let rpc = IndexerHandle { store, pool: None };
+        let rpc = IndexerHandle {
+            store,
+            pool: None,
+            request_limit: usize::MAX,
+        };
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()
@@ -1756,10 +1778,46 @@ mod tests {
     }
 
     #[test]
+    fn test_request_limit() {
+        let store = new_store("script_search_mode_rpc");
+        let rpc = IndexerHandle {
+            store,
+            pool: None,
+            request_limit: 2,
+        };
+
+        let lock_script1 = ScriptBuilder::default()
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
+            .build();
+        let data = [0u8; 7];
+        let res = rpc.get_cells(
+            IndexerSearchKey {
+                script: lock_script1.into(),
+                filter: Some(IndexerSearchKeyFilter {
+                    output_data: Some(JsonBytes::from_vec(data.to_vec())),
+                    output_data_filter_mode: Some(IndexerSearchMode::Prefix),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            IndexerOrder::Asc,
+            1000.into(),
+            None,
+        );
+        assert!(res.is_err())
+    }
+
+    #[test]
     fn output_data_filter_mode_rpc() {
         let store = new_store("script_search_mode_rpc");
         let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
-        let rpc = IndexerHandle { store, pool: None };
+        let rpc = IndexerHandle {
+            store,
+            pool: None,
+            request_limit: usize::MAX,
+        };
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()

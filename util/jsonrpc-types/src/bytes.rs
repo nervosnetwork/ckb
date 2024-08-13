@@ -60,13 +60,13 @@ impl JsonBytes {
 
 impl From<packed::Bytes> for JsonBytes {
     fn from(input: packed::Bytes) -> Self {
-        JsonBytes::from_bytes(input.raw_data())
+        JsonBytes::from_vec(input.raw_data().to_vec())
     }
 }
 
 impl<'a> From<&'a packed::Bytes> for JsonBytes {
     fn from(input: &'a packed::Bytes) -> Self {
-        JsonBytes::from_bytes(input.raw_data())
+        JsonBytes::from_vec(input.raw_data().to_vec())
     }
 }
 
