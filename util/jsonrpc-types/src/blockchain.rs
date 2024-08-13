@@ -593,6 +593,8 @@ pub struct TxStatus {
     pub block_number: Option<BlockNumber>,
     /// The block hash of the block which has committed this transaction in the canonical chain.
     pub block_hash: Option<H256>,
+    /// The transaction index in the block.
+    pub tx_index: Option<Uint32>,
     /// The reason why the transaction is rejected
     pub reason: Option<String>,
 }
@@ -602,7 +604,9 @@ impl From<tx_pool::TxStatus> for TxStatus {
         match tx_pool_status {
             tx_pool::TxStatus::Pending => TxStatus::pending(),
             tx_pool::TxStatus::Proposed => TxStatus::proposed(),
-            tx_pool::TxStatus::Committed(number, hash) => TxStatus::committed(number.into(), hash),
+            tx_pool::TxStatus::Committed(number, hash, tx_index) => {
+                TxStatus::committed(number.into(), hash, tx_index.into())
+            }
             tx_pool::TxStatus::Rejected(reason) => TxStatus::rejected(reason),
             tx_pool::TxStatus::Unknown => TxStatus::unknown(),
         }
@@ -616,6 +620,7 @@ impl TxStatus {
             status: Status::Pending,
             block_number: None,
             block_hash: None,
+            tx_index: None,
             reason: None,
         }
     }
@@ -626,6 +631,7 @@ impl TxStatus {
             status: Status::Proposed,
             block_number: None,
             block_hash: None,
+            tx_index: None,
             reason: None,
         }
     }
@@ -635,11 +641,12 @@ impl TxStatus {
     /// ## Params
     ///
     /// * `hash` - the block hash in which the transaction is committed.
-    pub fn committed(number: BlockNumber, hash: H256) -> Self {
+    pub fn committed(number: BlockNumber, hash: H256, tx_index: Uint32) -> Self {
         Self {
             status: Status::Committed,
             block_number: Some(number),
             block_hash: Some(hash),
+            tx_index: Some(tx_index),
             reason: None,
         }
     }
@@ -654,6 +661,7 @@ impl TxStatus {
             status: Status::Rejected,
             block_number: None,
             block_hash: None,
+            tx_index: None,
             reason: Some(reason),
         }
     }
@@ -664,6 +672,7 @@ impl TxStatus {
             status: Status::Unknown,
             block_number: None,
             block_hash: None,
+            tx_index: None,
             reason: None,
         }
     }
