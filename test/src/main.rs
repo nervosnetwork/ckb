@@ -592,7 +592,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RandomlyKill),
     ];
     specs.shuffle(&mut thread_rng());
-    specs.append(&mut vec![Box::new(SyncChurn) as Box<dyn Spec>]);
+    specs.insert(0, Box::new(SyncChurn) as Box<dyn Spec>);
     specs
 }
 
