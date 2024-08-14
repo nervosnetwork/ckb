@@ -52,7 +52,7 @@ impl Spec for SyncChurn {
                 let mining_node = select_random_node(&mut rng, &mut mining_nodes);
                 mining_node.mine(1);
                 // Because the test that waiting for nodes to sync has a implicit maximum waiting time
-                // (currently 60 seconds, we can sync about 200 blocks per second, so a maxium blocks of 10000 is reasonable)
+                // (currently 60 seconds, we can sync about 200 blocks per second, so a maximum blocks of 10000 is reasonable)
                 // and the implicit waiting time is not long enough when there are too many blocks to sync,
                 // so we stop mining when the tip block number is greater than 15000.
                 // Otherwise nodes may not be able to sync within the implicit waiting time.
