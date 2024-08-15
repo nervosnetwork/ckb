@@ -681,9 +681,9 @@ impl Node {
                         status,
                         self.log_path().display()
                     );
-                    info!("Last 200 lines of log:");
+                    info!("Last 500 lines of log:");
                     self.print_last_500_lines_log(&self.log_path());
-                    info!("End of last 200 lines of log");
+                    info!("End of last 500 lines of log");
                     // parent process will exit
                     return;
                 }
@@ -693,6 +693,9 @@ impl Node {
                         error,
                         self.log_path().display()
                     );
+                    info!("Last 500 lines of log:");
+                    self.print_last_500_lines_log(&self.log_path());
+                    info!("End of last 500 lines of log");
                     return;
                 }
             }
@@ -708,7 +711,7 @@ impl Node {
         self.set_node_id(node_info.node_id.as_str());
     }
 
-    fn print_last_500_lines_log(&self, log_file: &Path) {
+    pub(crate) fn print_last_500_lines_log(&self, log_file: &Path) {
         let file = File::open(log_file).expect("open log file");
         let reader = BufReader::new(file);
         let lines: Vec<String> = reader.lines().map(|line| line.unwrap()).collect();
