@@ -123,6 +123,11 @@ impl Spec for SendLargeCyclesTxToRelay {
                 .transaction
                 .is_some()
         });
+        if !result {
+            info!("node0 last 500 log begin");
+            node0.print_last_500_lines_log(&node0.log_path());
+            info!("node0 last 500 log end");
+        }
         assert!(result, "Node0 should accept tx");
     }
 
