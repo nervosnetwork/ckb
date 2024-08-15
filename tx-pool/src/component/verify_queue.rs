@@ -55,7 +55,7 @@ pub(crate) struct VerifyQueue {
     /// inner tx entry
     inner: MultiIndexVerifyEntryMap,
     /// subscribe this notify to get be notified when there is item in the queue
-    ready_rx: Arc<Notify>,
+    pub(crate) ready_rx: Arc<Notify>,
     /// total tx size in the queue, will reject new transaction if exceed the limit
     total_tx_size: usize,
     /// large cycle threshold, from `pool_config.max_tx_verify_cycles`
