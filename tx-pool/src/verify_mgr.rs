@@ -90,11 +90,13 @@ impl Worker {
                 match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
                     Some(entry) => entry,
                     None => {
-                        tasks.ready_rx.notify_one();
-                        debug!(
-                            "Worker (role: {:?}) queue is empty after pop_front, notify others now",
+                        if !tasks.is_empty() {
+                            tasks.re_notify();
+                            debug!(
+                                "Worker (role: {:?}) didn't got tx after pop_front, but tasks is not empty, notify other Workers now",
                             self.role
                         );
+                        }
                         return;
                     }
                 }
