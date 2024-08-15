@@ -5,7 +5,7 @@ use crate::{Net, Node, Spec};
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Status;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_network::SupportProtocols;
 use ckb_types::{
     bytes::Bytes,
@@ -94,7 +94,7 @@ impl SendLargeCyclesTxToRelay {
 }
 
 impl Spec for SendLargeCyclesTxToRelay {
-    crate::setup!(num_nodes: 2, retry_failed: 5);
+    crate::setup!(num_nodes: 2, retry_failed: 0);
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
@@ -117,17 +117,16 @@ impl Spec for SendLargeCyclesTxToRelay {
         assert!(result, "node0 can't sync with node1");
 
         let result = wait_until(60, || {
-            node0
-                .rpc_client()
-                .get_transaction(tx.hash())
-                .transaction
-                .is_some()
+            let result = node0.rpc_client().get_transaction(tx.hash());
+            debug!(
+                "node0 get_transaction result: {:?}",
+                serde_json::to_string(&result)
+            );
+            result.transaction.is_some()
         });
-        if !result {
-            info!("node0 last 500 log begin");
-            node0.print_last_500_lines_log(&node0.log_path());
-            info!("node0 last 500 log end");
-        }
+        info!("node0 last 500 log begin");
+        node0.print_last_500_lines_log(&node0.log_path());
+        info!("node0 last 500 log end");
         assert!(result, "Node0 should accept tx");
     }
 

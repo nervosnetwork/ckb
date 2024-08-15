@@ -1,6 +1,6 @@
 use crate::relayer::Relayer;
 use crate::Status;
-use ckb_logger::error;
+use ckb_logger::{debug, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
     core::{Cycle, TransactionView},
@@ -64,6 +64,10 @@ impl<'a> TransactionsProcess<'a> {
         if txs.is_empty() {
             return Status::ok();
         }
+        debug!(
+            "relaying transactions {:?}",
+            txs.iter().map(|(tx, _)| tx.hash()).collect::<Vec<_>>()
+        );
 
         let max_block_cycles = self.relayer.shared().consensus().max_block_cycles();
         if txs

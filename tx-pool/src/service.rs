@@ -15,8 +15,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::error;
 use ckb_logger::info;
+use ckb_logger::{debug, error};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -771,6 +771,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             let _result = service
                 .resumeble_process_tx(tx, Some((declared_cycles, peer)))
                 .await;
+            debug!("submit_remote_tx result {:?}", _result);
             if let Err(e) = responder.send(()) {
                 error!("Responder sending submit_tx result failed {:?}", e);
             };
@@ -855,10 +856,14 @@ async fn process(mut service: TxPoolService, message: Message) {
             } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
                 match recent_reject_db.get(&hash) {
                     Ok(Some(record)) => Ok(TransactionWithStatus::with_rejected(record)),
-                    Ok(_) => Ok(TransactionWithStatus::with_unknown()),
+                    Ok(None) => {
+                        debug!("tx {} not found in recent reject db", &hash);
+                        Ok(TransactionWithStatus::with_unknown())
+                    }
                     Err(err) => Err(err),
                 }
             } else {
+                debug!("tx {} not found in tx_pool", &hash);
                 Ok(TransactionWithStatus::with_unknown())
             };
 

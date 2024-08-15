@@ -1,7 +1,7 @@
 extern crate num_cpus;
 use crate::component::verify_queue::VerifyQueue;
 use crate::service::TxPoolService;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use std::sync::Arc;
@@ -75,12 +75,19 @@ impl Worker {
     }
 
     async fn process_inner(&mut self) {
+        debug!(
+            "Worker {:?} process_inner, tasks len: {}",
+            self.role,
+            self.tasks.read().await.len()
+        );
         loop {
             if self.status != ChunkCommand::Resume {
+                debug!("Worker {:?} status: {:?}", self.role, self.status);
                 return;
             }
             // cheap query to check queue is not empty
             if self.tasks.read().await.is_empty() {
+                debug!("Worker {:?} queue is empty", self.role);
                 return;
             }
             // pick a entry to run verify
@@ -91,8 +98,15 @@ impl Worker {
                 .pop_front(self.role == WorkerRole::OnlySmallCycleTx)
             {
                 Some(entry) => entry,
-                None => return,
+                None => {
+                    debug!(
+                        "Worker (role: {:?}) queue is empty after pop_front",
+                        self.role
+                    );
+                    return;
+                }
             };
+            debug!("Worker {:?} process tx: {}", self.role, entry.tx.hash());
 
             if let Some((res, snapshot)) = self
                 .service
