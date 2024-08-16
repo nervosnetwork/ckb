@@ -21,6 +21,9 @@ impl Spec for BlockSyncFromOne {
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn run(&self, nodes: &mut Vec<Node>) {
+        nodes
+            .iter()
+            .for_each(|node| node.wait_find_unverified_blocks_finished());
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
