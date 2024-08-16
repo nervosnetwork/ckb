@@ -307,6 +307,10 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
+        nodes
+            .iter()
+            .for_each(|node| node.wait_find_unverified_blocks_finished());
+
         let node0 = &nodes[0];
         let node1 = &nodes[1];
         out_ibd_mode(nodes);
