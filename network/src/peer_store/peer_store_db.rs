@@ -72,10 +72,17 @@ impl PeerStore {
 
         let addr_manager = File::open(&addr_manager_path)
             .map_err(|err| {
-                debug!(
-                    "Failed to open AddrManager db, file: {:?}, error: {:?}",
-                    addr_manager_path, err
-                )
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    debug!(
+                        "AddrManager db {:?} not found: {:?}",
+                        addr_manager_path, err
+                    )
+                } else {
+                    error!(
+                        "Failed to open AddrManager db, file: {:?}, error: {:?}",
+                        addr_manager_path, err
+                    )
+                }
             })
             .and_then(|file| {
                 AddrManager::load(std::io::BufReader::new(file)).map_err(|err| {
