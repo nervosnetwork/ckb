@@ -26,6 +26,12 @@ impl AsyncRichIndexerHandle {
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
+        if limit as usize > self.request_limit {
+            return Err(Error::invalid_params(format!(
+                "limit must be less than {}",
+                self.request_limit,
+            )));
+        }
 
         let mut param_index = 1;
 

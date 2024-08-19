@@ -1,7 +1,7 @@
 extern crate num_cpus;
 use crate::component::verify_queue::VerifyQueue;
 use crate::service::TxPoolService;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use std::sync::Arc;
@@ -83,18 +83,26 @@ impl Worker {
             if self.tasks.read().await.is_empty() {
                 return;
             }
+
             // pick a entry to run verify
-            let entry = match self
-                .tasks
-                .write()
-                .await
-                .pop_first(self.role == WorkerRole::OnlySmallCycleTx)
-            {
-                Some(entry) => entry,
-                None => return,
+            let entry = {
+                let mut tasks = self.tasks.write().await;
+                match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
+                    Some(entry) => entry,
+                    None => {
+                        if !tasks.is_empty() {
+                            tasks.re_notify();
+                            debug!(
+                                "Worker (role: {:?}) didn't got tx after pop_front, but tasks is not empty, notify other Workers now",
+                            self.role
+                        );
+                        }
+                        return;
+                    }
+                }
             };
 
-            let (res, snapshot) = self
+            if let Some((res, snapshot)) = self
                 .service
                 ._process_tx(
                     entry.tx.clone(),
@@ -102,11 +110,13 @@ impl Worker {
                     Some(&mut self.command_rx),
                 )
                 .await
-                .expect("verify worker _process_tx failed");
-
-            self.service
-                .after_process(entry.tx, entry.remote, &snapshot, &res)
-                .await;
+            {
+                self.service
+                    .after_process(entry.tx, entry.remote, &snapshot, &res)
+                    .await;
+            } else {
+                info!("_process_tx for tx: {} returned none", entry.tx.hash());
+            }
         }
     }
 }

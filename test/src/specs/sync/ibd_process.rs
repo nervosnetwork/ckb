@@ -8,6 +8,9 @@ impl Spec for IBDProcess {
     crate::setup!(num_nodes: 3);
 
     fn run(&self, nodes: &mut Vec<Node>) {
+        nodes
+            .iter()
+            .for_each(|node| node.wait_find_unverified_blocks_finished());
         info!("Running IBD process");
 
         let node0 = &nodes[0];

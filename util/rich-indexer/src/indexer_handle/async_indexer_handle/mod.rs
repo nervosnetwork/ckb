@@ -23,12 +23,17 @@ use std::sync::{Arc, RwLock};
 pub struct AsyncRichIndexerHandle {
     store: SQLXPool,
     pool: Option<Arc<RwLock<Pool>>>,
+    request_limit: usize,
 }
 
 impl AsyncRichIndexerHandle {
     /// Construct new AsyncRichIndexerHandle instance
-    pub fn new(store: SQLXPool, pool: Option<Arc<RwLock<Pool>>>) -> Self {
-        Self { store, pool }
+    pub fn new(store: SQLXPool, pool: Option<Arc<RwLock<Pool>>>, request_limit: usize) -> Self {
+        Self {
+            store,
+            pool,
+            request_limit,
+        }
     }
 }
 

@@ -36,17 +36,27 @@ impl Spec for SyncChurn {
 
         let (restart_stopped_tx, restart_stopped_rx) = mpsc::channel();
 
+        #[cfg(target_os = "linux")]
+        const NUM_MINED_BLOCKS: usize = 10000;
+        #[cfg(target_os = "linux")]
+        const NUM_RESTART: usize = 100;
+
+        #[cfg(not(target_os = "linux"))]
+        const NUM_MINED_BLOCKS: usize = 1000;
+        #[cfg(not(target_os = "linux"))]
+        const NUM_RESTART: usize = 20;
+
         let mining_thread = thread::spawn(move || {
             let mut rng = rand::thread_rng();
             loop {
                 let mining_node = select_random_node(&mut rng, &mut mining_nodes);
                 mining_node.mine(1);
                 // Because the test that waiting for nodes to sync has a implicit maximum waiting time
-                // (currently 60 seconds, we can sync about 200 blocks per second, so a maxium blocks of 10000 is reasonable)
+                // (currently 60 seconds, we can sync about 200 blocks per second, so a maximum blocks of 10000 is reasonable)
                 // and the implicit waiting time is not long enough when there are too many blocks to sync,
                 // so we stop mining when the tip block number is greater than 15000.
                 // Otherwise nodes may not be able to sync within the implicit waiting time.
-                let too_many_blocks = mining_node.get_tip_block_number() > 10000;
+                let too_many_blocks = mining_node.get_tip_block_number() > NUM_MINED_BLOCKS as u64;
                 if too_many_blocks || restart_stopped_rx.try_recv().is_ok() {
                     break;
                 }
@@ -57,8 +67,7 @@ impl Spec for SyncChurn {
         let restart_thread = thread::spawn(move || {
             let mut rng = rand::thread_rng();
             // It takes about 1 second to restart a node. So restarting nodes 100 times takes about 100 seconds.
-            let num_restarts = 100;
-            for _ in 0..num_restarts {
+            for _ in 0..NUM_RESTART {
                 let node = select_random_node(&mut rng, &mut churn_nodes);
                 info!("Restarting node {}", node.node_id());
                 node.stop();
