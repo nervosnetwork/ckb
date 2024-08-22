@@ -70,6 +70,10 @@ feature-depth = 1
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
 ignore = [
+# https://rustsec.org/advisories/RUSTSEC-2024-0363
+# https://github.com/launchbadge/sqlx/issues/3440
+# The queries for the rich indexer receive input parameters via RPC, and the data size is far less than 4GB, so this issue can be temporarily ignored while waiting for sqlx to be fixed.
+  "RUSTSEC-2024-0363",
 # https://rustsec.org/advisories/RUSTSEC-2022-0090
 # It was sometimes possible for SQLite versions >= 1.0.12, < 3.39.2 to allow an array-bounds overflow when large string were input into SQLite's `printf` function.
   "RUSTSEC-2022-0090",
