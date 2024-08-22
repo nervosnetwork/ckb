@@ -701,6 +701,7 @@ impl Node {
             }
         };
 
+        self.wait_find_unverified_blocks_finished();
         self.wait_tx_pool_ready();
 
         self.set_process_guard(ProcessGuard {
