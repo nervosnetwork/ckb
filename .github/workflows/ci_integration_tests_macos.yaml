@@ -54,6 +54,8 @@ jobs:
     runs-on: macos-12
     steps:
     - uses: actions/checkout@v3
+    - name: Setup upterm session
+      uses: lhotari/action-upterm@v1
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
