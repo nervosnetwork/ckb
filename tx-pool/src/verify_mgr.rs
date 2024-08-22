@@ -77,6 +77,13 @@ impl Worker {
     async fn process_inner(&mut self) {
         loop {
             if self.status != ChunkCommand::Resume {
+                info!(
+                    "Worker is not in resume status, current status: {:?}",
+                    self.status
+                );
+                // sleep a while to avoid busy loop
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                self.tasks.write().await.re_notify();
                 return;
             }
             // cheap query to check queue is not empty
