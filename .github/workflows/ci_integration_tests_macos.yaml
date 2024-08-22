@@ -58,8 +58,7 @@ jobs:
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
         else
-          echo "skip job"
-          exit 0
+          devtools/ci/ci_main.sh
         fi
       shell: bash
     - name: upload log files
