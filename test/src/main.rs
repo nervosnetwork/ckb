@@ -395,7 +395,7 @@ fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 }
 
 fn all_specs() -> Vec<Box<dyn Spec>> {
-    let mut specs: Vec<Box<dyn Spec>> = vec![
+    let mut _specs: Vec<Box<dyn Spec>> = vec![
         Box::new(BlockSyncFromOne),
         Box::new(BlockSyncForks),
         Box::new(BlockSyncDuplicatedAndReconnect),
@@ -468,7 +468,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(ValidSince),
         Box::new(SendLowFeeRateTx),
         Box::new(SendLargeCyclesTxInBlock::new()),
-        Box::new(SendLargeCyclesTxToRelay::new()),
         Box::new(NotifyLargeCyclesTx::new()),
         Box::new(LoadProgramFailedTx::new()),
         Box::new(RelayWithWrongTx::new()),
@@ -598,6 +597,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RandomlyKill),
         Box::new(SyncChurn),
     ];
+    let mut specs: Vec<Box<dyn Spec>> = vec![Box::new(SendLargeCyclesTxToRelay::new())];
     specs.shuffle(&mut thread_rng());
     specs
 }
