@@ -76,8 +76,9 @@ impl Worker {
 
     async fn process_inner(&mut self) {
         loop {
+            eprintln!("Worker process_inner begin ....");
             if self.status != ChunkCommand::Resume {
-                info!(
+                eprintln!(
                     "Worker is not in resume status, current status: {:?}",
                     self.status
                 );
@@ -88,6 +89,7 @@ impl Worker {
             }
             // cheap query to check queue is not empty
             if self.tasks.read().await.is_empty() {
+                eprintln!("Worker queue is empty");
                 return;
             }
 

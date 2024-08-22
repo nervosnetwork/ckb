@@ -106,7 +106,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         info!("Generate large cycles tx");
 
         let tx = build_tx(node1, &self.random_key.privkey, self.random_key.lock_arg());
-        // send tx
+        // send tx to node1
         let ret = node1.rpc_client().send_transaction_result(tx.data().into());
         assert!(ret.is_ok());
 
