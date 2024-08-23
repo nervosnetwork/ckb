@@ -1025,6 +1025,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-light-client-protocol-server",
  "ckb-logger",
+ "ckb-metrics",
  "ckb-network",
  "ckb-network-alert",
  "ckb-resource",

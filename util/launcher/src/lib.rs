@@ -24,7 +24,7 @@ use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::{ChainServicesBuilder, Shared};
 
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
-use ckb_store::ChainDB;
+use ckb_store::{ChainDB, ChainStore};
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
@@ -227,6 +227,12 @@ impl Launcher {
     ) -> ChainController {
         let chain_controller = ckb_chain::start_chain_services(chain_services_builder);
         info!("chain genesis hash: {:#x}", shared.genesis_hash());
+
+        if let Some(metrics) = ckb_metrics::handle() {
+            if let Some(tip) = shared.store().get_tip_header() {
+                metrics.ckb_chain_tip.set(tip.number() as i64);
+            }
+        }
         chain_controller
     }
 
