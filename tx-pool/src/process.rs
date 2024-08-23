@@ -448,7 +448,7 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!(
+                    info!(
                         "after_process {} {} remote reject: {} ",
                         tx_hash, peer, reject
                     );
@@ -686,6 +686,10 @@ impl TxPoolService {
 
         if let Some(declared) = declared_cycles {
             if declared != verified.cycles {
+                info!(
+                    "process_tx declared cycles not match verified cycles, declared: {:?} verified: {:?}, tx: {:?}",
+                    declared, verified.cycles, tx
+                );
                 return Some((
                     Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
                     snapshot,
