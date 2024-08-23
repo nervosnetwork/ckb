@@ -110,6 +110,7 @@ pub(crate) enum Message {
     GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
     ClearPool(Request<Arc<Snapshot>, ()>),
+    ClearVerifyQueue(Request<(), ()>),
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
@@ -320,6 +321,11 @@ impl TxPoolController {
     /// Clears the tx-pool, removing all txs, update snapshot.
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         send_message!(self, ClearPool, new_snapshot)
+    }
+
+    /// Clears the tx-verify-queue.
+    pub fn clear_verify_queue(&self) -> Result<(), AnyError> {
+        send_message!(self, ClearVerifyQueue, ())
     }
 
     /// TODO(doc): @zhangsoledad
@@ -912,6 +918,12 @@ async fn process(mut service: TxPoolService, message: Message) {
             service.clear_pool(new_snapshot).await;
             if let Err(e) = responder.send(()) {
                 error!("Responder sending clear_pool failed {:?}", e)
+            };
+        }
+        Message::ClearVerifyQueue(Request { responder, .. }) => {
+            service.verify_queue.write().await.clear();
+            if let Err(e) = responder.send(()) {
+                error!("Responder sending clear_verify_queue failed {:?}", e)
             };
         }
         Message::GetPoolTxDetails(Request {
