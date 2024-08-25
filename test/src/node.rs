@@ -361,7 +361,7 @@ impl Node {
         let timestamp = block.timestamp();
         let uncle = block
             .as_advanced_builder()
-            .timestamp((timestamp + 1).pack())
+            .timestamp((timestamp - 1).pack())
             .build();
         (block, uncle)
     }
