@@ -60,6 +60,11 @@ impl Spec for SyncChurn {
                 if too_many_blocks || restart_stopped_rx.try_recv().is_ok() {
                     break;
                 }
+                info!(
+                    "mining_node {}, tip: {}",
+                    mining_node.node_id(),
+                    mining_node.get_tip_block_number()
+                );
                 waiting_for_sync(&mining_nodes);
             }
         });
