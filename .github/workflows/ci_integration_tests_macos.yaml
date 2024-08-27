@@ -55,12 +55,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - run: |
-        if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
-        else
-          echo "skip job"
-          exit 0
-        fi
       shell: bash
     - name: upload log files
       if: always()

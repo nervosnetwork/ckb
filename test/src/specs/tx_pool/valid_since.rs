@@ -132,10 +132,17 @@ impl ValidSince {
         {
             let since = since_from_relative_timestamp(median_time_seconds - 1);
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
+
+            let is_ok = node
+                .rpc_client()
+                .send_transaction_result(transaction.data().into())
+                .is_ok();
+            if !is_ok {
+                node.print_last_500_lines_log(&node.log_path());
+            }
+
             assert!(
-                node.rpc_client()
-                    .send_transaction_result(transaction.data().into())
-                    .is_ok(),
+                is_ok,
                 "transaction's since is greater than tip's median time",
             );
         }

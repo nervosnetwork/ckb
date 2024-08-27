@@ -38,6 +38,12 @@ impl Spec for BlockSyncFromOne {
             let header1 = rpc_client1.get_tip_header();
             header0 == header1 && header0.inner.number.value() == 3
         });
+        if !ret {
+            info!("last 500 lines of node0:");
+            node0.print_last_500_lines_log(&node0.log_path());
+            info!("last 500 lines of node1:");
+            node1.print_last_500_lines_log(&node1.log_path());
+        }
         assert!(
             ret,
             "Node0 and node1 should sync with each other until same tip chain",
