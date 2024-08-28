@@ -378,14 +378,14 @@ impl Shared {
     /// Return whether chain is in initial block download
     pub fn is_initial_block_download(&self) -> bool {
         // Once this function has returned false, it must remain false.
-        if self.ibd_finished.load(Ordering::Relaxed) {
+        if self.ibd_finished.load(Ordering::Acquire) {
             false
         } else if unix_time_as_millis().saturating_sub(self.snapshot().tip_header().timestamp())
             > MAX_TIP_AGE
         {
             true
         } else {
-            self.ibd_finished.store(true, Ordering::Relaxed);
+            self.ibd_finished.store(true, Ordering::Release);
             false
         }
     }

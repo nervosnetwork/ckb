@@ -157,7 +157,7 @@ where
             self.stats().tick_primary_delete();
         }
         // If IBD is not finished, don't shrink memory map
-        let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Relaxed);
+        let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Acquire);
         self.memory.remove(hash, allow_shrink_to_fit);
         if self.backend.is_empty() {
             return;
@@ -175,7 +175,7 @@ where
             });
 
             // If IBD is not finished, don't shrink memory map
-            let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Relaxed);
+            let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Acquire);
             self.memory
                 .remove_batch(values.iter().map(|value| value.hash()), allow_shrink_to_fit);
         }
