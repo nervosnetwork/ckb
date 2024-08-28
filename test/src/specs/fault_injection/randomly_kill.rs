@@ -24,7 +24,7 @@ impl Spec for RandomlyKill {
                 node.mine(n);
             }
             info!("Stop the node");
-            node.stop();
+            node.stop_gracefully();
             info!("Start the node");
             node.start();
         }
