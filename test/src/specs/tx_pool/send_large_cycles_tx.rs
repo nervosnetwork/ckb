@@ -100,6 +100,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
+        node0.mine_until_out_bootstrap_period();
         node1.mine_until_out_bootstrap_period();
         node0.connect(node1);
         info!("Generate large cycles tx");

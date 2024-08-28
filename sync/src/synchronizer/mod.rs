@@ -680,6 +680,11 @@ impl Synchronizer {
             return;
         }
 
+        if ckb_stop_handler::has_received_stop_signal() {
+            info!("received stop signal, stop find_blocks_to_fetch");
+            return;
+        }
+
         let unverified_tip = self.shared.active_chain().unverified_tip_number();
 
         let disconnect_list = {
