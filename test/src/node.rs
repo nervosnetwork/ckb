@@ -32,9 +32,6 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_C_EVENT};
-
 pub(crate) struct ProcessGuard {
     pub name: String,
     pub child: Child,
@@ -845,28 +842,19 @@ impl Node {
         info!("accessed db done");
     }
 
+    #[allow(unused_mut)]
     pub fn stop_gracefully(&mut self) {
         let guard = self.take_guard();
         if let Some(mut guard) = guard {
             if !guard.killed {
                 // on nix: send SIGINT to the child
-                // on windows: use taskkill to kill the child gracefully
-                Self::kill_gracefully(guard.child.id());
-                let _ = guard.child.wait();
-                guard.killed = true;
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    fn kill_gracefully(pid: u32) {
-        unsafe {
-            let ret = GenerateConsoleCtrlEvent(CTRL_C_EVENT, pid);
-            if ret == 0 {
-                let err = std::io::Error::last_os_error();
-                error!("GenerateConsoleCtrlEvent failed: {}", err);
-            } else {
-                info!("GenerateConsoleCtrlEvent success");
+                // on windows: don't kill gracefully..... fix later
+                #[cfg(not(target_os = "windows"))]
+                {
+                    Self::kill_gracefully(guard.child.id());
+                    let _ = guard.child.wait();
+                    guard.killed = true;
+                }
             }
         }
     }
