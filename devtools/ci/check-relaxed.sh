@@ -20,9 +20,21 @@ case "$OSTYPE" in
     ;;
 esac
 
-find ./ -not -path '*/target/*' -type f -name "*.rs" | xargs grep -H "Relaxed"
+function main() {
+  local res=$(find ./ -not -path '*/target/*' -type f -name "*.rs" | xargs grep -H "Relaxed")
 
-if [ $? -eq 0 ]; then
+  if [ -z "${res}" ]; then
+    echo "ok"
+    exit 0
+  else
     echo "find use Relaxed on code, please check"
+
+    for file in ${res}; do
+        printf ${file}
+    done
+
     exit 1
-fi
+  fi
+}
+
+main "$@"
