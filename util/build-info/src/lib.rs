@@ -92,7 +92,10 @@ impl std::fmt::Display for Version {
             .chain(self.commit_date.iter())
             .map(String::as_str)
             .collect();
-        if !extra_parts.is_empty() {
+        
+        let commit_describe = self.commit_describe.clone().unwrap_or("".to_string());
+        let commit_date = self.commit_describe.clone().unwrap_or("".to_string());
+        if !commit_describe.is_empty() || !commit_date.is_empty() {
             write!(f, " ({})", extra_parts.as_slice().join(" "))?;
         }
 
