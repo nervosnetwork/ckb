@@ -1117,10 +1117,10 @@ impl TxPoolService {
     }
 
     pub fn after_delay(&self) -> bool {
-        self.after_delay.load(Ordering::Relaxed)
+        self.after_delay.load(Ordering::Acquire)
     }
 
     pub fn set_after_delay_true(&self) {
-        self.after_delay.store(true, Ordering::Relaxed);
+        self.after_delay.store(true, Ordering::Release);
     }
 }
