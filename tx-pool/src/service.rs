@@ -177,13 +177,13 @@ macro_rules! send_notify {
 impl TxPoolController {
     /// Return whether tx-pool service is started
     pub fn service_started(&self) -> bool {
-        self.started.load(Ordering::Relaxed)
+        self.started.load(Ordering::Acquire)
     }
 
     /// Set tx-pool service started, should only used for test
     #[cfg(feature = "internal")]
     pub fn set_service_started(&self, v: bool) {
-        self.started.store(v, Ordering::Relaxed);
+        self.started.store(v, Ordering::Release);
     }
 
     /// Return reference of tokio runtime handle
@@ -658,7 +658,7 @@ impl TxPoolServiceBuilder {
                 }
             }
         });
-        self.started.store(true, Ordering::Relaxed);
+        self.started.store(true, Ordering::Release);
         if let Err(err) = self.tx_pool_controller.load_persisted_data(txs) {
             error!("Failed to import persistent txs, cause: {}", err);
         }
