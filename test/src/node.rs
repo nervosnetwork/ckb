@@ -32,13 +32,20 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_C_EVENT};
-
 pub(crate) struct ProcessGuard {
     pub name: String,
     pub child: Child,
     pub killed: bool,
+}
+
+impl ProcessGuard {
+    pub(crate) fn is_alive(&mut self) -> bool {
+        let try_wait = self.child.try_wait();
+        match try_wait {
+            Ok(status_op) => status_op.is_none(),
+            Err(_err) => false,
+        }
+    }
 }
 
 impl Drop for ProcessGuard {
@@ -361,7 +368,7 @@ impl Node {
         let timestamp = block.timestamp();
         let uncle = block
             .as_advanced_builder()
-            .timestamp((timestamp + 1).pack())
+            .timestamp((timestamp - 1).pack())
             .build();
         (block, uncle)
     }
@@ -681,9 +688,9 @@ impl Node {
                         status,
                         self.log_path().display()
                     );
-                    info!("Last 200 lines of log:");
+                    info!("Last 500 lines of log:");
                     self.print_last_500_lines_log(&self.log_path());
-                    info!("End of last 200 lines of log");
+                    info!("End of last 500 lines of log");
                     // parent process will exit
                     return;
                 }
@@ -693,11 +700,15 @@ impl Node {
                         error,
                         self.log_path().display()
                     );
+                    info!("Last 500 lines of log:");
+                    self.print_last_500_lines_log(&self.log_path());
+                    info!("End of last 500 lines of log");
                     return;
                 }
             }
         };
 
+        self.wait_find_unverified_blocks_finished();
         self.wait_tx_pool_ready();
 
         self.set_process_guard(ProcessGuard {
@@ -708,7 +719,7 @@ impl Node {
         self.set_node_id(node_info.node_id.as_str());
     }
 
-    fn print_last_500_lines_log(&self, log_file: &Path) {
+    pub(crate) fn print_last_500_lines_log(&self, log_file: &Path) {
         let file = File::open(log_file).expect("open log file");
         let reader = BufReader::new(file);
         let lines: Vec<String> = reader.lines().map(|line| line.unwrap()).collect();
@@ -735,6 +746,15 @@ impl Node {
     pub(crate) fn take_guard(&mut self) -> Option<ProcessGuard> {
         let mut g = self.inner.guard.write().unwrap();
         g.take()
+    }
+
+    pub(crate) fn is_alive(&mut self) -> bool {
+        let mut g = self.inner.guard.write().unwrap();
+        if let Some(guard) = g.as_mut() {
+            guard.is_alive()
+        } else {
+            false
+        }
     }
 
     pub fn stop(&mut self) {
@@ -841,28 +861,19 @@ impl Node {
         info!("accessed db done");
     }
 
+    #[allow(unused_mut)]
     pub fn stop_gracefully(&mut self) {
         let guard = self.take_guard();
         if let Some(mut guard) = guard {
             if !guard.killed {
                 // on nix: send SIGINT to the child
-                // on windows: use taskkill to kill the child gracefully
-                Self::kill_gracefully(guard.child.id());
-                let _ = guard.child.wait();
-                guard.killed = true;
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    fn kill_gracefully(pid: u32) {
-        unsafe {
-            let ret = GenerateConsoleCtrlEvent(CTRL_C_EVENT, pid);
-            if ret == 0 {
-                let err = std::io::Error::last_os_error();
-                error!("GenerateConsoleCtrlEvent failed: {}", err);
-            } else {
-                info!("GenerateConsoleCtrlEvent success");
+                // on windows: don't kill gracefully..... fix later
+                #[cfg(not(target_os = "windows"))]
+                {
+                    Self::kill_gracefully(guard.child.id());
+                    let _ = guard.child.wait();
+                    guard.killed = true;
+                }
             }
         }
     }

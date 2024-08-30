@@ -191,7 +191,7 @@ fn test_accept_inbound_peer_eviction() {
             peer.connected_time = now - Duration::from_secs(10);
         };
     }
-    // thoses peers will not be protect, we add them to evict_targets
+    // these peers will not be protect, we add them to evict_targets
     for _ in 0..longest_connection_time_peers_count {
         let peer_addr = peers_iter.next().unwrap();
         let peer_id = extract_peer_id(peer_addr).unwrap();

@@ -1,5 +1,7 @@
 //！The rich-indexer service.
 
+use std::usize;
+
 use crate::indexer::RichIndexer;
 use crate::store::SQLXPool;
 use crate::{AsyncRichIndexerHandle, RichIndexerHandle};
@@ -19,6 +21,7 @@ pub struct RichIndexerService {
     block_filter: Option<String>,
     cell_filter: Option<String>,
     async_handle: Handle,
+    request_limit: usize,
 }
 
 impl RichIndexerService {
@@ -47,6 +50,7 @@ impl RichIndexerService {
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
             async_handle,
+            request_limit: config.request_limit.unwrap_or(usize::MAX),
         }
     }
 
@@ -56,6 +60,7 @@ impl RichIndexerService {
             self.sync.pool(),
             CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
             self.async_handle.clone(),
+            self.request_limit,
         )
     }
 
@@ -83,6 +88,7 @@ impl RichIndexerService {
             self.store.clone(),
             self.sync.pool(),
             self.async_handle.clone(),
+            self.request_limit,
         )
     }
 
@@ -91,6 +97,6 @@ impl RichIndexerService {
     /// The returned handle can be used to get data from rich-indexer,
     /// and can be cloned to allow moving the Handle to other threads.
     pub fn async_handle(&self) -> AsyncRichIndexerHandle {
-        AsyncRichIndexerHandle::new(self.store.clone(), self.sync.pool())
+        AsyncRichIndexerHandle::new(self.store.clone(), self.sync.pool(), self.request_limit)
     }
 }

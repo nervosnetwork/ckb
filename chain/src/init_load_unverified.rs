@@ -93,6 +93,15 @@ impl InitLoadUnverified {
             let unverified_hashes: Vec<packed::Byte32> =
                 self.find_unverified_block_hashes(check_unverified_number);
 
+            if check_unverified_number > tip_number && unverified_hashes.is_empty() {
+                info!(
+                    "no unverified blocks found after tip, current tip: {}-{}",
+                    tip_number,
+                    self.shared.snapshot().tip_hash()
+                );
+                return;
+            }
+
             for unverified_hash in unverified_hashes {
                 f(&unverified_hash);
             }

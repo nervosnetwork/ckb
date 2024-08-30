@@ -37,6 +37,7 @@ use std::sync::{Arc, RwLock};
 pub(crate) struct RichIndexer {
     async_rich_indexer: AsyncRichIndexer,
     async_runtime: Handle,
+    request_limit: usize,
 }
 
 impl RichIndexer {
@@ -46,10 +47,12 @@ impl RichIndexer {
         pool: Option<Arc<RwLock<Pool>>>,
         custom_filters: CustomFilters,
         async_runtime: Handle,
+        request_limit: usize,
     ) -> Self {
         Self {
             async_rich_indexer: AsyncRichIndexer::new(store, pool, custom_filters),
             async_runtime,
+            request_limit,
         }
     }
 }
@@ -61,6 +64,7 @@ impl IndexerSync for RichIndexer {
             self.async_rich_indexer.store.clone(),
             self.async_rich_indexer.pool.clone(),
             self.async_runtime.clone(),
+            self.request_limit,
         );
         indexer_handle
             .get_indexer_tip()

@@ -35,6 +35,9 @@ pub struct IndexerConfig {
     /// The init tip block hash
     #[serde(default)]
     pub init_tip_hash: Option<H256>,
+    /// limit of indexer reqeust
+    #[serde(default)]
+    pub request_limit: Option<usize>,
     /// Rich indexer config options
     #[serde(default)]
     pub rich_indexer: RichIndexerConfig,
@@ -56,6 +59,7 @@ impl Default for IndexerConfig {
             db_background_jobs: None,
             db_keep_log_file_num: None,
             init_tip_hash: None,
+            request_limit: None,
             rich_indexer: RichIndexerConfig::default(),
         }
     }

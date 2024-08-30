@@ -42,13 +42,13 @@ async fn verify_queue_basic() {
 
     assert!(!queue.add_tx(tx.clone(), None).unwrap());
 
-    assert_eq!(queue.pop_first(false).as_ref(), Some(&entry));
+    assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
     assert!(!queue.contains_key(&id));
 
     assert!(queue.add_tx(tx.clone(), None).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
-    assert_eq!(queue.pop_first(false).as_ref(), Some(&entry));
+    assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
 
     assert!(queue.add_tx(tx.clone(), None).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
@@ -60,11 +60,11 @@ async fn verify_queue_basic() {
     let counts = count.await.unwrap();
     assert_eq!(counts, 4);
 
-    let cur = queue.pop_first(false);
+    let cur = queue.pop_front(false);
     assert_eq!(cur.unwrap().tx, tx);
 
     assert!(!queue.is_empty());
-    let cur = queue.pop_first(false);
+    let cur = queue.pop_front(false);
     assert_eq!(cur.unwrap().tx, tx2);
 
     assert!(queue.is_empty());
@@ -122,24 +122,24 @@ async fn test_verify_different_cycles() {
     assert_eq!(queue.total_tx_size(), tx_size_sum);
 
     // tx0 should be the first tx in the queue
-    let cur = queue.pop_first(true);
+    let cur = queue.pop_front(true);
     assert_eq!(cur.unwrap().tx, tx0);
 
-    let cur = queue.pop_first(true);
+    let cur = queue.pop_front(true);
     assert_eq!(cur.unwrap().tx, tx2);
 
-    let cur = queue.pop_first(true);
+    let cur = queue.pop_front(true);
     assert_eq!(cur.unwrap().tx, tx3);
 
     // now there is no small cycle tx
-    let cur = queue.pop_first(true);
+    let cur = queue.pop_front(true);
     assert!(cur.is_none());
 
     // pop the tx with the large cycle
-    let cur = queue.pop_first(false);
+    let cur = queue.pop_front(false);
     assert_eq!(cur.unwrap().tx, tx1);
 
-    let cur = queue.pop_first(false);
+    let cur = queue.pop_front(false);
     assert!(cur.is_none());
 
     exit_tx.send(()).unwrap();

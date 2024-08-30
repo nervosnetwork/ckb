@@ -22,9 +22,14 @@ pub struct RichIndexerHandle {
 
 impl RichIndexerHandle {
     /// Construct new RichIndexerHandle instance
-    pub fn new(store: SQLXPool, pool: Option<Arc<RwLock<Pool>>>, async_handle: Handle) -> Self {
+    pub fn new(
+        store: SQLXPool,
+        pool: Option<Arc<RwLock<Pool>>>,
+        async_handle: Handle,
+        request_limit: usize,
+    ) -> Self {
         Self {
-            async_handle: AsyncRichIndexerHandle::new(store, pool),
+            async_handle: AsyncRichIndexerHandle::new(store, pool, request_limit),
             async_runtime: async_handle,
         }
     }
