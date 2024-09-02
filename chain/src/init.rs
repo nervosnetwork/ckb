@@ -2,11 +2,11 @@
 
 //! Bootstrap InitLoadUnverified, PreloadUnverifiedBlock, ChainService and ConsumeUnverified threads.
 use crate::chain_service::ChainService;
-use crate::consume_unverified::ConsumeUnverifiedBlocks;
 use crate::init_load_unverified::InitLoadUnverified;
 use crate::orphan_broker::OrphanBroker;
 use crate::preload_unverified_blocks_channel::PreloadUnverifiedBlocksChannel;
 use crate::utils::orphan_block_pool::OrphanBlockPool;
+use crate::verify::ConsumeUnverifiedBlocks;
 use crate::{chain_controller::ChainController, LonelyBlockHash, UnverifiedBlock};
 use ckb_channel::{self as channel, SendError};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
@@ -37,7 +37,7 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
     let is_pending_verify: Arc<DashSet<Byte32>> = Arc::new(DashSet::new());
 
     let consumer_unverified_thread = thread::Builder::new()
-        .name("consume_unverified_blocks".into())
+        .name("verify_blocks".into())
         .spawn({
             let shared = builder.shared.clone();
             let is_pending_verify = Arc::clone(&is_pending_verify);
