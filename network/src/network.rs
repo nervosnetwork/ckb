@@ -485,7 +485,7 @@ impl NetworkState {
 
     /// Network message processing controller, default is true, if false, discard any received messages
     pub fn is_active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
+        self.active.load(Ordering::Acquire)
     }
 }
 
@@ -1368,7 +1368,7 @@ impl NetworkController {
 
     /// Change active status, if set false discard any received messages
     pub fn set_active(&self, active: bool) {
-        self.network_state.active.store(active, Ordering::Relaxed);
+        self.network_state.active.store(active, Ordering::Release);
     }
 
     /// Return all connected peers' protocols info
