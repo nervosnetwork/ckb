@@ -8,7 +8,10 @@ use ckb_types::{
 use rand::{thread_rng, Rng};
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::atomic::{AtomicUsize, Ordering::Relaxed},
+    sync::atomic::{
+        AtomicUsize,
+        Ordering::{Acquire, SeqCst},
+    },
 };
 
 use crate::types::{TtlFilter, FILTER_TTL};
@@ -64,7 +67,7 @@ fn test_get_ancestor_use_skip_list() {
                 0,
                 b,
                 |hash, _| {
-                    count.fetch_add(1, Relaxed);
+                    count.fetch_add(1, SeqCst);
                     header_map.get(hash).cloned()
                 },
                 |_, _| None,
@@ -72,7 +75,7 @@ fn test_get_ancestor_use_skip_list() {
             .unwrap();
 
         // Search must finished in <limit> steps
-        assert!(count.load(Relaxed) <= limit);
+        assert!(count.load(Acquire) <= limit);
 
         header
     };

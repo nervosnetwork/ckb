@@ -174,13 +174,24 @@ impl RpcClient {
     }
 
     pub fn wait_rpc_ready(&self) {
+        self.wait_rpc_ready_internal(|| {
+            panic!("wait rpc ready timeout");
+        });
+    }
+
+    pub fn wait_rpc_ready_internal<F>(&self, fail: F) -> bool
+    where
+        F: Fn(),
+    {
         let now = std::time::Instant::now();
         while self.inner.get_tip_block_number().is_err() {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if now.elapsed() > std::time::Duration::from_secs(60) {
-                panic!("wait rpc ready timeout");
+                fail();
+                return false;
             }
         }
+        true
     }
 
     pub fn get_block_template(

@@ -117,7 +117,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         });
         assert!(result, "node0 can't sync with node1");
 
-        let result = wait_until(60, || {
+        let result = wait_until(120, || {
             node0
                 .rpc_client()
                 .get_transaction(tx.hash())

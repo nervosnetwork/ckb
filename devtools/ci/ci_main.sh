@@ -60,6 +60,7 @@ case $GITHUB_WORKFLOW in
     make check-dirty-rpc-doc
     make check-dirty-hashes-toml
     devtools/ci/check-cyclic-dependencies.py
+    devtools/ci/check-relaxed.sh
     ;;
   ci_aarch64_build*)
     echo "ci_aarch64_build"

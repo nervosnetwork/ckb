@@ -16,7 +16,6 @@ use std::sync::Arc;
 
 mod chain_controller;
 mod chain_service;
-pub mod consume_unverified;
 mod init;
 mod init_load_unverified;
 mod orphan_broker;
@@ -24,6 +23,7 @@ mod preload_unverified_blocks_channel;
 #[cfg(test)]
 mod tests;
 mod utils;
+pub mod verify;
 
 pub use chain_controller::ChainController;
 use ckb_logger::{error, info};

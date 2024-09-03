@@ -38,6 +38,16 @@ pub(crate) struct ProcessGuard {
     pub killed: bool,
 }
 
+impl ProcessGuard {
+    pub(crate) fn is_alive(&mut self) -> bool {
+        let try_wait = self.child.try_wait();
+        match try_wait {
+            Ok(status_op) => status_op.is_none(),
+            Err(_err) => false,
+        }
+    }
+}
+
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
         if !self.killed {
@@ -736,6 +746,15 @@ impl Node {
     pub(crate) fn take_guard(&mut self) -> Option<ProcessGuard> {
         let mut g = self.inner.guard.write().unwrap();
         g.take()
+    }
+
+    pub(crate) fn is_alive(&mut self) -> bool {
+        let mut g = self.inner.guard.write().unwrap();
+        if let Some(guard) = g.as_mut() {
+            guard.is_alive()
+        } else {
+            false
+        }
     }
 
     pub fn stop(&mut self) {
