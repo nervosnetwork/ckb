@@ -203,9 +203,7 @@ impl ConsumeUnverifiedBlockProcessor {
             match *assume_valid_target {
                 Some(ref target) => {
                     // if the target has been reached, delete it
-                    if target
-                        == &ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(block))
-                    {
+                    if target == &Into::<H256>::into(&BlockView::hash(block)) {
                         assume_valid_target.take();
                         Switch::NONE
                     } else {

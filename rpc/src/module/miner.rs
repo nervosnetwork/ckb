@@ -332,7 +332,7 @@ impl MinerRpc for MinerRpcImpl {
                     Ok(root) => root,
                     Err(err) => {
                         error!("Generate last state to light client failed: {:?}", err);
-                        return Ok(header.hash().unpack());
+                        return Ok(header.hash().into());
                     }
                 }
             };
@@ -340,7 +340,7 @@ impl MinerRpc for MinerRpcImpl {
             let tip_header = packed::VerifiableHeader::new_builder()
                 .header(header.data())
                 .uncles_hash(block.calc_uncles_hash())
-                .extension(Pack::pack(&block.extension()))
+                .extension(block.extension())
                 .parent_chain_root(parent_chain_root)
                 .build();
             let light_client_message = {
@@ -367,7 +367,7 @@ impl MinerRpc for MinerRpcImpl {
             }
         }
 
-        Ok(header.hash().unpack())
+        Ok(header.hash().into())
     }
 }
 

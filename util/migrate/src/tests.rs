@@ -42,9 +42,9 @@ fn test_mock_migration() {
     // insert block
     {
         let hash = genesis.hash();
-        let header = genesis.header().pack();
+        let header: packed::HeaderView = genesis.header().into();
         let number = header.data().raw().number();
-        let uncles = genesis.uncles().pack();
+        let uncles: packed::UncleBlockVecView = genesis.uncles().into();
         let proposals = genesis.data().proposals();
         db_txn
             .put(COLUMN_INDEX, number.as_slice(), hash.as_slice())
@@ -65,9 +65,9 @@ fn test_mock_migration() {
         for (index, tx) in genesis.transactions().into_iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
-                .index(index.pack())
+                .index(index)
                 .build();
-            let tx_data = tx.pack();
+            let tx_data: packed::TransactionView = tx.into();
             db_txn
                 .put(COLUMN_BLOCK_BODY, key.as_slice(), tx_data.as_slice())
                 .unwrap();
@@ -100,10 +100,10 @@ fn test_mock_migration() {
             .put(
                 COLUMN_EPOCH,
                 epoch_ext.last_block_hash_in_previous_epoch().as_slice(),
-                epoch_ext.pack().as_slice(),
+                Into::<packed::EpochExt>::into(&epoch_ext).as_slice(),
             )
             .unwrap();
-        let epoch_number: packed::Uint64 = epoch_ext.number().pack();
+        let epoch_number: packed::Uint64 = epoch_ext.number().into();
         db_txn
             .put(
                 COLUMN_EPOCH,
@@ -130,7 +130,7 @@ fn test_mock_migration() {
             .put(
                 COLUMN_BLOCK_EXT,
                 genesis.header().hash().as_slice(),
-                ext.pack().as_slice(),
+                Into::<packed::BlockExtV1>::into(ext).as_slice(),
             )
             .unwrap()
     }
@@ -141,7 +141,7 @@ fn test_mock_migration() {
             .put(
                 COLUMN_META,
                 META_CURRENT_EPOCH_KEY,
-                epoch_ext.pack().as_slice(),
+                Into::<packed::EpochExt>::into(epoch_ext).as_slice(),
             )
             .unwrap()
     }

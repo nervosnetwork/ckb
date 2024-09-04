@@ -1,7 +1,7 @@
 use crate::{genesis_verifier::GenesisVerifier, NumberError, UnknownParentError};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
-use ckb_types::{core::EpochNumberWithFraction, prelude::*};
+use ckb_types::core::EpochNumberWithFraction;
 use ckb_verification_traits::Verifier;
 
 #[test]
@@ -9,8 +9,8 @@ pub fn test_genesis_non_zero_number() {
     let genesis_block = Consensus::default().genesis_block().to_owned();
     let genesis_block = genesis_block
         .as_advanced_builder()
-        .number(42.pack())
-        .epoch(EpochNumberWithFraction::from_full_value(0).pack())
+        .number(42)
+        .epoch(EpochNumberWithFraction::from_full_value(0))
         .build();
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
@@ -30,7 +30,7 @@ pub fn test_genesis_non_zero_parent_hash() {
     let genesis_block = Consensus::default().genesis_block().to_owned();
     let genesis_block = genesis_block
         .as_advanced_builder()
-        .parent_hash([42u8; 32].pack())
+        .parent_hash([42u8; 32])
         .build();
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
@@ -39,7 +39,7 @@ pub fn test_genesis_non_zero_parent_hash() {
     assert_error_eq!(
         verifier.verify(&consensus).unwrap_err(),
         UnknownParentError {
-            parent_hash: [42u8; 32].pack()
+            parent_hash: [42u8; 32].into()
         },
     );
 }

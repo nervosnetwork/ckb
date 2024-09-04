@@ -98,14 +98,14 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         .witness(always_success_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data.pack())
+        .output_data(always_success_cell_data)
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
 
     let mut block = BlockBuilder::default()
-        .timestamp(unix_time_as_millis().pack())
-        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
+        .timestamp(unix_time_as_millis())
+        .compact_target(difficulty_to_compact(U256::from(1000u64)))
         .dao(dao)
         .transaction(always_success_tx)
         .build();
@@ -150,11 +150,11 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             builder
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(reward.total.pack())
+                        .capacity(reward.total)
                         .lock(always_success_script.to_owned())
                         .build(),
                 )
-                .output_data(Bytes::default().pack())
+                .output_data(Bytes::default())
                 .build()
         };
 
@@ -176,15 +176,15 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .chain_root_mmr(block.header().number())
             .get_root()
             .expect("chain root_mmr");
-        let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
+        let bytes = chain_root.calc_mmr_hash().as_bytes().into();
 
         block = BlockBuilder::default()
             .transaction(cellbase)
             .parent_hash(block.header().hash())
-            .number(number.pack())
-            .epoch(epoch.number_with_fraction(number).pack())
-            .timestamp(timestamp.pack())
-            .compact_target(epoch.compact_target().pack())
+            .number(number)
+            .epoch(epoch.number_with_fraction(number))
+            .timestamp(timestamp)
+            .compact_target(epoch.compact_target())
             .dao(dao)
             .extension(Some(bytes))
             .build();

@@ -6,7 +6,7 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::hardfork::HardForks,
     packed,
-    prelude::{Entity, FromSliceShouldBeOk, Pack, Reader},
+    prelude::{Entity, FromSliceShouldBeOk, Reader},
 };
 
 const VERSION: &str = "20231101000000";
@@ -42,9 +42,9 @@ impl Migration for BlockExt2019ToZero {
             return Ok(chain_db.into_inner());
         }
 
-        let hard_fork_epoch_number: packed::Uint64 = limit_epoch.pack();
+        let hard_fork_epoch_number: packed::Uint64 = limit_epoch.into();
         let tip_header = chain_db.get_tip_header().expect("db must have tip header");
-        let tip_epoch_number = tip_header.epoch().pack();
+        let tip_epoch_number: packed::Uint64 = tip_header.epoch().into();
 
         let header = if tip_epoch_number < hard_fork_epoch_number {
             Some(tip_header)

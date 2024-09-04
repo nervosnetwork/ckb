@@ -99,7 +99,7 @@ impl AlertRpc for AlertRpcImpl {
     fn send_alert(&self, alert: Alert) -> Result<()> {
         let alert: packed::Alert = alert.into();
         let now_ms = ckb_systemtime::unix_time_as_millis();
-        let notice_until: u64 = alert.raw().notice_until().unpack();
+        let notice_until: u64 = alert.raw().notice_until().into();
         if notice_until < now_ms {
             return Err(RPCError::invalid_params(format!(
                 "Expected `params[0].notice_until` in the future (> {now_ms}), got {notice_until}",

@@ -236,7 +236,7 @@ impl BlockFetchCMD {
         let assume_valid_target_find = |flag: &mut CanStart| {
             let mut assume_valid_target = shared.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
-                match shared.header_map().get(&target.pack()) {
+                match shared.header_map().get(&target.into()) {
                     Some(header) => {
                         *flag = CanStart::Ready;
                         info!("assume valid target found in header_map; CKB will start fetch blocks now");
@@ -281,7 +281,7 @@ impl BlockFetchCMD {
 
     fn send_getblocks(v_fetch: Vec<packed::Byte32>, nc: &ServiceControl, peer: PeerIndex) {
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
+            .block_hashes(v_fetch.clone())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
 
@@ -790,7 +790,7 @@ impl Synchronizer {
         peer: PeerIndex,
     ) {
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
+            .block_hashes(v_fetch.clone())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
 
