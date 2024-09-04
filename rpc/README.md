@@ -109,6 +109,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `remove_transaction`](#pool-remove_transaction)
         * [Method `tx_pool_info`](#pool-tx_pool_info)
         * [Method `clear_tx_pool`](#pool-clear_tx_pool)
+        * [Method `clear_tx_verify_queue`](#pool-clear_tx_verify_queue)
         * [Method `get_raw_tx_pool`](#pool-get_raw_tx_pool)
         * [Method `get_pool_tx_detail_info`](#pool-get_pool_tx_detail_info)
         * [Method `tx_pool_ready`](#pool-tx_pool_ready)
@@ -4734,6 +4735,37 @@ Request
   "id": 42,
   "jsonrpc": "2.0",
   "method": "clear_tx_pool",
+  "params": []
+}
+```
+
+Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": null
+}
+```
+
+<a id="pool-clear_tx_verify_queue"></a>
+#### Method `clear_tx_verify_queue`
+* `clear_tx_verify_queue()`
+
+* result: `null`
+
+Removes all transactions from the verification queue.
+
+###### Examples
+
+Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "clear_tx_verify_queue",
   "params": []
 }
 ```

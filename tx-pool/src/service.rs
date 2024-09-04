@@ -110,6 +110,7 @@ pub(crate) enum Message {
     GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
     ClearPool(Request<Arc<Snapshot>, ()>),
+    ClearVerifyQueue(Request<(), ()>),
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
@@ -176,13 +177,13 @@ macro_rules! send_notify {
 impl TxPoolController {
     /// Return whether tx-pool service is started
     pub fn service_started(&self) -> bool {
-        self.started.load(Ordering::Relaxed)
+        self.started.load(Ordering::Acquire)
     }
 
     /// Set tx-pool service started, should only used for test
     #[cfg(feature = "internal")]
     pub fn set_service_started(&self, v: bool) {
-        self.started.store(v, Ordering::Relaxed);
+        self.started.store(v, Ordering::Release);
     }
 
     /// Return reference of tokio runtime handle
@@ -320,6 +321,11 @@ impl TxPoolController {
     /// Clears the tx-pool, removing all txs, update snapshot.
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         send_message!(self, ClearPool, new_snapshot)
+    }
+
+    /// Clears the tx-verify-queue.
+    pub fn clear_verify_queue(&self) -> Result<(), AnyError> {
+        send_message!(self, ClearVerifyQueue, ())
     }
 
     /// TODO(doc): @zhangsoledad
@@ -652,7 +658,7 @@ impl TxPoolServiceBuilder {
                 }
             }
         });
-        self.started.store(true, Ordering::Relaxed);
+        self.started.store(true, Ordering::Release);
         if let Err(err) = self.tx_pool_controller.load_persisted_data(txs) {
             error!("Failed to import persistent txs, cause: {}", err);
         }
@@ -914,6 +920,12 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("Responder sending clear_pool failed {:?}", e)
             };
         }
+        Message::ClearVerifyQueue(Request { responder, .. }) => {
+            service.verify_queue.write().await.clear();
+            if let Err(e) = responder.send(()) {
+                error!("Responder sending clear_verify_queue failed {:?}", e)
+            };
+        }
         Message::GetPoolTxDetails(Request {
             responder,
             arguments: tx_hash,
@@ -1105,10 +1117,10 @@ impl TxPoolService {
     }
 
     pub fn after_delay(&self) -> bool {
-        self.after_delay.load(Ordering::Relaxed)
+        self.after_delay.load(Ordering::Acquire)
     }
 
     pub fn set_after_delay_true(&self) {
-        self.after_delay.store(true, Ordering::Relaxed);
+        self.after_delay.store(true, Ordering::Release);
     }
 }

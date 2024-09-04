@@ -76,6 +76,10 @@ impl Worker {
 
     async fn process_inner(&mut self) {
         loop {
+            if self.exit_signal.is_cancelled() {
+                info!("Verify worker::process_inner exit_signal is cancelled");
+                return;
+            }
             if self.status != ChunkCommand::Resume {
                 return;
             }
@@ -170,7 +174,6 @@ impl VerifyMgr {
     }
 
     fn send_child_command(&self, command: ChunkCommand) {
-        //info!("[verify-test] verify-mgr send child command: {:?}", command);
         for w in &self.workers {
             if let Err(err) = w.0.send(command.clone()) {
                 info!("send worker command failed, error: {}", err);

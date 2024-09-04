@@ -103,7 +103,7 @@ impl ConsumeUnverifiedBlocks {
                     },
                 },
                 recv(self.stop_rx) -> _ => {
-                    info!("consume_unverified_blocks thread received exit signal, exit now");
+                    info!("verify_blocks thread received exit signal, exit now");
                     break;
                 }
 
