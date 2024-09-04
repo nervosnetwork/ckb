@@ -17,6 +17,8 @@ use ckb_types::{
 
 use super::BuilderBaseOnBlockNumber;
 
+const MOCK_BLOCK_NUMBER: BlockNumber = 2;
+
 fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> TransactionView {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
@@ -32,7 +34,7 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> TransactionView {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity.pack())
@@ -45,7 +47,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> TransactionV
 
 fn create_cellbase_transaction_with_non_empty_output_data() -> TransactionView {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(100).pack())
@@ -58,7 +60,7 @@ fn create_cellbase_transaction_with_non_empty_output_data() -> TransactionView {
 
 fn create_cellbase_transaction_with_two_output() -> TransactionView {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(100).pack())
@@ -76,7 +78,7 @@ fn create_cellbase_transaction_with_two_output() -> TransactionView {
 
 fn create_cellbase_transaction_with_two_output_data() -> TransactionView {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(100).pack())
@@ -90,6 +92,25 @@ fn create_cellbase_transaction_with_two_output_data() -> TransactionView {
 
 fn create_cellbase_transaction() -> TransactionView {
     create_cellbase_transaction_with_capacity(capacity_bytes!(100))
+}
+
+fn create_cellbase_transaction_with_unknown_hash_type() -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100).pack())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .witness(
+            Script::default()
+                .as_builder()
+                .hash_type(3.into())
+                .build()
+                .into_witness(),
+        )
+        .build()
 }
 
 fn create_normal_transaction() -> TransactionView {
@@ -154,7 +175,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
 
 #[test]
 pub fn test_block_with_one_cellbase_at_last() {
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_normal_transaction())
         .transaction(create_cellbase_transaction())
         .build();
@@ -167,8 +188,21 @@ pub fn test_block_with_one_cellbase_at_last() {
 }
 
 #[test]
+pub fn test_block_with_unknown_hash_type_cellbase() {
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(create_cellbase_transaction_with_unknown_hash_type())
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq!(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidWitness,
+    );
+}
+
+#[test]
 pub fn test_cellbase_with_non_empty_output_data() {
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_cellbase_transaction_with_non_empty_output_data())
         .build();
     let verifier = CellbaseVerifier::new();
@@ -182,10 +216,10 @@ pub fn test_cellbase_with_non_empty_output_data() {
 pub fn test_cellbase_without_output() {
     // without_output
     let cellbase_without_output = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(2u64))
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .witness(Script::default().into_witness())
         .build();
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(cellbase_without_output)
         .build();
     let result = CellbaseVerifier::new().verify(&block);
@@ -193,11 +227,11 @@ pub fn test_cellbase_without_output() {
 
     // only output_data
     let cellbase_without_output = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(2u64))
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .witness(Script::default().into_witness())
         .output_data(Bytes::new().pack())
         .build();
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(cellbase_without_output)
         .build();
     let result = CellbaseVerifier::new().verify(&block);
@@ -205,7 +239,7 @@ pub fn test_cellbase_without_output() {
 
     // only output
     let cellbase_without_output = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(2u64))
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
@@ -213,7 +247,7 @@ pub fn test_cellbase_without_output() {
                 .build(),
         )
         .build();
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(cellbase_without_output)
         .build();
     let result = CellbaseVerifier::new().verify(&block);
@@ -222,7 +256,7 @@ pub fn test_cellbase_without_output() {
 
 #[test]
 pub fn test_cellbase_with_two_output() {
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_cellbase_transaction_with_two_output())
         .build();
     let verifier = CellbaseVerifier::new();
@@ -234,7 +268,7 @@ pub fn test_cellbase_with_two_output() {
 
 #[test]
 pub fn test_cellbase_with_two_output_data() {
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_cellbase_transaction_with_two_output_data())
         .build();
     let verifier = CellbaseVerifier::new();
@@ -247,7 +281,7 @@ pub fn test_cellbase_with_two_output_data() {
 #[test]
 pub fn test_block_with_duplicated_txs() {
     let tx = create_normal_transaction();
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(tx.clone())
         .transaction(tx)
         .build();
@@ -261,7 +295,7 @@ pub fn test_block_with_duplicated_txs() {
 
 #[test]
 pub fn test_block_with_duplicated_proposals() {
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .proposal(ProposalShortId::zero())
         .proposal(ProposalShortId::zero())
         .build();
@@ -275,7 +309,7 @@ pub fn test_block_with_duplicated_proposals() {
 
 #[test]
 pub fn test_transaction_root() {
-    let header = HeaderBuilder::new_with_number(2)
+    let header = HeaderBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transactions_root(Byte32::zero())
         .build();
     let block = BlockBuilder::default()
@@ -292,7 +326,7 @@ pub fn test_transaction_root() {
 
 #[test]
 pub fn test_proposals_root() {
-    let header = HeaderBuilder::new_with_number(2)
+    let header = HeaderBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .proposals_hash(h256!("0x1").pack())
         .build();
     let block = BlockBuilder::default()
@@ -309,7 +343,7 @@ pub fn test_proposals_root() {
 
 #[test]
 pub fn test_block_with_two_cellbases() {
-    let block = BlockBuilder::new_with_number(2)
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_cellbase_transaction())
         .transaction(create_cellbase_transaction())
         .build();
@@ -370,7 +404,7 @@ pub fn test_max_block_bytes_verifier_skip_genesis() {
 
 #[test]
 pub fn test_max_block_bytes_verifier() {
-    let block = BlockBuilder::new_with_number(2).build();
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER).build();
 
     {
         let verifier =

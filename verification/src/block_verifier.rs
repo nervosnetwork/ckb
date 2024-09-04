@@ -4,7 +4,7 @@ use crate::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_types::{
-    core::BlockView,
+    core::{BlockView, ScriptHashType},
     packed::{CellInput, CellbaseWitness},
     prelude::*,
 };
@@ -105,7 +105,13 @@ impl CellbaseVerifier {
         if cellbase_transaction
             .witnesses()
             .get(0)
-            .and_then(|witness| CellbaseWitness::from_slice(&witness.raw_data()).ok())
+            .and_then(|witness| {
+                CellbaseWitness::from_slice(&witness.raw_data())
+                    .ok()
+                    .and_then(|cellbase_witness| {
+                        ScriptHashType::try_from(cellbase_witness.lock().hash_type()).ok()
+                    })
+            })
             .is_none()
         {
             return Err((CellbaseError::InvalidWitness).into());
