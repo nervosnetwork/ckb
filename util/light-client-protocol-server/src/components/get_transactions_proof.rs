@@ -104,11 +104,11 @@ impl<'a> GetTransactionsProofProcess<'a> {
             let filtered_block = packed::FilteredBlock::new_builder()
                 .header(block.header().data())
                 .witnesses_root(block.calc_witnesses_root())
-                .transactions(txs.pack())
+                .transactions(txs)
                 .proof(
                     packed::MerkleProof::new_builder()
-                        .indices(merkle_proof.indices().to_owned().pack())
-                        .lemmas(merkle_proof.lemmas().to_owned().pack())
+                        .indices(merkle_proof.indices())
+                        .lemmas(merkle_proof.lemmas().to_owned())
                         .build(),
                 )
                 .build();
@@ -131,10 +131,10 @@ impl<'a> GetTransactionsProofProcess<'a> {
                 packed::FilteredBlockVec::new_builder()
                     .set(filtered_blocks)
                     .build(),
-                uncles_hash.pack(),
+                uncles_hash.into(),
                 packed::BytesOptVec::new_builder().set(extensions).build(),
             );
-            let missing_items = missing.pack();
+            let missing_items = missing.into();
 
             self.protocol
                 .reply_proof::<packed::SendTransactionsProofV1>(
@@ -149,7 +149,7 @@ impl<'a> GetTransactionsProofProcess<'a> {
             let proved_items = packed::FilteredBlockVec::new_builder()
                 .set(filtered_blocks)
                 .build();
-            let missing_items = missing.pack();
+            let missing_items = missing.into();
 
             self.protocol.reply_proof::<packed::SendTransactionsProof>(
                 self.peer,

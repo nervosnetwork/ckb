@@ -1,7 +1,7 @@
 use ckb_app_config::{cli, CKBAppConfig, ExitCode};
 use ckb_chain_spec::ChainSpec;
 use ckb_resource::{Resource, AVAILABLE_SPECS};
-use ckb_types::{packed::CellOutput, prelude::*, H256};
+use ckb_types::{packed::CellOutput, H256};
 use ckb_util::LinkedHashMap;
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
         let hash_option = spec.genesis.hash.take();
         let consensus = spec.build_consensus().map_err(to_config_error)?;
         if let Some(hash) = hash_option {
-            let genesis_hash: H256 = consensus.genesis_hash().unpack();
+            let genesis_hash: H256 = consensus.genesis_hash().into();
             if hash != genesis_hash {
                 eprintln!(
                     "Genesis hash unmatched in {} chainspec config file:\n\
@@ -69,14 +69,14 @@ impl TryFrom<ChainSpec> for SpecHashes {
             )
             .enumerate()
             .map(|(index_minus_one, (resource, (output, data)))| {
-                let data_hash: H256 = CellOutput::calc_data_hash(&data.raw_data()).unpack();
+                let data_hash: H256 = CellOutput::calc_data_hash(&data.raw_data()).into();
                 let type_hash: Option<H256> = output
                     .type_()
                     .to_opt()
-                    .map(|script| script.calc_script_hash().unpack());
+                    .map(|script| script.calc_script_hash().into());
                 SystemCell {
                     path: resource.to_string(),
-                    tx_hash: cellbase.hash().unpack(),
+                    tx_hash: cellbase.hash().into(),
                     index: index_minus_one + 1,
                     data_hash,
                     type_hash,
@@ -95,15 +95,15 @@ impl TryFrom<ChainSpec> for SpecHashes {
                     .iter()
                     .map(|res| res.to_string())
                     .collect::<Vec<_>>(),
-                tx_hash: dep_group_tx.hash().unpack(),
+                tx_hash: dep_group_tx.hash().into(),
                 index,
             })
             .collect::<Vec<_>>();
 
         Ok(SpecHashes {
-            spec_hash: spec.hash.unpack(),
-            genesis: consensus.genesis_hash().unpack(),
-            cellbase: cellbase.hash().unpack(),
+            spec_hash: spec.hash.into(),
+            genesis: consensus.genesis_hash().into(),
+            cellbase: cellbase.hash().into(),
             system_cells: cells_hashes,
             dep_groups,
         })

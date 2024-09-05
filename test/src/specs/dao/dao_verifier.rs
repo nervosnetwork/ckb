@@ -5,7 +5,6 @@ use ckb_dao_utils::extract_dao_data;
 use ckb_jsonrpc_types::EpochView;
 use ckb_types::core::{BlockEconomicState, BlockNumber, BlockView, Capacity, TransactionView};
 use ckb_types::packed::{Byte32, CellOutput, OutPoint};
-use ckb_types::prelude::Unpack;
 use ckb_util::Mutex;
 use std::collections::HashMap;
 
@@ -148,7 +147,7 @@ impl DAOVerifier {
                     && tx_index == 0
                     && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
                 {
-                    sum += Unpack::<Capacity>::unpack(&output.capacity())
+                    sum += Into::<Capacity>::into(&output.capacity())
                         .safe_mul_ratio(satoshi_cell_occupied_ratio)
                         .unwrap()
                         .as_u64();
@@ -219,7 +218,7 @@ impl DAOVerifier {
                     let prepare_tx = self.get_transaction(&o.tx_hash());
                     let deposit_out_point = prepare_tx
                         .inputs()
-                        .get(o.index().unpack())
+                        .get(o.index().into())
                         .unwrap()
                         .previous_output();
                     let deposit_header_number =
@@ -246,7 +245,7 @@ impl DAOVerifier {
         let input_tx = self.get_transaction(&out_point.tx_hash());
         let input_data = input_tx
             .outputs_data()
-            .get(out_point.index().unpack())
+            .get(out_point.index().into())
             .unwrap();
         if input_data.len() != 8 {
             return false;
@@ -333,12 +332,12 @@ impl DAOVerifier {
 
     fn get_output(&self, out_point: &OutPoint) -> CellOutput {
         self.get_transaction(&out_point.tx_hash())
-            .output(out_point.index().unpack())
+            .output(out_point.index().into())
             .expect("exist")
     }
 
     fn get_output_capacity(&self, out_point: &OutPoint) -> u64 {
-        self.get_output(out_point).capacity().unpack()
+        self.get_output(out_point).capacity().into()
     }
 
     fn get_output_occupied_capacity(&self, out_point: &OutPoint) -> u64 {
@@ -346,12 +345,12 @@ impl DAOVerifier {
         let satoshi_cell_occupied_ratio = self.consensus.satoshi_cell_occupied_ratio;
         let (output, data) = self
             .get_transaction(&out_point.tx_hash())
-            .output_with_data(out_point.index().unpack())
+            .output_with_data(out_point.index().into())
             .expect("exist");
-        if Unpack::<u32>::unpack(&out_point.index()) == 0
+        if Into::<u32>::into(&out_point.index()) == 0
             && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
         {
-            Unpack::<Capacity>::unpack(&output.capacity())
+            Into::<Capacity>::into(&output.capacity())
                 .safe_mul_ratio(satoshi_cell_occupied_ratio)
                 .unwrap()
                 .as_u64()

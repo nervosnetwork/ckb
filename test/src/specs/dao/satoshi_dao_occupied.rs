@@ -35,7 +35,7 @@ impl Spec for DAOWithSatoshiCellOccupied {
 
         let withdrawal = user.withdraw();
         let since = EpochNumberWithFraction::from_full_value(
-            withdrawal.inputs().get(0).unwrap().since().unpack(),
+            withdrawal.inputs().get(0).unwrap().since().into(),
         );
         goto_target_point(node, since);
         ensure_committed(node, &withdrawal);
@@ -95,7 +95,7 @@ impl Spec for SpendSatoshiCell {
             0,
         );
         let output = CellOutput::new_builder()
-            .capacity(satoshi_cell_occupied.pack())
+            .capacity(satoshi_cell_occupied)
             .lock(always_success_cell().2.clone())
             .build();
 
@@ -103,20 +103,17 @@ impl Spec for SpendSatoshiCell {
             .cell_deps(vec![node0.always_success_cell_dep()])
             .input(satoshi_input)
             .output(output)
-            .output_data(Bytes::new().pack())
+            .output_data(Bytes::new())
             .build();
         let tx_hash = transaction.hash();
         let sig = self
             .privkey
-            .sign_recoverable(&tx_hash.unpack())
+            .sign_recoverable(&(&tx_hash).into())
             .expect("sign");
         let mut witness_vec = sig.serialize();
         witness_vec.extend_from_slice(&self.pubkey.serialize());
         let witness = Bytes::from(witness_vec);
-        let transaction = transaction
-            .as_advanced_builder()
-            .witness(witness.pack())
-            .build();
+        let transaction = transaction.as_advanced_builder().witness(witness).build();
 
         node0.mine(1);
         node0
@@ -152,7 +149,7 @@ fn issue_satoshi_cell() -> IssuedCell {
         .2
         .clone()
         .as_builder()
-        .args(Bytes::from(&SATOSHI_PUBKEY_HASH.0[..]).pack())
+        .args(Bytes::from(&SATOSHI_PUBKEY_HASH.0[..]))
         .build();
     IssuedCell {
         capacity: SATOSHI_CELL_CAPACITY,

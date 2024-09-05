@@ -2,7 +2,6 @@ use crate::component::tests::util::build_tx;
 use crate::component::verify_queue::{Entry, VerifyQueue};
 use ckb_network::SessionId;
 use ckb_types::core::TransactionBuilder;
-use ckb_types::prelude::Pack;
 use ckb_types::H256;
 use tokio::select;
 use tokio::sync::watch;
@@ -95,22 +94,22 @@ async fn test_verify_different_cycles() {
 
     let remote = |cycles| Some((cycles, SessionId::default()));
 
-    let tx0 = build_tx(vec![(&H256([0; 32]).pack(), 0)], 1);
+    let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
     assert!(queue.add_tx(tx0.clone(), remote(1001)).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
-    let tx1 = build_tx(vec![(&H256([1; 32]).pack(), 0)], 1);
+    let tx1 = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
     assert!(queue
         .add_tx(tx1.clone(), remote(MAX_TX_VERIFY_CYCLES + 1))
         .unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
-    let tx2 = build_tx(vec![(&H256([2; 32]).pack(), 0)], 1);
+    let tx2 = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
     assert!(queue.add_tx(tx2.clone(), remote(1001)).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
     // now queue should be sorted by time (tx1, tx2)
 
-    let tx3 = build_tx(vec![(&H256([3; 32]).pack(), 0)], 1);
+    let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
     assert!(queue.add_tx(tx3.clone(), remote(1001)).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 

@@ -26,7 +26,6 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{self, BlockNumber, BlockView},
     packed::Byte32,
-    prelude::*,
     H256,
 };
 use rocksdb::prelude::*;
@@ -112,7 +111,7 @@ impl IndexerSyncService {
                 .tip()
                 .expect("indexer_service tip should be OK");
             if let Some((indexer_tip, _)) = indexer_tip {
-                if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.into()) {
                     if indexer_tip >= init_tip.number() {
                         return;
                     }
@@ -127,7 +126,7 @@ impl IndexerSyncService {
                 if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
                     error!("secondary_db try_catch_up_with_primary error {}", e);
                 }
-                if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
+                if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.into()) {
                     let init_tip_number = header.number();
                     indexer_service.set_init_tip(init_tip_number, init_tip_hash);
                     break;

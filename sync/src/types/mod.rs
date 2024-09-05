@@ -1946,7 +1946,7 @@ impl ActiveChain {
         );
         let locator_hash = self.get_locator(block_number_and_hash);
         let content = packed::GetHeaders::new_builder()
-            .block_locator_hashes(locator_hash.pack())
+            .block_locator_hashes(locator_hash)
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();

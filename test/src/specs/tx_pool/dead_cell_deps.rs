@@ -50,7 +50,7 @@ impl Spec for CellBeingCellDepThenSpentInSameBlockTestSubmitBlock {
         let tx_c = {
             let tx = always_success_transaction(node0, input_c);
             let cell_dep_to_tx_a = CellDepBuilder::default()
-                .dep_type(DepType::Code.into())
+                .dep_type(DepType::Code)
                 .out_point(OutPoint::new(tx_a.hash(), 0))
                 .build();
             tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
@@ -122,7 +122,7 @@ impl Spec for CellBeingSpentThenCellDepInSameBlockTestSubmitBlock {
         let tx_c = {
             let tx = always_success_transaction(node0, input_c);
             let cell_dep_to_tx_a = CellDepBuilder::default()
-                .dep_type(DepType::Code.into())
+                .dep_type(DepType::Code)
                 .out_point(OutPoint::new(tx_a.hash(), 0))
                 .build();
             tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
@@ -208,7 +208,7 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
         let mut tx_c = {
             let tx = always_success_transaction(node0, input_c);
             let cell_dep_to_tx_a = CellDepBuilder::default()
-                .dep_type(DepType::Code.into())
+                .dep_type(DepType::Code)
                 .out_point(OutPoint::new(tx_a.hash(), 0))
                 .build();
             tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()

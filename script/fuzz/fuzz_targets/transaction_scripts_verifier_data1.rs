@@ -47,16 +47,16 @@ impl ExtensionProvider for MockDataLoader {
 
 fn mock_transaction_info() -> TransactionInfo {
     TransactionInfoBuilder::default()
-        .block_number(1u64.pack())
-        .block_epoch(0u64.pack())
+        .block_number(1u64.into())
+        .block_epoch(0u64.into())
         .key(
             TransactionKeyBuilder::default()
                 .block_hash(Byte32::zero())
-                .index(1u32.pack())
+                .index(1u32.into())
                 .build(),
         )
         .build()
-        .unpack()
+        .into()
 }
 
 fn run(data: &[u8]) {
@@ -71,17 +71,17 @@ fn run(data: &[u8]) {
         .build();
     let dep_cell = CellMetaBuilder::from_cell_output(
         CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
+            .capacity(Capacity::bytes(data.len()).unwrap().into())
             .build(),
         data,
     )
     .transaction_info(mock_transaction_info())
-    .out_point(OutPoint::new(h256!("0x0").pack(), 0))
+    .out_point(OutPoint::new(h256!("0x0").into(), 0))
     .build();
 
     let input_cell = CellMetaBuilder::from_cell_output(
         CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100).into())
             .lock(script)
             .build(),
         Bytes::new(),
@@ -105,7 +105,7 @@ fn run(data: &[u8]) {
         .hardfork_switch(hardfork_switch)
         .build();
     let tx_verify_env =
-        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
+        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.into()).build());
     let verifier = TransactionScriptsVerifier::new(
         rtx.into(),
         provider,

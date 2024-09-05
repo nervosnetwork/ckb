@@ -118,8 +118,8 @@ impl AsyncRichIndexerHandle {
             dead_cells = pool
                 .dead_cells()
                 .map(|out_point| {
-                    let tx_hash: H256 = out_point.tx_hash().unpack();
-                    (tx_hash.as_bytes().to_vec(), out_point.index().unpack())
+                    let tx_hash: H256 = out_point.tx_hash().into();
+                    (tx_hash.as_bytes().to_vec(), out_point.index().into())
                 })
                 .collect::<Vec<(_, u32)>>()
         }
@@ -249,28 +249,30 @@ impl AsyncRichIndexerHandle {
 
 fn build_indexer_cell(row: &AnyRow) -> IndexerCell {
     let out_point = OutPointBuilder::default()
-        .tx_hash(to_fixed_array::<32>(&row.get::<Vec<u8>, _>("tx_hash")).pack())
-        .index((row.get::<i32, _>("output_index") as u32).pack())
+        .tx_hash(to_fixed_array::<32>(&row.get::<Vec<u8>, _>("tx_hash")))
+        .index(row.get::<i32, _>("output_index") as u32)
         .build();
     let lock_script = ScriptBuilder::default()
-        .code_hash(to_fixed_array::<32>(&row.get::<Vec<u8>, _>("lock_code_hash")).pack())
-        .hash_type((row.get::<i16, _>("lock_hash_type") as u8).into())
-        .args(row.get::<Vec<u8>, _>("lock_args").pack())
+        .code_hash(to_fixed_array::<32>(
+            &row.get::<Vec<u8>, _>("lock_code_hash"),
+        ))
+        .hash_type(row.get::<i16, _>("lock_hash_type") as u8)
+        .args(row.get::<Vec<u8>, _>("lock_args"))
         .build();
     let type_script = row
         .get::<Option<Vec<u8>>, _>("type_code_hash")
         .as_ref()
         .map(|value| {
             ScriptBuilder::default()
-                .code_hash(to_fixed_array::<32>(value).pack())
-                .hash_type((row.get::<Option<i16>, _>("type_hash_type").unwrap() as u8).into())
-                .args(row.get::<Option<Vec<u8>>, _>("type_args").unwrap().pack())
+                .code_hash(to_fixed_array::<32>(value))
+                .hash_type(row.get::<Option<i16>, _>("type_hash_type").unwrap() as u8)
+                .args(row.get::<Option<Vec<u8>>, _>("type_args").unwrap())
                 .build()
         });
     let output = CellOutputBuilder::default()
-        .capacity((row.get::<i64, _>("capacity") as u64).pack())
+        .capacity(row.get::<i64, _>("capacity") as u64)
         .lock(lock_script)
-        .type_(type_script.pack())
+        .type_(type_script)
         .build();
 
     IndexerCell {

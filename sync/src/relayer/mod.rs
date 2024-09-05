@@ -38,6 +38,7 @@ use ckb_shared::block_status::BlockStatus;
 use ckb_shared::Shared;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::service::TxVerificationResult;
+use ckb_types::packed::Transaction;
 use ckb_types::BlockNumberAndHash;
 use ckb_types::{
     core::{self, BlockView},
@@ -271,7 +272,7 @@ impl Relayer {
         if !to_ask_proposals.is_empty() {
             let content = packed::GetBlockProposal::new_builder()
                 .block_hash(block_hash_and_number.hash)
-                .proposals(to_ask_proposals.clone().pack())
+                .proposals(to_ask_proposals.clone())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
             if !send_message_to(nc, peer, &message).is_ok() {
@@ -415,7 +416,7 @@ impl Relayer {
             .prefilled_transactions()
             .into_iter()
             .for_each(|pt| {
-                let index: usize = pt.index().unpack();
+                let index: usize = pt.index().into();
                 let gap = index - block_transactions.len();
                 if gap > 0 {
                     short_ids_iter
@@ -495,8 +496,12 @@ impl Relayer {
             let block = if let Some(extension) = compact_block.extension() {
                 packed::BlockV1::new_builder()
                     .header(compact_block.header())
-                    .uncles(uncles.pack())
-                    .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                    .uncles(uncles)
+                    .transactions(
+                        txs.into_iter()
+                            .map(|tx| tx.data())
+                            .collect::<Vec<Transaction>>(),
+                    )
                     .proposals(compact_block.proposals())
                     .extension(extension)
                     .build()
@@ -504,8 +509,12 @@ impl Relayer {
             } else {
                 packed::Block::new_builder()
                     .header(compact_block.header())
-                    .uncles(uncles.pack())
-                    .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                    .uncles(uncles)
+                    .transactions(
+                        txs.into_iter()
+                            .map(|tx| tx.data())
+                            .collect::<Vec<Transaction>>(),
+                    )
                     .proposals(compact_block.proposals())
                     .build()
             }
@@ -593,7 +602,7 @@ impl Relayer {
         let send_block_proposals =
             |nc: &dyn CKBProtocolContext, peer_index: PeerIndex, txs: Vec<packed::Transaction>| {
                 let content = packed::BlockProposal::new_builder()
-                    .transactions(txs.into_iter().pack())
+                    .transactions(txs)
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
                 let status = send_message_to(nc, peer_index, &message);
@@ -639,7 +648,7 @@ impl Relayer {
                 );
                 tx_hashes.truncate(MAX_RELAY_TXS_NUM_PER_BATCH);
                 let content = packed::GetRelayTransactions::new_builder()
-                    .tx_hashes(tx_hashes.pack())
+                    .tx_hashes(tx_hashes)
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
                 let status = send_message_to(nc, peer, &message);
@@ -721,7 +730,7 @@ impl Relayer {
         }
         for (peer, hashes) in selected {
             let content = packed::RelayTransactionHashes::new_builder()
-                .tx_hashes(hashes.pack())
+                .tx_hashes(hashes)
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
 
@@ -790,7 +799,7 @@ fn build_and_broadcast_compact_block(
         let tip_header = packed::VerifiableHeader::new_builder()
             .header(block.header().data())
             .uncles_hash(block.calc_uncles_hash())
-            .extension(Pack::pack(&block.extension()))
+            .extension(block.extension())
             .parent_chain_root(parent_chain_root)
             .build();
         let light_client_message = {

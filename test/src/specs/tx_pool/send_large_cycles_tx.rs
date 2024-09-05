@@ -13,7 +13,7 @@ use ckb_types::{
         capacity_bytes, BlockView, Capacity, DepType, ScriptHashType, TransactionBuilder,
         TransactionView,
     },
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
+    packed::{self, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
     H256,
 };
@@ -325,13 +325,13 @@ impl RandomKey {
 fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView {
     let secp_out_point = OutPoint::new(node.dep_group_tx_hash(), 0);
     let lock = Script::new_builder()
-        .args(lock_arg.pack())
-        .code_hash(type_lock_script_code_hash().pack())
-        .hash_type(ScriptHashType::Type.into())
+        .args(lock_arg)
+        .code_hash(type_lock_script_code_hash())
+        .hash_type(ScriptHashType::Type)
         .build();
     let cell_dep = CellDep::new_builder()
         .out_point(secp_out_point)
-        .dep_type(DepType::DepGroup.into())
+        .dep_type(DepType::DepGroup)
         .build();
     let input1 = {
         let block = node.get_tip_block();
@@ -339,18 +339,18 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
         CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
     };
     let output1 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100).pack())
+        .capacity(capacity_bytes!(100))
         .lock(lock)
         .build();
     let tx = TransactionBuilder::default()
         .cell_dep(cell_dep)
         .input(input1)
         .output(output1)
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
-    let tx_hash: H256 = tx.hash().unpack();
+    let tx_hash: H256 = tx.hash().into();
     let witness = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
+        .lock(Some(Bytes::from(vec![0u8; 65])))
         .build();
     let witness_len = witness.as_slice().len() as u64;
     let message = {
@@ -365,9 +365,7 @@ fn build_tx(node: &Node, privkey: &Privkey, lock_arg: Bytes) -> TransactionView 
     let sig = privkey.sign_recoverable(&message).expect("sign");
     let witness = witness
         .as_builder()
-        .lock(Some(Bytes::from(sig.serialize())).pack())
+        .lock(Some(Bytes::from(sig.serialize())))
         .build();
-    tx.as_advanced_builder()
-        .witness(witness.as_bytes().pack())
-        .build()
+    tx.as_advanced_builder().witness(witness.as_bytes()).build()
 }
