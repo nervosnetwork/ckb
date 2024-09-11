@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
     size_t content_size = (uint64_t)strlen(content);
     uint64_t fds[2] = {0};
     uint64_t length = countof(fds);
-    err = ckb_inherited_file_descriptors(fds, &length);
+    err = ckb_inherited_fds(fds, &length);
     CHECK(err);
     CHECK2(length == 2, ErrorCommon);
     size_t content_size2 = content_size;

@@ -155,7 +155,7 @@ int main() {
         case 4:
             len = 2;
             toc = tic();
-            err = ckb_inherited_file_descriptors(fds[cid][1], &len);
+            err = ckb_inherited_fds(fds[cid][1], &len);
             CHECK(err);
             toc = tic();
             CHECK2(toc > cal_cycles_floor(1, 1, 0), ErrorCommon);

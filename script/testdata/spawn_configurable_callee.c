@@ -9,7 +9,7 @@ int main() {
 
     uint64_t fds[2] = {0};
     uint64_t fds_len = countof(fds);
-    err = ckb_inherited_file_descriptors(fds, &fds_len);
+    err = ckb_inherited_fds(fds, &fds_len);
     CHECK(err);
     CHECK2(fds_len == 2, ErrorCommon);
 
