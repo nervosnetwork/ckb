@@ -83,15 +83,19 @@ where
         target = std::cmp::min(self.provider.max_target(), target);
 
         let mut fee_rates = self.provider.collect(target, |mut fee_rates, block_ext| {
-            if !block_ext.txs_fees.is_empty()
+            if block_ext.txs_fees.len() > 1
                 && block_ext.cycles.is_some()
                 && block_ext.txs_sizes.is_some()
             {
+                // block_ext.txs_fees, cycles, txs_sizes length is same
                 for (fee, cycles, size) in itertools::izip!(
                     block_ext.txs_fees,
                     block_ext.cycles.expect("checked"),
                     block_ext.txs_sizes.expect("checked")
-                ) {
+                )
+                // skip cellbase (first element in the Vec)
+                .skip(1)
+                {
                     let weight = get_transaction_weight(size as usize, cycles);
                     if weight > 0 {
                         fee_rates.push(FeeRate::calculate(fee, weight).as_u64());
