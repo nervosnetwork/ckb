@@ -53,9 +53,16 @@ fn test_fee_rate_statics() {
             total_difficulty: 0u64.into(),
             total_uncles_count: 0,
             verified: None,
-            txs_fees: vec![Capacity::shannons(i * i * 100)],
-            cycles: Some(vec![i * 100]),
-            txs_sizes: Some(vec![i * 100]),
+
+            // first element in txs_fees is belong to cellbase
+            txs_fees: vec![
+                Capacity::shannons(i * 1234),
+                Capacity::shannons(i * i * 100),
+            ],
+            // first element in cycles is belong to cellbase
+            cycles: Some(vec![0, i * 100]),
+            // first element in txs_sizes is belong to cellbase
+            txs_sizes: Some(vec![i * 5678, i * 100]),
         };
         provider.append(i, ext);
     }
