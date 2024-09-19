@@ -17,9 +17,9 @@ fn test_min_fee_and_weight() {
         (500, 10, 1000, 30),
         (10, 500, 30, 1000),
         (500, 10, 1000, 20),
-        (std::u64::MAX, 0, std::u64::MAX, 0),
-        (std::u64::MAX, 100, std::u64::MAX, 2000),
-        (std::u64::MAX, std::u64::MAX, std::u64::MAX, std::u64::MAX),
+        (u64::MAX, 0, u64::MAX, 0),
+        (u64::MAX, 100, u64::MAX, 2000),
+        (u64::MAX, u64::MAX, u64::MAX, u64::MAX),
     ]
     .into_iter()
     .map(|(fee, weight, ancestors_fee, ancestors_weight)| {
@@ -40,9 +40,9 @@ fn test_min_fee_and_weight() {
             (Capacity::shannons(1000), 30),
             (Capacity::shannons(10), 500),
             (Capacity::shannons(1000), 20),
-            (Capacity::shannons(std::u64::MAX), 0),
-            (Capacity::shannons(std::u64::MAX), 2000),
-            (Capacity::shannons(std::u64::MAX), std::u64::MAX),
+            (Capacity::shannons(u64::MAX), 0),
+            (Capacity::shannons(u64::MAX), 2000),
+            (Capacity::shannons(u64::MAX), u64::MAX),
         ]
     );
 }
@@ -57,16 +57,15 @@ fn test_ancestors_sorted_key_order() {
         (500, 10, 1000, 30),
         (10, 500, 30, 1000),
         (500, 10, 1000, 20),
-        (std::u64::MAX, 0, std::u64::MAX, 0),
-        (std::u64::MAX, 100, std::u64::MAX, 2000),
-        (std::u64::MAX, std::u64::MAX, std::u64::MAX, std::u64::MAX),
+        (u64::MAX, 0, u64::MAX, 0),
+        (u64::MAX, 100, u64::MAX, 2000),
+        (u64::MAX, u64::MAX, u64::MAX, u64::MAX),
     ];
     let mut keys = table
         .clone()
         .into_iter()
-        .enumerate()
         .map(
-            |(_i, (fee, weight, ancestors_fee, ancestors_weight))| AncestorsScoreSortKey {
+            |(fee, weight, ancestors_fee, ancestors_weight)| AncestorsScoreSortKey {
                 fee: Capacity::shannons(fee),
                 weight,
                 ancestors_fee: Capacity::shannons(ancestors_fee),

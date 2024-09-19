@@ -72,14 +72,13 @@ impl OrphanPool {
     }
 
     pub fn remove_orphan_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
-        self.entries.remove(id).map(|entry| {
+        self.entries.remove(id).inspect(|entry| {
             debug!("remove orphan tx {}", entry.tx.hash());
             for out_point in entry.tx.input_pts_iter() {
                 self.by_out_point
                     .get_mut(&out_point)
                     .map(|set| set.remove(id));
             }
-            entry
         })
     }
 
