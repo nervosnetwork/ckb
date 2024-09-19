@@ -60,9 +60,10 @@ impl From<AncestorsScoreSortKey> for CoreAncestorsScoreSortKey {
     }
 }
 
-impl ToString for AncestorsScoreSortKey {
-    fn to_string(&self) -> String {
-        format!(
+impl std::fmt::Display for AncestorsScoreSortKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "fee: {:#02X}, ancestors_fee: {:#02X}, weight: {:#02X}, ancestors_weight: {:#02X}",
             self.fee.as_u64(),
             self.ancestors_fee.as_u64(),
