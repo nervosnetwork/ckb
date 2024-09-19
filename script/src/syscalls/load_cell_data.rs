@@ -58,7 +58,7 @@ where
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
 
-        match sc.load_data(&data_piece_id, offset, u64::max_value()) {
+        match sc.load_data(&data_piece_id, offset, u64::MAX) {
             Ok((cell, _)) => {
                 let size = machine.memory_mut().load64(&size_addr)?.to_u64();
                 if size == 0 {
@@ -124,10 +124,10 @@ where
             .snapshot2_context
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
-        // We are using 0..u64::max_value() to fetch full cell, there is
+        // We are using 0..u64::MAX to fetch full cell, there is
         // also no need to keep the full length value. Since cell's length
         // is already full length.
-        let (cell, _) = match sc.load_data(&data_piece_id, 0, u64::max_value()) {
+        let (cell, _) = match sc.load_data(&data_piece_id, 0, u64::MAX) {
             Ok(val) => {
                 if content_size == 0 {
                     (Bytes::new(), val.1)
