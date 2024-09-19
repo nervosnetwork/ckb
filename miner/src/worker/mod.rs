@@ -45,11 +45,11 @@ impl WorkerController {
 }
 
 fn partition_nonce(id: u128, total: u128) -> Range<u128> {
-    let span = u128::max_value() / total;
+    let span = u128::MAX / total;
     let start = span * id;
     let end = match id {
         x if x < total - 1 => start + span,
-        x if x == total - 1 => u128::max_value(),
+        x if x == total - 1 => u128::MAX,
         _ => unreachable!(),
     };
     Range { start, end }
