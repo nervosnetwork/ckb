@@ -57,7 +57,6 @@ use std::{
     },
     thread,
     time::{Duration, Instant},
-    usize,
 };
 use tokio::{self, sync::oneshot};
 
