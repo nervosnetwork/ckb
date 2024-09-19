@@ -15,11 +15,11 @@ pub enum DBDriver {
     Postgres,
 }
 
-impl ToString for DBDriver {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for DBDriver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DBDriver::Postgres => PGSQL.to_string(),
-            DBDriver::Sqlite => SQLITE.to_string(),
+            DBDriver::Postgres => write!(f, "{}", PGSQL),
+            DBDriver::Sqlite => write!(f, "{}", SQLITE),
         }
     }
 }
