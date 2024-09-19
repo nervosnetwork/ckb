@@ -285,7 +285,7 @@ fn wait_connect_state(node: &Node, expect_num: usize) {
     }
 }
 
-#[allow(clippy::blocks_in_if_conditions)]
+#[allow(clippy::blocks_in_conditions)]
 fn wait_discovery(node: &Node, assert: impl Fn(usize) -> bool) {
     if !wait_until(100, || {
         assert(
