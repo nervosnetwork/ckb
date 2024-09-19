@@ -147,7 +147,7 @@ impl DAOVerifier {
                     && tx_index == 0
                     && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
                 {
-                    sum += Into::<Capacity>::into(&output.capacity())
+                    sum += Into::<Capacity>::into(output.capacity())
                         .safe_mul_ratio(satoshi_cell_occupied_ratio)
                         .unwrap()
                         .as_u64();
@@ -347,10 +347,10 @@ impl DAOVerifier {
             .get_transaction(&out_point.tx_hash())
             .output_with_data(out_point.index().into())
             .expect("exist");
-        if Into::<u32>::into(&out_point.index()) == 0
+        if Into::<u32>::into(out_point.index()) == 0
             && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
         {
-            Into::<Capacity>::into(&output.capacity())
+            Into::<Capacity>::into(output.capacity())
                 .safe_mul_ratio(satoshi_cell_occupied_ratio)
                 .unwrap()
                 .as_u64()
