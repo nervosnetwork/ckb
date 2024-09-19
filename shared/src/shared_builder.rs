@@ -172,7 +172,7 @@ impl SharedBuilder {
         thread_local! {
             // NOTICE：we can't put the runtime directly into thread_local here,
             // on windows the runtime in thread_local will get stuck when dropping
-            static RUNTIME_HANDLE: unsync::OnceCell<Handle> = unsync::OnceCell::new();
+            static RUNTIME_HANDLE: unsync::OnceCell<Handle> = const { unsync::OnceCell::new() };
         }
 
         static DB_COUNT: AtomicUsize = AtomicUsize::new(0);

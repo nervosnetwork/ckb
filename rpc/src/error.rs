@@ -25,7 +25,7 @@ use std::fmt::{Debug, Display};
 ///
 /// * -1 ~ -999 are general errors
 /// * -1000 ~ -2999 are module-specific errors. Each module generally gets 100 reserved error
-/// codes.
+///   codes.
 ///
 /// Unless otherwise noted, all the errors return optional detailed information as `string` in the error
 /// object `data` field.
