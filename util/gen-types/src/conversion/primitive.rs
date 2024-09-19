@@ -1,6 +1,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{borrow::ToOwned, str, string::String};
-use core::usize;
+
 #[cfg(feature = "std")]
 use std::str;
 

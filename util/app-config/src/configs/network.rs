@@ -181,6 +181,7 @@ pub(crate) fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), E
     fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(path)
         .and_then(|mut file| {
             file.write_all(secret)?;

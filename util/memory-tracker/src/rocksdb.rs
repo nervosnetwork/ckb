@@ -1,5 +1,6 @@
 use ckb_db::internal::ops::{GetColumnFamilys, GetProperty, GetPropertyCF};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum PropertyValue<T> {
     Value(T),

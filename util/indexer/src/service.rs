@@ -19,7 +19,6 @@ use rocksdb::{prelude::*, Direction, IteratorMode};
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
-use std::usize;
 
 pub(crate) const SUBSCRIBER_NAME: &str = "Indexer";
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
@@ -775,7 +774,7 @@ impl IndexerHandle {
                     }
                 }
 
-                Some(Into::<core::Capacity>::into(&output.capacity()).as_u64())
+                Some(Into::<core::Capacity>::into(output.capacity()).as_u64())
             })
             .sum();
 
@@ -794,7 +793,7 @@ impl IndexerHandle {
     }
 }
 
-const MAX_PREFIX_SEARCH_SIZE: usize = u16::max_value() as usize;
+const MAX_PREFIX_SEARCH_SIZE: usize = u16::MAX as usize;
 
 // a helper fn to build query options from search parameters, returns prefix, from_key, direction and skip offset
 fn build_query_options(
@@ -1081,7 +1080,7 @@ mod tests {
 
         // test get_tip rpc
         let tip = rpc.get_indexer_tip().unwrap().unwrap();
-        assert_eq!(Into::<H256>::into(&pre_block.hash()), tip.block_hash);
+        assert_eq!(Into::<H256>::into(pre_block.hash()), tip.block_hash);
         assert_eq!(pre_block.number(), tip.block_number.value());
 
         // test get_cells rpc
