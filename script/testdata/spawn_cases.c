@@ -491,7 +491,7 @@ int parent_spawn_length_out_of_bound(uint64_t* pid) {
 
     const char* argv[] = {"", 0};
     spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
-    uint64_t offset = 1024 * 15;
+    uint64_t offset = 1024 * 17;
     uint64_t length = 1024;
     uint64_t bounds = (offset << 32) + length;
 
