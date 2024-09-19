@@ -26,7 +26,7 @@ impl AsyncRichIndexerHandle {
         // query output
         let mut query_builder = SqlBuilder::select_from("output");
         query_builder.field("CAST(SUM(output.capacity) AS BIGINT) AS total_capacity");
-        query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
+        query_builder.join(format!("{} AS query_script", script_sub_query_sql));
         match search_key.script_type {
             IndexerScriptType::Lock => {
                 query_builder.on("output.lock_script_id = query_script.id");
