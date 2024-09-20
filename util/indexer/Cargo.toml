@@ -1,6 +1,6 @@
 [package]
 name = "ckb-indexer"
-version = "0.118.0-pre"
+version = "0.119.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -11,12 +11,12 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.118.0-pre" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.118.0-pre" }
-ckb-app-config = { path = "../app-config", version = "= 0.118.0-pre" }
-ckb-notify = { path = "../../notify", version = "= 0.118.0-pre" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.118.0-pre" }
-ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.118.0-pre" }
+ckb-types = { path = "../types", version = "= 0.119.0-pre" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.119.0-pre" }
+ckb-app-config = { path = "../app-config", version = "= 0.119.0-pre" }
+ckb-notify = { path = "../../notify", version = "= 0.119.0-pre" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.119.0-pre" }
+ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.119.0-pre" }
 rocksdb = { package = "ckb-rocksdb", version ="=0.21.1", features = ["snappy"], default-features = false }
 memchr = "2.7"
 
