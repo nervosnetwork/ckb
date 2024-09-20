@@ -9,7 +9,7 @@ use crate::module::{
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_indexer::IndexerService;
 use ckb_indexer_sync::{new_secondary_db, PoolService};
 use ckb_network::NetworkController;
@@ -103,10 +103,12 @@ impl<'a> ServiceBuilder<'a> {
         mut self,
         network_controller: NetworkController,
         sync_shared: Arc<SyncShared>,
+        chain_controller: Arc<ChainController>,
     ) -> Self {
         let methods = NetRpcImpl {
             network_controller,
             sync_shared,
+            chain_controller,
         };
         set_rpc_module_methods!(self, "Net", net_enable, add_net_rpc_methods, methods)
     }
@@ -142,6 +144,8 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         network_controller: NetworkController,
         chain: ChainController,
+        well_known_lock_scripts: Vec<Script>,
+        well_known_type_scripts: Vec<Script>,
     ) -> Self {
         if self.config.integration_test_enable() {
             // IntegrationTest only on Dummy PoW chain
@@ -155,6 +159,8 @@ impl<'a> ServiceBuilder<'a> {
             shared,
             network_controller,
             chain,
+            well_known_lock_scripts,
+            well_known_type_scripts,
         };
         set_rpc_module_methods!(
             self,

@@ -16,7 +16,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v1.11.0
+  CKB_CLI_VERSION: v1.12.0
 
 jobs:
   create-release:
@@ -72,12 +72,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -116,12 +116,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -157,12 +157,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -172,7 +172,7 @@ jobs:
 
   package-for-mac:
     name: package-for-mac
-    runs-on: macos-11
+    runs-on: macos-12
     strategy:
       matrix:
         include:
@@ -201,12 +201,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -257,12 +257,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -317,12 +317,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG) ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG).asc ${{ github.workspace }}
       - name: upload-artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -360,11 +360,11 @@ jobs:
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Prepare - Download tar
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}
       - name: Prepare - Download asc
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
       - name: Upload tar assets

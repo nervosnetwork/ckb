@@ -1,0 +1,93 @@
+name = "ckb_preview"
+
+[genesis]
+version = 0
+parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+timestamp = 1589276230000
+compact_target = 0x1e015555
+uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+nonce = "0x0"
+# run `cargo run list-hashes -b` to get the genesis hash
+hash = "0x9ed819e4bac690c22e97111baf7fbc873811fa053bfa8764db22e138be3f3728"
+
+[genesis.genesis_cell]
+message = "ckb_preview"
+
+[genesis.genesis_cell.lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "data"
+
+# An array list paths to system cell files, which is absolute or relative to
+# the directory containing this config file.
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
+create_type_id = true
+capacity = 100_000_0000_0000
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/dao" }
+create_type_id = true
+capacity = 16_000_0000_0000
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_data" }
+create_type_id = false
+capacity = 1_048_617_0000_0000
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+create_type_id = true
+capacity = 100_000_0000_0000
+
+[genesis.system_cells_lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "data"
+
+# Dep group cells
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_sighash_all"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_multisig_all"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_multisig_all" },
+]
+
+# For first 11 block
+[genesis.bootstrap_lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "type"
+
+# Burn
+[[genesis.issued_cells]]
+capacity = 8_400_000_000_00000000
+lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
+lock.hash_type = "data"
+
+# Locks for developers to run tests
+[[genesis.issued_cells]]
+capacity = 8_399_578_345_00000000
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x64257f00b6b63e987609fa9be2d0c86d351020fb"
+lock.hash_type = "type"
+[[genesis.issued_cells]]
+capacity = 8_399_578_345_00000000
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x3f1573b44218d4c12a91919a58a863be415a2bc3"
+lock.hash_type = "type"
+[[genesis.issued_cells]]
+capacity = 8_399_578_347_00000000
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
+lock.hash_type = "type"
+
+[params.hardfork]
+ckb2023 = 0
+
+[pow]
+func = "Eaglesong"

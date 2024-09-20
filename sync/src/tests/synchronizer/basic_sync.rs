@@ -4,11 +4,12 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
-use ckb_chain::chain::ChainService;
+use ckb_chain::start_chain_services;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_logger::info;
 use ckb_network::SupportProtocols;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder};
@@ -32,20 +33,31 @@ const DEFAULT_CHANNEL: usize = 128;
 
 #[test]
 fn basic_sync() {
+    let _log_guard = ckb_logger_service::init_for_test("debug").expect("init log");
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(0);
     let thread_name = "fake_time=0".to_string();
 
     let (mut node1, shared1) = setup_node(1);
+    info!("finished setup node1");
     let (mut node2, shared2) = setup_node(3);
+    info!("finished setup node2");
 
+    info!("connnectiong node1 and node2");
     node1.connect(&mut node2, SupportProtocols::Sync.protocol_id());
+    info!("node1 and node2 connected");
 
+    let now = std::time::Instant::now();
     let (signal_tx1, signal_rx1) = bounded(DEFAULT_CHANNEL);
-    node1.start(thread_name.clone(), signal_tx1, |data| {
+    node1.start(thread_name.clone(), signal_tx1, move |data| {
         let msg = packed::SyncMessage::from_compatible_slice(&data)
             .expect("sync message")
             .to_enum();
+
+        assert!(
+            now.elapsed().as_secs() <= 10,
+            "node1 should got block(3)'s SendBlock message within 10 seconds"
+        );
         // terminate thread after 3 blocks
         if let packed::SyncMessageUnionReader::SendBlock(reader) = msg.as_reader() {
             let block = reader.block().to_entity().into_view();
@@ -61,14 +73,22 @@ fn basic_sync() {
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
 
-    node1.stop();
-    node2.stop();
+    let test_start = std::time::Instant::now();
+    while test_start.elapsed().as_secs() < 3 {
+        info!("node1 tip_number: {}", shared1.snapshot().tip_number());
+        if shared1.snapshot().tip_number() == 3 {
+            assert_eq!(shared1.snapshot().tip_number(), 3);
+            assert_eq!(
+                shared1.snapshot().tip_number(),
+                shared2.snapshot().tip_number()
+            );
 
-    assert_eq!(shared1.snapshot().tip_number(), 3);
-    assert_eq!(
-        shared1.snapshot().tip_number(),
-        shared2.snapshot().tip_number()
-    );
+            node1.stop();
+            node2.stop();
+            return;
+        }
+    }
+    panic!("node1 and node2 should sync in 3 seconds");
 }
 
 fn setup_node(height: u64) -> (TestNode, Shared) {
@@ -99,8 +119,11 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         .build()
         .unwrap();
 
-    let chain_service = ChainService::new(shared.clone(), pack.take_proposal_table());
-    let chain_controller = chain_service.start::<&str>(None);
+    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+
+    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 
     for _i in 0..height {
         let number = block.header().number() + 1;
@@ -167,7 +190,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .build();
 
         chain_controller
-            .internal_process_block(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block should be OK");
     }
 

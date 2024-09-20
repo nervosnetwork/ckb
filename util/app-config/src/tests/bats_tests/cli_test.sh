@@ -9,6 +9,25 @@ function cleanup {
   rm -rf ${CKB_BATS_TESTBED}
 }
 
+git_clone_repo_with_retry() {
+    local branch=$1
+    local repo_address=$2
+    local dir_name=$3
+    local retry_count=5
+    local retry_delay=5
+
+    for i in $(seq 1 $retry_count); do
+        git clone --depth 1 --branch "$branch" "$repo_address" "$dir_name" && break
+        echo "Attempt $i failed. Retrying in $retry_delay seconds..."
+        sleep $retry_delay
+    done
+
+    if [ $i -eq $retry_count ]; then
+        echo "Failed to clone repository after $retry_count attempts."
+        exit 1
+    fi
+}
+
 trap cleanup EXIT
 
 cp target/prod/ckb ${CKB_BATS_TESTBED}
@@ -17,24 +36,25 @@ cp -r util/app-config/src/tests/bats_tests/later_bats_job ${CKB_BATS_TESTBED}
 cp util/app-config/src/tests/bats_tests/*.sh ${CKB_BATS_TESTBED}
 
 if [ ! -d "/tmp/ckb_bats_assets/" ]; then
-  git clone --depth=1 https://github.com/nervosnetwork/ckb-assets /tmp/ckb_bats_assets
+    git_clone_repo_with_retry "main" "https://github.com/nervosnetwork/ckb-assets" "/tmp/ckb_bats_assets"
 fi
 cp /tmp/ckb_bats_assets/cli_bats_env/ckb_mainnet_4000.json ${CKB_BATS_TESTBED}
 
 CKB_BATS_CORE_DIR=/tmp/ckb_bats_core
 if [ ! -d "${CKB_BATS_CORE_DIR}/bats" ]; then
-  git clone --depth 1 --branch v1.9.0 https://github.com/bats-core/bats-core.git    ${CKB_BATS_CORE_DIR}/bats
-  ${CKB_BATS_CORE_DIR}/bats/install.sh /tmp/ckb_bats_bin/tmp_install
+    git_clone_repo_with_retry "v1.9.0" "https://github.com/bats-core/bats-core.git" "${CKB_BATS_CORE_DIR}/bats"
+    ${CKB_BATS_CORE_DIR}/bats/install.sh /tmp/ckb_bats_bin/tmp_install
 fi
 
 if [ ! -d "${CKB_BATS_CORE_DIR}/bats-support" ]; then
-  git clone --depth 1 --branch v0.3.0 https://github.com/bats-core/bats-support.git ${CKB_BATS_CORE_DIR}/bats-support
+    git_clone_repo_with_retry "v0.3.0" "https://github.com/bats-core/bats-support.git" "${CKB_BATS_CORE_DIR}/bats-support"
 fi
 bash ${CKB_BATS_CORE_DIR}/bats-support/load.bash
 
 if [ ! -d "${CKB_BATS_CORE_DIR}/bats-assert" ]; then
-  git clone --depth 1 --branch v2.1.0 https://github.com/bats-core/bats-assert.git  ${CKB_BATS_CORE_DIR}/bats-assert
+    git_clone_repo_with_retry "v2.1.0" "https://github.com/bats-core/bats-assert.git" "${CKB_BATS_CORE_DIR}/bats-assert"
 fi
+
 bash ${CKB_BATS_CORE_DIR}/bats-assert/load.bash
 
 cd ${CKB_BATS_TESTBED}

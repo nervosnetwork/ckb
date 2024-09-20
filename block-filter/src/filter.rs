@@ -109,6 +109,11 @@ impl BlockFilter {
         };
 
         for block_number in start_number..=tip_header.number() {
+            if ckb_stop_handler::has_received_stop_signal() {
+                info!("ckb has received stop signal, BlockFilter exit now");
+                return;
+            }
+
             let block_hash = snapshot.get_block_hash(block_number).expect("index stored");
             let header = snapshot
                 .get_block_header(&block_hash)

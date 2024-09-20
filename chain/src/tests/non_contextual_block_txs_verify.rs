@@ -156,7 +156,7 @@ fn non_contextual_block_txs_verify() {
 
     let block = gen_block(&parent, vec![tx0, tx1], &shared, &mock_store);
 
-    let ret = chain_controller.process_block(Arc::new(block));
+    let ret = chain_controller.blocking_process_block(Arc::new(block));
     assert!(ret.is_err());
     assert_eq!(
         format!("{}", ret.err().unwrap()),

@@ -1,4 +1,4 @@
-use ckb_chain::chain::ChainController;
+use ckb_chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
@@ -55,12 +55,6 @@ impl fmt::Display for RpcTestRequest {
     }
 }
 
-impl RpcTestRequest {
-    fn json(&self) -> String {
-        serde_json::to_string(self).unwrap()
-    }
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 struct RpcTestResponse {
     pub id: usize,
@@ -89,6 +83,18 @@ pub(crate) struct RpcTestSuite {
 
 impl RpcTestSuite {
     fn rpc(&self, request: &RpcTestRequest) -> RpcTestResponse {
+        self.send_request(request)
+            .json::<RpcTestResponse>()
+            .expect("Deserialize RpcTestRequest")
+    }
+
+    fn rpc_batch(&self, request: &[RpcTestRequest]) -> Result<Vec<RpcTestResponse>, String> {
+        let res = self.send_request(request);
+        res.json::<Vec<RpcTestResponse>>()
+            .map_err(|res| format!("batch request failed : {:?}", res))
+    }
+
+    fn send_request<T: Serialize + ?Sized>(&self, request: &T) -> reqwest::blocking::Response {
         self.rpc_client
             .post(&self.rpc_uri)
             .json(&request)
@@ -97,11 +103,9 @@ impl RpcTestSuite {
                 panic!(
                     "Failed to call RPC request: {:?}\n\nrequest = {:?}",
                     e,
-                    request.json(),
+                    serde_json::to_string(request).unwrap(),
                 )
             })
-            .json::<RpcTestResponse>()
-            .expect("Deserialize RpcTestRequest")
     }
 
     async fn tcp(&self, request: &RpcTestRequest) -> Result<RpcTestResponse, Box<dyn Error>> {

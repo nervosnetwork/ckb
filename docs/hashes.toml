@@ -84,6 +84,48 @@ included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/se
 tx_hash = "0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37"
 index = 1
 
+[ckb_preview]
+spec_hash = "0xce18c4b1c6da3f10ab46bc5dc53aaebe55f03d9643512734d105d7fc86201518"
+genesis = "0x9ed819e4bac690c22e97111baf7fbc873811fa053bfa8764db22e138be3f3728"
+cellbase = "0xe93c55bea88e10c64d9b218ee2b504bc89b9e5ee912186ff904c1827360a5362"
+
+[[ckb_preview.system_cells]]
+path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
+tx_hash = "0xe93c55bea88e10c64d9b218ee2b504bc89b9e5ee912186ff904c1827360a5362"
+index = 1
+data_hash = "0x709f3fda12f561cfacf92273c57a98fede188a3f1a59b1f888d113f9cce08649"
+type_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+
+[[ckb_preview.system_cells]]
+path = "Bundled(specs/cells/dao)"
+tx_hash = "0xe93c55bea88e10c64d9b218ee2b504bc89b9e5ee912186ff904c1827360a5362"
+index = 2
+data_hash = "0x32064a14ce10d95d4b7343054cc19d73b25b16ae61a6c681011ca781a60c7923"
+type_hash = "0x82d76d1b75fe2fd9a27dfbaa65a039221a380d76c926f378d3f81cf3e7e13f2e"
+
+[[ckb_preview.system_cells]]
+path = "Bundled(specs/cells/secp256k1_data)"
+tx_hash = "0xe93c55bea88e10c64d9b218ee2b504bc89b9e5ee912186ff904c1827360a5362"
+index = 3
+data_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
+
+[[ckb_preview.system_cells]]
+path = "Bundled(specs/cells/secp256k1_blake160_multisig_all)"
+tx_hash = "0xe93c55bea88e10c64d9b218ee2b504bc89b9e5ee912186ff904c1827360a5362"
+index = 4
+data_hash = "0x43400de165f0821abf63dcac299bbdf7fd73898675ee4ddb099b0a0d8db63bfb"
+type_hash = "0x5c5069eb0857efc65e1bca0c07df34c31663b3622fd3876c876320fc9634e2a8"
+
+[[ckb_preview.dep_groups]]
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_sighash_all)"]
+tx_hash = "0x0fab65924f2784f17ad7f86d6aef4b04ca1ca237102a68961594acebc5c77816"
+index = 0
+
+[[ckb_preview.dep_groups]]
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_multisig_all)"]
+tx_hash = "0x0fab65924f2784f17ad7f86d6aef4b04ca1ca237102a68961594acebc5c77816"
+index = 1
+
 [ckb_staging]
 spec_hash = "0x7a0ed50e9723e6c41a5c8450225e9f0a639070bb81b87e395fd5f91eef6ce373"
 genesis = "0xbc081e6b2e31149c1dc39007f161ed0a0b63d5d30b3b771acc6a3b622133fcc0"

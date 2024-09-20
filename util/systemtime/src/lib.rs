@@ -58,14 +58,14 @@ impl FaketimeGuard {
     /// Set faketime
     #[cfg(feature = "enable_faketime")]
     pub fn set_faketime(&self, time: u64) {
-        FAKETIME.store(time, Ordering::Relaxed);
+        FAKETIME.store(time, Ordering::Release);
         FAKETIME_ENABLED.store(true, Ordering::SeqCst);
     }
 
     /// Disable faketime
     #[cfg(feature = "enable_faketime")]
     pub fn disable_faketime(&self) {
-        FAKETIME_ENABLED.store(false, Ordering::Relaxed);
+        FAKETIME_ENABLED.store(false, Ordering::Release);
     }
 }
 
