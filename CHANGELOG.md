@@ -1,5 +1,63 @@
 # CHANGELOG
 
+## [v0.118.0](https://github.com/nervosnetwork/ckb/compare/v0.117.0...v0.118.0) (2024-09-12)
+
+### Features
+
+-   #4365: Asynchronous Block Download and Verification (@eval-exec)
+
+    This PR introduces several enhancements to the CKB Synchronizer to reduce synchronization time
+    during the initial block download (IBD) phase. Key changes include:
+
+    1. **Asynchronous Operations**: The Synchronizer sliding window movement is now decoupled from the block verification process in the ChainService, allowing asynchronous handling. This improves the efficiency of block requests and verification.
+    2. **Changes to sync_state RPC**:
+       -   Added `tip_hash` and `tip_number` to represent the current chain tip.
+       -   Added `unverified_tip_hash` and `unverified_tip_number` to track the latest received but not yet verified blocks.
+       -   Removed the `orphan_blocks_size` field.
+    3. **Log Format Update**: The format of CKB logs has been updated, specifically changing the prefix and content of log entries to provide clearer and more structured information.
+
+    These updates lead to a more efficient synchronization process, reducing the overall time
+    required for IBD. Note that removing the `orphan_blocks_size` field constitutes a BREAKING CHANGE
+    in the `sync_state` RPC.
+
+-   #4380: New spawn with scheduler (@mohanson)
+
+    This change is only available in the next version of CKB consensus rules.
+
+    In this PR, we refactored the implementation of spawn. The refactored syscall API is defined as follows: <https://github.com/XuJiandong/ckb-c-stdlib/blob/syscall-spawn/ckb_syscall_apis.h#L54-L68>.
+
+    Review Introduction: <https://github.com/nervosnetwork/ckb/pull/4380#issuecomment-2058070291>
+
+    Documentation: <https://github.com/nervosnetwork/rfcs/pull/436>
+
+-   #4291: New script verify with ckb-vm pause (@chenyukang)
+
+    1. Use a job queue for pending transactions waiting for verifying
+    2. Multiple workers trigger the verification process by picking task from queue
+    3. Verification is changed to `async` style
+    4. Use channel to resume/suspend vm
+    5. No snapshot from VM machines
+    6. No `Suspend` state from cache
+    7. All transactions from remote peer will be added into queue
+
+### Bug Fixes
+
+-   #4562: Fix sync relayer collaboration (@driftluo)
+-   #4576: Add limit to get cells (@driftluo)
+
+    This is a breaking change to RPC. The RPC to get cells may fail when exceeding the limit.
+
+-   #4612: Verify worker exit when `signal_exit` is cancelled (@chenyukang)
+
+### Improvements
+
+-   #4529: Add jsonrpc batch request limit (@chenyukang)
+-   #4583: Add `tx_index` to `TxStatus` for `get_transaction` RPC (@eval-exec)
+
+    This is a breaking change to the RPC.
+
+-   #4591: `VerifyQueue`: re_notify other Worker when `OnlySmallCycleTx` received a large cycle tx (@eval-exec)
+
 ## [v0.117.0](https://github.com/nervosnetwork/ckb/compare/v0.116.1...v0.117.0) (2024-07-29)
 
 ## Features
@@ -58,7 +116,7 @@
 ### Improvements
 
 -   #4335: Move some helper function for building `blocks/txs` from `ckb-chain` to `ckb-test-chain-utils` (@eval-exec)
--   #4187: Add `OpenRPC `generator and use `JsonSchema `to update rpc/readme (@chenyukang)
+-   #4187: Add `OpenRPC`generator and use `JsonSchema`to update rpc/readme (@chenyukang)
 -   #4345: `IndexerService::apply_init_tip` should stop after received exit signal. (@eval-exec)
 -   #4348: IndexerService should use `is_cancelled()` to check if ckb received Ctrl-C signal (@eval-exec)
 -   #4356: Upgade rust-toolchain to `1.75.0` (@eval-exec)
@@ -461,7 +519,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
     Solve the problem that 'load_data_cell_as_code' cannot work with 'ckb-vm chunk run'
 
-    ref: https://github.com/nervosnetwork/ckb-vm/pull/218
+    ref: <https://github.com/nervosnetwork/ckb-vm/pull/218>
 
 ## [v0.101.1](https://github.com/nervosnetwork/ckb/compare/v0.101.0...v0.101.1) (2021-10-27)
 
@@ -517,11 +575,11 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 -   #2715 **hardfork:** ckb2021 hardfork features (@yangby-cryptape)
 
-    See https://github.com/nervosnetwork/rfcs/pull/242
+    See <https://github.com/nervosnetwork/rfcs/pull/242>
 
 -   #2756 **hardfork:** Ckb2021 hardfork features (vm related part) (@yangby-cryptape)
 
-    See https://github.com/nervosnetwork/rfcs/pull/242
+    See <https://github.com/nervosnetwork/rfcs/pull/242>
 
     -   #2818 **hardfork:** Change field "hash_type" to an enumerated type (@yangby-cryptape)
 
@@ -529,7 +587,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 -   #2796 **hardfork:** Net hardfork (@driftluo)
 
-    See https://github.com/nervosnetwork/rfcs/pull/234
+    See <https://github.com/nervosnetwork/rfcs/pull/234>
 
 -   #2797 **hardfork:** Reject vm1 lock script before hardfork started to keep compatible with old clients (@yangby-cryptape)
 
@@ -545,7 +603,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
     -   A transaction with since absolute (or relative) epoch is valid only if `epoch_index` is less than `epoch_length` or both `epoch_index` and `epoch_length` are zero.
     -   Using rational number operations for both since absolute epoch and since relative epoch.
 
-    See more in https://github.com/nervosnetwork/rfcs/pull/223
+    See more in <https://github.com/nervosnetwork/rfcs/pull/223>
 
 -   #2776 **hardfork:** Rename JSON RPC field "uncles_hash" to "extra_hash" (@yangby-cryptape)
 -   #2799: Resumeble verification, which removes the cycles limit to relay tx (@zhangsoledad)
@@ -559,19 +617,19 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 -   #2921: Reduce cellbase maturity on staging spec (@keroro520)
 -   #2963: Update ckb-vm to 0.20.0-rc4 (@mohanson)
 
-    ckb-vm 0.20.0-rc4 release note: https://github.com/nervosnetwork/ckb-vm/releases/tag/0.20.0-rc4
+    ckb-vm 0.20.0-rc4 release note: <https://github.com/nervosnetwork/ckb-vm/releases/tag/0.20.0-rc4>
 
 -   #3004: Update ckb-vm to 0.20.0-rc5 (@mohanson)
 
     Contains a bug fix, see release notes below:
 
-    https://github.com/nervosnetwork/ckb-vm/releases/tag/0.20.0-rc5
+    <https://github.com/nervosnetwork/ckb-vm/releases/tag/0.20.0-rc5>
 
 ### Bug Fixes
 
 -   #2785: Put migration version (@zhangsoledad)
 
-    A bug introduced by https://github.com/nervosnetwork/ckb/commit/220464f, cause the migration version do not put in the new created DB.
+    A bug introduced by <https://github.com/nervosnetwork/ckb/commit/220464f>, cause the migration version do not put in the new created DB.
 
 -   #2827: Fix peer store evict (@driftluo)
 
@@ -936,7 +994,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 -   #2239: Support to control memory usage for header map (@yangby-cryptape)
 -   #2248: Add verbosity param to chain related rpc (@quake)
 
-    This PR adds an optional `verbosity ` param to chain related rpc, returns data in hex format without calculated hash values, it will improve performance in some scenarios.
+    This PR adds an optional `verbosity` param to chain related rpc, returns data in hex format without calculated hash values, it will improve performance in some scenarios.
 
 ### Bug Fixes
 
@@ -1095,8 +1153,8 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 -   #2114: Add command to generate peer id (@driftluo)
 
     ```
-    $ ckb peer-id gen --secret_path ./a.txt
-    $ ckb peer-id from-secret --secret-path ./a.txt
+    ckb peer-id gen --secret_path ./a.txt
+    ckb peer-id from-secret --secret-path ./a.txt
     ```
 
 -   #2045: New subcommand replay (@zhangsoledad)
@@ -1458,11 +1516,11 @@ Embed lina chain spec
 
 -   #1785: Upgrade system script for modified multi-sign lock script (@xxuejie)
 
-    See https://github.com/nervosnetwork/ckb-system-scripts/pull/61 for related changes.
+    See <https://github.com/nervosnetwork/ckb-system-scripts/pull/61> for related changes.
 
 -   #1779: Upgrade rocksdb with ReadOnlyDB changes (@xxuejie)
 
-    See https://github.com/nervosnetwork/rust-rocksdb/pull/1 for changes for the rocksdb library.
+    See <https://github.com/nervosnetwork/rust-rocksdb/pull/1> for changes for the rocksdb library.
 
     While this won't affect CKB, it provides a different rocksdb version that can aid ReadOnly mode when using ckb packages.
 
@@ -1520,7 +1578,7 @@ Embed lina chain spec
 
 -   #1769: Adapt to 2-phase Nervos DAO implementation (@xxuejie)
 
-    Depends on https://github.com/nervosnetwork/ckb-system-scripts/pull/59
+    Depends on <https://github.com/nervosnetwork/ckb-system-scripts/pull/59>
 
 -   #1726: Tweak consensus params (@zhangsoledad)
 
@@ -1535,7 +1593,7 @@ Embed lina chain spec
 
 -   #1785: Upgrade system script for modified multi-sign lock script (@xxuejie)
 
-    See https://github.com/nervosnetwork/ckb-system-scripts/pull/61 for related changes.
+    See <https://github.com/nervosnetwork/ckb-system-scripts/pull/61> for related changes.
 
 ### Features
 
@@ -1544,7 +1602,7 @@ Embed lina chain spec
 -   #1720: Add load transaction syscall (@xxuejie)
 -   #1730: Upgrade CKB VM to 0.18.0 (@xxuejie)
 
-    See https://github.com/nervosnetwork/ckb-vm/releases/tag/0.18.0 for
+    See <https://github.com/nervosnetwork/ckb-vm/releases/tag/0.18.0> for
     changes in CKB VM 0.18.0
 
 -   #1731: Security issuance satoshi cell by use all zeros lock (@jjyr)
@@ -1552,14 +1610,14 @@ Embed lina chain spec
 
     This PR adds a new RPC [estimate_fee_rate](https://github.com/nervosnetwork/ckb/pull/1659/files#diff-622e6d119ac5d43f7eb41cb596159f9fR907). It takes the basic idea from bitcoin's [estimatesmartfee](https://bitcoincore.org/en/doc/0.16.0/rpc/util/estimatesmartfee/), however, we ignore the magic numbers and tricks from the original code.
 
-    We estimate the tx fee rate by track txs that entered tx pool. See details https://github.com/nervosnetwork/ckb/pull/1659/files#diff-ff03764a87b23e747dadc645fcf8df8bR21
+    We estimate the tx fee rate by track txs that entered tx pool. See details <https://github.com/nervosnetwork/ckb/pull/1659/files#diff-ff03764a87b23e747dadc645fcf8df8bR21>
 
 -   #1705: Verify genesis block specific rules on start (@jjyr)
 -   #1735: Expose methods to tweak CKB VM with CKB runtime outside CKB (@xxuejie)
 -   #1757: Shutdown when protocol handle panic (@driftluo)
 -   #1740: Add multisig system script cell (@jjyr)
 
-    https://github.com/nervosnetwork/ckb-system-scripts/pull/60
+    <https://github.com/nervosnetwork/ckb-system-scripts/pull/60>
 
 -   #1772: Limit p2p protocol message size (@TheWaWaR)
 
@@ -1648,7 +1706,7 @@ Embed lina chain spec
         -   merge `transactions_root` and `witnesses_root`, where `new
 
     transactions_root = blake256(old transactions_root || old
-    witnesses_root)`    -   replace difficulty with`compact_target`
+    witnesses_root)`-   replace difficulty with`compact_target`
 
 -   #1632: Change script args and witness to single bytes (@quake)
 
@@ -1726,7 +1784,7 @@ Embed lina chain spec
     -   feat: Allow accept numbers in heximal format
     -   feat: Refuse numbers with redundant leading zeros
 
-    Reference: https://github.com/ethereum/wiki/wiki/JSON-RPC#hex-value-encoding
+    Reference: <https://github.com/ethereum/wiki/wiki/JSON-RPC#hex-value-encoding>
 
 -   #1559: Block serialized size should not include uncles proposals serialized size (@yangby-cryptape)
 -   #1592: RPC returns errors on unknown request fields. (@TheWaWaR)
@@ -1813,9 +1871,9 @@ Embed lina chain spec
 
     Please refer to the following URLs for changes from 0.13.0 to 0.15.1 in CKB VM.
 
-    https://github.com/nervosnetwork/ckb-vm/releases/tag/v0.14.0
-    https://github.com/nervosnetwork/ckb-vm/releases/tag/0.15.0
-    https://github.com/nervosnetwork/ckb-vm/releases/tag/0.15.1
+    <https://github.com/nervosnetwork/ckb-vm/releases/tag/v0.14.0>
+    <https://github.com/nervosnetwork/ckb-vm/releases/tag/0.15.0>
+    <https://github.com/nervosnetwork/ckb-vm/releases/tag/0.15.1>
 
     One important note is that even though CKB VM supports the all-new AOT mode right now, we are still only using the ASM interpreter in CKB since the performance is already good enough.
 
@@ -2049,7 +2107,7 @@ Embed lina chain spec
 -   #1227: Should check tx from pool when the `short_id` set is not empty (@lerencao)
 -   #1226: Resolve rpc `remove_node` and network `report_peer` bug (@quake)
 
-    we shouldn't call peer_registry `remove_peer ` before session was closed, it will be removed in disconnect event.
+    we shouldn't call peer_registry `remove_peer` before session was closed, it will be removed in disconnect event.
 
 -   #1238: Build.rs failed without git dir (@doitian)
 -   #1247: Skiplist test use `gen_range` the wrong way (@TheWaWaR)
@@ -2273,7 +2331,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
 -   #981 **sync:** Fix get ancestor performance issue (@TheWaWaR)
 
-    It's a backport of PR https://github.com/nervosnetwork/ckb/pull/970
+    It's a backport of PR <https://github.com/nervosnetwork/ckb/pull/970>
 
 ### Misc
 
@@ -2683,11 +2741,11 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
 -   #386: flatbuffers vtable `num_fields` overflow r=zhangsoledad a=doitian
 
-    Refs https://github.com/nervosnetwork/cfb/pull/16
+    Refs <https://github.com/nervosnetwork/cfb/pull/16>
 
 -   #385: Upgrade p2p fix repeat connection bug r=jjyr a=TheWaWaR
 
-    Related PR: https://github.com/nervosnetwork/p2p/pull/92
+    Related PR: <https://github.com/nervosnetwork/p2p/pull/92>
 
 -   #382: reset peer store connection status when setup r=TheWaWaR a=jjyr
 
@@ -2751,7 +2809,7 @@ modifications upon the new config files.
 
     Now saving the cellbase index and block number in the `TransactionMeta`, there is another implementation which creates a `HashMap<tx_hash, number>`. The second one may be a little memory saving, but this one is more simple. I think both are ok.
 
-    https://github.com/nervosnetwork/ckb/issues/54
+    <https://github.com/nervosnetwork/ckb/issues/54>
 
 -   #350: use TryFrom convert protocol r=doitian a=zhangsoledad
 -   #340: Integrate discovery and identify protocol r=jjyr a=TheWaWaR
