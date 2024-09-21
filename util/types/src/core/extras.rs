@@ -10,7 +10,15 @@ use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-/// TODO(doc): @quake
+/// Represents a block's additional information.
+///
+/// It is crucial to ensure that `txs_sizes` has one more element than `txs_fees`, and that `cycles` has the same length as `txs_fees`.
+///
+/// `BlockTxsVerifier::verify()` skips the first transaction (the cellbase) in the block. Therefore, `txs_sizes` must have a length equal to `txs_fees` length + 1.
+///
+/// Refer to: https://github.com/nervosnetwork/ckb/blob/44afc93cd88a1b52351831dce788d3023c52f37e/verification/contextual/src/contextual_block_verifier.rs#L455
+///
+/// Additionally, the `get_fee_rate_statistics` RPC function requires accurate `txs_sizes` and `txs_fees` data from `BlockExt`.
 #[derive(Clone, PartialEq, Default, Debug, Eq)]
 pub struct BlockExt {
     /// TODO(doc): @quake
@@ -21,11 +29,14 @@ pub struct BlockExt {
     pub total_uncles_count: u64,
     /// TODO(doc): @quake
     pub verified: Option<bool>,
-    /// TODO(doc): @quake
+    /// Transaction fees for each transaction except the cellbase.
+    /// The length of `txs_fees` is equal to the length of `cycles`.
     pub txs_fees: Vec<Capacity>,
-    /// block txs consumed cycles
+    /// Execution cycles for each transaction except the cellbase.
+    /// The length of `cycles` is equal to the length of `txs_fees`.
     pub cycles: Option<Vec<Cycle>>,
-    /// block txs serialized sizes
+    /// Sizes of each transaction including the cellbase.
+    /// The length of `txs_sizes` is `txs_fees` length + 1.
     pub txs_sizes: Option<Vec<u64>>,
 }
 
