@@ -167,7 +167,8 @@ pub fn default_support_all_protocols() -> Vec<SupportProtocol> {
     ]
 }
 
-pub(crate) fn generate_random_key() -> [u8; 32] {
+/// Generate random secp256k1 key
+pub fn generate_random_key() -> [u8; 32] {
     loop {
         let mut key: [u8; 32] = [0; 32];
         rand::thread_rng().fill(&mut key);
@@ -177,7 +178,8 @@ pub(crate) fn generate_random_key() -> [u8; 32] {
     }
 }
 
-pub(crate) fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), Error> {
+/// Secret key storage
+pub fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), Error> {
     fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -198,7 +200,8 @@ pub(crate) fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), E
         })
 }
 
-pub(crate) fn read_secret_key(path: PathBuf) -> Result<Option<secio::SecioKeyPair>, Error> {
+/// Load secret key from path
+pub fn read_secret_key(path: PathBuf) -> Result<Option<secio::SecioKeyPair>, Error> {
     let mut file = match fs::File::open(path.clone()) {
         Ok(file) => file,
         Err(_) => return Ok(None),
