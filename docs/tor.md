@@ -32,10 +32,21 @@ tcp        0      0 127.0.0.1:9050          127.0.0.1:47876         ESTABLISHED 
 unix  2      [ ]         DGRAM      CONNECTED     65129318 969485/tor
 
 ```
-
 2. start ckb node by proxychains-ng, (ckb need proxychains to proxy all network traffic to tor server)
 In proxychains-ng''s  configuration, let it proxy trafiic to 9050
 ```bash
 proxychains4 ckb run
 ```
-3. view tor's log (may need to enable more verbose log in tor's torrc config file)
+
+3. test connection to Tor Hidden Network
+```bash
+
+# check if you can access duckduckgo's onion service
+curl -x socks5h://127.0.0.1:9050 https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion
+
+# check if the response tell you IsTor: true ?
+curl -x socks5h://127.0.0.1:9050 -s https://check.torproject.org/api/ip
+
+```
+
+4. view tor's log (may need to enable more verbose log in tor's torrc config file)
