@@ -1,8 +1,10 @@
-use ckb_app_config::{ExitCode, Setup};
+use ckb_app_config::ExitCode;
 use ckb_async_runtime::Handle;
 use ckb_build_info::Version;
 use ckb_logger_service::{self, LoggerInitGuard};
 use ckb_metrics_service::{self, Guard as MetricsInitGuard};
+
+use crate::setup::Setup;
 
 const CKB_LOG_ENV: &str = "CKB_LOG";
 
