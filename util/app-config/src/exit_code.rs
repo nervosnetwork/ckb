@@ -41,10 +41,3 @@ impl From<ckb_logger::SetLoggerError> for ExitCode {
         ExitCode::Config
     }
 }
-
-impl From<clap::Error> for ExitCode {
-    fn from(err: clap::Error) -> ExitCode {
-        eprintln!("Args Error: {err:?}");
-        ExitCode::Cli
-    }
-}

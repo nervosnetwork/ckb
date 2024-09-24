@@ -1,4 +1,4 @@
-use ckb_app_config::{cli, CKBAppConfig, ExitCode};
+use ckb_app_config::{CKBAppConfig, ExitCode};
 use ckb_chain_spec::ChainSpec;
 use ckb_resource::{Resource, AVAILABLE_SPECS};
 use ckb_types::{packed::CellOutput, H256};
@@ -6,6 +6,8 @@ use ckb_util::LinkedHashMap;
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+use crate::cli;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SystemCell {

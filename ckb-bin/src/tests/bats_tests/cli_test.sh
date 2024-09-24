@@ -31,9 +31,9 @@ git_clone_repo_with_retry() {
 trap cleanup EXIT
 
 cp target/prod/ckb ${CKB_BATS_TESTBED}
-cp util/app-config/src/tests/bats_tests/*.bats ${CKB_BATS_TESTBED}
-cp -r util/app-config/src/tests/bats_tests/later_bats_job ${CKB_BATS_TESTBED}
-cp util/app-config/src/tests/bats_tests/*.sh ${CKB_BATS_TESTBED}
+cp ckb-bin/src/tests/bats_tests/*.bats ${CKB_BATS_TESTBED}
+cp -r ckb-bin/src/tests/bats_tests/later_bats_job ${CKB_BATS_TESTBED}
+cp ckb-bin/src/tests/bats_tests/*.sh ${CKB_BATS_TESTBED}
 
 if [ ! -d "/tmp/ckb_bats_assets/" ]; then
     git_clone_repo_with_retry "main" "https://github.com/nervosnetwork/ckb-assets" "/tmp/ckb_bats_assets"
