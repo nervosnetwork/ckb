@@ -418,7 +418,7 @@ pub(crate) async fn spend_cell(
     )
     .bind(output_tx_hash)
     .bind(output_index as i32)
-    .execute(&mut *tx)
+    .execute(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))?
     .rows_affected();
@@ -458,7 +458,7 @@ pub(crate) async fn query_output_cell(
     )
     .bind(output_tx_hash)
     .bind(output_index as i32)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
@@ -484,7 +484,7 @@ pub(crate) async fn query_output_id(
     )
     .bind(output_tx_hash)
     .bind(output_index as i32)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))
     .map(|row| row.map(|row| row.get::<i64, _>("id")))
@@ -508,7 +508,7 @@ pub(crate) async fn query_script_id(
     .bind(code_hash)
     .bind(hash_type)
     .bind(args)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))
     .map(|row| row.map(|row| row.get::<i64, _>("id")))
@@ -528,7 +528,7 @@ pub(crate) async fn query_block_id(
         "#,
     )
     .bind(block_hash)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))
     .map(|row| row.map(|row| row.get::<i64, _>("id")))
@@ -666,7 +666,7 @@ async fn bulk_insert(
 
         // execute
         query
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
     }
@@ -695,7 +695,7 @@ async fn bulk_insert_and_return_ids(
 
         // execute
         let mut rows = query
-            .fetch_all(&mut *tx)
+            .fetch_all(tx.as_mut())
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
         id_list.append(&mut rows);
