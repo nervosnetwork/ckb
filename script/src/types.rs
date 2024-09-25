@@ -5,7 +5,7 @@ use ckb_types::{
 };
 use ckb_vm::{
     machine::{VERSION0, VERSION1, VERSION2},
-    ISA_A, ISA_B, ISA_IMC, ISA_MOP,
+    ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -81,7 +81,7 @@ impl ScriptVersion {
         match self {
             Self::V0 => ISA_IMC,
             Self::V1 => ISA_IMC | ISA_B | ISA_MOP,
-            Self::V2 => ISA_IMC | ISA_A | ISA_B | ISA_MOP,
+            Self::V2 => ISA_IMC | ISA_B | ISA_MOP,
         }
     }
 
