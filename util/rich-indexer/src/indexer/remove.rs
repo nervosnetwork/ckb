@@ -219,6 +219,10 @@ async fn script_exists_in_output(
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
+    if row_lock.get::<i64, _>(0) == 1 {
+        return Ok(true);
+    }
+
     let row_type = sqlx::query(
         r#"
         SELECT EXISTS (
@@ -233,7 +237,7 @@ async fn script_exists_in_output(
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
-    Ok(row_lock.get::<i64, _>(0) == 1 || row_type.get::<i64, _>(0) == 1)
+    Ok(row_type.get::<i64, _>(0) == 1)
 }
 
 fn sqlx_param_placeholders(range: std::ops::Range<usize>) -> Result<Vec<String>, Error> {
