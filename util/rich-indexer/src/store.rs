@@ -261,6 +261,7 @@ fn is_sqlite_require_init(db_config: &RichIndexerConfig) -> bool {
         OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&db_config.store)
             .expect("Create db file");
         return true;

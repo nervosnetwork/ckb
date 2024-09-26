@@ -16,6 +16,7 @@ fn main() {
     }
 }
 
+#[allow(unexpected_cfgs)]
 fn get_version() -> Version {
     let major = env!("CARGO_PKG_VERSION_MAJOR")
         .parse::<u8>()

@@ -496,6 +496,7 @@ impl FreezerFilesBuilder {
     fn open_append<P: AsRef<Path>>(&self, path: P) -> Result<(File, u64), IoError> {
         let mut file = fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(path)?;

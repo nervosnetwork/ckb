@@ -1,7 +1,5 @@
 //！The rich-indexer service.
 
-use std::usize;
-
 use crate::indexer::RichIndexer;
 use crate::store::SQLXPool;
 use crate::{AsyncRichIndexerHandle, RichIndexerHandle};

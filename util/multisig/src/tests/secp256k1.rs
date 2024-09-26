@@ -60,8 +60,7 @@ fn test_m_of_n() {
         let sks: Vec<Privkey> = (0..sigs.len()).map(|_| random_secret_key()).collect();
         let pks: HashSet<Pubkey> = sks
             .iter()
-            .enumerate()
-            .map(|(_i, sk)| sk.pubkey().expect("pk"))
+            .map(|sk| sk.pubkey().expect("pk"))
             .take(*pks)
             .collect();
         let sigs: Vec<Signature> = sigs

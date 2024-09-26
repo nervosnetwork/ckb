@@ -7,6 +7,7 @@ use crate::Flags;
 
 pub(crate) const DEFAULT_BUCKETS_NUM: usize = 5000;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Misbehavior {
     // Already received GetNodes message

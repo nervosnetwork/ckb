@@ -330,7 +330,7 @@ pub fn modified_occupied_capacity(
             && tx_info.is_cellbase()
             && cell_meta.cell_output.lock().args().raw_data() == consensus.satoshi_pubkey_hash.0[..]
         {
-            return Into::<Capacity>::into(&cell_meta.cell_output.capacity())
+            return Into::<Capacity>::into(cell_meta.cell_output.capacity())
                 .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);
         }
     }

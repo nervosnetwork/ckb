@@ -183,6 +183,7 @@ pub fn write_secret_to_file(secret: &[u8], path: PathBuf) -> Result<(), Error> {
     fs::OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(path)
         .and_then(|mut file| {
             file.write_all(secret)?;

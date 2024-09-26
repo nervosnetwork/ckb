@@ -26,7 +26,7 @@ fn new_notifier(version: &str) -> Notifier {
     thread_local! {
         // NOTICE：we can't put the runtime directly into thread_local here,
         // on windows the runtime in thread_local will get stuck when dropping
-        static RUNTIME_HANDLE: unsync::OnceCell<Handle> = unsync::OnceCell::new();
+        static RUNTIME_HANDLE: unsync::OnceCell<Handle> = const { unsync::OnceCell::new() };
     }
 
     let notify_controller = RUNTIME_HANDLE.with(|runtime| {

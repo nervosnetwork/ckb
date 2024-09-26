@@ -14,7 +14,6 @@ use ckb_types::{
 
 use std::{
     sync::{Arc, RwLock},
-    usize,
 };
 use tokio::test;
 
@@ -675,7 +674,7 @@ async fn rpc() {
 
     // test get_tip rpc
     let tip = rpc.get_indexer_tip().await.unwrap().unwrap();
-    assert_eq!(Into::<H256>::into(&pre_block.hash()), tip.block_hash);
+    assert_eq!(Into::<H256>::into(pre_block.hash()), tip.block_hash);
     assert_eq!(pre_block.number(), tip.block_number.value());
 
     // test get_cells rpc

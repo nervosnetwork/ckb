@@ -11,6 +11,7 @@ pub(crate) enum IteratorDirection {
     Reverse,
 }
 
+#[allow(dead_code)]
 pub(crate) trait Store {
     type Batch: Batch;
     type Opts;
@@ -40,7 +41,7 @@ pub(crate) trait Batch {
         key: K,
         value: V,
     ) -> Result<(), Error> {
-        self.put(&Into::<Vec<u8>>::into(key), &Into::<Vec<u8>>::into(value))
+        self.put(Into::<Vec<u8>>::into(key), Into::<Vec<u8>>::into(value))
     }
 
     fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error>;

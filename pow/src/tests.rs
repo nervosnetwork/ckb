@@ -4,7 +4,7 @@ use ckb_hash::blake2b_256;
 #[test]
 fn test_pow_message() {
     let zero_hash = blake2b_256([]).into();
-    let nonce = u128::max_value();
+    let nonce = u128::MAX;
     let message = pow_message(&zero_hash, nonce);
     assert_eq!(
         message.to_vec(),

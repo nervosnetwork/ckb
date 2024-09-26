@@ -4,6 +4,7 @@ use ckb_types::packed::Byte32;
 
 use crate::types::HeaderIndexView;
 
+#[allow(dead_code)]
 pub(crate) trait KeyValueBackend {
     fn new<P>(tmpdir: Option<P>) -> Self
     where
