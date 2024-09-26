@@ -55,7 +55,7 @@ impl SQLXPool {
         }
         let pool = match db_config.db_type {
             DBDriver::Sqlite => {
-                let require_init = is_sqlite_require_init(db_config);
+                create_sqlite(db_config);
                 let uri = build_url_for_sqlite(db_config);
                 let connection_options =
                     AnyConnectOptions::from_str(&uri)?.log_statements(LevelFilter::Trace);
@@ -64,14 +64,12 @@ impl SQLXPool {
                 self.pool
                     .set(pool.clone())
                     .map_err(|_| anyhow!("set pool failed!"))?;
-                if require_init {
-                    self.create_tables_for_sqlite().await?;
-                }
+                self.create_tables_for_sqlite().await?;
+
                 self.db_driver = DBDriver::Sqlite;
                 pool
             }
             DBDriver::Postgres => {
-                let require_init = self.is_postgres_require_init(db_config).await?;
                 let uri = build_url_for_postgres(db_config);
                 let connection_options =
                     AnyConnectOptions::from_str(&uri)?.log_statements(LevelFilter::Trace);
@@ -80,9 +78,12 @@ impl SQLXPool {
                 self.pool
                     .set(pool.clone())
                     .map_err(|_| anyhow!("set pool failed"))?;
-                if require_init {
-                    self.create_tables_for_postgres().await?;
-                }
+
+                SQLXPool::new_query(r#"CREATE DATABASE IF NOT EXISTS "postgres""#)
+                    .execute(&pool)
+                    .await?;
+                self.create_tables_for_postgres().await?;
+
                 self.db_driver = DBDriver::Postgres;
                 pool
             }
@@ -206,35 +207,6 @@ impl SQLXPool {
         }
         Ok(())
     }
-
-    pub async fn is_postgres_require_init(
-        &mut self,
-        db_config: &RichIndexerConfig,
-    ) -> Result<bool> {
-        // Connect to the "postgres" database first
-        let mut temp_config = db_config.clone();
-        temp_config.db_name = "postgres".to_string();
-        let uri = build_url_for_postgres(&temp_config);
-        let connection_options =
-            AnyConnectOptions::from_str(&uri)?.log_statements(LevelFilter::Trace);
-        let tmp_pool_options = AnyPoolOptions::new();
-        let pool = tmp_pool_options.connect_with(connection_options).await?;
-
-        // Check if database exists
-        let query =
-            SQLXPool::new_query(r#"SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)"#)
-                .bind(db_config.db_name.as_str());
-        let row = query.fetch_one(&pool).await?;
-
-        // If database does not exist, create it
-        if !row.get::<bool, _>(0) {
-            let query = format!(r#"CREATE DATABASE "{}""#, db_config.db_name);
-            SQLXPool::new_query(&query).execute(&pool).await?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
 }
 
 fn build_url_for_sqlite(db_config: &RichIndexerConfig) -> String {
@@ -254,10 +226,10 @@ fn build_url_for_postgres(db_config: &RichIndexerConfig) -> String {
         + db_config.db_name.as_str()
 }
 
-fn is_sqlite_require_init(db_config: &RichIndexerConfig) -> bool {
+fn create_sqlite(db_config: &RichIndexerConfig) {
     // for test
     if db_config.store == Into::<PathBuf>::into(MEMORY_DB) {
-        return true;
+        return;
     }
 
     if !db_config.store.exists() {
@@ -269,8 +241,5 @@ fn is_sqlite_require_init(db_config: &RichIndexerConfig) -> bool {
             .create(true)
             .open(&db_config.store)
             .expect("Create db file");
-        return true;
     }
-
-    false
 }
