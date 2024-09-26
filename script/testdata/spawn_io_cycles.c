@@ -42,7 +42,7 @@ int child(ScriptArgs* args, uint8_t* buffer) {
     int err = 0;
     uint64_t inherited_fds[2];
     size_t inherited_fds_length = 2;
-    err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+    err = ckb_inherited_fds(inherited_fds, &inherited_fds_length);
     CHECK(err);
 
     uint64_t buf_len = args->io_size;

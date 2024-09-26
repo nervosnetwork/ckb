@@ -97,7 +97,7 @@ int child_entry() {
     int err = 0;
     uint64_t inherited_fds[2];
     size_t inherited_fds_length = 2;
-    err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+    err = ckb_inherited_fds(inherited_fds, &inherited_fds_length);
     CHECK(err);
     random_read_write(inherited_fds, 0);
 

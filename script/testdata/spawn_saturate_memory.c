@@ -21,7 +21,7 @@ int main(int argc, const char* argv[]) {
         dirty_all_pages();
         uint64_t inherited_fds[2];
         size_t inherited_fds_length = 2;
-        err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+        err = ckb_inherited_fds(inherited_fds, &inherited_fds_length);
         uint64_t length = MAX_MEMORY;
         // Write a piece of data starting from address 0 with a size of 4M.
         // It should not consume any memory.

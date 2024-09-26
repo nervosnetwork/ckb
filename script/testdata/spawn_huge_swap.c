@@ -32,7 +32,7 @@ int main() {
         } else if (current_pid == 1) {
             uint64_t inherited_fds[3];
             size_t fds_len = 3;
-            err = ckb_inherited_file_descriptors(inherited_fds, &fds_len);
+            err = ckb_inherited_fds(inherited_fds, &fds_len);
             CHECK(err);
             uint8_t buf[1] = {0};
             while (true) {
@@ -43,7 +43,7 @@ int main() {
         } else if (current_pid == 2) {
             uint64_t inherited_fds[3];
             size_t fds_len = 3;
-            err = ckb_inherited_file_descriptors(inherited_fds, &fds_len);
+            err = ckb_inherited_fds(inherited_fds, &fds_len);
             CHECK(err);
             uint8_t buf[1] = {0};
             while (true) {
