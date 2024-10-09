@@ -1265,7 +1265,7 @@ fn check_spawn_cycles() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
     if script_version >= ScriptVersion::V2 {
-        assert_eq!(result.unwrap(), 1524861);
+        assert_eq!(result.unwrap(), 1525087);
     }
 }
 

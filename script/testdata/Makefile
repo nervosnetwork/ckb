@@ -14,8 +14,9 @@ COMMON_CFLAGS := -O3 \
                  -I deps/ckb-c-stdlib/libc \
                  -I deps/ckb-c-stdlib/molecule \
                  -Wall -Werror \
-				 -fno-builtin -nostdinc -nostartfiles \
-				 -Wno-stringop-overflow
+                 -fno-builtin -nostdinc -nostartfiles \
+                 -Wno-stringop-overflow \
+                 -Wno-array-bounds
 # enable ckb-c-stdlib's printf
 COMMON_CFLAGS += -DCKB_C_STDLIB_PRINTF -DCKB_C_STDLIB_PRINTF_BUFFER_SIZE=1024
 

@@ -249,7 +249,7 @@ pub async fn get_tx_with_cell(
 
     // fetch
     let outputs = query
-        .fetch_all(&mut *tx)
+        .fetch_all(tx.as_mut())
         .await
         .map_err(|err| Error::DB(err.to_string()))?
         .iter()
@@ -399,7 +399,7 @@ pub async fn get_tx_with_cells(
 
     // fetch
     let outputs = query
-        .fetch_all(&mut *tx)
+        .fetch_all(tx.as_mut())
         .await
         .map_err(|err| Error::DB(err.to_string()))?
         .iter()
