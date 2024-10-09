@@ -32,7 +32,7 @@ impl<'a> GetBlockFiltersProcess<'a> {
 
     pub fn execute(self) -> Status {
         let active_chain = self.filter.shared.active_chain();
-        let start_number: BlockNumber = self.message.to_entity().start_number().into();
+        let start_number: BlockNumber = self.message.to_entity().start_number().unpack();
         let latest: BlockNumber = active_chain.get_latest_built_filter_block_number();
 
         if latest >= start_number {
@@ -51,9 +51,9 @@ impl<'a> GetBlockFiltersProcess<'a> {
                 }
             }
             let content = packed::BlockFilters::new_builder()
-                .start_number(start_number)
-                .block_hashes(block_hashes)
-                .filters(filters)
+                .start_number(start_number.pack())
+                .block_hashes(block_hashes.pack())
+                .filters(filters.pack())
                 .build();
 
             let message = packed::BlockFilterMessage::new_builder()

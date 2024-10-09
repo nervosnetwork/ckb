@@ -10,7 +10,7 @@ use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME,
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
-use ckb_types::H256;
+use ckb_types::{prelude::*, H256};
 
 use crate::cli;
 
@@ -81,7 +81,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                     .build_consensus()
                     .expect("Build consensus failed")
                     .get_secp_type_script_hash()
-                    .into();
+                    .unpack();
                 format!("{hash:#x}")
             });
 

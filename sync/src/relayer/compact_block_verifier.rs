@@ -1,5 +1,5 @@
 use crate::{attempt, Status, StatusCode};
-use ckb_types::packed;
+use ckb_types::{packed, prelude::*};
 use std::collections::HashSet;
 
 // we assume that all the short_ids and prefilled transactions
@@ -28,7 +28,7 @@ impl PrefilledVerifier {
             return StatusCode::CompactBlockHasNotPrefilledCellbase.into();
         } else {
             // Check first prefilled index is zero
-            let index: usize = prefilled_transactions.get(0).unwrap().index().into();
+            let index: usize = prefilled_transactions.get(0).unwrap().index().unpack();
             if index != 0 {
                 return StatusCode::CompactBlockHasNotPrefilledCellbase.into();
             }
@@ -38,7 +38,7 @@ impl PrefilledVerifier {
                 .get(prefilled_transactions.len() - 1)
                 .unwrap()
                 .index()
-                .into();
+                .unpack();
             if index >= txs_len {
                 return StatusCode::CompactBlockHasOutOfIndexPrefilledTransactions.into();
             }
@@ -46,8 +46,8 @@ impl PrefilledVerifier {
 
         // Check indices order of prefilled transactions
         for i in 0..(prefilled_transactions.len() - 1) {
-            let idx0: usize = prefilled_transactions.get(i).unwrap().index().into();
-            let idx1: usize = prefilled_transactions.get(i + 1).unwrap().index().into();
+            let idx0: usize = prefilled_transactions.get(i).unwrap().index().unpack();
+            let idx1: usize = prefilled_transactions.get(i + 1).unwrap().index().unpack();
             if idx0 >= idx1 {
                 return StatusCode::CompactBlockHasOutOfOrderPrefilledTransactions.into();
             }

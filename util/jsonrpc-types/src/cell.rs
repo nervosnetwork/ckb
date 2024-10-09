@@ -1,6 +1,7 @@
 use crate::{CellOutput, JsonBytes};
 use ckb_types::{
     core::cell::{CellMeta, CellStatus},
+    prelude::Unpack,
     H256,
 };
 use schemars::JsonSchema;
@@ -125,7 +126,7 @@ impl From<CellMeta> for CellInfo {
             data: data.and_then(move |data| {
                 data_hash.map(|hash| CellData {
                     content: JsonBytes::from_bytes(data),
-                    hash: hash.into(),
+                    hash: hash.unpack(),
                 })
             }),
         }

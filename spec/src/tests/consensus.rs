@@ -5,6 +5,7 @@ use ckb_types::{
         HeaderView, TransactionBuilder,
     },
     packed::{Byte32, Bytes},
+    prelude::*,
     utilities::DIFF_TWO,
 };
 
@@ -52,8 +53,8 @@ fn test_halving_epoch_reward() {
 
     let header = |epoch: &EpochExt, number: u64| {
         HeaderBuilder::default()
-            .number(number)
-            .epoch(epoch.number_with_fraction(number))
+            .number(number.pack())
+            .epoch(epoch.number_with_fraction(number).pack())
             .build()
     };
 

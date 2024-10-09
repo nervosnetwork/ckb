@@ -5,6 +5,7 @@ use crate::store::SQLXPool;
 use ckb_indexer_sync::Error;
 use ckb_jsonrpc_types::{IndexerCellsCapacity, IndexerSearchKey};
 use ckb_jsonrpc_types::{IndexerScriptType, IndexerSearchMode};
+use ckb_types::prelude::*;
 use sql_builder::{name, name::SqlName, SqlBuilder};
 use sqlx::Row;
 
@@ -80,8 +81,8 @@ impl AsyncRichIndexerHandle {
             dead_cells = pool
                 .dead_cells()
                 .map(|out_point| {
-                    let tx_hash: H256 = out_point.tx_hash().into();
-                    (tx_hash.as_bytes().to_vec(), out_point.index().into())
+                    let tx_hash: H256 = out_point.tx_hash().unpack();
+                    (tx_hash.as_bytes().to_vec(), out_point.index().unpack())
                 })
                 .collect::<Vec<(_, u32)>>()
         }

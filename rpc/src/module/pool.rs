@@ -627,7 +627,7 @@ impl PoolRpc for PoolRpcImpl {
 
         let tx_hash = tx.hash();
         match submit_tx.unwrap() {
-            Ok(_) => Ok(tx_hash.into()),
+            Ok(_) => Ok(tx_hash.unpack()),
             Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
         }
     }
@@ -660,7 +660,7 @@ impl PoolRpc for PoolRpcImpl {
     fn remove_transaction(&self, tx_hash: H256) -> Result<bool> {
         let tx_pool = self.shared.tx_pool_controller();
 
-        tx_pool.remove_local_tx(tx_hash.into()).map_err(|e| {
+        tx_pool.remove_local_tx(tx_hash.pack()).map_err(|e| {
             error!("Send remove_tx request error {}", e);
             RPCError::ckb_internal_error(e)
         })
@@ -718,7 +718,7 @@ impl PoolRpc for PoolRpcImpl {
     fn get_pool_tx_detail_info(&self, tx_hash: H256) -> Result<PoolTxDetailInfo> {
         let tx_pool = self.shared.tx_pool_controller();
         let tx_detail = tx_pool
-            .get_tx_detail(tx_hash.into())
+            .get_tx_detail(tx_hash.pack())
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
         Ok(tx_detail.into())
     }

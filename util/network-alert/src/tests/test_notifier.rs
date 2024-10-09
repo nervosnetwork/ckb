@@ -13,11 +13,11 @@ fn build_alert(
     notice_until: u64,
 ) -> packed::Alert {
     let raw = packed::RawAlert::new_builder()
-        .id(id)
-        .cancel(cancel)
-        .min_version(min_ver)
-        .max_version(max_ver)
-        .notice_until(notice_until)
+        .id(id.pack())
+        .cancel(cancel.pack())
+        .min_version(min_ver.pack())
+        .max_version(max_ver.pack())
+        .notice_until(notice_until.pack())
         .build();
     packed::Alert::new_builder().raw(raw).build()
 }

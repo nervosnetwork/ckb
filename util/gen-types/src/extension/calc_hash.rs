@@ -17,7 +17,7 @@ where
     R: Reader<'r>,
 {
     fn calc_hash(&self) -> packed::Byte32 {
-        blake2b_256(self.as_slice()).into()
+        blake2b_256(self.as_slice()).pack()
     }
 }
 
@@ -65,7 +65,7 @@ impl packed::CellOutput {
         if data.is_empty() {
             packed::Byte32::zero()
         } else {
-            blake2b_256(data).into()
+            blake2b_256(data).pack()
         }
     }
 }
@@ -75,7 +75,7 @@ impl<'r> packed::BytesReader<'r> {
     ///
     /// Returns the empty hash if no data, otherwise, calculates the hash of the data and returns it.
     pub fn calc_raw_data_hash(&self) -> packed::Byte32 {
-        blake2b_256(self.raw_data()).into()
+        blake2b_256(self.raw_data()).pack()
     }
 }
 impl_calc_special_hash_for_entity!(Bytes, calc_raw_data_hash);
@@ -116,7 +116,7 @@ impl<'r> packed::ProposalShortIdVecReader<'r> {
                 blake2b.update(id.as_slice());
             }
             blake2b.finalize(&mut ret);
-            ret.into()
+            ret.pack()
         }
     }
 }
@@ -215,7 +215,7 @@ impl<'r> packed::UncleBlockVecReader<'r> {
                 blake2b.update(uncle.calc_header_hash().as_slice());
             }
             blake2b.finalize(&mut ret);
-            ret.into()
+            ret.pack()
         }
     }
 }

@@ -76,7 +76,7 @@ impl<'a> GetTransactionsProcess<'a> {
                 .into_iter()
                 .map(|(_, (tx, cycles))| {
                     packed::RelayTransaction::new_builder()
-                        .cycles(cycles)
+                        .cycles(cycles.pack())
                         .transaction(tx.data())
                         .build()
                 })

@@ -52,8 +52,8 @@ macro_rules! impl_cmp_partial_ord {
 impl ::core::cmp::Ord for packed::Uint32 {
     #[inline]
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-        let self_val: u32 = self.as_reader().into();
-        let other_val: u32 = other.as_reader().into();
+        let self_val: u32 = self.unpack();
+        let other_val: u32 = other.unpack();
         self_val.cmp(&other_val)
     }
 }
@@ -62,8 +62,8 @@ impl_cmp_partial_ord!(Uint32);
 impl ::core::cmp::Ord for packed::Uint64 {
     #[inline]
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-        let self_val: u64 = self.as_reader().into();
-        let other_val: u64 = other.as_reader().into();
+        let self_val: u64 = self.unpack();
+        let other_val: u64 = other.unpack();
         self_val.cmp(&other_val)
     }
 }
@@ -72,8 +72,8 @@ impl_cmp_partial_ord!(Uint64);
 impl ::core::cmp::Ord for packed::Uint128 {
     #[inline]
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-        let self_val: u128 = self.as_reader().into();
-        let other_val: u128 = other.as_reader().into();
+        let self_val: u128 = self.unpack();
+        let other_val: u128 = other.unpack();
         self_val.cmp(&other_val)
     }
 }
@@ -81,14 +81,14 @@ impl_cmp_partial_ord!(Uint128);
 
 #[cfg(feature = "std")]
 mod std_feature_mod {
-    use crate::packed;
+    use crate::{packed, prelude::*};
     use numext_fixed_uint::U256;
 
     impl ::core::cmp::Ord for packed::Uint256 {
         #[inline]
         fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-            let self_val: U256 = self.as_reader().into();
-            let other_val: U256 = other.as_reader().into();
+            let self_val: U256 = self.unpack();
+            let other_val: U256 = other.unpack();
             self_val.cmp(&other_val)
         }
     }

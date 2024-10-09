@@ -9,7 +9,7 @@ use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockNumber, BlockView};
 use ckb_types::packed;
-use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
+use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Pack, Reader};
 use std::cmp;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ impl InitLoadUnverified {
     }
 
     fn find_unverified_block_hashes(&self, check_unverified_number: u64) -> Vec<packed::Byte32> {
-        let pack_number: packed::Uint64 = check_unverified_number.into();
+        let pack_number: packed::Uint64 = check_unverified_number.pack();
         let prefix = pack_number.as_slice();
 
         // If a block has `COLUMN_NUMBER_HASH` but not `BlockExt`,

@@ -11,6 +11,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ckb-types = { path = "../types", version = "= 0.119.0-pre" }
 ckb-store = { path = "../../store", version = "= 0.119.0-pre" }
 ckb-app-config = { path = "../app-config", version = "= 0.119.0-pre" }
 ckb-logger = { path = "../logger", version = "= 0.119.0-pre" }
@@ -35,7 +36,7 @@ ckb-block-filter = { path = "../../block-filter", version = "= 0.119.0-pre" }
 with_sentry = [
     "ckb-sync/with_sentry",
     "ckb-network/with_sentry",
-    "ckb-app-config/with_sentry",
+    "ckb-app-config/with_sentry"
 ]
 portable = ["ckb-shared/portable"]
 march-native = ["ckb-shared/march-native"]

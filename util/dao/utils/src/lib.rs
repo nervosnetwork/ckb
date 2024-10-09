@@ -52,7 +52,7 @@ pub fn genesis_dao_data_with_satoshi_gift(
             .enumerate()
             .filter(|(index, _)| !dead_cells.contains(&OutPoint::new(tx.hash(), *index as u32)))
             .try_fold(Capacity::zero(), |capacity, (_, output)| {
-                let cap: Capacity = output.capacity().into();
+                let cap: Capacity = output.capacity().unpack();
                 capacity.safe_add(cap)
             })?;
         let u = tx
@@ -64,7 +64,7 @@ pub fn genesis_dao_data_with_satoshi_gift(
                 let occupied_capacity = if tx_index == 0
                     && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
                 {
-                    Into::<Capacity>::into(&output.capacity())
+                    Unpack::<Capacity>::unpack(&output.capacity())
                         .safe_mul_ratio(satoshi_cell_occupied_ratio)
                 } else {
                     Capacity::bytes(data.len()).and_then(|c| output.occupied_capacity(c))
@@ -128,6 +128,7 @@ mod tests {
     pub use ckb_types::core::Capacity;
     pub use ckb_types::h256;
     pub use ckb_types::packed::Byte32;
+    pub use ckb_types::prelude::Pack;
 
     #[test]
     #[allow(clippy::unreadable_literal)]
@@ -159,7 +160,7 @@ mod tests {
             ),
         ];
         for (dao_h256, ar, c, s, u) in cases {
-            let dao_byte32: Byte32 = dao_h256.into();
+            let dao_byte32: Byte32 = dao_h256.pack();
             assert_eq!((ar, c, s, u), extract_dao_data(dao_byte32.clone()));
             assert_eq!(dao_byte32, pack_dao_data(ar, c, s, u,));
         }

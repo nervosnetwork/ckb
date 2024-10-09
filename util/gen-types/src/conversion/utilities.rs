@@ -8,44 +8,12 @@ macro_rules! impl_conversion_for_entity_unpack {
     };
 }
 
-macro_rules! impl_conversion_for_entity_from {
-    ($original:ty, $entity:ident) => {
-        impl From<packed::$entity> for $original {
-            fn from(v: packed::$entity) -> $original {
-                (&v).into()
-            }
-        }
-
-        impl From<&packed::$entity> for $original {
-            fn from(v: &packed::$entity) -> $original {
-                v.as_reader().into()
-            }
-        }
-    };
-}
-
 macro_rules! impl_conversion_for_option_pack {
     ($original:ty, $entity:ident) => {
         impl Pack<packed::$entity> for Option<$original> {
             fn pack(&self) -> packed::$entity {
                 if let Some(ref inner) = self {
                     packed::$entity::new_unchecked(inner.pack().as_bytes())
-                } else {
-                    packed::$entity::default()
-                }
-            }
-        }
-    };
-}
-
-macro_rules! impl_conversion_for_option_from {
-    ($original:ty, $entity:ident, $entity_inner:ident) => {
-        impl From<Option<$original>> for packed::$entity {
-            fn from(value: Option<$original>) -> packed::$entity {
-                if let Some(inner) = value {
-                    packed::$entity::new_unchecked(
-                        Into::<packed::$entity_inner>::into(inner).as_bytes(),
-                    )
                 } else {
                     packed::$entity::default()
                 }
@@ -65,28 +33,10 @@ macro_rules! impl_conversion_for_option_unpack {
     };
 }
 
-macro_rules! impl_conversion_for_option_reader_from {
-    ($original:ty, $entity:ident, $reader:ident) => {
-        impl<'r> From<packed::$reader<'r>> for Option<$original> {
-            fn from(value: packed::$reader<'r>) -> Option<$original> {
-                value.to_opt().map(|x| x.into())
-            }
-        }
-        impl_conversion_for_entity_from!(Option<$original>, $entity);
-    };
-}
-
 macro_rules! impl_conversion_for_option {
     ($original:ty, $entity:ident, $reader:ident) => {
         impl_conversion_for_option_pack!($original, $entity);
         impl_conversion_for_option_unpack!($original, $entity, $reader);
-    };
-}
-
-macro_rules! impl_conversion_for_option_from_into {
-    ($original:ty, $entity:ident, $reader:ident, $entity_inner:ident) => {
-        impl_conversion_for_option_from!($original, $entity, $entity_inner);
-        impl_conversion_for_option_reader_from!($original, $entity, $reader);
     };
 }
 
@@ -97,30 +47,6 @@ macro_rules! impl_conversion_for_vector_pack {
                 packed::$entity::new_builder()
                     .set(self.iter().map(|v| v.pack()).collect())
                     .build()
-            }
-        }
-    };
-}
-
-macro_rules! impl_conversion_for_vector_from {
-    ($original:ty, $entity:ident) => {
-        impl From<&[$original]> for packed::$entity {
-            fn from(value: &[$original]) -> packed::$entity {
-                packed::$entity::new_builder()
-                    .set(value.iter().map(|v| v.into()).collect())
-                    .build()
-            }
-        }
-
-        impl<const N: usize> From<[$original; N]> for packed::$entity {
-            fn from(value: [$original; N]) -> packed::$entity {
-                (&value[..]).into()
-            }
-        }
-
-        impl<const N: usize> From<&[$original; N]> for packed::$entity {
-            fn from(value: &[$original; N]) -> packed::$entity {
-                (&value[..]).into()
             }
         }
     };
@@ -137,28 +63,10 @@ macro_rules! impl_conversion_for_vector_unpack {
     };
 }
 
-macro_rules! impl_conversion_for_vector_reader_from {
-    ($original:ty, $entity:ident, $reader:ident) => {
-        impl<'r> From<packed::$reader<'r>> for Vec<$original> {
-            fn from(value: packed::$reader<'r>) -> Vec<$original> {
-                value.iter().map(|x| x.into()).collect()
-            }
-        }
-        impl_conversion_for_entity_from!(Vec<$original>, $entity);
-    };
-}
-
 macro_rules! impl_conversion_for_vector {
     ($original:ty, $entity:ident, $reader:ident) => {
         impl_conversion_for_vector_pack!($original, $entity);
         impl_conversion_for_vector_unpack!($original, $entity, $reader);
-    };
-}
-
-macro_rules! impl_conversion_for_vector_from_into {
-    ($original:ty, $entity:ident, $reader:ident) => {
-        impl_conversion_for_vector_from!($original, $entity);
-        impl_conversion_for_vector_reader_from!($original, $entity, $reader);
     };
 }
 
@@ -167,20 +75,6 @@ macro_rules! impl_conversion_for_packed_optional_pack {
         impl Pack<packed::$entity> for Option<packed::$original> {
             fn pack(&self) -> packed::$entity {
                 if let Some(ref inner) = self {
-                    packed::$entity::new_unchecked(inner.as_bytes())
-                } else {
-                    packed::$entity::default()
-                }
-            }
-        }
-    };
-}
-
-macro_rules! impl_conversion_for_packed_optional_from {
-    ($original:ident, $entity:ident) => {
-        impl From<Option<packed::$original>> for packed::$entity {
-            fn from(value: Option<packed::$original>) -> packed::$entity {
-                if let Some(ref inner) = value {
                     packed::$entity::new_unchecked(inner.as_bytes())
                 } else {
                     packed::$entity::default()

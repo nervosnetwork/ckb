@@ -22,7 +22,7 @@ use ckb_types::{
     },
     h256,
     packed::{
-        self, Byte32, CellDep, CellInput, OutPoint, Script, TransactionInfoBuilder,
+        Byte32, CellDep, CellInput, OutPoint, Script, TransactionInfoBuilder,
         TransactionKeyBuilder, WitnessArgs,
     },
     H256,
@@ -67,7 +67,7 @@ pub(crate) fn load_cell_from_path(path_str: &str) -> (CellMeta, Byte32) {
 pub(crate) fn load_cell_from_slice(slice: &[u8]) -> (CellMeta, Byte32) {
     let cell_data = Bytes::copy_from_slice(slice);
     let cell_output = CellOutput::new_builder()
-        .capacity(Capacity::bytes(cell_data.len()).unwrap())
+        .capacity(Capacity::bytes(cell_data.len()).unwrap().pack())
         .build();
     let cell_meta = CellMetaBuilder::from_cell_output(cell_output, cell_data)
         .transaction_info(default_transaction_info())
@@ -107,16 +107,16 @@ pub(crate) fn sign_args(args: &[u8], privkey: &Privkey) -> Signature {
 
 pub(crate) fn default_transaction_info() -> TransactionInfo {
     TransactionInfoBuilder::default()
-        .block_number(1u64)
-        .block_epoch(0u64)
+        .block_number(1u64.pack())
+        .block_epoch(0u64.pack())
         .key(
             TransactionKeyBuilder::default()
                 .block_hash(Byte32::zero())
-                .index(1u32)
+                .index(1u32.pack())
                 .build(),
         )
         .build()
-        .into()
+        .unpack()
 }
 
 pub(crate) struct TransactionScriptsVerifierWithEnv {
@@ -184,7 +184,9 @@ impl TransactionScriptsVerifierWithEnv {
             ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
             ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
         };
-        let header = HeaderView::new_advanced_builder().epoch(epoch).build();
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
         let verifier = TransactionScriptsVerifier::new(
             Arc::new(rtx.clone()),
@@ -273,7 +275,9 @@ impl TransactionScriptsVerifierWithEnv {
             ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
             ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
         };
-        let header = HeaderView::new_advanced_builder().epoch(epoch).build();
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
         let verifier = TransactionScriptsVerifier::new(
             Arc::new(rtx.clone()),
@@ -305,7 +309,9 @@ impl TransactionScriptsVerifierWithEnv {
             ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
             ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
         };
-        let header = HeaderView::new_advanced_builder().epoch(epoch).build();
+        let header = HeaderView::new_advanced_builder()
+            .epoch(epoch.pack())
+            .build();
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
         let mut verifier = TransactionScriptsVerifier::new(
             Arc::new(rtx.clone()),
@@ -330,11 +336,11 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
 
     let cell_dep = CellDep::new_builder()
         .out_point(secp_out_point)
-        .dep_type(DepType::DepGroup)
+        .dep_type(DepType::DepGroup.into())
         .build();
 
-    let input1 = CellInput::new(OutPoint::new(h256!("0x1234").into(), 0), 0);
-    let input2 = CellInput::new(OutPoint::new(h256!("0x1111").into(), 0), 0);
+    let input1 = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 0), 0);
+    let input2 = CellInput::new(OutPoint::new(h256!("0x1111").pack(), 0), 0);
 
     let mut generator = Generator::non_crypto_safe_prng(42);
     let privkey = generator.gen_privkey();
@@ -345,23 +351,23 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
     let lock_arg2 = Bytes::from((blake2b_256(pubkey_data2)[0..20]).to_owned());
 
     let lock = Script::new_builder()
-        .args(lock_arg)
-        .code_hash(type_lock_script_code_hash())
-        .hash_type(ScriptHashType::Type)
+        .args(lock_arg.pack())
+        .code_hash(type_lock_script_code_hash().pack())
+        .hash_type(ScriptHashType::Type.into())
         .build();
 
     let lock2 = Script::new_builder()
-        .args(lock_arg2)
-        .code_hash(type_lock_script_code_hash())
-        .hash_type(ScriptHashType::Type)
+        .args(lock_arg2.pack())
+        .code_hash(type_lock_script_code_hash().pack())
+        .hash_type(ScriptHashType::Type.into())
         .build();
 
     let output1 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100))
+        .capacity(capacity_bytes!(100).pack())
         .lock(lock.clone())
         .build();
     let output2 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100))
+        .capacity(capacity_bytes!(100).pack())
         .lock(lock2.clone())
         .build();
     let tx = TransactionBuilder::default()
@@ -370,15 +376,15 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
         .input(input2.clone())
         .output(output1)
         .output(output2)
-        .output_data(packed::Bytes::default())
-        .output_data(packed::Bytes::default())
+        .output_data(Default::default())
+        .output_data(Default::default())
         .build();
 
-    let tx_hash: H256 = tx.hash().into();
+    let tx_hash: H256 = tx.hash().unpack();
     // sign input1
     let witness = {
         WitnessArgs::new_builder()
-            .lock(Some(Bytes::from(vec![0u8; 65])))
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
             .build()
     };
     let witness_len: u64 = witness.as_bytes().len() as u64;
@@ -393,11 +399,11 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
     };
     let sig = privkey.sign_recoverable(&message).expect("sign");
     let witness = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(sig.serialize())))
+        .lock(Some(Bytes::from(sig.serialize())).pack())
         .build();
     // sign input2
     let witness2 = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(vec![0u8; 65])))
+        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
         .build();
     let witness2_len: u64 = witness2.as_bytes().len() as u64;
     let mut hasher = new_blake2b();
@@ -411,12 +417,12 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
     };
     let sig2 = privkey2.sign_recoverable(&message2).expect("sign");
     let witness2 = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(sig2.serialize())))
+        .lock(Some(Bytes::from(sig2.serialize())).pack())
         .build();
     let tx = tx
         .as_advanced_builder()
-        .witness(witness.as_bytes())
-        .witness(witness2.as_bytes())
+        .witness(witness.as_bytes().pack())
+        .witness(witness2.as_bytes().pack())
         .build();
 
     let serialized_size = tx.data().as_slice().len() as u64;
@@ -432,7 +438,7 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
     let (secp256k1_data_cell, secp256k1_data_cell_data) = secp256k1_data_cell(consensus);
 
     let input_cell1 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100))
+        .capacity(capacity_bytes!(100).pack())
         .lock(lock)
         .build();
 
@@ -441,7 +447,7 @@ pub(super) fn random_2_in_2_out_rtx() -> ResolvedTransaction {
         .build();
 
     let input_cell2 = CellOutput::new_builder()
-        .capacity(capacity_bytes!(100))
+        .capacity(capacity_bytes!(100).pack())
         .lock(lock2)
         .build();
 

@@ -1,6 +1,6 @@
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::AsEpochNumberWithFraction;
-use ckb_types::packed;
+use ckb_types::prelude::*;
 
 pub struct RpcGetBlockTemplate;
 
@@ -48,10 +48,10 @@ impl Spec for RpcGetBlockTemplate {
         let parent_block_hash = node0.get_tip_block().hash();
         assert_eq!(
             parent_block_hash,
-            (&genesis_block_template.parent_hash).into(),
+            genesis_block_template.parent_hash.pack(),
             "Parent block hash should be {}, but got {}",
             parent_block_hash,
-            Into::<packed::Byte32>::into(&genesis_block_template.parent_hash)
+            genesis_block_template.parent_hash.pack()
         );
         assert_eq!(
             0,

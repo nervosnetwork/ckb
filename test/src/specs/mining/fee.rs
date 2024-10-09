@@ -5,10 +5,14 @@ use crate::util::check::is_transaction_committed;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
+use ckb_types::core::TransactionBuilder;
+use ckb_types::packed::CellInput;
+use ckb_types::packed::CellOutput;
+use ckb_types::packed::OutPoint;
+use ckb_types::prelude::*;
 use ckb_types::{
-    core::{capacity_bytes, Capacity, TransactionBuilder},
-    packed::{self, CellInput, CellOutput, CellOutputBuilder, OutPoint},
-    prelude::*,
+    core::{capacity_bytes, Capacity},
+    packed::CellOutputBuilder,
 };
 use rand::{thread_rng, Rng};
 
@@ -75,14 +79,14 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
                 let maximal_capacity = cell.capacity().as_u64();
                 let random_capacity = rng.gen_range(minimal_capacity..=maximal_capacity);
                 let output = CellOutput::new_builder()
-                    .capacity(random_capacity)
+                    .capacity(random_capacity.pack())
                     .lock(cell.cell_output.lock())
                     .type_(cell.cell_output.type_())
                     .build();
                 TransactionBuilder::default()
                     .input(as_input(&cell))
                     .output(output)
-                    .output_data(packed::Bytes::default())
+                    .output_data(Default::default())
                     .cell_dep(node.always_success_cell_dep())
                     .build()
             })
@@ -131,14 +135,14 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
                 let maximal_capacity = cell.capacity().as_u64();
                 let random_capacity = rng.gen_range(minimal_capacity..=maximal_capacity);
                 let output = CellOutput::new_builder()
-                    .capacity(random_capacity)
+                    .capacity(random_capacity.pack())
                     .lock(cell.cell_output.lock())
                     .type_(cell.cell_output.type_())
                     .build();
                 TransactionBuilder::default()
                     .input(as_input(&cell))
                     .output(output)
-                    .output_data(packed::Bytes::default())
+                    .output_data(Default::default())
                     .cell_dep(node.always_success_cell_dep())
                     .build()
             })
@@ -221,7 +225,7 @@ impl Spec for ProposeDuplicated {
             let uncle = node
                 .new_block_builder(None, None, None)
                 .proposal(tx.proposal_short_id())
-                .nonce(99999)
+                .nonce(99999.pack())
                 .build()
                 .as_uncle();
             node.mine(1);
@@ -252,7 +256,7 @@ impl Spec for MalformedTx {
         let tx0 = node0.new_transaction_spend_tip_cellbase();
 
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(1000))
+            .capacity(capacity_bytes!(1000).pack())
             .build();
 
         let child = tx0

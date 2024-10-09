@@ -86,22 +86,17 @@ impl From<Alert> for packed::Alert {
             signatures,
         } = json;
         let raw = packed::RawAlert::new_builder()
-            .id(id)
-            .cancel(cancel)
-            .min_version(min_version)
-            .max_version(max_version)
-            .priority(priority)
-            .notice_until(notice_until)
-            .message(message)
+            .id(id.pack())
+            .cancel(cancel.pack())
+            .min_version(min_version.pack())
+            .max_version(max_version.pack())
+            .priority(priority.pack())
+            .notice_until(notice_until.pack())
+            .message(message.pack())
             .build();
         packed::Alert::new_builder()
             .raw(raw)
-            .signatures(
-                signatures
-                    .into_iter()
-                    .map(Into::into)
-                    .collect::<Vec<packed::Bytes>>(),
-            )
+            .signatures(signatures.into_iter().map(Into::into).pack())
             .build()
     }
 }
@@ -110,8 +105,8 @@ impl From<packed::Alert> for Alert {
     fn from(input: packed::Alert) -> Self {
         let raw = input.raw();
         Alert {
-            id: raw.id().into(),
-            cancel: raw.cancel().into(),
+            id: raw.id().unpack(),
+            cancel: raw.cancel().unpack(),
             min_version: raw
                 .as_reader()
                 .min_version()
@@ -122,8 +117,8 @@ impl From<packed::Alert> for Alert {
                 .max_version()
                 .to_opt()
                 .map(|b| unsafe { b.as_utf8_unchecked() }.to_owned()),
-            priority: raw.priority().into(),
-            notice_until: raw.notice_until().into(),
+            priority: raw.priority().unpack(),
+            notice_until: raw.notice_until().unpack(),
             message: unsafe { raw.as_reader().message().as_utf8_unchecked() }.to_owned(),
             signatures: input.signatures().into_iter().map(Into::into).collect(),
         }
@@ -134,9 +129,9 @@ impl From<packed::Alert> for AlertMessage {
     fn from(input: packed::Alert) -> Self {
         let raw = input.raw();
         AlertMessage {
-            id: raw.id().into(),
-            priority: raw.priority().into(),
-            notice_until: raw.notice_until().into(),
+            id: raw.id().unpack(),
+            priority: raw.priority().unpack(),
+            notice_until: raw.notice_until().unpack(),
             message: unsafe { raw.as_reader().message().as_utf8_unchecked() }.to_owned(),
         }
     }

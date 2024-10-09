@@ -2,6 +2,7 @@ use crate::generic::GetProposalTxIds;
 use crate::util::cell::gen_spendable;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
+use ckb_types::prelude::*;
 
 pub struct AvoidDuplicatedProposalsWithUncles;
 
@@ -20,7 +21,7 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
             let block = node.new_block(None, None, None);
             let uncle = block
                 .as_advanced_builder()
-                .timestamp(block.timestamp() + 1)
+                .timestamp((block.timestamp() + 1).pack())
                 .set_proposals(vec![tx.proposal_short_id()])
                 .build();
             node.submit_block(&block);

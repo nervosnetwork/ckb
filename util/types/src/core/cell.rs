@@ -148,7 +148,7 @@ impl CellMeta {
 
     /// TODO(doc): @quake
     pub fn capacity(&self) -> Capacity {
-        self.cell_output.capacity().into()
+        self.cell_output.capacity().unpack()
     }
 
     /// TODO(doc): @quake
@@ -339,7 +339,7 @@ impl ResolvedTransaction {
             for cell_meta in &self.resolved_dep_groups {
                 let cell_dep = CellDep::new_builder()
                     .out_point(cell_meta.out_point.clone())
-                    .dep_type(DepType::DepGroup)
+                    .dep_type(DepType::DepGroup.into())
                     .build();
 
                 let dep_group = system_cell.get(&cell_dep);
@@ -353,7 +353,7 @@ impl ResolvedTransaction {
             for cell_meta in &self.resolved_cell_deps {
                 let cell_dep = CellDep::new_builder()
                     .out_point(cell_meta.out_point.clone())
-                    .dep_type(DepType::Code)
+                    .dep_type(DepType::Code.into())
                     .build();
 
                 if system_cell.get(&cell_dep).is_none()
@@ -508,7 +508,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
             .get(&out_point.tx_hash())
             .and_then(|i| {
                 let transaction = self.block.transaction(*i).should_be_ok();
-                let j: usize = out_point.index().into();
+                let j: usize = out_point.index().unpack();
                 self.block.output(*i, j).map(|output| {
                     let data = transaction
                         .outputs_data()
@@ -559,7 +559,7 @@ impl CellChecker for TransactionsChecker {
     fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
         self.inner
             .get(&out_point.tx_hash())
-            .and_then(|outputs| outputs.get(out_point.index().into()).map(|_| true))
+            .and_then(|outputs| outputs.get(out_point.index().unpack()).map(|_| true))
     }
 }
 
@@ -587,11 +587,11 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
         match self.transactions.get(&out_point.tx_hash()) {
             Some(tx) => tx
                 .outputs()
-                .get(out_point.index().into())
+                .get(out_point.index().unpack())
                 .map(|cell| {
                     let data = tx
                         .outputs_data()
-                        .get(out_point.index().into())
+                        .get(out_point.index().unpack())
                         .expect("output data")
                         .raw_data();
                     let cell_meta = CellMetaBuilder::from_cell_output(cell, data)
@@ -853,27 +853,27 @@ pub fn setup_system_cell_cache<CP: CellProvider>(
     let secp_cell_transaction = &genesis.transactions()[1];
     let secp_code_dep = CellDep::new_builder()
         .out_point(OutPoint::new(system_cell_transaction.hash(), 1))
-        .dep_type(DepType::Code)
+        .dep_type(DepType::Code.into())
         .build();
 
     let dao_dep = CellDep::new_builder()
         .out_point(OutPoint::new(system_cell_transaction.hash(), 2))
-        .dep_type(DepType::Code)
+        .dep_type(DepType::Code.into())
         .build();
 
     let secp_data_dep = CellDep::new_builder()
         .out_point(OutPoint::new(system_cell_transaction.hash(), 3))
-        .dep_type(DepType::Code)
+        .dep_type(DepType::Code.into())
         .build();
 
     let secp_group_dep = CellDep::new_builder()
         .out_point(OutPoint::new(secp_cell_transaction.hash(), 0))
-        .dep_type(DepType::DepGroup)
+        .dep_type(DepType::DepGroup.into())
         .build();
 
     let multi_sign_secp_group = CellDep::new_builder()
         .out_point(OutPoint::new(secp_cell_transaction.hash(), 1))
-        .dep_type(DepType::DepGroup)
+        .dep_type(DepType::DepGroup.into())
         .build();
 
     let mut cell_deps = HashMap::new();

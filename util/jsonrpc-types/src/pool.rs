@@ -67,7 +67,7 @@ pub struct TxPoolInfo {
 impl From<CoreTxPoolInfo> for TxPoolInfo {
     fn from(tx_pool_info: CoreTxPoolInfo) -> Self {
         TxPoolInfo {
-            tip_hash: tx_pool_info.tip_hash.into(),
+            tip_hash: tx_pool_info.tip_hash.unpack(),
             tip_number: tx_pool_info.tip_number.into(),
             pending: (tx_pool_info.pending_size as u64).into(),
             proposed: (tx_pool_info.proposed_size as u64).into(),
@@ -203,11 +203,11 @@ impl From<TxPoolEntryInfo> for TxPoolEntries {
         TxPoolEntries {
             pending: pending
                 .into_iter()
-                .map(|(hash, entry)| (hash.into(), entry.into()))
+                .map(|(hash, entry)| (hash.unpack(), entry.into()))
                 .collect(),
             proposed: proposed
                 .into_iter()
-                .map(|(hash, entry)| (hash.into(), entry.into()))
+                .map(|(hash, entry)| (hash.unpack(), entry.into()))
                 .collect(),
             conflicted: conflicted.iter().map(Unpack::unpack).collect(),
         }

@@ -162,7 +162,7 @@ impl<'a> BlockSampler<'a> {
                 let header = packed::VerifiableHeader::new_builder()
                     .header(ancestor_header.data())
                     .uncles_hash(uncles_hash)
-                    .extension(extension)
+                    .extension(Pack::pack(&extension))
                     .parent_chain_root(parent_chain_root)
                     .build();
 
@@ -193,7 +193,7 @@ impl<'a> GetLastStateProofProcess<'a> {
     }
 
     pub(crate) fn execute(self) -> Status {
-        let last_n_blocks: u64 = self.message.last_n_blocks().into();
+        let last_n_blocks: u64 = self.message.last_n_blocks().unpack();
 
         if self.message.difficulties().len() + (last_n_blocks as usize) * 2
             > constant::GET_LAST_STATE_PROOF_LIMIT
@@ -214,13 +214,13 @@ impl<'a> GetLastStateProofProcess<'a> {
             .expect("block should be in store");
 
         let start_block_hash = self.message.start_hash().to_entity();
-        let start_block_number: BlockNumber = self.message.start_number().into();
-        let difficulty_boundary: U256 = self.message.difficulty_boundary().into();
+        let start_block_number: BlockNumber = self.message.start_number().unpack();
+        let difficulty_boundary: U256 = self.message.difficulty_boundary().unpack();
         let mut difficulties = self
             .message
             .difficulties()
             .iter()
-            .map(Into::<U256>::into)
+            .map(|d| Unpack::<U256>::unpack(&d))
             .collect::<Vec<_>>();
 
         let last_block_number = last_block.number();
@@ -356,7 +356,7 @@ impl<'a> GetLastStateProofProcess<'a> {
             (positions, headers)
         };
 
-        let proved_items = headers.into();
+        let proved_items = headers.pack();
 
         self.protocol.reply_proof::<packed::SendLastStateProof>(
             self.peer,

@@ -81,12 +81,7 @@ impl<'a> GetHeadersProcess<'a> {
             debug!("headers len={}", headers.len());
 
             let content = packed::SendHeaders::new_builder()
-                .headers(
-                    headers
-                        .into_iter()
-                        .map(|x| x.data())
-                        .collect::<Vec<packed::Header>>(),
-                )
+                .headers(headers.into_iter().map(|x| x.data()).pack())
                 .build();
             let message = packed::SyncMessage::new_builder().set(content).build();
 

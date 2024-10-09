@@ -19,10 +19,10 @@ pub(crate) fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> Trans
         )
         .outputs((0..outputs_len).map(|i| {
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap())
+                .capacity(Capacity::bytes(i + 1).unwrap().pack())
                 .build()
         }))
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().into()))
+        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
         .build()
 }
 
@@ -44,10 +44,10 @@ pub(crate) fn build_tx_with_dep(
         }))
         .outputs((0..outputs_len).map(|i| {
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap())
+                .capacity(Capacity::bytes(i + 1).unwrap().pack())
                 .build()
         }))
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().into()))
+        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
         .build()
 }
 
@@ -65,9 +65,9 @@ pub(crate) fn build_tx_with_header_dep(
         .set_header_deps(header_deps)
         .outputs((0..outputs_len).map(|i| {
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap())
+                .capacity(Capacity::bytes(i + 1).unwrap().pack())
                 .build()
         }))
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().into()))
+        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
         .build()
 }

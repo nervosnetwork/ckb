@@ -11,6 +11,7 @@ use ckb_types::{
         TransactionView,
     },
     packed::{CellInput, OutPoint},
+    prelude::*,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -198,10 +199,10 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     BlockBuilder::default()
         .transaction(cellbase)
         .parent_hash(parent.hash())
-        .number(parent.number() + 1)
-        .epoch(epoch.number_with_fraction(parent.number() + 1))
-        .timestamp(parent.timestamp() + 1)
-        .compact_target(epoch.compact_target())
+        .number((parent.number() + 1).pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+        .timestamp((parent.timestamp() + 1).pack())
+        .compact_target(epoch.compact_target().pack())
         .dao(dao)
         .build()
 }
@@ -215,7 +216,7 @@ fn always_success_transaction() -> TransactionView {
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data)
+        .output_data(always_success_cell_data.to_owned().pack())
         .witness(always_success_script.clone().into_witness())
         .build()
 }

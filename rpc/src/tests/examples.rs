@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView},
     h256,
-    packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint},
+    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
     H256,
 };
@@ -102,10 +102,10 @@ fn collect_code_block(
 }
 
 fn construct_example_transaction() -> TransactionView {
-    let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().into(), 0);
+    let previous_output = OutPoint::new(EXAMPLE_TX_PARENT.clone().pack(), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100))
+        .capacity(capacity_bytes!(100).pack())
         .lock(always_success_cell().2.clone())
         .build();
     let cell_dep = CellDep::new_builder()
@@ -114,7 +114,7 @@ fn construct_example_transaction() -> TransactionView {
     TransactionBuilder::default()
         .input(input)
         .output(output)
-        .output_data(packed::Bytes::default())
+        .output_data(Default::default())
         .cell_dep(cell_dep)
         .header_dep(always_success_consensus().genesis_hash())
         .build()
@@ -278,7 +278,7 @@ impl RpcTestSuite {
         let example_tx = construct_example_transaction();
         assert_eq!(
             EXAMPLE_TX_HASH,
-            example_tx.hash().into(),
+            example_tx.hash().unpack(),
             "Expect the example tx hash match the constant"
         );
         let example_tx: ckb_jsonrpc_types::Transaction = example_tx.data().into();

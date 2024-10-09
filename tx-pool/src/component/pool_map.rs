@@ -11,6 +11,7 @@ use ckb_logger::{debug, error, trace};
 use ckb_types::core::error::OutPointError;
 use ckb_types::core::Cycle;
 use ckb_types::packed::OutPoint;
+use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::TransactionView,
@@ -185,7 +186,7 @@ impl PoolMap {
             .and_then(|entry| {
                 entry
                     .transaction()
-                    .output_with_data(out_point.index().into())
+                    .output_with_data(out_point.index().unpack())
             })
     }
 

@@ -3,6 +3,7 @@ use crate::util::cell::gen_spendable;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
+use ckb_types::prelude::*;
 
 pub struct MiningBasic;
 
@@ -49,7 +50,7 @@ impl Spec for BlockTemplates {
                 block1
                     .header()
                     .as_advanced_builder()
-                    .timestamp(block1.header().timestamp() + 1)
+                    .timestamp((block1.header().timestamp() + 1).pack())
                     .build(),
             )
             .build();
@@ -60,13 +61,13 @@ impl Spec for BlockTemplates {
         node.submit_block(&block2);
         assert_eq!(
             block1.hash(),
-            rpc_client.get_tip_header().hash.into(),
+            rpc_client.get_tip_header().hash.pack(),
             "Block1 should be the tip block according first-received policy"
         );
         let template1 = rpc_client.get_block_template(None, None, None);
         assert_eq!(
             block1.hash(),
-            (&template1.parent_hash).into(),
+            template1.parent_hash.pack(),
             "Block1 should be block template's parent block since it's tip block"
         );
 

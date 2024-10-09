@@ -86,7 +86,7 @@ impl CKBProtocolHandler for AlertRelayer {
     ) {
         self.clear_expired_alerts();
         for alert in self.notifier.lock().received_alerts() {
-            let alert_id: u32 = alert.as_reader().raw().id().into();
+            let alert_id: u32 = alert.as_reader().raw().id().unpack();
             trace!("Send alert {} to peer {}", alert_id, peer_index);
             if let Err(err) = nc.quick_send_message_to(peer_index, alert.as_bytes()) {
                 debug!("alert_relayer send alert when connected error: {:?}", err);
@@ -141,7 +141,7 @@ impl CKBProtocolHandler for AlertRelayer {
                 return;
             }
         };
-        let alert_id = alert.as_reader().raw().id().into();
+        let alert_id = alert.as_reader().raw().id().unpack();
         trace!("ReceiveD alert {} from peer {}", alert_id, peer_index);
         // ignore alert
         if self.notifier.lock().has_received(alert_id) {

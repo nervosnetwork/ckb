@@ -40,7 +40,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
             .new_block_builder(None, None, None)
             .header(
                 HeaderBuilder::default()
-                    .parent_hash(h256!("0x123456"))
+                    .parent_hash(h256!("0x123456").pack())
                     .build(),
             )
             .build();
@@ -297,7 +297,7 @@ impl Spec for CompactBlockMissingWithDropTx {
                             .as_reader()
                             .indexes()
                             .iter()
-                            .map(Into::<u32>::into)
+                            .map(|i| Unpack::<u32>::unpack(&i))
                             .collect::<Vec<u32>>();
                         vec![2] == msg
                     } else {
@@ -316,7 +316,7 @@ impl Spec for CompactBlockMissingWithDropTx {
 
         let content = packed::BlockTransactions::new_builder()
             .block_hash(new_block.hash())
-            .transactions(vec![new_tx_2.data()])
+            .transactions(vec![new_tx_2.data()].pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 
@@ -331,7 +331,7 @@ impl Spec for CompactBlockMissingWithDropTx {
                             .as_reader()
                             .indexes()
                             .iter()
-                            .map(Into::<u32>::into)
+                            .map(|i| Unpack::<u32>::unpack(&i))
                             .collect::<Vec<u32>>();
                         vec![1, 2] == msg
                     } else {
@@ -348,7 +348,7 @@ impl Spec for CompactBlockMissingWithDropTx {
 
         let content = packed::BlockTransactions::new_builder()
             .block_hash(new_block.hash())
-            .transactions(vec![new_tx_1.data(), new_tx_2.data()])
+            .transactions(vec![new_tx_1.data(), new_tx_2.data()].pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 

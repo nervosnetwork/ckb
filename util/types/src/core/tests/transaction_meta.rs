@@ -2,6 +2,7 @@ use crate::{
     core::{TransactionMeta, TransactionMetaBuilder},
     h256,
     packed::Byte32,
+    prelude::*,
 };
 
 #[test]
@@ -22,7 +23,7 @@ fn set_unset_dead_out_of_bounds() {
 fn test_transaction_meta_constructors() {
     let block_number = 10;
     let epoch_number = 10;
-    let block_hash: Byte32 = h256!("0xf").into();
+    let block_hash: Byte32 = h256!("0xf").pack();
     let outputs_count = 4;
     let mut meta1 =
         TransactionMeta::new_cellbase(block_number, epoch_number, block_hash, outputs_count, false);

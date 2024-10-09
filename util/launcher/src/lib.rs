@@ -21,12 +21,12 @@ use ckb_network::{
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
-use ckb_shared::{ChainServicesBuilder, Shared};
-
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
+use ckb_shared::{ChainServicesBuilder, Shared};
 use ckb_store::ChainDB;
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;
+use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::sync::Arc;
@@ -96,7 +96,7 @@ impl Launcher {
             } else if self.args.block_assembler_advanced
                 || (block_assembler.hash_type == ScriptHashType::Type
                     && block_assembler.args.len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
-                    && check_lock_code_hash(&(&block_assembler.code_hash).into())?)
+                    && check_lock_code_hash(&block_assembler.code_hash.pack())?)
             {
                 if block_assembler.use_binary_version_as_message_prefix {
                     block_assembler.binary_version = self.version.long();

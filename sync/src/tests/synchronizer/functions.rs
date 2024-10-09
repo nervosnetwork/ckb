@@ -81,8 +81,12 @@ fn create_cellbase(
         builder.build()
     } else {
         builder
-            .output(CellOutputBuilder::default().capacity(reward.total).build())
-            .output_data(Bytes::new())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(reward.total.pack())
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
             .build()
     }
 }
@@ -110,16 +114,16 @@ fn gen_block(
         .chain_root_mmr(parent_header.number())
         .get_root()
         .expect("chain root_mmr");
-    let bytes = chain_root.calc_mmr_hash().as_bytes().into();
+    let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
 
     BlockBuilder::default()
         .transaction(cellbase)
         .parent_hash(parent_header.hash())
-        .timestamp(now)
-        .epoch(epoch.number_with_fraction(number))
-        .number(number)
-        .compact_target(epoch.compact_target())
-        .nonce(nonce)
+        .timestamp(now.pack())
+        .epoch(epoch.number_with_fraction(number).pack())
+        .number(number.pack())
+        .compact_target(epoch.compact_target().pack())
+        .nonce(nonce.pack())
         .dao(dao)
         .extension(Some(bytes))
         .build()
@@ -626,12 +630,7 @@ fn test_sync_process() {
     );
 
     let sendheaders = SendHeadersBuilder::default()
-        .headers(
-            headers
-                .iter()
-                .map(|h| h.data())
-                .collect::<Vec<packed::Header>>(),
-        )
+        .headers(headers.iter().map(|h| h.data()).pack())
         .build();
 
     let mock_nc = mock_network_context(4);
@@ -690,12 +689,7 @@ fn test_sync_process() {
     insert_block(&synchronizer2.chain, &shared2, 201u128, 201);
     let headers = vec![synchronizer2.shared.active_chain().tip_header()];
     let sendheaders = SendHeadersBuilder::default()
-        .headers(
-            headers
-                .iter()
-                .map(|h| h.data())
-                .collect::<Vec<packed::Header>>(),
-        )
+        .headers(headers.iter().map(|h| h.data()).pack())
         .build();
     assert_eq!(
         HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc).execute(),
@@ -772,7 +766,7 @@ fn test_chain_sync_timeout() {
 
     let consensus = Consensus::default();
     let block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(3u64)))
+        .compact_target(difficulty_to_compact(U256::from(3u64)).pack())
         .transaction(consensus.genesis_block().transactions()[0].clone())
         .build();
     let consensus = ConsensusBuilder::default().genesis_block(block).build();
@@ -969,7 +963,7 @@ fn test_n_sync_started() {
 
     let consensus = Consensus::default();
     let block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(3u64)))
+        .compact_target(difficulty_to_compact(U256::from(3u64)).pack())
         .transaction(consensus.genesis_block().transactions()[0].clone())
         .build();
     let consensus = ConsensusBuilder::default().genesis_block(block).build();
@@ -1116,7 +1110,9 @@ fn test_fix_last_common_header() {
             .map(|number| graph.get(&f_(number)).cloned().unwrap())
             .map(|block| block.header().data())
             .collect::<Vec<_>>();
-        let sendheaders = SendHeadersBuilder::default().headers(fork_headers).build();
+        let sendheaders = SendHeadersBuilder::default()
+            .headers(fork_headers.pack())
+            .build();
         synchronizer.on_connected(&nc, peer);
         assert!(
             HeadersProcess::new(sendheaders.as_reader(), &synchronizer, peer, &nc)
@@ -1191,7 +1187,7 @@ fn get_blocks_process() {
 
     let genesis_hash = shared.consensus().genesis_hash();
     let message_with_genesis = packed::GetBlocks::new_builder()
-        .block_hashes(vec![genesis_hash])
+        .block_hashes(vec![genesis_hash].pack())
         .build();
 
     let nc = mock_network_context(1);
@@ -1204,7 +1200,7 @@ fn get_blocks_process() {
 
     let hash = shared.snapshot().get_block_hash(1).unwrap();
     let message_with_dup = packed::GetBlocks::new_builder()
-        .block_hashes(vec![hash.clone(), hash])
+        .block_hashes(vec![hash.clone(), hash].pack())
         .build();
 
     let nc = mock_network_context(1);

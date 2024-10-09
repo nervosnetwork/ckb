@@ -173,10 +173,10 @@ impl StoreTransaction {
     /// TODO(doc): @quake
     pub fn insert_block(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
-        let header = Into::<packed::HeaderView>::into(block.header());
-        let uncles = Into::<packed::UncleBlockVecView>::into(block.uncles());
+        let header = block.header().pack();
+        let uncles = block.uncles().pack();
         let proposals = block.data().proposals();
-        let txs_len: packed::Uint32 = (block.transactions().len() as u32).into();
+        let txs_len: packed::Uint32 = (block.transactions().len() as u32).pack();
         self.insert_raw(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())?;
         self.insert_raw(COLUMN_BLOCK_UNCLE, hash.as_slice(), uncles.as_slice())?;
         if let Some(extension) = block.extension() {
@@ -189,7 +189,7 @@ impl StoreTransaction {
         self.insert_raw(
             COLUMN_NUMBER_HASH,
             packed::NumberHash::new_builder()
-                .number(block.number())
+                .number(block.number().pack())
                 .block_hash(hash.clone())
                 .build()
                 .as_slice(),
@@ -203,9 +203,9 @@ impl StoreTransaction {
         for (index, tx) in block.transactions().into_iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
-                .index(index)
+                .index(index.pack())
                 .build();
-            let tx_data = Into::<packed::TransactionView>::into(tx);
+            let tx_data = tx.pack();
             self.insert_raw(COLUMN_BLOCK_BODY, key.as_slice(), tx_data.as_slice())?;
         }
         Ok(())
@@ -222,7 +222,7 @@ impl StoreTransaction {
         self.delete(
             COLUMN_NUMBER_HASH,
             packed::NumberHash::new_builder()
-                .number(block.number())
+                .number(block.number().pack())
                 .block_hash(hash.clone())
                 .build()
                 .as_slice(),
@@ -232,7 +232,7 @@ impl StoreTransaction {
         for index in 0..txs_len {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
-                .index(index)
+                .index(index.pack())
                 .build();
             self.delete(COLUMN_BLOCK_BODY, key.as_slice())?;
         }
@@ -245,7 +245,7 @@ impl StoreTransaction {
         block_hash: &packed::Byte32,
         ext: &BlockExt,
     ) -> Result<(), Error> {
-        let packed_ext: packed::BlockExtV1 = ext.into();
+        let packed_ext: packed::BlockExtV1 = ext.pack();
         self.insert_raw(
             COLUMN_BLOCK_EXT,
             block_hash.as_slice(),
@@ -260,7 +260,7 @@ impl StoreTransaction {
         for (index, tx_hash) in block.tx_hashes().iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(block_hash.clone())
-                .index(index)
+                .index(index.pack())
                 .build();
             let info = packed::TransactionInfo::new_builder()
                 .key(key)
@@ -269,13 +269,13 @@ impl StoreTransaction {
                 .build();
             self.insert_raw(COLUMN_TRANSACTION_INFO, tx_hash.as_slice(), info.as_slice())?;
         }
-        let block_number: packed::Uint64 = block.number().into();
+        let block_number: packed::Uint64 = block.number().pack();
         self.insert_raw(COLUMN_INDEX, block_number.as_slice(), block_hash.as_slice())?;
         for uncle in block.uncles().into_iter() {
             self.insert_raw(
                 COLUMN_UNCLES,
                 uncle.hash().as_slice(),
-                Into::<packed::HeaderView>::into(uncle.header()).as_slice(),
+                uncle.header().pack().as_slice(),
             )?;
         }
         self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())
@@ -309,22 +309,14 @@ impl StoreTransaction {
 
     /// TODO(doc): @quake
     pub fn insert_epoch_ext(&self, hash: &packed::Byte32, epoch: &EpochExt) -> Result<(), Error> {
-        self.insert_raw(
-            COLUMN_EPOCH,
-            hash.as_slice(),
-            Into::<packed::EpochExt>::into(epoch).as_slice(),
-        )?;
-        let epoch_number: packed::Uint64 = epoch.number().into();
+        self.insert_raw(COLUMN_EPOCH, hash.as_slice(), epoch.pack().as_slice())?;
+        let epoch_number: packed::Uint64 = epoch.number().pack();
         self.insert_raw(COLUMN_EPOCH, epoch_number.as_slice(), hash.as_slice())
     }
 
     /// TODO(doc): @quake
     pub fn insert_current_epoch_ext(&self, epoch: &EpochExt) -> Result<(), Error> {
-        self.insert_raw(
-            COLUMN_META,
-            META_CURRENT_EPOCH_KEY,
-            Into::<packed::EpochExt>::into(epoch).as_slice(),
-        )
+        self.insert_raw(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch.pack().as_slice())
     }
 
     /// TODO(doc): @quake
@@ -376,7 +368,7 @@ impl StoreTransaction {
         position_u64: u64,
         header_digest: &packed::HeaderDigest,
     ) -> Result<(), Error> {
-        let position: packed::Uint64 = position_u64.into();
+        let position: packed::Uint64 = position_u64.pack();
         self.insert_raw(
             COLUMN_CHAIN_ROOT_MMR,
             position.as_slice(),
@@ -386,7 +378,7 @@ impl StoreTransaction {
 
     /// Deletes a header digest.
     pub fn delete_header_digest(&self, position_u64: u64) -> Result<(), Error> {
-        let position: packed::Uint64 = position_u64.into();
+        let position: packed::Uint64 = position_u64.pack();
         self.delete(COLUMN_CHAIN_ROOT_MMR, position.as_slice())
     }
 

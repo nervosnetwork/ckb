@@ -46,7 +46,7 @@ impl packed::CellOutput {
     /// [`occupied capacity`]: #method.occupied_capacity
     pub fn is_lack_of_capacity(&self, data_capacity: Capacity) -> CapacityResult<bool> {
         self.occupied_capacity(data_capacity)
-            .map(|cap| cap > self.capacity().into())
+            .map(|cap| cap > self.capacity().unpack())
     }
 }
 
@@ -71,7 +71,7 @@ impl packed::CellOutputBuilder {
                     .transpose()
                     .and_then(|y| y.unwrap_or_else(Capacity::zero).safe_add(x))
             })
-            .map(|x| self.capacity(x).build())
+            .map(|x| self.capacity(x.pack()).build())
     }
 }
 
@@ -83,7 +83,7 @@ impl packed::CellOutputVec {
         self.as_reader()
             .iter()
             .map(|output| {
-                let cap: Capacity = output.capacity().into();
+                let cap: Capacity = output.capacity().unpack();
                 cap
             })
             .try_fold(Capacity::zero(), Capacity::safe_add)

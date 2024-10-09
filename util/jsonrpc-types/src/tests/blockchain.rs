@@ -11,16 +11,16 @@ use crate::{
 fn mock_script(arg: Bytes) -> packed::Script {
     packed::ScriptBuilder::default()
         .code_hash(packed::Byte32::zero())
-        .args(arg)
-        .hash_type(core::ScriptHashType::Data)
+        .args(arg.pack())
+        .hash_type(core::ScriptHashType::Data.into())
         .build()
 }
 
 fn mock_cell_output(arg: Bytes) -> packed::CellOutput {
     packed::CellOutputBuilder::default()
-        .capacity(core::Capacity::zero())
+        .capacity(core::Capacity::zero().pack())
         .lock(packed::Script::default())
-        .type_(Some(mock_script(arg)))
+        .type_(Some(mock_script(arg)).pack())
         .build()
 }
 
@@ -32,16 +32,14 @@ fn mock_full_tx(data: Bytes, arg: Bytes) -> core::TransactionView {
     core::TransactionBuilder::default()
         .inputs(vec![mock_cell_input()])
         .outputs(vec![mock_cell_output(arg.clone())])
-        .outputs_data(vec![data.into()])
-        .witness(arg)
+        .outputs_data(vec![data.pack()])
+        .witness(arg.pack())
         .build()
 }
 
 fn mock_uncle() -> core::UncleBlockView {
     core::BlockBuilder::default()
-        .proposals(Into::<packed::ProposalShortIdVec>::into(vec![
-            packed::ProposalShortId::default(),
-        ]))
+        .proposals(vec![packed::ProposalShortId::default()].pack())
         .build()
         .as_uncle()
 }

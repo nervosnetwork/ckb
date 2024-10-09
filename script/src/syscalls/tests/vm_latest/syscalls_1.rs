@@ -7,7 +7,7 @@ use ckb_types::{
         Capacity, EpochNumberWithFraction, HeaderBuilder, ScriptHashType, TransactionBuilder,
         TransactionInfo,
     },
-    packed::{self, CellInput, CellOutput, OutPoint, Script, ScriptBuilder},
+    packed::{CellInput, CellOutput, OutPoint, Script, ScriptBuilder},
     prelude::*,
     H256,
 };
@@ -438,7 +438,7 @@ fn _test_load_cell_capacity(capacity: Capacity) -> Result<(), TestCaseError> {
     let input_cell = CellMeta {
         out_point: OutPoint::default(),
         transaction_info: None,
-        cell_output: CellOutput::new_builder().capacity(capacity).build(),
+        cell_output: CellOutput::new_builder().capacity(capacity.pack()).build(),
         data_bytes: 0,
         mem_cell_data: Some(data),
         mem_cell_data_hash: Some(data_hash),
@@ -499,7 +499,7 @@ fn _test_load_cell_occupied_capacity(data: &[u8]) -> Result<(), TestCaseError> {
     let input_cell = CellMeta {
         out_point: OutPoint::default(),
         transaction_info: None,
-        cell_output: CellOutput::new_builder().capacity(100).build(),
+        cell_output: CellOutput::new_builder().capacity(100.pack()).build(),
         data_bytes: 0,
         mem_cell_data: Some(data),
         mem_cell_data_hash: Some(data_hash),
@@ -561,7 +561,7 @@ fn test_load_missing_data_hash() {
     let input_cell = CellMeta {
         out_point: OutPoint::default(),
         transaction_info: None,
-        cell_output: CellOutput::new_builder().capacity(100).build(),
+        cell_output: CellOutput::new_builder().capacity(100.pack()).build(),
         data_bytes: 0,
         mem_cell_data: None,
         mem_cell_data_hash: None,
@@ -655,7 +655,7 @@ fn _test_load_header(
     machine.set_register(A4, source); //source: 4 header
     machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
-    let data_hash = blake2b_256(data);
+    let data_hash = blake2b_256(data).pack();
     let header = HeaderBuilder::default()
         .transactions_root(data_hash)
         .build();
@@ -671,7 +671,7 @@ fn _test_load_header(
             block_epoch: header.epoch(),
             index: 1,
         }),
-        cell_output: CellOutput::new_builder().capacity(100).build(),
+        cell_output: CellOutput::new_builder().capacity(100.pack()).build(),
         data_bytes: 0,
         mem_cell_data: None,
         mem_cell_data_hash: None,
@@ -775,9 +775,9 @@ fn _test_load_header_by_field(data: &[u8], field: HeaderField) -> Result<(), Tes
     let data_hash: H256 = blake2b_256(data).into();
     let epoch = EpochNumberWithFraction::new(1, 40, 1000);
     let header = HeaderBuilder::default()
-        .transactions_root(data_hash)
-        .number(2000)
-        .epoch(epoch)
+        .transactions_root(data_hash.pack())
+        .number(2000.pack())
+        .epoch(epoch.pack())
         .build();
 
     let mut correct_data = [0u8; 8];
@@ -847,7 +847,9 @@ fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A2, 0); // offset
     machine.set_register(A7, LOAD_TX_HASH_SYSCALL_NUMBER); // syscall number
 
-    let transaction_view = TransactionBuilder::default().output_data(data).build();
+    let transaction_view = TransactionBuilder::default()
+        .output_data(data.pack())
+        .build();
 
     let hash = transaction_view.hash();
     let hash_len = 32u64;
@@ -896,7 +898,9 @@ fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A2, 0); // offset
     machine.set_register(A7, LOAD_TRANSACTION_SYSCALL_NUMBER); // syscall number
 
-    let transaction_view = TransactionBuilder::default().output_data(data).build();
+    let transaction_view = TransactionBuilder::default()
+        .output_data(data.pack())
+        .build();
 
     let tx = transaction_view.data();
     let tx_len = transaction_view.data().as_slice().len() as u64;
@@ -946,8 +950,8 @@ fn _test_load_current_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER); // syscall number
 
     let script = Script::new_builder()
-        .args(Bytes::from(data.to_owned()))
-        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(data.to_owned()).pack())
+        .hash_type(ScriptHashType::Data.into())
         .build();
     let hash = script.calc_script_hash();
     let data = hash.raw_data();
@@ -1001,8 +1005,8 @@ fn _test_load_input_lock_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
     let script = Script::new_builder()
-        .args(Bytes::from(data.to_owned()))
-        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(data.to_owned()).pack())
+        .hash_type(ScriptHashType::Data.into())
         .build();
     let h = script.calc_script_hash();
     let hash = h.as_bytes();
@@ -1067,8 +1071,8 @@ fn _test_load_input_lock_script(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
     let script = Script::new_builder()
-        .args(Bytes::from(data.to_owned()))
-        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(data.to_owned()).pack())
+        .hash_type(ScriptHashType::Data.into())
         .build();
     let lock = script.as_slice();
 
@@ -1135,8 +1139,8 @@ fn _test_load_input_type_script(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
     let script = Script::new_builder()
-        .args(Bytes::from(data.to_owned()))
-        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(data.to_owned()).pack())
+        .hash_type(ScriptHashType::Data.into())
         .build();
     let type_ = script.as_slice();
 
@@ -1145,7 +1149,7 @@ fn _test_load_input_type_script(data: &[u8]) -> Result<(), TestCaseError> {
         .cell_output
         .clone()
         .as_builder()
-        .type_(Some(script.to_owned()))
+        .type_(Some(script.to_owned()).pack())
         .build();
     input_cell.cell_output = output_with_type;
 
@@ -1203,8 +1207,8 @@ fn _test_load_input_type_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
     let script = Script::new_builder()
-        .args(Bytes::from(data.to_owned()))
-        .hash_type(ScriptHashType::Data)
+        .args(Bytes::from(data.to_owned()).pack())
+        .hash_type(ScriptHashType::Data.into())
         .build();
 
     let type_h = script.calc_script_hash();
@@ -1215,7 +1219,7 @@ fn _test_load_input_type_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
         .cell_output
         .clone()
         .as_builder()
-        .type_(Some(script))
+        .type_(Some(script).pack())
         .build();
     input_cell.cell_output = output_with_type;
     let outputs = Arc::new(vec![]);
@@ -1270,7 +1274,7 @@ fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseEr
     machine.set_register(A4, u64::from(Source::Transaction(source))); //source
     machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-    let witness: packed::Bytes = Bytes::from(data.to_owned()).into();
+    let witness = Bytes::from(data.to_owned()).pack();
 
     let witness_correct_data = witness.raw_data();
 
@@ -1279,7 +1283,7 @@ fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseEr
     let group_outputs = Arc::new(vec![]);
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default()
-            .witnesses(Into::<packed::BytesVec>::into(witnesses))
+            .witnesses(witnesses.pack())
             .build(),
         resolved_cell_deps: vec![],
         resolved_inputs: vec![],
@@ -1334,17 +1338,17 @@ fn _test_load_group_witness(data: &[u8], source: SourceEntry) -> Result<(), Test
     machine.set_register(A4, u64::from(Source::Group(source))); //source
     machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-    let witness: packed::Bytes = Bytes::from(data.to_owned()).into();
+    let witness = Bytes::from(data.to_owned()).pack();
 
     let witness_correct_data = witness.raw_data();
 
-    let dummy_witness = Bytes::default().into();
+    let dummy_witness = Bytes::default().pack();
     let witnesses = vec![dummy_witness, witness];
     let group_inputs = Arc::new(vec![1]);
     let group_outputs = Arc::new(vec![1]);
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default()
-            .witnesses(Into::<packed::BytesVec>::into(witnesses))
+            .witnesses(witnesses.pack())
             .build(),
         resolved_cell_deps: vec![],
         resolved_inputs: vec![],
@@ -1393,7 +1397,7 @@ fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A7, LOAD_SCRIPT_SYSCALL_NUMBER); // syscall number
 
     let script = ScriptBuilder::default()
-        .args(Bytes::from(data.to_owned()))
+        .args(Bytes::from(data.to_owned()).pack())
         .build();
     let script_correct_data = script.as_slice();
 
@@ -1454,7 +1458,7 @@ fn _test_load_cell_data_as_code(
     let data_loader = new_mock_data_loader();
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default()
-            .output_data(data.clone())
+            .output_data(data.pack())
             .build(),
         resolved_cell_deps: vec![dep_cell],
         resolved_inputs: vec![input_cell],
@@ -1527,7 +1531,7 @@ fn _test_load_cell_data(
 
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default()
-            .output_data(data.clone())
+            .output_data(data.pack())
             .build(),
         resolved_cell_deps: vec![dep_cell],
         resolved_inputs: vec![input_cell],
@@ -1958,10 +1962,15 @@ fn _test_load_input(
     prop_assert!(machine.memory_mut().store64(&size_addr, &addr_size).is_ok());
 
     let data = Bytes::from(data.to_owned());
-    let hash = blake2b_256(&data);
+    let hash = blake2b_256(&data).pack();
     let input = CellInput::new_builder()
-        .previous_output(OutPoint::new_builder().tx_hash(hash).index(0u32).build())
-        .since(10u64)
+        .previous_output(
+            OutPoint::new_builder()
+                .tx_hash(hash)
+                .index(0u32.pack())
+                .build(),
+        )
+        .since(10u64.pack())
         .build();
     let previous_output = input.previous_output();
 
@@ -1979,7 +1988,7 @@ fn _test_load_input(
         match field {
             InputField::OutPoint => previous_output.as_slice(),
             InputField::Since => {
-                buffer.write_u64::<LittleEndian>(input.since().into())?;
+                buffer.write_u64::<LittleEndian>(input.since().unpack())?;
                 buffer.as_slice()
             }
         }

@@ -47,16 +47,16 @@ impl ExtensionProvider for MockDataLoader {
 
 fn mock_transaction_info() -> TransactionInfo {
     TransactionInfoBuilder::default()
-        .block_number(1u64)
-        .block_epoch(0u64)
+        .block_number(1u64.pack())
+        .block_epoch(0u64.pack())
         .key(
             TransactionKeyBuilder::default()
                 .block_hash(Byte32::zero())
-                .index(1u32)
+                .index(1u32.pack())
                 .build(),
         )
         .build()
-        .into()
+        .unpack()
 }
 
 static PROGRAM_DATA: &[u8] = include_bytes!("../../testdata/spawn_fuzzing");
@@ -69,7 +69,7 @@ fn run(data: &[u8]) {
     let split_offset = usize::min(split_offset, data.len() - 1);
     let parent_witness = Bytes::copy_from_slice(&data[0..split_offset]);
     let child_witness = Bytes::copy_from_slice(&data[split_offset..]);
-    let witnesses = vec![parent_witness.into(), child_witness.into()];
+    let witnesses = vec![parent_witness.pack(), child_witness.pack()];
 
     let transaction = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
@@ -83,17 +83,17 @@ fn run(data: &[u8]) {
         .build();
     let dep_cell = CellMetaBuilder::from_cell_output(
         CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap())
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build(),
         data,
     )
     .transaction_info(mock_transaction_info())
-    .out_point(OutPoint::new(h256!("0x0"), 0))
+    .out_point(OutPoint::new(h256!("0x0").pack(), 0))
     .build();
 
     let input_cell = CellMetaBuilder::from_cell_output(
         CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100))
+            .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build(),
         Bytes::new(),
@@ -121,7 +121,7 @@ fn run(data: &[u8]) {
         .hardfork_switch(hardfork_switch)
         .build();
     let tx_verify_env =
-        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0).build());
+        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
     let verifier = TransactionScriptsVerifier::new(
         rtx.into(),
         provider,

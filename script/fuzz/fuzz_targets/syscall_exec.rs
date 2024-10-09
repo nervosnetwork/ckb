@@ -45,16 +45,16 @@ impl ExtensionProvider for MockDataLoader {
 
 fn mock_transaction_info() -> TransactionInfo {
     TransactionInfoBuilder::default()
-        .block_number(1u64.into())
-        .block_epoch(0u64.into())
+        .block_number(1u64.pack())
+        .block_epoch(0u64.pack())
         .key(
             TransactionKeyBuilder::default()
                 .block_hash(Byte32::zero())
-                .index(1u32.into())
+                .index(1u32.pack())
                 .build(),
         )
         .build()
-        .into()
+        .unpack()
 }
 
 static CALLER: &[u8] = include_bytes!("../programs/exec_caller");
@@ -103,13 +103,13 @@ fn run(data: FuzzData) {
     };
 
     let exec_caller_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().into())
+        .capacity(Capacity::bytes(exec_caller_cell_data.len()).unwrap().pack())
         .build();
     let exec_callee_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().into())
+        .capacity(Capacity::bytes(exec_callee_cell_data.len()).unwrap().pack())
         .build();
     let exec_caller_data_cell = CellOutput::new_builder()
-        .capacity(Capacity::bytes(exec_caller_data_data.len()).unwrap().into())
+        .capacity(Capacity::bytes(exec_caller_data_data.len()).unwrap().pack())
         .build();
 
     let exec_caller_script = Script::new_builder()
@@ -117,14 +117,14 @@ fn run(data: FuzzData) {
         .code_hash(CellOutput::calc_data_hash(&exec_caller_cell_data))
         .build();
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(100).into())
+        .capacity(capacity_bytes!(100).pack())
         .lock(exec_caller_script)
         .build();
     let input = CellInput::new(OutPoint::null(), 0);
 
     let transaction = TransactionBuilder::default()
         .input(input)
-        .set_witnesses(vec![exec_callee_cell_data.into()])
+        .set_witnesses(vec![exec_callee_cell_data.pack()])
         .build();
 
     let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
@@ -154,7 +154,7 @@ fn run(data: FuzzData) {
     let provider = MockDataLoader {};
     let consensus = ConsensusBuilder::default().build();
     let tx_verify_env =
-        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.into()).build());
+        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
     let verifier = TransactionScriptsVerifier::new(
         rtx.into(),
         provider,

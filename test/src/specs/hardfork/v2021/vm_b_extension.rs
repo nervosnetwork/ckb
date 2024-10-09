@@ -80,11 +80,11 @@ impl Spec for CheckVmBExtension {
 
 impl BExtScript {
     fn new(node: &Node, cell_input: packed::CellInput) -> Self {
-        let data: packed::Bytes = include_bytes!("../../../../../script/testdata/cpop_lock").into();
+        let data: packed::Bytes = include_bytes!("../../../../../script/testdata/cpop_lock").pack();
         let tx = Self::deploy(node, &data, cell_input);
         let cell_dep = packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
-            .dep_type(DepType::Code)
+            .dep_type(DepType::Code.into())
             .build();
         let data_hash = packed::CellOutput::calc_data_hash(&data.raw_data());
         let type_hash = tx
@@ -105,7 +105,7 @@ impl BExtScript {
         let type_script = node.always_success_script();
         let tx_template = TransactionView::new_advanced_builder();
         let cell_output = packed::CellOutput::new_builder()
-            .type_(Some(type_script))
+            .type_(Some(type_script).pack())
             .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
             .unwrap();
         let tx = tx_template
@@ -131,7 +131,7 @@ impl BExtScript {
         };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
-            .hash_type(hash_type)
+            .hash_type(hash_type.into())
             .args(args)
             .build()
     }
@@ -139,7 +139,7 @@ impl BExtScript {
     fn as_type_script(&self, args: packed::Bytes) -> packed::Script {
         packed::Script::new_builder()
             .code_hash(self.type_hash.clone())
-            .hash_type(ScriptHashType::Type)
+            .hash_type(ScriptHashType::Type.into())
             .args(args)
             .build()
     }
@@ -220,12 +220,12 @@ impl<'a> CheckVmBExtensionTestRunner<'a> {
                 let mut vec = Vec::with_capacity(8 * 2);
                 vec.extend_from_slice(&num0.to_le_bytes());
                 vec.extend_from_slice(&num1.to_le_bytes());
-                vec.into()
+                vec.pack()
             };
             let script = self.script.as_script(vm_opt, args);
             packed::CellOutput::new_builder()
                 .lock(self.node.always_success_script())
-                .type_(Some(script))
+                .type_(Some(script).pack())
                 .build_exact_capacity(Capacity::shannons(0))
                 .unwrap()
         };
@@ -234,7 +234,7 @@ impl<'a> CheckVmBExtensionTestRunner<'a> {
             .cell_dep(self.script.cell_dep())
             .input(input)
             .output(output)
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
         if let Some(errmsg) = expected.error_message() {
             assert_send_transaction_fail(self.node, &tx, errmsg);

@@ -2,7 +2,6 @@ use crate::global::VENDOR_PATH;
 use crate::specs::spec_name;
 use crate::{Node, Spec};
 
-use ckb_types::packed::Script;
 use ckb_types::{
     core::{capacity_bytes, Capacity},
     packed::CellOutput,
@@ -47,8 +46,8 @@ impl Spec for InsufficientReward {
 
         // build a block with insufficient reward
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(1))
-            .lock(Script::default())
+            .capacity(capacity_bytes!(1).pack())
+            .lock(Default::default())
             .build();
         let cellbase = new_block_builder.clone().build().transactions()[0]
             .as_advanced_builder()

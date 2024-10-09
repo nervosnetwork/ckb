@@ -241,7 +241,7 @@ impl Spec for TransactionRelayConflict {
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80))
+            .capacity(capacity_bytes!(80).pack())
             .build();
 
         let tx2 = tx2_temp

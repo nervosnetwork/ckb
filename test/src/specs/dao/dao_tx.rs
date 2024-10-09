@@ -27,7 +27,7 @@ impl Spec for WithdrawDAO {
 
         let withdrawal = user.withdraw();
         let since = EpochNumberWithFraction::from_full_value(
-            withdrawal.inputs().get(0).unwrap().since().into(),
+            withdrawal.inputs().get(0).unwrap().since().unpack(),
         );
         goto_target_point(node, since);
         ensure_committed(node, &withdrawal);
@@ -59,9 +59,12 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
                 .outputs()
                 .into_iter()
                 .map(|cell_output| {
-                    let old_capacity: Capacity = cell_output.capacity().into();
+                    let old_capacity: Capacity = cell_output.capacity().unpack();
                     let new_capacity = old_capacity.safe_add(Capacity::one()).unwrap();
-                    cell_output.as_builder().capacity(new_capacity).build()
+                    cell_output
+                        .as_builder()
+                        .capacity(new_capacity.pack())
+                        .build()
                 })
                 .collect();
             withdrawal
@@ -70,7 +73,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
                 .build()
         };
         let since = EpochNumberWithFraction::from_full_value(
-            withdrawal.inputs().get(0).unwrap().since().into(),
+            withdrawal.inputs().get(0).unwrap().since().unpack(),
         );
         goto_target_point(node, since);
         assert_send_transaction_fail(node, &invalid_withdrawal, "Overflow");
