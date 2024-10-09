@@ -55,10 +55,10 @@ impl Spec for SendDefectedBinary {
 
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
-            .dep_type(DepType::DepGroup)
+            .dep_type(DepType::DepGroup.into())
             .build();
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(5000))
+            .capacity(capacity_bytes!(5000).pack())
             .lock(node.always_success_script())
             .build();
         let data = include_bytes!("../../../../script/testdata/defected_binary");
@@ -66,12 +66,12 @@ impl Spec for SendDefectedBinary {
             .cell_dep(cell_dep.clone())
             .inputs(inputs.clone())
             .output(output.clone())
-            .output_data(&data[..])
+            .output_data(data[..].pack())
             .build();
 
         let tx_hash = tx.hash();
         let witness = WitnessArgs::new_builder()
-            .lock(Some(Bytes::from(vec![0u8; 65])))
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
             .build();
         let witness_len = witness.as_slice().len() as u64;
         let message = {
@@ -86,14 +86,14 @@ impl Spec for SendDefectedBinary {
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = witness
             .as_builder()
-            .lock(Some(Bytes::from(sig.serialize())))
+            .lock(Some(Bytes::from(sig.serialize())).pack())
             .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .inputs(inputs)
             .output(output)
-            .output_data(&data[..])
-            .witness(witness.as_bytes())
+            .output_data(data[..].pack())
+            .witness(witness.as_bytes().pack())
             .build();
         info!("Send 1 secp tx with defected binary");
 

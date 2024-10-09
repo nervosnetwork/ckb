@@ -162,8 +162,8 @@ impl<'a> BlockTransactionsProcess<'a> {
 
                 let content = packed::GetBlockTransactions::new_builder()
                     .block_hash(block_hash.clone())
-                    .indexes(missing_transactions.as_slice())
-                    .uncle_indexes(missing_uncles.as_slice())
+                    .indexes(missing_transactions.pack())
+                    .uncle_indexes(missing_uncles.pack())
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
 

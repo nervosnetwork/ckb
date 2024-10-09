@@ -1,7 +1,5 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
-use ckb_gen_types::packed::{ProposalShortIdVec, UncleBlockVec};
-
 use crate::{
     constants, core, packed,
     prelude::*,
@@ -75,7 +73,7 @@ pub struct BlockBuilder {
 impl ::std::default::Default for TransactionBuilder {
     fn default() -> Self {
         Self {
-            version: constants::TX_VERSION.into(),
+            version: constants::TX_VERSION.pack(),
             cell_deps: Default::default(),
             header_deps: Default::default(),
             inputs: Default::default(),
@@ -89,15 +87,15 @@ impl ::std::default::Default for TransactionBuilder {
 impl ::std::default::Default for HeaderBuilder {
     fn default() -> Self {
         Self {
-            version: constants::BLOCK_VERSION.into(),
+            version: constants::BLOCK_VERSION.pack(),
             parent_hash: Default::default(),
             timestamp: Default::default(),
             number: Default::default(),
             transactions_root: Default::default(),
             proposals_hash: Default::default(),
-            compact_target: DIFF_TWO.into(),
+            compact_target: DIFF_TWO.pack(),
             extra_hash: Default::default(),
-            epoch: core::EpochNumberWithFraction::new_unchecked(0, 0, 0).into(),
+            epoch: core::EpochNumberWithFraction::new_unchecked(0, 0, 0).pack(),
             dao: Default::default(),
             nonce: Default::default(),
         }
@@ -111,21 +109,15 @@ impl ::std::default::Default for HeaderBuilder {
 macro_rules! def_setter_simple {
     (__add_doc, $prefix:ident, $field:ident, $type:ident, $comment:expr) => {
         #[doc = $comment]
-        pub fn $field<T>(mut self, v: T) -> Self
-        where
-            T: ::core::convert::Into<packed::$type>,
-        {
-            self.$prefix.$field = v.into();
+        pub fn $field(mut self, v: packed::$type) -> Self {
+            self.$prefix.$field = v;
             self
         }
     };
     (__add_doc, $field:ident, $type:ident, $comment:expr) => {
         #[doc = $comment]
-        pub fn $field<T>(mut self, v: T) -> Self
-        where
-            T: ::core::convert::Into<packed::$type>,
-        {
-            self.$field = v.into();
+        pub fn $field(mut self, v: packed::$type) -> Self {
+            self.$field = v;
             self
         }
     };
@@ -155,11 +147,8 @@ macro_rules! def_setter_for_vector {
         $comment_push:expr, $comment_extend:expr, $comment_set:expr,
     ) => {
         #[doc = $comment_push]
-        pub fn $func_push<T>(mut self, v: T) -> Self
-        where
-            T: ::core::convert::Into<$prefix::$type>,
-        {
-            self.$field.push(v.into());
+        pub fn $func_push(mut self, v: $prefix::$type) -> Self {
+            self.$field.push(v);
             self
         }
         #[doc = $comment_extend]
@@ -238,15 +227,15 @@ impl TransactionBuilder {
         } = self;
         let raw = packed::RawTransaction::new_builder()
             .version(version)
-            .cell_deps(cell_deps)
-            .header_deps(header_deps)
-            .inputs(inputs)
-            .outputs(outputs)
-            .outputs_data(outputs_data)
+            .cell_deps(cell_deps.pack())
+            .header_deps(header_deps.pack())
+            .inputs(inputs.pack())
+            .outputs(outputs.pack())
+            .outputs_data(outputs_data.pack())
             .build();
         let tx = packed::Transaction::new_builder()
             .raw(raw)
-            .witnesses(witnesses)
+            .witnesses(witnesses.pack())
             .build();
         let hash = tx.calc_tx_hash();
         let witness_hash = tx.calc_witness_hash();
@@ -287,12 +276,12 @@ impl HeaderBuilder {
             nonce,
         } = self;
         debug_assert!(
-            Into::<u32>::into(&compact_target) > 0,
+            Unpack::<u32>::unpack(&compact_target) > 0,
             "[HeaderBuilder] compact_target should greater than zero"
         );
         debug_assert!(
-            Into::<core::BlockNumber>::into(&number) == 0
-                || Into::<core::EpochNumberWithFraction>::into(&epoch).is_well_formed(),
+            Unpack::<core::BlockNumber>::unpack(&number) == 0
+                || Unpack::<core::EpochNumberWithFraction>::unpack(&epoch).is_well_formed(),
             "[HeaderBuilder] epoch {epoch:x} should be well formed, \
             unless it's in the genesis block (number: {number:x})"
         );
@@ -408,8 +397,8 @@ impl BlockBuilder {
                 )
         };
 
-        let proposals: ProposalShortIdVec = proposals.into();
-        let uncles: UncleBlockVec = uncles.into();
+        let proposals = proposals.pack();
+        let uncles = uncles.pack();
 
         let core::HeaderView { data, hash } = if reset_header {
             let raw_transactions_root = merkle_root(&tx_hashes[..]);
@@ -434,7 +423,7 @@ impl BlockBuilder {
             packed::BlockV1::new_builder()
                 .header(data)
                 .uncles(uncles)
-                .transactions(transactions)
+                .transactions(transactions.pack())
                 .proposals(proposals)
                 .extension(extension)
                 .build()
@@ -443,14 +432,14 @@ impl BlockBuilder {
             packed::Block::new_builder()
                 .header(data)
                 .uncles(uncles)
-                .transactions(transactions)
+                .transactions(transactions.pack())
                 .proposals(proposals)
                 .build()
         };
         core::BlockView {
             data: block,
             hash,
-            uncle_hashes: uncle_hashes.into(),
+            uncle_hashes: uncle_hashes.pack(),
             tx_hashes,
             tx_witness_hashes,
         }

@@ -9,11 +9,12 @@ pub struct EaglesongPowEngine;
 
 impl PowEngine for EaglesongPowEngine {
     fn verify(&self, header: &Header) -> bool {
-        let input = crate::pow_message(&header.as_reader().calc_pow_hash(), header.nonce().into());
+        let input =
+            crate::pow_message(&header.as_reader().calc_pow_hash(), header.nonce().unpack());
         let mut output = [0u8; 32];
         eaglesong(&input, &mut output);
 
-        let (block_target, overflow) = compact_to_target(header.raw().compact_target().into());
+        let (block_target, overflow) = compact_to_target(header.raw().compact_target().unpack());
 
         if block_target.is_zero() || overflow {
             debug!(
@@ -42,7 +43,7 @@ impl PowEngine for EaglesongPowEngine {
                 );
                 debug!(
                     "PowEngine::verify error: nonce {:#x}",
-                    Into::<u128>::into(header.nonce())
+                    header.nonce().unpack()
                 );
                 debug!(
                     "PowEngine::verify error: pow input: 0x{:x}",

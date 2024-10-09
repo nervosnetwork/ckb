@@ -245,7 +245,7 @@ macro_rules! define_inner_getter {
         define_inner_getter!(
             $field,
             $type,
-            data().as_reader().raw().$field().into(),
+            data().as_reader().raw().$field().unpack(),
             concat!("Gets `raw.", stringify!($field), "`.")
         );
     };
@@ -261,7 +261,7 @@ macro_rules! define_inner_getter {
         define_inner_getter!(
             $field,
             $type,
-            data().as_reader().header().raw().$field().into(),
+            data().as_reader().header().raw().$field().unpack(),
             concat!("Gets `header.raw.", stringify!($field), "`.")
         );
     };
@@ -277,7 +277,7 @@ macro_rules! define_inner_getter {
         define_inner_getter!(
             $field,
             $type,
-            data().as_reader().header().raw().$field().into(),
+            data().as_reader().header().raw().$field().unpack(),
             concat!("Gets `header.raw.", stringify!($field), "`.")
         );
     };
@@ -304,7 +304,7 @@ impl TransactionView {
 
     /// Gets `raw.version`.
     pub fn version(&self) -> Version {
-        self.data().raw().version().into()
+        self.data().raw().version().unpack()
     }
 
     /// Gets `raw.cell_deps`.
@@ -440,7 +440,7 @@ impl ExtraHashView {
             blake2b.update(uncles_hash.as_slice());
             blake2b.update(extension_hash.as_slice());
             blake2b.finalize(&mut ret);
-            (extension_hash, ret.into())
+            (extension_hash, ret.pack())
         });
         Self {
             uncles_hash,
@@ -492,7 +492,7 @@ impl HeaderView {
 
     /// Gets `nonce`.
     pub fn nonce(&self) -> u128 {
-        self.data().nonce().into()
+        self.data().nonce().unpack()
     }
 
     /// Checks whether the header is the header block.
@@ -530,7 +530,7 @@ impl UncleBlockView {
 
     /// Gets `header.nonce`.
     pub fn nonce(&self) -> u128 {
-        self.data().header().nonce().into()
+        self.data().header().nonce().unpack()
     }
 
     /// Gets `header`.
@@ -637,7 +637,7 @@ impl BlockView {
 
     /// Gets `header.nonce`.
     pub fn nonce(&self) -> u128 {
-        self.data().header().nonce().into()
+        self.data().header().nonce().unpack()
     }
 
     /// Gets `header.difficulty`.
@@ -824,11 +824,7 @@ impl BlockView {
     ) -> Self {
         let block = packed::Block::new_builder()
             .header(header.data())
-            .transactions(
-                body.iter()
-                    .map(|tx| tx.data())
-                    .collect::<Vec<packed::Transaction>>(),
-            )
+            .transactions(body.iter().map(|tx| tx.data()).pack())
             .uncles(uncles.data())
             .proposals(proposals)
             .build();
@@ -858,11 +854,7 @@ impl BlockView {
     ) -> Self {
         let block = packed::BlockV1::new_builder()
             .header(header.data())
-            .transactions(
-                body.iter()
-                    .map(|tx| tx.data())
-                    .collect::<Vec<packed::Transaction>>(),
-            )
+            .transactions(body.iter().map(|tx| tx.data()).pack())
             .uncles(uncles.data())
             .proposals(proposals)
             .extension(extension)
@@ -952,8 +944,7 @@ impl IntoBlockView for packed::Block {
             .uncles()
             .iter()
             .map(|uncle| uncle.calc_header_hash())
-            .collect::<Vec<_>>()
-            .into();
+            .pack();
         BlockView {
             data: block,
             hash,

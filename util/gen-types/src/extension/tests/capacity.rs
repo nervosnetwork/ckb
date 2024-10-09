@@ -10,7 +10,7 @@ fn script_occupied_capacity() {
         (vec![0, 0], 2 + 32 + 1),
     ];
     for (args, ckb) in testcases.into_iter() {
-        let script = packed::Script::new_builder().args(args).build();
+        let script = packed::Script::new_builder().args(args.pack()).build();
         let expect = Capacity::bytes(ckb).unwrap();
         assert_eq!(script.occupied_capacity().unwrap(), expect);
     }
@@ -28,7 +28,7 @@ fn min_cell_output_capacity() {
 
 #[test]
 fn min_secp256k1_cell_output_capacity() {
-    let lock = packed::Script::new_builder().args([0u8; 20]).build();
+    let lock = packed::Script::new_builder().args([0u8; 20].pack()).build();
     let output = packed::CellOutput::new_builder().lock(lock).build();
     assert_eq!(
         output.occupied_capacity(Capacity::zero()).unwrap(),

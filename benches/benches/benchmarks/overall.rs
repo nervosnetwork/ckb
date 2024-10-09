@@ -34,11 +34,11 @@ const SIZES: &[usize] = &[2usize];
 
 fn block_assembler_config() -> BlockAssemblerConfig {
     let (_, _, secp_script) = secp_cell();
-    let args = JsonBytes::from_bytes(secp_script.args().into());
+    let args = JsonBytes::from_bytes(secp_script.args().unpack());
     let hash_type = ScriptHashType::try_from(secp_script.hash_type()).expect("checked data");
 
     BlockAssemblerConfig {
-        code_hash: secp_script.code_hash().into(),
+        code_hash: secp_script.code_hash().unpack(),
         hash_type: hash_type.into(),
         args,
         message: Default::default(),
@@ -92,21 +92,21 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .map(|i| {
             let data = Bytes::from(i.to_le_bytes().to_vec());
             let output = CellOutput::new_builder()
-                .capacity(capacity_bytes!(50_000))
+                .capacity(capacity_bytes!(50_000).pack())
                 .lock(secp_script.clone())
                 .build();
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0))
                 .output(output.clone())
                 .output(output)
-                .output_data(&data)
-                .output_data(&data)
+                .output_data(data.pack())
+                .output_data(data.pack())
                 .build()
         })
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)
@@ -207,7 +207,7 @@ fn bench(c: &mut Criterion) {
                             let raw_header = raw_block.header().raw();
                             let header = Header::new_builder()
                                 .raw(raw_header)
-                                .nonce(random::<u128>())
+                                .nonce(random::<u128>().pack())
                                 .build();
                             let block = raw_block.as_builder().header(header).build().into_view();
 

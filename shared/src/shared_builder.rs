@@ -22,6 +22,7 @@ use ckb_tx_pool::{
     service::TxVerificationResult, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder,
 };
 use ckb_types::core::hardfork::HardForks;
+use ckb_types::prelude::Pack;
 use ckb_types::{
     core::service::PoolTransactionEntry, core::tx_pool::Reject, core::EpochExt, core::HeaderView,
 };
@@ -343,7 +344,7 @@ impl SharedBuilder {
         snapshot: &Snapshot,
     ) -> bool {
         if let Some(ref target) = sync_config.assume_valid_target {
-            if snapshot.block_exists(&target.into()) {
+            if snapshot.block_exists(&target.pack()) {
                 info!("assume valid target is already in db, CKB will do full verification from now on");
                 return true;
             }

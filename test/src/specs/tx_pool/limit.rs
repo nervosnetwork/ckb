@@ -83,7 +83,7 @@ impl Spec for TxPoolLimitAncestorCount {
         };
 
         let cell_dep = CellDepBuilder::default()
-            .dep_type(DepType::Code)
+            .dep_type(DepType::Code.into())
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
 

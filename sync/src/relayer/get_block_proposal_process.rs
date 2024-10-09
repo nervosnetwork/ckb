@@ -97,7 +97,7 @@ impl<'a> GetBlockProposalProcess<'a> {
 
     fn send_block_proposals(&self, txs: Vec<packed::Transaction>) -> Status {
         let content = packed::BlockProposal::new_builder()
-            .transactions(txs)
+            .transactions(txs.into_iter().pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
         send_message_to(self.nc.as_ref(), self.peer, &message)

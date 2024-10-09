@@ -8,7 +8,7 @@ use ckb_jsonrpc_types::{
 use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
 use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::packed;
+use ckb_types::prelude::{Pack, Unpack};
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 use std::sync::Arc;
@@ -740,14 +740,13 @@ impl NetRpc for NetRpcImpl {
         let sync_state = SyncState {
             ibd: chain.is_initial_block_download(),
             assume_valid_target_reached: shared.assume_valid_target().is_none(),
-            assume_valid_target: Into::<packed::Byte32>::into(
-                shared
-                    .assume_valid_target_specified()
-                    .as_ref()
-                    .clone()
-                    .unwrap_or_default(),
-            )
-            .into(),
+            assume_valid_target: shared
+                .assume_valid_target_specified()
+                .as_ref()
+                .clone()
+                .unwrap_or_default()
+                .pack()
+                .into(),
             min_chain_work: min_chain_work.into(),
             min_chain_work_reached: state.min_chain_work_ready(),
             best_known_block_number: best_known.number().into(),
@@ -756,9 +755,9 @@ impl NetRpc for NetRpcImpl {
             inflight_blocks_count: (state.read_inflight_blocks().total_inflight_count() as u64)
                 .into(),
             unverified_tip_number: unverified_tip.number().into(),
-            unverified_tip_hash: unverified_tip.hash().into(),
+            unverified_tip_hash: unverified_tip.hash().unpack(),
             tip_number: chain.tip_number().into(),
-            tip_hash: chain.tip_hash().into(),
+            tip_hash: chain.tip_hash().unpack(),
             fast_time: fast_time.into(),
             normal_time: normal_time.into(),
             low_time: low_time.into(),

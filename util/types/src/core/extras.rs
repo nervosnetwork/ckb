@@ -60,7 +60,7 @@ impl TransactionInfo {
     pub fn key(&self) -> packed::TransactionKey {
         packed::TransactionKey::new_builder()
             .block_hash(self.block_hash.clone())
-            .index(self.index)
+            .index(self.index.pack())
             .build()
     }
 

@@ -10,6 +10,7 @@ use ckb_test_chain_utils::{
     create_transaction, create_transaction_with_out_point, dao_data, MockChain, MockStore,
 };
 use ckb_types::core::error::OutPointError;
+use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -21,7 +22,6 @@ use ckb_types::{
     utilities::{compact_to_difficulty, difficulty_to_compact},
     U256,
 };
-use ckb_types::{packed, prelude::*};
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
@@ -65,11 +65,11 @@ fn process_genesis_block() {
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100_000_000))
+                .capacity(capacity_bytes!(100_000_000).pack())
                 .build();
             100
         ])
-        .outputs_data(vec![packed::Bytes::default(); 100])
+        .outputs_data(vec![Bytes::new(); 100].pack())
         .build();
     let always_success_tx = create_always_success_tx();
 
@@ -78,7 +78,7 @@ fn process_genesis_block() {
     let genesis_block = BlockBuilder::default()
         .transaction(tx.clone())
         .transaction(always_success_tx.clone())
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao.clone())
         .build();
 
@@ -104,7 +104,7 @@ fn process_genesis_block() {
         .transaction(tx)
         .transaction(always_success_tx)
         // Difficulty is changed here
-        .compact_target(difficulty_to_compact(U256::from(999u64)))
+        .compact_target(difficulty_to_compact(U256::from(999u64)).pack())
         .dao(dao)
         .build();
     let result = chain_controller.blocking_process_block(Arc::new(different_genesis_block));
@@ -119,13 +119,11 @@ fn test_genesis_transaction_spend() {
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100_000_000))
+                .capacity(capacity_bytes!(100_000_000).pack())
                 .build();
             100
         ])
-        .outputs_data(Into::<packed::BytesVec>::into(
-            vec![Bytes::new(); 100].as_slice(),
-        ))
+        .outputs_data(vec![Bytes::new(); 100].pack())
         .build();
     let always_success_tx = create_always_success_tx();
 
@@ -138,7 +136,7 @@ fn test_genesis_transaction_spend() {
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
         .transaction(always_success_tx)
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .build();
 
@@ -431,14 +429,12 @@ fn test_genesis_transaction_fetch() {
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100_000_000))
+                .capacity(capacity_bytes!(100_000_000).pack())
                 .lock(Script::default())
                 .build();
             100
         ])
-        .outputs_data(Into::<packed::BytesVec>::into(
-            vec![Bytes::new(); 100].as_slice(),
-        ))
+        .outputs_data(vec![Bytes::new(); 100].pack())
         .build();
 
     let dao = genesis_dao_data(vec![&tx]).unwrap();
@@ -446,7 +442,7 @@ fn test_genesis_transaction_fetch() {
     let genesis_block = BlockBuilder::default()
         .dao(dao)
         .transaction(tx)
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .build();
 
     let consensus = ConsensusBuilder::default()
@@ -578,10 +574,10 @@ fn prepare_context_chain(
 
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
-            .number(parent.number() + 1)
-            .epoch(epoch.number_with_fraction(parent.number() + 1))
-            .timestamp(parent.timestamp() + timestep)
-            .compact_target(epoch.compact_target())
+            .number((parent.number() + 1).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+            .timestamp((parent.timestamp() + timestep).pack())
+            .compact_target(epoch.compact_target().pack())
             .transactions(transactions)
             .dao(dao)
             .build();
@@ -618,10 +614,10 @@ fn prepare_context_chain(
         let new_block = BlockBuilder::default()
             .parent_hash(parent.hash())
             .uncles(uncles)
-            .number(parent.number() + 1)
-            .epoch(epoch.number_with_fraction(parent.number() + 1))
-            .timestamp(parent.timestamp() + timestep)
-            .compact_target(epoch.compact_target())
+            .number((parent.number() + 1).pack())
+            .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+            .timestamp((parent.timestamp() + timestep).pack())
+            .compact_target(epoch.compact_target().pack())
             .transactions(transactions)
             .dao(dao)
             .build();
@@ -644,7 +640,7 @@ fn test_epoch_hash_rate_dampening() {
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -737,7 +733,7 @@ fn test_orphan_rate_estimation_overflow() {
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
 
     let genesis_block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();
@@ -791,7 +787,7 @@ fn test_next_epoch_ext() {
         .build();
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(cellbase)
         .dao(dao)
         .build();

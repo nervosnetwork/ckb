@@ -1,17 +1,14 @@
 use super::helper::new_index_transaction;
 use crate::relayer::compact_block_verifier::{PrefilledVerifier, ShortIdsVerifier};
 use crate::{Status, StatusCode};
-use ckb_types::packed::{self, CompactBlockBuilder, ProposalShortId};
+use ckb_types::packed::{CompactBlockBuilder, ProposalShortId};
 use ckb_types::prelude::*;
 
 #[test]
 fn test_unordered_prefilled() {
-    let prefilled = vec![0, 1, 2, 4, 3]
-        .into_iter()
-        .map(new_index_transaction)
-        .collect::<Vec<packed::IndexTransaction>>();
+    let prefilled = vec![0, 1, 2, 4, 3].into_iter().map(new_index_transaction);
     let block = CompactBlockBuilder::default()
-        .prefilled_transactions(prefilled)
+        .prefilled_transactions(prefilled.pack())
         .build();
     assert_eq!(
         PrefilledVerifier::verify(&block),
@@ -21,23 +18,18 @@ fn test_unordered_prefilled() {
 
 #[test]
 fn test_ordered_prefilled() {
-    let prefilled = (0..5)
-        .map(new_index_transaction)
-        .collect::<Vec<packed::IndexTransaction>>();
+    let prefilled = (0..5).map(new_index_transaction);
     let block = CompactBlockBuilder::default()
-        .prefilled_transactions(prefilled)
+        .prefilled_transactions(prefilled.pack())
         .build();
     assert_eq!(PrefilledVerifier::verify(&block), Status::ok());
 }
 
 #[test]
 fn test_overflow_prefilled() {
-    let prefilled = vec![0, 1, 2, 5]
-        .into_iter()
-        .map(new_index_transaction)
-        .collect::<Vec<packed::IndexTransaction>>();
+    let prefilled = vec![0, 1, 2, 5].into_iter().map(new_index_transaction);
     let block = CompactBlockBuilder::default()
-        .prefilled_transactions(prefilled)
+        .prefilled_transactions(prefilled.pack())
         .build();
     assert_eq!(
         PrefilledVerifier::verify(&block),
@@ -53,11 +45,9 @@ fn test_cellbase_not_prefilled() {
         StatusCode::CompactBlockHasNotPrefilledCellbase.into(),
     );
 
-    let prefilled = (1..5)
-        .map(new_index_transaction)
-        .collect::<Vec<packed::IndexTransaction>>();
+    let prefilled = (1..5).map(new_index_transaction);
     let block = CompactBlockBuilder::default()
-        .prefilled_transactions(prefilled)
+        .prefilled_transactions(prefilled.pack())
         .build();
     assert_eq!(
         PrefilledVerifier::verify(&block),
@@ -72,7 +62,9 @@ fn test_duplicated_short_ids() {
         .collect();
     short_ids.push(short_ids[0].clone());
 
-    let block = CompactBlockBuilder::default().short_ids(short_ids).build();
+    let block = CompactBlockBuilder::default()
+        .short_ids(short_ids.into_iter().pack())
+        .build();
     assert_eq!(
         ShortIdsVerifier::verify(&block),
         StatusCode::CompactBlockHasDuplicatedShortIds.into(),
@@ -81,16 +73,12 @@ fn test_duplicated_short_ids() {
 
 #[test]
 fn test_intersected_short_ids() {
-    let prefilled = (0..=5)
-        .map(new_index_transaction)
-        .collect::<Vec<packed::IndexTransaction>>();
-    let short_ids = (5..9)
-        .map(|i| new_index_transaction(i).transaction().proposal_short_id())
-        .collect::<Vec<packed::ProposalShortId>>();
+    let prefilled = (0..=5).map(new_index_transaction);
+    let short_ids = (5..9).map(|i| new_index_transaction(i).transaction().proposal_short_id());
 
     let block = CompactBlockBuilder::default()
-        .prefilled_transactions(prefilled)
-        .short_ids(short_ids)
+        .prefilled_transactions(prefilled.pack())
+        .short_ids(short_ids.pack())
         .build();
     assert_eq!(
         ShortIdsVerifier::verify(&block),
@@ -100,17 +88,13 @@ fn test_intersected_short_ids() {
 
 #[test]
 fn test_normal() {
-    let prefilled = vec![1, 2, 5]
-        .into_iter()
-        .map(new_index_transaction)
-        .collect::<Vec<packed::IndexTransaction>>();
+    let prefilled = vec![1, 2, 5].into_iter().map(new_index_transaction);
     let short_ids = vec![0, 3, 4]
         .into_iter()
-        .map(|i| new_index_transaction(i).transaction().proposal_short_id())
-        .collect::<Vec<packed::ProposalShortId>>();
+        .map(|i| new_index_transaction(i).transaction().proposal_short_id());
     let block = CompactBlockBuilder::default()
-        .prefilled_transactions(prefilled)
-        .short_ids(short_ids)
+        .prefilled_transactions(prefilled.pack())
+        .short_ids(short_ids.pack())
         .build();
     assert_eq!(ShortIdsVerifier::verify(&block), Status::ok());
 }

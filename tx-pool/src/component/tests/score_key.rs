@@ -111,12 +111,12 @@ fn test_remove_entry() {
                     .previous_output(
                         OutPoint::new_builder()
                             .tx_hash(tx1.transaction().hash())
-                            .index(0u32)
+                            .index(0u32.pack())
                             .build(),
                     )
                     .build(),
             )
-            .witness(Bytes::new())
+            .witness(Bytes::new().pack())
             .build(),
         200,
         Capacity::shannons(200),
@@ -129,12 +129,12 @@ fn test_remove_entry() {
                     .previous_output(
                         OutPoint::new_builder()
                             .tx_hash(tx2.transaction().hash())
-                            .index(0u32)
+                            .index(0u32.pack())
                             .build(),
                     )
                     .build(),
             )
-            .witness(Bytes::new())
+            .witness(Bytes::new().pack())
             .build(),
         200,
         Capacity::shannons(200),
@@ -184,12 +184,12 @@ fn test_remove_entry_and_descendants() {
                     .previous_output(
                         OutPoint::new_builder()
                             .tx_hash(tx1.transaction().hash())
-                            .index(0u32)
+                            .index(0u32.pack())
                             .build(),
                     )
                     .build(),
             )
-            .witness(Bytes::new())
+            .witness(Bytes::new().pack())
             .build(),
         200,
         Capacity::shannons(200),
@@ -202,12 +202,12 @@ fn test_remove_entry_and_descendants() {
                     .previous_output(
                         OutPoint::new_builder()
                             .tx_hash(tx2.transaction().hash())
-                            .index(0u32)
+                            .index(0u32.pack())
                             .build(),
                     )
                     .build(),
             )
-            .witness(Bytes::new())
+            .witness(Bytes::new().pack())
             .build(),
         200,
         Capacity::shannons(200),

@@ -7,7 +7,7 @@ use ckb_jsonrpc_types::{
 };
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
-use ckb_types::{core, packed};
+use ckb_types::{core, packed, prelude::*};
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 
@@ -193,18 +193,18 @@ impl ExperimentRpc for ExperimentRpcImpl {
                     .ok_or_else(|| RPCError::invalid_params("invalid out_point"))?;
                 let output = tx
                     .outputs()
-                    .get(out_point.index().into())
+                    .get(out_point.index().unpack())
                     .ok_or_else(|| RPCError::invalid_params("invalid out_point"))?;
                 let output_data = tx
                     .outputs_data()
-                    .get(out_point.index().into())
+                    .get(out_point.index().unpack())
                     .ok_or_else(|| RPCError::invalid_params("invalid out_point"))?;
 
                 match calculator.calculate_maximum_withdraw(
                     &output,
                     core::Capacity::bytes(output_data.len()).expect("should not overflow"),
                     &deposit_header_hash,
-                    &withdrawing_header_hash.into(),
+                    &withdrawing_header_hash.pack(),
                 ) {
                     Ok(capacity) => Ok(capacity.into()),
                     Err(err) => Err(RPCError::custom_with_error(RPCError::DaoError, err)),
@@ -222,11 +222,11 @@ impl ExperimentRpc for ExperimentRpcImpl {
 
                 let output = withdrawing_tx
                     .outputs()
-                    .get(withdrawing_out_point.index().into())
+                    .get(withdrawing_out_point.index().unpack())
                     .ok_or_else(|| RPCError::invalid_params("invalid withdrawing_out_point"))?;
                 let output_data = withdrawing_tx
                     .outputs_data()
-                    .get(withdrawing_out_point.index().into())
+                    .get(withdrawing_out_point.index().unpack())
                     .ok_or_else(|| RPCError::invalid_params("invalid withdrawing_out_point"))?;
 
                 match calculator.calculate_maximum_withdraw(

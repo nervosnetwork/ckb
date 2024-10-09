@@ -100,7 +100,7 @@ impl StoreWriteBatch {
         self.inner.delete(
             COLUMN_NUMBER_HASH,
             packed::NumberHash::new_builder()
-                .number(number)
+                .number(number.pack())
                 .block_hash(hash.clone())
                 .build()
                 .as_slice(),
@@ -109,7 +109,7 @@ impl StoreWriteBatch {
         let key_range = (0u32..txs_len).map(|i| {
             packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
-                .index(i)
+                .index(i.pack())
                 .build()
         });
 

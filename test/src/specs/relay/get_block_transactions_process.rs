@@ -24,18 +24,21 @@ impl Spec for MissingUncleRequest {
         node.mine(1);
 
         let builder = node.new_block_builder(None, None, None);
-        let block1 = builder.clone().nonce(0).build();
-        let block2 = builder.nonce(1).build();
+        let block1 = builder.clone().nonce(0.pack()).build();
+        let block2 = builder.nonce(1.pack()).build();
         node.submit_block(&block1);
         node.submit_block(&block2);
 
         let builder = node.new_block_builder(None, None, None);
-        let block = builder.set_uncles(vec![block2.as_uncle()]).nonce(0).build();
+        let block = builder
+            .set_uncles(vec![block2.as_uncle()])
+            .nonce(0.pack())
+            .build();
         node.submit_block(&block);
 
         let content = packed::GetBlockTransactions::new_builder()
             .block_hash(block.hash())
-            .uncle_indexes([0u32])
+            .uncle_indexes([0u32].pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
 

@@ -20,7 +20,7 @@ impl Migration for AddNumberHashMapping {
         multi_thread_migration! {
             {
                 for number in i * chunk_size..end {
-                    let block_number: packed::Uint64 = number.into();
+                    let block_number: packed::Uint64 = number.pack();
                     let raw_hash = chain_db.get(COLUMN_INDEX, block_number.as_slice()).expect("DB data integrity");
                     let txs_len = chain_db.get_iter(
                         COLUMN_BLOCK_BODY,
@@ -29,7 +29,7 @@ impl Migration for AddNumberHashMapping {
                     .take_while(|(key, _)| key.starts_with(&raw_hash))
                     .count();
 
-                    let raw_txs_len: packed::Uint32 = (txs_len as u32).into();
+                    let raw_txs_len: packed::Uint32 = (txs_len as u32).pack();
 
                     let mut raw_key = Vec::with_capacity(40);
                     raw_key.write_all(block_number.as_slice()).expect("write_all block_number");

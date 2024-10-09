@@ -21,13 +21,13 @@ fn test_block_view_convert_from_packed_block() {
 fn test_extension_field_in_block_view() {
     let block = {
         let uncle1 = packed::Block::new_advanced_builder()
-            .number(1u64)
-            .epoch(EpochNumberWithFraction::new(0, 1, 1000))
+            .number(1u64.pack())
+            .epoch(EpochNumberWithFraction::new(0, 1, 1000).pack())
             .build()
             .as_uncle();
         let uncle2 = packed::Block::new_advanced_builder()
-            .number(2u64)
-            .epoch(EpochNumberWithFraction::new(0, 2, 1000))
+            .number(2u64.pack())
+            .epoch(EpochNumberWithFraction::new(0, 2, 1000).pack())
             .build()
             .as_uncle();
         packed::Block::new_advanced_builder()
@@ -41,7 +41,7 @@ fn test_extension_field_in_block_view() {
         block.transactions(),
         block.data().proposals(),
     );
-    let extension: packed::Bytes = [0u8, 1, 2, 3, 4, 5, 6, 7].into();
+    let extension: packed::Bytes = [0u8, 1, 2, 3, 4, 5, 6, 7].pack();
     // block with extension but not reset all hashes
     let block2_v1_un = BlockView::new_unchecked_with_extension(
         block.header(),

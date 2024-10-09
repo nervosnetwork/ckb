@@ -7,7 +7,7 @@ use ckb_logger::info;
 use ckb_types::{
     bytes::Bytes,
     core::{capacity_bytes, Capacity, DepType, ScriptHashType, TransactionBuilder},
-    packed::{self, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
+    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
     H256,
 };
@@ -47,10 +47,10 @@ impl Spec for SendSecpTxUseDepGroup {
 
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
-            .dep_type(DepType::DepGroup)
+            .dep_type(DepType::DepGroup.into())
             .build();
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100))
+            .capacity(capacity_bytes!(100).pack())
             .lock(node.always_success_script())
             .build();
         let input = CellInput::new(OutPoint::new(cellbase_hash, 0), 0);
@@ -58,12 +58,12 @@ impl Spec for SendSecpTxUseDepGroup {
             .cell_dep(cell_dep.clone())
             .input(input.clone())
             .output(output.clone())
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let tx_hash = tx.hash();
         let witness = WitnessArgs::new_builder()
-            .lock(Some(Bytes::from(vec![0u8; 65])))
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
             .build();
         let witness_len = witness.as_slice().len() as u64;
         let message = {
@@ -78,14 +78,14 @@ impl Spec for SendSecpTxUseDepGroup {
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = witness
             .as_builder()
-            .lock(Some(Bytes::from(sig.serialize())))
+            .lock(Some(Bytes::from(sig.serialize())).pack())
             .build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
             .output(output)
-            .output_data(packed::Bytes::default())
-            .witness(witness.as_bytes())
+            .output_data(Default::default())
+            .witness(witness.as_bytes().pack())
             .build();
         info!("Send 1 secp tx use dep group");
 
@@ -140,7 +140,7 @@ impl Spec for CheckTypical2In2OutTx {
 
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
-            .dep_type(DepType::DepGroup)
+            .dep_type(DepType::DepGroup.into())
             .build();
         let input1 = {
             let block = node.get_tip_block();
@@ -154,16 +154,16 @@ impl Spec for CheckTypical2In2OutTx {
             CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
         };
         let lock = Script::new_builder()
-            .args(&self.lock_arg)
-            .code_hash(type_lock_script_code_hash())
-            .hash_type(ScriptHashType::Type)
+            .args(self.lock_arg.pack())
+            .code_hash(type_lock_script_code_hash().pack())
+            .hash_type(ScriptHashType::Type.into())
             .build();
         let output1 = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100))
+            .capacity(capacity_bytes!(100).pack())
             .lock(lock.clone())
             .build();
         let output2 = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100))
+            .capacity(capacity_bytes!(100).pack())
             .lock(lock)
             .build();
         let tx = TransactionBuilder::default()
@@ -172,13 +172,13 @@ impl Spec for CheckTypical2In2OutTx {
             .input(input2)
             .output(output1)
             .output(output2)
-            .output_data(packed::Bytes::default())
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
+            .output_data(Default::default())
             .build();
 
-        let tx_hash: H256 = tx.hash().into();
+        let tx_hash: H256 = tx.hash().unpack();
         let witness = WitnessArgs::new_builder()
-            .lock(Some(Bytes::from(vec![0u8; 65])))
+            .lock(Some(Bytes::from(vec![0u8; 65])).pack())
             .build();
         let witness_len = witness.as_slice().len() as u64;
         let witness2 = Bytes::new();
@@ -197,19 +197,20 @@ impl Spec for CheckTypical2In2OutTx {
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = witness
             .as_builder()
-            .lock(Some(Bytes::from(sig.serialize())))
+            .lock(Some(Bytes::from(sig.serialize())).pack())
             .build();
         let tx = tx
             .as_advanced_builder()
-            .witness(witness.as_bytes())
-            .witness(witness2)
+            .witness(witness.as_bytes().pack())
+            .witness(witness2.pack())
             .build();
 
         info!("Send 1 secp tx use dep group");
         node.rpc_client()
             .inner()
             .send_transaction(tx.data().into(), None)
-            .expect("should pass default outputs validator");
+            .expect("should pass default outputs validator")
+            .pack();
         node.mine(20);
 
         assert!(is_transaction_committed(node, &tx));

@@ -169,12 +169,12 @@ impl NewScript {
         let original_data = node.always_success_raw_data();
         let data = packed::Bytes::new_builder()
             .extend(original_data.as_ref().iter().map(|x| (*x).into()))
-            .push(id)
+            .push(id.into())
             .build();
         let tx = Self::deploy(node, &data, inputs, type_script_opt);
         let cell_dep = packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
-            .dep_type(core::DepType::Code)
+            .dep_type(core::DepType::Code.into())
             .build();
         let data_hash = packed::CellOutput::calc_data_hash(&data.raw_data());
         let type_hash = tx
@@ -219,7 +219,7 @@ impl NewScript {
         };
         let cell_input = inputs.next().unwrap();
         let cell_output = packed::CellOutput::new_builder()
-            .type_(Some(type_script))
+            .type_(Some(type_script).pack())
             .build_exact_capacity(core::Capacity::bytes(data.len()).unwrap())
             .unwrap();
         let tx = tx_template
@@ -249,14 +249,14 @@ impl NewScript {
         };
         packed::Script::new_builder()
             .code_hash(self.data_hash.clone())
-            .hash_type(hash_type)
+            .hash_type(hash_type.into())
             .build()
     }
 
     fn as_type_script(&self) -> packed::Script {
         packed::Script::new_builder()
             .code_hash(self.type_hash.clone())
-            .hash_type(core::ScriptHashType::Type)
+            .hash_type(core::ScriptHashType::Type.into())
             .build()
     }
 }
@@ -375,7 +375,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn wait_block_assembler_reset(&self, block_hash: Byte32) {
         self.node
-            .new_block_with_blocking(|template| template.parent_hash != (&block_hash).into());
+            .new_block_with_blocking(|template| template.parent_hash != block_hash.unpack());
     }
 }
 
@@ -443,7 +443,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         type_script: &NewScript,
     ) -> TransactionView {
         let output = packed::CellOutput::new_builder()
-            .type_(Some(type_script.as_data_script(0)))
+            .type_(Some(type_script.as_data_script(0)).pack())
             .build_exact_capacity(core::Capacity::bytes(data_script.data().len()).unwrap())
             .unwrap();
         let tx = TransactionView::new_advanced_builder()
@@ -460,7 +460,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
     fn convert_tx_to_code_cellep(tx: &TransactionView) -> packed::CellDep {
         packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
-            .dep_type(core::DepType::Code)
+            .dep_type(core::DepType::Code.into())
             .build()
     }
 
@@ -469,14 +469,13 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         inputs: &mut impl Iterator<Item = packed::CellInput>,
         dep_txs: &[&TransactionView],
     ) -> packed::CellDep {
-        let dep_data: packed::Bytes = Into::<packed::OutPointVec>::into(
-            dep_txs
-                .iter()
-                .map(|tx| packed::OutPoint::new(tx.hash(), 0))
-                .collect::<Vec<_>>(),
-        )
-        .as_bytes()
-        .into();
+        let dep_data = dep_txs
+            .iter()
+            .map(|tx| packed::OutPoint::new(tx.hash(), 0))
+            .collect::<Vec<_>>()
+            .pack()
+            .as_bytes()
+            .pack();
         let dep_output = packed::CellOutput::new_builder()
             .build_exact_capacity(core::Capacity::bytes(dep_data.len()).unwrap())
             .unwrap();
@@ -489,7 +488,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         Self::submit_transaction_until_committed_to(node, &tx);
         packed::CellDep::new_builder()
             .out_point(packed::OutPoint::new(tx.hash(), 0))
-            .dep_type(core::DepType::DepGroup)
+            .dep_type(core::DepType::DepGroup.into())
             .build()
     }
 }
@@ -504,7 +503,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn get_previous_output(&self, cell_input: &packed::CellInput) -> rpc::CellOutput {
         let previous_output = cell_input.previous_output();
-        let previous_output_index: usize = previous_output.index().into();
+        let previous_output_index: usize = previous_output.index().unpack();
         if let Either::Left(tx) = self
             .node
             .rpc_client()
@@ -526,7 +525,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         let new_script = &self.deps.default_script;
         let input_cell = self.get_previous_output(&cell_input);
         let cell_output = packed::CellOutput::new_builder()
-            .capacity(input_cell.capacity.value())
+            .capacity(input_cell.capacity.value().pack())
             .lock(new_script.as_data_script(0))
             .build();
         let tx = TransactionView::new_advanced_builder()
@@ -534,7 +533,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
             .cell_dep(new_script.cell_dep())
             .input(cell_input)
             .output(cell_output)
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
         self.create_initial_input(tx)
     }
@@ -546,16 +545,16 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         let new_script = &self.deps.default_script;
         let input_cell = self.get_previous_output(&cell_input);
         let cell_output = packed::CellOutput::new_builder()
-            .capacity(input_cell.capacity.value())
+            .capacity(input_cell.capacity.value().pack())
             .lock(self.node.always_success_script())
-            .type_(Some(new_script.as_data_script(0)))
+            .type_(Some(new_script.as_data_script(0)).pack())
             .build();
         let tx = TransactionView::new_advanced_builder()
             .cell_dep(self.node.always_success_cell_dep())
             .cell_dep(new_script.cell_dep())
             .input(cell_input)
             .output(cell_output)
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
         self.create_initial_input(tx)
     }
@@ -567,7 +566,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         let new_script = &self.deps.default_script;
         let input_cell = self.get_previous_output(&cell_input);
         let cell_output = packed::CellOutput::new_builder()
-            .capacity(input_cell.capacity.value())
+            .capacity(input_cell.capacity.value().pack())
             .lock(new_script.as_type_script())
             .build();
         let tx = TransactionView::new_advanced_builder()
@@ -575,7 +574,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
             .cell_dep(new_script.cell_dep())
             .input(cell_input)
             .output(cell_output)
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
         self.create_initial_input(tx)
     }
@@ -587,16 +586,16 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         let new_script = &self.deps.default_script;
         let input_cell = self.get_previous_output(&cell_input);
         let cell_output = packed::CellOutput::new_builder()
-            .capacity(input_cell.capacity.value())
+            .capacity(input_cell.capacity.value().pack())
             .lock(self.node.always_success_script())
-            .type_(Some(new_script.as_type_script()))
+            .type_(Some(new_script.as_type_script()).pack())
             .build();
         let tx = TransactionView::new_advanced_builder()
             .cell_dep(self.node.always_success_cell_dep())
             .cell_dep(new_script.cell_dep())
             .input(cell_input)
             .output(cell_output)
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
         self.create_initial_input(tx)
     }
@@ -627,11 +626,11 @@ impl<'a> CheckCellDepsTestRunner<'a> {
                     (HT::Data, ST::Lock) => cob.lock(new_script.as_data_script(0)),
                     (HT::Data, ST::Type) => cob
                         .lock(self.node.always_success_script())
-                        .type_(Some(new_script.as_data_script(0))),
+                        .type_(Some(new_script.as_data_script(0)).pack()),
                     (HT::Type, ST::Lock) => cob.lock(new_script.as_type_script()),
                     (HT::Type, ST::Type) => cob
                         .lock(self.node.always_success_script())
-                        .type_(Some(new_script.as_type_script())),
+                        .type_(Some(new_script.as_type_script()).pack()),
                 }
             }
         }
@@ -700,7 +699,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
         }
         .input(cell_input)
         .output(cell_output)
-        .output_data(packed::Bytes::default())
+        .output_data(Default::default())
         .build();
         self.adjust_tip_before_test();
         if let Some(errmsg) = expected.error_message() {

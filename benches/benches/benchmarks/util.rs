@@ -49,18 +49,18 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
                 .input(CellInput::new(OutPoint::null(), 0))
                 .output(
                     CellOutput::new_builder()
-                        .capacity(capacity_bytes!(50_000))
+                        .capacity(capacity_bytes!(50_000).pack())
                         .lock(always_success_script.clone())
                         .build(),
                 )
-                .output_data(data)
+                .output_data(data.pack())
                 .build()
         })
         .collect();
 
     let genesis_block = BlockBuilder::default()
         .dao(dao)
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .transaction(tx)
         .transactions(transactions)
         .build();
@@ -92,7 +92,7 @@ pub fn create_always_success_tx() -> TransactionView {
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data)
+        .output_data(always_success_cell_data.pack())
         .build()
 }
 
@@ -110,11 +110,11 @@ pub fn create_always_success_cellbase(shared: &Shared, parent: &HeaderView) -> T
         builder
             .output(
                 CellOutput::new_builder()
-                    .capacity(capacity)
+                    .capacity(capacity.pack())
                     .lock(always_success_script.clone())
                     .build(),
             )
-            .output_data(Bytes::new())
+            .output_data(Bytes::new().pack())
             .build()
     }
 }
@@ -185,11 +185,11 @@ pub fn gen_always_success_block(
         .transactions(transactions)
         .proposals(proposals)
         .parent_hash(p_block.hash())
-        .number(number)
-        .timestamp(timestamp)
-        .compact_target(epoch.compact_target())
-        .epoch(epoch.number_with_fraction(number))
-        .nonce(random::<u128>())
+        .number(number.pack())
+        .timestamp(timestamp.pack())
+        .compact_target(epoch.compact_target().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
+        .nonce(random::<u128>().pack())
         .dao(dao)
         .build();
 
@@ -208,7 +208,7 @@ lazy_static! {
         let data: Bytes = raw_data.to_vec().into();
 
         let cell = CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap())
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
         (cell, data)
     };
@@ -219,13 +219,13 @@ lazy_static! {
         let data: Bytes = raw_data.to_vec().into();
 
         let cell = CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap())
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
 
         let script = Script::new_builder()
             .code_hash(CellOutput::calc_data_hash(&data))
-            .args(Bytes::from(PUBKEY_HASH.as_bytes()))
-            .hash_type(ScriptHashType::Data)
+            .args(Bytes::from(PUBKEY_HASH.as_bytes()).pack())
+            .hash_type(ScriptHashType::Data.into())
             .build();
 
         (cell, data, script)
@@ -244,7 +244,7 @@ pub fn create_secp_tx() -> TransactionView {
     let (ref secp_data_cell, ref secp_data_cell_data) = secp_data_cell();
     let (ref secp_cell, ref secp_cell_data, ref script) = secp_cell();
     let outputs = vec![secp_data_cell.clone(), secp_cell.clone()];
-    let outputs_data = vec![secp_data_cell_data.into(), secp_cell_data.into()];
+    let outputs_data = vec![secp_data_cell_data.pack(), secp_cell_data.pack()];
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
@@ -263,21 +263,21 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
         .map(|i| {
             let data = Bytes::from(i.to_le_bytes().to_vec());
             let output = CellOutput::new_builder()
-                .capacity(capacity_bytes!(50_000))
+                .capacity(capacity_bytes!(50_000).pack())
                 .lock(secp_script.clone())
                 .build();
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0))
                 .output(output.clone())
                 .output(output)
-                .output_data(&data)
-                .output_data(&data)
+                .output_data(data.pack())
+                .output_data(data.pack())
                 .build()
         })
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .compact_target(difficulty_to_compact(U256::from(1000u64)))
+        .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
         .dao(dao)
         .transaction(tx)
         .transactions(transactions)
@@ -318,11 +318,11 @@ pub fn create_secp_cellbase(shared: &Shared, parent: &HeaderView) -> Transaction
         builder
             .output(
                 CellOutput::new_builder()
-                    .capacity(capacity)
+                    .capacity(capacity.pack())
                     .lock(secp_script.clone())
                     .build(),
             )
-            .output_data(Bytes::new())
+            .output_data(Bytes::new().pack())
             .build()
     }
 }
@@ -395,11 +395,11 @@ pub fn gen_secp_block(
         .transactions(transactions)
         .proposals(proposals)
         .parent_hash(p_block.hash())
-        .number(number)
-        .timestamp(timestamp)
-        .compact_target(epoch.compact_target())
-        .epoch(epoch.number_with_fraction(number))
-        .nonce(random::<u128>())
+        .number(number.pack())
+        .timestamp(timestamp.pack())
+        .compact_target(epoch.compact_target().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
+        .nonce(random::<u128>().pack())
         .dao(dao)
         .build();
 
@@ -412,11 +412,11 @@ fn create_transaction(parent_hash: &Byte32, lock: Script, dep: OutPoint) -> Tran
     TransactionBuilder::default()
         .output(
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(50_000))
+                .capacity(capacity_bytes!(50_000).pack())
                 .lock(lock)
                 .build(),
         )
-        .output_data(data)
+        .output_data(data.pack())
         .input(CellInput::new(OutPoint::new(parent_hash.to_owned(), 0), 0))
         .cell_dep(CellDep::new_builder().out_point(dep).build())
         .build()
@@ -431,7 +431,7 @@ pub fn create_2out_transaction(
 
     let cell_inputs = inputs.into_iter().map(|pts| CellInput::new(pts, 0));
     let cell_output = CellOutput::new_builder()
-        .capacity(capacity_bytes!(50_000))
+        .capacity(capacity_bytes!(50_000).pack())
         .lock(lock)
         .build();
 
@@ -440,15 +440,15 @@ pub fn create_2out_transaction(
     let raw = TransactionBuilder::default()
         .output(cell_output.clone())
         .output(cell_output)
-        .output_data(&data)
-        .output_data(&data)
+        .output_data(data.pack())
+        .output_data(data.pack())
         .inputs(cell_inputs)
         .cell_deps(cell_deps)
         .build();
 
     let privkey: Privkey = PRIVKEY.into();
     let witness: WitnessArgs = WitnessArgs::new_builder()
-        .lock(Some(Bytes::from(vec![0u8; 65])))
+        .lock(Some(Bytes::from(vec![0u8; 65])).pack())
         .build();
     let witness_len: u64 = witness.as_bytes().len() as u64;
     let non_sig_witnesses = vec![Bytes::new(); inputs_count - 1];
@@ -470,10 +470,10 @@ pub fn create_2out_transaction(
         .expect("sign tx")
         .serialize()
         .into();
-    let witness = witness.as_builder().lock(Some(sig)).build();
+    let witness = witness.as_builder().lock(Some(sig).pack()).build();
 
-    let mut witnesses = vec![witness.as_bytes().into()];
-    witnesses.extend(non_sig_witnesses.into_iter().map(|w| w.into()));
+    let mut witnesses = vec![witness.as_bytes().pack()];
+    witnesses.extend(non_sig_witnesses.into_iter().map(|w| w.pack()));
 
     raw.as_advanced_builder().set_witnesses(witnesses).build()
 }

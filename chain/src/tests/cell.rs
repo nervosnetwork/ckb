@@ -35,8 +35,12 @@ pub(crate) fn create_cellbase(
         builder.build()
     } else {
         builder
-            .output(CellOutputBuilder::default().capacity(capacity).build())
-            .output_data(Bytes::new())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity.pack())
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
             .build()
     }
 }
@@ -62,10 +66,10 @@ pub(crate) fn gen_block(
 
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp(parent_header.timestamp() + 20_000)
-        .number(number)
-        .compact_target(epoch.compact_target())
-        .epoch(epoch.number_with_fraction(number))
+        .timestamp((parent_header.timestamp() + 20_000).pack())
+        .number(number.pack())
+        .compact_target(epoch.compact_target().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .transactions(txs)
         .build();
 
@@ -79,16 +83,16 @@ pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> Transa
         .get(0)
         .expect("get output index 0")
         .capacity()
-        .into();
+        .unpack();
 
     TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(input_cap.safe_sub(TX_FEE).unwrap())
+                .capacity(input_cap.safe_sub(TX_FEE).unwrap().pack())
                 .build(),
         )
         .input(CellInput::new(OutPoint::new(parent.hash(), index), 0))
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .build()
 }
 
@@ -100,11 +104,11 @@ fn test_block_cells_update() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000))
+                .capacity(capacity_bytes!(5_000).pack())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .build();
 
     let dao = genesis_dao_data(vec![&always_success_tx, &issue_tx]).unwrap();
@@ -112,7 +116,7 @@ fn test_block_cells_update() {
     let genesis_block = BlockBuilder::default()
         .transaction(always_success_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO)
+        .compact_target(DIFF_TWO.pack())
         .dao(dao)
         .build();
 

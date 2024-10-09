@@ -139,7 +139,7 @@ impl LightClientProtocol {
         let tip_header = packed::VerifiableHeader::new_builder()
             .header(tip_block.header().data())
             .uncles_hash(tip_block.calc_uncles_hash())
-            .extension(tip_block.extension())
+            .extension(Pack::pack(&tip_block.extension()))
             .parent_chain_root(parent_chain_root)
             .build();
 
@@ -206,12 +206,12 @@ impl LightClientProtocol {
         let verifiable_last_header = packed::VerifiableHeader::new_builder()
             .header(last_block.data().header())
             .uncles_hash(last_block.calc_uncles_hash())
-            .extension(last_block.extension())
+            .extension(Pack::pack(&last_block.extension()))
             .parent_chain_root(parent_chain_root)
             .build();
         let content = T::new_builder()
             .set_last_header(verifiable_last_header)
-            .set_proof(proof.into())
+            .set_proof(proof.pack())
             .set_proved_items(proved_items)
             .set_missing_items(missing_items)
             .build();

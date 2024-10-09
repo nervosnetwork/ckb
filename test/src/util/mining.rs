@@ -147,7 +147,7 @@ impl Node {
             !template
                 .transactions
                 .iter()
-                .any(|tx| tx.hash == tx_hash.into())
+                .any(|tx| tx.hash == tx_hash.unpack())
         });
     }
 

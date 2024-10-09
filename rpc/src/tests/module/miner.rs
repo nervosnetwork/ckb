@@ -3,7 +3,7 @@ use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, always_success_consensus};
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionBuilder},
-    packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint},
+    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
 use serde_json::json;
@@ -31,7 +31,7 @@ fn test_get_block_template_cache() {
                 parent
                     .header()
                     .as_advanced_builder()
-                    .timestamp(parent.header().timestamp() + 1)
+                    .timestamp((parent.header().timestamp() + 1).pack())
                     .build(),
             )
             .build();
@@ -67,7 +67,7 @@ fn test_get_block_template_cache() {
 
         let input = CellInput::new(previous_output, 0);
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100))
+            .capacity(capacity_bytes!(100).pack())
             .lock(always_success_cell().2.clone())
             .build();
         let cell_dep = CellDep::new_builder()
@@ -76,7 +76,7 @@ fn test_get_block_template_cache() {
         let tx = TransactionBuilder::default()
             .input(input)
             .output(output)
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .cell_dep(cell_dep)
             .build();
 

@@ -6,6 +6,7 @@ use ckb_test_chain_utils::{
     create_transaction_with_out_point, dao_data, MockChain, MockStore,
 };
 use ckb_types::core::error::OutPointError;
+use ckb_types::prelude::*;
 use ckb_types::{core::BlockBuilder, packed::OutPoint};
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -286,9 +287,9 @@ fn test_full_dead_transaction() {
 
     let block = BlockBuilder::default()
         .parent_hash(parent.hash())
-        .number(parent.number() + 1)
-        .epoch(epoch.number_with_fraction(parent.number() + 1))
-        .compact_target(compact_target - 1)
+        .number((parent.number() + 1).pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+        .compact_target((compact_target - 1).pack())
         .dao(dao)
         .transaction(cellbase_tx)
         .build();
@@ -326,9 +327,9 @@ fn test_full_dead_transaction() {
                 );
                 BlockBuilder::default()
                     .parent_hash(parent.hash())
-                    .number(parent.number() + 1)
-                    .epoch(epoch.number_with_fraction(parent.number() + 1))
-                    .compact_target(compact_target - 1)
+                    .number((parent.number() + 1).pack())
+                    .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                    .compact_target((compact_target - 1).pack())
                     .dao(dao)
                     .transactions(transactions)
                     .proposals(vec![tx1.proposal_short_id()])
@@ -347,9 +348,9 @@ fn test_full_dead_transaction() {
                 );
                 BlockBuilder::default()
                     .parent_hash(parent.hash())
-                    .number(parent.number() + 1)
-                    .epoch(epoch.number_with_fraction(parent.number() + 1))
-                    .compact_target(compact_target - 1)
+                    .number((parent.number() + 1).pack())
+                    .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                    .compact_target((compact_target - 1).pack())
                     .dao(dao)
                     .transactions(transactions)
                     .build()
@@ -364,9 +365,9 @@ fn test_full_dead_transaction() {
                 );
                 BlockBuilder::default()
                     .parent_hash(parent.hash())
-                    .number(parent.number() + 1)
-                    .epoch(epoch.number_with_fraction(parent.number() + 1))
-                    .compact_target(compact_target - 1)
+                    .number((parent.number() + 1).pack())
+                    .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                    .compact_target((compact_target - 1).pack())
                     .dao(dao)
                     .transactions(transactions)
                     .build()
@@ -406,9 +407,9 @@ fn test_full_dead_transaction() {
                     );
                     BlockBuilder::default()
                         .parent_hash(parent.hash())
-                        .number(parent.number() + 1)
-                        .epoch(epoch.number_with_fraction(parent.number() + 1))
-                        .compact_target(compact_target - 1)
+                        .number((parent.number() + 1).pack())
+                        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                        .compact_target((compact_target - 1).pack())
                         .dao(dao)
                         .transactions(transactions)
                         .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
@@ -428,9 +429,9 @@ fn test_full_dead_transaction() {
                     );
                     BlockBuilder::default()
                         .parent_hash(parent.hash())
-                        .number(parent.number() + 1)
-                        .epoch(epoch.number_with_fraction(parent.number() + 1))
-                        .compact_target(compact_target - 1)
+                        .number((parent.number() + 1).pack())
+                        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                        .compact_target((compact_target - 1).pack())
                         .dao(dao)
                         .transactions(transactions)
                         .build()
@@ -447,9 +448,9 @@ fn test_full_dead_transaction() {
 
                     BlockBuilder::default()
                         .parent_hash(parent.hash())
-                        .number(parent.number() + 1)
-                        .epoch(epoch.number_with_fraction(parent.number() + 1))
-                        .compact_target(compact_target - 1)
+                        .number((parent.number() + 1).pack())
+                        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                        .compact_target((compact_target - 1).pack())
                         .dao(dao)
                         .transactions(transactions)
                         .build()
@@ -478,9 +479,9 @@ fn test_full_dead_transaction() {
                     );
                     BlockBuilder::default()
                         .parent_hash(parent.hash())
-                        .number(parent.number() + 1)
-                        .epoch(epoch.number_with_fraction(parent.number() + 1))
-                        .compact_target(compact_target - 1)
+                        .number((parent.number() + 1).pack())
+                        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                        .compact_target((compact_target - 1).pack())
                         .dao(dao)
                         .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
                         .transactions(transactions)
@@ -500,9 +501,9 @@ fn test_full_dead_transaction() {
                     );
                     BlockBuilder::default()
                         .parent_hash(parent.hash())
-                        .number(parent.number() + 1)
-                        .epoch(epoch.number_with_fraction(parent.number() + 1))
-                        .compact_target(compact_target - 1)
+                        .number((parent.number() + 1).pack())
+                        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                        .compact_target((compact_target - 1).pack())
                         .dao(dao)
                         .transactions(transactions)
                         .build()
@@ -519,9 +520,9 @@ fn test_full_dead_transaction() {
 
                     BlockBuilder::default()
                         .parent_hash(parent.hash())
-                        .number(parent.number() + 1)
-                        .epoch(epoch.number_with_fraction(parent.number() + 1))
-                        .compact_target(compact_target - 1)
+                        .number((parent.number() + 1).pack())
+                        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+                        .compact_target((compact_target - 1).pack())
                         .dao(dao)
                         .transactions(transactions)
                         .build()

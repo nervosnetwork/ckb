@@ -67,7 +67,7 @@ case $GITHUB_WORKFLOW in
     sudo apt-get install -y gcc-multilib
     sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu clang
     rustup target add aarch64-unknown-linux-gnu
-    curl -LO https://openssl.org/source/old/3.1/openssl-3.1.3.tar.gz
+    curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
     tar -xvzf openssl-3.1.3.tar.gz
     cd openssl-3.1.3
     CC=aarch64-linux-gnu-gcc ./Configure linux-aarch64 shared

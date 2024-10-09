@@ -141,7 +141,7 @@ impl IndexerHandle {
         Ok(iter.next().map(|(key, _)| IndexerTip {
             block_hash: packed::Byte32::from_slice(&key[9..41])
                 .expect("stored block key")
-                .into(),
+                .unpack(),
             block_number: core::BlockNumber::from_be_bytes(
                 key[1..9].try_into().expect("stored block key"),
             )
@@ -301,7 +301,7 @@ impl IndexerHandle {
                 }
 
                 if let Some([r0, r1]) = filter_options.output_capacity_range {
-                    let capacity: core::Capacity = output.capacity().into();
+                    let capacity: core::Capacity = output.capacity().unpack();
                     if capacity < r0 || capacity >= r1 {
                         return None;
                     }
@@ -429,7 +429,7 @@ impl IndexerHandle {
                 }
                 let tx_hash: H256 = packed::Byte32::from_slice(&value)
                     .expect("stored tx hash")
-                    .into();
+                    .unpack();
                 if tx_with_cells.len() == limit
                     && tx_with_cells.last_mut().unwrap().tx_hash != tx_hash
                 {
@@ -613,7 +613,7 @@ impl IndexerHandle {
 
                     last_key = key.to_vec();
                     Some(IndexerTx::Ungrouped(IndexerTxWithCell {
-                        tx_hash: tx_hash.into(),
+                        tx_hash: tx_hash.unpack(),
                         block_number: block_number.into(),
                         tx_index: tx_index.into(),
                         io_index: io_index.into(),
@@ -763,7 +763,7 @@ impl IndexerHandle {
                 }
 
                 if let Some([r0, r1]) = filter_options.output_capacity_range {
-                    let capacity: core::Capacity = output.capacity().into();
+                    let capacity: core::Capacity = output.capacity().unpack();
                     if capacity < r0 || capacity >= r1 {
                         return None;
                     }
@@ -775,7 +775,7 @@ impl IndexerHandle {
                     }
                 }
 
-                Some(Into::<core::Capacity>::into(&output.capacity()).as_u64())
+                Some(Unpack::<core::Capacity>::unpack(&output.capacity()).as_u64())
             })
             .sum();
 
@@ -785,7 +785,7 @@ impl IndexerHandle {
             capacity: capacity.into(),
             block_hash: packed::Byte32::from_slice(&key[9..41])
                 .expect("stored block key")
-                .into(),
+                .unpack(),
             block_number: core::BlockNumber::from_be_bytes(
                 key[1..9].try_into().expect("stored block key"),
             )
@@ -954,27 +954,27 @@ mod tests {
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Data)
-            .args(Bytes::from(b"lock_script1".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
             .build();
 
         let lock_script2 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Type)
-            .args(Bytes::from(b"lock_script2".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script2".to_vec()).pack())
             .build();
 
         let type_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Data)
-            .args(Bytes::from(b"type_script1".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
             .build();
 
         let type_script2 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Type)
-            .args(Bytes::from(b"type_script2".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"type_script2".to_vec()).pack())
             .build();
 
         let cellbase0 = TransactionBuilder::default()
@@ -982,40 +982,40 @@ mod tests {
             .witness(Script::default().into_witness())
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000))
+                    .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1.clone())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let tx00 = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000))
+                    .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1.clone())
-                    .type_(Some(type_script1.clone()))
+                    .type_(Some(type_script1.clone()).pack())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let tx01 = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(2000))
+                    .capacity(capacity_bytes!(2000).pack())
                     .lock(lock_script2.clone())
-                    .type_(Some(type_script2.clone()))
+                    .type_(Some(type_script2.clone()).pack())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let block0 = BlockBuilder::default()
             .transaction(cellbase0)
             .transaction(tx00.clone())
             .transaction(tx01.clone())
-            .header(HeaderBuilder::default().number(0).build())
+            .header(HeaderBuilder::default().number(0.pack()).build())
             .build();
 
         indexer.append(&block0).unwrap();
@@ -1028,35 +1028,35 @@ mod tests {
                 .witness(Script::default().into_witness())
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(capacity_bytes!(1000))
+                        .capacity(capacity_bytes!(1000).pack())
                         .lock(lock_script1.clone())
                         .build(),
                 )
-                .output_data(Bytes::from(i.to_string()))
+                .output_data(Bytes::from(i.to_string()).pack())
                 .build();
 
             pre_tx0 = TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::new(pre_tx0.hash(), 0), 0))
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(capacity_bytes!(1000))
+                        .capacity(capacity_bytes!(1000).pack())
                         .lock(lock_script1.clone())
-                        .type_(Some(type_script1.clone()))
+                        .type_(Some(type_script1.clone()).pack())
                         .build(),
                 )
-                .output_data(packed::Bytes::default())
+                .output_data(Default::default())
                 .build();
 
             pre_tx1 = TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::new(pre_tx1.hash(), 0), 0))
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(capacity_bytes!(2000))
+                        .capacity(capacity_bytes!(2000).pack())
                         .lock(lock_script2.clone())
-                        .type_(Some(type_script2.clone()))
+                        .type_(Some(type_script2.clone()).pack())
                         .build(),
                 )
-                .output_data(packed::Bytes::default())
+                .output_data(Default::default())
                 .build();
 
             pre_block = BlockBuilder::default()
@@ -1065,13 +1065,16 @@ mod tests {
                 .transaction(pre_tx1.clone())
                 .header(
                     HeaderBuilder::default()
-                        .number(pre_block.number() + 1)
+                        .number((pre_block.number() + 1).pack())
                         .parent_hash(pre_block.hash())
-                        .epoch(EpochNumberWithFraction::new(
-                            pre_block.number() + 1,
-                            pre_block.number(),
-                            1000,
-                        ))
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                pre_block.number() + 1,
+                                pre_block.number(),
+                                1000,
+                            )
+                            .pack(),
+                        )
                         .build(),
                 )
                 .build();
@@ -1081,7 +1084,7 @@ mod tests {
 
         // test get_tip rpc
         let tip = rpc.get_indexer_tip().unwrap().unwrap();
-        assert_eq!(Into::<H256>::into(&pre_block.hash()), tip.block_hash);
+        assert_eq!(Unpack::<H256>::unpack(&pre_block.hash()), tip.block_hash);
         assert_eq!(pre_block.number(), tip.block_number.value());
 
         // test get_cells rpc
@@ -1473,12 +1476,12 @@ mod tests {
             .input(CellInput::new(OutPoint::new(pre_tx0.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000))
+                    .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1.clone())
-                    .type_(Some(type_script1))
+                    .type_(Some(type_script1).pack())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
         pool.write().unwrap().new_transaction(&pool_tx);
 
@@ -1539,27 +1542,27 @@ mod tests {
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Type)
-            .args(Bytes::from(b"lock_script1".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
             .build();
 
         let lock_script11 = ScriptBuilder::default()
             .code_hash(lock_script1.code_hash())
-            .hash_type(ScriptHashType::Type)
-            .args(Bytes::from(b"lock_script11".to_vec()))
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script11".to_vec()).pack())
             .build();
 
         let type_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Data)
-            .args(Bytes::from(b"type_script1".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
             .build();
 
         let type_script11 = ScriptBuilder::default()
             .code_hash(type_script1.code_hash())
-            .hash_type(ScriptHashType::Data)
-            .args(Bytes::from(b"type_script11".to_vec()))
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script11".to_vec()).pack())
             .build();
 
         let cellbase0 = TransactionBuilder::default()
@@ -1567,40 +1570,40 @@ mod tests {
             .witness(Script::default().into_witness())
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000))
+                    .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1.clone())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let tx00 = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000))
+                    .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1.clone())
-                    .type_(Some(type_script1.clone()))
+                    .type_(Some(type_script1.clone()).pack())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let tx01 = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(2000))
+                    .capacity(capacity_bytes!(2000).pack())
                     .lock(lock_script11.clone())
-                    .type_(Some(type_script11.clone()))
+                    .type_(Some(type_script11.clone()).pack())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let block0 = BlockBuilder::default()
             .transaction(cellbase0)
             .transaction(tx00.clone())
             .transaction(tx01.clone())
-            .header(HeaderBuilder::default().number(0).build())
+            .header(HeaderBuilder::default().number(0.pack()).build())
             .build();
 
         indexer.append(&block0).unwrap();
@@ -1613,35 +1616,35 @@ mod tests {
                 .witness(Script::default().into_witness())
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(capacity_bytes!(1000))
+                        .capacity(capacity_bytes!(1000).pack())
                         .lock(lock_script1.clone())
                         .build(),
                 )
-                .output_data(Bytes::from(i.to_string()))
+                .output_data(Bytes::from(i.to_string()).pack())
                 .build();
 
             pre_tx0 = TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::new(pre_tx0.hash(), 0), 0))
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(capacity_bytes!(1000))
+                        .capacity(capacity_bytes!(1000).pack())
                         .lock(lock_script1.clone())
-                        .type_(Some(type_script1.clone()))
+                        .type_(Some(type_script1.clone()).pack())
                         .build(),
                 )
-                .output_data(packed::Bytes::default())
+                .output_data(Default::default())
                 .build();
 
             pre_tx1 = TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::new(pre_tx1.hash(), 0), 0))
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(capacity_bytes!(2000))
+                        .capacity(capacity_bytes!(2000).pack())
                         .lock(lock_script11.clone())
-                        .type_(Some(type_script11.clone()))
+                        .type_(Some(type_script11.clone()).pack())
                         .build(),
                 )
-                .output_data(packed::Bytes::default())
+                .output_data(Default::default())
                 .build();
 
             pre_block = BlockBuilder::default()
@@ -1650,13 +1653,16 @@ mod tests {
                 .transaction(pre_tx1.clone())
                 .header(
                     HeaderBuilder::default()
-                        .number(pre_block.number() + 1)
+                        .number((pre_block.number() + 1).pack())
                         .parent_hash(pre_block.hash())
-                        .epoch(EpochNumberWithFraction::new(
-                            pre_block.number() + 1,
-                            pre_block.number(),
-                            1000,
-                        ))
+                        .epoch(
+                            EpochNumberWithFraction::new(
+                                pre_block.number() + 1,
+                                pre_block.number(),
+                                1000,
+                            )
+                            .pack(),
+                        )
                         .build(),
                 )
                 .build();
@@ -1781,9 +1787,9 @@ mod tests {
         };
 
         let lock_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Type)
-            .args(Bytes::from(b"lock_script1".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
             .build();
         let data = [0u8; 7];
         let res = rpc.get_cells(
@@ -1815,27 +1821,27 @@ mod tests {
 
         // setup test data
         let lock_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Type)
-            .args(Bytes::from(b"lock_script1".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script1".to_vec()).pack())
             .build();
 
         let lock_script11 = ScriptBuilder::default()
             .code_hash(lock_script1.code_hash())
-            .hash_type(ScriptHashType::Type)
-            .args(Bytes::from(b"lock_script11".to_vec()))
+            .hash_type(ScriptHashType::Type.into())
+            .args(Bytes::from(b"lock_script11".to_vec()).pack())
             .build();
 
         let type_script1 = ScriptBuilder::default()
-            .code_hash(H256(rand::random()))
-            .hash_type(ScriptHashType::Data)
-            .args(Bytes::from(b"type_script1".to_vec()))
+            .code_hash(H256(rand::random()).pack())
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script1".to_vec()).pack())
             .build();
 
         let type_script11 = ScriptBuilder::default()
             .code_hash(type_script1.code_hash())
-            .hash_type(ScriptHashType::Data)
-            .args(Bytes::from(b"type_script11".to_vec()))
+            .hash_type(ScriptHashType::Data.into())
+            .args(Bytes::from(b"type_script11".to_vec()).pack())
             .build();
 
         let cellbase0 = TransactionBuilder::default()
@@ -1843,22 +1849,22 @@ mod tests {
             .witness(Script::default().into_witness())
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000))
+                    .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1.clone())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let tx00 = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(1000))
+                    .capacity(capacity_bytes!(1000).pack())
                     .lock(lock_script1)
-                    .type_(Some(type_script1))
+                    .type_(Some(type_script1).pack())
                     .build(),
             )
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build();
 
         let mut data = [0u8; 7];
@@ -1866,19 +1872,19 @@ mod tests {
         let tx01 = TransactionBuilder::default()
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(2000))
+                    .capacity(capacity_bytes!(2000).pack())
                     .lock(lock_script11.clone())
-                    .type_(Some(type_script11))
+                    .type_(Some(type_script11).pack())
                     .build(),
             )
-            .output_data(data.to_vec())
+            .output_data(data.to_vec().pack())
             .build();
 
         let block0 = BlockBuilder::default()
             .transaction(cellbase0)
             .transaction(tx00)
             .transaction(tx01)
-            .header(HeaderBuilder::default().number(0).build())
+            .header(HeaderBuilder::default().number(0.pack()).build())
             .build();
 
         indexer.append(&block0).unwrap();

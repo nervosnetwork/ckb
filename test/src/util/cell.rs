@@ -102,6 +102,6 @@ pub fn as_output(cell: &CellMeta) -> CellOutput {
     CellOutput::new_builder()
         .lock(cell.cell_output.lock())
         .type_(cell.cell_output.type_())
-        .capacity(cell.capacity())
+        .capacity(cell.capacity().pack())
         .build()
 }

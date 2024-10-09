@@ -1,17 +1,13 @@
-use crate::{
-    packed::{self, ProposalShortId, ProposalShortIdVec},
-    prelude::*,
-    vec::Vec,
-};
+use crate::{packed, prelude::*, vec, vec::Vec};
 
 #[test]
 fn block_size_should_not_include_uncles_proposals() {
-    let proposal1: ProposalShortId = [1; 10].into();
-    let proposal2: ProposalShortId = [2; 10].into();
-    let proposal3 = [3; 10].into();
-    let proposals1: ProposalShortIdVec = vec![proposal1.clone()].into();
-    let proposals2: ProposalShortIdVec = vec![proposal1.clone(), proposal2.clone()].into();
-    let proposals3: ProposalShortIdVec = vec![proposal1, proposal2, proposal3].into();
+    let proposal1 = [1; 10].pack();
+    let proposal2 = [2; 10].pack();
+    let proposal3 = [3; 10].pack();
+    let proposals1 = vec![proposal1.clone()].pack();
+    let proposals2 = vec![proposal1.clone(), proposal2.clone()].pack();
+    let proposals3 = vec![proposal1, proposal2, proposal3].pack();
     let uncle0 = packed::UncleBlock::new_builder().build();
     let uncle1 = packed::UncleBlock::new_builder()
         .proposals(proposals1)
@@ -35,9 +31,11 @@ fn block_size_should_not_include_uncles_proposals() {
         let mut uncles = uncles.clone();
         loop {
             let block_with_empty_uncles = packed::Block::new_builder()
-                .uncles(empty_uncles.clone())
+                .uncles(empty_uncles.clone().pack())
                 .build();
-            let block_with_uncles = packed::Block::new_builder().uncles(uncles.clone()).build();
+            let block_with_uncles = packed::Block::new_builder()
+                .uncles(uncles.clone().pack())
+                .build();
             let actual = block_with_uncles.serialized_size_without_uncle_proposals();
             let actual_empty = block_with_empty_uncles.serialized_size_without_uncle_proposals();
             let expected = block_with_empty_uncles.as_slice().len();
@@ -56,21 +54,21 @@ fn block_size_should_not_include_uncles_proposals() {
         let mut empty_uncles = empty_uncles;
         let mut uncles = uncles;
         let extensions: Vec<packed::Bytes> = vec![
-            [0u8].into(),
-            [0u8; 24].into(),
-            [0u8; 48].into(),
-            [0u8; 72].into(),
-            [0u8; 96].into(),
+            [0u8].pack(),
+            [0u8; 24].pack(),
+            [0u8; 48].pack(),
+            [0u8; 72].pack(),
+            [0u8; 96].pack(),
         ];
         for extension in extensions {
             loop {
                 let block_with_empty_uncles_v1 = packed::BlockV1::new_builder()
-                    .uncles(empty_uncles.clone())
+                    .uncles(empty_uncles.clone().pack())
                     .extension(extension.clone())
                     .build();
                 let block_with_empty_uncles = block_with_empty_uncles_v1.as_v0();
                 let block_with_uncles = packed::BlockV1::new_builder()
-                    .uncles(uncles.clone())
+                    .uncles(uncles.clone().pack())
                     .extension(extension.clone())
                     .build()
                     .as_v0();

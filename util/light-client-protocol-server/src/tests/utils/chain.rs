@@ -36,7 +36,7 @@ impl MockChain {
         let always_success_tx = TransactionView::new_advanced_builder()
             .input(packed::CellInput::new(packed::OutPoint::null(), 0))
             .output(always_success_cell.clone())
-            .output_data(always_success_cell_data)
+            .output_data(always_success_cell_data.pack())
             .witness(always_success_script.clone().into_witness())
             .build();
         let always_success_out_point = packed::OutPoint::new(always_success_tx.hash(), 0);
@@ -48,8 +48,8 @@ impl MockChain {
 
         let (shared, mut pack) = {
             let genesis = BlockView::new_advanced_builder()
-                .timestamp(unix_time_as_millis())
-                .compact_target(DIFF_TWO)
+                .timestamp(unix_time_as_millis().pack())
+                .compact_target(DIFF_TWO.pack())
                 .transaction(always_success_tx)
                 .dao(dao)
                 .build();
@@ -66,7 +66,7 @@ impl MockChain {
                 .build();
             let config = BlockAssemblerConfig {
                 // always success
-                code_hash: always_success_script.code_hash().into(),
+                code_hash: always_success_script.code_hash().unpack(),
                 args: Default::default(),
                 hash_type: ScriptHashType::Data,
                 message: Default::default(),
@@ -197,12 +197,12 @@ impl MockChain {
         let block = snapshot.get_block_by_number(block_number).unwrap();
         let cellbase = block.transaction(0).unwrap();
         let input = packed::CellInput::new(packed::OutPoint::new(cellbase.hash(), 0), 0);
-        let input_capacity: Capacity = cellbase.output(0).unwrap().capacity().into();
+        let input_capacity: Capacity = cellbase.output(0).unwrap().capacity().unpack();
         let output_capacity = input_capacity.safe_sub(1000u32).unwrap();
         let header_dep = block.hash();
         let (_, _, always_success_script) = always_success_cell();
         let output = packed::CellOutput::new_builder()
-            .capacity(output_capacity)
+            .capacity(output_capacity.pack())
             .lock(always_success_script.to_owned())
             .build();
         TransactionView::new_advanced_builder()
@@ -210,7 +210,7 @@ impl MockChain {
             .header_dep(header_dep)
             .input(input)
             .output(output)
-            .output_data(packed::Bytes::default())
+            .output_data(Default::default())
             .build()
     }
 }

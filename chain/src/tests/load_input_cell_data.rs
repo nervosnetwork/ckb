@@ -30,16 +30,16 @@ pub(crate) fn create_load_input_one_byte_transaction(
         .get(0)
         .expect("get output index 0")
         .capacity()
-        .into();
+        .unpack();
 
     TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(input_cap.safe_sub(TX_FEE).unwrap())
+                .capacity(input_cap.safe_sub(TX_FEE).unwrap().pack())
                 .lock(load_input_one_byte_script.clone())
                 .build(),
         )
-        .output_data(Bytes::from(b"1".to_vec()))
+        .output_data(Bytes::from(b"1".to_vec()).pack())
         .input(CellInput::new(OutPoint::new(parent.hash(), index), 0))
         .cell_dep(
             CellDep::new_builder()
@@ -59,11 +59,11 @@ fn test_load_input_one_byte_cell() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000))
+                .capacity(capacity_bytes!(5_000).pack())
                 .lock(load_input_one_byte_script.clone())
                 .build(),
         )
-        .output_data(Bytes::from(b"1".to_vec()))
+        .output_data(Bytes::from(b"1".to_vec()).pack())
         .build();
 
     let dao = genesis_dao_data(vec![&load_input_one_byte_cell_tx, &issue_tx]).unwrap();
@@ -71,7 +71,7 @@ fn test_load_input_one_byte_cell() {
     let genesis_block = BlockBuilder::default()
         .transaction(load_input_one_byte_cell_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO)
+        .compact_target(DIFF_TWO.pack())
         .dao(dao)
         .build();
 

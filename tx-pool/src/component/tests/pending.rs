@@ -8,7 +8,7 @@ use crate::component::{
 };
 use ckb_types::core::Capacity;
 use ckb_types::packed::OutPoint;
-use ckb_types::{h256, packed::Byte32};
+use ckb_types::{h256, packed::Byte32, prelude::*};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ fn test_basic() {
     assert_eq!(pool.size(), 0);
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&Byte32::zero(), 2)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 2)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 2)],
         3,
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
@@ -51,21 +51,21 @@ fn test_basic() {
 #[test]
 fn test_resolve_conflict() {
     let mut pool = PoolMap::new(100);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 1)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
         3,
     );
     let tx3 = build_tx_with_dep(
-        vec![(&h256!("0x4").into(), 1)],
-        vec![(&h256!("0x5").into(), 1)],
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
         3,
     );
     let tx4 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x1").into(), 1)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x1").pack(), 1)],
         3,
     );
-    let tx5 = build_tx(vec![(&h256!("0x5").into(), 1)], 3);
+    let tx5 = build_tx(vec![(&h256!("0x5").pack(), 1)], 3);
 
     let entry1 = TxEntry::dummy_resolve(tx1, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
@@ -114,9 +114,9 @@ fn test_resolve_conflict_descendants() {
 fn test_resolve_conflict_header_dep() {
     let mut pool = PoolMap::new(1000);
 
-    let header: Byte32 = h256!("0x1").into();
+    let header: Byte32 = h256!("0x1").pack();
     let tx = build_tx_with_header_dep(
-        vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)],
+        vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)],
         vec![header.clone()],
         1,
     );
@@ -143,9 +143,9 @@ fn test_resolve_conflict_header_dep() {
 #[test]
 fn test_remove_entry() {
     let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
-    let header: Byte32 = h256!("0x1").into();
-    let tx2 = build_tx_with_header_dep(vec![(&h256!("0x2").into(), 1)], vec![header], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let header: Byte32 = h256!("0x1").pack();
+    let tx2 = build_tx_with_header_dep(vec![(&h256!("0x2").pack(), 1)], vec![header], 1);
 
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
     let entry2 = TxEntry::dummy_resolve(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
@@ -165,14 +165,14 @@ fn test_remove_entry() {
 #[test]
 fn test_get_proposals() {
     let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 1)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
         3,
     );
     let tx3 = build_tx_with_dep(
-        vec![(&h256!("0x4").into(), 1)],
-        vec![(&h256!("0x5").into(), 1)],
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
         3,
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
@@ -214,14 +214,14 @@ fn test_get_proposals() {
 #[test]
 fn test_get_proposals_with_high_score() {
     let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 1)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
         3,
     );
     let tx3 = build_tx_with_dep(
-        vec![(&h256!("0x4").into(), 1)],
-        vec![(&h256!("0x5").into(), 1)],
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
         3,
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
@@ -258,8 +258,8 @@ fn test_get_proposals_with_high_score() {
 
 #[test]
 fn test_edges() {
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
-    let tx2 = build_tx(vec![(&h256!("0x1").into(), 1)], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let tx2 = build_tx(vec![(&h256!("0x1").pack(), 1)], 1);
 
     let short_id1 = tx1.proposal_short_id();
     let short_id2 = tx2.proposal_short_id();
@@ -277,14 +277,14 @@ fn test_edges() {
 #[test]
 fn test_pool_evict() {
     let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 1)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
         3,
     );
     let tx3 = build_tx_with_dep(
-        vec![(&h256!("0x4").into(), 1)],
-        vec![(&h256!("0x5").into(), 1)],
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
         3,
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE);
@@ -315,14 +315,14 @@ fn test_pool_evict() {
 #[test]
 fn test_pool_min_weight_evict() {
     let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 1)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
         3,
     );
     let tx3 = build_tx_with_dep(
-        vec![(&h256!("0x4").into(), 1)],
-        vec![(&h256!("0x5").into(), 1)],
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
         3,
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), 2, Capacity::shannons(100), 2);
@@ -353,14 +353,14 @@ fn test_pool_min_weight_evict() {
 #[test]
 fn test_pool_max_size_evict() {
     let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
     let tx2 = build_tx(
-        vec![(&h256!("0x2").into(), 1), (&h256!("0x3").into(), 1)],
+        vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 1)],
         3,
     );
     let tx3 = build_tx_with_dep(
-        vec![(&h256!("0x4").into(), 1)],
-        vec![(&h256!("0x5").into(), 1)],
+        vec![(&h256!("0x4").pack(), 1)],
+        vec![(&h256!("0x5").pack(), 1)],
         3,
     );
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), 2, Capacity::shannons(100), 3);
@@ -391,9 +391,9 @@ fn test_pool_max_size_evict() {
 #[test]
 fn test_pool_min_descendants_evict() {
     let mut pool = PoolMap::new(1000);
-    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").into(), 1)], 1);
-    let tx2 = build_tx(vec![(&tx1.hash(), 1), (&h256!("0x3").into(), 1)], 3);
-    let tx3 = build_tx_with_dep(vec![(&tx2.hash(), 1)], vec![(&h256!("0x5").into(), 1)], 3);
+    let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&h256!("0x1").pack(), 1)], 1);
+    let tx2 = build_tx(vec![(&tx1.hash(), 1), (&h256!("0x3").pack(), 1)], 3);
+    let tx3 = build_tx_with_dep(vec![(&tx2.hash(), 1)], vec![(&h256!("0x5").pack(), 1)], 3);
     let entry1 = TxEntry::dummy_resolve(tx1.clone(), 2, Capacity::shannons(100), 1);
     std::thread::sleep(Duration::from_millis(1));
     let entry2 = TxEntry::dummy_resolve(tx2.clone(), 2, Capacity::shannons(100), 1);

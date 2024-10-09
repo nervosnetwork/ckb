@@ -44,7 +44,7 @@ impl Spec for SendLowFeeRateTx {
             .get(0)
             .unwrap()
             .as_builder()
-            .capacity(capacity)
+            .capacity(capacity.pack())
             .build();
         let tx_low_fee = tx_low_fee
             .data()
@@ -64,7 +64,7 @@ impl Spec for SendLowFeeRateTx {
             .get(0)
             .unwrap()
             .as_builder()
-            .capacity(capacity.safe_sub(1000u32).unwrap())
+            .capacity(capacity.safe_sub(1000u32).unwrap().pack())
             .build();
         let tx_high_fee = tx_high_fee
             .data()

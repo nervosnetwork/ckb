@@ -38,14 +38,14 @@ pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
     let transaction = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(index).unwrap())
+                .capacity(Capacity::bytes(index).unwrap().pack())
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .build();
 
     IndexTransactionBuilder::default()
-        .index(index)
+        .index(index.pack())
         .transaction(transaction.data())
         .build()
 }
@@ -60,10 +60,10 @@ pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> Header
         .epoch();
     HeaderBuilder::default()
         .parent_hash(parent_hash)
-        .number(parent.number() + 1)
-        .timestamp(parent.timestamp() + 1)
-        .epoch(epoch.number_with_fraction(parent.number() + 1))
-        .compact_target(epoch.compact_target())
+        .number((parent.number() + 1).pack())
+        .timestamp((parent.timestamp() + 1).pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
+        .compact_target(epoch.compact_target().pack())
 }
 
 pub(crate) fn new_transaction(
@@ -89,10 +89,10 @@ pub(crate) fn new_transaction(
         .input(CellInput::new(previous_output, 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(500 + index).unwrap() ) // use capacity to identify transactions
+                .capacity(Capacity::bytes(500 + index).unwrap().pack()) // use capacity to identify transactions
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .cell_dep(
             CellDep::new_builder()
                 .out_point(always_success_out_point.to_owned())
@@ -138,7 +138,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data)
+        .output_data(always_success_cell_data.pack())
         .witness(always_success_script.clone().into_witness())
         .build();
     let always_success_out_point = OutPoint::new(always_success_tx.hash(), 0);
@@ -146,9 +146,9 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let (shared, mut pack) = {
         let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
         let genesis = BlockBuilder::default()
-            .timestamp(unix_time_as_millis())
+            .timestamp(unix_time_as_millis().pack())
             .dao(dao)
-            .compact_target(difficulty_to_compact(U256::from(1000u64)))
+            .compact_target(difficulty_to_compact(U256::from(1000u64)).pack())
             .transaction(always_success_tx)
             .build();
         let epoch_ext = build_genesis_epoch_ext(
@@ -188,11 +188,11 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(50000))
+                    .capacity(capacity_bytes!(50000).pack())
                     .lock(always_success_script.to_owned())
                     .build(),
             )
-            .output_data(Bytes::new())
+            .output_data(Bytes::new().pack())
             .witness(Script::default().into_witness())
             .build();
         let header = new_header_builder(&shared, &parent.header()).build();
@@ -273,20 +273,22 @@ pub(crate) fn gen_block(
     let mut block_builder = BlockBuilder::default()
         .parent_hash(parent_header.hash())
         .timestamp(
-            parent_header
+            (parent_header
                 .timestamp()
                 .checked_add_signed(timestamp_delta)
-                .unwrap(),
+                .unwrap())
+            .pack(),
         )
-        .number(number)
+        .number(number.pack())
         .compact_target(
-            epoch
+            (epoch
                 .compact_target()
                 .checked_add_signed(target_delta)
-                .unwrap(),
+                .unwrap())
+            .pack(),
         )
         .dao(dao)
-        .epoch(epoch.number_with_fraction(number))
+        .epoch(epoch.number_with_fraction(number).pack())
         .transactions(txs);
     if let Some(uncle) = uncle_opt {
         block_builder = block_builder.uncle(uncle)

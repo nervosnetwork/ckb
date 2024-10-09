@@ -1031,6 +1031,7 @@ dependencies = [
  "ckb-store",
  "ckb-sync",
  "ckb-tx-pool",
+ "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
 ]

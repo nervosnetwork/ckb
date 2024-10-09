@@ -69,7 +69,7 @@ fn test_bundled_specs() {
         let consensus = consensus.unwrap();
         let block = consensus.genesis_block();
         let cellbase = block.transaction(0).unwrap();
-        let cellbase_hash: H256 = cellbase.hash().into();
+        let cellbase_hash: H256 = cellbase.hash().unpack();
 
         assert_eq!(spec_hashes.cellbase, cellbase_hash);
 
@@ -86,11 +86,11 @@ fn test_bundled_specs() {
             )
             .enumerate()
         {
-            let data_hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data()).into();
+            let data_hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data()).unpack();
             let type_hash: Option<H256> = output
                 .type_()
                 .to_opt()
-                .map(|script| script.calc_script_hash().into());
+                .map(|script| script.calc_script_hash().unpack());
             assert_eq!(index_minus_one + 1, cell.index, "{bundled_spec_err}");
             assert_eq!(cell.data_hash, data_hash, "{bundled_spec_err}");
             assert_eq!(cell.type_hash, type_hash, "{bundled_spec_err}");
@@ -106,11 +106,11 @@ fn test_bundled_specs() {
             .output(dep_group_tx_input_index)
             .unwrap()
             .capacity()
-            .into();
+            .unpack();
         let outputs_capacity = dep_group_tx
             .outputs()
             .into_iter()
-            .map(|output| Into::<Capacity>::into(&output.capacity()))
+            .map(|output| Unpack::<Capacity>::unpack(&output.capacity()))
             .try_fold(Capacity::zero(), Capacity::safe_add)
             .unwrap();
         // capacity for input and outputs should be same
@@ -130,7 +130,7 @@ fn test_bundled_specs() {
             let dep_group = &spec_hashes.dep_groups[i];
 
             // check the tx hashes of dep groups in spec file
-            let tx_hash = Into::<packed::Byte32>::into(&dep_group.tx_hash);
+            let tx_hash = dep_group.tx_hash.pack();
             assert_eq!(tx_hash, dep_group_tx.hash(), "{bundled_spec_err}");
 
             let out_point_vec = packed::OutPointVec::from_slice(&output_data.raw_data()).unwrap();
@@ -148,7 +148,7 @@ fn test_bundled_specs() {
                 // dep groups out_point should point to cellbase
                 assert_eq!(cellbase.hash(), out_point.tx_hash(), "{bundled_spec_err}");
 
-                let index_in_cellbase: usize = out_point.index().into();
+                let index_in_cellbase: usize = out_point.index().unpack();
 
                 // check index for included cells in dep groups
                 assert_eq!(

@@ -9,6 +9,7 @@ use ckb_types::{
         BlockExt, BlockView, EpochExt, HeaderView,
     },
     packed::{Byte32, OutPoint},
+    prelude::*,
 };
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -118,14 +119,14 @@ impl CellProvider for MockStore {
         match self.store().get_transaction(&out_point.tx_hash()) {
             Some((tx, _)) => tx
                 .outputs()
-                .get(out_point.index().into())
+                .get(out_point.index().unpack())
                 .map(|cell| {
                     let data = tx
                         .outputs_data()
-                        .get(out_point.index().into())
+                        .get(out_point.index().unpack())
                         .expect("output data");
 
-                    let cell_meta = CellMetaBuilder::from_cell_output(cell, data.into())
+                    let cell_meta = CellMetaBuilder::from_cell_output(cell, data.unpack())
                         .out_point(out_point.to_owned())
                         .build();
 
