@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-0.118.0--pre-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/t/where-to-discuss-ckb-and-how-to-ask-for-support/6024)
 
-master | develop
+Master | develop
 -------|----------
 [![Unit Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml/badge.svg?branch=master)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml?query=branch%3Amaster) | [![Unit Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml/badge.svg?branch=develop)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_unit_tests_ubuntu.yaml?query=branch%3Adevelop)
 [![Integration Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml/badge.svg?branch=master)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml?query=branch%3Amaster) | [![Integration Tests](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml/badge.svg?branch=develop)](https://github.com/nervosnetwork/ckb/actions/workflows/ci_integration_tests_ubuntu.yaml?query=branch%3Adevelop)
