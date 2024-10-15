@@ -669,7 +669,7 @@ dependencies = [
 name = "ckb-bin"
 version = "0.119.0-pre"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-build-info",
@@ -1198,7 +1198,7 @@ dependencies = [
 name = "ckb-miner"
 version = "0.119.0-pre"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "ckb-app-config",
  "ckb-async-runtime",
  "ckb-channel",
