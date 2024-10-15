@@ -20,28 +20,32 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::block_status::BlockStatus;
-use crate::types::{HeaderIndexView, HeadersSyncController, IBDState, Peers, SyncShared};
+use crate::types::{post_sync_process, HeadersSyncController, IBDState, Peers, SyncShared};
 use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
 use crate::{Status, StatusCode};
+use ckb_shared::block_status::BlockStatus;
 
-use ckb_chain::chain::ChainController;
+use ckb_chain::{ChainController, RemoteBlock};
 use ckb_channel as channel;
 use ckb_channel::{select, Receiver};
 use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
 };
-use ckb_error::Error as CKBError;
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_metrics::HistogramTimer;
 use ckb_network::{
     async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
     ServiceControl, SupportProtocols,
 };
+use ckb_shared::types::HeaderIndexView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
+
+#[cfg(test)]
+use ckb_types::core;
 use ckb_types::{
-    core::{self, BlockNumber},
+    core::BlockNumber,
     packed::{self, Byte32},
     prelude::*,
 };
@@ -89,10 +93,17 @@ impl BlockFetchCMD {
         match self.can_start() {
             CanStart::Ready => {
                 for peer in peers {
+                    if ckb_stop_handler::has_received_stop_signal() {
+                        return;
+                    }
+
                     if let Some(fetch) =
                         BlockFetcher::new(Arc::clone(&self.sync_shared), peer, ibd_state).fetch()
                     {
                         for item in fetch {
+                            if ckb_stop_handler::has_received_stop_signal() {
+                                return;
+                            }
                             BlockFetchCMD::send_getblocks(item, &self.p2p_control, peer);
                         }
                     }
@@ -114,9 +125,10 @@ impl BlockFetchCMD {
             }
             CanStart::AssumeValidNotFound => {
                 let state = self.sync_shared.state();
+                let shared = self.sync_shared.shared();
                 let best_known = state.shared_best_header_ref();
                 let number = best_known.number();
-                let assume_valid_target: Byte32 = state
+                let assume_valid_target: Byte32 = shared
                     .assume_valid_target()
                     .as_ref()
                     .map(Pack::pack)
@@ -212,6 +224,7 @@ impl BlockFetchCMD {
             return self.can_start;
         }
 
+        let shared = self.sync_shared.shared();
         let state = self.sync_shared.state();
 
         let min_work_reach = |flag: &mut CanStart| {
@@ -221,9 +234,9 @@ impl BlockFetchCMD {
         };
 
         let assume_valid_target_find = |flag: &mut CanStart| {
-            let mut assume_valid_target = state.assume_valid_target();
+            let mut assume_valid_target = shared.assume_valid_target();
             if let Some(ref target) = *assume_valid_target {
-                match state.header_map().get(&target.pack()) {
+                match shared.header_map().get(&target.pack()) {
                     Some(header) => {
                         *flag = CanStart::Ready;
                         info!("assume valid target found in header_map; CKB will start fetch blocks now");
@@ -310,40 +323,51 @@ impl Synchronizer {
 
     fn try_process(
         &self,
-        nc: &dyn CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'_>,
     ) -> Status {
+        let _trace_timecost: Option<HistogramTimer> = {
+            ckb_metrics::handle().map(|handle| {
+                handle
+                    .ckb_sync_msg_process_duration
+                    .with_label_values(&[message.item_name()])
+                    .start_timer()
+            })
+        };
+
         match message {
             packed::SyncMessageUnionReader::GetHeaders(reader) => {
-                GetHeadersProcess::new(reader, self, peer, nc).execute()
+                GetHeadersProcess::new(reader, self, peer, nc.as_ref()).execute()
             }
             packed::SyncMessageUnionReader::SendHeaders(reader) => {
-                HeadersProcess::new(reader, self, peer, nc).execute()
+                HeadersProcess::new(reader, self, peer, nc.as_ref()).execute()
             }
             packed::SyncMessageUnionReader::GetBlocks(reader) => {
-                GetBlocksProcess::new(reader, self, peer, nc).execute()
+                GetBlocksProcess::new(reader, self, peer, nc.as_ref()).execute()
             }
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 if reader.check_data() {
-                    BlockProcess::new(reader, self, peer).execute()
+                    BlockProcess::new(reader, self, peer, nc).execute()
                 } else {
                     StatusCode::ProtocolMessageIsMalformed.with_context("SendBlock is invalid")
                 }
             }
-            packed::SyncMessageUnionReader::InIBD(_) => InIBDProcess::new(self, peer, nc).execute(),
+            packed::SyncMessageUnionReader::InIBD(_) => {
+                InIBDProcess::new(self, peer, nc.as_ref()).execute()
+            }
         }
     }
 
     fn process(
         &self,
-        nc: &dyn CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         message: packed::SyncMessageUnionReader<'_>,
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;
-        let status = self.try_process(nc, peer, message);
+        let status = self.try_process(Arc::clone(&nc), peer, message);
 
         metric_ckb_message_bytes(
             MetricDirection::In,
@@ -353,17 +377,7 @@ impl Synchronizer {
             item_bytes,
         );
 
-        if let Some(ban_time) = status.should_ban() {
-            error!(
-                "Receive {} from {}. Ban {:?} for {}",
-                item_name, peer, ban_time, status
-            );
-            nc.ban_peer(peer, ban_time, status.to_string());
-        } else if status.should_warn() {
-            warn!("Receive {} from {}, {}", item_name, peer, status);
-        } else if !status.is_ok() {
-            debug!("Receive {} from {}, {}", item_name, peer, status);
-        }
+        post_sync_process(nc.as_ref(), peer, item_name, status);
     }
 
     /// Get peers info
@@ -390,22 +404,45 @@ impl Synchronizer {
 
     /// Process a new block sync from other peer
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, block: core::BlockView) -> Result<bool, CKBError> {
-        let block_hash = block.hash();
+    pub fn asynchronous_process_remote_block(&self, remote_block: RemoteBlock) {
+        let block_hash = remote_block.block.hash();
         let status = self.shared.active_chain().get_block_status(&block_hash);
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_STORED) {
-            debug!("Block {} already stored", block_hash);
-            Ok(false)
+            error!("Block {} already stored", block_hash);
         } else if status.contains(BlockStatus::HEADER_VALID) {
-            self.shared.insert_new_block(&self.chain, Arc::new(block))
+            self.shared.accept_remote_block(&self.chain, remote_block);
         } else {
             debug!(
                 "Synchronizer process_new_block unexpected status {:?} {}",
                 status, block_hash,
             );
             // TODO which error should we return?
+        }
+    }
+
+    #[cfg(test)]
+    pub fn blocking_process_new_block(
+        &self,
+        block: core::BlockView,
+        _peer_id: PeerIndex,
+    ) -> Result<bool, ckb_error::Error> {
+        let block_hash = block.hash();
+        let status = self.shared.active_chain().get_block_status(&block_hash);
+        // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+        // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+        if status.contains(BlockStatus::BLOCK_STORED) {
+            error!("block {} already stored", block_hash);
+            Ok(false)
+        } else if status.contains(BlockStatus::HEADER_VALID) {
+            self.chain.blocking_process_block(Arc::new(block))
+        } else {
+            debug!(
+                "Synchronizer process_new_block unexpected status {:?} {}",
+                status, block_hash,
+            );
+            // TODO while error should we return?
             Ok(false)
         }
     }
@@ -416,7 +453,7 @@ impl Synchronizer {
         peer: PeerIndex,
         ibd: IBDState,
     ) -> Option<Vec<Vec<packed::Byte32>>> {
-        BlockFetcher::new(Arc::to_owned(self.shared()), peer, ibd).fetch()
+        BlockFetcher::new(Arc::clone(&self.shared), peer, ibd).fetch()
     }
 
     pub(crate) fn on_connected(&self, nc: &dyn CKBProtocolContext, peer: PeerIndex) {
@@ -636,10 +673,26 @@ impl Synchronizer {
     }
 
     fn find_blocks_to_fetch(&mut self, nc: &dyn CKBProtocolContext, ibd: IBDState) {
-        let tip = self.shared.active_chain().tip_number();
+        if self.chain.is_verifying_unverified_blocks_on_startup() {
+            trace!(
+                "skip find_blocks_to_fetch, ckb_chain is verifying unverified blocks on startup"
+            );
+            return;
+        }
+
+        if ckb_stop_handler::has_received_stop_signal() {
+            info!("received stop signal, stop find_blocks_to_fetch");
+            return;
+        }
+
+        let unverified_tip = self.shared.active_chain().unverified_tip_number();
 
         let disconnect_list = {
-            let mut list = self.shared().state().write_inflight_blocks().prune(tip);
+            let mut list = self
+                .shared()
+                .state()
+                .write_inflight_blocks()
+                .prune(unverified_tip);
             if let IBDState::In = ibd {
                 // best known < tip and in IBD state, and unknown list is empty,
                 // these node can be disconnect
@@ -647,7 +700,7 @@ impl Synchronizer {
                     self.shared
                         .state()
                         .peers()
-                        .get_best_known_less_than_tip_and_unknown_empty(tip),
+                        .get_best_known_less_than_tip_and_unknown_empty(unverified_tip),
                 )
             };
             list
@@ -840,7 +893,7 @@ impl CKBProtocolHandler for Synchronizer {
         }
 
         let start_time = Instant::now();
-        tokio::task::block_in_place(|| self.process(nc.as_ref(), peer_index, msg));
+        tokio::task::block_in_place(|| self.process(nc, peer_index, msg));
         debug!(
             "Process message={}, peer={}, cost={:?}",
             msg.item_name(),
@@ -866,6 +919,7 @@ impl CKBProtocolHandler for Synchronizer {
     ) {
         let sync_state = self.shared().state();
         sync_state.disconnected(peer_index);
+        info!("SyncProtocol.disconnected peer={}", peer_index);
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

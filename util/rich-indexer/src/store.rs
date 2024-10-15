@@ -1,25 +1,29 @@
 use anyhow::{anyhow, Result};
 use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
+use include_dir::{include_dir, Dir};
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
 use sqlx::{
-    any::{Any, AnyArguments, AnyConnectOptions, AnyPool, AnyPoolOptions, AnyRow},
+    any::{Any, AnyArguments, AnyConnectOptions, AnyPoolOptions, AnyRow},
+    migrate::Migrator,
     query::{Query, QueryAs},
-    ConnectOptions, IntoArguments, Row, Transaction,
+    AnyPool, ConnectOptions, IntoArguments, Row, Transaction,
 };
+use tempfile::tempdir;
 
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::marker::{Send, Unpin};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
-const MEMORY_DB: &str = ":memory:";
+const MEMORY_DB: &str = "sqlite://?mode=memory";
 const SQL_SQLITE_CREATE_TABLE: &str = include_str!("../resources/create_sqlite_table.sql");
 const SQL_SQLITE_CREATE_INDEX: &str = include_str!("../resources/create_sqlite_index.sql");
 const SQL_POSTGRES_CREATE_TABLE: &str = include_str!("../resources/create_postgres_table.sql");
 const SQL_POSTGRES_CREATE_INDEX: &str = include_str!("../resources/create_postgres_index.sql");
+static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/resources/migrations");
 
 #[derive(Clone, Default)]
 pub struct SQLXPool {
@@ -36,54 +40,69 @@ impl Debug for SQLXPool {
 }
 
 impl SQLXPool {
-    pub fn new() -> Self {
-        SQLXPool {
-            pool: Arc::new(OnceCell::new()),
-            db_driver: DBDriver::default(),
-        }
-    }
-
     pub async fn connect(&mut self, db_config: &RichIndexerConfig) -> Result<()> {
-        let pool_options = AnyPoolOptions::new()
+        // if not init, it will panic, see doc for more
+        sqlx::any::install_default_drivers();
+        let mut pool_options = AnyPoolOptions::new()
             .max_connections(10)
             .min_connections(0)
             .acquire_timeout(Duration::from_secs(60))
             .max_lifetime(Duration::from_secs(1800))
             .idle_timeout(Duration::from_secs(30));
-        match db_config.db_type {
+        if db_config.store == Into::<PathBuf>::into(MEMORY_DB) {
+            // See related issue: https://github.com/launchbadge/sqlx/issues/2510
+            pool_options = pool_options.max_connections(1);
+        }
+        let pool = match db_config.db_type {
             DBDriver::Sqlite => {
-                let require_init = is_sqlite_require_init(db_config);
+                create_sqlite(db_config);
                 let uri = build_url_for_sqlite(db_config);
-                let mut connection_options = AnyConnectOptions::from_str(&uri)?;
-                connection_options.log_statements(LevelFilter::Trace);
+                let connection_options =
+                    AnyConnectOptions::from_str(&uri)?.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;
                 log::info!("SQLite is connected.");
                 self.pool
-                    .set(pool)
+                    .set(pool.clone())
                     .map_err(|_| anyhow!("set pool failed!"))?;
-                if require_init {
-                    self.create_tables_for_sqlite().await?;
-                }
+                self.create_tables_for_sqlite().await?;
+
                 self.db_driver = DBDriver::Sqlite;
-                Ok(())
+                pool
             }
             DBDriver::Postgres => {
-                let require_init = self.is_postgres_require_init(db_config).await?;
+                self.postgres_init(db_config).await?;
                 let uri = build_url_for_postgres(db_config);
-                let mut connection_options = AnyConnectOptions::from_str(&uri)?;
-                connection_options.log_statements(LevelFilter::Trace);
+                let connection_options =
+                    AnyConnectOptions::from_str(&uri)?.log_statements(LevelFilter::Trace);
                 let pool = pool_options.connect_with(connection_options).await?;
                 log::info!("PostgreSQL is connected.");
                 self.pool
-                    .set(pool)
+                    .set(pool.clone())
                     .map_err(|_| anyhow!("set pool failed"))?;
-                if require_init {
-                    self.create_tables_for_postgres().await?;
-                }
+
+                self.create_tables_for_postgres().await?;
+
                 self.db_driver = DBDriver::Postgres;
-                Ok(())
+                pool
             }
+        };
+
+        // Run migrations
+        log::info!("Running migrations...");
+        let temp_dir = tempdir()?;
+        for file in MIGRATIONS_DIR.files() {
+            log::info!("Found migration file: {:?}", file.path());
+            let file_path = temp_dir.path().join(file.path());
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&file_path, file.contents())?;
         }
+        let migrator = Migrator::new(temp_dir.path()).await?;
+        migrator.run(&pool).await?;
+        log::info!("Migrations are done.");
+
+        Ok(())
     }
 
     pub async fn fetch_count(&self, table_name: &str) -> Result<u64> {
@@ -187,32 +206,27 @@ impl SQLXPool {
         Ok(())
     }
 
-    pub async fn is_postgres_require_init(
-        &mut self,
-        db_config: &RichIndexerConfig,
-    ) -> Result<bool> {
+    pub async fn postgres_init(&mut self, db_config: &RichIndexerConfig) -> Result<()> {
         // Connect to the "postgres" database first
         let mut temp_config = db_config.clone();
         temp_config.db_name = "postgres".to_string();
         let uri = build_url_for_postgres(&temp_config);
-        let mut connection_options = AnyConnectOptions::from_str(&uri)?;
-        connection_options.log_statements(LevelFilter::Trace);
+        let connection_options =
+            AnyConnectOptions::from_str(&uri)?.log_statements(LevelFilter::Trace);
         let tmp_pool_options = AnyPoolOptions::new();
         let pool = tmp_pool_options.connect_with(connection_options).await?;
-
         // Check if database exists
         let query =
             SQLXPool::new_query(r#"SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)"#)
                 .bind(db_config.db_name.as_str());
         let row = query.fetch_one(&pool).await?;
-
         // If database does not exist, create it
         if !row.get::<bool, _>(0) {
             let query = format!(r#"CREATE DATABASE "{}""#, db_config.db_name);
             SQLXPool::new_query(&query).execute(&pool).await?;
-            Ok(true)
+            Ok(())
         } else {
-            Ok(false)
+            Ok(())
         }
     }
 }
@@ -234,10 +248,10 @@ fn build_url_for_postgres(db_config: &RichIndexerConfig) -> String {
         + db_config.db_name.as_str()
 }
 
-fn is_sqlite_require_init(db_config: &RichIndexerConfig) -> bool {
+fn create_sqlite(db_config: &RichIndexerConfig) {
     // for test
     if db_config.store == Into::<PathBuf>::into(MEMORY_DB) {
-        return true;
+        return;
     }
 
     if !db_config.store.exists() {
@@ -249,8 +263,5 @@ fn is_sqlite_require_init(db_config: &RichIndexerConfig) -> bool {
             .create(true)
             .open(&db_config.store)
             .expect("Create db file");
-        return true;
     }
-
-    false
 }

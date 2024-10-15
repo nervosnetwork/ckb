@@ -287,7 +287,8 @@ pub trait PoolRpc {
     ///     "tip_number": "0x400",
     ///     "total_tx_cycles": "0x219",
     ///     "total_tx_size": "0x112",
-    ///     "tx_size_limit": "0x7d000"
+    ///     "tx_size_limit": "0x7d000",
+    ///     "verify_queue_size": "0x0"
     ///   }
     /// }
     /// ```
@@ -320,6 +321,33 @@ pub trait PoolRpc {
     /// ```
     #[rpc(name = "clear_tx_pool")]
     fn clear_tx_pool(&self) -> Result<()>;
+
+    /// Removes all transactions from the verification queue.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "clear_tx_verify_queue",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": null
+    /// }
+    /// ```
+    #[rpc(name = "clear_tx_verify_queue")]
+    fn clear_tx_verify_queue(&self) -> Result<()>;
 
     /// Returns all transaction ids in tx pool as a json array of string transaction ids.
     /// ## Params
@@ -656,6 +684,15 @@ impl PoolRpc for PoolRpcImpl {
         let tx_pool = self.shared.tx_pool_controller();
         tx_pool
             .clear_pool(snapshot)
+            .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
+
+        Ok(())
+    }
+
+    fn clear_tx_verify_queue(&self) -> Result<()> {
+        let tx_pool = self.shared.tx_pool_controller();
+        tx_pool
+            .clear_verify_queue()
             .map_err(|err| RPCError::custom(RPCError::Invalid, err.to_string()))?;
 
         Ok(())

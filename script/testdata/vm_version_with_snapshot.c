@@ -7,22 +7,19 @@
 #define sprintf(...)
 #endif
 
-void try_pause() {
-    syscall(2178, 0, 0, 0, 0, 0, 0);
-}
+void try_pause() { syscall(2178, 0, 0, 0, 0, 0, 0); }
 
-int vm_version() {
-    return syscall(2041, 0, 0, 0, 0, 0, 0);
-}
+int vm_version() { return syscall(2041, 0, 0, 0, 0, 0, 0); }
 
 int main() {
 #ifdef DEBUG
     char message[2048];
 #endif
     int ver;
-    for (int i=0; i<4096; i++) {
+    for (int i = 0; i < 4096; i++) {
         ver = vm_version();
-        sprintf(message, "version = %d", ver); ckb_debug(message);
+        sprintf(message, "version = %d", ver);
+        ckb_debug(message);
         if (i > 16) {
             try_pause();
         }

@@ -24,6 +24,12 @@ impl AsyncRichIndexerHandle {
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));
         }
+        if limit as usize > self.request_limit {
+            return Err(Error::invalid_params(format!(
+                "limit must be less than {}",
+                self.request_limit,
+            )));
+        }
         search_key.filter = convert_max_values_in_search_filter(&search_key.filter);
 
         let mut tx = self
@@ -243,7 +249,7 @@ pub async fn get_tx_with_cell(
 
     // fetch
     let outputs = query
-        .fetch_all(&mut *tx)
+        .fetch_all(tx.as_mut())
         .await
         .map_err(|err| Error::DB(err.to_string()))?
         .iter()
@@ -393,7 +399,7 @@ pub async fn get_tx_with_cells(
 
     // fetch
     let outputs = query
-        .fetch_all(&mut *tx)
+        .fetch_all(tx.as_mut())
         .await
         .map_err(|err| Error::DB(err.to_string()))?
         .iter()

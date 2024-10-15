@@ -100,6 +100,7 @@ impl Spec for SendLargeCyclesTxToRelay {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
+        node0.mine_until_out_bootstrap_period();
         node1.mine_until_out_bootstrap_period();
         node0.connect(node1);
         info!("Generate large cycles tx");
@@ -116,13 +117,18 @@ impl Spec for SendLargeCyclesTxToRelay {
         });
         assert!(result, "node0 can't sync with node1");
 
-        let result = wait_until(60, || {
+        let result = wait_until(120, || {
             node0
                 .rpc_client()
                 .get_transaction(tx.hash())
                 .transaction
                 .is_some()
         });
+        if !result {
+            info!("node0 last 500 log begin");
+            node0.print_last_500_lines_log(&node0.log_path());
+            info!("node0 last 500 log end");
+        }
         assert!(result, "Node0 should accept tx");
     }
 

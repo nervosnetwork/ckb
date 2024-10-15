@@ -168,7 +168,7 @@ pub trait ExperimentRpc {
     ///
     /// ## Params
     ///
-    /// * `estimate_mode` - True to enable a simple fallback algorithm, when lack of historical empirical data to estimate fee rates with configured algorithm.
+    /// * `estimate_mode` - The fee estimate mode.
     ///
     ///   Default: `no_priority`.
     ///

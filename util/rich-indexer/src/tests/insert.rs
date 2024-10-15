@@ -1,3 +1,5 @@
+use std::usize;
+
 use super::*;
 
 use ckb_types::{
@@ -76,7 +78,7 @@ async fn with_custom_block_filter() {
             None,
         ),
     );
-    let indexer_handle = AsyncRichIndexerHandle::new(storage, None);
+    let indexer_handle = AsyncRichIndexerHandle::new(storage, None, usize::MAX);
 
     let lock_script1 = ScriptBuilder::default()
         .code_hash(H256(rand::random()).pack())
@@ -290,7 +292,7 @@ async fn with_custom_cell_filter() {
             Some(r#"output.type?.args == "0x747970655f73637269707431""#),
         ),
     );
-    let indexer_handle = AsyncRichIndexerHandle::new(storage, None);
+    let indexer_handle = AsyncRichIndexerHandle::new(storage, None, usize::MAX);
 
     let lock_script1 = ScriptBuilder::default()
         .code_hash(H256(rand::random()).pack())

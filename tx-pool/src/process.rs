@@ -17,9 +17,8 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
+use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
-use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
@@ -31,14 +30,13 @@ use ckb_types::{
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
-    ContextualTransactionVerifier, DaoScriptSizeVerifier, ScriptVerifyResult,
-    TimeRelativeTransactionVerifier, TxVerifyEnv,
+    TxVerifyEnv,
 };
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::task::block_in_place;
+use std::time::{Duration, Instant};
+use tokio::sync::watch;
 
 const DELAY_LIMIT: usize = 1_500 * 21; // 1_500 per block, 21 blocks
 
@@ -55,12 +53,6 @@ pub enum TxStatus {
     Fresh,
     Gap,
     Proposed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProcessResult {
-    Suspended,
-    Completed(Completed),
 }
 
 impl TxStatus {
@@ -144,26 +136,11 @@ impl TxPoolService {
                     time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
-                // try to remove conflicted tx here
-                for id in conflicts.iter() {
-                    let removed = tx_pool.pool_map.remove_entry_and_descendants(id);
-                    for old in removed {
-                        debug!(
-                            "remove conflict tx {} for RBF by new tx {}",
-                            old.transaction().hash(),
-                            entry.transaction().hash()
-                        );
-                        let reject = Reject::RBFRejected(format!(
-                            "replaced by tx {}",
-                            entry.transaction().hash()
-                        ));
-                        // RBF replace successfully, put old transactions into conflicts pool
-                        tx_pool.record_conflict(old.transaction().clone());
-                        // after removing old tx from tx_pool, we call reject callbacks manually
-                        self.callbacks.call_reject(tx_pool, &old, reject);
-                    }
-                }
+                let may_recovered_txs = self.process_rbf(tx_pool, &entry, &conflicts);
                 let evicted = _submit_entry(tx_pool, status, entry.clone(), &self.callbacks)?;
+
+                // in a corner case, a tx with lower fee rate may be rejected immediately
+                // after inserting into pool, return proper reject error here
                 for evict in evicted {
                     let reject = Reject::Invalidated(format!(
                         "invalidated by tx {}",
@@ -171,12 +148,23 @@ impl TxPoolService {
                     ));
                     self.callbacks.call_reject(tx_pool, &evict, reject);
                 }
+
                 tx_pool.remove_conflict(&entry.proposal_short_id());
-                // in a corner case, a tx with lower fee rate may be rejected immediately
-                // after inserting into pool, return proper reject error here
                 tx_pool
                     .limit_size(&self.callbacks, Some(&entry.proposal_short_id()))
                     .map_or(Ok(()), Err)?;
+
+                if !may_recovered_txs.is_empty() {
+                    let self_clone = self.clone();
+                    tokio::spawn(async move {
+                        // push the recovered txs back to verify queue, so that they can be verified and submitted again
+                        let mut queue = self_clone.verify_queue.write().await;
+                        for tx in may_recovered_txs {
+                            debug!("recover back: {:?}", tx.proposal_short_id());
+                            let _ = queue.add_tx(tx, None);
+                        }
+                    });
+                }
                 Ok(())
             })
             .await;
@@ -212,14 +200,63 @@ impl TxPoolService {
         }
     }
 
+    // try to remove conflicted tx here, the returned txs can be re-verified and re-submitted
+    // since they maybe not conflicted anymore
+    fn process_rbf(
+        &self,
+        tx_pool: &mut TxPool,
+        entry: &TxEntry,
+        conflicts: &HashSet<ProposalShortId>,
+    ) -> Vec<TransactionView> {
+        let mut may_recovered_txs = vec![];
+        let mut available_inputs = HashSet::new();
+
+        if conflicts.is_empty() {
+            return may_recovered_txs;
+        }
+
+        let all_removed: Vec<_> = conflicts
+            .iter()
+            .flat_map(|id| tx_pool.pool_map.remove_entry_and_descendants(id))
+            .collect();
+
+        available_inputs.extend(
+            all_removed
+                .iter()
+                .flat_map(|removed| removed.transaction().input_pts_iter()),
+        );
+
+        for input in entry.transaction().input_pts_iter() {
+            available_inputs.remove(&input);
+        }
+
+        may_recovered_txs = tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter());
+        for old in all_removed {
+            debug!(
+                "remove conflict tx {} for RBF by new tx {}",
+                old.transaction().hash(),
+                entry.transaction().hash()
+            );
+            let reject =
+                Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()));
+
+            // RBF replace successfully, put old transactions into conflicts pool
+            tx_pool.record_conflict(old.transaction().clone());
+            // after removing old tx from tx_pool, we call reject callbacks manually
+            self.callbacks.call_reject(tx_pool, &old, reject);
+        }
+        assert!(!may_recovered_txs.contains(entry.transaction()));
+        may_recovered_txs
+    }
+
+    pub(crate) async fn verify_queue_contains(&self, tx: &TransactionView) -> bool {
+        let queue = self.verify_queue.read().await;
+        queue.contains_key(&tx.proposal_short_id())
+    }
+
     pub(crate) async fn orphan_contains(&self, tx: &TransactionView) -> bool {
         let orphan = self.orphan.read().await;
         orphan.contains_key(&tx.proposal_short_id())
-    }
-
-    pub(crate) async fn chunk_contains(&self, tx: &TransactionView) -> bool {
-        let chunk = self.chunk.read().await;
-        chunk.contains_key(&tx.proposal_short_id())
     }
 
     pub(crate) async fn with_tx_pool_read_lock<U, F: FnMut(&TxPool, Arc<Snapshot>) -> U>(
@@ -313,44 +350,26 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<(), Reject> {
+    ) -> Result<bool, Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
-
-        if self.chunk_contains(&tx).await {
-            return Err(Reject::Duplicated(tx.hash()));
-        }
 
         if self.orphan_contains(&tx).await {
             debug!("reject tx {} already in orphan pool", tx.hash());
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        if let Some((ret, snapshot)) = self._resumeble_process_tx(tx.clone(), remote).await {
-            match ret {
-                Ok(processed) => {
-                    if let ProcessResult::Completed(completed) = processed {
-                        self.after_process(tx, remote, &snapshot, &Ok(completed))
-                            .await;
-                    }
-                    Ok(())
-                }
-                Err(e) => {
-                    self.after_process(tx, remote, &snapshot, &Err(e.clone()))
-                        .await;
-                    Err(e)
-                }
-            }
-        } else {
-            Ok(())
+        if self.verify_queue_contains(&tx).await {
+            return Err(Reject::Duplicated(tx.hash()));
         }
+        self.enqueue_verify_queue(tx, remote).await
     }
 
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, None)?;
 
-        if self.chunk_contains(&tx).await {
+        if self.verify_queue_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
@@ -369,11 +388,14 @@ impl TxPoolService {
         // non contextual verify first
         self.non_contextual_verify(&tx, remote)?;
 
-        if self.chunk_contains(&tx).await || self.orphan_contains(&tx).await {
+        if self.verify_queue_contains(&tx).await || self.orphan_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
 
-        if let Some((ret, snapshot)) = self._process_tx(tx.clone(), remote.map(|r| r.0)).await {
+        if let Some((ret, snapshot)) = self
+            ._process_tx(tx.clone(), remote.map(|r| r.0), None)
+            .await
+        {
             self.after_process(tx, remote, &snapshot, &ret).await;
             ret
         } else {
@@ -400,8 +422,8 @@ impl TxPoolService {
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         {
-            let mut chunk = self.chunk.write().await;
-            if chunk.remove_chunk_tx(&id).is_some() {
+            let mut queue = self.verify_queue.write().await;
+            if queue.remove_tx(&id).is_some() {
                 return true;
             }
         }
@@ -463,7 +485,10 @@ impl TxPoolService {
         match remote {
             Some((declared_cycle, peer)) => match ret {
                 Ok(_) => {
-                    debug!("after_process remote send_result_to_relayer {}", tx_hash);
+                    debug!(
+                        "after_process remote send_result_to_relayer {} {}",
+                        tx_hash, peer
+                    );
                     self.send_result_to_relayer(TxVerificationResult::Ok {
                         original_peer: Some(peer),
                         with_vm_2023,
@@ -472,8 +497,15 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    debug!("after_process {} remote reject: {} ", tx_hash, reject);
-                    if is_missing_input(reject) && all_inputs_is_unknown(snapshot, &tx) {
+                    info!(
+                        "after_process {} {} remote reject: {} ",
+                        tx_hash, peer, reject
+                    );
+                    if is_missing_input(reject) {
+                        self.send_result_to_relayer(TxVerificationResult::UnknownParents {
+                            peer,
+                            parents: tx.unique_parents(),
+                        });
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
@@ -484,13 +516,7 @@ impl TxPoolService {
                                 tx_hash: tx_hash.clone(),
                             });
                         }
-
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -518,12 +544,7 @@ impl TxPoolService {
                     }
                     Err(reject) => {
                         debug!("after_process {} reject: {} ", tx_hash, reject);
-                        if matches!(
-                            reject,
-                            Reject::Resolve(..)
-                                | Reject::Verification(..)
-                                | Reject::RBFRejected(..)
-                        ) {
+                        if reject.should_recorded() {
                             self.put_recent_reject(&tx_hash, reject).await;
                         }
                     }
@@ -575,17 +596,16 @@ impl TxPoolService {
             for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
                     debug!(
-                        "process_orphan {} added to chunk; find previous from {}",
+                        "process_orphan {} added to verify queue; find previous from {}",
                         orphan.tx.hash(),
                         tx.hash(),
                     );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    self.chunk
-                        .write()
+                    self.enqueue_verify_queue(orphan.tx, Some((orphan.cycle, orphan.peer)))
                         .await
-                        .add_tx(orphan.tx, Some((orphan.cycle, orphan.peer)));
+                        .expect("enqueue suspended tx");
                 } else if let Some((ret, snapshot)) = self
-                    ._process_tx(orphan.tx.clone(), Some(orphan.cycle))
+                    ._process_tx(orphan.tx.clone(), Some(orphan.cycle), None)
                     .await
                 {
                     match ret {
@@ -632,12 +652,7 @@ impl TxPoolService {
                                         tx_hash: orphan.tx.hash(),
                                     });
                                 }
-                                if matches!(
-                                    reject,
-                                    Reject::Resolve(..)
-                                        | Reject::Verification(..)
-                                        | Reject::RBFRejected(..)
-                                ) {
+                                if reject.should_recorded() {
                                     self.put_recent_reject(&orphan.tx.hash(), &reject).await;
                                 }
                             }
@@ -679,150 +694,15 @@ impl TxPoolService {
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
     }
 
-    async fn _resumeble_process_tx(
-        &self,
-        tx: TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
-    ) -> Option<(Result<ProcessResult, Reject>, Arc<Snapshot>)> {
-        let limit_cycles = self.tx_pool_config.max_tx_verify_cycles;
-        let wtx_hash = tx.witness_hash();
-
-        let (ret, snapshot) = self.pre_check(&tx).await;
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
-
-        if self.is_in_delay_window(&snapshot) {
-            let mut delay = self.delay.write().await;
-            if delay.len() < DELAY_LIMIT {
-                delay.insert(tx.proposal_short_id(), tx);
-            }
-            return None;
-        }
-
-        let cached = self.fetch_tx_verify_cache(&tx).await;
-        let tip_header = snapshot.tip_header();
-        let tx_env = Arc::new(status.with_env(tip_header));
-
-        let data_loader = snapshot.as_data_loader();
-
-        let completed = if let Some(ref entry) = cached {
-            match entry {
-                CacheEntry::Completed(completed) => {
-                    let ret = TimeRelativeTransactionVerifier::new(
-                        Arc::clone(&rtx),
-                        Arc::clone(&self.consensus),
-                        data_loader,
-                        tx_env,
-                    )
-                    .verify()
-                    .map_err(Reject::Verification);
-                    try_or_return_with_snapshot!(ret, snapshot);
-                    *completed
-                }
-                CacheEntry::Suspended(_) => {
-                    return Some((Ok(ProcessResult::Suspended), snapshot));
-                }
-            }
-        } else {
-            let is_chunk_full = self.is_chunk_full().await;
-
-            let ret = block_in_place(|| {
-                let verifier = ContextualTransactionVerifier::new(
-                    Arc::clone(&rtx),
-                    Arc::clone(&self.consensus),
-                    data_loader,
-                    tx_env,
-                );
-
-                let (ret, fee) = verifier
-                    .resumable_verify(limit_cycles)
-                    .map_err(Reject::Verification)?;
-
-                match ret {
-                    ScriptVerifyResult::Completed(cycles) => {
-                        if let Err(e) = DaoScriptSizeVerifier::new(
-                            Arc::clone(&rtx),
-                            Arc::clone(&self.consensus),
-                            snapshot.as_data_loader(),
-                        )
-                        .verify()
-                        {
-                            return Err(Reject::Verification(e));
-                        }
-                        if let Some((declared, _)) = remote {
-                            if declared != cycles {
-                                return Err(Reject::DeclaredWrongCycles(declared, cycles));
-                            }
-                        }
-                        Ok(CacheEntry::completed(cycles, fee))
-                    }
-                    ScriptVerifyResult::Suspended(state) => {
-                        if is_chunk_full {
-                            Err(Reject::Full("chunk".to_owned()))
-                        } else {
-                            let snap = Arc::new(state.try_into().map_err(Reject::Verification)?);
-                            Ok(CacheEntry::suspended(snap, fee))
-                        }
-                    }
-                }
-            });
-
-            let entry = try_or_return_with_snapshot!(ret, snapshot);
-            match entry {
-                cached @ CacheEntry::Suspended(_) => {
-                    let ret = self
-                        .enqueue_suspended_tx(rtx.transaction.clone(), cached, remote)
-                        .await;
-                    try_or_return_with_snapshot!(ret, snapshot);
-                    return Some((Ok(ProcessResult::Suspended), snapshot));
-                }
-                CacheEntry::Completed(completed) => completed,
-            }
-        };
-
-        let entry = TxEntry::new(rtx, completed.cycles, fee, tx_size);
-
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
-        try_or_return_with_snapshot!(ret, submit_snapshot);
-
-        self.notify_block_assembler(status).await;
-        if cached.is_none() {
-            // update cache
-            let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
-            tokio::spawn(async move {
-                let mut guard = txs_verify_cache.write().await;
-                guard.put(wtx_hash, CacheEntry::Completed(completed));
-            });
-        }
-
-        Some((Ok(ProcessResult::Completed(completed)), submit_snapshot))
-    }
-
-    pub(crate) async fn is_chunk_full(&self) -> bool {
-        self.chunk.read().await.is_full()
-    }
-
-    pub(crate) async fn enqueue_suspended_tx(
-        &self,
-        tx: TransactionView,
-        cached: CacheEntry,
-        remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<(), Reject> {
-        let wtx_hash = tx.witness_hash();
-        let mut chunk = self.chunk.write().await;
-        if chunk.add_tx(tx, remote) {
-            let mut guard = self.txs_verify_cache.write().await;
-            guard.put(wtx_hash, cached);
-        }
-
-        Ok(())
-    }
-
     pub(crate) async fn _process_tx(
         &self,
         tx: TransactionView,
         declared_cycles: Option<Cycle>,
+        command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
         let wtx_hash = tx.witness_hash();
+        let instant = Instant::now();
+        let is_sync_process = command_rx.is_none();
 
         let (ret, snapshot) = self.pre_check(&tx).await;
 
@@ -847,12 +727,18 @@ impl TxPoolService {
             tx_env,
             &verify_cache,
             max_cycles,
-        );
+            command_rx,
+        )
+        .await;
 
         let verified = try_or_return_with_snapshot!(verified_ret, snapshot);
 
         if let Some(declared) = declared_cycles {
             if declared != verified.cycles {
+                info!(
+                    "process_tx declared cycles not match verified cycles, declared: {:?} verified: {:?}, tx: {:?}",
+                    declared, verified.cycles, tx
+                );
                 return Some((
                     Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
                     snapshot,
@@ -872,8 +758,17 @@ impl TxPoolService {
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
-                guard.put(wtx_hash, CacheEntry::Completed(verified));
+                guard.put(wtx_hash, verified);
             });
+        }
+
+        if let Some(metrics) = ckb_metrics::handle() {
+            let elapsed = instant.elapsed().as_secs_f64();
+            if is_sync_process {
+                metrics.ckb_tx_pool_sync_process.observe(elapsed);
+            } else {
+                metrics.ckb_tx_pool_async_process.observe(elapsed);
+            }
         }
 
         Some((Ok(verified), submit_snapshot))
@@ -897,7 +792,9 @@ impl TxPoolService {
             tx_env,
             &verify_cache,
             max_cycles,
+            None,
         )
+        .await
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(
@@ -951,7 +848,7 @@ impl TxPoolService {
 
             let txs_opt = if is_in_delay_window {
                 {
-                    self.chunk.write().await.clear();
+                    self.verify_queue.write().await.clear();
                 }
                 Some(tx_pool.drain_all_transactions())
             } else {
@@ -983,7 +880,8 @@ impl TxPoolService {
             }
 
             // notice: readd_detached_tx don't update cache
-            self.readd_detached_tx(&mut tx_pool, retain, fetched_cache);
+            self.readd_detached_tx(&mut tx_pool, retain, fetched_cache)
+                .await;
 
             txs_opt
         };
@@ -1022,9 +920,18 @@ impl TxPoolService {
 
         self.remove_orphan_txs_by_attach(&attached).await;
         {
-            let mut chunk = self.chunk.write().await;
-            chunk.remove_chunk_txs(attached.iter().map(|tx| tx.proposal_short_id()));
+            let mut queue = self.verify_queue.write().await;
+            queue.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
+    }
+
+    async fn enqueue_verify_queue(
+        &self,
+        tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<bool, Reject> {
+        let mut queue = self.verify_queue.write().await;
+        queue.add_tx(tx, remote)
     }
 
     async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
@@ -1035,7 +942,7 @@ impl TxPoolService {
         orphan.remove_orphan_txs(txs.iter().map(|tx| tx.proposal_short_id()));
     }
 
-    fn readd_detached_tx(
+    async fn readd_detached_tx(
         &self,
         tx_pool: &mut TxPool,
         txs: Vec<TransactionView>,
@@ -1057,7 +964,10 @@ impl TxPoolService {
                         tx_env,
                         &verify_cache,
                         max_cycles,
-                    ) {
+                        None,
+                    )
+                    .await
+                    {
                         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
                         if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
                             error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
@@ -1294,9 +1204,4 @@ fn _update_tx_pool_for_reorg(
 
     // Remove transactions from the pool until its size <= size_limit.
     let _ = tx_pool.limit_size(callbacks, None);
-}
-
-pub fn all_inputs_is_unknown(snapshot: &Snapshot, tx: &TransactionView) -> bool {
-    !tx.input_pts_iter()
-        .any(|pt| snapshot.transaction_exists(&pt.tx_hash()))
 }

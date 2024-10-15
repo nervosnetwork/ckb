@@ -48,7 +48,7 @@ jobs:
   ci_linters_macos:
     name: ci_linters_macos
     needs: prologue
-    runs-on: macos-11
+    runs-on: macos-12
     steps:
     - uses: actions/checkout@v3
     - run: |

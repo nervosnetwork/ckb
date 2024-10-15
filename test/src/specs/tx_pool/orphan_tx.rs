@@ -1,10 +1,14 @@
-use crate::util::transaction::relay_tx;
+use crate::util::transaction::{relay_tx, send_tx};
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::Status;
 use ckb_network::SupportProtocols;
-use ckb_types::core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView};
 use ckb_types::packed::CellOutputBuilder;
+use ckb_types::{
+    bytes::Bytes,
+    core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView},
+    packed,
+};
 use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,
@@ -193,6 +197,30 @@ fn run_replay_tx(
     })
 }
 
+fn run_send_tx(
+    net: &Net,
+    node0: &Node,
+    tx: TransactionView,
+    orphan_tx_cnt: u64,
+    pending_cnt: u64,
+) -> bool {
+    send_tx(net, node0, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
+
+    wait_until(5, || {
+        let tx_pool_info = node0.get_tip_tx_pool_info();
+        tx_pool_info.orphan.value() == orphan_tx_cnt && tx_pool_info.pending.value() == pending_cnt
+    })
+}
+
+fn should_receive_get_relay_transactions(net: &Net, node0: &Node, assert_message: &str) {
+    let ret = net.should_receive(node0, |data: &Bytes| {
+        packed::RelayMessage::from_slice(data)
+            .map(|message| message.to_enum().item_name() == packed::GetRelayTransactions::NAME)
+            .unwrap_or(false)
+    });
+    assert!(ret, "{}", assert_message);
+}
+
 pub struct TxPoolOrphanNormal;
 impl Spec for TxPoolOrphanNormal {
     fn run(&self, nodes: &mut Vec<Node>) {
@@ -236,23 +264,20 @@ impl Spec for TxPoolOrphanReverse {
             run_replay_tx(&net, node0, final_tx, 1, 0),
             "expect final_tx is in orphan pool"
         );
+        should_receive_get_relay_transactions(&net, node0, "node should ask for tx11 tx12 tx13");
+
+        assert!(run_send_tx(&net, node0, tx13, 2, 0), "tx13 in orphan pool");
+        should_receive_get_relay_transactions(&net, node0, "node should ask for tx1");
 
         assert!(
-            run_replay_tx(&net, node0, tx13, 2, 0),
-            "tx13 in orphan pool"
-        );
-        assert!(
-            run_replay_tx(&net, node0, tx12, 3, 0),
+            run_send_tx(&net, node0, tx12, 3, 0),
             "tx12 is in orphan pool"
         );
-        assert!(run_replay_tx(&net, node0, tx11, 4, 0), "tx11 is in orphan");
+        assert!(run_send_tx(&net, node0, tx11, 4, 0), "tx11 is in orphan");
+        assert!(run_send_tx(&net, node0, tx1, 5, 0), "tx1 is in orphan");
 
-        assert!(run_replay_tx(&net, node0, tx1, 5, 0), "tx1 is in orphan");
-
-        assert!(
-            run_replay_tx(&net, node0, parent, 0, 6),
-            "all is in pending"
-        );
+        should_receive_get_relay_transactions(&net, node0, "node should ask for parent");
+        assert!(run_send_tx(&net, node0, parent, 0, 6), "all is in pending");
     }
 }
 
@@ -267,13 +292,14 @@ impl Spec for TxPoolOrphanUnordered {
             "expect final_tx is in orphan pool"
         );
 
-        assert!(
-            run_replay_tx(&net, node0, tx11, 2, 0),
-            "tx11 in orphan pool"
-        );
+        should_receive_get_relay_transactions(&net, node0, "node should ask for tx11 tx12 tx13");
+
+        assert!(run_send_tx(&net, node0, tx11, 2, 0), "tx11 in orphan pool");
+        should_receive_get_relay_transactions(&net, node0, "node should ask for tx1");
+
         let tx12_clone = tx12.clone();
         assert!(
-            run_replay_tx(&net, node0, tx12, 3, 0),
+            run_send_tx(&net, node0, tx12, 3, 0),
             "tx12 is in orphan pool"
         );
 
@@ -292,12 +318,47 @@ impl Spec for TxPoolOrphanUnordered {
             "parent is sent, should be in pending without change orphan pool"
         );
         assert!(
-            run_replay_tx(&net, node0, tx1, 1, 4),
+            run_send_tx(&net, node0, tx1, 1, 4),
             "tx1 is sent, orphan pool only contains final_tx"
         );
 
         assert!(
-            run_replay_tx(&net, node0, tx13, 0, 6),
+            run_send_tx(&net, node0, tx13, 0, 6),
+            "tx13 is sent, orphan pool is empty"
+        );
+    }
+}
+
+pub struct TxPoolOrphanPartialInputUnknown;
+impl Spec for TxPoolOrphanPartialInputUnknown {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node0 = &nodes[0];
+        let (net, (parent, tx1, tx11, tx12, tx13, final_tx)) = build_tx_chain(node0);
+
+        assert!(
+            run_replay_tx(&net, node0, parent, 0, 1),
+            "parent sended expect nothing in orphan pool"
+        );
+        assert!(
+            run_replay_tx(&net, node0, tx1, 0, 2),
+            "tx1 is sent expect nothing in orphan pool"
+        );
+        assert!(
+            run_replay_tx(&net, node0, tx11, 0, 3),
+            "tx11 is sent expect nothing in orphan pool"
+        );
+        assert!(
+            run_replay_tx(&net, node0, tx12, 0, 4),
+            "tx12 is sent expect nothing in orphan pool"
+        );
+        assert!(
+            run_replay_tx(&net, node0, final_tx, 1, 4),
+            "expect final_tx is in orphan pool"
+        );
+
+        should_receive_get_relay_transactions(&net, node0, "node should ask for tx13");
+        assert!(
+            run_send_tx(&net, node0, tx13, 0, 6),
             "tx13 is sent, orphan pool is empty"
         );
     }

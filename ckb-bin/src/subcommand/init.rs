@@ -3,7 +3,7 @@ use std::io::{self, Read};
 
 use crate::helper::prompt;
 use base64::Engine;
-use ckb_app_config::{cli, AppConfig, ExitCode, InitArgs};
+use ckb_app_config::{AppConfig, ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
@@ -11,6 +11,8 @@ use ckb_resource::{
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
 use ckb_types::{prelude::*, H256};
+
+use crate::cli;
 
 const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x

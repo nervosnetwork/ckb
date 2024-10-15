@@ -625,6 +625,7 @@ pub trait ChainRpc {
     ///       "block_hash": null,
     ///       "block_number": null,
     ///       "status": "pending",
+    ///       "tx_index": null,
     ///       "reason": null
     ///     }
     ///   }
@@ -645,6 +646,7 @@ pub trait ChainRpc {
     ///       "block_hash": null,
     ///       "block_number": null,
     ///       "status": "pending",
+    ///       "tx_index": null,
     ///       "reason": null
     ///     }
     ///   }
@@ -2159,6 +2161,7 @@ impl ChainRpcImpl {
                 None,
                 tx_info.block_number,
                 tx_info.block_hash.unpack(),
+                tx_info.index as u32,
                 cycles,
                 None,
             ));
@@ -2207,6 +2210,7 @@ impl ChainRpcImpl {
                 Some(tx),
                 tx_info.block_number,
                 tx_info.block_hash.unpack(),
+                tx_info.index as u32,
                 cycles,
                 None,
             ));

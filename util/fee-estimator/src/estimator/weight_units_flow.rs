@@ -222,12 +222,16 @@ impl Algorithm {
                 let index = Self::max_bucket_index_by_fee_rate(tx.fee_rate);
                 if index < index_curr {
                     let weight_curr = buckets[index_curr];
-                    for i in buckets.iter_mut().take(index_curr).skip(index) {
+                    for i in buckets.iter_mut().take(index_curr) {
                         *i = weight_curr;
                     }
                 }
                 buckets[index] += tx.weight;
                 index_curr = index;
+            }
+            let weight_curr = buckets[index_curr];
+            for i in buckets.iter_mut().take(index_curr) {
+                *i = weight_curr;
             }
             buckets
         };
@@ -250,12 +254,16 @@ impl Algorithm {
                 }
                 if index < index_curr {
                     let flowed_curr = buckets[index_curr];
-                    for i in buckets.iter_mut().take(index_curr).skip(index) {
+                    for i in buckets.iter_mut().take(index_curr) {
                         *i = flowed_curr;
                     }
                 }
                 buckets[index] += tx.weight;
                 index_curr = index;
+            }
+            let flowed_curr = buckets[index_curr];
+            for i in buckets.iter_mut().take(index_curr) {
+                *i = flowed_curr;
             }
             buckets
                 .into_iter()
@@ -271,7 +279,9 @@ impl Algorithm {
         for bucket_index in 1..=max_bucket_index {
             let current_weight = current_weight_buckets[bucket_index];
             let added_weight = flow_speed_buckets[bucket_index] * target_blocks;
-            let removed_weight = MAX_BLOCK_BYTES * target_blocks;
+            // Note: blocks are not full even there are many pending transactions,
+            // since `MAX_BLOCK_PROPOSALS_LIMIT = 1500`.
+            let removed_weight = (MAX_BLOCK_BYTES * 85 / 100) * target_blocks;
             let passed = current_weight + added_weight <= removed_weight;
             ckb_logger::trace!(
                 ">>> bucket[{}]: {}; {} + {} - {}",
@@ -298,6 +308,7 @@ impl Algorithm {
             .flat_map(|(_, statuses)| statuses.to_owned())
             .collect();
         statuses.sort_unstable_by(|a, b| b.cmp(a));
+        ckb_logger::trace!(">>> sorted flowed length: {}", statuses.len());
         statuses
     }
 }

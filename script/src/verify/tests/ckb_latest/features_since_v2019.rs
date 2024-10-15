@@ -49,7 +49,7 @@ fn check_always_success_hash() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert!(result.is_ok());
+    assert_eq!(result.ok(), Some(ALWAYS_SUCCESS_SCRIPT_CYCLE));
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn check_signature() {
     );
 
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert!(result.is_ok());
+    assert_eq!(result.ok(), Some(ALWAYS_SUCCESS_SCRIPT_CYCLE));
 }
 
 #[test]
@@ -187,7 +187,11 @@ fn check_signature_referenced_via_type_hash() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert!(result.is_ok());
+    if script_version == ScriptVersion::V0 {
+        assert_eq!(result.ok(), Some(ALWAYS_SUCCESS_SCRIPT_CYCLE));
+    } else {
+        assert_eq!(result.ok(), Some(ALWAYS_SUCCESS_SCRIPT_CYCLE + 2));
+    }
 }
 
 #[test]
@@ -378,7 +382,7 @@ fn check_output_contract() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    assert!(result.is_ok());
+    assert_eq!(result.ok(), Some(1074));
 }
 
 #[test]
@@ -574,6 +578,7 @@ fn check_type_id_one_in_one_out() {
     let max_cycles = TYPE_ID_CYCLES * 2;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify(script_version, &rtx, max_cycles);
+
     assert!(
         result.is_ok(),
         "expect ok, but got {:?}",

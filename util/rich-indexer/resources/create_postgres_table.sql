@@ -1,4 +1,4 @@
-CREATE TABLE block(
+CREATE TABLE IF NOT EXISTS block(
     id BIGSERIAL PRIMARY KEY,
     block_hash BYTEA NOT NULL,
     block_number BIGINT NOT NULL,
@@ -15,19 +15,19 @@ CREATE TABLE block(
     extension BYTEA
 );
 
-CREATE TABLE block_association_proposal(
+CREATE TABLE IF NOT EXISTS block_association_proposal(
     id BIGSERIAL,
     block_id BIGINT NOT NULL,
     proposal BYTEA NOT NULL
 );
 
-CREATE TABLE block_association_uncle(
+CREATE TABLE IF NOT EXISTS block_association_uncle(
     id BIGSERIAL,
     block_id BIGINT NOT NULL,
     uncle_id BIGINT NOT NULL
 );
 
-CREATE TABLE ckb_transaction(
+CREATE TABLE IF NOT EXISTS ckb_transaction(
     id BIGSERIAL PRIMARY KEY,
     tx_hash BYTEA NOT NULL,
     version BYTEA NOT NULL,
@@ -38,20 +38,20 @@ CREATE TABLE ckb_transaction(
     tx_index INTEGER NOT NULL
 );
 
-CREATE TABLE tx_association_header_dep(
+CREATE TABLE IF NOT EXISTS tx_association_header_dep(
     id BIGSERIAL,
     tx_id BIGINT NOT NULL,
     block_id BIGINT NOT NULL
 );
 
-CREATE TABLE tx_association_cell_dep(
+CREATE TABLE IF NOT EXISTS tx_association_cell_dep(
     id BIGSERIAL,
     tx_id BIGINT NOT NULL,
     output_id BIGINT NOT NULL,
     dep_type SMALLINT NOT NULL
 );
 
-CREATE TABLE output(
+CREATE TABLE IF NOT EXISTS output(
     id BIGSERIAL PRIMARY KEY,
     tx_id BIGINT NOT NULL,
     output_index INTEGER NOT NULL,
@@ -61,14 +61,14 @@ CREATE TABLE output(
     data BYTEA
 );
 
-CREATE TABLE input(
+CREATE TABLE IF NOT EXISTS input(
     output_id BIGINT PRIMARY KEY,
     since BYTEA NOT NULL,
     consumed_tx_id BIGINT NOT NULL,
     input_index INTEGER NOT NULL
 );
 
-CREATE TABLE script(
+CREATE TABLE IF NOT EXISTS script(
     id BIGSERIAL PRIMARY KEY,
     code_hash BYTEA NOT NULL,
     hash_type SMALLINT NOT NULL,

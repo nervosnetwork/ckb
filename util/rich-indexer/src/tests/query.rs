@@ -12,13 +12,16 @@ use ckb_types::{
     H256,
 };
 
-use std::sync::{Arc, RwLock};
+use std::{
+    sync::{Arc, RwLock},
+    usize,
+};
 use tokio::test;
 
 #[test]
 async fn test_query_tip() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None, usize::MAX);
     let res = indexer.get_indexer_tip().await.unwrap();
     assert!(res.is_none());
 
@@ -34,7 +37,7 @@ async fn test_query_tip() {
 #[test]
 async fn get_cells() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None, usize::MAX);
     let res = indexer.get_indexer_tip().await.unwrap();
     assert!(res.is_none());
 
@@ -163,7 +166,7 @@ async fn get_cells() {
 #[test]
 async fn get_cells_filter_data() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None, usize::MAX);
     let res = indexer.get_indexer_tip().await.unwrap();
     assert!(res.is_none());
 
@@ -219,7 +222,7 @@ async fn get_cells_filter_data() {
 #[test]
 async fn get_cells_by_cursor() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None, usize::MAX);
     let res = indexer.get_indexer_tip().await.unwrap();
     assert!(res.is_none());
 
@@ -281,7 +284,7 @@ async fn get_cells_by_cursor() {
 #[test]
 async fn get_transactions_ungrouped() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None, usize::MAX);
 
     insert_blocks(pool).await;
 
@@ -405,7 +408,7 @@ async fn get_transactions_ungrouped() {
 #[test]
 async fn get_transactions_grouped() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None, usize::MAX);
 
     insert_blocks(pool).await;
 
@@ -486,7 +489,7 @@ async fn get_transactions_grouped() {
 #[test]
 async fn get_cells_capacity() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None);
+    let indexer = AsyncRichIndexerHandle::new(pool.clone(), None, usize::MAX);
 
     insert_blocks(pool).await;
 
@@ -557,7 +560,7 @@ async fn rpc() {
     let store = connect_sqlite(MEMORY_DB).await;
     let pool = Arc::new(RwLock::new(Pool::default()));
     let indexer = AsyncRichIndexer::new(store.clone(), None, CustomFilters::new(None, None));
-    let rpc = AsyncRichIndexerHandle::new(store, Some(Arc::clone(&pool)));
+    let rpc = AsyncRichIndexerHandle::new(store, Some(Arc::clone(&pool)), usize::MAX);
 
     // setup test data
     let lock_script1 = ScriptBuilder::default()
@@ -1165,7 +1168,7 @@ async fn rpc() {
 async fn script_search_mode_rpc() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));
-    let rpc = AsyncRichIndexerHandle::new(pool, None);
+    let rpc = AsyncRichIndexerHandle::new(pool, None, usize::MAX);
 
     // setup test data
     let lock_script1 = ScriptBuilder::default()
@@ -1414,7 +1417,7 @@ async fn script_search_mode_rpc() {
 async fn output_data_filter_mode_rpc() {
     let pool = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));
-    let rpc = AsyncRichIndexerHandle::new(pool, None);
+    let rpc = AsyncRichIndexerHandle::new(pool, None, usize::MAX);
 
     // setup test data
     let lock_script1 = ScriptBuilder::default()
