@@ -75,9 +75,13 @@ impl OrphanPool {
         self.entries.remove(id).map(|entry| {
             debug!("remove orphan tx {}", entry.tx.hash());
             for out_point in entry.tx.input_pts_iter() {
-                self.by_out_point
-                    .get_mut(&out_point)
-                    .map(|set| set.remove(id));
+                if let Some(ids_set) = self.by_out_point.get_mut(&out_point) {
+                    ids_set.remove(id);
+
+                    if ids_set.is_empty() {
+                        self.by_out_point.remove(&out_point);
+                    }
+                }
             }
             entry
         })
