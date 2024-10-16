@@ -1236,6 +1236,12 @@ fn check_spawn_index_out_of_bound() {
 }
 
 #[test]
+fn check_root_inherited_fds() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[19]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
 fn check_spawn_cycles() {
     let script_version = SCRIPT_VERSION;
 

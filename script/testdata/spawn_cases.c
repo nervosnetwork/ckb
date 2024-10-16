@@ -536,6 +536,17 @@ exit:
     return err;
 }
 
+int parent_root_inherited_fds() {
+    uint64_t fds[2] = {0};
+    uint64_t length = 2;
+    int err = ckb_inherited_fds(fds, &length);
+    CHECK(err);
+    CHECK2(length == 0, -1);
+    err = 0;
+exit:
+    return err;
+}
+
 int parent_entry(int case_id) {
     int err = 0;
     uint64_t pid = 0;
@@ -577,6 +588,8 @@ int parent_entry(int case_id) {
         return parent_invaild_index(&pid);
     } else if (case_id == 18) {
         return parent_index_out_of_bound(&pid);
+    } else if (case_id == 19) {
+        return parent_root_inherited_fds();
     } else {
         CHECK2(false, -2);
     }

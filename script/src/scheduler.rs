@@ -462,7 +462,11 @@ where
                     );
                 }
                 Message::InheritedFileDescriptor(vm_id, args) => {
-                    let inherited_fd = self.inherited_fd[&vm_id].clone();
+                    let inherited_fd = if vm_id == ROOT_VM_ID {
+                        Vec::new()
+                    } else {
+                        self.inherited_fd[&vm_id].clone()
+                    };
                     let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                     let FdArgs {
                         buffer_addr,
