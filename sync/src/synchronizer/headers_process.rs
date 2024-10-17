@@ -353,6 +353,7 @@ pub enum ValidationState {
     Invalid,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum ValidationError {
     Verify(Error),

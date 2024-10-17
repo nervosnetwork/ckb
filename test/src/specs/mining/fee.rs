@@ -183,7 +183,7 @@ impl Spec for ProposeButNotCommit {
 
         let cells = gen_spendable(feed_node, 1);
         let transaction = always_success_transaction(feed_node, &cells[0]);
-        let txs = vec![transaction];
+        let txs = [transaction];
         feed_node.submit_transaction(&txs[0]);
         feed_node.mine(1);
 
@@ -209,7 +209,7 @@ impl Spec for ProposeDuplicated {
         let node = &nodes[0];
         let cells = gen_spendable(node, 1);
         let tx = always_success_transaction(node, &cells[0]);
-        let txs = vec![tx];
+        let txs = [tx];
         let tx = &txs[0];
 
         let uncle1 = {

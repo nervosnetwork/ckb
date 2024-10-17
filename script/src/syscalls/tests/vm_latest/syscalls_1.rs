@@ -1630,7 +1630,7 @@ fn test_load_overflowed_cell_data_as_code() {
     machine.set_register(A0, addr); // addr
     machine.set_register(A1, addr_size); // size
     machine.set_register(A2, 3); // content offset
-    machine.set_register(A3, u64::max_value() - 1); // content size
+    machine.set_register(A3, u64::MAX - 1); // content size
     machine.set_register(A4, 0); //index
     machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
     machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number

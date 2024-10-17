@@ -1,5 +1,3 @@
-use std::usize;
-
 use super::*;
 
 use ckb_types::{

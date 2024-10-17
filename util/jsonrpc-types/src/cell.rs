@@ -53,13 +53,13 @@ pub struct CellWithStatus {
     /// Allowed values: "live", "dead", "unknown".
     ///
     /// * `live` - The transaction creating this cell is in the chain, and there are no
-    /// transactions found in the chain that uses this cell as an input.
+    ///   transactions found in the chain that uses this cell as an input.
     /// * `dead` - (**Deprecated**: the dead status will be removed since 0.36.0, please do not
-    /// rely on the logic that differentiates dead and unknown cells.) The transaction creating
-    /// this cell is in the chain, and a transaction is found in the chain which uses this cell as
-    /// an input.
+    ///   rely on the logic that differentiates dead and unknown cells.) The transaction creating
+    ///   this cell is in the chain, and a transaction is found in the chain which uses this cell as
+    ///   an input.
     /// * `unknown` - CKB does not know the status of the cell. Either the transaction creating
-    /// this cell is not in the chain yet, or it is no longer live.
+    ///   this cell is not in the chain yet, or it is no longer live.
     pub status: String,
 }
 

@@ -28,12 +28,12 @@ pub enum Status {
     Proposed,
 }
 
-impl ToString for Status {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Status::Pending => "pending".to_string(),
-            Status::Gap => "gap".to_string(),
-            Status::Proposed => "proposed".to_string(),
+            Status::Pending => write!(f, "pending"),
+            Status::Gap => write!(f, "gap"),
+            Status::Proposed => write!(f, "proposed"),
         }
     }
 }

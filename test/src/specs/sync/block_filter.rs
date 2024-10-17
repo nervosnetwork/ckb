@@ -66,13 +66,12 @@ impl Spec for GetBlockFilterCheckPoints {
                             node.get_block_filter(header.hash()).data.into();
                         let expected_hash = if i == 0 {
                             blake2b_256(
-                                &[&[0u8; 32], block_filter.calc_raw_data_hash().as_slice()]
-                                    .concat(),
+                                [&[0u8; 32], block_filter.calc_raw_data_hash().as_slice()].concat(),
                             )
                         } else {
                             let parent_block_filter = node.get_block_filter(header.parent_hash());
                             blake2b_256(
-                                &[
+                                [
                                     parent_block_filter.hash.0.as_slice(),
                                     block_filter.calc_raw_data_hash().as_slice(),
                                 ]
@@ -165,7 +164,7 @@ impl Spec for GetBlockFilterHashes {
                             node.get_block_filter(header.hash()).data.into();
                         let parent_block_filter = node.get_block_filter(header.parent_hash());
                         let expected_hash = blake2b_256(
-                            &[
+                            [
                                 parent_block_filter.hash.0.as_slice(),
                                 block_filter.calc_raw_data_hash().as_slice(),
                             ]

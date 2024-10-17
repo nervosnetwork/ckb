@@ -749,7 +749,7 @@ where
                 .store
                 .iter(&key_prefix_consumed_out_point, IteratorDirection::Forward)?
                 .take_while(|(key, _value)| key.starts_with(&key_prefix_consumed_out_point));
-            let mut min_block_number = BlockNumber::max_value();
+            let mut min_block_number = BlockNumber::MAX;
             for (block_number, key) in iter
                 .map(|(key, _value)| {
                     (
@@ -761,7 +761,7 @@ where
                 })
                 .take_while(|(block_number, _key)| prune_to_block.gt(block_number))
             {
-                if min_block_number == BlockNumber::max_value() {
+                if min_block_number == BlockNumber::MAX {
                     min_block_number = block_number;
                 }
                 batch.delete(key)?;

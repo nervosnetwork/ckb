@@ -185,7 +185,8 @@ impl From<JsonUint<u64>> for core::Capacity {
     }
 }
 
-#[cfg(tests)]
+#[allow(dead_code)]
+#[cfg(test)]
 mod tests {
     macro_rules! test_json_uint {
         ($tests_name:ident, $name:ident, $inner:ident) => {
@@ -209,7 +210,7 @@ mod tests {
                 fn deserialize_decimal() {
                     let s = r#""10""#;
                     let ret: Result<$name, _> = serde_json::from_str(s);
-                    assert!(ret.is_err(), ret);
+                    assert!(ret.is_err(), "{:?}", ret);
                 }
 
                 #[test]
@@ -217,11 +218,12 @@ mod tests {
                     let cases = vec![r#""0x01""#, r#""0x00""#];
                     for s in cases {
                         let ret: Result<$name, _> = serde_json::from_str(s);
-                        assert!(ret.is_err(), ret);
+                        assert!(ret.is_err(), "{:?}", ret);
 
                         let err = ret.unwrap_err();
                         assert!(
                             err.to_string().contains("with redundant leading zeros"),
+                            "{:?}",
                             err,
                         );
                     }
@@ -237,14 +239,15 @@ mod tests {
 
                 #[test]
                 fn deserialize_too_large() {
-                    let s = format!(r#""0x{:x}0""#, $inner::max_value());
+                    let s = format!(r#""0x{:x}0""#, $inner::MAX);
                     let ret: Result<$name, _> = serde_json::from_str(&s);
-                    assert!(ret.is_err(), ret);
+                    assert!(ret.is_err(), "{:?}", ret);
 
                     let err = ret.unwrap_err();
                     assert!(
                         err.to_string()
                             .contains("number too large to fit in target type"),
+                        "{:?}",
                         err,
                     );
                 }

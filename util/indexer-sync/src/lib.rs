@@ -137,7 +137,7 @@ impl IndexerSyncService {
         }
     }
 
-    fn try_loop_sync<I: IndexerSync>(&self, indexer: I)
+    fn try_loop_sync<I>(&self, indexer: I)
     where
         I: IndexerSync + Clone + Send + 'static,
     {

@@ -159,7 +159,7 @@ impl<'r> CalcExtraHash for packed::BlockReader<'r> {
     ///
     /// - If there is no extension, extra hash is the same as the uncles hash.
     /// - If there is a extension, then extra hash it the hash of the combination
-    /// of uncles hash and the extension hash.
+    ///   of uncles hash and the extension hash.
     fn calc_extra_hash(&self) -> core::ExtraHashView {
         crate::core::ExtraHashView::new(self.calc_uncles_hash(), self.calc_extension_hash())
     }

@@ -261,6 +261,7 @@ fn create_sqlite(db_config: &RichIndexerConfig) {
         OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&db_config.store)
             .expect("Create db file");
     }

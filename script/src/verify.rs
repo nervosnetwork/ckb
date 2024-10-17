@@ -615,7 +615,7 @@ where
     /// ## Params
     ///
     /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    /// when the consumed cycles exceed the limit.
+    ///   when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
@@ -644,7 +644,7 @@ where
     /// ## Params
     ///
     /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    /// when the consumed cycles exceed the limit.
+    ///   when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
@@ -729,7 +729,7 @@ where
     /// * `snap` - Captured transaction verification snapshot.
     ///
     /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    /// when the consumed cycles exceed the limit.
+    ///   when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
@@ -800,7 +800,7 @@ where
     /// * `state` - vm state.
     ///
     /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    /// when the consumed cycles exceed the limit.
+    ///   when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///
@@ -880,7 +880,7 @@ where
     /// * `snap` - Captured transaction verification snapshot.
     ///
     /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    /// when the consumed cycles exceed the limit.
+    ///   when the consumed cycles exceed the limit.
     ///
     /// ## Returns
     ///

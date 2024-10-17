@@ -208,7 +208,7 @@ where
         if self.states.is_empty() {
             // Booting phase, we will need to initialize the first VM.
             assert_eq!(
-                self.boot_vm(&DataPieceId::Program, 0, u64::max_value(), &[])?,
+                self.boot_vm(&DataPieceId::Program, 0, u64::MAX, &[])?,
                 ROOT_VM_ID
             );
         }
@@ -216,7 +216,7 @@ where
 
         let (pause, mut limit_cycles) = match mode {
             RunMode::LimitCycles(limit_cycles) => (Pause::new(), limit_cycles),
-            RunMode::Pause(pause) => (pause, u64::max_value()),
+            RunMode::Pause(pause) => (pause, u64::MAX),
         };
 
         while self.states[&ROOT_VM_ID] != VmState::Terminated {
@@ -791,7 +791,7 @@ where
             version.vm_isa(),
             version.vm_version(),
             // We will update max_cycles for each machine when it gets a chance to run
-            u64::max_value(),
+            u64::MAX,
         );
         let snapshot2_context = Arc::new(Mutex::new(Snapshot2Context::new(self.tx_data.clone())));
         let mut syscalls_generator = self.syscalls_generator.clone();

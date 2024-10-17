@@ -164,7 +164,7 @@ impl Node {
                 .system_cells
                 .iter_mut()
                 .for_each(|system_cell| {
-                    system_cell.file.absolutize(&working_dir.join("specs"));
+                    system_cell.file.absolutize(working_dir.join("specs"));
                 });
             chain_spec.build_consensus().unwrap()
         };
