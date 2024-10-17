@@ -190,7 +190,6 @@ impl From<JsonUint<u64>> for core::Capacity {
 mod tests {
     macro_rules! test_json_uint {
         ($tests_name:ident, $name:ident, $inner:ident) => {
-
             mod $tests_name {
                 use crate::$name;
 

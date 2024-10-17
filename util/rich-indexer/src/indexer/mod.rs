@@ -31,7 +31,7 @@ use std::sync::{Arc, RwLock};
 /// - tx_association_header_dep
 /// - tx_association_cell_dep
 ///   The detailed table design can be found in the SQL files in the resources folder of this crate
-/// 
+///
 /// Rich-Indexer, which is based on a relational database
 #[derive(Clone)]
 pub(crate) struct RichIndexer {

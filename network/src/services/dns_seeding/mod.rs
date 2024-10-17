@@ -42,7 +42,7 @@ impl DnsSeedingService {
             }
         }
     }
-    
+
     #[allow(clippy::const_is_empty)]
     async fn seeding(&self) -> Result<(), Box<dyn Error>> {
         // TODO: DNS seeding is disabled now, may enable in the future (need discussed)
