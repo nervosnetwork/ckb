@@ -18,7 +18,10 @@ use ckb_types::{
 
 use crate::{constants, Error};
 
-const DEFAULT_MIN_CONFIRM_RATE: f64 = 0.9;
+/// The number of blocks that the esitmator will trace the statistics.
+const MAX_CONFIRM_BLOCKS: usize = 1000;
+const DEFAULT_MIN_SAMPLES: usize = 20;
+const DEFAULT_MIN_CONFIRM_RATE: f64 = 0.85;
 
 #[derive(Default, Debug, Clone)]
 struct BucketStat {
@@ -108,10 +111,12 @@ impl BucketStat {
 
 impl Default for TxConfirmStat {
     fn default() -> Self {
-        let max_confirm_blocks = constants::MAX_TARGET as usize;
         let min_bucket_feerate = f64::from(constants::LOWEST_FEE_RATE.as_u64() as u32);
-        let max_bucket_feerate = min_bucket_feerate * 1000.0;
-        let fee_spacing = min_bucket_feerate;
+        // MULTIPLE = max_bucket_feerate / min_bucket_feerate
+        const MULTIPLE: f64 = 10000.0;
+        let max_bucket_feerate = min_bucket_feerate * MULTIPLE;
+        // expect 200 buckets
+        let fee_spacing = (MULTIPLE.ln() / 200.0f64).exp();
         // half life each 100 blocks, math.exp(math.log(0.5) / 100)
         let decay_factor: f64 = (0.5f64.ln() / 100.0).exp();
 
@@ -122,7 +127,7 @@ impl Default for TxConfirmStat {
             buckets.push(FeeRate::from_u64(bucket_fee_boundary as u64));
             bucket_fee_boundary *= fee_spacing;
         }
-        Self::new(buckets, max_confirm_blocks, decay_factor)
+        Self::new(buckets, MAX_CONFIRM_BLOCKS, decay_factor)
     }
 }
 
@@ -430,10 +435,9 @@ impl Algorithm {
 
     /// estimate a fee rate for confirm target
     fn estimate(&self, expect_confirm_blocks: BlockNumber) -> Result<FeeRate, Error> {
-        let min_estimate_samples = constants::MIN_TARGET as usize * 2;
         self.tx_confirm_stat.estimate_median(
             expect_confirm_blocks as usize,
-            min_estimate_samples,
+            DEFAULT_MIN_SAMPLES,
             DEFAULT_MIN_CONFIRM_RATE,
         )
     }
