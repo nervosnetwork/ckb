@@ -36,7 +36,7 @@ pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 /// ## Parameters
 ///
 /// * `version` - The version is passed in so the bin crate can collect the version without trigger
-/// re-linking.
+///   re-linking.
 pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");

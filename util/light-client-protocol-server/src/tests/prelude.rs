@@ -8,6 +8,7 @@ use ckb_types::{
     U256,
 };
 
+#[allow(dead_code)]
 pub(crate) trait SnapshotExt {
     fn get_header_by_number(&self, num: BlockNumber) -> Option<HeaderView>;
 

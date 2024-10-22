@@ -687,7 +687,7 @@ fn test_sync_process() {
 
     // Construct a better tip, to trigger fixing last_common_header inside `get_blocks_to_fetch`
     insert_block(&synchronizer2.chain, &shared2, 201u128, 201);
-    let headers = vec![synchronizer2.shared.active_chain().tip_header()];
+    let headers = [synchronizer2.shared.active_chain().tip_header()];
     let sendheaders = SendHeadersBuilder::default()
         .headers(headers.iter().map(|h| h.data()).pack())
         .build();

@@ -42,3 +42,6 @@ tempfile.workspace = true
 rand = "0.8.4"
 daggy = "0.8.0"
 molecule = "0.8.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(has_asm)'] }

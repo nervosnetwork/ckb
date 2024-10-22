@@ -62,17 +62,16 @@ impl RpcServer {
             handler.clone(),
             false,
         )
-        .map(|local_addr| {
+        .inspect(|&local_addr| {
             info!("Listen HTTP RPCServer on address: {}", local_addr);
-            local_addr
         })
         .unwrap();
 
         let ws_address = if let Some(addr) = config.ws_listen_address {
-            let local_addr = Self::start_server(&rpc, addr, handler.clone(), true).map(|addr| {
-                info!("Listen WebSocket RPCServer on address: {}", addr);
-                addr
-            });
+            let local_addr =
+                Self::start_server(&rpc, addr, handler.clone(), true).inspect(|&addr| {
+                    info!("Listen WebSocket RPCServer on address: {}", addr);
+                });
             local_addr.ok()
         } else {
             None

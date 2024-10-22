@@ -117,7 +117,7 @@ impl Notifier {
         // sort by priority
         self.noticed_alerts.sort_by_key(|a| {
             let priority: u32 = a.raw().priority().unpack();
-            std::u32::MAX - priority
+            u32::MAX - priority
         });
     }
 
