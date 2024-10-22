@@ -10,12 +10,14 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [features]
 default = ["blake2b-ref", "blake2b-rs"]
-ckb-contract = ["blake2b-ref"] # This feature is used for CKB contract development
+ckb-contract = [
+    "blake2b-ref",
+] # This feature is used for CKB contract development
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 blake2b-rs = { version = "0.2", optional = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 blake2b-ref = { version = "0.3", optional = true }
 
 [dependencies]

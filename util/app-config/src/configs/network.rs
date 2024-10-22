@@ -88,6 +88,40 @@ pub struct Config {
     pub sync: SyncConfig,
     /// Tentacle inner channel_size.
     pub channel_size: Option<usize>,
+
+    #[cfg(target_family = "wasm")]
+    #[serde(skip)]
+    pub secret_key: Option<[u8; 32]>,
+
+    #[cfg(target_family = "wasm")]
+    #[serde(skip)]
+    pub peer_store_ban_list_fns: std::sync::Arc<PeerStoreWasm>,
+    #[cfg(target_family = "wasm")]
+    #[serde(skip)]
+    pub peer_store_fns: std::sync::Arc<PeerStoreWasm>,
+}
+
+#[cfg(target_family = "wasm")]
+pub struct PeerStoreWasm {
+    pub dump_fn: Box<dyn Fn(&[u8]) + Send + Sync>,
+    pub load_fn: Box<dyn Fn() -> Vec<u8> + Send + Sync>,
+}
+
+#[cfg(target_family = "wasm")]
+impl std::fmt::Debug for PeerStoreWasm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "wasm peer store functions")
+    }
+}
+
+#[cfg(target_family = "wasm")]
+impl Default for PeerStoreWasm {
+    fn default() -> Self {
+        PeerStoreWasm {
+            dump_fn: Box::new(|_| {}),
+            load_fn: Box::new(|| Vec::new()),
+        }
+    }
 }
 
 /// Chain synchronization config options.
@@ -297,6 +331,7 @@ impl Config {
     }
 
     /// Reads the private key from file or generates one if the file does not exist.
+    #[cfg(not(target_family = "wasm"))]
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
         match self.read_secret_key()? {
             Some(key) => Ok(key),
@@ -305,6 +340,21 @@ impl Config {
                 Ok(self.read_secret_key()?.expect("key must exists"))
             }
         }
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
+        self.secret_key
+            .clone()
+            .ok_or(Error::new(
+                ErrorKind::InvalidData,
+                "invalid secret key data",
+            ))
+            .or_else(|_| Ok(generate_random_key()))
+            .map(|secret| {
+                secio::SecioKeyPair::secp256k1_raw_key(&secret)
+                    .expect("network secret key is invalid")
+            })
     }
 
     /// Gets the list of whitelist peers.

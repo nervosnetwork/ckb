@@ -37,6 +37,14 @@ impl AddrManager {
             .and_then(|_| file.sync_all())
             .map_err(Into::into)
     }
+
+    #[cfg(target_family = "wasm")]
+    pub fn dump_with_fn<F: Fn(&[u8])>(&self, f: F) {
+        let addrs: Vec<_> = self.addrs_iter().collect();
+        debug!("Dump {} addrs", addrs.len());
+        let bytes = serde_json::to_string(&addrs).unwrap();
+        f(bytes.as_bytes())
+    }
 }
 
 impl BanList {
@@ -61,6 +69,14 @@ impl BanList {
             .and_then(|json_string| file.write_all(json_string.as_bytes()))
             .and_then(|_| file.sync_all())
             .map_err(Into::into)
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn dump_with_fn<F: Fn(&[u8])>(&self, f: F) {
+        let addrs: Vec<_> = self.get_banned_addrs();
+        debug!("Dump {} banned addrs", addrs.len());
+        let bytes = serde_json::to_string(&addrs).unwrap();
+        f(bytes.as_bytes())
     }
 }
 
@@ -107,6 +123,23 @@ impl PeerStore {
         PeerStore::new(addr_manager, ban_list)
     }
 
+    #[cfg(target_family = "wasm")]
+    pub fn load_from_config(config: &ckb_app_config::NetworkConfig) -> Self {
+        let addr_manager = Ok((config.peer_store_fns.load_fn)())
+            .and_then(|file| {
+                AddrManager::load(std::io::BufReader::new(std::io::Cursor::new(file)))
+                    .map_err(|err| error!("Failed to load AddrManager db, error: {:?}", err))
+            })
+            .unwrap_or_default();
+        let ban_list = Ok((config.peer_store_ban_list_fns.load_fn)())
+            .and_then(|file| {
+                BanList::load(std::io::BufReader::new(std::io::Cursor::new(file)))
+                    .map_err(|err| error!("Failed to load BanList db, error: {:?}", err))
+            })
+            .unwrap_or_default();
+        PeerStore::new(addr_manager, ban_list)
+    }
+
     /// Dump all info to disk
     pub fn dump_to_dir<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
         // create dir
@@ -138,6 +171,14 @@ impl PeerStore {
         )?;
         move_file(tmp_ban_list, path.as_ref().join(DEFAULT_BAN_LIST_DB))?;
         Ok(())
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn dump_with_config(&self, config: &ckb_app_config::NetworkConfig) {
+        self.addr_manager()
+            .dump_with_fn(&config.peer_store_fns.dump_fn);
+        self.ban_list()
+            .dump_with_fn(&config.peer_store_ban_list_fns.dump_fn);
     }
 }
 

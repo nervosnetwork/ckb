@@ -10,15 +10,15 @@
 /// Other protocols will be closed after a timeout.
 use crate::{network::disconnect_with_message, NetworkState, Peer, ProtocolId, SupportProtocols};
 use ckb_logger::debug;
-use futures::Future;
+use ckb_systemtime::{Duration, Instant};
+use futures::{Future, StreamExt};
+use p2p::runtime::{Interval, MissedTickBehavior};
 use p2p::service::ServiceControl;
 use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::{Duration, Instant},
 };
-use tokio::time::{Interval, MissedTickBehavior};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 const CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -129,14 +129,20 @@ impl Future for ProtocolTypeCheckerService {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.interval.is_none() {
             self.interval = {
-                let mut interval = tokio::time::interval(CHECK_INTERVAL);
+                let mut interval = Interval::new(CHECK_INTERVAL);
                 // The protocol type checker service does not need to urgently compensate for the missed wake,
                 // just skip behavior is enough
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
                 Some(interval)
             }
         }
-        while self.interval.as_mut().unwrap().poll_tick(cx).is_ready() {
+        while self
+            .interval
+            .as_mut()
+            .unwrap()
+            .poll_next_unpin(cx)
+            .is_ready()
+        {
             self.check_protocol_type();
         }
         Poll::Pending

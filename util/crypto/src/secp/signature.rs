@@ -36,7 +36,7 @@ impl Signature {
     pub fn from_compact(rec_id: RecoveryId, ret: [u8; 64]) -> Self {
         let mut data = [0; 65];
         data[0..64].copy_from_slice(&ret[0..64]);
-        data[64] = rec_id.to_i32() as u8;
+        data[64] = Into::<i32>::into(rec_id) as u8;
         Signature(data)
     }
 
@@ -79,7 +79,7 @@ impl Signature {
 
     /// Converts compact signature to a recoverable signature
     pub fn to_recoverable(&self) -> Result<RecoverableSignature, Error> {
-        let recovery_id = RecoveryId::from_i32(i32::from(self.0[64]))?;
+        let recovery_id = RecoveryId::try_from(i32::from(self.0[64]))?;
         Ok(RecoverableSignature::from_compact(
             &self.0[0..64],
             recovery_id,

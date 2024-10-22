@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt;
 use std::fs;
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use ckb_system_scripts::BUNDLED_CELL;
@@ -71,6 +71,11 @@ pub enum Resource {
         /// The file path to the resource.
         file: PathBuf,
     },
+    /// A resource that init by user custom
+    Raw {
+        /// raw data
+        raw: String,
+    },
 }
 
 impl fmt::Display for Resource {
@@ -78,6 +83,7 @@ impl fmt::Display for Resource {
         match self {
             Resource::Bundled { bundled } => write!(f, "Bundled({bundled})"),
             Resource::FileSystem { file } => write!(f, "FileSystem({})", file.display()),
+            Resource::Raw { raw } => write!(f, "Raw({})", raw),
         }
     }
 }
@@ -91,6 +97,11 @@ impl Resource {
     /// Creates a reference to the resource resident in the file system.
     pub fn file_system(file: PathBuf) -> Resource {
         Resource::FileSystem { file }
+    }
+
+    /// Creates a reference to the resource resident in the memory.
+    pub fn raw(raw: String) -> Resource {
+        Resource::Raw { raw }
     }
 
     /// Creates the CKB config file resource from the file system.
@@ -156,6 +167,7 @@ impl Resource {
                 SourceFiles::new(&BUNDLED_CELL, &BUNDLED).is_available(bundled)
             }
             Resource::FileSystem { file } => file.exists(),
+            Resource::Raw { .. } => true,
         }
     }
 
@@ -185,6 +197,7 @@ impl Resource {
         match self {
             Resource::Bundled { bundled } => SourceFiles::new(&BUNDLED_CELL, &BUNDLED).get(bundled),
             Resource::FileSystem { file } => Ok(Cow::Owned(fs::read(file)?)),
+            Resource::Raw { raw } => Ok(Cow::Owned(raw.to_owned().into_bytes())),
         }
     }
 
@@ -195,6 +208,9 @@ impl Resource {
                 SourceFiles::new(&BUNDLED_CELL, &BUNDLED).read(bundled)
             }
             Resource::FileSystem { file } => Ok(Box::new(BufReader::new(fs::File::open(file)?))),
+            Resource::Raw { raw } => Ok(Box::new(BufReader::new(Cursor::new(
+                raw.to_owned().into_bytes(),
+            )))),
         }
     }
 
