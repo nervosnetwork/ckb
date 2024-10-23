@@ -23,7 +23,7 @@ mod tests;
 /// block(i + PROPOSAL_WINDOW.farthest + 1)'s cellbase:
 ///   - cellbase output capacity is block(i)'s total block reward
 ///   - cellbase output lock is block(i)'s miner provided lock in block(i) 's cellbase output-data
-/// Conventionally, We say that block(i) is block(i + PROPOSAL_WINDOW.farthest + 1)'s target block.
+///     Conventionally, We say that block(i) is block(i + PROPOSAL_WINDOW.farthest + 1)'s target block.
 ///
 /// Target block's total reward consists of four parts:
 ///  - primary block reward

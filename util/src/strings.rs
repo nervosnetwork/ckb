@@ -18,7 +18,7 @@ use regex::Regex;
 /// ```
 pub fn check_if_identifier_is_valid(ident: &str) -> Result<(), String> {
     const IDENT_PATTERN: &str = r#"^[0-9a-zA-Z_-]+$"#;
-    static RE: once_cell::sync::OnceCell<Regex> = once_cell::sync::OnceCell::new();
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     // IDENT_PATTERN is a correct regular expression, so unwrap here
     let re = RE.get_or_init(|| Regex::new(IDENT_PATTERN).unwrap());
 

@@ -120,6 +120,7 @@ impl PeerStore {
             OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .append(false)
                 .open(&tmp_addr_manager)?,
         )?;
@@ -131,6 +132,7 @@ impl PeerStore {
             OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .append(false)
                 .open(&tmp_ban_list)?,
         )?;

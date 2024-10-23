@@ -89,7 +89,7 @@ impl fmt::Display for AnyError {
 
 impl fmt::Debug for AnyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.0.fmt(f)
+        derive_more::Display::fmt(self, f)
     }
 }
 /// Return whether the error's kind is `InternalErrorKind::Database`

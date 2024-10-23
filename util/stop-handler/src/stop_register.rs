@@ -28,21 +28,21 @@ pub fn wait_all_ckb_services_exit() {
     info!("All ckb threads have been stopped");
 }
 
-static CKB_HANDLES: once_cell::sync::Lazy<Mutex<CkbServiceHandles>> =
-    once_cell::sync::Lazy::new(|| {
+static CKB_HANDLES: std::sync::LazyLock<Mutex<CkbServiceHandles>> =
+    std::sync::LazyLock::new(|| {
         Mutex::new(CkbServiceHandles {
             thread_handles: vec![],
         })
     });
 
-static RECEIVED_STOP_SIGNAL: once_cell::sync::Lazy<AtomicBool> =
-    once_cell::sync::Lazy::new(AtomicBool::default);
+static RECEIVED_STOP_SIGNAL: std::sync::LazyLock<AtomicBool> =
+    std::sync::LazyLock::new(AtomicBool::default);
 
-static TOKIO_EXIT: once_cell::sync::Lazy<CancellationToken> =
-    once_cell::sync::Lazy::new(CancellationToken::new);
+static TOKIO_EXIT: std::sync::LazyLock<CancellationToken> =
+    std::sync::LazyLock::new(CancellationToken::new);
 
-static CROSSBEAM_EXIT_SENDERS: once_cell::sync::Lazy<Mutex<Vec<ckb_channel::Sender<()>>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(vec![]));
+static CROSSBEAM_EXIT_SENDERS: std::sync::LazyLock<Mutex<Vec<ckb_channel::Sender<()>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(vec![]));
 
 /// Create a new CancellationToken for exit signal
 pub fn new_tokio_exit_rx() -> CancellationToken {

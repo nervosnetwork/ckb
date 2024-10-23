@@ -230,8 +230,7 @@ fn net_service_start(
     let control = p2p_service.control().clone().into();
     let (addr_sender, addr_receiver) = ::std::sync::mpsc::channel();
 
-    static RT: once_cell::sync::OnceCell<tokio::runtime::Runtime> =
-        once_cell::sync::OnceCell::new();
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
 
     let rt = RT.get_or_init(|| {
         let num_threads = ::std::cmp::max(num_cpus::get(), 4);
@@ -285,7 +284,7 @@ fn wait_connect_state(node: &Node, expect_num: usize) {
     }
 }
 
-#[allow(clippy::blocks_in_if_conditions)]
+#[allow(clippy::blocks_in_conditions)]
 fn wait_discovery(node: &Node, assert: impl Fn(usize) -> bool) {
     if !wait_until(100, || {
         assert(

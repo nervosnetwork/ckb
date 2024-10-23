@@ -80,7 +80,7 @@ impl AsyncRichIndexerHandle {
                 query_builder.field("NULL as output_data");
             }
         }
-        query_builder.join(&format!("{} AS query_script", script_sub_query_sql));
+        query_builder.join(format!("{} AS query_script", script_sub_query_sql));
         match search_key.script_type {
             IndexerScriptType::Lock => {
                 query_builder.on("output.lock_script_id = query_script.id");

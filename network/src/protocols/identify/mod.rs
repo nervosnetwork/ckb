@@ -31,6 +31,7 @@ const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
 
 /// The misbehavior to report to underlying peer storage
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum Misbehavior {
     /// Repeat received message

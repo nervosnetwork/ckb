@@ -10,7 +10,7 @@ impl packed::Byte32 {
 
     /// Creates a new `Byte32` whose bits are all ones.
     pub fn max_value() -> Self {
-        [u8::max_value(); 32].pack()
+        [u8::MAX; 32].pack()
     }
 
     /// Checks whether all bits in self are zeros.
@@ -55,13 +55,13 @@ impl packed::OutPoint {
     /// Creates a new null `OutPoint`.
     pub fn null() -> Self {
         packed::OutPoint::new_builder()
-            .index(u32::max_value().pack())
+            .index(u32::MAX.pack())
             .build()
     }
 
     /// Checks whether self is a null `OutPoint`.
     pub fn is_null(&self) -> bool {
-        self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
+        self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::MAX
     }
 
     /// Generates a binary data to be used as a key for indexing cells in storage.

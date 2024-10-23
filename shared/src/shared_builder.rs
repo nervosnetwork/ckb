@@ -164,7 +164,6 @@ impl SharedBuilder {
     /// Generates the SharedBuilder with temp db
     /// NOTICE: this is only used in testing
     pub fn with_temp_db() -> Self {
-        use once_cell::{sync, unsync};
         use std::{
             borrow::Borrow,
             sync::atomic::{AtomicUsize, Ordering},
@@ -176,18 +175,17 @@ impl SharedBuilder {
         thread_local! {
             // NOTICE：we can't put the runtime directly into thread_local here,
             // on windows the runtime in thread_local will get stuck when dropping
-            static RUNTIME_HANDLE: unsync::OnceCell<Handle> = unsync::OnceCell::new();
+            static RUNTIME_HANDLE: std::cell::OnceCell<Handle> = const { std::cell::OnceCell::new() };
         }
 
         static DB_COUNT: AtomicUsize = AtomicUsize::new(0);
-        static TMP_DIR: sync::OnceCell<TempDir> = sync::OnceCell::new();
+        static TMP_DIR: std::sync::OnceLock<TempDir> = std::sync::OnceLock::new();
 
         let db = {
             let db_id = DB_COUNT.fetch_add(1, Ordering::SeqCst);
             let db_base_dir = TMP_DIR
                 .borrow()
-                .get_or_try_init(TempDir::new)
-                .unwrap()
+                .get_or_init(|| TempDir::new().unwrap())
                 .path()
                 .to_path_buf();
             let db_dir = db_base_dir.join(format!("db_{db_id}"));

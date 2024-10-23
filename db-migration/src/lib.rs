@@ -9,17 +9,17 @@ use ckb_logger::{debug, error, info};
 use ckb_stop_handler::register_thread;
 use console::Term;
 pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use once_cell::sync::OnceCell;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::thread;
 use std::thread::JoinHandle;
 
 /// Shutdown flag for background migration.
-pub static SHUTDOWN_BACKGROUND_MIGRATION: OnceCell<bool> = OnceCell::new();
+pub static SHUTDOWN_BACKGROUND_MIGRATION: OnceLock<bool> = OnceLock::new();
 
 #[cfg(test)]
 mod tests;

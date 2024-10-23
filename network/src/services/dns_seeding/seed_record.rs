@@ -6,7 +6,6 @@ use std::{
 };
 
 use ckb_hash::blake2b_256;
-use lazy_static::lazy_static;
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
@@ -17,10 +16,9 @@ use secp256k1::{
     Message, PublicKey,
 };
 
-lazy_static! {
-    pub(crate) static ref SECP256K1: secp256k1::Secp256k1<secp256k1::All> =
-        secp256k1::Secp256k1::new();
-}
+pub(crate) static SECP256K1: std::sync::LazyLock<secp256k1::Secp256k1<secp256k1::All>> =
+    std::sync::LazyLock::new(secp256k1::Secp256k1::new);
+
 pub(crate) const SEP: char = ';';
 
 // Format:

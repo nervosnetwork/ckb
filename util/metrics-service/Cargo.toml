@@ -15,5 +15,8 @@ ckb-logger = { path = "../logger", version = "= 0.119.0-pre" }
 ckb-async-runtime = { path = "../runtime", version = "= 0.119.0-pre" }
 ckb-util = { path = "..", version = "= 0.119.0-pre" }
 prometheus = "0.13.3"
-hyper = { version = "0.14", features = ["http1", "tcp", "server"] }
+hyper = { version = "1", features = ["http1", "http2", "server"] }
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["server-auto", "server-graceful"] }
 ckb-stop-handler = { path = "../stop-handler", version = "= 0.119.0-pre" }
+tokio = { version = "1", features = ["sync"] }

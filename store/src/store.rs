@@ -79,9 +79,8 @@ pub trait ChainStore: Send + Sync + Sized {
         });
 
         if let Some(cache) = self.cache() {
-            ret.map(|header| {
+            ret.inspect(|header| {
                 cache.headers.lock().put(hash.clone(), header.clone());
-                header
             })
         } else {
             ret
@@ -191,9 +190,8 @@ pub trait ChainStore: Send + Sync + Sized {
             });
 
         if let Some(cache) = self.cache() {
-            ret.map(|data| {
+            ret.inspect(|data| {
                 cache.block_proposals.lock().put(hash.clone(), data.clone());
-                data
             })
         } else {
             ret
@@ -214,9 +212,8 @@ pub trait ChainStore: Send + Sync + Sized {
         });
 
         if let Some(cache) = self.cache() {
-            ret.map(|uncles| {
+            ret.inspect(|uncles| {
                 cache.block_uncles.lock().put(hash.clone(), uncles.clone());
-                uncles
             })
         } else {
             ret
@@ -374,9 +371,8 @@ pub trait ChainStore: Send + Sync + Sized {
         });
 
         if let Some(cache) = self.cache() {
-            ret.map(|cached| {
+            ret.inspect(|cached| {
                 cache.cell_data.lock().put(key, cached.clone());
-                cached
             })
         } else {
             ret
@@ -401,9 +397,8 @@ pub trait ChainStore: Send + Sync + Sized {
         });
 
         if let Some(cache) = self.cache() {
-            ret.map(|cached| {
+            ret.inspect(|cached| {
                 cache.cell_data_hash.lock().put(key, cached.clone());
-                cached
             })
         } else {
             ret

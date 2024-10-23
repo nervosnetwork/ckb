@@ -3,13 +3,13 @@ use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
 use include_dir::{include_dir, Dir};
 use log::LevelFilter;
-use once_cell::sync::OnceCell;
 use sqlx::{
     any::{Any, AnyArguments, AnyConnectOptions, AnyPoolOptions, AnyRow},
     migrate::Migrator,
     query::{Query, QueryAs},
     AnyPool, ConnectOptions, IntoArguments, Row, Transaction,
 };
+use std::sync::OnceLock;
 use tempfile::tempdir;
 
 use std::fs::{self, OpenOptions};
@@ -27,7 +27,7 @@ static MIGRATIONS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/resources/mig
 
 #[derive(Clone, Default)]
 pub struct SQLXPool {
-    pool: Arc<OnceCell<AnyPool>>,
+    pool: Arc<OnceLock<AnyPool>>,
     pub(crate) db_driver: DBDriver,
 }
 
@@ -261,6 +261,7 @@ fn create_sqlite(db_config: &RichIndexerConfig) {
         OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&db_config.store)
             .expect("Create db file");
     }

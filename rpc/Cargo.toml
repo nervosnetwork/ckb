@@ -53,7 +53,7 @@ ckb-async-runtime = { path = "../util/runtime", version = "= 0.119.0-pre" }
 # issue tracking: https://github.com/GREsau/schemars/pull/251
 schemars = { version = "0.8.19", package = "ckb_schemars" }
 [dev-dependencies]
-reqwest = { version = "=0.11.20", features = ["blocking", "json"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 serde = { version = "1.0", features = ["derive"] }
 ckb-shared = { path = "../shared", version = "= 0.119.0-pre" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.119.0-pre" }

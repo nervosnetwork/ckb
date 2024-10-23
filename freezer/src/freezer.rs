@@ -43,6 +43,7 @@ impl Freezer {
         let lock = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(lock_path)
             .map_err(internal_error)?;
         lock.try_lock_exclusive().map_err(internal_error)?;

@@ -417,14 +417,13 @@ impl Algorithm {
     }
 
     fn drop_tx_inner(&mut self, tx_hash: &Byte32, count_failure: bool) -> Option<TxRecord> {
-        self.tracked_txs.remove(tx_hash).map(|tx_record| {
+        self.tracked_txs.remove(tx_hash).inspect(|tx_record| {
             self.tx_confirm_stat.remove_unconfirmed_tx(
                 tx_record.height,
                 self.best_height,
                 tx_record.bucket_index,
                 count_failure,
             );
-            tx_record
         })
     }
 

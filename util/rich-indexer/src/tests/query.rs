@@ -12,10 +12,7 @@ use ckb_types::{
     H256,
 };
 
-use std::{
-    sync::{Arc, RwLock},
-    usize,
-};
+use std::sync::{Arc, RwLock};
 use tokio::test;
 
 #[test]

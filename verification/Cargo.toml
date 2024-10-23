@@ -19,11 +19,15 @@ ckb-chain-spec = { path = "../spec", version = "= 0.119.0-pre" }
 ckb-dao = { path = "../util/dao", version = "= 0.119.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.119.0-pre" }
 ckb-error = { path = "../error", version = "= 0.119.0-pre" }
-derive_more = { version = "0.99.0", default-features=false, features = ["display"] }
+derive_more = { version = "1", default-features = false, features = [
+    "display",
+] }
 ckb-verification-traits = { path = "./traits", version = "= 0.119.0-pre" }
 tokio = { version = "1", features = ["sync", "process"] }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.119.0-pre" }
 ckb-resource = { path = "../resource", version = "= 0.119.0-pre" }
-ckb-systemtime = {path = "../util/systemtime", version = "= 0.119.0-pre", features=["enable_faketime"]}
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.119.0-pre", features = [
+    "enable_faketime",
+] }

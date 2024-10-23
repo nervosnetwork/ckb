@@ -21,6 +21,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
+    bytes,
     core::{
         cell::{OverlayCellChecker, TransactionsChecker},
         BlockNumber, Capacity, Cycle, EpochExt, EpochNumberWithFraction, ScriptHashType,
@@ -32,7 +33,9 @@ use ckb_types::{
     },
     prelude::*,
 };
-use hyper::{client::HttpConnector, Body, Client, Method, Request};
+use http_body_util::Full;
+use hyper::{Method, Request};
+use hyper_util::client::legacy::{connect::HttpConnector, Client};
 use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -99,7 +102,7 @@ pub struct BlockAssembler {
     pub(crate) work_id: Arc<AtomicU64>,
     pub(crate) candidate_uncles: Arc<Mutex<CandidateUncles>>,
     pub(crate) current: Arc<Mutex<CurrentTemplate>>,
-    pub(crate) poster: Arc<Client<HttpConnector, Body>>,
+    pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
 }
 
 impl BlockAssembler {
@@ -158,7 +161,10 @@ impl BlockAssembler {
             work_id: Arc::new(work_id),
             candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
             current: Arc::new(Mutex::new(current)),
-            poster: Arc::new(Client::new()),
+            poster: Arc::new(
+                Client::builder(hyper_util::rt::TokioExecutor::new())
+                    .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
+            ),
         }
     }
 
@@ -646,7 +652,7 @@ impl BlockAssembler {
                     .method(Method::POST)
                     .uri(url.as_ref())
                     .header("content-type", "application/json")
-                    .body(Body::from(template_json.to_owned()))
+                    .body(Full::new(template_json.to_owned().into()))
                 {
                     let client = Arc::clone(&self.poster);
                     let url = url.to_owned();

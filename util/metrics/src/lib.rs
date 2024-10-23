@@ -126,7 +126,7 @@ pub struct Metrics {
     pub ckb_inflight_timeout_count: IntCounter,
 }
 
-static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
+static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
     Metrics {
     ckb_chain_tip: register_int_gauge!("ckb_chain_tip", "The CKB chain tip header number").unwrap(),
     ckb_chain_unverified_tip: register_int_gauge!(
@@ -314,8 +314,7 @@ static METRICS: once_cell::sync::Lazy<Metrics> = once_cell::sync::Lazy::new(|| {
 
 /// Indicate whether the metrics service is enabled.
 /// This value will set by ckb-metrics-service
-pub static METRICS_SERVICE_ENABLED: once_cell::sync::OnceCell<bool> =
-    once_cell::sync::OnceCell::new();
+pub static METRICS_SERVICE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 thread_local! {
     static ENABLE_COLLECT_METRICS: Cell<Option<bool>>= Cell::default();
