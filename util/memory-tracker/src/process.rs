@@ -122,7 +122,7 @@ pub struct Memory {
 impl FromStr for Memory {
     type Err = io::Error;
     fn from_str(value: &str) -> Result<Memory, io::Error> {
-        static PAGE_SIZE: once_cell::sync::OnceCell<u64> = once_cell::sync::OnceCell::new();
+        static PAGE_SIZE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
         let page_size =
             PAGE_SIZE.get_or_init(|| unsafe { libc::sysconf(libc::_SC_PAGESIZE) as u64 });
         let mut parts = value.split_ascii_whitespace();
@@ -179,7 +179,7 @@ impl FromStr for Memory {
 }
 
 fn get_current_process_memory() -> Result<Memory, io::Error> {
-    static PID: once_cell::sync::OnceCell<libc::pid_t> = once_cell::sync::OnceCell::new();
+    static PID: std::sync::OnceLock<libc::pid_t> = std::sync::OnceLock::new();
     let pid = PID.get_or_init(|| unsafe { libc::getpid() });
     let content = fs::read_to_string(format!("/proc/{pid}/statm"))?;
 

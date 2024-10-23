@@ -1,13 +1,18 @@
 //! The service which handles the metrics data in CKB.
 
-use std::{convert::Infallible, net::SocketAddr};
+use std::net::SocketAddr;
 
+use http_body_util::Full;
 use hyper::{
-    header::CONTENT_TYPE,
-    service::{make_service_fn, service_fn},
-    Body, Error as HyperError, Method, Request, Response, Server,
+    body::Bytes, header::CONTENT_TYPE, service::service_fn, Error as HyperError, Method, Request,
+    Response,
+};
+use hyper_util::{
+    rt::TokioExecutor,
+    server::{conn::auto, graceful::GracefulShutdown},
 };
 use prometheus::Encoder as _;
+use tokio::net::TcpListener;
 
 use ckb_async_runtime::Handle;
 use ckb_logger::info;
@@ -56,28 +61,51 @@ fn run_exporter(exporter: Exporter, handle: &Handle) -> Result<(), String> {
             let addr = listen_address
                 .parse::<SocketAddr>()
                 .map_err(|err| format!("failed to parse listen_address because {err}"))?;
-            let make_svc = make_service_fn(move |_conn| async move {
-                Ok::<_, Infallible>(service_fn(start_prometheus_service))
-            });
+            let make_svc = service_fn(start_prometheus_service);
             ckb_logger::info!("Start prometheus exporter at {}", addr);
             handle.spawn(async move {
-                let server = Server::bind(&addr)
-                    .serve(make_svc)
-                    .with_graceful_shutdown(async {
-                        let exit_rx: CancellationToken = new_tokio_exit_rx();
-                        exit_rx.cancelled().await;
-                        info!("Prometheus server received exit signal; exit now");
-                    });
-                if let Err(err) = server.await {
-                    ckb_logger::error!("prometheus server error: {}", err);
+                let listener = TcpListener::bind(&addr).await.unwrap();
+                let server = auto::Builder::new(TokioExecutor::new());
+                let graceful = GracefulShutdown::new();
+                let stop_rx: CancellationToken = new_tokio_exit_rx();
+                loop {
+                    tokio::select! {
+                        conn = listener.accept() => {
+                            let (stream, _) = match conn {
+                                Ok(conn) => conn,
+                                Err(e) => {
+                                    eprintln!("accept error: {}", e);
+                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                    continue;
+                                }
+                            };
+                            let stream = hyper_util::rt::TokioIo::new(Box::pin(stream));
+                            let conn = server.serve_connection_with_upgrades(stream, make_svc);
+
+                            let conn = graceful.watch(conn.into_owned());
+                            tokio::spawn(async move {
+                                if let Err(err) = conn.await {
+                                    info!("connection error: {}", err);
+                                }
+                            });
+                        },
+                        _ = stop_rx.cancelled() => {
+                            info!("Prometheus server received exit signal; exit now");
+                            break;
+                        }
+                    }
                 }
+                drop(listener);
+                graceful.shutdown().await;
             });
         }
     }
     Ok(())
 }
 
-async fn start_prometheus_service(req: Request<Body>) -> Result<Response<Body>, HyperError> {
+async fn start_prometheus_service(
+    req: Request<hyper::body::Incoming>,
+) -> Result<Response<Full<Bytes>>, HyperError> {
     Ok(match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
             let mut buffer = vec![];
@@ -87,11 +115,11 @@ async fn start_prometheus_service(req: Request<Body>) -> Result<Response<Body>, 
             Response::builder()
                 .status(200)
                 .header(CONTENT_TYPE, encoder.format_type())
-                .body(Body::from(buffer))
+                .body(Full::new(Bytes::from(buffer)))
         }
         _ => Response::builder()
             .status(404)
-            .body(Body::from("Page Not Found")),
+            .body(Full::from("Page Not Found")),
     }
     .unwrap())
 }

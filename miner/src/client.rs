@@ -11,11 +11,17 @@ use ckb_types::{
     H256,
 };
 use futures::prelude::*;
+use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
-    body::{to_bytes, Buf, Bytes},
+    body::{Buf, Bytes},
     header::{HeaderValue, CONTENT_TYPE},
-    service::{make_service_fn, service_fn},
-    Body, Client as HttpClient, Error as HyperError, Method, Request, Response, Server, Uri,
+    service::service_fn,
+    Error as HyperError, Request, Response, Uri,
+};
+use hyper_util::{
+    client::legacy::{Client as HttpClient, Error as ClientError},
+    rt::TokioExecutor,
+    server::{conn::auto, graceful::GracefulShutdown},
 };
 use jsonrpc_core::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
@@ -23,18 +29,21 @@ use jsonrpc_core::{
 };
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
-use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::{convert::Into, time};
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    net::TcpListener,
+    sync::{mpsc, oneshot},
+};
 
 type RpcRequest = (oneshot::Sender<Result<Bytes, RpcError>>, MethodCall);
 
 #[derive(Debug)]
 pub enum RpcError {
     Http(HyperError),
+    Client(ClientError),
     Canceled, //oneshot canceled
     Json(JsonError),
     Fail(RpcFail),
@@ -53,7 +62,7 @@ impl Rpc {
         let stop_rx: CancellationToken = new_tokio_exit_rx();
 
         let https = hyper_tls::HttpsConnector::new();
-        let client = HttpClient::builder().build(https);
+        let client = HttpClient::builder(TokioExecutor::new()).build::<_, Full<Bytes>>(https);
         let loop_handle = handle.clone();
         handle.spawn(async move {
             loop {
@@ -62,15 +71,14 @@ impl Rpc {
                         let (sender, call): RpcRequest = item;
                         let req_url = url.clone();
                         let request_json = serde_json::to_vec(&call).expect("valid rpc call");
-                        let mut req = Request::new(Body::from(request_json));
-                        *req.method_mut() = Method::POST;
-                        *req.uri_mut() = req_url;
-                        req.headers_mut()
-                            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+                        let mut req = Request::builder().uri(req_url).method("POST").header(CONTENT_TYPE, "application/json");
+
                         if let Some(value) = parse_authorization(&url) {
-                            req.headers_mut()
-                                .append(hyper::header::AUTHORIZATION, value);
+                            req = req
+                                .header(hyper::header::AUTHORIZATION, value);
                         }
+                        let req = req.body(Full::new(Bytes::from(request_json))).unwrap();
                         let client = client.clone();
                         loop_handle.spawn(async move {
                             let request = match client
@@ -78,8 +86,8 @@ impl Rpc {
                                 .await
                                 .map(|res|res.into_body())
                             {
-                                Ok(body) => to_bytes(body).await.map_err(RpcError::Http),
-                                Err(err) => Err(RpcError::Http(err)),
+                                Ok(body) => BodyExt::collect(body).await.map_err(RpcError::Http).map(|t| t.to_bytes()),
+                                Err(err) => Err(RpcError::Client(err)),
                             };
                             if sender.send(request).is_err() {
                                 error!("rpc response send back error")
@@ -224,23 +232,42 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
     }
 
     async fn listen_block_template_notify(&self, addr: SocketAddr) {
-        let client = self.clone();
-        let make_service = make_service_fn(move |_conn| {
-            let client = client.clone();
-            let service = service_fn(move |req| handle(client.clone(), req));
-            async move { Ok::<_, Infallible>(service) }
-        });
-
-        let server = Server::bind(&addr).serve(make_service);
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let server = auto::Builder::new(TokioExecutor::new());
+        let graceful = GracefulShutdown::new();
         let stop_rx: CancellationToken = new_tokio_exit_rx();
-        let graceful = server.with_graceful_shutdown(async move {
-            stop_rx.cancelled().await;
-            info!("Miner client received exit signal. Exit now");
-        });
 
-        if let Err(e) = graceful.await {
-            error!("server error: {}", e);
+        loop {
+            let client = self.clone();
+            let handle = service_fn(move |req| handle(client.clone(), req));
+            tokio::select! {
+                conn = listener.accept() => {
+                    let (stream, _) = match conn {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            info!("accept error: {}", e);
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            continue;
+                        }
+                    };
+                    let stream = hyper_util::rt::TokioIo::new(Box::pin(stream));
+                    let conn = server.serve_connection_with_upgrades(stream, handle);
+
+                    let conn = graceful.watch(conn.into_owned());
+                    tokio::spawn(async move {
+                        if let Err(err) = conn.await {
+                            info!("connection error: {}", err);
+                        }
+                    });
+                },
+                _ = stop_rx.cancelled() => {
+                    info!("Miner client received exit signal. Exit now");
+                    break;
+                }
+            }
         }
+        drop(listener);
+        graceful.shutdown().await;
     }
 
     async fn poll_block_template(&self) {
@@ -327,14 +354,17 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
-async fn handle(client: Client, req: Request<Body>) -> Result<Response<Body>, Error> {
-    let body = hyper::body::aggregate(req).await?;
+async fn handle(
+    client: Client,
+    req: Request<hyper::body::Incoming>,
+) -> Result<Response<Empty<Bytes>>, Error> {
+    let body = BodyExt::collect(req).await?.aggregate();
 
     if let Ok(template) = serde_json::from_reader(body.reader()) {
         client.update_block_template(template);
     }
 
-    Ok(Response::new(Body::empty()))
+    Ok(Response::new(Empty::new()))
 }
 
 async fn parse_response<T: serde::de::DeserializeOwned>(output: Output) -> Result<T, RpcError> {

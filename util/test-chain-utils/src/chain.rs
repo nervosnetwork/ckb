@@ -16,7 +16,6 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     H256, U256,
 };
-use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -39,10 +38,8 @@ fn load_cell_from_path(path: &str) -> (CellOutput, Bytes, Script) {
     (cell, data, script)
 }
 
-lazy_static! {
-    static ref SUCCESS_CELL: (CellOutput, Bytes, Script) =
-        load_cell_from_path("../../script/testdata/always_success");
-}
+static SUCCESS_CELL: std::sync::LazyLock<(CellOutput, Bytes, Script)> =
+    std::sync::LazyLock::new(|| load_cell_from_path("../../script/testdata/always_success"));
 
 // #include "ckb_syscalls.h"
 
@@ -60,10 +57,8 @@ lazy_static! {
 
 //   return 0;
 // }
-lazy_static! {
-    static ref LOAD_INPUT_DATA_HASH: (CellOutput, Bytes, Script) =
-        load_cell_from_path("vendor/load_input_data_hash");
-}
+static LOAD_INPUT_DATA_HASH: std::sync::LazyLock<(CellOutput, Bytes, Script)> =
+    std::sync::LazyLock::new(|| load_cell_from_path("vendor/load_input_data_hash"));
 
 /// Script for loading input data hash from input data.
 #[doc(hidden)]
@@ -86,10 +81,8 @@ pub fn load_input_data_hash_cell() -> &'static (CellOutput, Bytes, Script) {
 
 //   return 0;
 // }
-lazy_static! {
-    static ref LOAD_INPUT_ONE_BYTE: (CellOutput, Bytes, Script) =
-        load_cell_from_path("vendor/load_input_one_byte");
-}
+static LOAD_INPUT_ONE_BYTE: std::sync::LazyLock<(CellOutput, Bytes, Script)> =
+    std::sync::LazyLock::new(|| load_cell_from_path("vendor/load_input_one_byte"));
 
 /// Script for loading one byte from input data.
 #[doc(hidden)]
@@ -103,10 +96,8 @@ pub fn always_success_cell() -> &'static (CellOutput, Bytes, Script) {
     &SUCCESS_CELL
 }
 
-lazy_static! {
-    static ref IS_EVEN_LIB: (CellOutput, Bytes, Script) =
-        load_cell_from_path("../../script/testdata/is_even.lib");
-}
+static IS_EVEN_LIB: std::sync::LazyLock<(CellOutput, Bytes, Script)> =
+    std::sync::LazyLock::new(|| load_cell_from_path("../../script/testdata/is_even.lib"));
 
 #[doc(hidden)]
 pub fn is_even_lib() -> &'static (CellOutput, Bytes, Script) {
@@ -114,10 +105,8 @@ pub fn is_even_lib() -> &'static (CellOutput, Bytes, Script) {
 }
 
 // from script/testdata without ty_pause
-lazy_static! {
-    static ref LOAD_IS_EVEN: (CellOutput, Bytes, Script) =
-        load_cell_from_path("vendor/load_is_even_with_snapshot");
-}
+static LOAD_IS_EVEN: std::sync::LazyLock<(CellOutput, Bytes, Script)> =
+    std::sync::LazyLock::new(|| load_cell_from_path("vendor/load_is_even_with_snapshot"));
 
 #[doc(hidden)]
 pub fn load_is_even() -> &'static (CellOutput, Bytes, Script) {

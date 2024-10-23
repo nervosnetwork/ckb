@@ -11,7 +11,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.5"
-cacache = { version = "12.0.0", default-features = false, features = ["tokio-runtime", "mmap"] }
+cacache = { version = "13.0.0", default-features = false, features = ["mmap"] }
 ckb-constant = { path = "../util/constant", version = "= 0.119.0-pre" }
 ckb-types = { path = "../util/types", version = "= 0.119.0-pre" }
 ckb-pow = { path = "../pow", version = "= 0.119.0-pre" }
@@ -19,11 +19,11 @@ ckb-resource = { path = "../resource", version = "= 0.119.0-pre" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.119.0-pre" }
 ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.119.0-pre" }
 ckb-rational = { path = "../util/rational", version = "= 0.119.0-pre" }
-ckb-crypto = { path = "../util/crypto", version = "= 0.119.0-pre"}
-ckb-hash = { path = "../util/hash", version = "= 0.119.0-pre"}
+ckb-crypto = { path = "../util/crypto", version = "= 0.119.0-pre" }
+ckb-hash = { path = "../util/hash", version = "= 0.119.0-pre" }
 ckb-error = { path = "../error", version = "= 0.119.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.119.0-pre" }
-ckb-logger = {path = "../util/logger", version = "= 0.119.0-pre"}
+ckb-logger = { path = "../util/logger", version = "= 0.119.0-pre" }
 
 
 [dev-dependencies]

@@ -8,10 +8,10 @@ use crate::{
 };
 use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
-use once_cell::sync::OnceCell;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::sync::OnceLock;
 
 /// TODO(doc): @quake
 #[derive(Debug)]
@@ -25,7 +25,7 @@ pub enum ResolvedDep {
 /// type alias system cells map
 pub type SystemCellMap = HashMap<CellDep, ResolvedDep>;
 /// system cell memory map cache
-pub static SYSTEM_CELL: OnceCell<SystemCellMap> = OnceCell::new();
+pub static SYSTEM_CELL: OnceLock<SystemCellMap> = OnceLock::new();
 
 const MAX_DEP_EXPANSION_LIMIT: usize = 2048;
 
