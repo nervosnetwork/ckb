@@ -3,7 +3,6 @@ use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_notify::NotifyService;
 
 use ckb_types::{packed, prelude::*};
-use once_cell::unsync;
 
 fn build_alert(
     id: u32,
@@ -26,7 +25,7 @@ fn new_notifier(version: &str) -> Notifier {
     thread_local! {
         // NOTICE：we can't put the runtime directly into thread_local here,
         // on windows the runtime in thread_local will get stuck when dropping
-        static RUNTIME_HANDLE: unsync::OnceCell<Handle> = const { unsync::OnceCell::new() };
+        static RUNTIME_HANDLE: std::cell::OnceCell<Handle> = const { std::cell::OnceCell::new() };
     }
 
     let notify_controller = RUNTIME_HANDLE.with(|runtime| {

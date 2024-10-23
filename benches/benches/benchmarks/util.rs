@@ -23,7 +23,6 @@ use ckb_types::{
     utilities::difficulty_to_compact,
     H160, H256, U256,
 };
-use lazy_static::lazy_static;
 use rand::random;
 use std::collections::HashSet;
 
@@ -200,19 +199,19 @@ pub fn gen_always_success_block(
 const PRIVKEY: H256 = h256!("0xb2b3324cece882bca684eaf202667bb56ed8e8c2fd4b4dc71f615ebd6d9055a5");
 const PUBKEY_HASH: H160 = h160!("0x779e5930892a0a9bf2fedfe048f685466c7d0396");
 
-lazy_static! {
-    static ref SECP_DATA_CELL: (CellOutput, Bytes) = {
-        let raw_data = BUNDLED_CELL
-            .get("specs/cells/secp256k1_data")
-            .expect("load secp256k1_blake160_sighash_all");
-        let data: Bytes = raw_data.to_vec().into();
+static SECP_DATA_CELL: std::sync::LazyLock<(CellOutput, Bytes)> = std::sync::LazyLock::new(|| {
+    let raw_data = BUNDLED_CELL
+        .get("specs/cells/secp256k1_data")
+        .expect("load secp256k1_blake160_sighash_all");
+    let data: Bytes = raw_data.to_vec().into();
 
-        let cell = CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .build();
-        (cell, data)
-    };
-    static ref SECP_CELL: (CellOutput, Bytes, Script) = {
+    let cell = CellOutput::new_builder()
+        .capacity(Capacity::bytes(data.len()).unwrap().pack())
+        .build();
+    (cell, data)
+});
+static SECP_CELL: std::sync::LazyLock<(CellOutput, Bytes, Script)> =
+    std::sync::LazyLock::new(|| {
         let raw_data = BUNDLED_CELL
             .get("specs/cells/secp256k1_blake160_sighash_all")
             .expect("load secp256k1_blake160_sighash_all");
@@ -229,8 +228,7 @@ lazy_static! {
             .build();
 
         (cell, data, script)
-    };
-}
+    });
 
 pub fn secp_cell() -> &'static (CellOutput, Bytes, Script) {
     &SECP_CELL

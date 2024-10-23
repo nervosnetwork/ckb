@@ -12,4 +12,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 thiserror = "1.0.22"
 anyhow = "1.0.34"
 ckb-occupied-capacity = { path = "../util/occupied-capacity", version = "= 0.119.0-pre" }
-derive_more = { version = "0.99.0", default-features = false, features = ["display"] }
+derive_more = { version = "1", default-features = false, features = [
+    "display",
+] }

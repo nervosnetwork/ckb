@@ -8,7 +8,7 @@ use ckb_test::{
 };
 use ckb_types::core::ScriptHashType;
 use ckb_util::Mutex;
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::cmp::min;
@@ -17,7 +17,6 @@ use std::env;
 use std::fs::{self, read_to_string, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -42,27 +41,24 @@ fn main() {
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
 
-    let binary = matches.value_of_t_or_exit::<PathBuf>("binary");
-    let start_port = matches.value_of_t_or_exit::<u16>("port");
-    let spec_names_to_run: Vec<_> = matches.values_of("specs").unwrap_or_default().collect();
-    let max_time = if matches.is_present("max-time") {
-        matches.value_of_t_or_exit::<u64>("max-time")
-    } else {
-        0
-    };
-    let worker_count = matches.value_of_t_or_exit::<usize>("concurrent");
+    let binary = matches.get_one::<PathBuf>("binary").cloned().unwrap();
+    let start_port = matches.get_one::<u16>("port").cloned().unwrap();
+    let spec_names_to_run: Vec<_> = matches
+        .get_many::<String>("specs")
+        .unwrap_or_default()
+        .map(|v| v.as_str())
+        .collect();
+    let max_time = matches.get_one::<u64>("max-time").cloned().unwrap();
+    let worker_count = matches.get_one::<usize>("concurrent").cloned().unwrap();
     let vendor = matches
-        .value_of_t::<PathBuf>("vendor")
-        .unwrap_or_else(|_| current_dir().join("vendor"));
-    let log_file_opt = matches
-        .value_of("log-file")
-        .map(PathBuf::from_str)
-        .transpose()
-        .unwrap_or_else(|err| panic!("failed to parse the log file path since {err}"));
-    let fail_fast = !matches.is_present("no-fail-fast");
-    let report = !matches.is_present("no-report");
-    let clean_tmp = !matches.is_present("keep-tmp-data");
-    let verbose = matches.is_present("verbose");
+        .get_one::<PathBuf>("vendor")
+        .cloned()
+        .unwrap_or_else(|| current_dir().join("vendor"));
+    let log_file_opt = matches.get_one::<PathBuf>("log-file").cloned();
+    let fail_fast = !matches.get_flag("no-fail-fast");
+    let report = !matches.get_flag("no-report");
+    let clean_tmp = !matches.get_flag("keep-tmp-data");
+    let verbose = matches.get_flag("verbose");
 
     let logger_guard = {
         let filter = if !verbose {
@@ -100,7 +96,7 @@ fn main() {
             .unwrap_or_else(|err| panic!("failed to init the logger service since {err}"))
     };
 
-    if matches.is_present("list-specs") {
+    if matches.get_flag("list-specs") {
         list_specs();
         return;
     }
@@ -298,71 +294,83 @@ fn main() {
     drop(logger_guard);
 }
 
-fn clap_app() -> App<'static> {
-    App::new("ckb-test")
+fn clap_app() -> Command {
+    Command::new("ckb-test")
         .arg(
-            Arg::with_name("binary")
+            Arg::new("binary")
                 .short('b')
                 .long("bin")
-                .takes_value(true)
-                .value_name("PATH")
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(PathBuf))
                 .help("Path to ckb executable")
                 .default_value("../target/release/ckb"),
         )
         .arg(
-            Arg::with_name("port")
+            Arg::new("port")
                 .short('p')
                 .long("port")
-                .takes_value(true)
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(u16))
                 .help("Starting port number used to start ckb nodes")
                 .default_value("9000"),
         )
         .arg(
-            Arg::with_name("max-time")
+            Arg::new("max-time")
                 .long("max-time")
-                .takes_value(true)
-                .value_name("SECONDS")
-                .help("Exit when total running time exceeds this limit"),
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(u64))
+                .help("Exit when total running time exceeds this limit")
+                .default_value("0"),
         )
         .arg(
-            Arg::with_name("list-specs")
+            Arg::new("list-specs")
                 .long("list-specs")
+                .action(clap::ArgAction::SetTrue)
                 .help("list all specs"),
         )
-        .arg(Arg::with_name("specs").multiple(true).help("Specs to run"))
         .arg(
-            Arg::with_name("concurrent")
+            Arg::new("specs")
+                .action(clap::ArgAction::Append)
+                .help("Specs to run"),
+        )
+        .arg(
+            Arg::new("concurrent")
                 .short('c')
                 .long("concurrent")
-                .takes_value(true)
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(usize))
                 .help("The number of specs can running concurrently")
                 .default_value("4"),
         )
         .arg(
-            Arg::with_name("verbose")
+            Arg::new("verbose")
                 .long("verbose")
+                .action(clap::ArgAction::SetTrue)
                 .help("Show verbose log"),
         )
         .arg(
-            Arg::with_name("no-fail-fast")
+            Arg::new("no-fail-fast")
                 .long("no-fail-fast")
+                .action(clap::ArgAction::SetTrue)
                 .help("Run all tests regardless of failure"),
         )
         .arg(
-            Arg::with_name("no-report")
+            Arg::new("no-report")
                 .long("no-report")
+                .action(clap::ArgAction::SetTrue)
                 .help("Do not show integration test report"),
         )
         .arg(
-            Arg::with_name("log-file")
+            Arg::new("log-file")
                 .long("log-file")
-                .takes_value(true)
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(PathBuf))
                 .help("Write log outputs into file."),
         )
-        .arg(Arg::with_name("keep-tmp-data").long("keep-tmp-data").help(
+        .arg(Arg::new("keep-tmp-data").long("keep-tmp-data").action(clap::ArgAction::SetTrue).help(
             "Keep all temporary files. Default: only keep temporary file for the failed tests.",
         ))
-        .arg(Arg::with_name("vendor").long("vendor"))
+        .arg(Arg::new("vendor").long("vendor").action(clap::ArgAction::SetTrue).value_parser(clap::value_parser!(PathBuf)))
 }
 
 fn filter_specs(

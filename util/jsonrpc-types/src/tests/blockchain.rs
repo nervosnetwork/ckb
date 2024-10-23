@@ -1,5 +1,4 @@
 use ckb_types::{bytes::Bytes, core, h256, packed, prelude::*};
-use lazy_static::lazy_static;
 use proptest::{collection::size_range, prelude::*};
 use regex::Regex;
 
@@ -160,9 +159,10 @@ fn _test_block_convert(data: Bytes, arg: Bytes) -> Result<(), TestCaseError> {
 }
 
 fn header_field_format_check(json: &str) {
-    lazy_static! {
-        static ref RE: Regex = Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|extra_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap();
-    }
+    static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new("\"(version|compact_target|parent_hash|timestamp|number|epoch|transactions_root|proposals_hash|extra_hash|dao|nonce)\":\"(?P<value>.*?\")").unwrap()
+    });
+
     for caps in RE.captures_iter(json) {
         assert!(&caps["value"].starts_with("0x"));
     }

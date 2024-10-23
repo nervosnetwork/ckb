@@ -19,4 +19,3 @@ schemars = { version = "0.8.19", package = "ckb_schemars" }
 [dev-dependencies]
 proptest = "1.0"
 regex = "1.1"
-lazy_static = "1.3"

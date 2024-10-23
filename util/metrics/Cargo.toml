@@ -11,4 +11,3 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 prometheus = "0.13.3"
 prometheus-static-metric = "0.5.1"
-once_cell = "1.17.1"

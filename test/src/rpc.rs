@@ -16,14 +16,14 @@ use ckb_types::core::{
     Version as CoreVersion,
 };
 use ckb_types::{packed::Byte32, prelude::*, H256};
-use lazy_static::lazy_static;
 
-lazy_static! {
-    pub static ref HTTP_CLIENT: reqwest::blocking::Client = reqwest::blocking::Client::builder()
-        .timeout(::std::time::Duration::from_secs(30))
-        .build()
-        .expect("reqwest Client build");
-}
+pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
+    std::sync::LazyLock::new(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(::std::time::Duration::from_secs(30))
+            .build()
+            .expect("reqwest Client build")
+    });
 
 pub struct RpcClient {
     inner: Inner,

@@ -44,7 +44,7 @@ ckb-constant = { path = "../util/constant", version = "= 0.119.0-pre" }
 base64 = "0.21.0"
 tempfile.workspace = true
 rayon = "1.0"
-sentry = { version = "0.26.0", optional = true }
+sentry = { version = "0.34.0", optional = true }
 is-terminal = "0.4.7"
 fdlimit = "0.2.1"
 ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.119.0-pre" }
