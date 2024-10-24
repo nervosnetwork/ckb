@@ -46,6 +46,7 @@ multi_index_map = "0.6.0"
 slab = "0.4"
 rustc-hash = "1.1"
 tokio-util = "0.7.8"
+ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.119.0-pre" }
 
 [dev-dependencies]
 tempfile.workspace = true

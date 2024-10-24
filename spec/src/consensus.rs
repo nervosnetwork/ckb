@@ -45,7 +45,8 @@ pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(6
 // 4.2 billion per year
 pub(crate) const INITIAL_PRIMARY_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
 const MAX_UNCLE_NUM: usize = 2;
-pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
+/// Default transaction proposal window.
+pub const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // Cellbase outputs are "locked" and require 4 epoch confirmations (approximately 16 hours) before
 // they mature sufficiently to be spendable,
 // This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
@@ -138,17 +139,17 @@ pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
 ///
 impl ProposalWindow {
     /// The w_close parameter
-    pub fn closest(&self) -> BlockNumber {
+    pub const fn closest(&self) -> BlockNumber {
         self.0
     }
 
     /// The w_far parameter
-    pub fn farthest(&self) -> BlockNumber {
+    pub const fn farthest(&self) -> BlockNumber {
         self.1
     }
 
     /// The proposal window length
-    pub fn length(&self) -> BlockNumber {
+    pub const fn length(&self) -> BlockNumber {
         self.1 - self.0 + 1
     }
 }

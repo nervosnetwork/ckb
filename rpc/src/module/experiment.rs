@@ -3,7 +3,8 @@ use crate::module::chain::CyclesEstimator;
 use async_trait::async_trait;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
-    Capacity, DaoWithdrawingCalculationKind, EstimateCycles, OutPoint, Transaction,
+    Capacity, DaoWithdrawingCalculationKind, EstimateCycles, EstimateMode, OutPoint, Transaction,
+    Uint64,
 };
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -162,6 +163,61 @@ pub trait ExperimentRpc {
         out_point: OutPoint,
         kind: DaoWithdrawingCalculationKind,
     ) -> Result<Capacity>;
+
+    /// Get fee estimates.
+    ///
+    /// ## Params
+    ///
+    /// * `estimate_mode` - The fee estimate mode.
+    ///
+    ///   Default: `no_priority`.
+    ///
+    /// * `enable_fallback` - True to enable a simple fallback algorithm, when lack of historical empirical data to estimate fee rates with configured algorithm.
+    ///
+    ///   Default: `true`.
+    ///
+    /// ### The fallback algorithm
+    ///
+    /// Since CKB transaction confirmation involves a two-step process—1) propose and 2) commit, it is complex to
+    /// predict the transaction fee accurately with the expectation that it will be included within a certain block height.
+    ///
+    /// This algorithm relies on two assumptions and uses a simple strategy to estimate the transaction fee: 1) all transactions
+    /// in the pool are waiting to be proposed, and 2) no new transactions will be added to the pool.
+    ///
+    /// In practice, this simple algorithm should achieve good accuracy fee rate and running performance.
+    ///
+    /// ## Returns
+    ///
+    /// The estimated fee rate in shannons per kilobyte.
+    ///
+    /// ## Examples
+    ///
+    /// Request
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "method": "estimate_fee_rate",
+    ///   "params": []
+    /// }
+    /// ```
+    ///
+    /// Response
+    ///
+    /// ```json
+    /// {
+    ///   "id": 42,
+    ///   "jsonrpc": "2.0",
+    ///   "result": "0x3e8"
+    /// }
+    /// ```
+    #[rpc(name = "estimate_fee_rate")]
+    fn estimate_fee_rate(
+        &self,
+        estimate_mode: Option<EstimateMode>,
+        enable_fallback: Option<bool>,
+    ) -> Result<Uint64>;
 }
 
 #[derive(Clone)]
@@ -240,5 +296,21 @@ impl ExperimentRpc for ExperimentRpcImpl {
                 }
             }
         }
+    }
+
+    fn estimate_fee_rate(
+        &self,
+        estimate_mode: Option<EstimateMode>,
+        enable_fallback: Option<bool>,
+    ) -> Result<Uint64> {
+        let estimate_mode = estimate_mode.unwrap_or_default();
+        let enable_fallback = enable_fallback.unwrap_or(true);
+        self.shared
+            .tx_pool_controller()
+            .estimate_fee_rate(estimate_mode.into(), enable_fallback)
+            .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?
+            .map_err(RPCError::from_any_error)
+            .map(core::FeeRate::as_u64)
+            .map(Into::into)
     }
 }

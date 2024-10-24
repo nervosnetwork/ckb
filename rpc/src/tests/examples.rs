@@ -389,6 +389,7 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "get_pool_tx_detail_info" => {
             response.result["timestamp"] = example.response.result["timestamp"].clone()
         }
+        "estimate_fee_rate" => replace_rpc_response::<Uint64>(example, response),
         _ => {}
     }
 }

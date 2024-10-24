@@ -70,6 +70,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
         * [Method `dry_run_transaction`](#experiment-dry_run_transaction)
         * [Method `calculate_dao_maximum_withdraw`](#experiment-calculate_dao_maximum_withdraw)
+        * [Method `estimate_fee_rate`](#experiment-estimate_fee_rate)
     * [Module Indexer](#module-indexer) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Indexer&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/indexer_rpc_doc.json)
 
         * [Method `get_indexer_tip`](#indexer-get_indexer_tip)
@@ -171,6 +172,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `EpochNumberWithFraction`](#type-epochnumberwithfraction)
     * [Type `EpochView`](#type-epochview)
     * [Type `EstimateCycles`](#type-estimatecycles)
+    * [Type `EstimateMode`](#type-estimatemode)
     * [Type `ExtraLoggerConfig`](#type-extraloggerconfig)
     * [Type `FeeRateStatistics`](#type-feeratestatistics)
     * [Type `H256`](#type-h256)
@@ -2165,6 +2167,62 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": "0x4a8b4e8a4"
+}
+```
+
+<a id="experiment-estimate_fee_rate"></a>
+#### Method `estimate_fee_rate`
+* `estimate_fee_rate(estimate_mode, enable_fallback)`
+    * `estimate_mode`: [`EstimateMode`](#type-estimatemode) `|` `null`
+    * `enable_fallback`: `boolean` `|` `null`
+* result: [`Uint64`](#type-uint64)
+
+Get fee estimates.
+
+###### Params
+
+* `estimate_mode` - The fee estimate mode.
+
+  Default: `no_priority`.
+
+* `enable_fallback` - True to enable a simple fallback algorithm, when lack of historical empirical data to estimate fee rates with configured algorithm.
+
+  Default: `true`.
+
+####### The fallback algorithm
+
+Since CKB transaction confirmation involves a two-step process—1) propose and 2) commit, it is complex to
+predict the transaction fee accurately with the expectation that it will be included within a certain block height.
+
+This algorithm relies on two assumptions and uses a simple strategy to estimate the transaction fee: 1) all transactions
+in the pool are waiting to be proposed, and 2) no new transactions will be added to the pool.
+
+In practice, this simple algorithm should achieve good accuracy fee rate and running performance.
+
+###### Returns
+
+The estimated fee rate in shannons per kilobyte.
+
+###### Examples
+
+Request
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "method": "estimate_fee_rate",
+  "params": []
+}
+```
+
+Response
+
+```json
+{
+  "id": 42,
+  "jsonrpc": "2.0",
+  "result": "0x3e8"
 }
 ```
 
@@ -6063,6 +6121,15 @@ Response result of the RPC method `estimate_cycles`.
 `EstimateCycles` is a JSON object with the following fields.
 
 * `cycles`: [`Uint64`](#type-uint64) - The count of cycles that the VM has consumed to verify this transaction.
+
+### Type `EstimateMode`
+The fee estimate mode.
+
+It's an enum value from one of:
+  - no_priority : No priority, expect the transaction to be committed in 1 hour.
+  - low_priority : Low priority, expect the transaction to be committed in 30 minutes.
+  - medium_priority : Medium priority, expect the transaction to be committed in 10 minutes.
+  - high_priority : High priority, expect the transaction to be committed as soon as possible.
 
 ### Type `ExtraLoggerConfig`
 Runtime logger config for extra loggers.

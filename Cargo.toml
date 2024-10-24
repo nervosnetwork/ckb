@@ -60,6 +60,7 @@ members = [
     "util/dao/utils",
     "traits",
     "spec",
+    "util/fee-estimator",
     "util/proposal-table",
     "script",
     "util/app-config",

@@ -12,6 +12,7 @@ use crate::util::{
 };
 use ckb_chain_spec::consensus::MAX_BLOCK_PROPOSALS_LIMIT;
 use ckb_error::{AnyError, InternalErrorKind};
+use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
@@ -20,7 +21,10 @@ use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
-    core::{cell::ResolvedTransaction, BlockView, Capacity, Cycle, HeaderView, TransactionView},
+    core::{
+        cell::ResolvedTransaction, BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView,
+        TransactionView,
+    },
     packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashSet;
@@ -822,6 +826,7 @@ impl TxPoolService {
         }
 
         for blk in attached_blocks {
+            self.fee_estimator.commit_block(&blk);
             attached.extend(blk.transactions().into_iter().skip(1));
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
@@ -997,6 +1002,37 @@ impl TxPoolService {
             error!("failed to save pool, error: {:?}", err)
         } else {
             info!("TxPool saved successfully")
+        }
+    }
+
+    pub(crate) async fn update_ibd_state(&self, in_ibd: bool) {
+        self.fee_estimator.update_ibd_state(in_ibd);
+    }
+
+    pub(crate) async fn estimate_fee_rate(
+        &self,
+        estimate_mode: EstimateMode,
+        enable_fallback: bool,
+    ) -> Result<FeeRate, AnyError> {
+        let all_entry_info = self.tx_pool.read().await.get_all_entry_info();
+        match self
+            .fee_estimator
+            .estimate_fee_rate(estimate_mode, all_entry_info)
+        {
+            Ok(fee_rate) => Ok(fee_rate),
+            Err(err) => {
+                if enable_fallback {
+                    let target_blocks =
+                        FeeEstimator::target_blocks_for_estimate_mode(estimate_mode);
+                    self.tx_pool
+                        .read()
+                        .await
+                        .estimate_fee_rate(target_blocks)
+                        .map_err(Into::into)
+                } else {
+                    Err(err.into())
+                }
+            }
         }
     }
 

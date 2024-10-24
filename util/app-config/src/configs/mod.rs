@@ -1,4 +1,5 @@
 mod db;
+mod fee_estimator;
 mod indexer;
 mod memory_tracker;
 mod miner;
@@ -11,6 +12,7 @@ mod store;
 mod tx_pool;
 
 pub use db::Config as DBConfig;
+pub use fee_estimator::{Algorithm as FeeEstimatorAlgo, Config as FeeEstimatorConfig};
 pub use indexer::{IndexerConfig, IndexerSyncConfig};
 pub use memory_tracker::Config as MemoryTrackerConfig;
 pub use miner::{

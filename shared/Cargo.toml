@@ -29,6 +29,7 @@ ckb-systemtime = { path = "../util/systemtime", version = "= 0.119.0-pre" }
 ckb-channel = { path = "../util/channel", version = "= 0.119.0-pre" }
 ckb-app-config = { path = "../util/app-config", version = "= 0.119.0-pre" }
 ckb-migrate = { path = "../util/migrate", version = "= 0.119.0-pre" }
+ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.119.0-pre"}
 ckb-util = { path = "../util", version = "= 0.119.0-pre" }
 ckb-metrics = { path = "../util/metrics", version = "= 0.119.0-pre" }
 bitflags = "1.0"

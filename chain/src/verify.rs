@@ -306,6 +306,8 @@ impl ConsumeUnverifiedBlockProcessor {
             db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
         }
 
+        let in_ibd = self.shared.is_initial_block_download();
+
         if new_best_block {
             info!(
                 "[verify block] new best block found: {} => {:#x}, difficulty diff = {:#x}, unverified_tip: {}",
@@ -368,6 +370,9 @@ impl ConsumeUnverifiedBlockProcessor {
                 ) {
                     error!("[verify block] notify update_tx_pool_for_reorg error {}", e);
                 }
+                if let Err(e) = tx_pool_controller.update_ibd_state(in_ibd) {
+                    error!("Notify update_ibd_state error {}", e);
+                }
             }
 
             self.shared
@@ -394,6 +399,9 @@ impl ConsumeUnverifiedBlockProcessor {
             if tx_pool_controller.service_started() {
                 if let Err(e) = tx_pool_controller.notify_new_uncle(block.as_uncle()) {
                     error!("[verify block] notify new_uncle error {}", e);
+                }
+                if let Err(e) = tx_pool_controller.update_ibd_state(in_ibd) {
+                    error!("Notify update_ibd_state error {}", e);
                 }
             }
         }

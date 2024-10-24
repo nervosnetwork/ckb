@@ -2,7 +2,8 @@
 use crate::ChainServicesBuilder;
 use crate::{HeaderMap, Shared};
 use ckb_app_config::{
-    BlockAssemblerConfig, DBConfig, ExitCode, NotifyConfig, StoreConfig, SyncConfig, TxPoolConfig,
+    BlockAssemblerConfig, DBConfig, ExitCode, FeeEstimatorAlgo, FeeEstimatorConfig, NotifyConfig,
+    StoreConfig, SyncConfig, TxPoolConfig,
 };
 use ckb_async_runtime::{new_background_runtime, Handle};
 use ckb_chain_spec::consensus::Consensus;
@@ -11,6 +12,7 @@ use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
+use ckb_fee_estimator::FeeEstimator;
 use ckb_logger::{error, info};
 use ckb_migrate::migrate::Migrate;
 use ckb_notify::{NotifyController, NotifyService};
@@ -47,6 +49,7 @@ pub struct SharedBuilder {
     block_assembler_config: Option<BlockAssemblerConfig>,
     notify_config: Option<NotifyConfig>,
     async_handle: Handle,
+    fee_estimator_config: Option<FeeEstimatorConfig>,
 
     header_map_tmp_dir: Option<PathBuf>,
 }
@@ -153,6 +156,7 @@ impl SharedBuilder {
             sync_config: None,
             block_assembler_config: None,
             async_handle,
+            fee_estimator_config: None,
             header_map_tmp_dir: None,
         })
     }
@@ -198,6 +202,7 @@ impl SharedBuilder {
             sync_config: None,
             block_assembler_config: None,
             async_handle: runtime.get_or_init(new_background_runtime).clone(),
+            fee_estimator_config: None,
 
             header_map_tmp_dir: None,
         })
@@ -244,6 +249,12 @@ impl SharedBuilder {
     /// TODO(doc): @quake
     pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
         self.block_assembler_config = config;
+        self
+    }
+
+    /// Sets the configuration for the fee estimator.
+    pub fn fee_estimator_config(mut self, config: FeeEstimatorConfig) -> Self {
+        self.fee_estimator_config = Some(config);
         self
     }
 
@@ -362,6 +373,7 @@ impl SharedBuilder {
             block_assembler_config,
             notify_config,
             async_handle,
+            fee_estimator_config,
             header_map_tmp_dir,
         } = self;
 
@@ -401,6 +413,17 @@ impl SharedBuilder {
 
         let (sender, receiver) = ckb_channel::unbounded();
 
+        let fee_estimator_algo = fee_estimator_config
+            .map(|config| config.algorithm)
+            .unwrap_or(None);
+        let fee_estimator = match fee_estimator_algo {
+            Some(FeeEstimatorAlgo::WeightUnitsFlow) => FeeEstimator::new_weight_units_flow(),
+            Some(FeeEstimatorAlgo::ConfirmationFraction) => {
+                FeeEstimator::new_confirmation_fraction()
+            }
+            None => FeeEstimator::new_dummy(),
+        };
+
         let (mut tx_pool_builder, tx_pool_controller) = TxPoolServiceBuilder::new(
             tx_pool_config,
             Arc::clone(&snapshot),
@@ -408,9 +431,14 @@ impl SharedBuilder {
             Arc::clone(&txs_verify_cache),
             &async_handle,
             sender,
+            fee_estimator.clone(),
         );
 
-        register_tx_pool_callback(&mut tx_pool_builder, notify_controller.clone());
+        register_tx_pool_callback(
+            &mut tx_pool_builder,
+            notify_controller.clone(),
+            fee_estimator,
+        );
 
         let block_status_map = Arc::new(DashMap::new());
 
@@ -497,7 +525,11 @@ fn build_store(
     Ok(store)
 }
 
-fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify: NotifyController) {
+fn register_tx_pool_callback(
+    tx_pool_builder: &mut TxPoolServiceBuilder,
+    notify: NotifyController,
+    fee_estimator: FeeEstimator,
+) {
     let notify_pending = notify.clone();
 
     let tx_relay_sender = tx_pool_builder.tx_relay_sender();
@@ -508,10 +540,15 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
         fee: entry.fee,
         timestamp: entry.timestamp,
     };
+
+    let fee_estimator_clone = fee_estimator.clone();
     tx_pool_builder.register_pending(Box::new(move |entry: &TxEntry| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_pending.notify_new_transaction(notify_tx_entry);
+        let tx_hash = entry.transaction().hash();
+        let entry_info = entry.to_info();
+        fee_estimator_clone.accept_tx(tx_hash, entry_info);
     }));
 
     let notify_proposed = notify.clone();
@@ -535,7 +572,9 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             }
 
             if reject.is_allowed_relay() {
-                if let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject { tx_hash }) {
+                if let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
+                    tx_hash: tx_hash.clone(),
+                }) {
                     error!("tx-pool tx_relay_sender internal error {}", e);
                 }
             }
@@ -543,6 +582,9 @@ fn register_tx_pool_callback(tx_pool_builder: &mut TxPoolServiceBuilder, notify:
             // notify
             let notify_tx_entry = create_notify_entry(entry);
             notify_reject.notify_reject_transaction(notify_tx_entry, reject);
+
+            // fee estimator
+            fee_estimator.reject_tx(&tx_hash);
         },
     ));
 }
