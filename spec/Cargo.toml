@@ -25,6 +25,8 @@ ckb-error = { path = "../error", version = "= 0.119.0-pre" }
 ckb-traits = { path = "../traits", version = "= 0.119.0-pre" }
 ckb-logger = { path = "../util/logger", version = "= 0.119.0-pre" }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+cacache = { version = "13.0.0", default-features = false, features = ["mmap"] }
 
 [dev-dependencies]
 tempfile.workspace = true

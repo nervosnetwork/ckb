@@ -1,10 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use ckb_logger::{debug, error, trace, warn};
+use ckb_systemtime::{Duration, Instant};
 use p2p::{
     async_trait, bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},

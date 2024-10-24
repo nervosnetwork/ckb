@@ -23,7 +23,7 @@ derive_more = { version = "1", default-features = false, features = [
     "display",
 ] }
 ckb-verification-traits = { path = "./traits", version = "= 0.119.0-pre" }
-tokio = { version = "1", features = ["sync", "process"] }
+tokio = { version = "1", features = ["sync", "macros"] }
 
 [dev-dependencies]
 ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.119.0-pre" }

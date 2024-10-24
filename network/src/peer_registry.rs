@@ -6,6 +6,7 @@ use crate::{
     extract_peer_id, Peer, PeerId, SessionType,
 };
 use ckb_logger::debug;
+use ckb_systemtime::Instant;
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -146,7 +147,7 @@ impl PeerRegistry {
             &mut candidate_peers,
             EVICTION_PROTECT_PEERS,
             |peer1, peer2| {
-                let now = std::time::Instant::now();
+                let now = Instant::now();
                 let peer1_last_message = peer1
                     .last_ping_protocol_message_received_at
                     .map(|t| now.saturating_duration_since(t).as_secs())

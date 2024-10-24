@@ -99,7 +99,7 @@ impl SeedRecord {
             return Err(SeedRecordError::InvalidRecord);
         }
 
-        let recid = RecoveryId::from_i32(i32::from(sig[64]))
+        let recid = RecoveryId::try_from(i32::from(sig[64]))
             .map_err(|_| SeedRecordError::InvalidSignature)?;
         let signature = RecoverableSignature::from_compact(&sig[0..64], recid)
             .map_err(|_| SeedRecordError::InvalidSignature)?;

@@ -15,6 +15,5 @@ faster-hex = "0.6"
 schemars = { version = "0.8.19", package = "ckb_schemars" }
 
 
-
 [dev-dependencies]
 serde_json = "1.0"

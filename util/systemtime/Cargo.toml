@@ -10,6 +10,9 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+web-time = "1.1.0"
+
 [dev-dependencies]
 
 [features]

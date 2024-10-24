@@ -39,6 +39,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::RwLock,
 };
+#[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
     oneshot,
     watch::{self, Receiver},
@@ -689,6 +690,7 @@ where
     /// Performing a resumable verification on the transaction scripts with signal channel,
     /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
     /// otherwise, it will return until the verification is completed.
+    #[cfg(not(target_family = "wasm"))]
     pub async fn resumable_verify_with_signal(
         &self,
         limit_cycles: Cycle,
@@ -1072,6 +1074,7 @@ where
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn verify_group_with_signal(
         &self,
         group: &ScriptGroup,
@@ -1163,6 +1166,7 @@ where
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn chunk_run_with_signal(
         &self,
         script_group: &ScriptGroup,

@@ -297,6 +297,7 @@ impl Config {
     }
 
     /// Reads the private key from file or generates one if the file does not exist.
+    #[cfg(not(target_family = "wasm"))]
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
         match self.read_secret_key()? {
             Some(key) => Ok(key),
@@ -305,6 +306,12 @@ impl Config {
                 Ok(self.read_secret_key()?.expect("key must exists"))
             }
         }
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
+        let random_key_pair = generate_random_key();
+        secio::SecioKeyPair::secp256k1_raw_key(&random_key_pair).map_err(Into::into)
     }
 
     /// Gets the list of whitelist peers.

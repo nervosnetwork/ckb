@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use ckb_systemtime::{Duration, Instant};
 
 use ckb_logger::debug;
 use p2p::{

@@ -128,38 +128,36 @@ pub trait CKBProtocolContext: Send {
     }
 }
 
+/// type alias of dyn ckb protocol context
+pub type BoxedCKBProtocolContext = Arc<dyn CKBProtocolContext + Sync>;
+
 /// Abstract protocol handle base on tentacle service handle
 #[async_trait]
 pub trait CKBProtocolHandler: Sync + Send {
     /// Init action on service run
-    async fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>);
+    async fn init(&mut self, nc: BoxedCKBProtocolContext);
     /// Called when opening protocol
     async fn connected(
         &mut self,
-        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        _nc: BoxedCKBProtocolContext,
         _peer_index: PeerIndex,
         _version: &str,
     ) {
     }
     /// Called when closing protocol
-    async fn disconnected(
-        &mut self,
-        _nc: Arc<dyn CKBProtocolContext + Sync>,
-        _peer_index: PeerIndex,
-    ) {
-    }
+    async fn disconnected(&mut self, _nc: BoxedCKBProtocolContext, _peer_index: PeerIndex) {}
     /// Called when the corresponding protocol message is received
     async fn received(
         &mut self,
-        _nc: Arc<dyn CKBProtocolContext + Sync>,
+        _nc: BoxedCKBProtocolContext,
         _peer_index: PeerIndex,
         _data: Bytes,
     ) {
     }
     /// Called when the Service receives the notify task
-    async fn notify(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>, _token: u64) {}
+    async fn notify(&mut self, _nc: BoxedCKBProtocolContext, _token: u64) {}
     /// Behave like `Stream::poll`
-    async fn poll(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
+    async fn poll(&mut self, _nc: BoxedCKBProtocolContext) -> Option<()> {
         None
     }
 }
@@ -648,6 +646,6 @@ impl Future for BlockingFutureTask {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        tokio::task::block_in_place(|| self.task.poll_unpin(cx))
+        p2p::runtime::block_in_place(|| self.task.poll_unpin(cx))
     }
 }
