@@ -16,7 +16,7 @@ ckb-build-info = { path = "util/build-info", version = "= 0.119.0-pre" }
 [dependencies]
 ckb-build-info = { path = "util/build-info", version = "= 0.119.0-pre" }
 ckb-bin = { path = "ckb-bin", version = "= 0.119.0-pre" }
-console-subscriber = { version = "0.2.0", optional = true }
+console-subscriber = { version = "0.4.0", optional = true }
 
 [dev-dependencies]
 

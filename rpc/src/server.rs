@@ -128,16 +128,18 @@ impl RpcServer {
         let (tx_addr, rx_addr) = tokio::sync::oneshot::channel::<SocketAddr>();
 
         handler.spawn(async move {
-            let server = axum::Server::bind(
+            let listener = tokio::net::TcpListener::bind(
                 &address
                     .to_socket_addrs()
                     .expect("config listen_address parsed")
                     .next()
                     .expect("config listen_address parsed"),
             )
-            .serve(app.clone().into_make_service());
+            .await
+            .unwrap();
+            let server = axum::serve(listener, app.into_make_service());
 
-            let _ = tx_addr.send(server.local_addr());
+            let _ = tx_addr.send(server.local_addr().unwrap());
             let graceful = server.with_graceful_shutdown(async move {
                 new_tokio_exit_rx().cancelled().await;
             });
