@@ -37,20 +37,20 @@ ckb-spawn = { path = "../util/spawn", version = "= 0.119.0" }
 socket2 = "0.5"
 bitflags = "1.0"
 
-p2p = { version = "0.6.1", package = "tentacle", features = [
-    "upnp",
-    "parking_lot",
-    "openssl-vendored",
+p2p = { version = "= 0.6.1", package = "tentacle", features = [
+  "upnp",
+  "parking_lot",
+  "openssl-vendored",
 ] }
 
 [features]
 with_sentry = ["sentry"]
 with_dns_seeding = [
-    "lazy_static",
-    "bs58",
-    "faster-hex",
-    "trust-dns-resolver",
-    "secp256k1",
+  "lazy_static",
+  "bs58",
+  "faster-hex",
+  "trust-dns-resolver",
+  "secp256k1",
 ]
 fuzz = []
 
@@ -61,7 +61,7 @@ proptest = "1.0"
 num_cpus = "1.10"
 once_cell = "1.8.0"
 ckb-systemtime = { path = "../util/systemtime", version = "= 0.119.0", features = [
-    "enable_faketime",
+  "enable_faketime",
 ] }
 
 [[bench]]
