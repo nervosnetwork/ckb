@@ -21,9 +21,8 @@ use ckb_network::{
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
-use ckb_shared::{ChainServicesBuilder, Shared};
-
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
+use ckb_shared::{ChainServicesBuilder, Shared};
 use ckb_store::ChainDB;
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
 use ckb_tx_pool::service::TxVerificationResult;

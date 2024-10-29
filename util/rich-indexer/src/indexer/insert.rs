@@ -400,6 +400,32 @@ pub(crate) async fn bulk_insert_tx_association_cell_dep_table(
     .await
 }
 
+pub(crate) async fn spend_cell(
+    out_point: &OutPoint,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<bool, Error> {
+    let output_tx_hash = out_point.tx_hash().raw_data().to_vec();
+    let output_index: u32 = out_point.index().unpack();
+
+    let updated_rows = sqlx::query(
+        r#"
+            UPDATE output
+            SET is_spent = 1
+            WHERE
+                tx_id = (SELECT ckb_transaction.id FROM ckb_transaction WHERE tx_hash = $1)
+                AND output_index = $2
+        "#,
+    )
+    .bind(output_tx_hash)
+    .bind(output_index as i32)
+    .execute(tx.as_mut())
+    .await
+    .map_err(|err| Error::DB(err.to_string()))?
+    .rows_affected();
+
+    Ok(updated_rows > 0)
+}
+
 pub(crate) async fn query_output_cell(
     out_point: &OutPoint,
     tx: &mut Transaction<'_, Any>,
@@ -432,7 +458,7 @@ pub(crate) async fn query_output_cell(
     )
     .bind(output_tx_hash)
     .bind(output_index as i32)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
@@ -458,7 +484,7 @@ pub(crate) async fn query_output_id(
     )
     .bind(output_tx_hash)
     .bind(output_index as i32)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))
     .map(|row| row.map(|row| row.get::<i64, _>("id")))
@@ -482,7 +508,7 @@ pub(crate) async fn query_script_id(
     .bind(code_hash)
     .bind(hash_type)
     .bind(args)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))
     .map(|row| row.map(|row| row.get::<i64, _>("id")))
@@ -502,7 +528,7 @@ pub(crate) async fn query_block_id(
         "#,
     )
     .bind(block_hash)
-    .fetch_optional(tx)
+    .fetch_optional(tx.as_mut())
     .await
     .map_err(|err| Error::DB(err.to_string()))
     .map(|row| row.map(|row| row.get::<i64, _>("id")))
@@ -640,7 +666,7 @@ async fn bulk_insert(
 
         // execute
         query
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
     }
@@ -669,7 +695,7 @@ async fn bulk_insert_and_return_ids(
 
         // execute
         let mut rows = query
-            .fetch_all(&mut *tx)
+            .fetch_all(tx.as_mut())
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
         id_list.append(&mut rows);

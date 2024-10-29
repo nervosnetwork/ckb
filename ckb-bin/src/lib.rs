@@ -1,16 +1,22 @@
 //! CKB executable.
 //!
 //! This crate is created to reduce the link time to build CKB.
+#[allow(dead_code)]
+mod cli;
 mod helper;
+mod setup;
 mod setup_guard;
 mod subcommand;
-use ckb_app_config::{cli, ExitCode, Setup};
+#[cfg(test)]
+mod tests;
+use ckb_app_config::ExitCode;
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
 use ckb_logger::{debug, info};
 use ckb_network::tokio;
 use clap::ArgMatches;
 use helper::raise_fd_limit;
+use setup::Setup;
 use setup_guard::SetupGuard;
 
 #[cfg(not(target_os = "windows"))]

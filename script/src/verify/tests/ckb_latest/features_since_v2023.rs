@@ -1236,6 +1236,12 @@ fn check_spawn_index_out_of_bound() {
 }
 
 #[test]
+fn check_root_inherited_fds() {
+    let result = simple_spawn_test("testdata/spawn_cases", &[19]);
+    assert_eq!(result.is_ok(), SCRIPT_VERSION == ScriptVersion::V2);
+}
+
+#[test]
 fn check_spawn_cycles() {
     let script_version = SCRIPT_VERSION;
 
@@ -1265,7 +1271,7 @@ fn check_spawn_cycles() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V2);
     if script_version >= ScriptVersion::V2 {
-        assert_eq!(result.unwrap(), 1524861);
+        assert_eq!(result.unwrap(), 1525087);
     }
 }
 

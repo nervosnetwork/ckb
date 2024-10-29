@@ -54,13 +54,12 @@ fn test_fee_rate_statics() {
             total_uncles_count: 0,
             verified: None,
 
-            // first element in txs_fees is belong to cellbase
-            txs_fees: vec![
-                Capacity::shannons(i * 1234),
-                Capacity::shannons(i * i * 100),
-            ],
-            // first element in cycles is belong to cellbase
-            cycles: Some(vec![0, i * 100]),
+            // txs_fees length is equal to block_ext.cycles length
+            // and txs_fees does not include cellbase
+            txs_fees: vec![Capacity::shannons(i * i * 100)],
+            // cycles does not include cellbase
+            cycles: Some(vec![i * 100]),
+            // txs_sizes length is equal to block_ext.txs_fees length + 1
             // first element in txs_sizes is belong to cellbase
             txs_sizes: Some(vec![i * 5678, i * 100]),
         };

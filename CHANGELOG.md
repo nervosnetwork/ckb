@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## [v0.119.0](https://github.com/nervosnetwork/ckb/compare/v0.118.0...v0.119.0) (2024-10-25)
+
+### Features
+
+-   #4635: Intro preview chain (@zhangsoledad)
+
+    Introduces a new chain operation to provide a preview environment for the upcoming hardfork on the Nervos CKB network. The new chain allows users and developers to test and review the hardfork changes before they are officially deployed on the mainnet, ensuring all updates and features are thoroughly validated. This preview chain helps improve the security and reliability of the hard fork process, minimizing potential risks before the main deployment.
+
+### Bug Fixes
+
+-   #4623: Fix atomic ordering in multi-thread (@driftluo)
+-   #4664 **script:** Remove isa a in version 2 (@mohanson)
+-   #4677: fix(script): fixed panic when calling `inherited_fds` in root process (@zhangsoledad)
+
+### Improvements
+
+-   #4561: Recover possible transaction in conflicted cache when RBF (@chenyukang)
+-   #4641: Let BlockFilter exit if ckb has received exit signal (@eval-exec)
+-   #4654: `get_fee_rate_statistics` should aware `block_ext.txs_sizes` length is `block_ext.txs_fees` length + 1 (@eval-exec)
+-   #4509: Improve query performance of `get_cells` in rich-indexer (@EthanYuan)
+-   #4674: Remove empty entry for `OrphanPool` (@eval-exec)
+
 ## [v0.118.0](https://github.com/nervosnetwork/ckb/compare/v0.117.0...v0.118.0) (2024-09-12)
 
 ### Features

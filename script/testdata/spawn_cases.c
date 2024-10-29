@@ -33,7 +33,7 @@ int child_simple_read_write() {
     int err = 0;
     uint64_t inherited_fds[2];
     size_t inherited_fds_length = 2;
-    err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+    err = ckb_inherited_fds(inherited_fds, &inherited_fds_length);
     // read
     for (size_t i = 0; i < 11; i++) {
         uint8_t block[7] = {0};
@@ -76,7 +76,7 @@ int child_write_dead_lock() {
     int err = 0;
     uint64_t inherited_fds[3] = {0};
     size_t inherited_fds_length = 3;
-    err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+    err = ckb_inherited_fds(inherited_fds, &inherited_fds_length);
     CHECK(err);
     uint8_t data[10];
     size_t data_length = sizeof(data);
@@ -174,7 +174,7 @@ int child_read_write_with_close() {
     int err = 0;
     uint64_t inherited_fds[2];
     size_t inherited_fds_length = 2;
-    err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+    err = ckb_inherited_fds(inherited_fds, &inherited_fds_length);
     CHECK(err);
 
     // read 100 bytes and close
@@ -235,20 +235,20 @@ int child_inherited_fds() {
 
     // correct way to get fd length
     size_t fds_length = 0;
-    err = ckb_inherited_file_descriptors(0, &fds_length);
+    err = ckb_inherited_fds(0, &fds_length);
     CHECK2(fds_length == 10, -2);
 
     // get part of fds
     uint64_t fds[11] = {0};
     fds_length = 1;
-    err = ckb_inherited_file_descriptors(fds, &fds_length);
+    err = ckb_inherited_fds(fds, &fds_length);
     CHECK(err);
     CHECK2(fds_length == 10, -2);
     CHECK2(fds[0] == 2, -2);
 
     // get all fds
     fds_length = 10;
-    err = ckb_inherited_file_descriptors(fds, &fds_length);
+    err = ckb_inherited_fds(fds, &fds_length);
     CHECK(err);
     CHECK2(fds_length == 10, -2);
     for (size_t i = 0; i < 10; i++) {
@@ -298,7 +298,7 @@ int child_read_then_close() {
     int err = 0;
     uint64_t fds[2] = {0};
     uint64_t fds_length = 2;
-    err = ckb_inherited_file_descriptors(fds, &fds_length);
+    err = ckb_inherited_fds(fds, &fds_length);
     CHECK(err);
     uint8_t data[8];
     size_t data_len = sizeof(data);
@@ -404,7 +404,7 @@ int child_write_closed_fd() {
     int err = 0;
     uint64_t inherited_fds[2];
     size_t inherited_fds_length = 2;
-    err = ckb_inherited_file_descriptors(inherited_fds, &inherited_fds_length);
+    err = ckb_inherited_fds(inherited_fds, &inherited_fds_length);
     CHECK(err);
 
     uint8_t block[7] = {0};
@@ -459,7 +459,7 @@ int child_pid() {
     int err = 0;
     uint64_t fds[2] = {0};
     uint64_t fds_length = 2;
-    err = ckb_inherited_file_descriptors(fds, &fds_length);
+    err = ckb_inherited_fds(fds, &fds_length);
     CHECK(err);
 
     // send pid
@@ -491,7 +491,7 @@ int parent_spawn_length_out_of_bound(uint64_t* pid) {
 
     const char* argv[] = {"", 0};
     spawn_args_t spgs = {.argc = 1, .argv = argv, .process_id = pid, .inherited_fds = NULL};
-    uint64_t offset = 1024 * 15;
+    uint64_t offset = 1024 * 17;
     uint64_t length = 1024;
     uint64_t bounds = (offset << 32) + length;
 
@@ -532,6 +532,17 @@ int parent_index_out_of_bound(uint64_t* pid) {
     CHECK2(err == 1, -1);  // INDEX_OUT_OF_BOUND
     err = 0;
 
+exit:
+    return err;
+}
+
+int parent_root_inherited_fds() {
+    uint64_t fds[2] = {0};
+    uint64_t length = 2;
+    int err = ckb_inherited_fds(fds, &length);
+    CHECK(err);
+    CHECK2(length == 0, -1);
+    err = 0;
 exit:
     return err;
 }
@@ -577,6 +588,8 @@ int parent_entry(int case_id) {
         return parent_invaild_index(&pid);
     } else if (case_id == 18) {
         return parent_index_out_of_bound(&pid);
+    } else if (case_id == 19) {
+        return parent_root_inherited_fds();
     } else {
         CHECK2(false, -2);
     }

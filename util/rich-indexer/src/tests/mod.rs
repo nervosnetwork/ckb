@@ -14,7 +14,7 @@ use ckb_jsonrpc_types::{
 use ckb_types::h256;
 use ckb_types::prelude::*;
 
-const MEMORY_DB: &str = ":memory:";
+const MEMORY_DB: &str = "sqlite://?mode=memory";
 const BLOCK_DIR: &str = "./src/tests/data/blocks/";
 
 async fn connect_sqlite(store_path: &str) -> SQLXPool {
