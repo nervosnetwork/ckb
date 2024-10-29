@@ -182,7 +182,12 @@ impl ScriptError {
 
 impl From<TransactionScriptError> for Error {
     fn from(error: TransactionScriptError) -> Self {
-        ErrorKind::Script.because(error)
+        match error.cause {
+            ScriptError::Other(ref reason) if reason == "stopped" => {
+                ErrorKind::Internal.because(error)
+            }
+            _ => ErrorKind::Script.because(error),
+        }
     }
 }
 
