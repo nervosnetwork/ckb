@@ -73,6 +73,9 @@ ignore = [
   # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0370
   # proc-macro-error's maintainer seems to be unreachable, with no commits for 2 years, no releases pushed for 4 years, and no activity on the GitLab repo or response to email.
   "RUSTSEC-2024-0370",
+  # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0384
+  # This crate is no longer maintained, and the author recommends using the maintained [`web-time`] crate instead, fix this later
+  "RUSTSEC-2024-0384",
   #"RUSTSEC-0000-0000",
   #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
   #"a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish
