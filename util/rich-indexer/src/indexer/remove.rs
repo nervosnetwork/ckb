@@ -219,8 +219,19 @@ async fn script_exists_in_output(
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
-    if row_lock.get::<i64, _>(0) == 1 {
-        return Ok(true);
+    // pg type is BOOLEAN
+    match row_lock.try_get::<bool, _>(0) {
+        Ok(r) => {
+            if r {
+                return Ok(true);
+            }
+        }
+        Err(_) => {
+            // sqlite type is BIGINT
+            if row_lock.get::<i64, _>(0) == 1 {
+                return Ok(true);
+            }
+        }
     }
 
     let row_type = sqlx::query(
@@ -237,7 +248,12 @@ async fn script_exists_in_output(
     .await
     .map_err(|err| Error::DB(err.to_string()))?;
 
-    Ok(row_type.get::<i64, _>(0) == 1)
+    // pg type is BOOLEAN
+    match row_lock.try_get::<bool, _>(0) {
+        Ok(r) => Ok(r),
+        // sqlite type is BIGINT
+        Err(_) => Ok(row_type.get::<i64, _>(0) == 1),
+    }
 }
 
 fn sqlx_param_placeholders(range: std::ops::Range<usize>) -> Result<Vec<String>, Error> {
