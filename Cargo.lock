@@ -156,6 +156,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -205,14 +211,13 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "attohttpc"
-version = "0.16.3"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdb8867f378f33f78a811a8eb9bf108ad99430d7aad43315dd9319c827ef6247"
+checksum = "8d9a9bf8b79a749ee0b911b91b671cc2b6c670bdbc7e3dfd537576ddc94bb2a2"
 dependencies = [
  "http 0.2.12",
  "log",
  "url",
- "wildmatch",
 ]
 
 [[package]]
@@ -349,6 +354,22 @@ name = "bit-vec"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
+
+[[package]]
+name = "bitcoin-io"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b47c4ab7a93edb0c7198c5535ed9b52b63095f4e9b45279c6736cec4b856baf"
+
+[[package]]
+name = "bitcoin_hashes"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb18c03d0db0247e147a21a6faafd5a7eb851c743db062de72018b6b7e8e4d16"
+dependencies = [
+ "bitcoin-io",
+ "hex-conservative",
+]
 
 [[package]]
 name = "bitflags"
@@ -819,7 +840,7 @@ dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
  "rand 0.8.5",
- "secp256k1",
+ "secp256k1 0.29.1",
  "thiserror",
 ]
 
@@ -1269,7 +1290,7 @@ dependencies = [
  "num_cpus",
  "proptest",
  "rand 0.8.5",
- "secp256k1",
+ "secp256k1 0.29.1",
  "sentry",
  "serde",
  "serde_json",
@@ -3021,6 +3042,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hex-conservative"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5313b072ce3c597065a808dbf612c4c8e8590bdbf8b579508bf7a762c5eae6cd"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3277,10 +3307,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "igd"
-version = "0.12.1"
+name = "igd-next"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "556b5a75cd4adb7c4ea21c64af1c48cefb2ce7d43dc4352c720a1fe47c21f355"
+checksum = "76b0d7d4541def58a37bf8efc559683f21edce7c82f0d866c93ac21f7e098f93"
 dependencies = [
  "attohttpc",
  "log",
@@ -5074,6 +5104,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "secp256k1"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b50c5943d326858130af85e049f2661ba3c78b26589b8ab98e65e80ae44a1252"
+dependencies = [
+ "bitcoin_hashes",
+ "rand 0.8.5",
+ "secp256k1-sys",
+]
+
+[[package]]
 name = "secp256k1-sys"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5809,20 +5850,18 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d335523ec132a2bbefbaf403b52eba047fb50bc83bed2d0b1d22c119bae2fec1"
+version = "0.6.2"
+source = "git+https://github.com/nervosnetwork/tentacle.git?rev=14fdd9ae6#14fdd9ae6ef4ec981d9157858edf4665bfed7a8b"
 dependencies = [
  "async-trait",
  "bytes",
  "futures",
- "igd",
+ "igd-next",
  "js-sys",
  "libc",
  "log",
  "molecule",
  "nohash-hasher",
- "once_cell",
  "parking_lot 0.12.3",
  "rand 0.8.5",
  "socket2",
@@ -5840,8 +5879,7 @@ dependencies = [
 [[package]]
 name = "tentacle-multiaddr"
 version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a9e71b28bf0bbf274b92f47cb2c5b42755d84a11e2246cf7bcb7b65c89483b9"
+source = "git+https://github.com/nervosnetwork/tentacle.git?rev=14fdd9ae6#14fdd9ae6ef4ec981d9157858edf4665bfed7a8b"
 dependencies = [
  "bs58",
  "bytes",
@@ -5852,9 +5890,8 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cac8b23a7879426a4961acea6ae66287f7fe9a934d131a722cbb88f145e97fea"
+version = "0.6.3"
+source = "git+https://github.com/nervosnetwork/tentacle.git?rev=14fdd9ae6#14fdd9ae6ef4ec981d9157858edf4665bfed7a8b"
 dependencies = [
  "bs58",
  "bytes",
@@ -5869,7 +5906,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_core 0.6.4",
  "ring",
- "secp256k1",
+ "secp256k1 0.30.0",
  "sha2",
  "tokio",
  "tokio-util",
@@ -6149,9 +6186,8 @@ dependencies = [
 
 [[package]]
 name = "tokio-yamux"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2ed88a04bfbf9e70343a5748a423200ee0591c55e7e487d784a55ee8af17db9"
+version = "0.3.9"
+source = "git+https://github.com/nervosnetwork/tentacle.git?rev=14fdd9ae6#14fdd9ae6ef4ec981d9157858edf4665bfed7a8b"
 dependencies = [
  "bytes",
  "futures",
@@ -6159,6 +6195,7 @@ dependencies = [
  "nohash-hasher",
  "tokio",
  "tokio-util",
+ "web-time",
 ]
 
 [[package]]
@@ -6775,12 +6812,6 @@ name = "widestring"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7219d36b6eac893fa81e84ebe06485e7dcbb616177469b142df14f1f4deb1311"
-
-[[package]]
-name = "wildmatch"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f44b95f62d34113cf558c93511ac93027e03e9c29a60dd0fd70e6e025c7270a"
 
 [[package]]
 name = "winapi"

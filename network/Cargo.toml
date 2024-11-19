@@ -36,7 +36,7 @@ ckb-spawn = { path = "../util/spawn", version = "= 0.120.0-pre" }
 socket2 = "0.5"
 bitflags = "1.0"
 
-p2p = { version = "0.6.1", package = "tentacle", features = [
+p2p = { git = "https://github.com/nervosnetwork/tentacle.git", rev = "14fdd9ae6", package = "tentacle", features = [
     "upnp",
     "parking_lot",
     "openssl-vendored",
