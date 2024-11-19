@@ -4,7 +4,7 @@ use ckb_app_config::NetworkConfig;
 use ckb_async_runtime::{new_global_runtime, Runtime};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender};
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_network::{
     async_trait, bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext,
     CKBProtocolHandler, Flags, NetworkController, NetworkService, NetworkState, PeerIndex,
@@ -217,6 +217,10 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         peer_index: PeerIndex,
         _version: &str,
     ) {
+        debug!(
+            "DummyProtocolHandler connected peer_index: {:?}",
+            peer_index
+        );
         let peer = nc.get_peer(peer_index).unwrap();
         let node_id = extract_peer_id(&peer.connected_addr)
             .map(|peer_id| peer_id.to_base58())

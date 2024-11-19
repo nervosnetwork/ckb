@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::time::{Instant, Interval, MissedTickBehavior};
+use tokio::time::{Interval, MissedTickBehavior};
 
 const DEFAULT_DUMP_INTERVAL: Duration = Duration::from_secs(3600); // 1 hour
 
@@ -50,10 +50,7 @@ impl Future for DumpPeerStoreService {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.interval.is_none() {
             self.interval = {
-                let mut interval = tokio::time::interval_at(
-                    Instant::now() + DEFAULT_DUMP_INTERVAL,
-                    DEFAULT_DUMP_INTERVAL,
-                );
+                let mut interval = tokio::time::interval(DEFAULT_DUMP_INTERVAL);
                 // The dump peer store service does not need to urgently compensate for the missed wake,
                 // just delay behavior is enough
                 interval.set_missed_tick_behavior(MissedTickBehavior::Delay);

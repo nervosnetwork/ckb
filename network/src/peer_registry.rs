@@ -76,6 +76,7 @@ impl PeerRegistry {
         session_type: SessionType,
         peer_store: &mut PeerStore,
     ) -> Result<Option<Peer>, Error> {
+        debug!("start accept peer {:?}", session_id);
         if self.peers.contains_key(&session_id) {
             return Err(PeerError::SessionExists(session_id).into());
         }
@@ -112,6 +113,7 @@ impl PeerRegistry {
         peer_store.add_connected_peer(remote_addr.clone(), session_type);
         let peer = Peer::new(session_id, session_type, remote_addr, is_whitelist);
         self.peers.insert(session_id, peer);
+        debug!("end accept peer {:?}", session_id);
         Ok(evicted_peer)
     }
 
