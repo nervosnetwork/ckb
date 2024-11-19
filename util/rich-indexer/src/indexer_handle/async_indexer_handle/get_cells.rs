@@ -190,7 +190,7 @@ impl AsyncRichIndexerHandle {
             if let Some(script) = filter.script.as_ref() {
                 query = query
                     .bind(script.code_hash.as_bytes())
-                    .bind(script.hash_type as i16);
+                    .bind(script.hash_type.clone() as i16);
                 // Default prefix search
                 query = query
                     .bind(script.args.as_bytes())

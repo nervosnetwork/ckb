@@ -25,7 +25,7 @@ use std::fmt;
 /// when the low 1 bit is 0, it indicates the data,
 /// and then it relies on the high 7 bits to indicate
 /// that the data actually corresponds to the version.
-#[derive(Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
     /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.

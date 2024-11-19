@@ -208,9 +208,7 @@ impl Resource {
                 SourceFiles::new(&BUNDLED_CELL, &BUNDLED).read(bundled)
             }
             Resource::FileSystem { file } => Ok(Box::new(BufReader::new(fs::File::open(file)?))),
-            Resource::Raw { raw } => Ok(Box::new(BufReader::new(Cursor::new(
-                raw.to_owned().into_bytes(),
-            )))),
+            Resource::Raw { raw } => Ok(Box::new(Cursor::new(raw.to_owned().into_bytes()))),
         }
     }
 

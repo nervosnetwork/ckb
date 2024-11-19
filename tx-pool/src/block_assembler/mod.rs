@@ -463,7 +463,7 @@ impl BlockAssembler {
         config: &BlockAssemblerConfig,
         snapshot: &Snapshot,
     ) -> CellbaseWitness {
-        let hash_type: ScriptHashType = config.hash_type.into();
+        let hash_type: ScriptHashType = config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
             .args(config.args.as_bytes().pack())
             .code_hash(config.code_hash.pack())
