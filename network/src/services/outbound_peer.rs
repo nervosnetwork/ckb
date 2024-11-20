@@ -155,7 +155,8 @@ impl Future for OutboundPeerService {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.interval.is_none() {
             self.interval = {
-                let mut interval = Interval::new(self.try_connect_interval);
+                let mut interval =
+                    Interval::new_at(self.try_connect_interval, self.try_connect_interval);
                 // The outbound service does not need to urgently compensate for the missed wake,
                 // just skip behavior is enough
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);

@@ -129,7 +129,7 @@ impl Future for ProtocolTypeCheckerService {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.interval.is_none() {
             self.interval = {
-                let mut interval = Interval::new(CHECK_INTERVAL);
+                let mut interval = Interval::new_at(CHECK_INTERVAL, CHECK_INTERVAL);
                 // The protocol type checker service does not need to urgently compensate for the missed wake,
                 // just skip behavior is enough
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
