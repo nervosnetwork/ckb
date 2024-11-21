@@ -40,7 +40,7 @@ pub use p2p::{
     async_trait,
     builder::ServiceBuilder,
     bytes, multiaddr, runtime,
-    secio::{PeerId, PublicKey},
+    secio::{self, PeerId, PublicKey},
     service::{ServiceControl, SessionType, TargetProtocol, TargetSession},
     traits::ServiceProtocol,
     utils::{extract_peer_id, multiaddr_to_socketaddr},

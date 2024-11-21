@@ -51,6 +51,8 @@ socket2 = "0.5"
 p2p = { version = "0.6.2", package = "tentacle", default-features = false, features = [
     "wasm-timer",
 ] }
+idb = "0.6"
+serde-wasm-bindgen = "0.6.5"
 
 
 [features]

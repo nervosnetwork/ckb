@@ -38,9 +38,11 @@ impl DumpPeerStoreService {
 
     #[cfg(target_family = "wasm")]
     fn dump_peer_store(&self) {
-        let config = &self.network_state.config;
-        self.network_state
-            .with_peer_store_mut(|peer_store| peer_store.dump_with_config(config));
+        let path = self.network_state.config.peer_store_path();
+        self.network_state.with_peer_store_mut(|peer_store| {
+            let task = peer_store.dump_to_idb(path);
+            p2p::runtime::spawn(task)
+        });
     }
 }
 
@@ -48,6 +50,14 @@ impl Drop for DumpPeerStoreService {
     fn drop(&mut self) {
         debug!("Dump peer store before exiting");
         self.dump_peer_store();
+        #[cfg(target_family = "wasm")]
+        {
+            use crate::peer_store::browser::get_db;
+            let path = self.network_state.config.peer_store_path();
+            p2p::runtime::spawn(async {
+                let _ignore = get_db(path).await.shutdown().await;
+            });
+        }
     }
 }
 

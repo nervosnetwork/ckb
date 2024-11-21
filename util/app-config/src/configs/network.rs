@@ -91,37 +91,7 @@ pub struct Config {
 
     #[cfg(target_family = "wasm")]
     #[serde(skip)]
-    pub secret_key: Option<[u8; 32]>,
-
-    #[cfg(target_family = "wasm")]
-    #[serde(skip)]
-    pub peer_store_ban_list_fns: std::sync::Arc<PeerStoreWasm>,
-    #[cfg(target_family = "wasm")]
-    #[serde(skip)]
-    pub peer_store_fns: std::sync::Arc<PeerStoreWasm>,
-}
-
-#[cfg(target_family = "wasm")]
-pub struct PeerStoreWasm {
-    pub dump_fn: Box<dyn Fn(&[u8]) + Send + Sync>,
-    pub load_fn: Box<dyn Fn() -> Vec<u8> + Send + Sync>,
-}
-
-#[cfg(target_family = "wasm")]
-impl std::fmt::Debug for PeerStoreWasm {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "wasm peer store functions")
-    }
-}
-
-#[cfg(target_family = "wasm")]
-impl Default for PeerStoreWasm {
-    fn default() -> Self {
-        PeerStoreWasm {
-            dump_fn: Box::new(|_| {}),
-            load_fn: Box::new(|| Vec::new()),
-        }
-    }
+    pub secret_key: [u8; 32],
 }
 
 /// Chain synchronization config options.
@@ -318,12 +288,14 @@ impl Config {
     /// Reads the secret key from secret key file.
     ///
     /// If the key file does not exists, it returns `Ok(None)`.
+    #[cfg(not(target_family = "wasm"))]
     fn read_secret_key(&self) -> Result<Option<secio::SecioKeyPair>, Error> {
         let path = self.secret_key_path();
         read_secret_key(path)
     }
 
     /// Generates a random secret key and saves it into the file.
+    #[cfg(not(target_family = "wasm"))]
     fn write_secret_key_to_file(&self) -> Result<(), Error> {
         let path = self.secret_key_path();
         let random_key_pair = generate_random_key();
@@ -344,17 +316,15 @@ impl Config {
 
     #[cfg(target_family = "wasm")]
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
-        self.secret_key
-            .clone()
-            .ok_or(Error::new(
+        if self.secret_key == [0; 32] {
+            return Err(Error::new(
                 ErrorKind::InvalidData,
                 "invalid secret key data",
-            ))
-            .or_else(|_| Ok(generate_random_key()))
-            .map(|secret| {
-                secio::SecioKeyPair::secp256k1_raw_key(&secret)
-                    .expect("network secret key is invalid")
-            })
+            ));
+        } else {
+            secio::SecioKeyPair::secp256k1_raw_key(&self.secret_key)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid secret key data"))
+        }
     }
 
     /// Gets the list of whitelist peers.

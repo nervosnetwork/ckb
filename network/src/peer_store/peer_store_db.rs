@@ -39,11 +39,9 @@ impl AddrManager {
     }
 
     #[cfg(target_family = "wasm")]
-    pub fn dump_with_fn<F: Fn(&[u8])>(&self, f: F) {
+    pub fn dump_data(&self) -> Vec<u8> {
         let addrs: Vec<_> = self.addrs_iter().collect();
-        debug!("Dump {} addrs", addrs.len());
-        let bytes = serde_json::to_string(&addrs).unwrap();
-        f(bytes.as_bytes())
+        serde_json::to_string(&addrs).unwrap().into_bytes()
     }
 }
 
@@ -72,11 +70,9 @@ impl BanList {
     }
 
     #[cfg(target_family = "wasm")]
-    pub fn dump_with_fn<F: Fn(&[u8])>(&self, f: F) {
-        let addrs: Vec<_> = self.get_banned_addrs();
-        debug!("Dump {} banned addrs", addrs.len());
-        let bytes = serde_json::to_string(&addrs).unwrap();
-        f(bytes.as_bytes())
+    pub fn dump_data(&self) -> Vec<u8> {
+        let banned_addrs = self.get_banned_addrs();
+        serde_json::to_string(&banned_addrs).unwrap().into_bytes()
     }
 }
 
@@ -124,17 +120,43 @@ impl PeerStore {
     }
 
     #[cfg(target_family = "wasm")]
-    pub fn load_from_config(config: &ckb_app_config::NetworkConfig) -> Self {
-        let addr_manager = Ok((config.peer_store_fns.load_fn)())
-            .and_then(|file| {
-                AddrManager::load(std::io::BufReader::new(std::io::Cursor::new(file)))
-                    .map_err(|err| error!("Failed to load AddrManager db, error: {:?}", err))
+    pub async fn load_from_idb<P: AsRef<Path>>(path: P) -> Self {
+        use crate::peer_store::browser::get_db;
+
+        let addr_manager_path = path
+            .as_ref()
+            .join(DEFAULT_ADDR_MANAGER_DB)
+            .to_str()
+            .unwrap()
+            .to_owned()
+            .into_bytes();
+        let ban_list_path = path
+            .as_ref()
+            .join(DEFAULT_BAN_LIST_DB)
+            .to_str()
+            .unwrap()
+            .to_owned()
+            .into_bytes();
+
+        let db = get_db(path).await;
+
+        let addr_manager = db
+            .get(&addr_manager_path)
+            .await
+            .map_err(|err| debug!("Failed to get indexdb value, error: {:?}", err))
+            .and_then(|data| {
+                AddrManager::load(std::io::Cursor::new(data.unwrap_or_default()))
+                    .map_err(|err| debug!("Failed to load peer store value, error: {:?}", err))
             })
             .unwrap_or_default();
-        let ban_list = Ok((config.peer_store_ban_list_fns.load_fn)())
-            .and_then(|file| {
-                BanList::load(std::io::BufReader::new(std::io::Cursor::new(file)))
-                    .map_err(|err| error!("Failed to load BanList db, error: {:?}", err))
+
+        let ban_list = db
+            .get(&ban_list_path)
+            .await
+            .map_err(|err| debug!("Failed to get indexdb value, error: {:?}", err))
+            .and_then(|data| {
+                BanList::load(std::io::Cursor::new(data.unwrap_or_default()))
+                    .map_err(|err| debug!("Failed to load BanList value, error: {:?}", err))
             })
             .unwrap_or_default();
         PeerStore::new(addr_manager, ban_list)
@@ -174,11 +196,28 @@ impl PeerStore {
     }
 
     #[cfg(target_family = "wasm")]
-    pub fn dump_with_config(&self, config: &ckb_app_config::NetworkConfig) {
-        self.addr_manager()
-            .dump_with_fn(&config.peer_store_fns.dump_fn);
-        self.ban_list()
-            .dump_with_fn(&config.peer_store_ban_list_fns.dump_fn);
+    pub fn dump_to_idb<P: AsRef<Path>>(&self, path: P) -> impl std::future::Future<Output = ()> {
+        use crate::peer_store::browser::get_db;
+        let ban_list = self.ban_list().dump_data();
+        let addr_manager = self.addr_manager().dump_data();
+        let addr_manager_path = path
+            .as_ref()
+            .join(DEFAULT_ADDR_MANAGER_DB)
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let ban_list_path = path
+            .as_ref()
+            .join(DEFAULT_BAN_LIST_DB)
+            .to_str()
+            .unwrap()
+            .to_owned();
+        async {
+            let db = get_db(path).await;
+
+            let _ignore = db.put(addr_manager_path.into_bytes(), addr_manager).await;
+            let _ignore = db.put(ban_list_path.into_bytes(), ban_list).await;
+        }
     }
 }
 

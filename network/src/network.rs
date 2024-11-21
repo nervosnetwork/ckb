@@ -94,8 +94,8 @@ pub struct NetworkState {
 
 impl NetworkState {
     /// Init from config
+    #[cfg(not(target_family = "wasm"))]
     pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
-        #[cfg(not(target_family = "wasm"))]
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
         let local_peer_id = local_private_key.peer_id();
@@ -117,12 +117,10 @@ impl NetworkState {
             })
             .collect();
         info!("Loading the peer store. This process may take a few seconds to complete.");
-        #[cfg(not(target_family = "wasm"))]
+
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
         ));
-        #[cfg(target_family = "wasm")]
-        let peer_store = Mutex::new(PeerStore::load_from_config(&config));
         let bootnodes = config.bootnodes();
 
         let peer_registry = PeerRegistry::new(
@@ -132,6 +130,55 @@ impl NetworkState {
             config.whitelist_peers(),
         );
 
+        Ok(NetworkState {
+            peer_store,
+            config,
+            bootnodes,
+            peer_registry: RwLock::new(peer_registry),
+            dialing_addrs: RwLock::new(HashMap::default()),
+            public_addrs: RwLock::new(public_addrs),
+            listened_addrs: RwLock::new(Vec::new()),
+            pending_observed_addrs: RwLock::new(HashSet::default()),
+            local_private_key,
+            local_peer_id,
+            active: AtomicBool::new(true),
+            protocols: RwLock::new(Vec::new()),
+            required_flags: Flags::SYNC | Flags::DISCOVERY | Flags::RELAY,
+            ckb2023: AtomicBool::new(false),
+        })
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub async fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
+        let local_private_key = config.fetch_private_key()?;
+        let local_peer_id = local_private_key.peer_id();
+        // set max score to public addresses
+        let public_addrs: HashSet<Multiaddr> = config
+            .listen_addresses
+            .iter()
+            .chain(config.public_addresses.iter())
+            .cloned()
+            .filter_map(|mut addr| {
+                multiaddr_to_socketaddr(&addr)
+                    .filter(|addr| is_reachable(addr.ip()))
+                    .and({
+                        if extract_peer_id(&addr).is_none() {
+                            addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                        }
+                        Some(addr)
+                    })
+            })
+            .collect();
+        info!("Loading the peer store. This process may take a few seconds to complete.");
+        let peer_store = Mutex::new(PeerStore::load_from_idb(config.peer_store_path()).await);
+        let bootnodes = config.bootnodes();
+
+        let peer_registry = PeerRegistry::new(
+            config.max_inbound_peers(),
+            config.max_outbound_peers(),
+            config.whitelist_only,
+            config.whitelist_peers(),
+        );
         Ok(NetworkState {
             peer_store,
             config,
