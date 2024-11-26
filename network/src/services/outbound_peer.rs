@@ -4,7 +4,8 @@ use crate::{
 };
 use ckb_logger::trace;
 use ckb_systemtime::unix_time_as_millis;
-use futures::Future;
+use futures::{Future, StreamExt};
+use p2p::runtime::{Interval, MissedTickBehavior};
 use p2p::{multiaddr::MultiAddr, service::ServiceControl};
 use rand::prelude::IteratorRandom;
 use std::{
@@ -13,7 +14,6 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::time::{Interval, MissedTickBehavior};
 
 const FEELER_CONNECTION_COUNT: usize = 10;
 
@@ -155,14 +155,21 @@ impl Future for OutboundPeerService {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.interval.is_none() {
             self.interval = {
-                let mut interval = tokio::time::interval(self.try_connect_interval);
+                let mut interval =
+                    Interval::new_at(self.try_connect_interval, self.try_connect_interval);
                 // The outbound service does not need to urgently compensate for the missed wake,
                 // just skip behavior is enough
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
                 Some(interval)
             }
         }
-        while self.interval.as_mut().unwrap().poll_tick(cx).is_ready() {
+        while self
+            .interval
+            .as_mut()
+            .unwrap()
+            .poll_next_unpin(cx)
+            .is_ready()
+        {
             // keep whitelist peer on connected
             self.try_dial_whitelist();
             // ensure feeler work at any time

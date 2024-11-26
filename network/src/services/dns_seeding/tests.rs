@@ -63,7 +63,7 @@ impl SeedRecord {
         let (recid, signed_data) = signature.serialize_compact();
         let mut sig = [0u8; 65];
         sig[0..64].copy_from_slice(&signed_data[0..64]);
-        sig[64] = recid.to_i32() as u8;
+        sig[64] = Into::<i32>::into(recid) as u8;
         let signature_string = bs58::encode(&sig[..]).into_string();
         Ok([data, signature_string].join(&SEP.to_string()))
     }

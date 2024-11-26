@@ -1,5 +1,7 @@
 //! Global state struct and start function
-use crate::errors::{Error, P2PError};
+use crate::errors::Error;
+#[cfg(not(target_family = "wasm"))]
+use crate::errors::P2PError;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
 use crate::peer_store::{
     types::{AddrInfo, BannedAddr},
@@ -22,6 +24,7 @@ use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtoc
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
 use ckb_stop_handler::{broadcast_exit_signals, new_tokio_exit_rx, CancellationToken};
+use ckb_systemtime::{Duration, Instant};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{channel::mpsc::Sender, Future};
 use ipnetwork::IpNetwork;
@@ -45,6 +48,7 @@ use p2p::{
 use rand::prelude::IteratorRandom;
 #[cfg(feature = "with_sentry")]
 use sentry::{capture_message, with_scope, Level};
+#[cfg(not(target_family = "wasm"))]
 use std::sync::mpsc;
 use std::{
     borrow::Cow,
@@ -56,7 +60,6 @@ use std::{
         Arc,
     },
     thread,
-    time::{Duration, Instant},
 };
 use tokio::{self, sync::oneshot};
 
@@ -91,6 +94,7 @@ pub struct NetworkState {
 
 impl NetworkState {
     /// Init from config
+    #[cfg(not(target_family = "wasm"))]
     pub fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
@@ -113,6 +117,7 @@ impl NetworkState {
             })
             .collect();
         info!("Loading the peer store. This process may take a few seconds to complete.");
+
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
         ));
@@ -125,6 +130,55 @@ impl NetworkState {
             config.whitelist_peers(),
         );
 
+        Ok(NetworkState {
+            peer_store,
+            config,
+            bootnodes,
+            peer_registry: RwLock::new(peer_registry),
+            dialing_addrs: RwLock::new(HashMap::default()),
+            public_addrs: RwLock::new(public_addrs),
+            listened_addrs: RwLock::new(Vec::new()),
+            pending_observed_addrs: RwLock::new(HashSet::default()),
+            local_private_key,
+            local_peer_id,
+            active: AtomicBool::new(true),
+            protocols: RwLock::new(Vec::new()),
+            required_flags: Flags::SYNC | Flags::DISCOVERY | Flags::RELAY,
+            ckb2023: AtomicBool::new(false),
+        })
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub async fn from_config(config: NetworkConfig) -> Result<NetworkState, Error> {
+        let local_private_key = config.fetch_private_key()?;
+        let local_peer_id = local_private_key.peer_id();
+        // set max score to public addresses
+        let public_addrs: HashSet<Multiaddr> = config
+            .listen_addresses
+            .iter()
+            .chain(config.public_addresses.iter())
+            .cloned()
+            .filter_map(|mut addr| {
+                multiaddr_to_socketaddr(&addr)
+                    .filter(|addr| is_reachable(addr.ip()))
+                    .and({
+                        if extract_peer_id(&addr).is_none() {
+                            addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                        }
+                        Some(addr)
+                    })
+            })
+            .collect();
+        info!("Loading the peer store. This process may take a few seconds to complete.");
+        let peer_store = Mutex::new(PeerStore::load_from_idb(config.peer_store_path()).await);
+        let bootnodes = config.bootnodes();
+
+        let peer_registry = PeerRegistry::new(
+            config.max_inbound_peers(),
+            config.max_outbound_peers(),
+            config.whitelist_only,
+            config.whitelist_peers(),
+        );
         Ok(NetworkState {
             peer_store,
             config,
@@ -890,7 +944,6 @@ impl NetworkService {
         };
         service_builder = service_builder
             .handshake_type(network_state.local_private_key.clone().into())
-            .upnp(config.upnp)
             .yamux_config(yamux_config)
             .forever(true)
             .max_connection_number(1024)
@@ -898,29 +951,15 @@ impl NetworkService {
             .set_channel_size(config.channel_size())
             .timeout(Duration::from_secs(5));
 
+        #[cfg(not(target_family = "wasm"))]
+        {
+            service_builder = service_builder.upnp(config.upnp);
+        }
+
         #[cfg(target_os = "linux")]
         let p2p_service = {
             if config.reuse_port_on_linux {
                 let iter = config.listen_addresses.iter();
-
-                #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-                enum TransportType {
-                    Ws,
-                    Tcp,
-                }
-
-                fn find_type(addr: &Multiaddr) -> TransportType {
-                    let mut iter = addr.iter();
-
-                    iter.find_map(|proto| {
-                        if let p2p::multiaddr::Protocol::Ws = proto {
-                            Some(TransportType::Ws)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(TransportType::Tcp)
-                }
 
                 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
                 enum BindType {
@@ -942,43 +981,65 @@ impl NetworkService {
 
                     fn is_ready(&self) -> bool {
                         // should change to Both if ckb enable ws
-                        matches!(self, BindType::Tcp)
+                        matches!(self, BindType::Both)
                     }
                 }
 
                 let mut init = BindType::None;
-                for addr in iter {
+
+                for multi_addr in iter {
                     if init.is_ready() {
                         break;
                     }
-                    match find_type(addr) {
-                        // wait ckb enable ws support
-                        TransportType::Ws => (),
+                    match find_type(multi_addr) {
                         TransportType::Tcp => {
                             // only bind once
                             if matches!(init, BindType::Tcp) {
                                 continue;
                             }
-                            if let Some(addr) = multiaddr_to_socketaddr(addr) {
-                                use p2p::service::TcpSocket;
+                            if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                service_builder =
-                                    service_builder.tcp_config(move |socket: TcpSocket| {
-                                        let socket_ref = socket2::SockRef::from(&socket);
-                                        #[cfg(all(
-                                            unix,
-                                            not(target_os = "solaris"),
-                                            not(target_os = "illumos")
-                                        ))]
-                                        socket_ref.set_reuse_port(true)?;
-
-                                        socket_ref.set_reuse_address(true)?;
-                                        if socket_ref.domain()? == domain {
-                                            socket_ref.bind(&addr.into())?;
-                                        }
-                                        Ok(socket)
-                                    });
-                                init.transform(TransportType::Tcp)
+                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                    let socket_ref = socket2::SockRef::from(&socket);
+                                    #[cfg(all(
+                                        unix,
+                                        not(target_os = "solaris"),
+                                        not(target_os = "illumos")
+                                    ))]
+                                    socket_ref.set_reuse_port(true)?;
+                                    socket_ref.set_reuse_address(true)?;
+                                    if socket_ref.domain()? == domain {
+                                        socket_ref.bind(&addr.into())?;
+                                    }
+                                    Ok(socket)
+                                };
+                                init.transform(TransportType::Tcp);
+                                service_builder = service_builder.tcp_config(bind_fn);
+                            }
+                        }
+                        TransportType::Ws => {
+                            // only bind once
+                            if matches!(init, BindType::Ws) {
+                                continue;
+                            }
+                            if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
+                                let domain = socket2::Domain::for_address(addr);
+                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                    let socket_ref = socket2::SockRef::from(&socket);
+                                    #[cfg(all(
+                                        unix,
+                                        not(target_os = "solaris"),
+                                        not(target_os = "illumos")
+                                    ))]
+                                    socket_ref.set_reuse_port(true)?;
+                                    socket_ref.set_reuse_address(true)?;
+                                    if socket_ref.domain()? == domain {
+                                        socket_ref.bind(&addr.into())?;
+                                    }
+                                    Ok(socket)
+                                };
+                                init.transform(TransportType::Ws);
+                                service_builder = service_builder.tcp_config_on_ws(bind_fn);
                             }
                         }
                     }
@@ -1094,11 +1155,14 @@ impl NetworkService {
             .unzip();
 
         let receiver: CancellationToken = new_tokio_exit_rx();
+        #[cfg(not(target_family = "wasm"))]
         let (start_sender, start_receiver) = mpsc::channel();
         {
+            #[cfg(not(target_family = "wasm"))]
             let network_state = Arc::clone(&network_state);
             let p2p_control: ServiceAsyncControl = p2p_control.clone().into();
             handle.spawn_task(async move {
+                #[cfg(not(target_family = "wasm"))]
                 for addr in &config.listen_addresses {
                     match p2p_service.listen(addr.to_owned()).await {
                         Ok(listen_address) => {
@@ -1121,8 +1185,9 @@ impl NetworkService {
                         }
                     };
                 }
+                #[cfg(not(target_family = "wasm"))]
                 start_sender.send(Ok(())).unwrap();
-                tokio::spawn(async move { p2p_service.run().await });
+                p2p::runtime::spawn(async move { p2p_service.run().await });
                 tokio::select! {
                     _ = receiver.cancelled() => {
                         info!("NetworkService receive exit signal, start shutdown...");
@@ -1150,7 +1215,7 @@ impl NetworkService {
                 }
             });
         }
-
+        #[cfg(not(target_family = "wasm"))]
         if let Ok(Err(e)) = start_receiver.recv() {
             return Err(e);
         }
@@ -1418,4 +1483,18 @@ pub(crate) async fn async_disconnect_with_message(
             .await?;
     }
     control.disconnect(peer_index).await
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TransportType {
+    Ws,
+    Tcp,
+}
+
+pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
+    if addr.iter().any(|proto| matches!(proto, Protocol::Ws)) {
+        TransportType::Ws
+    } else {
+        TransportType::Tcp
+    }
 }

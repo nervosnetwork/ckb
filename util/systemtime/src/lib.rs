@@ -4,7 +4,10 @@ mod test_realtime;
 
 #[cfg(feature = "enable_faketime")]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+#[cfg(not(target_family = "wasm"))]
+pub use std::time::{Duration, Instant, SystemTime};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub use web_time::{Duration, Instant, SystemTime};
 
 // Store faketime timestamp here
 #[cfg(feature = "enable_faketime")]
@@ -16,8 +19,8 @@ static FAKETIME_ENABLED: AtomicBool = AtomicBool::new(false);
 
 // Get real system's timestamp in millis
 fn system_time_as_millis() -> u64 {
-    let duration = std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+    let duration = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
         .expect("SystemTime before UNIX EPOCH!");
     duration.as_secs() * 1000 + u64::from(duration.subsec_millis())
 }
