@@ -1186,6 +1186,7 @@ where
         let mut scheduler = Scheduler::new(tx_data, version, self.syscalls_generator.clone());
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+            VMInternalError::External(reason) if reason.eq("stopped") => ScriptError::Interrupts,
             _ => ScriptError::VMInternalError(error),
         };
 
