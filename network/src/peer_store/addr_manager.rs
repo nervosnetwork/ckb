@@ -1,4 +1,6 @@
 //! Address manager
+#[cfg(target_family = "wasm")]
+use crate::network::{find_type, TransportType};
 use crate::peer_store::types::AddrInfo;
 use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr};
 use rand::Rng;
@@ -49,6 +51,10 @@ impl AddrManager {
         let mut addr_infos = Vec::with_capacity(count);
         let mut rng = rand::thread_rng();
         let now_ms = ckb_systemtime::unix_time_as_millis();
+        #[cfg(target_family = "wasm")]
+        let filter = |peer_addr: &AddrInfo| {
+            filter(peer_addr) && matches!(find_type(&peer_addr.addr), TransportType::Ws)
+        };
         for i in 0..self.random_ids.len() {
             // reuse the for loop to shuffle random ids
             // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle

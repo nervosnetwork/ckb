@@ -1,5 +1,5 @@
 use crate::types::{ScriptGroup, ScriptGroupType};
-use ckb_error::{prelude::*, Error, ErrorKind};
+use ckb_error::{prelude::*, Error, ErrorKind, InternalErrorKind};
 use ckb_types::core::{Cycle, ScriptHashType};
 use ckb_types::packed::{Byte32, Script};
 use ckb_vm::Error as VMInternalError;
@@ -43,6 +43,10 @@ pub enum ScriptError {
     /// Errors thrown by ckb-vm
     #[error("VM Internal Error: {0:?}")]
     VMInternalError(VMInternalError),
+
+    /// Interrupts, such as a Ctrl-C signal
+    #[error("VM Interrupts")]
+    Interrupts,
 
     /// Other errors raised in script execution process
     #[error("Other Error: {0}")]
@@ -182,7 +186,11 @@ impl ScriptError {
 
 impl From<TransactionScriptError> for Error {
     fn from(error: TransactionScriptError) -> Self {
-        ErrorKind::Script.because(error)
+        match error.cause {
+            ScriptError::Interrupts => ErrorKind::Internal
+                .because(InternalErrorKind::Interrupts.other(ScriptError::Interrupts.to_string())),
+            _ => ErrorKind::Script.because(error),
+        }
     }
 }
 

@@ -540,8 +540,11 @@ async fn check_spawn_suspend_shutdown() {
         .verify_complete_async(script_version, &rtx, &mut command_rx, true)
         .await;
     assert!(res.is_err());
-    let err = res.unwrap_err().to_string();
-    assert!(err.contains("VM Internal Error: External(\"stopped\")"));
+    let err = res.unwrap_err();
+    assert!(err.to_string().contains("VM Interrupts"));
+
+    let reject = ckb_types::core::tx_pool::Reject::Verification(err);
+    assert!(!reject.is_malformed_tx());
 }
 
 #[test]

@@ -11,7 +11,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.5"
-cacache = { version = "13.0.0", default-features = false, features = ["mmap"] }
 ckb-constant = { path = "../util/constant", version = "= 0.120.0-rc2" }
 ckb-types = { path = "../util/types", version = "= 0.120.0-rc2" }
 ckb-pow = { path = "../pow", version = "= 0.120.0-rc2" }
@@ -25,6 +24,8 @@ ckb-error = { path = "../error", version = "= 0.120.0-rc2" }
 ckb-traits = { path = "../traits", version = "= 0.120.0-rc2" }
 ckb-logger = { path = "../util/logger", version = "= 0.120.0-rc2" }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+cacache = { version = "13.0.0", default-features = false, features = ["mmap"] }
 
 [dev-dependencies]
 tempfile.workspace = true

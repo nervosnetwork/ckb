@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{atomic::Ordering, Arc};
-use std::time::{Duration, Instant};
 
 use ckb_logger::{debug, error, trace, warn};
+use ckb_systemtime::{Duration, Instant};
 use p2p::{
     async_trait,
     bytes::Bytes,
