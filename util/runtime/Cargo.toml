@@ -9,6 +9,13 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "sync"] }
 ckb-logger = { path = "../logger", version = "= 0.120.0-pre" }
-ckb-spawn = {  path = "../spawn", version = "= 0.120.0-pre" }
+ckb-spawn = { path = "../spawn", version = "= 0.120.0-pre" }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen-futures = "0.4"

@@ -88,6 +88,10 @@ pub struct Config {
     pub sync: SyncConfig,
     /// Tentacle inner channel_size.
     pub channel_size: Option<usize>,
+
+    #[cfg(target_family = "wasm")]
+    #[serde(skip)]
+    pub secret_key: [u8; 32],
 }
 
 /// Chain synchronization config options.
@@ -284,12 +288,14 @@ impl Config {
     /// Reads the secret key from secret key file.
     ///
     /// If the key file does not exists, it returns `Ok(None)`.
+    #[cfg(not(target_family = "wasm"))]
     fn read_secret_key(&self) -> Result<Option<secio::SecioKeyPair>, Error> {
         let path = self.secret_key_path();
         read_secret_key(path)
     }
 
     /// Generates a random secret key and saves it into the file.
+    #[cfg(not(target_family = "wasm"))]
     fn write_secret_key_to_file(&self) -> Result<(), Error> {
         let path = self.secret_key_path();
         let random_key_pair = generate_random_key();
@@ -297,6 +303,7 @@ impl Config {
     }
 
     /// Reads the private key from file or generates one if the file does not exist.
+    #[cfg(not(target_family = "wasm"))]
     pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
         match self.read_secret_key()? {
             Some(key) => Ok(key),
@@ -304,6 +311,19 @@ impl Config {
                 self.write_secret_key_to_file()?;
                 Ok(self.read_secret_key()?.expect("key must exists"))
             }
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn fetch_private_key(&self) -> Result<secio::SecioKeyPair, Error> {
+        if self.secret_key == [0; 32] {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "invalid secret key data",
+            ));
+        } else {
+            secio::SecioKeyPair::secp256k1_raw_key(&self.secret_key)
+                .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid secret key data"))
         }
     }
 

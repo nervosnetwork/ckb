@@ -90,6 +90,8 @@ pub struct Metrics {
     pub ckb_freezer_size: IntGauge,
     /// Counter for measuring the effective amount of data read
     pub ckb_freezer_read: IntCounter,
+    /// Gauge for tracking the number of ckb_freezer
+    pub ckb_freezer_number: IntGauge,
     /// Counter for relay transaction short id collide
     pub ckb_relay_transaction_short_id_collide: IntCounter,
     /// Histogram for relay compact block verify duration
@@ -209,6 +211,7 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
         ),
     ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
     ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
+    ckb_freezer_number: register_int_gauge!("ckb_freezer_number", "The CKB freezer number").unwrap(),
     ckb_relay_transaction_short_id_collide: register_int_counter!(
         "ckb_relay_transaction_short_id_collide",
         "The CKB relay transaction short id collide"

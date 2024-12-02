@@ -3,6 +3,8 @@ use crate::scheduler::Scheduler;
 use crate::syscalls::Pause;
 use crate::syscalls::{InheritedFd, ProcessID, EXEC_LOAD_ELF_V2_CYCLES_BASE};
 use crate::types::{DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID};
+#[cfg(not(target_family = "wasm"))]
+use crate::ChunkCommand;
 use crate::{
     error::{ScriptError, TransactionScriptError},
     syscalls::{
@@ -16,7 +18,6 @@ use crate::{
         TransactionSnapshot, TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
-    ChunkCommand,
 };
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
 use ckb_error::Error;
@@ -32,6 +33,7 @@ use ckb_types::{
     packed::{Byte32, CellOutput, OutPoint, Script},
     prelude::*,
 };
+#[cfg(not(target_family = "wasm"))]
 use ckb_vm::machine::Pause as VMPause;
 use ckb_vm::{snapshot2::Snapshot2Context, Error as VMInternalError, Syscalls};
 use std::sync::{Arc, Mutex};
@@ -39,6 +41,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::RwLock,
 };
+#[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
     oneshot,
     watch::{self, Receiver},
@@ -689,6 +692,7 @@ where
     /// Performing a resumable verification on the transaction scripts with signal channel,
     /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
     /// otherwise, it will return until the verification is completed.
+    #[cfg(not(target_family = "wasm"))]
     pub async fn resumable_verify_with_signal(
         &self,
         limit_cycles: Cycle,
@@ -1072,6 +1076,7 @@ where
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn verify_group_with_signal(
         &self,
         group: &ScriptGroup,
@@ -1163,6 +1168,7 @@ where
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn chunk_run_with_signal(
         &self,
         script_group: &ScriptGroup,
@@ -1180,6 +1186,7 @@ where
         let mut scheduler = Scheduler::new(tx_data, version, self.syscalls_generator.clone());
         let map_vm_internal_error = |error: VMInternalError| match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+            VMInternalError::External(reason) if reason.eq("stopped") => ScriptError::Interrupts,
             _ => ScriptError::VMInternalError(error),
         };
 

@@ -37,6 +37,12 @@ impl AddrManager {
             .and_then(|_| file.sync_all())
             .map_err(Into::into)
     }
+
+    #[cfg(target_family = "wasm")]
+    pub fn dump_data(&self) -> Vec<u8> {
+        let addrs: Vec<_> = self.addrs_iter().collect();
+        serde_json::to_string(&addrs).unwrap().into_bytes()
+    }
 }
 
 impl BanList {
@@ -61,6 +67,12 @@ impl BanList {
             .and_then(|json_string| file.write_all(json_string.as_bytes()))
             .and_then(|_| file.sync_all())
             .map_err(Into::into)
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn dump_data(&self) -> Vec<u8> {
+        let banned_addrs = self.get_banned_addrs();
+        serde_json::to_string(&banned_addrs).unwrap().into_bytes()
     }
 }
 
@@ -107,6 +119,49 @@ impl PeerStore {
         PeerStore::new(addr_manager, ban_list)
     }
 
+    #[cfg(target_family = "wasm")]
+    pub async fn load_from_idb<P: AsRef<Path>>(path: P) -> Self {
+        use crate::peer_store::browser::get_db;
+
+        let addr_manager_path = path
+            .as_ref()
+            .join(DEFAULT_ADDR_MANAGER_DB)
+            .to_str()
+            .unwrap()
+            .to_owned()
+            .into_bytes();
+        let ban_list_path = path
+            .as_ref()
+            .join(DEFAULT_BAN_LIST_DB)
+            .to_str()
+            .unwrap()
+            .to_owned()
+            .into_bytes();
+
+        let db = get_db(path).await;
+
+        let addr_manager = db
+            .get(&addr_manager_path)
+            .await
+            .map_err(|err| debug!("Failed to get indexdb value, error: {:?}", err))
+            .and_then(|data| {
+                AddrManager::load(std::io::Cursor::new(data.unwrap_or_default()))
+                    .map_err(|err| debug!("Failed to load peer store value, error: {:?}", err))
+            })
+            .unwrap_or_default();
+
+        let ban_list = db
+            .get(&ban_list_path)
+            .await
+            .map_err(|err| debug!("Failed to get indexdb value, error: {:?}", err))
+            .and_then(|data| {
+                BanList::load(std::io::Cursor::new(data.unwrap_or_default()))
+                    .map_err(|err| debug!("Failed to load BanList value, error: {:?}", err))
+            })
+            .unwrap_or_default();
+        PeerStore::new(addr_manager, ban_list)
+    }
+
     /// Dump all info to disk
     pub fn dump_to_dir<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
         // create dir
@@ -138,6 +193,31 @@ impl PeerStore {
         )?;
         move_file(tmp_ban_list, path.as_ref().join(DEFAULT_BAN_LIST_DB))?;
         Ok(())
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn dump_to_idb<P: AsRef<Path>>(&self, path: P) -> impl std::future::Future<Output = ()> {
+        use crate::peer_store::browser::get_db;
+        let ban_list = self.ban_list().dump_data();
+        let addr_manager = self.addr_manager().dump_data();
+        let addr_manager_path = path
+            .as_ref()
+            .join(DEFAULT_ADDR_MANAGER_DB)
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let ban_list_path = path
+            .as_ref()
+            .join(DEFAULT_BAN_LIST_DB)
+            .to_str()
+            .unwrap()
+            .to_owned();
+        async {
+            let db = get_db(path).await;
+
+            let _ignore = db.put(addr_manager_path.into_bytes(), addr_manager).await;
+            let _ignore = db.put(ban_list_path.into_bytes(), ban_list).await;
+        }
     }
 }
 

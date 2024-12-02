@@ -1,9 +1,11 @@
 //! Versionbits defines a finite-state-machine to deploy a softfork in multiple stages.
 //!
+#![allow(dead_code)]
 
 mod convert;
 
 use crate::consensus::Consensus;
+#[cfg(not(target_family = "wasm"))]
 use ckb_logger::error;
 use ckb_types::global::DATA_DIR;
 use ckb_types::{
@@ -149,6 +151,7 @@ pub struct Cache {
 impl Cache {
     /// Reads the entire contents of a cache file synchronously into a bytes vector,
     /// looking the data up by key.
+    #[cfg(not(target_family = "wasm"))]
     pub fn get(&self, key: &Byte32) -> Option<ThresholdState> {
         match cacache::read_sync(&self.path, Self::encode_key(key)) {
             Ok(bytes) => Some(Self::decode_value(bytes)),
@@ -160,13 +163,28 @@ impl Cache {
         }
     }
 
+    /// Soft Versionbit only work on tx-pool/block_assembler, it will not work on wasm,
+    /// so it can unimplemented
+    #[cfg(target_family = "wasm")]
+    pub fn get(&self, _key: &Byte32) -> Option<ThresholdState> {
+        unimplemented!()
+    }
+
     /// Writes data to the cache synchronously
+    #[cfg(not(target_family = "wasm"))]
     pub fn insert(&self, key: &Byte32, value: ThresholdState) {
         if let Err(e) =
             cacache::write_sync(&self.path, Self::encode_key(key), Self::encode_value(value))
         {
             error!("cacache write_sync failed {:?}", e);
         }
+    }
+
+    /// Soft Versionbit only work on tx-pool/block_assembler, it will not work on wasm,
+    /// so it can unimplemented
+    #[cfg(target_family = "wasm")]
+    pub fn insert(&self, _key: &Byte32, _value: ThresholdState) {
+        unimplemented!()
     }
 
     fn decode_value(value: Vec<u8>) -> ThresholdState {

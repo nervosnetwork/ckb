@@ -50,6 +50,9 @@ pub enum InternalErrorKind {
     /// The feature is disabled or is conflicted with the configuration
     Config,
 
+    /// Interrupts, such as a Ctrl-C signal
+    Interrupts,
+
     /// Other system error
     Other,
 }

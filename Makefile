@@ -219,8 +219,13 @@ bench-test:
 
 .PHONY: ci
 ci: ## Run recipes for CI.
-ci: fmt clippy test bench-test check-cargo-metadata check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
+ci: fmt clippy wasm test bench-test check-cargo-metadata check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
 	git diff --exit-code Cargo.lock
+
+.PHONY: wasm
+wasm:
+	rustup target add wasm32-unknown-unknown
+	cd network && cargo c --target wasm32-unknown-unknown
 
 .PHONY: check-cargotoml
 check-cargotoml:

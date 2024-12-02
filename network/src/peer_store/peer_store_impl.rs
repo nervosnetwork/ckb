@@ -1,3 +1,4 @@
+use crate::network::{find_type, TransportType};
 use crate::{
     errors::{PeerStoreError, Result},
     extract_peer_id, multiaddr_to_socketaddr,
@@ -62,6 +63,10 @@ impl PeerStore {
     /// this method will assume peer and addr is untrust since we have not connected to it.
     pub fn add_addr(&mut self, addr: Multiaddr, flags: Flags) -> Result<()> {
         if self.ban_list.is_addr_banned(&addr) {
+            return Ok(());
+        }
+        #[cfg(target_family = "wasm")]
+        if !matches!(find_type(&addr), TransportType::Ws) {
             return Ok(());
         }
         self.check_purge()?;
@@ -165,20 +170,24 @@ impl PeerStore {
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let peers = &self.connected_peers;
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
+
+        let filter = |peer_addr: &AddrInfo| {
+            extract_peer_id(&peer_addr.addr)
+                .map(|peer_id| !peers.contains_key(&peer_id))
+                .unwrap_or_default()
+                && peer_addr
+                    .connected(|t| t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL))
+                && required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
+        };
+
+        // Any protocol expect websocket
+        #[cfg(not(target_family = "wasm"))]
+        let filter = |peer_addr: &AddrInfo| {
+            filter(peer_addr) && !matches!(find_type(&peer_addr.addr), TransportType::Ws)
+        };
+
         // get addrs that can attempt.
-        self.addr_manager
-            .fetch_random(count, |peer_addr: &AddrInfo| {
-                extract_peer_id(&peer_addr.addr)
-                    .map(|peer_id| !peers.contains_key(&peer_id))
-                    .unwrap_or_default()
-                    && peer_addr.connected(|t| {
-                        t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL)
-                    })
-                    && required_flags_filter(
-                        required_flags,
-                        Flags::from_bits_truncate(peer_addr.flags),
-                    )
-            })
+        self.addr_manager.fetch_random(count, filter)
     }
 
     /// Get peers for feeler connection, this method randomly return peer addrs that we never
@@ -192,14 +201,16 @@ impl PeerStore {
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
         let peers = &self.connected_peers;
-        self.addr_manager
-            .fetch_random(count, |peer_addr: &AddrInfo| {
-                extract_peer_id(&peer_addr.addr)
-                    .map(|peer_id| !peers.contains_key(&peer_id))
-                    .unwrap_or_default()
-                    && !peer_addr.tried_in_last_minute(now_ms)
-                    && !peer_addr.connected(|t| t > addr_expired_ms)
-            })
+
+        let filter = |peer_addr: &AddrInfo| {
+            extract_peer_id(&peer_addr.addr)
+                .map(|peer_id| !peers.contains_key(&peer_id))
+                .unwrap_or_default()
+                && !peer_addr.tried_in_last_minute(now_ms)
+                && !peer_addr.connected(|t| t > addr_expired_ms)
+        };
+
+        self.addr_manager.fetch_random(count, filter)
     }
 
     /// Return valid addrs that success connected, used for discovery.
@@ -209,12 +220,14 @@ impl PeerStore {
 
         let now_ms = ckb_systemtime::unix_time_as_millis();
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TIMEOUT_MS);
+
+        let filter = |peer_addr: &AddrInfo| {
+            required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
+                && peer_addr.connected(|t| t > addr_expired_ms)
+        };
+
         // get success connected addrs.
-        self.addr_manager
-            .fetch_random(count, |peer_addr: &AddrInfo| {
-                required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
-                    && peer_addr.connected(|t| t > addr_expired_ms)
-            })
+        self.addr_manager.fetch_random(count, filter)
     }
 
     /// Ban an addr

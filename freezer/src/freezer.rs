@@ -126,6 +126,10 @@ impl Freezer {
                 );
                 guard.tip = Some(block.header());
                 ckb_logger::trace!("Freezer block append {}", number);
+
+                if let Some(metrics) = ckb_metrics::handle() {
+                    metrics.ckb_freezer_number.set(number as i64);
+                }
             } else {
                 ckb_logger::error!("Freezer block missing {}", number);
                 break;

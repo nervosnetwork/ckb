@@ -18,8 +18,9 @@ use std::{
     collections::{HashMap, HashSet},
     str,
     sync::Arc,
-    time::{Duration, Instant},
 };
+
+use ckb_systemtime::{Duration, Instant};
 
 const SEND_PING_TOKEN: u64 = 0;
 const CHECK_TIMEOUT_TOKEN: u64 = 1;

@@ -9,6 +9,8 @@
 
 pub mod addr_manager;
 pub mod ban_list;
+#[cfg(target_family = "wasm")]
+pub(crate) mod browser;
 mod peer_store_db;
 mod peer_store_impl;
 pub mod types;

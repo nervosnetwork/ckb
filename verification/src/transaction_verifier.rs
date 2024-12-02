@@ -5,7 +5,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
-use ckb_script::{ChunkCommand, TransactionScriptsVerifier, TransactionSnapshot};
+#[cfg(not(target_family = "wasm"))]
+use ckb_script::ChunkCommand;
+use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -175,6 +177,7 @@ where
 
     /// Perform context-dependent verification with command
     /// The verification will be interrupted when receiving a Suspend command
+    #[cfg(not(target_family = "wasm"))]
     pub async fn verify_with_pause(
         &self,
         max_cycles: Cycle,
