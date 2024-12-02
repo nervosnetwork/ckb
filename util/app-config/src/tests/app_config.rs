@@ -55,7 +55,10 @@ fn test_export_dev_config_files() {
         );
         assert_eq!(
             ckb_config.network.listen_addresses,
-            vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            vec![
+                "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+                "/ip4/0.0.0.0/tcp/8000/ws".parse().unwrap()
+            ]
         );
         assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
         assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
@@ -148,7 +151,10 @@ fn test_export_testnet_config_files() {
         );
         assert_eq!(
             ckb_config.network.listen_addresses,
-            vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            vec![
+                "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+                "/ip4/0.0.0.0/tcp/8000/ws".parse().unwrap()
+            ]
         );
         assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
         assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
@@ -200,7 +206,10 @@ fn test_export_integration_config_files() {
         );
         assert_eq!(
             ckb_config.network.listen_addresses,
-            vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            vec![
+                "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+                "/ip4/0.0.0.0/tcp/8000/ws".parse().unwrap()
+            ]
         );
         assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
     }
@@ -252,7 +261,10 @@ fn test_export_dev_config_files_assembly() {
         );
         assert_eq!(
             ckb_config.network.listen_addresses,
-            vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            vec![
+                "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+                "/ip4/0.0.0.0/tcp/8000/ws".parse().unwrap()
+            ]
         );
         assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
         assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
