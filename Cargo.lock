@@ -707,8 +707,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "tentacle-multiaddr 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle-secio 0.6.4",
+ "tentacle-multiaddr",
+ "tentacle-secio",
  "toml",
  "ubyte",
  "url",
@@ -4077,7 +4077,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -6568,13 +6568,13 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.6.4"
-source = "git+https://github.com/eval-exec/tentacle.git?branch=exec/proxy#5146d4d9ff2dfa629789b3b5155dee7b32ccd9bc"
+version = "0.6.5"
 dependencies = [
  "async-trait",
  "bytes",
  "futures",
  "futures-timer",
+ "httparse",
  "igd-next",
  "js-sys",
  "libc",
@@ -6586,8 +6586,8 @@ dependencies = [
  "shadowsocks",
  "shadowsocks-service",
  "socket2",
- "tentacle-multiaddr 0.3.4 (git+https://github.com/eval-exec/tentacle.git?branch=exec/proxy)",
- "tentacle-secio 0.6.3",
+ "tentacle-multiaddr",
+ "tentacle-secio",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
@@ -6601,59 +6601,17 @@ dependencies = [
 [[package]]
 name = "tentacle-multiaddr"
 version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a9e71b28bf0bbf274b92f47cb2c5b42755d84a11e2246cf7bcb7b65c89483b9"
 dependencies = [
  "bs58",
  "bytes",
  "serde",
  "sha2",
  "unsigned-varint",
-]
-
-[[package]]
-name = "tentacle-multiaddr"
-version = "0.3.4"
-source = "git+https://github.com/eval-exec/tentacle.git?branch=exec/proxy#5146d4d9ff2dfa629789b3b5155dee7b32ccd9bc"
-dependencies = [
- "bs58",
- "bytes",
- "serde",
- "sha2",
- "unsigned-varint",
-]
-
-[[package]]
-name = "tentacle-secio"
-version = "0.6.3"
-source = "git+https://github.com/eval-exec/tentacle.git?branch=exec/proxy#5146d4d9ff2dfa629789b3b5155dee7b32ccd9bc"
-dependencies = [
- "bs58",
- "bytes",
- "chacha20poly1305",
- "futures",
- "getrandom 0.2.15",
- "hmac",
- "log",
- "molecule",
- "openssl",
- "openssl-sys",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "ring",
- "secp256k1",
- "sha2",
- "tokio",
- "tokio-util",
- "unsigned-varint",
- "x25519-dalek",
 ]
 
 [[package]]
 name = "tentacle-secio"
 version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53d53673d63399e1d557c2e884b045d242811079d3b2f17a569310e5c3f1db33"
 dependencies = [
  "bs58",
  "bytes",
@@ -6975,8 +6933,7 @@ dependencies = [
 
 [[package]]
 name = "tokio-yamux"
-version = "0.3.9"
-source = "git+https://github.com/eval-exec/tentacle.git?branch=exec/proxy#5146d4d9ff2dfa629789b3b5155dee7b32ccd9bc"
+version = "0.3.10"
 dependencies = [
  "bytes",
  "futures",

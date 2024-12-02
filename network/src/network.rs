@@ -28,6 +28,7 @@ use ckb_systemtime::{Duration, Instant};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{channel::mpsc::Sender, Future};
 use ipnetwork::IpNetwork;
+use p2p::service::ProxyConfig;
 use p2p::{
     async_trait,
     builder::ServiceBuilder,
@@ -1015,6 +1016,14 @@ impl NetworkService {
                                 };
                                 init.transform(TransportType::Tcp);
                                 service_builder = service_builder.tcp_config(bind_fn);
+
+                                if config.proxy_config.enable {
+                                    let proxy_config = Some(ProxyConfig {
+                                        proxy_url: config.proxy_config.proxy_url.clone(),
+                                    });
+                                    service_builder =
+                                        service_builder.tcp_proxy_config(proxy_config);
+                                }
                             }
                         }
                         TransportType::Ws => {
