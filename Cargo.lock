@@ -468,6 +468,7 @@ checksum = "a61ff12b19d89c752c213316b87fdb4a587f073d219b893cc56974b8c9f39bf7"
 dependencies = [
  "digest",
  "either",
+ "futures",
  "hex",
  "libc",
  "memmap2",
@@ -481,6 +482,8 @@ dependencies = [
  "ssri",
  "tempfile",
  "thiserror",
+ "tokio",
+ "tokio-stream",
  "walkdir",
 ]
 
