@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.120.0-rc3"
+version = "0.120.0-rc4"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
@@ -12,27 +12,27 @@ exclude = ["fuzz"]
 [dependencies]
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
-ckb-util = { path = "../util", version = "= 0.120.0-rc3" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.120.0-rc3" }
-ckb-logger = { path = "../util/logger", version = "= 0.120.0-rc3" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.120.0-rc3" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.120.0-rc3" }
+ckb-util = { path = "../util", version = "= 0.120.0-rc4" }
+ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.120.0-rc4" }
+ckb-logger = { path = "../util/logger", version = "= 0.120.0-rc4" }
+ckb-app-config = { path = "../util/app-config", version = "= 0.120.0-rc4" }
+ckb-metrics = { path = "../util/metrics", version = "= 0.120.0-rc4" }
 tokio = { version = "1", features = ["sync", "macros"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures = "0.3"
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.120.0-rc3" }
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.120.0-rc4" }
 bs58 = { version = "0.5.0", optional = true }
 sentry = { version = "0.34.0", optional = true }
 faster-hex = { version = "0.6", optional = true }
-ckb-hash = { path = "../util/hash", version = "= 0.120.0-rc3" }
+ckb-hash = { path = "../util/hash", version = "= 0.120.0-rc4" }
 secp256k1 = { version = "0.30", features = ["recovery"], optional = true }
 trust-dns-resolver = { version = "0.23", optional = true }
 snap = "1"
-ckb-types = { path = "../util/types", version = "= 0.120.0-rc3" }
+ckb-types = { path = "../util/types", version = "= 0.120.0-rc4" }
 ipnetwork = "0.20"
 serde_json = "1.0"
 bloom-filters = "0.1"
-ckb-spawn = { path = "../util/spawn", version = "= 0.120.0-rc3" }
+ckb-spawn = { path = "../util/spawn", version = "= 0.120.0-rc4" }
 bitflags = "1.0"
 p2p = { version = "0.6.2", package = "tentacle", default-features = false }
 
@@ -65,7 +65,7 @@ tempfile.workspace = true
 criterion = "0.5"
 proptest = "1.0"
 num_cpus = "1.10"
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.120.0-rc3", features = [
+ckb-systemtime = { path = "../util/systemtime", version = "= 0.120.0-rc4", features = [
     "enable_faketime",
 ] }
 

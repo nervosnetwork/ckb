@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network-fuzz"
-version = "0.120.0-rc3"
+version = "0.120.0-rc4"
 publish = false
 edition = "2021"
 license = "MIT"
