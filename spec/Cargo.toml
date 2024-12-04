@@ -25,7 +25,10 @@ ckb-traits = { path = "../traits", version = "= 0.120.0-rc3" }
 ckb-logger = { path = "../util/logger", version = "= 0.120.0-rc3" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-cacache = { version = "13.0.0", default-features = false, features = ["mmap"] }
+cacache = { version = "13.0.0", default-features = false, features = [
+  "tokio-runtime",
+  "mmap",
+] }
 
 [dev-dependencies]
 tempfile.workspace = true
