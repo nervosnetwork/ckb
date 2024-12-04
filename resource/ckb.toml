@@ -63,8 +63,8 @@ cache_size = 268435456
 options_file = "default.db-options"
 
 [network]
-listen_addresses = ["/ip4/0.0.0.0/tcp/8115"] # {{
-# _ => listen_addresses = ["/ip4/0.0.0.0/tcp/{p2p_port}"]
+listen_addresses = ["/ip4/0.0.0.0/tcp/8115", "/ip4/0.0.0.0/tcp/8115/ws"] # {{
+# _ => listen_addresses = ["/ip4/0.0.0.0/tcp/{p2p_port}", "/ip4/0.0.0.0/tcp/{p2p_port}/ws"]
 # }}
 ### Specify the public and routable network addresses
 # public_addresses = []
