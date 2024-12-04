@@ -19,4 +19,4 @@ hyper = { version = "1", features = ["http1", "http2", "server"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["server-auto", "server-graceful"] }
 ckb-stop-handler = { path = "../stop-handler", version = "= 0.120.0-pre" }
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "macros"] }
