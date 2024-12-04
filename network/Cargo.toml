@@ -35,6 +35,7 @@ bloom-filters = "0.1"
 ckb-spawn = { path = "../util/spawn", version = "= 0.121.0-pre" }
 bitflags = "1.0"
 p2p = { path = "/home/exec/Projects/github.com/nervosnetwork/tentacle/tentacle", package = "tentacle", default-features = false }
+url = "2.5.4"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 p2p = { path = "/home/exec/Projects/github.com/nervosnetwork/tentacle/tentacle", package = "tentacle", default-features = false, features = [
