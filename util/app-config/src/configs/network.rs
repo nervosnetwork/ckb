@@ -83,6 +83,9 @@ pub struct Config {
     /// Network use reuse port or not
     #[serde(default = "default_reuse")]
     pub reuse_port_on_linux: bool,
+    /// Allow ckb to upgrade tcp listening to tcp + ws listening
+    #[serde(default = "default_reuse_tcp_with_ws")]
+    pub reuse_tcp_with_ws: bool,
     /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,
@@ -351,5 +354,10 @@ impl Config {
 /// By default, using reuse port can make any outbound connection of the node become a potential
 /// listen address, which will help the robustness of our network
 const fn default_reuse() -> bool {
+    true
+}
+
+/// By default, allow ckb to upgrade tcp listening to tcp + ws listening
+const fn default_reuse_tcp_with_ws() -> bool {
     true
 }
