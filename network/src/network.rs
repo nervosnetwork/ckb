@@ -1163,30 +1163,65 @@ impl NetworkService {
             let p2p_control: ServiceAsyncControl = p2p_control.clone().into();
             handle.spawn_task(async move {
                 #[cfg(not(target_family = "wasm"))]
-                for addr in &config.listen_addresses {
-                    match p2p_service.listen(addr.to_owned()).await {
-                        Ok(listen_address) => {
-                            info!("Listen on address: {}", listen_address);
-                            network_state
-                                .listened_addrs
-                                .write()
-                                .push(listen_address.clone());
+                {
+                    let listen_addresses = {
+                        let mut addresses = config.listen_addresses.clone();
+                        if config.reuse_tcp_with_ws {
+                            let ws_listens = addresses
+                                .iter()
+                                .cloned()
+                                .filter_map(|mut addr| {
+                                    if matches!(find_type(&addr), TransportType::Tcp) {
+                                        addr.push(Protocol::Ws);
+                                        Some(addr)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+
+                            addresses.extend(ws_listens);
                         }
-                        Err(err) => {
-                            warn!(
-                                "Listen on address {} failed, due to error: {}",
-                                addr.clone(),
-                                err
-                            );
-                            start_sender
-                                .send(Err(Error::P2P(P2PError::Transport(err))))
-                                .expect("channel abnormal shutdown");
-                            return;
-                        }
+                        let mut addresses = addresses
+                            .into_iter()
+                            .collect::<HashSet<_>>()
+                            .into_iter()
+                            .collect::<Vec<_>>();
+                        addresses.sort_by(|a, b| {
+                            let ty_a = find_type(a);
+                            let ty_b = find_type(b);
+
+                            ty_a.cmp(&ty_b)
+                        });
+
+                        addresses
                     };
+
+                    for addr in &listen_addresses {
+                        match p2p_service.listen(addr.to_owned()).await {
+                            Ok(listen_address) => {
+                                info!("Listen on address: {}", listen_address);
+                                network_state
+                                    .listened_addrs
+                                    .write()
+                                    .push(listen_address.clone());
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "Listen on address {} failed, due to error: {}",
+                                    addr.clone(),
+                                    err
+                                );
+                                start_sender
+                                    .send(Err(Error::P2P(P2PError::Transport(err))))
+                                    .expect("channel abnormal shutdown");
+                                return;
+                            }
+                        };
+                    }
+                    start_sender.send(Ok(())).unwrap();
                 }
-                #[cfg(not(target_family = "wasm"))]
-                start_sender.send(Ok(())).unwrap();
+
                 p2p::runtime::spawn(async move { p2p_service.run().await });
                 tokio::select! {
                     _ = receiver.cancelled() => {
@@ -1485,10 +1520,10 @@ pub(crate) async fn async_disconnect_with_message(
     control.disconnect(peer_index).await
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub(crate) enum TransportType {
-    Ws,
     Tcp,
+    Ws,
 }
 
 pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
