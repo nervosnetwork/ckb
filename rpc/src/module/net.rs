@@ -739,7 +739,7 @@ impl NetRpc for NetRpcImpl {
         let unverified_tip = shared.get_unverified_tip();
         let sync_state = SyncState {
             ibd: chain.is_initial_block_download(),
-            assume_valid_target_reached: shared.assume_valid_target().is_none(),
+            assume_valid_target_reached: shared.assume_valid_targets().is_none(),
             assume_valid_target: shared
                 .assume_valid_target_specified()
                 .as_ref()
