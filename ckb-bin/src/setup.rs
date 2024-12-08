@@ -7,7 +7,7 @@ use ckb_app_config::{
 };
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_logger::info;
+use ckb_logger::{error, info};
 use ckb_types::{u256, H256, U256};
 use clap::ArgMatches;
 use std::{path::PathBuf, str::FromStr};
@@ -71,33 +71,47 @@ impl Setup {
             } else {
                 u256!("0x0")
             };
+        config.network.sync.assume_valid_targets = matches
+            .get_one::<String>(cli::ARG_ASSUME_VALID_TARGET)
+            .map(|concacate_targets| {
+                concacate_targets
+                    .split(',')
+                    .map(|s| H256::from_str(&s[2..]))
+                    .collect::<Result<Vec<H256>, _>>()
+                    .map_err(|err| {
+                        error!("Invalid assume valid target: {}", err);
+                        ExitCode::Cli
+                    })
+            })
+            .transpose()?; // Converts Result<Option<T>, E> to Option<Result<T, E>>
 
-        let arg_assume_valid_target = matches.get_one::<String>(cli::ARG_ASSUME_VALID_TARGET);
-
-        config.network.sync.assume_valid_target =
-            arg_assume_valid_target.and_then(|s| H256::from_str(&s[2..]).ok());
-        if config.network.sync.assume_valid_target.is_none() {
-            config.network.sync.assume_valid_target = match consensus.id.as_str() {
+        if config.network.sync.assume_valid_targets.is_none() {
+            config.network.sync.assume_valid_targets = match consensus.id.as_str() {
                 ckb_constant::hardfork::mainnet::CHAIN_SPEC_NAME => Some(
-                    H256::from_str(&ckb_constant::default_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGET[2..])
-                        .expect("default assume_valid_target for mainnet must be valid"),
-                ),
+                    ckb_constant::default_assume_valid_target::mainnet::default_assume_valid_targets().iter().map(|target|
+H256::from_str(&target[2..]).expect("default assume_valid_target for mainnet must be valid")).collect::<Vec<H256>>()),
                 ckb_constant::hardfork::testnet::CHAIN_SPEC_NAME => Some(
-                    H256::from_str(&ckb_constant::default_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGET[2..])
-                        .expect("default assume_valid_target for testnet must be valid"),
-                ),
-                _ => None,
+                    ckb_constant::default_assume_valid_target::testnet::default_assume_valid_targets().iter().map(|target|
+H256::from_str(&target[2..]).expect("default assume_valid_target for testnet must be valid")).collect::<Vec<H256>>()),
+                    _ => None,
             };
         }
 
-        if let Some(ref assume_valid_target) = config.network.sync.assume_valid_target {
-            if assume_valid_target
-                == &H256::from_slice(&[0; 32]).expect("must parse Zero h256 successful")
-            {
-                info!("Disable assume valid target since assume_valid_target is zero");
-                config.network.sync.assume_valid_target = None
-            } else {
-                info!("assume_valid_target set to 0x{}", assume_valid_target);
+        if let Some(ref assume_valid_targets) = config.network.sync.assume_valid_targets {
+            if let Some(first_target) = assume_valid_targets.first() {
+                if assume_valid_targets.len() == 1 {
+                    if first_target
+                        == &H256::from_slice(&[0; 32]).expect("must parse Zero h256 successful")
+                    {
+                        info!("Disable assume valid targets since assume_valid_targets is zero");
+                        config.network.sync.assume_valid_targets = None;
+                    } else {
+                        info!(
+                            "assume_valid_targets set to {:?}",
+                            config.network.sync.assume_valid_targets
+                        );
+                    }
+                }
             }
         }
 
