@@ -9,6 +9,7 @@ use ckb_network::PeerIndex;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::types::{HeaderIndex, HeaderIndexView};
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::core::BlockNumber;
 use ckb_types::packed;
 use ckb_types::BlockNumberAndHash;
 use std::cmp::min;
@@ -91,7 +92,7 @@ impl BlockFetcher {
         Some(last_common)
     }
 
-    pub fn fetch(self) -> Option<Vec<Vec<packed::Byte32>>> {
+    pub fn fetch(self, fetch_end: BlockNumber) -> Option<Vec<Vec<packed::Byte32>>> {
         let _trace_timecost: Option<HistogramTimer> = {
             ckb_metrics::handle().map(|handle| handle.ckb_sync_block_fetch_duration.start_timer())
         };
@@ -186,7 +187,10 @@ impl BlockFetcher {
                 IBDState::Out => last_common.number() + 1,
             }
         };
-        let mut end = min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW);
+        let mut end = min(
+            fetch_end,
+            min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW),
+        );
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
             state.read_inflight_blocks().peer_can_fetch_count(self.peer),
