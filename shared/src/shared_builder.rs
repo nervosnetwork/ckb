@@ -25,6 +25,7 @@ use ckb_tx_pool::{
 };
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::prelude::Pack;
+use ckb_types::H256;
 use ckb_types::{
     core::service::PoolTransactionEntry, core::tx_pool::Reject, core::EpochExt, core::HeaderView,
 };
@@ -352,10 +353,12 @@ impl SharedBuilder {
         sync_config: &SyncConfig,
         snapshot: &Snapshot,
     ) -> bool {
-        if let Some(ref target) = sync_config.assume_valid_target {
-            if snapshot.block_exists(&target.pack()) {
-                info!("assume valid target is already in db, CKB will do full verification from now on");
-                return true;
+        if let Some(ref target) = sync_config.assume_valid_targets {
+            if let Some(last_target) = target.last() {
+                if snapshot.block_exists(&last_target.pack()) {
+                    info!("assume valid target is already in db, CKB will do full verification from now on");
+                    return true;
+                }
             }
         }
         false
@@ -442,14 +445,19 @@ impl SharedBuilder {
 
         let block_status_map = Arc::new(DashMap::new());
 
-        let assume_valid_target = Arc::new(Mutex::new({
+        let assume_valid_targets = Arc::new(Mutex::new({
             if Self::check_assume_valid_target_already_exists(&sync_config, &snapshot) {
                 None
             } else {
-                sync_config.assume_valid_target.clone()
+                sync_config.assume_valid_targets.clone()
             }
         }));
-        let assume_valid_target_specified = Arc::new(sync_config.assume_valid_target);
+
+        let assume_valid_target_specified: Arc<Option<H256>> = Arc::new(
+            sync_config
+                .assume_valid_targets
+                .and_then(|targets| targets.last().cloned()),
+        );
 
         let shared = Shared::new(
             store,
@@ -460,7 +468,7 @@ impl SharedBuilder {
             snapshot_mgr,
             async_handle,
             ibd_finished,
-            assume_valid_target,
+            assume_valid_targets,
             assume_valid_target_specified,
             header_map,
             block_status_map,
