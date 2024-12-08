@@ -62,7 +62,7 @@ pub struct Shared {
     pub(crate) async_handle: Handle,
     pub(crate) ibd_finished: Arc<AtomicBool>,
 
-    pub(crate) assume_valid_target: Arc<Mutex<Option<H256>>>,
+    pub(crate) assume_valid_targets: Arc<Mutex<Option<Vec<H256>>>>,
     pub(crate) assume_valid_target_specified: Arc<Option<H256>>,
 
     pub header_map: Arc<HeaderMap>,
@@ -83,7 +83,7 @@ impl Shared {
         async_handle: Handle,
         ibd_finished: Arc<AtomicBool>,
 
-        assume_valid_target: Arc<Mutex<Option<H256>>>,
+        assume_valid_targets: Arc<Mutex<Option<Vec<H256>>>>,
         assume_valid_target_specified: Arc<Option<H256>>,
         header_map: Arc<HeaderMap>,
         block_status_map: Arc<DashMap<Byte32, BlockStatus>>,
@@ -106,7 +106,7 @@ impl Shared {
             snapshot_mgr,
             async_handle,
             ibd_finished,
-            assume_valid_target,
+            assume_valid_targets,
             assume_valid_target_specified,
             header_map,
             block_status_map,
@@ -467,8 +467,8 @@ impl Shared {
         );
     }
 
-    pub fn assume_valid_target(&self) -> MutexGuard<Option<H256>> {
-        self.assume_valid_target.lock()
+    pub fn assume_valid_targets(&self) -> MutexGuard<Option<Vec<H256>>> {
+        self.assume_valid_targets.lock()
     }
 
     pub fn assume_valid_target_specified(&self) -> Arc<Option<H256>> {
