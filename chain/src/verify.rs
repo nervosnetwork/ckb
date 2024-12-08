@@ -199,14 +199,22 @@ impl ConsumeUnverifiedBlockProcessor {
         switch: Option<Switch>,
     ) -> VerifyResult {
         let switch: Switch = switch.unwrap_or_else(|| {
-            let mut assume_valid_target = self.shared.assume_valid_target();
-            match *assume_valid_target {
-                Some(ref target) => {
-                    // if the target has been reached, delete it
-                    if target
-                        == &ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(block))
-                    {
-                        assume_valid_target.take();
+            let mut assume_valid_targets = self.shared.assume_valid_targets();
+            match *assume_valid_targets {
+                Some(ref mut targets) => {
+                    //
+                    let block_hash: H256 =
+                        ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(block));
+                    if targets.first().eq(&Some(&block_hash)) {
+                        targets.remove(0);
+                        info!("CKB reached one assume_valid_target: 0x{}", block_hash);
+                    }
+
+                    if targets.is_empty() {
+                        assume_valid_targets.take();
+                        info!(
+                            "CKB reached all assume_valid_targets, will do full verification now"
+                        );
                         Switch::NONE
                     } else {
                         Switch::DISABLE_SCRIPT
