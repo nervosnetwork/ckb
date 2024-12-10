@@ -63,8 +63,8 @@ cache_size = 268435456
 options_file = "default.db-options"
 
 [network]
-listen_addresses = ["/ip4/0.0.0.0/tcp/8115", "/ip4/0.0.0.0/tcp/8115/ws"] # {{
-# _ => listen_addresses = ["/ip4/0.0.0.0/tcp/{p2p_port}", "/ip4/0.0.0.0/tcp/{p2p_port}/ws"]
+listen_addresses = ["/ip4/0.0.0.0/tcp/8115"] # {{
+# _ => listen_addresses = ["/ip4/0.0.0.0/tcp/{p2p_port}"]
 # }}
 ### Specify the public and routable network addresses
 # public_addresses = []
@@ -84,6 +84,8 @@ bootnodes = [] # {{
 # whitelist_peers = []
 ### Enable `SO_REUSEPORT` feature to reuse port on Linux, not supported on other OS yet
 # reuse_port_on_linux = true
+### Allow ckb to upgrade tcp listening to tcp + ws listening when only tcp listening is found
+# reuse_tcp_with_ws = true
 
 max_peers = 125
 max_outbound_peers = 8
