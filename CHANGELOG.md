@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [v0.120.0](https://github.com/nervosnetwork/ckb/compare/v0.119.0...v0.120.0) (2024-12-11)
+
+### Features
+
+-   #4477: (experimental) optional fee estimator with different algorithms (@yangby-cryptape)
+-   #4683: Small WASM support (@driftluo)
+-   #4729: Default listen on ws port (@driftluo)
+-   #4741: Let old config node open ws listen by default (@driftluo)
+
+    This is a breaking change to the config.
+
+### Bug Fixes
+
+-   #4709: Fix pg sqlite inconsistent types (@driftluo)
+
+### Improvements
+
+-   #4694: Support LZ4 rocksdb compression type (@eval-exec)
+-   #4700: Generate `default.db-options` file if it not exist (@eval-exec)
+-   #4702: Don't ban remote peer when VM receives Ctrl-C signal while processing `chunk_tx` (@eval-exec)
+-   #4728: Remove anyhow's backtrace from RPC response (@eval-exec)
+
+    This is a breaking change to RPC where the error messages have changed.
+
+### Bug Fixes
+
+-   #4709: Fix pg sqlite inconsistent types (@driftluo)
+
 ## [v0.119.0](https://github.com/nervosnetwork/ckb/compare/v0.118.0...v0.119.0) (2024-10-25)
 
 ### Features
