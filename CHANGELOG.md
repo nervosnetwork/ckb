@@ -24,10 +24,6 @@
 
     This is a breaking change to RPC where the error messages have changed.
 
-### Bug Fixes
-
--   #4709: Fix pg sqlite inconsistent types (@driftluo)
-
 ## [v0.119.0](https://github.com/nervosnetwork/ckb/compare/v0.118.0...v0.119.0) (2024-10-25)
 
 ### Features
