@@ -301,6 +301,9 @@ pub struct Synchronizer {
     pub(crate) chain: ChainController,
     /// Sync shared state
     pub shared: Arc<SyncShared>,
+
+    // First Headers's parent_hash -> Headers
+    pub(crate) header_cache: HashMap<Byte32, Vec<Header>>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 }
 

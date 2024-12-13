@@ -136,6 +136,7 @@ impl<'a> HeadersProcess<'a> {
 
         if !self.is_parent_exists(&headers[0]) {
             // put the headers into a memory cache
+            self.synchronizer.header_cache.insert(headers[0].parent_hash, headers);
             // verify them later
             return Status::ok();
         }
@@ -219,6 +220,14 @@ impl<'a> HeadersProcess<'a> {
                 .disconnect(self.peer, "useless outbound peer in IBD")
             {
                 return StatusCode::Network.with_context(format!("Disconnect error: {err:?}"));
+            }
+        }
+
+        {
+            // these headers verify success
+            // may the headers's tail header_hash exist in headers_cahce?
+            if let Some(headers) = self.synchronizer.headers_cache.get(headers.last().expect("last header must exist").hash){
+                HeadersProcess::new().execute();
             }
         }
 
