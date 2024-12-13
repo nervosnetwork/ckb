@@ -52,6 +52,12 @@ impl<'a> HeadersProcess<'a> {
         true
     }
 
+    fn is_parent_exists(&self, first_header: &core:HeaderView) -> bool {
+        let shared: &SyncShared = self.synchronizer.shared();
+        shared.get_header_fields(first_header.parent_hash).is_some()
+    }
+
+
     pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
         let shared: &SyncShared = self.synchronizer.shared();
         let verifier = HeaderVerifier::new(shared, shared.consensus());
@@ -126,6 +132,12 @@ impl<'a> HeadersProcess<'a> {
         if !self.is_continuous(&headers) {
             warn!("HeadersProcess is not continuous");
             return StatusCode::HeadersIsInvalid.with_context("not continuous");
+        }
+
+        if !self.is_parent_exists(&headers[0]) {
+            // put the headers into a memory cache
+            // verify them later
+            return Status::ok();
         }
 
         let result = self.accept_first(&headers[0]);
