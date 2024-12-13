@@ -1909,6 +1909,16 @@ impl ActiveChain {
             .collect()
     }
 
+    pub fn get_locator_responses(
+        &self,
+        block_number: BlockNumber,
+        hash_stop: &Byte32,
+    ) -> Vec<Vec<core::HeaderView>> {
+        (0..32).iter().map(|index| {
+            get_locator_response(block_number + (i * MAX_HEADERS_LEN), &Byte32::default())
+        }).collect();
+    }
+
     pub fn send_getheaders_to_peer(
         &self,
         nc: &dyn CKBProtocolContext,
