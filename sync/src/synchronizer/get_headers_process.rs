@@ -74,18 +74,18 @@ impl<'a> GetHeadersProcess<'a> {
             );
 
             self.synchronizer.peers().getheaders_received(self.peer);
-            let headers: Vec<core::HeaderView> =
-                active_chain.get_locator_response(block_number, &hash_stop);
+            let headers_vec: Vec<Vec<core::HeaderView>> =
+                active_chain.get_locator_responses(block_number, &hash_stop);
             // response headers
 
-            debug!("headers len={}", headers.len());
-
-            let content = packed::SendHeaders::new_builder()
-                .headers(headers.into_iter().map(|x| x.data()).pack())
-                .build();
-            let message = packed::SyncMessage::new_builder().set(content).build();
-
-            attempt!(send_message_to(self.nc, self.peer, &message));
+            debug!("headers len={}", headers_vec.len());
+            for headers in headers_vec {
+                let content = packed::SendHeaders::new_builder()
+                    .headers(headers.into_iter().map(|x| x.data()).pack())
+                    .build();
+                let message = packed::SyncMessage::new_builder().set(content).build();
+                attempt!(send_message_to(self.nc, self.peer, &message));
+            }
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
                 .with_context(format!("{block_locator_hashes:#x?}"));
