@@ -1912,11 +1912,16 @@ impl ActiveChain {
     pub fn get_locator_responses(
         &self,
         block_number: BlockNumber,
-        hash_stop: &Byte32,
+        _hash_stop: &Byte32,
     ) -> Vec<Vec<core::HeaderView>> {
-        (0..32).iter().map(|index| {
-            get_locator_response(block_number + (i * MAX_HEADERS_LEN), &Byte32::default())
-        }).collect();
+        (0..32)
+            .map(|index| {
+                self.get_locator_response(
+                    block_number + (index as u64 * MAX_HEADERS_LEN as u64),
+                    &Byte32::default(),
+                )
+            })
+            .collect()
     }
 
     pub fn send_getheaders_to_peer(
@@ -1955,9 +1960,11 @@ impl ActiveChain {
             block_number_and_hash.hash()
         );
         let locator_hash = self.get_locator(block_number_and_hash);
+        let hash_size: packed::Uint32 = 20_u32.pack();
+        let length_20_for_test = packed::Byte32::new_unchecked(hash_size.as_bytes());
         let content = packed::GetHeaders::new_builder()
             .block_locator_hashes(locator_hash.pack())
-            .hash_stop(packed::Byte32::zero())
+            .hash_stop(length_20_for_test)
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
         let _status = send_message(SupportProtocols::Sync.protocol_id(), nc, peer, &message);

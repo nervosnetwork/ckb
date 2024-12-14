@@ -74,17 +74,33 @@ impl<'a> GetHeadersProcess<'a> {
             );
 
             self.synchronizer.peers().getheaders_received(self.peer);
-            let headers_vec: Vec<Vec<core::HeaderView>> =
-                active_chain.get_locator_responses(block_number, &hash_stop);
-            // response headers
 
-            debug!("headers len={}", headers_vec.len());
-            for headers in headers_vec {
+            let hash_size: packed::Uint32 = 20_u32.pack();
+            let length_20_for_test = packed::Byte32::new_unchecked(hash_size.as_bytes());
+            if hash_stop.eq(&length_20_for_test) {
+                let headers: Vec<core::HeaderView> =
+                    active_chain.get_locator_response(block_number, &hash_stop);
+                // response headers
+
+                debug!("headers len={}", headers.len());
                 let content = packed::SendHeaders::new_builder()
                     .headers(headers.into_iter().map(|x| x.data()).pack())
                     .build();
                 let message = packed::SyncMessage::new_builder().set(content).build();
                 attempt!(send_message_to(self.nc, self.peer, &message));
+            } else {
+                let headers_vec: Vec<Vec<core::HeaderView>> =
+                    active_chain.get_locator_responses(block_number, &hash_stop);
+                // response headers
+
+                debug!("headers vec len={}", headers_vec.len());
+                for headers in headers_vec {
+                    let content = packed::SendHeaders::new_builder()
+                        .headers(headers.into_iter().map(|x| x.data()).pack())
+                        .build();
+                    let message = packed::SyncMessage::new_builder().set(content).build();
+                    attempt!(send_message_to(self.nc, self.peer, &message));
+                }
             }
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
