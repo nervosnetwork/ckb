@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.120.0-pre"
+version = "0.121.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -13,20 +13,20 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.5"
 path-clean = "0.1.0"
-ckb-logger = { path = "../../util/logger", version = "= 0.120.0-pre" }
-ckb-logger-config = { path = "../../util/logger-config", version = "= 0.120.0-pre" }
-ckb-metrics-config = { path = "../../util/metrics-config", version = "= 0.120.0-pre" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.120.0-pre" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.120.0-pre" }
-ckb-pow = { path = "../../pow", version = "= 0.120.0-pre" }
-ckb-resource = { path = "../../resource", version = "= 0.120.0-pre" }
-ckb-build-info = { path = "../build-info", version = "= 0.120.0-pre" }
-ckb-types = { path = "../types", version = "= 0.120.0-pre" }
+ckb-logger = { path = "../../util/logger", version = "= 0.121.0-pre" }
+ckb-logger-config = { path = "../../util/logger-config", version = "= 0.121.0-pre" }
+ckb-metrics-config = { path = "../../util/metrics-config", version = "= 0.121.0-pre" }
+ckb-chain-spec = { path = "../../spec", version = "= 0.121.0-pre" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.121.0-pre" }
+ckb-pow = { path = "../../pow", version = "= 0.121.0-pre" }
+ckb-resource = { path = "../../resource", version = "= 0.121.0-pre" }
+ckb-build-info = { path = "../build-info", version = "= 0.121.0-pre" }
+ckb-types = { path = "../types", version = "= 0.121.0-pre" }
 secio = { version = "0.6", package = "tentacle-secio" }
 multiaddr = { version = "0.3.0", package = "tentacle-multiaddr" }
 rand = "0.8"
 sentry = { version = "0.34.0", optional = true }
-ckb-systemtime = { path = "../systemtime", version = "= 0.120.0-pre" }
+ckb-systemtime = { path = "../systemtime", version = "= 0.121.0-pre" }
 url = { version = "2.2.2", features = ["serde"] }
 ubyte = { version = "0.10", features = ["serde"] }
 
@@ -35,6 +35,6 @@ with_sentry = ["sentry"]
 
 [dev-dependencies]
 tempfile.workspace = true
-ckb-systemtime = { path = "../systemtime", version = "= 0.120.0-pre", features = [
+ckb-systemtime = { path = "../systemtime", version = "= 0.121.0-pre", features = [
     "enable_faketime",
 ] }
