@@ -68,7 +68,7 @@ impl DnsSeedingService {
         let pubkey = PublicKey::from_slice(&pubkey_bytes)
             .map_err(|err| format!("create PublicKey failed: {err:?}"))?;
 
-        let resolver = trust_dns_resolver::AsyncResolver::tokio_from_system_conf()
+        let resolver = hickory_resolver::AsyncResolver::tokio_from_system_conf()
             .map_err(|err| format!("Failed to create DNS resolver: {err}"))?;
 
         let mut addrs = Vec::new();
