@@ -17,6 +17,7 @@ pub mod peer_registry;
 pub mod peer_store;
 mod protocols;
 mod services;
+mod proxy;
 
 #[cfg(test)]
 mod tests;

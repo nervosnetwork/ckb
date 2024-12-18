@@ -19,7 +19,7 @@ use crate::services::{
     dump_peer_store::DumpPeerStoreService, outbound_peer::OutboundPeerService,
     protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
+use crate::{proxy, Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
 use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtocol};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
@@ -28,6 +28,7 @@ use ckb_systemtime::{Duration, Instant};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{channel::mpsc::Sender, Future};
 use ipnetwork::IpNetwork;
+use p2p::service::ProxyConfig;
 use p2p::{
     async_trait,
     builder::ServiceBuilder,
@@ -121,6 +122,12 @@ impl NetworkState {
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
         ));
+        info!("Loaded the peer store.");
+        if config.proxy_config.enable {
+            proxy::check_proxy_url(&config.proxy_config.proxy_url)
+                .map_err(|reason| Error::Config(reason))?;
+        }
+
         let bootnodes = config.bootnodes();
 
         let peer_registry = PeerRegistry::new(
@@ -1015,6 +1022,14 @@ impl NetworkService {
                                 };
                                 init.transform(TransportType::Tcp);
                                 service_builder = service_builder.tcp_config(bind_fn);
+
+                                if config.proxy_config.enable {
+                                    let proxy_config = ProxyConfig {
+                                        proxy_url: config.proxy_config.proxy_url.clone(),
+                                    };
+                                    service_builder =
+                                        service_builder.tcp_proxy_config(Some(proxy_config));
+                                }
                             }
                         }
                         TransportType::Ws => {

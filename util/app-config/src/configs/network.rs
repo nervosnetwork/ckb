@@ -95,6 +95,17 @@ pub struct Config {
     #[cfg(target_family = "wasm")]
     #[serde(skip)]
     pub secret_key: [u8; 32],
+
+    #[serde(default)]
+    pub proxy_config: ProxyConfig,
+}
+
+/// Proxy related config options
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ProxyConfig {
+    pub enable: bool,
+    // like: socks5://username:password@127.0.0.1:1080
+    pub proxy_url: String,
 }
 
 /// Chain synchronization config options.
