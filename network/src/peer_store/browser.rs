@@ -59,6 +59,8 @@ pub async fn get_db<P: AsRef<Path>>(path: P) -> &'static Storage {
     DB.get_or_init(|| Storage::new(path)).await
 }
 
+const STORE_NAME: &str = "main-store";
+
 #[derive(Clone)]
 pub struct Storage {
     chan: tokio::sync::mpsc::Sender<Request>,
@@ -67,15 +69,14 @@ pub struct Storage {
 impl Storage {
     pub async fn new<P: AsRef<Path>>(path: P) -> Self {
         let factory = Factory::new().unwrap();
-        let mut open_request = factory.open("network", Some(1)).unwrap();
-        let store_name = path.as_ref().to_str().unwrap().to_owned();
-        let store_name_clone = store_name.clone();
+        let database_name = path.as_ref().to_str().unwrap().to_owned();
+        let mut open_request = factory.open(&database_name, Some(1)).unwrap();
         open_request.on_upgrade_needed(move |event| {
             let database = event.database().unwrap();
             let store_params = ObjectStoreParams::new();
 
             let store = database
-                .create_object_store(&store_name_clone, store_params)
+                .create_object_store(STORE_NAME, store_params)
                 .unwrap();
             let mut index_params = IndexParams::new();
             index_params.unique(true);
@@ -92,9 +93,9 @@ impl Storage {
                 match request.cmd {
                     CommandRequest::Read { key } => {
                         let tran = db
-                            .transaction(&[&store_name], TransactionMode::ReadOnly)
+                            .transaction(&[STORE_NAME], TransactionMode::ReadOnly)
                             .unwrap();
-                        let store = tran.object_store(&store_name).unwrap();
+                        let store = tran.object_store(STORE_NAME).unwrap();
                         let key = serde_wasm_bindgen::to_value(&key).unwrap();
                         let value = store
                             .get(key)
@@ -107,9 +108,9 @@ impl Storage {
                     }
                     CommandRequest::Put { kv } => {
                         let tran = db
-                            .transaction(&[&store_name], TransactionMode::ReadWrite)
+                            .transaction(&[STORE_NAME], TransactionMode::ReadWrite)
                             .unwrap();
-                        let store = tran.object_store(&store_name).unwrap();
+                        let store = tran.object_store(STORE_NAME).unwrap();
 
                         let key = serde_wasm_bindgen::to_value(&kv.key).unwrap();
                         let value = serde_wasm_bindgen::to_value(&kv).unwrap();
