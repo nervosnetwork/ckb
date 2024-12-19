@@ -104,7 +104,6 @@ jobs:
           QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
           QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
-          SKIP_CKB_CLI: true
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
 
