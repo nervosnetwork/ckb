@@ -127,15 +127,15 @@ jobs:
     env:
       REL_PKG: aarch64-unknown-linux-gnu.tar.gz
 
-  package-for-centos:
-    name: package-for-centos
+  package-for-ubuntu:
+    name: package-for-ubuntu
     runs-on: ubuntu-20.04
     strategy:
       matrix:
         include:
-          - rel_pkg: "x86_64-unknown-centos-gnu.tar.gz"
+          - rel_pkg: "x86_64-unknown-ubuntu-gnu.tar.gz"
             build_target: "prod"
-          - rel_pkg: "x86_64-unknown-centos-gnu-portable.tar.gz"
+          - rel_pkg: "x86_64-unknown-ubuntu-gnu-portable.tar.gz"
             build_target: "prod_portable"
     steps:
       - uses: actions/checkout@v3
@@ -166,7 +166,7 @@ jobs:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.81.0
+      BUILDER_IMAGE: nervos/ckb-docker-builder:ubuntu-20.04-rust-1.81.0
       REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-mac:
@@ -337,8 +337,8 @@ jobs:
           - REL_PKG: x86_64-unknown-linux-gnu.tar.gz
           - REL_PKG: x86_64-unknown-linux-gnu-portable.tar.gz
           - REL_PKG: aarch64-unknown-linux-gnu.tar.gz
-          - REL_PKG: x86_64-unknown-centos-gnu.tar.gz
-          - REL_PKG: x86_64-unknown-centos-gnu-portable.tar.gz
+          - REL_PKG: x86_64-unknown-ubuntu-gnu.tar.gz
+          - REL_PKG: x86_64-unknown-ubuntu-gnu-portable.tar.gz
           - REL_PKG: x86_64-apple-darwin.zip
           - REL_PKG: x86_64-apple-darwin-portable.zip
           - REL_PKG: aarch64-apple-darwin.zip
@@ -351,7 +351,7 @@ jobs:
       - package-for-mac
       - package-for-mac-aarch64
       - package-for-windows
-      - package-for-centos
+      - package-for-ubuntu
     steps:
       - uses: actions/checkout@v3
       - name: Set tag
