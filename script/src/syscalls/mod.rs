@@ -102,6 +102,8 @@ pub const EXEC_LOAD_ELF_V2_CYCLES_BASE: u64 = 75_000;
 pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
 pub const SPAWN_YIELD_CYCLES_BASE: u64 = 800;
 
+pub const MAX_ARGV_LENGTH: u64 = 1024 * 1024;
+
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {
     Capacity = 0,

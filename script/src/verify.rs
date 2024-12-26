@@ -255,7 +255,11 @@ where
         &self,
         snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> Spawn<DL> {
-        Spawn::new(self.vm_id, Arc::clone(&self.message_box), snapshot2_context)
+        Spawn::new(
+            self.vm_id,
+            Arc::clone(&self.message_box),
+            snapshot2_context,
+        )
     }
 
     /// Build syscall: wait
@@ -1046,10 +1050,6 @@ where
         } else {
             Scheduler::new(tx_data, version, self.syscalls_generator.clone())
         };
-        let map_vm_internal_error = |error: VMInternalError| match error {
-            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            _ => ScriptError::VMInternalError(error),
-        };
         let previous_cycles = scheduler.consumed_cycles();
         let res = scheduler.run(RunMode::LimitCycles(max_cycles));
         match res {
@@ -1068,10 +1068,12 @@ where
             }
             Err(error) => match error {
                 VMInternalError::CyclesExceeded | VMInternalError::Pause => {
-                    let snapshot = scheduler.suspend().map_err(map_vm_internal_error)?;
+                    let snapshot = scheduler
+                        .suspend()
+                        .map_err(|err| self.map_vm_internal_error(err, max_cycles))?;
                     Ok(ChunkState::suspended(snapshot))
                 }
-                _ => Err(map_vm_internal_error(error)),
+                _ => Err(self.map_vm_internal_error(error, max_cycles)),
             },
         }
     }
@@ -1149,13 +1151,9 @@ where
         max_cycles: Cycle,
     ) -> Result<(i8, Cycle), ScriptError> {
         let mut scheduler = self.create_scheduler(script_group)?;
-        let map_vm_internal_error = |error: VMInternalError| match error {
-            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            _ => ScriptError::VMInternalError(error),
-        };
         scheduler
             .run(RunMode::LimitCycles(max_cycles))
-            .map_err(map_vm_internal_error)
+            .map_err(|err| self.map_vm_internal_error(err, max_cycles))
     }
 
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
@@ -1165,6 +1163,14 @@ where
             Ok(cycles)
         } else {
             Err(ScriptError::validation_failure(&script_group.script, code))
+        }
+    }
+
+    fn map_vm_internal_error(&self, error: VMInternalError, max_cycles: Cycle) -> ScriptError {
+        match error {
+            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
+            VMInternalError::External(reason) if reason.eq("stopped") => ScriptError::Interrupts,
+            _ => ScriptError::VMInternalError(error),
         }
     }
 
@@ -1184,12 +1190,6 @@ where
         };
         let version = self.select_version(&script_group.script)?;
         let mut scheduler = Scheduler::new(tx_data, version, self.syscalls_generator.clone());
-        let map_vm_internal_error = |error: VMInternalError| match error {
-            VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            VMInternalError::External(reason) if reason.eq("stopped") => ScriptError::Interrupts,
-            _ => ScriptError::VMInternalError(error),
-        };
-
         let mut pause = VMPause::new();
         let child_pause = pause.clone();
         let (finish_tx, mut finish_rx) = oneshot::channel::<Result<(i8, Cycle), ckb_vm::Error>>();
@@ -1264,7 +1264,7 @@ where
                                 exit_code
                             ))},
                         Err(err) => {
-                            return Err(map_vm_internal_error(err));
+                            return Err(self.map_vm_internal_error(err, max_cycles));
                         }
                     }
 

@@ -2,7 +2,7 @@
 use crate::{
     core::{
         self,
-        error::{OutPointError, TransactionError},
+        error::{OutPointError, TransactionError, ARGV_TOO_LONG_TEXT},
         BlockNumber, Capacity, Cycle, FeeRate,
     },
     packed::Byte32,
@@ -71,7 +71,7 @@ fn is_malformed_from_verification(error: &Error) -> bool {
             .downcast_ref::<TransactionError>()
             .expect("error kind checked")
             .is_malformed_tx(),
-        ErrorKind::Script => true,
+        ErrorKind::Script => !format!("{}", error).contains(ARGV_TOO_LONG_TEXT),
         ErrorKind::Internal => {
             error
                 .downcast_ref::<InternalError>()

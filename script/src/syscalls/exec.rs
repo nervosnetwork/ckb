@@ -1,11 +1,13 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
-    Place, Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, WRONG_FORMAT,
+    Place, Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, MAX_ARGV_LENGTH, SLICE_OUT_OF_BOUND,
+    WRONG_FORMAT,
 };
 use crate::types::Indices;
 use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::{CellMeta, ResolvedTransaction};
+use ckb_types::core::error::ARGV_TOO_LONG_TEXT;
 use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
 use ckb_vm::Memory;
 use ckb_vm::{
@@ -162,6 +164,7 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
         let argc = machine.registers()[A4].to_u64();
         let mut addr = machine.registers()[A5].to_u64();
         let mut argv = Vec::new();
+        let mut argv_length: u64 = 0;
         for _ in 0..argc {
             let target_addr = machine
                 .memory_mut()
@@ -169,7 +172,17 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
                 .to_u64();
 
             let cstr = load_c_string(machine, target_addr)?;
+            let cstr_len = cstr.len();
             argv.push(cstr);
+
+            // Number of argv entries should also be considered
+            argv_length = argv_length
+                .saturating_add(8)
+                .saturating_add(cstr_len as u64);
+            if argv_length > MAX_ARGV_LENGTH {
+                return Err(VMError::Unexpected(ARGV_TOO_LONG_TEXT.to_string()));
+            }
+
             addr += 8;
         }
 

@@ -1,4 +1,5 @@
 use ckb_constant::sync::{BAD_MESSAGE_BAN_TIME, SYNC_USELESS_BAN_TIME};
+use ckb_types::core::error::ARGV_TOO_LONG_TEXT;
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
@@ -164,6 +165,13 @@ impl Status {
     pub fn should_ban(&self) -> Option<Duration> {
         if !(400..500).contains(&(self.code as u16)) {
             return None;
+        }
+        if let Some(context) = &self.context {
+            // TODO: it might be worthwhile to formalize all error texts
+            // that won't be banned.
+            if context.contains(ARGV_TOO_LONG_TEXT) {
+                return None;
+            }
         }
         match self.code {
             StatusCode::GetHeadersMissCommonAncestors => Some(SYNC_USELESS_BAN_TIME),

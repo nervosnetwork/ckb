@@ -1,10 +1,11 @@
 use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
-    Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
-    SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
+    Source, INDEX_OUT_OF_BOUND, MAX_ARGV_LENGTH, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK,
+    SOURCE_GROUP_FLAG, SPAWN, SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
 };
 use crate::types::{DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
+use ckb_types::core::error::ARGV_TOO_LONG_TEXT;
 use ckb_vm::{
     machine::SupportMachine,
     memory::Memory,
@@ -87,13 +88,24 @@ where
             .to_u64();
         let mut addr = argv_addr;
         let mut argv = Vec::new();
+        let mut argv_length: u64 = 0;
         for _ in 0..argc {
             let target_addr = machine
                 .memory_mut()
                 .load64(&Mac::REG::from_u64(addr))?
                 .to_u64();
             let cstr = load_c_string(machine, target_addr)?;
+            let cstr_len = cstr.len();
             argv.push(cstr);
+
+            // Number of argv entries should also be considered
+            argv_length = argv_length
+                .saturating_add(8)
+                .saturating_add(cstr_len as u64);
+            if argv_length > MAX_ARGV_LENGTH {
+                return Err(VMError::Unexpected(ARGV_TOO_LONG_TEXT.to_string()));
+            }
+
             addr = addr.wrapping_add(8);
         }
 
