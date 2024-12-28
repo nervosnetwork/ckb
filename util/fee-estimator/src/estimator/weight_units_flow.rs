@@ -36,7 +36,7 @@
 //! - New transactions entering the mempool.
 //!
 //!   While it's impossible to predict sudden changes to the speed at which new
-//!   weight is added to the mempool, for simplicty's sake we're going to assume
+//!   weight is added to the mempool, for simplicity's sake we're going to assume
 //!   the flow we measured remains constant: `added_weight = flow * blocks`.
 //!
 //! - Transactions leaving the mempool due to mined blocks. Each block removes
