@@ -560,7 +560,7 @@ where
                 _ => (),
             }
         }
-        // Transfering data from write fds to read fds
+        // Transferring data from write fds to read fds
         for (read_vm_id, read_state, write_vm_id, write_state) in pairs {
             let ReadState {
                 length: read_length,
