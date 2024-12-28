@@ -35,7 +35,7 @@ pub struct IndexerConfig {
     /// The init tip block hash
     #[serde(default)]
     pub init_tip_hash: Option<H256>,
-    /// limit of indexer reqeust
+    /// limit of indexer request
     #[serde(default)]
     pub request_limit: Option<usize>,
     /// Rich indexer config options
