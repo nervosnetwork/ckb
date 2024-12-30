@@ -103,9 +103,8 @@ pub struct Config {
 /// Proxy related config options
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ProxyConfig {
-    pub enable: bool,
     // like: socks5://username:password@127.0.0.1:1080
-    pub proxy_url: String,
+    pub proxy_url: Option<String>,
 }
 
 /// Chain synchronization config options.

@@ -122,9 +122,9 @@ impl NetworkState {
             config.peer_store_path(),
         ));
         info!("Loaded the peer store.");
-        if config.proxy_config.enable {
-            proxy::check_proxy_url(&config.proxy_config.proxy_url)
-                .map_err(|reason| Error::Config(reason))?;
+
+        if let Some(ref proxy_url) = config.proxy.proxy_url {
+            proxy::check_proxy_url(proxy_url).map_err(Error::Config)?;
         }
 
         let bootnodes = config.bootnodes();
@@ -1003,14 +1003,13 @@ impl NetworkService {
                     if init.is_ready() {
                         break;
                     }
-                    let proxy_config_enable = config.proxy_config.enable;
-
-                    if proxy_config_enable {
-                        let proxy_config = ProxyConfig {
-                            proxy_url: config.proxy_config.proxy_url.clone(),
-                        };
-                        service_builder = service_builder.tcp_proxy_config(Some(proxy_config));
-                    }
+                    let proxy_config_enable = config.proxy_config.proxy_url.is_some();
+                    service_builder = service_builder.tcp_proxy_config(
+                        config
+                            .proxy_config
+                            .proxy_url
+                            .map(|proxy_url| ProxyConfig { proxy_url }),
+                    );
 
                     match find_type(multi_addr) {
                         TransportType::Tcp => {
