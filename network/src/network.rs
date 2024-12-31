@@ -1,4 +1,5 @@
 //! Global state struct and start function
+use crate::address::NetworkAddresses;
 use crate::errors::Error;
 #[cfg(not(target_family = "wasm"))]
 use crate::errors::P2PError;
@@ -73,7 +74,7 @@ pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<PeerStore>,
     /// Node listened addresses
-    pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
+    pub(crate) listened_addrs: RwLock<NetworkAddresses>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
     /// Node public addresses,
     /// includes manually public addrs and remote peer observed addrs

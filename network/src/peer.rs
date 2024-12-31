@@ -1,3 +1,4 @@
+use crate::address::NetworkAddresses;
 use crate::network_group::Group;
 use crate::{
     multiaddr::Multiaddr, protocols::identify::Flags, ProtocolId, ProtocolVersion, SessionType,
@@ -21,7 +22,7 @@ pub struct Peer {
     /// Peer address
     pub connected_addr: Multiaddr,
     /// Peer listen addresses
-    pub listened_addrs: Vec<Multiaddr>,
+    pub listened_addrs: NetworkAddresses,
     /// Peer info from identify protocol message
     pub identify_info: Option<PeerIdentifyInfo>,
     /// Ping/Pong message last received time
