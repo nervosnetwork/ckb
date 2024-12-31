@@ -144,7 +144,7 @@ impl NetworkState {
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
             public_addrs: RwLock::new(public_addrs),
-            listened_addrs: RwLock::new(Vec::new()),
+            listened_addrs: RwLock::new(NetworkAddresses::default()),
             pending_observed_addrs: RwLock::new(HashSet::default()),
             local_private_key,
             local_peer_id,
@@ -366,7 +366,7 @@ impl NetworkState {
                     None
                 }
             })
-            .chain(listened_addrs.iter().map(|addr| (addr.to_owned(), 1)))
+            .chain(listened_addrs.into_iter().map(|addr| (addr.to_owned(), 1)))
             .map(|(addr, score)| (addr.to_string(), score))
             .collect()
     }
@@ -1009,6 +1009,7 @@ impl NetworkService {
                         config
                             .proxy_config
                             .proxy_url
+                            .clone()
                             .map(|proxy_url| ProxyConfig { proxy_url }),
                     );
 

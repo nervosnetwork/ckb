@@ -1,6 +1,6 @@
 use p2p::multiaddr::{MultiAddr, Protocol};
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct NetworkAddresses {
     pub regular_addresses: Vec<MultiAddr>,
 
@@ -24,18 +24,23 @@ impl NetworkAddresses {
     pub fn contains(&self, address: &MultiAddr) -> bool {
         self.regular_addresses.contains(address) || self.onion_addresses.contains(address)
     }
+
+    // len
+    pub fn len(&self) -> usize {
+        self.regular_addresses.len() + self.onion_addresses.len()
+    }
 }
 
-impl IntoIterator for NetworkAddresses {
-    type Item = MultiAddr;
-    type IntoIter = std::vec::IntoIter<MultiAddr>;
+// implement iter() for NetworkAddresses, don't take ownership
+impl<'a> IntoIterator for &'a NetworkAddresses {
+    type Item = &'a MultiAddr;
+    type IntoIter =
+        std::iter::Chain<std::slice::Iter<'a, MultiAddr>, std::slice::Iter<'a, MultiAddr>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.regular_addresses
-            .into_iter()
-            .chain(self.onion_addresses.into_iter())
-            .collect::<Vec<_>>()
-            .into_iter()
+            .iter()
+            .chain(self.onion_addresses.iter())
     }
 }
 

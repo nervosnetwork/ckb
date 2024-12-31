@@ -55,7 +55,7 @@ impl Peer {
     ) -> Self {
         Peer {
             connected_addr,
-            listened_addrs: Vec::new(),
+            listened_addrs: NetworkAddresses::default(),
             identify_info: None,
             ping_rtt: None,
             last_ping_protocol_message_received_at: None,
