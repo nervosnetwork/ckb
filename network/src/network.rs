@@ -1527,7 +1527,10 @@ pub(crate) enum TransportType {
 }
 
 pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
-    if addr.iter().any(|proto| matches!(proto, Protocol::Ws)) {
+    if addr
+        .iter()
+        .any(|proto| matches!(proto, Protocol::Ws | Protocol::Wss))
+    {
         TransportType::Ws
     } else {
         TransportType::Tcp
