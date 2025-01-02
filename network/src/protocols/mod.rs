@@ -2,6 +2,7 @@ pub(crate) mod disconnect_message;
 pub(crate) mod discovery;
 pub(crate) mod feeler;
 pub(crate) mod identify;
+pub(crate) mod penetration;
 pub(crate) mod ping;
 pub(crate) mod support_protocols;
 

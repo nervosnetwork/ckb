@@ -79,6 +79,8 @@ pub trait Callback: Clone + Send {
     fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>);
     /// Add our address observed by remote peer
     fn add_observed_addr(&mut self, addr: Multiaddr, ty: SessionType) -> MisbehaveResult;
+    /// Add all possible address observed by remote peer
+    fn add_possible_addr(&mut self, addr: Multiaddr);
     /// Report misbehavior
     fn misbehave(&mut self, session: &SessionContext, kind: Misbehavior) -> MisbehaveResult;
 }
@@ -166,6 +168,7 @@ impl<T: Callback> IdentifyProtocol<T> {
             .remote_infos
             .get_mut(&session.id)
             .expect("RemoteInfo must exists");
+        self.callback.add_possible_addr(observed.clone());
         let global_ip_only = self.global_ip_only;
         if multiaddr_to_socketaddr(&observed)
             .map(|socket_addr| socket_addr.ip())
@@ -568,6 +571,10 @@ impl Callback for IdentifyCallback {
         self.network_state.add_observed_addrs(observed_addrs_iter);
         // NOTE: for future usage
         MisbehaveResult::Continue
+    }
+
+    fn add_possible_addr(&mut self, addr: Multiaddr) {
+        self.network_state.add_possible_addr(addr);
     }
 
     fn misbehave(&mut self, session: &SessionContext, reason: Misbehavior) -> MisbehaveResult {

@@ -155,6 +155,7 @@ pub enum SupportProtocol {
     Alert,
     LightClient,
     Filter,
+    Penetration,
 }
 
 #[allow(missing_docs)]
@@ -171,6 +172,7 @@ pub fn default_support_all_protocols() -> Vec<SupportProtocol> {
         SupportProtocol::Alert,
         SupportProtocol::LightClient,
         SupportProtocol::Filter,
+        SupportProtocol::Penetration,
     ]
 }
 

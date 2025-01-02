@@ -105,7 +105,7 @@ discovery_local_address = false # {{
 bootnode_mode = false
 
 # Supported protocols list, only "Sync" and "Identify" are mandatory, others are optional
-support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "Alert", "LightClient", "Filter"]
+support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "Alert", "LightClient", "Filter", "Penetration"]
 
 # [network.sync.header_map]
 # memory_limit = "256MB"
