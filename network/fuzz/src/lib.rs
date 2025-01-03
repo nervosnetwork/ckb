@@ -14,6 +14,10 @@ impl<'a> BufManager<'a> {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.buf.is_empty()
+    }
+
     pub fn len(&self) -> usize {
         self.buf.len()
     }
@@ -25,8 +29,7 @@ impl<'a> BufManager<'a> {
             self.offset += len;
             r
         } else {
-            let mut r = Vec::<u8>::with_capacity(len);
-            r.resize(len, 0);
+            let mut r = vec![0; len];
             r[0..(buf_len - self.offset)].copy_from_slice(&self.buf[self.offset..]);
             self.offset = buf_len;
             r
@@ -138,6 +141,6 @@ impl FromBytes<PeerId> for PeerId {
         32
     }
     fn from_bytes(d: &[u8]) -> PeerId {
-        PeerId::from_bytes(vec![vec![0x12], vec![0x20], d.to_vec()].concat()).unwrap()
+        PeerId::from_bytes([vec![0x12], vec![0x20], d.to_vec()].concat()).unwrap()
     }
 }
