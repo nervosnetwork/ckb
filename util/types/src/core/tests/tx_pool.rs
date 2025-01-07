@@ -1,7 +1,7 @@
-use ckb_error::{ErrorKind, InternalErrorKind, SilentError as DefaultError};
+use ckb_error::{ErrorKind, InternalErrorKind, OtherError, SilentError as DefaultError};
 
 use crate::core::{
-    error::{OutPointError, TransactionError, TransactionErrorSource},
+    error::{OutPointError, TransactionError, TransactionErrorSource, ARGV_TOO_LONG_TEXT},
     tx_pool::Reject,
 };
 
@@ -97,6 +97,13 @@ fn test_if_is_malformed_tx() {
         let error = error_kind.because(DefaultError);
         let reject = Reject::Verification(error);
         assert!(reject.is_malformed_tx());
+    }
+
+    {
+        let error_kind = ErrorKind::Script;
+        let error = error_kind.because(OtherError::new(ARGV_TOO_LONG_TEXT.to_string()));
+        let reject = Reject::Verification(error);
+        assert!(!reject.is_malformed_tx());
     }
 
     for error_kind in &[

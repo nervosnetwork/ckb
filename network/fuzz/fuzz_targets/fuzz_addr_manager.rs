@@ -20,7 +20,7 @@ fn new_addr(data: &[u8], index: usize) -> AddrInfo {
     // let ip = Ipv4Addr::from(((225 << 24) + index) as u32);
     // let port = u16::from_le_bytes(data[4..6].try_into().unwrap());
     let peer_id =
-        PeerId::from_bytes(vec![vec![0x12], vec![0x20], data[4..].to_vec()].concat()).unwrap();
+        PeerId::from_bytes([vec![0x12], vec![0x20], data[4..].to_vec()].concat()).unwrap();
 
     AddrInfo::new(
         format!("/ip4/{}/tcp/43/p2p/{}", ip, peer_id.to_base58())

@@ -15,10 +15,10 @@ fn new_multi_addr(data: &mut BufManager) -> (MultiAddr, Flags) {
         let buf = data.get_buf(16);
         format!(
             "/ip6/{}",
-            std::net::Ipv6Addr::from(u128::from_le_bytes(buf.try_into().unwrap())).to_string()
+            std::net::Ipv6Addr::from(u128::from_le_bytes(buf.try_into().unwrap()))
         )
     } else {
-        format!("/ip4/{}", data.get::<std::net::Ipv4Addr>().to_string())
+        format!("/ip4/{}", data.get::<std::net::Ipv4Addr>())
     };
 
     addr_str += &format!("/tcp/{}", data.get::<u16>());
@@ -66,7 +66,7 @@ fn add_basic_addr(data: &mut BufManager, peer_store: &mut PeerStore) {
     for i in 0..num {
         let addr = format!(
             "/ip4/{}/tcp/43/p2p/{}",
-            std::net::Ipv4Addr::from(i as u32).to_string(),
+            std::net::Ipv4Addr::from(i),
             PeerId::random().to_base58()
         )
         .parse()

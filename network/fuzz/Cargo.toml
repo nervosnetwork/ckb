@@ -13,7 +13,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-ipnetwork = "0.18"
+ipnetwork = "0.20.0"
 
 [dependencies.ckb-network]
 path = ".."

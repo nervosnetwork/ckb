@@ -12,7 +12,7 @@ Please note we have a code of conduct, please follow it in all your interactions
 
 ### Report Issue
 
-* Read [known issues](https://github.com/nervosnetwork/ckb/projects/2) to see whether the issue is already addressed there.
+* Read [previous issues](https://github.com/nervosnetwork/ckb/issues) to see whether the issue is already addressed.
 
 * **Do not open up a GitHub issue to report security vulnerabilities**. Instead,
   refer to the [security policy](SECURITY.md).
