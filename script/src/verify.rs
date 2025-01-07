@@ -255,11 +255,7 @@ where
         &self,
         snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
     ) -> Spawn<DL> {
-        Spawn::new(
-            self.vm_id,
-            Arc::clone(&self.message_box),
-            snapshot2_context,
-        )
+        Spawn::new(self.vm_id, Arc::clone(&self.message_box), snapshot2_context)
     }
 
     /// Build syscall: wait
