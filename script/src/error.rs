@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn test_vm_internal_error_preserves_text() {
         let vm_error = VMInternalError::Unexpected(ARGV_TOO_LONG_TEXT.to_string());
-        let script_error = ScriptError::VMInternalError(vm_error.clone());
+        let script_error = ScriptError::VMInternalError(vm_error);
         let error: Error = script_error.output_type_script(177).into();
 
         assert!(format!("{}", error).contains(ARGV_TOO_LONG_TEXT));

@@ -224,4 +224,5 @@ impl OutPointError {
     }
 }
 
+#[allow(missing_docs)]
 pub const ARGV_TOO_LONG_TEXT: &str = "@@@VM@@@UNEXPECTED@@@ARGV@@@TOOLONG@@@";
