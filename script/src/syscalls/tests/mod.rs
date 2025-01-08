@@ -10,6 +10,7 @@ mod vm_version_1;
 
 #[allow(clippy::assertions_on_constants)]
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn test_max_argv_length() {
     assert!(crate::syscalls::MAX_ARGV_LENGTH < u64::MAX);
 }
