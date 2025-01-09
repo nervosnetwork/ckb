@@ -348,22 +348,6 @@ impl SharedBuilder {
         Ok((snapshot, proposal_table))
     }
 
-    /// Check whether the data already exists in the database before starting
-    fn check_assume_valid_target_already_exists(
-        sync_config: &SyncConfig,
-        snapshot: &Snapshot,
-    ) -> bool {
-        if let Some(ref target) = sync_config.assume_valid_targets {
-            if let Some(last_target) = target.last() {
-                if snapshot.block_exists(&last_target.pack()) {
-                    info!("assume valid target is already in db, CKB will do full verification from now on");
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     /// TODO(doc): @quake
     pub fn build(self) -> Result<(Shared, SharedPackage), ExitCode> {
         let SharedBuilder {
@@ -446,10 +430,29 @@ impl SharedBuilder {
         let block_status_map = Arc::new(DashMap::new());
 
         let assume_valid_targets = Arc::new(Mutex::new({
-            if Self::check_assume_valid_target_already_exists(&sync_config, &snapshot) {
+            let not_exists_targets: Option<Vec<H256>> =
+                sync_config.assume_valid_targets.clone().map(|targets| {
+                    targets
+                        .iter()
+                        .filter(|&target_hash| {
+                            let exists = snapshot.block_exists(&target_hash.pack());
+                            if exists {
+                                info!("assume valid target 0x{} already exists in db", target_hash);
+                            }
+                            !exists
+                        })
+                        .cloned()
+                        .collect::<Vec<H256>>()
+                });
+
+            if not_exists_targets
+                .as_ref()
+                .is_some_and(|targets| targets.is_empty())
+            {
+                info!("all assume valid targets is already in db, CKB will do full verification from now on");
                 None
             } else {
-                sync_config.assume_valid_targets.clone()
+                not_exists_targets
             }
         }));
 
