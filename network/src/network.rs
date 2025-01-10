@@ -29,7 +29,6 @@ use ckb_systemtime::{Duration, Instant};
 use ckb_util::{Condvar, Mutex, RwLock};
 use futures::{channel::mpsc::Sender, Future};
 use ipnetwork::IpNetwork;
-use p2p::service::ProxyConfig;
 use p2p::{
     async_trait,
     builder::ServiceBuilder,
@@ -1005,13 +1004,9 @@ impl NetworkService {
                         break;
                     }
                     let proxy_config_enable = config.proxy_config.proxy_url.is_some();
-                    service_builder = service_builder.tcp_proxy_config(
-                        config
-                            .proxy_config
-                            .proxy_url
-                            .clone()
-                            .map(|proxy_url| ProxyConfig { proxy_url }),
-                    );
+                    service_builder = service_builder
+                        .tcp_proxy_config(config.proxy_config.proxy_url.clone())
+                        .tcp_onion_config(config.onion_config.onion_server.clone());
 
                     match find_type(multi_addr) {
                         TransportType::Tcp => {
