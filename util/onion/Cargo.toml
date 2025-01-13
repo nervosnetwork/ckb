@@ -1,0 +1,22 @@
+[package]
+name = "ckb-onion"
+version = "0.200.0-pre"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2021"
+license = "MIT"
+description = "CKB command line arguments and config options."
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[dependencies]
+base64 = "0.22.1"
+tokio = { version = "1.43.0", features = [ "full", "macros" ]}
+torut = "0.2.1"
+ckb-error = { path = "../../error", version = "= 0.200.0-pre" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.200.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.200.0-pre" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.200.0-pre" }
+multiaddr = { git = "https://github.com/eval-exec/tentacle.git", branch="exec/proxy-and-onion", package = "tentacle-multiaddr" }
+
+[dev-dependencies]
+tempfile.workspace = true
