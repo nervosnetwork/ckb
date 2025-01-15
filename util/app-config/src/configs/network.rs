@@ -114,6 +114,7 @@ pub struct ProxyConfig {
 
 /// Onion related config options
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct OnionConfig {
     // Automatically create Tor onion service, default: true
     #[serde(default = "default_listen_on_onion")]
@@ -293,6 +294,13 @@ impl Config {
     pub fn secret_key_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("secret_key");
+        path
+    }
+
+    /// Gets the onion network private key path.
+    pub fn onion_private_key_path(&self) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push("onion_private_key");
         path
     }
 

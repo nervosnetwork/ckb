@@ -349,6 +349,12 @@ impl NetworkState {
             .collect()
     }
 
+    /// After onion service created,
+    /// ckb use this method to add onion address to public_addr
+    pub fn add_public_addr(&self, addr: Multiaddr) {
+        self.public_addrs.write().insert(addr);
+    }
+
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
         self.peer_registry.read().connection_status()
     }
@@ -961,7 +967,7 @@ impl NetworkService {
             .max_connection_number(1024)
             .set_send_buffer_size(config.max_send_buffer())
             .set_channel_size(config.channel_size())
-            .timeout(Duration::from_secs(5));
+            .timeout(Duration::from_secs(50));
 
         #[cfg(not(target_family = "wasm"))]
         {
@@ -1003,10 +1009,11 @@ impl NetworkService {
                     if init.is_ready() {
                         break;
                     }
-                    let proxy_config_enable = config.proxy_config.proxy_url.is_some();
+                    let proxy_config_enable =
+                        config.proxy.proxy_url.is_some() || config.onion.onion_server.is_some();
                     service_builder = service_builder
-                        .tcp_proxy_config(config.proxy_config.proxy_url.clone())
-                        .tcp_onion_config(config.onion_config.onion_server.clone());
+                        .tcp_proxy_config(config.proxy.proxy_url.clone())
+                        .tcp_onion_config(config.onion.onion_server.clone());
 
                     match find_type(multi_addr) {
                         TransportType::Tcp => {
@@ -1338,6 +1345,11 @@ impl NetworkController {
     /// Dial remote node
     pub fn add_node(&self, address: Multiaddr) {
         self.network_state.add_node(&self.p2p_control, address)
+    }
+
+    /// Add a public_addr to NetworkState.public_addrs
+    pub fn add_public_addr(&self, public_addr: Multiaddr) {
+        self.network_state.add_public_addr(public_addr)
     }
 
     /// Disconnect session with peer id

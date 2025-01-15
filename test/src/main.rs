@@ -606,6 +606,9 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmBExtension),
         Box::new(RandomlyKill),
         Box::new(SyncChurn),
+        Box::new(TorServiceContainsPublicAddr::default()),
+        Box::new(TorConnect::default()),
+        Box::new(TorConnectNormal::default()),
     ];
     specs.shuffle(&mut thread_rng());
     specs

@@ -3,7 +3,7 @@
 //! ckb launcher is helps to launch ckb node.
 
 use ckb_app_config::{
-    BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
+    BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol, Url,
 };
 use ckb_async_runtime::Handle;
 use ckb_block_filter::filter::BlockFilter as BlockFilterService;
@@ -12,13 +12,15 @@ use ckb_chain::ChainController;
 use ckb_channel::Receiver;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
-use ckb_logger::info;
 use ckb_logger::internal::warn;
+use ckb_logger::{error, info};
+use ckb_network::Error;
 use ckb_network::{
     network::TransportType, observe_listen_port_occupancy, CKBProtocol, Flags, NetworkController,
     NetworkService, NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
+use ckb_onion::OnionServiceConfig;
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
@@ -29,6 +31,7 @@ use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
@@ -266,6 +269,99 @@ impl Launcher {
         }
     }
 
+    /// Start onion service
+    pub fn start_onion_service(&self, network_controller: NetworkController) -> Result<(), Error> {
+        if !self.args.config.network.onion.listen_on_onion {
+            info!("onion_config.listen_on_onion is false, CKB won't listen on the onion hidden netork");
+            return Ok(());
+        }
+        let onion_config = self.args.config.network.onion.clone();
+        let onion_server: String = {
+            match (
+                onion_config.onion_server,
+                self.args.config.network.proxy.proxy_url.clone(),
+            ) {
+                (Some(onion_server), _) => onion_server,
+                (None, Some(proxy_url)) => {
+                    let proxy_url = Url::parse(&proxy_url)
+                        .map_err(|err| Error::Config(format!("parse proxy_url failed: {}", err)))?;
+                    match (proxy_url.host_str(), proxy_url.port()) {
+                        (Some(host), Some(port)) => format!("{}:{}", host, port),
+                        _ => {
+                            error!("CKB tried to use the proxy url: {proxy_url} as onion server, but failed to parse it");
+                            return Err(Error::Config("Failed to parse proxy url".to_string()));
+                        }
+                    }
+                }
+                _ => {
+                    info!("Neither onion_server nor proxy_url is set in the config file, CKB won't listen on the onion hidden network");
+                    return Ok(());
+                }
+            }
+        };
+        let onion_service_target: SocketAddr = {
+            match onion_config.onion_service_target {
+                Some(onion_service_target) => onion_service_target.parse().map_err(|err| {
+                    Error::Config(format!("Failed to parse onion_service_target: {}", err))
+                })?,
+                None => SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8115),
+            }
+        };
+
+        {
+            // check tor_controller is listening
+            let tor_controller_addr = onion_config.tor_controller.parse().map_err(|err| {
+                Error::Config(format!("Failed to parse tor_controller address: {}", err))
+            })?;
+            match std::net::TcpStream::connect_timeout(
+                &tor_controller_addr,
+                std::time::Duration::from_secs(2),
+            ) {
+                Ok(_c) => {
+                    info!(
+                        "CKB has confirmed that onion_conifg.tor_controller is listening on {}, trying to listen on the onion hidden network by the tor_controller",
+                        onion_config.tor_controller
+                    );
+                }
+                Err(_err) => {
+                    eprintln!("tor_controller is not listening on {}, CKB won't try to listen on the onion hidden network", tor_controller_addr);
+                    return Ok(());
+                }
+            }
+        }
+
+        let onion_service_config: OnionServiceConfig = OnionServiceConfig {
+            onion_server,
+            onion_private_key_path: onion_config.onion_private_key_path.unwrap_or(
+                self.args
+                    .config
+                    .network
+                    .onion_private_key_path()
+                    .display()
+                    .to_string(),
+            ),
+            tor_controller: onion_config.tor_controller,
+            tor_password: onion_config.tor_password,
+            onion_service_target,
+        };
+        let onion_service = ckb_onion::onion_service::OnionService::new(
+            self.async_handle.clone(),
+            onion_service_config,
+        )
+        .map_err(|err| Error::Config(format!("Failed to create onion service: {}", err)))?;
+        let node_id = network_controller.node_id();
+        self.async_handle.spawn(async move {
+                    match onion_service.start(node_id).await {
+                        Ok(onion_service_addr) => {
+                            info!("CKB has started listening on the onion hidden network, the onion service address is: {}", onion_service_addr);
+                            network_controller.add_public_addr(onion_service_addr);
+                        },
+                        Err(err) => error!("CKB failed to start listening on the onion hidden network: {}", err),
+                    }
+                });
+        Ok(())
+    }
+
     /// Start network service and rpc serve
     pub fn start_network_and_rpc(
         &self,
@@ -444,6 +540,10 @@ impl Launcher {
         let io_handler = builder.build();
 
         let _rpc = RpcServer::new(rpc_config, io_handler, self.rpc_handle.clone());
+
+        if let Err(err) = self.start_onion_service(network_controller.clone()) {
+            error!("Failed to start onion service: {}", err);
+        }
 
         network_controller
     }
