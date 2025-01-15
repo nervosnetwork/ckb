@@ -588,3 +588,18 @@ fn test_addr_unique() {
 
     assert_eq!(peer_store.addr_manager().addrs_iter().count(), 2);
 }
+
+#[test]
+fn test_only_tcp_store() {
+    let mut peer_store = PeerStore::default();
+    let mut addr = random_addr();
+    addr.push(p2p::multiaddr::Protocol::Ws);
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(1)[0].addr, {
+        addr.pop();
+        addr
+    });
+}

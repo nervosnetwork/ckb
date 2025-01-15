@@ -65,10 +65,6 @@ impl PeerStore {
         if self.ban_list.is_addr_banned(&addr) {
             return Ok(());
         }
-        #[cfg(target_family = "wasm")]
-        if !matches!(find_type(&addr), TransportType::Ws) {
-            return Ok(());
-        }
         self.check_purge()?;
         let score = self.score_config.default_score;
         self.addr_manager
@@ -178,12 +174,6 @@ impl PeerStore {
                 && peer_addr
                     .connected(|t| t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL))
                 && required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
-        };
-
-        // Any protocol expect websocket
-        #[cfg(not(target_family = "wasm"))]
-        let filter = |peer_addr: &AddrInfo| {
-            filter(peer_addr) && !matches!(find_type(&peer_addr.addr), TransportType::Ws)
         };
 
         // get addrs that can attempt.
