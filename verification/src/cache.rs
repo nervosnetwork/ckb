@@ -1,6 +1,6 @@
 //! TX verification cache
 
-use ckb_script::TransactionSnapshot;
+use ckb_script::TransactionState;
 use ckb_types::{
     core::{Capacity, Cycle, EntryCompleted},
     packed::Byte32,
@@ -25,8 +25,8 @@ pub type CacheEntry = Completed;
 pub struct Suspended {
     /// Cached tx fee
     pub fee: Capacity,
-    /// Snapshot
-    pub snap: Arc<TransactionSnapshot>,
+    /// State
+    pub state: Arc<TransactionState>,
 }
 
 /// Completed entry
