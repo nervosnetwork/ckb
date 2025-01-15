@@ -4,7 +4,7 @@ use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_network::{Flags, NetworkController, NetworkService, NetworkState};
+use ckb_network::{network::TransportType, Flags, NetworkController, NetworkService, NetworkState};
 use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, create_always_success_tx};
@@ -123,6 +123,7 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
             "test".to_string(),
             Flags::COMPATIBILITY,
         ),
+        TransportType::Tcp,
     )
     .start(shared.async_handle())
     .expect("Start network service failed")

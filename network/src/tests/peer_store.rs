@@ -603,3 +603,21 @@ fn test_only_tcp_store() {
         addr
     });
 }
+
+#[test]
+fn test_support_dns_store() {
+    let mut peer_store = PeerStore::default();
+    let addr: Multiaddr = format!(
+        "/dns4/www.abc.com/tcp/{}/p2p/{}",
+        rand::random::<u16>(),
+        crate::PeerId::random().to_base58()
+    )
+    .parse()
+    .unwrap();
+
+    peer_store
+        .add_addr(addr.clone(), Flags::COMPATIBILITY)
+        .unwrap();
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(1)[0].addr, addr);
+}

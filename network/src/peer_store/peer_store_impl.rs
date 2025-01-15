@@ -1,4 +1,3 @@
-use crate::network::{find_type, TransportType};
 use crate::{
     errors::{PeerStoreError, Result},
     extract_peer_id, multiaddr_to_socketaddr,

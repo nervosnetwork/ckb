@@ -105,15 +105,14 @@ impl NetworkState {
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
-            .filter_map(|mut addr| {
-                multiaddr_to_socketaddr(&addr)
-                    .filter(|addr| is_reachable(addr.ip()))
-                    .and({
-                        if extract_peer_id(&addr).is_none() {
-                            addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
-                        }
-                        Some(addr)
-                    })
+            .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
+                Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
+                _ => {
+                    if extract_peer_id(&addr).is_none() {
+                        addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                    }
+                    Some(addr)
+                }
             })
             .collect();
         info!("Loading the peer store. This process may take a few seconds to complete.");
@@ -158,15 +157,14 @@ impl NetworkState {
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
-            .filter_map(|mut addr| {
-                multiaddr_to_socketaddr(&addr)
-                    .filter(|addr| is_reachable(addr.ip()))
-                    .and({
-                        if extract_peer_id(&addr).is_none() {
-                            addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
-                        }
-                        Some(addr)
-                    })
+            .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
+                Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
+                _ => {
+                    if extract_peer_id(&addr).is_none() {
+                        addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                    }
+                    Some(addr)
+                }
             })
             .collect();
         info!("Loading the peer store. This process may take a few seconds to complete.");
@@ -831,6 +829,7 @@ impl NetworkService {
         required_protocol_ids: Vec<ProtocolId>,
         // name, version, flags
         identify_announce: (String, String, Flags),
+        transport_type: TransportType,
     ) -> Self {
         let config = &network_state.config;
 
@@ -1017,7 +1016,7 @@ impl NetworkService {
                                 service_builder = service_builder.tcp_config(bind_fn);
                             }
                         }
-                        TransportType::Ws => {
+                        TransportType::Ws | TransportType::Wss => {
                             // only bind once
                             if matches!(init, BindType::Ws) {
                                 continue;
@@ -1074,6 +1073,7 @@ impl NetworkService {
                 Arc::clone(&network_state),
                 p2p_service.control().to_owned().into(),
                 Duration::from_secs(config.connect_outbound_interval_secs),
+                transport_type,
             );
             bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
         };
@@ -1520,19 +1520,38 @@ pub(crate) async fn async_disconnect_with_message(
     control.disconnect(peer_index).await
 }
 
+/// Transport type on ckb
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub(crate) enum TransportType {
+pub enum TransportType {
+    /// Tcp
     Tcp,
+    /// Ws
     Ws,
+    /// Wss only on wasm
+    Wss,
+}
+
+impl<'a> From<TransportType> for p2p::multiaddr::Protocol<'a> {
+    fn from(value: TransportType) -> Self {
+        match value {
+            TransportType::Ws => Protocol::Ws,
+            TransportType::Wss => Protocol::Wss,
+            _ => unreachable!(),
+        }
+    }
 }
 
 pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
-    if addr
-        .iter()
-        .any(|proto| matches!(proto, Protocol::Ws | Protocol::Wss))
-    {
-        TransportType::Ws
-    } else {
-        TransportType::Tcp
-    }
+    let mut iter = addr.iter();
+
+    iter.find_map(|proto| {
+        if let Protocol::Ws = proto {
+            Some(TransportType::Ws)
+        } else if let Protocol::Wss = proto {
+            Some(TransportType::Wss)
+        } else {
+            None
+        }
+    })
+    .unwrap_or(TransportType::Tcp)
 }

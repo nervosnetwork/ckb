@@ -1,4 +1,5 @@
 use crate::{
+    network::TransportType,
     peer_store::{types::AddrInfo, PeerStore},
     NetworkState,
 };
@@ -27,6 +28,7 @@ pub struct OutboundPeerService {
     interval: Option<Interval>,
     try_connect_interval: Duration,
     try_identify_count: u8,
+    transport_type: TransportType,
 }
 
 impl OutboundPeerService {
@@ -34,6 +36,7 @@ impl OutboundPeerService {
         network_state: Arc<NetworkState>,
         p2p_control: ServiceControl,
         try_connect_interval: Duration,
+        transport_type: TransportType,
     ) -> Self {
         OutboundPeerService {
             network_state,
@@ -41,6 +44,7 @@ impl OutboundPeerService {
             interval: None,
             try_connect_interval,
             try_identify_count: 0,
+            transport_type,
         }
     }
 
@@ -63,8 +67,13 @@ impl OutboundPeerService {
             attempt_peers,
         );
 
-        for addr in attempt_peers.into_iter().map(|info| info.addr) {
-            self.network_state.dial_feeler(&self.p2p_control, addr);
+        for mut addr in attempt_peers.into_iter().map(|info| info.addr) {
+            self.network_state.dial_feeler(&self.p2p_control, {
+                if !matches!(self.transport_type, TransportType::Tcp) {
+                    addr.push(self.transport_type.into());
+                }
+                addr
+            });
         }
     }
 
@@ -132,8 +141,13 @@ impl OutboundPeerService {
             Box::new(attempt_peers.into_iter().map(|info| info.addr))
         };
 
-        for addr in peers {
-            self.network_state.dial_identify(&self.p2p_control, addr);
+        for mut addr in peers {
+            self.network_state.dial_identify(&self.p2p_control, {
+                if !matches!(self.transport_type, TransportType::Tcp) {
+                    addr.push(self.transport_type.into());
+                }
+                addr
+            });
         }
     }
 
