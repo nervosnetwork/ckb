@@ -1154,6 +1154,7 @@ dependencies = [
  "ckb-logger",
  "ckb-network",
  "ckb-network-alert",
+ "ckb-onion",
  "ckb-resource",
  "ckb-rpc",
  "ckb-shared",
