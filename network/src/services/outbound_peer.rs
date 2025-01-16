@@ -7,7 +7,10 @@ use ckb_logger::trace;
 use ckb_systemtime::unix_time_as_millis;
 use futures::{Future, StreamExt};
 use p2p::runtime::{Interval, MissedTickBehavior};
-use p2p::{multiaddr::MultiAddr, service::ServiceControl};
+use p2p::{
+    multiaddr::{MultiAddr, Protocol},
+    service::ServiceControl,
+};
 use rand::prelude::IteratorRandom;
 use std::{
     pin::Pin,
@@ -71,8 +74,10 @@ impl OutboundPeerService {
 
         for mut addr in attempt_peers.into_iter().map(|info| info.addr) {
             self.network_state.dial_feeler(&self.p2p_control, {
-                if !matches!(self.transport_type, TransportType::Tcp) {
-                    addr.push(self.transport_type.into());
+                match &self.transport_type {
+                    TransportType::Tcp => (),
+                    TransportType::Ws => addr.push(Protocol::Ws),
+                    TransportType::Wss => addr.push(Protocol::Wss),
                 }
                 addr
             });
@@ -145,8 +150,10 @@ impl OutboundPeerService {
 
         for mut addr in peers {
             self.network_state.dial_identify(&self.p2p_control, {
-                if !matches!(self.transport_type, TransportType::Tcp) {
-                    addr.push(self.transport_type.into());
+                match &self.transport_type {
+                    TransportType::Tcp => (),
+                    TransportType::Ws => addr.push(Protocol::Ws),
+                    TransportType::Wss => addr.push(Protocol::Wss),
                 }
                 addr
             });
@@ -154,8 +161,15 @@ impl OutboundPeerService {
     }
 
     fn try_dial_whitelist(&self) {
-        for addr in self.network_state.config.whitelist_peers() {
-            self.network_state.dial_identify(&self.p2p_control, addr);
+        for mut addr in self.network_state.config.whitelist_peers() {
+            self.network_state.dial_identify(&self.p2p_control, {
+                match &self.transport_type {
+                    TransportType::Tcp => (),
+                    TransportType::Ws => addr.push(Protocol::Ws),
+                    TransportType::Wss => addr.push(Protocol::Wss),
+                }
+                addr
+            });
         }
     }
 

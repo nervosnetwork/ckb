@@ -462,10 +462,9 @@ impl Callback for IdentifyCallback {
                         });
                     }
 
-                    if self
-                        .network_state
-                        .with_peer_registry(|reg| reg.is_feeler(&context.session.address))
-                    {
+                    if self.network_state.with_peer_registry_mut(|reg| {
+                        reg.change_feeler_flags(&context.session.address, flags)
+                    }) {
                         let _ = context
                             .open_protocols(
                                 context.session.id,

@@ -1531,27 +1531,13 @@ pub enum TransportType {
     Wss,
 }
 
-impl<'a> From<TransportType> for p2p::multiaddr::Protocol<'a> {
-    fn from(value: TransportType) -> Self {
-        match value {
-            TransportType::Ws => Protocol::Ws,
-            TransportType::Wss => Protocol::Wss,
-            _ => unreachable!(),
-        }
-    }
-}
-
 pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
     let mut iter = addr.iter();
 
-    iter.find_map(|proto| {
-        if let Protocol::Ws = proto {
-            Some(TransportType::Ws)
-        } else if let Protocol::Wss = proto {
-            Some(TransportType::Wss)
-        } else {
-            None
-        }
+    iter.find_map(|proto| match proto {
+        Protocol::Ws => Some(TransportType::Ws),
+        Protocol::Wss => Some(TransportType::Wss),
+        _ => None,
     })
     .unwrap_or(TransportType::Tcp)
 }
