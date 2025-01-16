@@ -894,11 +894,11 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
 
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         #[allow(unused_assignments)]
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
         let mut init_state: Option<TransactionState> = None;
 
         match verifier.resumable_verify(step_cycles).unwrap() {
-            VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
+            VerifyResult::Suspended(state) => init_snap = Some(state),
             VerifyResult::Completed(cycle) => return Ok(cycle),
         }
 
@@ -911,7 +911,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
                 match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         if count % 500 == 0 {
-                            init_snap = Some(state.try_into().unwrap());
+                            init_snap = Some(state);
                         } else {
                             init_state = Some(state);
                         }
@@ -928,7 +928,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
                 match verifier.resume_from_state(state, limit_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         if count % 500 == 0 {
-                            init_snap = Some(state.try_into().unwrap());
+                            init_snap = Some(state);
                         } else {
                             init_state = Some(state);
                         }
@@ -983,13 +983,13 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier
             .resumable_verify(TWO_IN_TWO_OUT_CYCLES / 10)
             .unwrap()
         {
-            init_snap = Some(state.try_into().unwrap());
+            init_snap = Some(state);
         }
 
         for _ in 0..2 {
@@ -997,7 +997,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
             let (limit_cycles, _last) =
                 snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
             match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
-                VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
+                VerifyResult::Suspended(state) => init_snap = Some(state),
                 VerifyResult::Completed(_) => {
                     unreachable!()
                 }
@@ -1133,10 +1133,10 @@ fn load_code_with_snapshot() {
     let max_cycles = Cycle::MAX;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
-            init_snap = Some(state.try_into().unwrap());
+            init_snap = Some(state);
         }
 
         let snap = init_snap.take().unwrap();
@@ -1232,10 +1232,10 @@ fn load_code_with_snapshot_more_times() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
 
     verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
-            init_snap = Some(state.try_into().unwrap());
+            init_snap = Some(state);
         }
 
         loop {
@@ -1244,7 +1244,7 @@ fn load_code_with_snapshot_more_times() {
 
             match result.unwrap() {
                 VerifyResult::Suspended(state) => {
-                    init_snap = Some(state.try_into().unwrap());
+                    init_snap = Some(state);
                 }
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
