@@ -1077,7 +1077,7 @@ fn load_code_into_global() {
     let result = verifier.verify_without_limit(script_version, &rtx);
     assert_eq!(result.is_ok(), script_version >= ScriptVersion::V1,);
     if script_version < ScriptVersion::V0 {
-        let vm_error = VmError::MemWriteOnFreezedPage;
+        let vm_error = VmError::MemWriteOnFreezedPage(0);
         let script_error = ScriptError::VMInternalError(vm_error);
         assert_error_eq!(result.unwrap_err(), script_error.input_lock_script(0));
     } else if script_version == ScriptVersion::V1 {

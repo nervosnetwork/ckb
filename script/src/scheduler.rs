@@ -15,14 +15,13 @@ use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
 use ckb_vm::snapshot2::Snapshot2Context;
 use ckb_vm::{
-    bytes::Bytes,
     cost_model::estimate_cycles,
     elf::parse_elf,
     machine::{CoreMachine, DefaultMachineBuilder, Pause, SupportMachine},
     memory::Memory,
     registers::A0,
     snapshot2::Snapshot2,
-    Error, Register,
+    Error, FlattenedArgsReader, Register,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -208,7 +207,7 @@ where
         if self.states.is_empty() {
             // Booting phase, we will need to initialize the first VM.
             assert_eq!(
-                self.boot_vm(&DataPieceId::Program, 0, u64::MAX, &[])?,
+                self.boot_vm(&DataPieceId::Program, 0, u64::MAX, None)?,
                 ROOT_VM_ID
             );
         }
@@ -352,8 +351,12 @@ where
                         machine.machine.set_register(A0, MAX_VMS_SPAWNED as u64);
                         continue;
                     }
-                    let spawned_vm_id =
-                        self.boot_vm(&args.data_piece_id, args.offset, args.length, &args.argv)?;
+                    let spawned_vm_id = self.boot_vm(
+                        &args.data_piece_id,
+                        args.offset,
+                        args.length,
+                        Some((vm_id, args.argc, args.argv)),
+                    )?;
                     // Move passed fds from spawner to spawnee
                     for fd in &args.fds {
                         self.fds.insert(*fd, spawned_vm_id);
@@ -482,7 +485,10 @@ where
                     let copy_length = u64::min(full_length, real_length);
                     for i in 0..copy_length {
                         let fd = inherited_fd[i as usize].0;
-                        let addr = buffer_addr.checked_add(i * 8).ok_or(Error::MemOutOfBound)?;
+                        let addr = buffer_addr.checked_add(i * 8).ok_or(Error::MemOutOfBound(
+                            buffer_addr,
+                            ckb_vm::error::OutOfBoundKind::Memory,
+                        ))?;
                         machine
                             .machine
                             .inner_mut()
@@ -749,8 +755,31 @@ where
         data_piece_id: &DataPieceId,
         offset: u64,
         length: u64,
-        args: &[Bytes],
+        args: Option<(u64, u64, u64)>,
     ) -> Result<VmId, Error> {
+        let id = self.next_vm_id;
+        self.next_vm_id += 1;
+        let (context, mut machine) = self.create_dummy_vm(&id)?;
+        {
+            let mut sc = context.snapshot2_context().lock().expect("lock");
+            let (program, _) = sc.load_data(data_piece_id, offset, length)?;
+            let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
+            let bytes = match args {
+                Some((vm_id, argc, argv)) => {
+                    let (_, machine_from) = self.ensure_get_instantiated(&vm_id)?;
+                    let argv =
+                        FlattenedArgsReader::new(machine_from.machine.memory_mut(), argc, argv);
+                    machine.load_program_with_metadata(&program, &metadata, argv)?
+                }
+                None => {
+                    machine.load_program_with_metadata(&program, &metadata, vec![].into_iter())?
+                }
+            };
+            sc.mark_program(&mut machine.machine, &metadata, data_piece_id, offset)?;
+            machine
+                .machine
+                .add_cycles_no_checking(transferred_byte_cycles(bytes))?;
+        }
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
             // Instantiated is a BTreeMap, first_entry will maintain key order
@@ -760,20 +789,6 @@ where
                 .ok_or_else(|| Error::Unexpected("Map should not be empty".to_string()))?
                 .key();
             self.suspend_vm(&id)?;
-        }
-
-        let id = self.next_vm_id;
-        self.next_vm_id += 1;
-        let (context, mut machine) = self.create_dummy_vm(&id)?;
-        {
-            let mut sc = context.snapshot2_context().lock().expect("lock");
-            let (program, _) = sc.load_data(data_piece_id, offset, length)?;
-            let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
-            let bytes = machine.load_program_with_metadata(&program, &metadata, args)?;
-            sc.mark_program(&mut machine.machine, &metadata, data_piece_id, offset)?;
-            machine
-                .machine
-                .add_cycles_no_checking(transferred_byte_cycles(bytes))?;
         }
         self.instantiated.insert(id, (context, machine));
         self.states.insert(id, VmState::Runnable);

@@ -1,5 +1,4 @@
 use crate::cost_model::transferred_byte_cycles;
-use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
     Place, Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, MAX_ARGV_LENGTH, SLICE_OUT_OF_BOUND,
     WRONG_FORMAT,
@@ -9,13 +8,16 @@ use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::{CellMeta, ResolvedTransaction};
 use ckb_types::core::error::ARGV_TOO_LONG_TEXT;
 use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
+use ckb_vm::memory::load_c_string;
 use ckb_vm::Memory;
+use ckb_vm::DEFAULT_MEMORY_SIZE;
 use ckb_vm::{
     registers::{A0, A1, A2, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use ckb_vm::{DEFAULT_STACK_SIZE, RISCV_MAX_MEMORY};
 use std::sync::Arc;
+
+const DEFAULT_STACK_SIZE: usize = DEFAULT_MEMORY_SIZE / 4;
 
 #[derive(Debug)]
 pub struct Exec<DL> {
@@ -154,7 +156,10 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
         let data = if length == 0 {
             data.slice(offset..data_size)
         } else {
-            let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound)?;
+            let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound(
+                offset as u64,
+                ckb_vm::error::OutOfBoundKind::Memory,
+            ))?;
             if end > data_size {
                 machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
                 return Ok(true);
@@ -166,12 +171,8 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
         let mut argv = Vec::new();
         let mut argv_length: u64 = 0;
         for _ in 0..argc {
-            let target_addr = machine
-                .memory_mut()
-                .load64(&Mac::REG::from_u64(addr))?
-                .to_u64();
-
-            let cstr = load_c_string(machine, target_addr)?;
+            let target_addr = machine.memory_mut().load64(&Mac::REG::from_u64(addr))?;
+            let cstr = load_c_string(machine.memory_mut(), &target_addr)?;
             let cstr_len = cstr.len();
             argv.push(cstr);
 
@@ -188,7 +189,7 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
 
         let cycles = machine.cycles();
         let max_cycles = machine.max_cycles();
-        machine.reset(max_cycles);
+        machine.reset(max_cycles)?;
         machine.set_cycles(cycles);
 
         machine.add_cycles_no_checking(self.load_elf_base_fee)?;
@@ -203,8 +204,8 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
         }
 
         match machine.initialize_stack(
-            &argv,
-            (RISCV_MAX_MEMORY - DEFAULT_STACK_SIZE) as u64,
+            argv.into_iter().map(Ok),
+            (DEFAULT_MEMORY_SIZE - DEFAULT_STACK_SIZE) as u64,
             DEFAULT_STACK_SIZE as u64,
         ) {
             Ok(size) => {

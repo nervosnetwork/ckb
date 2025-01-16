@@ -355,7 +355,8 @@ pub struct SpawnArgs {
     pub data_piece_id: DataPieceId,
     pub offset: u64,
     pub length: u64,
-    pub argv: Vec<Bytes>,
+    pub argc: u64,
+    pub argv: u64,
     pub fds: Vec<Fd>,
     pub process_id_addr: u64,
 }
