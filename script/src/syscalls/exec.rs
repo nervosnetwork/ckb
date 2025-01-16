@@ -26,7 +26,6 @@ pub struct Exec<DL> {
     outputs: Arc<Vec<CellMeta>>,
     group_inputs: Indices,
     group_outputs: Indices,
-    load_elf_base_fee: u64,
 }
 
 impl<DL: CellDataProvider> Exec<DL> {
@@ -36,7 +35,6 @@ impl<DL: CellDataProvider> Exec<DL> {
         outputs: Arc<Vec<CellMeta>>,
         group_inputs: Indices,
         group_outputs: Indices,
-        load_elf_base_fee: u64,
     ) -> Exec<DL> {
         Exec {
             data_loader,
@@ -44,7 +42,6 @@ impl<DL: CellDataProvider> Exec<DL> {
             outputs,
             group_inputs,
             group_outputs,
-            load_elf_base_fee,
         }
     }
 
@@ -192,7 +189,6 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
         machine.reset(max_cycles)?;
         machine.set_cycles(cycles);
 
-        machine.add_cycles_no_checking(self.load_elf_base_fee)?;
         match machine.load_elf(&data, true) {
             Ok(size) => {
                 machine.add_cycles_no_checking(transferred_byte_cycles(size))?;

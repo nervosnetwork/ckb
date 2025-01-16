@@ -1751,6 +1751,8 @@ fn exec_from_witness_place_error() {
 
 #[test]
 fn exec_slice() {
+    let script_version = SCRIPT_VERSION;
+
     let (exec_callee_cell, _exec_callee_data_hash) =
         load_cell_from_path("testdata/exec_configurable_callee");
     let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
@@ -1765,7 +1767,11 @@ fn exec_slice() {
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::OutOfSlice(((length - 1) << 32) | 1);
-    let res = Err("MemWriteOnExecutablePage".to_string());
+    let res = if script_version >= ScriptVersion::V2 {
+        Err("Malformed entity: Too small".to_string())
+    } else {
+        Err("MemWriteOnExecutablePage".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::Slice((10 << 32) | length);

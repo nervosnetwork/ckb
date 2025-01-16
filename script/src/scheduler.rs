@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE,
-    SUCCESS, WAIT_FAILURE,
+    EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
+    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
 };
 use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
@@ -339,6 +339,29 @@ where
         let messages: Vec<Message> = self.message_box.lock().expect("lock").drain(..).collect();
         for message in messages {
             match message {
+                Message::ExecV2(vm_id, args) => {
+                    let (_, old_machine) = self
+                        .instantiated
+                        .get_mut(&vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
+                    old_machine
+                        .machine
+                        .add_cycles(EXEC_LOAD_ELF_V2_CYCLES_BASE)?;
+                    let old_cycles = old_machine.machine.cycles();
+                    let max_cycles = old_machine.machine.max_cycles();
+                    let (context, mut new_machine) = self.create_dummy_vm(&vm_id)?;
+                    new_machine.set_max_cycles(max_cycles);
+                    new_machine.machine.add_cycles_no_checking(old_cycles)?;
+                    self.load_vm_program(
+                        &context,
+                        &mut new_machine,
+                        &args.data_piece_id,
+                        args.offset,
+                        args.length,
+                        Some((vm_id, args.argc, args.argv)),
+                    )?;
+                    self.instantiated.insert(vm_id, (context, new_machine));
+                }
                 Message::Spawn(vm_id, args) => {
                     // All fds must belong to the correct owner
                     if args.fds.iter().any(|fd| self.fds.get(fd) != Some(&vm_id)) {
@@ -760,26 +783,7 @@ where
         let id = self.next_vm_id;
         self.next_vm_id += 1;
         let (context, mut machine) = self.create_dummy_vm(&id)?;
-        {
-            let mut sc = context.snapshot2_context().lock().expect("lock");
-            let (program, _) = sc.load_data(data_piece_id, offset, length)?;
-            let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
-            let bytes = match args {
-                Some((vm_id, argc, argv)) => {
-                    let (_, machine_from) = self.ensure_get_instantiated(&vm_id)?;
-                    let argv =
-                        FlattenedArgsReader::new(machine_from.machine.memory_mut(), argc, argv);
-                    machine.load_program_with_metadata(&program, &metadata, argv)?
-                }
-                None => {
-                    machine.load_program_with_metadata(&program, &metadata, vec![].into_iter())?
-                }
-            };
-            sc.mark_program(&mut machine.machine, &metadata, data_piece_id, offset)?;
-            machine
-                .machine
-                .add_cycles_no_checking(transferred_byte_cycles(bytes))?;
-        }
+        self.load_vm_program(&context, &mut machine, data_piece_id, offset, length, args)?;
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
             // Instantiated is a BTreeMap, first_entry will maintain key order
@@ -794,6 +798,34 @@ where
         self.states.insert(id, VmState::Runnable);
 
         Ok(id)
+    }
+
+    // Load the program into an empty vm.
+    fn load_vm_program(
+        &mut self,
+        context: &MachineContext<DL>,
+        machine: &mut Machine,
+        data_piece_id: &DataPieceId,
+        offset: u64,
+        length: u64,
+        args: Option<(u64, u64, u64)>,
+    ) -> Result<u64, Error> {
+        let mut sc = context.snapshot2_context().lock().expect("lock");
+        let (program, _) = sc.load_data(data_piece_id, offset, length)?;
+        let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
+        let bytes = match args {
+            Some((vm_id, argc, argv)) => {
+                let (_, machine_from) = self.ensure_get_instantiated(&vm_id)?;
+                let argv = FlattenedArgsReader::new(machine_from.machine.memory_mut(), argc, argv);
+                machine.load_program_with_metadata(&program, &metadata, argv)?
+            }
+            None => machine.load_program_with_metadata(&program, &metadata, vec![].into_iter())?,
+        };
+        sc.mark_program(&mut machine.machine, &metadata, data_piece_id, offset)?;
+        machine
+            .machine
+            .add_cycles_no_checking(transferred_byte_cycles(bytes))?;
+        Ok(bytes)
     }
 
     // Create a new VM instance with syscalls attached
