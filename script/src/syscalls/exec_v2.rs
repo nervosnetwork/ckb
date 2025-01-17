@@ -113,8 +113,8 @@ where
                     data_piece_id,
                     offset,
                     length,
-                    argc: argc,
-                    argv: argv,
+                    argc,
+                    argv,
                 },
             ));
         Err(VMError::Yield)
