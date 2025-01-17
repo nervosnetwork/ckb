@@ -110,6 +110,16 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 # [network.sync.header_map]
 # memory_limit = "256MB"
 
+# [network.proxy]
+# proxy_url = "socks5://127.0.0.1:7891"
+
+# [network.onion]
+# listen_on_onion = false
+# onion_service_target = "127.0.0.1:8115"
+# onion_server = "127.0.0.1:9050"
+# tor_controller = "127.0.0.1:9051"
+# tor_password = ""
+
 [rpc]
 # By default RPC only binds to localhost, thus it only allows accessing from the same machine.
 #
