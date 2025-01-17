@@ -94,10 +94,7 @@ where
             return Ok(true);
         }
         if length > 0 {
-            let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound(
-                offset,
-                ckb_vm::error::OutOfBoundKind::Memory,
-            ))?;
+            let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound)?;
             if end > full_length {
                 machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
                 return Ok(true);

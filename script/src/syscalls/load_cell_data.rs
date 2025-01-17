@@ -143,13 +143,9 @@ where
             }
             Err(e) => return Err(e),
         };
-        let content_end =
-            content_offset
-                .checked_add(content_size)
-                .ok_or(VMError::MemOutOfBound(
-                    content_offset,
-                    ckb_vm::error::OutOfBoundKind::Memory,
-                ))?;
+        let content_end = content_offset
+            .checked_add(content_size)
+            .ok_or(VMError::MemOutOfBound)?;
         if content_offset >= cell.len() as u64
             || content_end > cell.len() as u64
             || content_size > memory_size

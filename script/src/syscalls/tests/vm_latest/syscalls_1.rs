@@ -1662,10 +1662,7 @@ fn test_load_overflowed_cell_data_as_code() {
     assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
     let result = load_code.ecall(&mut machine);
-    assert_eq!(
-        result.unwrap_err(),
-        VMError::MemOutOfBound(3, ckb_vm::error::OutOfBoundKind::Memory)
-    );
+    assert_eq!(result.unwrap_err(), VMError::MemOutOfBound);
 }
 
 fn _test_load_cell_data_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseError> {

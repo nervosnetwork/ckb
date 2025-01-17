@@ -911,7 +911,7 @@ version = "0.121.0-pre"
 dependencies = [
  "anyhow",
  "ckb-occupied-capacity",
- "derive_more",
+ "derive_more 1.0.0",
  "thiserror 1.0.64",
 ]
 
@@ -1789,7 +1789,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "ckb-occupied-capacity",
  "ckb-rational",
- "derive_more",
+ "derive_more 1.0.0",
  "golomb-coded-set",
  "merkle-cbt",
  "molecule",
@@ -1824,7 +1824,7 @@ dependencies = [
  "ckb-traits",
  "ckb-types",
  "ckb-verification-traits",
- "derive_more",
+ "derive_more 1.0.0",
  "lru",
  "tokio",
 ]
@@ -1865,14 +1865,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.0"
-source = "git+https://github.com/libraries/ckb-vm?branch=args_reader#9ea59749556ebbf9350a73a0ce1e34c46fed89e2"
+version = "0.24.12"
+source = "git+https://github.com/nervosnetwork/ckb-vm?branch=release-0.24#f57cfe236ca8b26d5113fb4a5bd08c4aa9d87593"
 dependencies = [
  "byteorder",
  "bytes",
  "cc",
  "ckb-vm-definitions",
- "derive_more",
+ "derive_more 0.99.18",
  "goblin 0.2.3",
  "goblin 0.4.0",
  "rand 0.7.3",
@@ -1882,8 +1882,8 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.0"
-source = "git+https://github.com/libraries/ckb-vm?branch=args_reader#9ea59749556ebbf9350a73a0ce1e34c46fed89e2"
+version = "0.24.12"
+source = "git+https://github.com/nervosnetwork/ckb-vm?branch=release-0.24#f57cfe236ca8b26d5113fb4a5bd08c4aa9d87593"
 dependencies = [
  "paste",
 ]
@@ -2053,6 +2053,12 @@ dependencies = [
  "once_cell",
  "tiny-keccak",
 ]
+
+[[package]]
+name = "convert_case"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
 name = "convert_case"
@@ -2374,6 +2380,19 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
+version = "0.99.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f33878137e4dafd7fa914ad4e259e18a4e8e532b9617a2d0150262bf53abfce"
+dependencies = [
+ "convert_case 0.4.0",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn 2.0.94",
+]
+
+[[package]]
+name = "derive_more"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
@@ -2387,7 +2406,6 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
 dependencies = [
- "convert_case",
  "proc-macro2",
  "quote",
  "syn 2.0.94",
@@ -4026,7 +4044,7 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7683a7716b8144281c7208a328c1afd40b779f86700697a0dc25e81e444255cb"
 dependencies = [
- "convert_case",
+ "convert_case 0.6.0",
  "proc-macro-error",
  "proc-macro2",
  "quote",
