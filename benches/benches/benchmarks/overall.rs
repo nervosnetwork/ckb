@@ -5,7 +5,7 @@ use ckb_chain::{start_chain_services, ChainController};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_network::{Flags, NetworkController, NetworkService, NetworkState};
+use ckb_network::{network::TransportType, Flags, NetworkController, NetworkService, NetworkState};
 use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -77,6 +77,7 @@ fn dummy_network(shared: &Shared) -> NetworkController {
             "test".to_string(),
             Flags::COMPATIBILITY,
         ),
+        TransportType::Tcp,
     )
     .start(shared.async_handle())
     .expect("Start network service failed")

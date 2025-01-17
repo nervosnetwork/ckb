@@ -325,10 +325,10 @@ impl AddressManager for DiscoveryAddressManager {
 
     fn is_valid_addr(&self, addr: &Multiaddr) -> bool {
         if !self.discovery_local_address {
-            let local_or_invalid = multiaddr_to_socketaddr(addr)
-                .map(|socket_addr| !is_reachable(socket_addr.ip()))
-                .unwrap_or(true);
-            !local_or_invalid
+            match multiaddr_to_socketaddr(addr) {
+                Some(socket_addr) => is_reachable(socket_addr.ip()),
+                None => true,
+            }
         } else {
             true
         }

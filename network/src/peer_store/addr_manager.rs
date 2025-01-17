@@ -1,17 +1,17 @@
 //! Address manager
-#[cfg(target_family = "wasm")]
-use crate::network::{find_type, TransportType};
 use crate::peer_store::types::AddrInfo;
-use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr};
+use p2p::{
+    multiaddr::{Multiaddr, Protocol},
+    utils::multiaddr_to_socketaddr,
+};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
 
 /// Address manager
 #[derive(Default)]
 pub struct AddrManager {
     next_id: u64,
-    addr_to_id: HashMap<SocketAddr, u64>,
+    addr_to_id: HashMap<Multiaddr, u64>,
     id_to_info: HashMap<u64, AddrInfo>,
     random_ids: Vec<u64>,
 }
@@ -19,27 +19,25 @@ pub struct AddrManager {
 impl AddrManager {
     /// Add an address information to address manager
     pub fn add(&mut self, mut addr_info: AddrInfo) {
-        if let Some(key) = multiaddr_to_socketaddr(&addr_info.addr) {
-            if let Some(&id) = self.addr_to_id.get(&key) {
-                let (exist_last_connected_at_ms, random_id_pos) = {
-                    let info = self.id_to_info.get(&id).expect("must exists");
-                    (info.last_connected_at_ms, info.random_id_pos)
-                };
-                // Get time earlier than record time, return directly
-                if addr_info.last_connected_at_ms >= exist_last_connected_at_ms {
-                    addr_info.random_id_pos = random_id_pos;
-                    self.id_to_info.insert(id, addr_info);
-                }
-                return;
+        if let Some(&id) = self.addr_to_id.get(&addr_info.addr) {
+            let (exist_last_connected_at_ms, random_id_pos) = {
+                let info = self.id_to_info.get(&id).expect("must exists");
+                (info.last_connected_at_ms, info.random_id_pos)
+            };
+            // Get time earlier than record time, return directly
+            if addr_info.last_connected_at_ms >= exist_last_connected_at_ms {
+                addr_info.random_id_pos = random_id_pos;
+                self.id_to_info.insert(id, addr_info);
             }
-
-            let id = self.next_id;
-            self.addr_to_id.insert(key, id);
-            addr_info.random_id_pos = self.random_ids.len();
-            self.id_to_info.insert(id, addr_info);
-            self.random_ids.push(id);
-            self.next_id += 1;
+            return;
         }
+
+        let id = self.next_id;
+        self.addr_to_id.insert(addr_info.addr.clone(), id);
+        addr_info.random_id_pos = self.random_ids.len();
+        self.id_to_info.insert(id, addr_info);
+        self.random_ids.push(id);
+        self.next_id += 1;
     }
 
     /// Randomly return addrs that worth to try or connect.
@@ -51,32 +49,35 @@ impl AddrManager {
         let mut addr_infos = Vec::with_capacity(count);
         let mut rng = rand::thread_rng();
         let now_ms = ckb_systemtime::unix_time_as_millis();
-        #[cfg(target_family = "wasm")]
-        let filter = |peer_addr: &AddrInfo| {
-            filter(peer_addr) && matches!(find_type(&peer_addr.addr), TransportType::Ws)
-        };
         for i in 0..self.random_ids.len() {
             // reuse the for loop to shuffle random ids
             // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
             let j = rng.gen_range(i..self.random_ids.len());
             self.swap_random_id(j, i);
             let addr_info: AddrInfo = self.id_to_info[&self.random_ids[i]].to_owned();
-            if let Some(socket_addr) = multiaddr_to_socketaddr(&addr_info.addr) {
-                let ip = socket_addr.ip();
-                let is_unique_ip = !duplicate_ips.contains(&ip);
-                // A trick to make our tests work
-                // TODO remove this after fix the network tests.
-                let is_test_ip = ip.is_unspecified() || ip.is_loopback();
-                if (is_test_ip || is_unique_ip)
-                    && addr_info.is_connectable(now_ms)
-                    && filter(&addr_info)
-                {
-                    duplicate_ips.insert(ip);
-                    addr_infos.push(addr_info);
+            match multiaddr_to_socketaddr(&addr_info.addr) {
+                Some(socket_addr) => {
+                    let ip = socket_addr.ip();
+                    let is_unique_ip = !duplicate_ips.contains(&ip);
+                    // A trick to make our tests work
+                    // TODO remove this after fix the network tests.
+                    let is_test_ip = ip.is_unspecified() || ip.is_loopback();
+                    if (is_test_ip || is_unique_ip)
+                        && addr_info.is_connectable(now_ms)
+                        && filter(&addr_info)
+                    {
+                        duplicate_ips.insert(ip);
+                        addr_infos.push(addr_info);
+                    }
                 }
-                if addr_infos.len() == count {
-                    break;
+                None => {
+                    if addr_info.is_connectable(now_ms) && filter(&addr_info) {
+                        addr_infos.push(addr_info);
+                    }
                 }
+            }
+            if addr_infos.len() == count {
+                break;
             }
         }
         addr_infos
@@ -94,34 +95,65 @@ impl AddrManager {
 
     /// Remove an address by ip and port
     pub fn remove(&mut self, addr: &Multiaddr) -> Option<AddrInfo> {
-        multiaddr_to_socketaddr(addr).and_then(|addr| {
-            self.addr_to_id.remove(&addr).and_then(|id| {
-                let random_id_pos = self.id_to_info.get(&id).expect("exists").random_id_pos;
-                // swap with last index, then remove the last index
-                self.swap_random_id(random_id_pos, self.random_ids.len() - 1);
-                self.random_ids.pop();
-                self.id_to_info.remove(&id)
+        let base_addr = addr
+            .iter()
+            .filter_map(|p| {
+                if matches!(
+                    p,
+                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
+                ) {
+                    None
+                } else {
+                    Some(p)
+                }
             })
+            .collect();
+        self.addr_to_id.remove(&base_addr).and_then(|id| {
+            let random_id_pos = self.id_to_info.get(&id).expect("exists").random_id_pos;
+            // swap with last index, then remove the last index
+            self.swap_random_id(random_id_pos, self.random_ids.len() - 1);
+            self.random_ids.pop();
+            self.id_to_info.remove(&id)
         })
     }
 
     /// Get an address information by ip and port
     pub fn get(&self, addr: &Multiaddr) -> Option<&AddrInfo> {
-        multiaddr_to_socketaddr(addr).and_then(|addr| {
-            self.addr_to_id
-                .get(&addr)
-                .and_then(|id| self.id_to_info.get(id))
-        })
+        let base_addr = addr
+            .iter()
+            .filter_map(|p| {
+                if matches!(
+                    p,
+                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
+                ) {
+                    None
+                } else {
+                    Some(p)
+                }
+            })
+            .collect();
+        self.addr_to_id
+            .get(&base_addr)
+            .and_then(|id| self.id_to_info.get(id))
     }
 
     /// Get a mutable address information by ip and port
     pub fn get_mut(&mut self, addr: &Multiaddr) -> Option<&mut AddrInfo> {
-        if let Some(addr) = multiaddr_to_socketaddr(addr) {
-            if let Some(id) = self.addr_to_id.get(&addr) {
-                self.id_to_info.get_mut(id)
-            } else {
-                None
-            }
+        let base_addr = addr
+            .iter()
+            .filter_map(|p| {
+                if matches!(
+                    p,
+                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
+                ) {
+                    None
+                } else {
+                    Some(p)
+                }
+            })
+            .collect();
+        if let Some(id) = self.addr_to_id.get(&base_addr) {
+            self.id_to_info.get_mut(id)
         } else {
             None
         }

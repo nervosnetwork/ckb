@@ -6,9 +6,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender};
 use ckb_logger::info;
 use ckb_network::{
-    async_trait, bytes::Bytes, extract_peer_id, CKBProtocol, CKBProtocolContext,
-    CKBProtocolHandler, Flags, NetworkController, NetworkService, NetworkState, PeerIndex,
-    ProtocolId, SupportProtocols,
+    async_trait, bytes::Bytes, extract_peer_id, network::TransportType, CKBProtocol,
+    CKBProtocolContext, CKBProtocolHandler, Flags, NetworkController, NetworkService, NetworkState,
+    PeerIndex, ProtocolId, SupportProtocols,
 };
 use ckb_util::Mutex;
 use std::collections::HashMap;
@@ -73,6 +73,7 @@ impl Net {
                 "0.1.0".to_string(),
                 Flags::COMPATIBILITY,
             ),
+            TransportType::Tcp,
         )
         .start(&async_handle)
         .unwrap();

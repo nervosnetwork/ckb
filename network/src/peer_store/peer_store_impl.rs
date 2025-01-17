@@ -1,4 +1,3 @@
-use crate::network::{find_type, TransportType};
 use crate::{
     errors::{PeerStoreError, Result},
     extract_peer_id, multiaddr_to_socketaddr,
@@ -63,10 +62,6 @@ impl PeerStore {
     /// this method will assume peer and addr is untrust since we have not connected to it.
     pub fn add_addr(&mut self, addr: Multiaddr, flags: Flags) -> Result<()> {
         if self.ban_list.is_addr_banned(&addr) {
-            return Ok(());
-        }
-        #[cfg(target_family = "wasm")]
-        if !matches!(find_type(&addr), TransportType::Ws) {
             return Ok(());
         }
         self.check_purge()?;
@@ -178,12 +173,6 @@ impl PeerStore {
                 && peer_addr
                     .connected(|t| t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL))
                 && required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
-        };
-
-        // Any protocol expect websocket
-        #[cfg(not(target_family = "wasm"))]
-        let filter = |peer_addr: &AddrInfo| {
-            filter(peer_addr) && !matches!(find_type(&peer_addr.addr), TransportType::Ws)
         };
 
         // get addrs that can attempt.

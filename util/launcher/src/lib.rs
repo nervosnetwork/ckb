@@ -15,8 +15,8 @@ use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
 use ckb_logger::internal::warn;
 use ckb_network::{
-    observe_listen_port_occupancy, CKBProtocol, Flags, NetworkController, NetworkService,
-    NetworkState, SupportProtocols,
+    network::TransportType, observe_listen_port_occupancy, CKBProtocol, Flags, NetworkController,
+    NetworkService, NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
@@ -384,6 +384,7 @@ impl Launcher {
                 self.version.to_string(),
                 flags,
             ),
+            TransportType::Tcp,
         )
         .start(shared.async_handle())
         .expect("Start network service failed");

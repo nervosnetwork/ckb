@@ -1,6 +1,7 @@
 //! Peer registry
 use crate::network_group::Group;
 use crate::peer_store::PeerStore;
+use crate::Flags;
 use crate::{
     errors::{Error, PeerError},
     extract_peer_id, Peer, PeerId, SessionType,
@@ -24,7 +25,7 @@ pub struct PeerRegistry {
     // Only whitelist peers or allow all peers.
     whitelist_only: bool,
     whitelist_peers: HashSet<PeerId>,
-    feeler_peers: HashSet<PeerId>,
+    feeler_peers: HashMap<PeerId, Flags>,
 }
 
 /// Global network connection status
@@ -63,7 +64,7 @@ impl PeerRegistry {
         PeerRegistry {
             peers: HashMap::with_capacity_and_hasher(20, Default::default()),
             whitelist_peers: whitelist_peers.iter().filter_map(extract_peer_id).collect(),
-            feeler_peers: HashSet::default(),
+            feeler_peers: HashMap::default(),
             max_inbound,
             max_outbound,
             whitelist_only,
@@ -191,8 +192,24 @@ impl PeerRegistry {
     /// Add feeler dail task
     pub fn add_feeler(&mut self, addr: &Multiaddr) {
         if let Some(peer_id) = extract_peer_id(addr) {
-            self.feeler_peers.insert(peer_id);
+            self.feeler_peers.insert(peer_id, Flags::COMPATIBILITY);
         }
+    }
+
+    /// Identify change feeler flags
+    pub fn change_feeler_flags(&mut self, addr: &Multiaddr, flags: Flags) -> bool {
+        if let Some(peer_id) = extract_peer_id(addr) {
+            if let Some(i) = self.feeler_peers.get_mut(&peer_id) {
+                *i = flags;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get feeler session flags
+    pub fn feeler_flags(&self, addr: &Multiaddr) -> Option<Flags> {
+        extract_peer_id(addr).and_then(|peer_id| self.feeler_peers.get(&peer_id).cloned())
     }
 
     /// Remove feeler dail task on session disconnects or fails
@@ -205,7 +222,7 @@ impl PeerRegistry {
     /// Whether this session is feeler session
     pub fn is_feeler(&self, addr: &Multiaddr) -> bool {
         extract_peer_id(addr)
-            .map(|peer_id| self.feeler_peers.contains(&peer_id))
+            .map(|peer_id| self.feeler_peers.contains_key(&peer_id))
             .unwrap_or_default()
     }
 
