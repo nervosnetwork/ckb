@@ -8,7 +8,7 @@ use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::{CellMeta, ResolvedTransaction};
 use ckb_types::core::error::ARGV_TOO_LONG_TEXT;
 use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
-use ckb_vm::memory::load_c_string;
+use ckb_vm::memory::load_c_string_byte_by_byte;
 use ckb_vm::Memory;
 use ckb_vm::DEFAULT_MEMORY_SIZE;
 use ckb_vm::{
@@ -169,7 +169,7 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
         let mut argv_length: u64 = 0;
         for _ in 0..argc {
             let target_addr = machine.memory_mut().load64(&Mac::REG::from_u64(addr))?;
-            let cstr = load_c_string(machine.memory_mut(), &target_addr)?;
+            let cstr = load_c_string_byte_by_byte(machine.memory_mut(), &target_addr)?;
             let cstr_len = cstr.len();
             argv.push(cstr);
 

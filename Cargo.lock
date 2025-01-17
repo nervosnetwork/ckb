@@ -1866,7 +1866,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.24.0"
-source = "git+https://github.com/libraries/ckb-vm?branch=args_reader#b23f65393bf9ae56190baf1431268b962a1a95c4"
+source = "git+https://github.com/libraries/ckb-vm?branch=args_reader#9ea59749556ebbf9350a73a0ce1e34c46fed89e2"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1883,7 +1883,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm-definitions"
 version = "0.24.0"
-source = "git+https://github.com/libraries/ckb-vm?branch=args_reader#b23f65393bf9ae56190baf1431268b962a1a95c4"
+source = "git+https://github.com/libraries/ckb-vm?branch=args_reader#9ea59749556ebbf9350a73a0ce1e34c46fed89e2"
 dependencies = [
  "paste",
 ]
