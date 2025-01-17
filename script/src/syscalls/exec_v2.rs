@@ -94,6 +94,7 @@ where
             return Ok(true);
         }
         if length > 0 {
+            // Both offset and length are <= u32::MAX, so offset.checked_add(length) will be always a Some.
             let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound)?;
             if end > full_length {
                 machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
@@ -101,8 +102,8 @@ where
             }
         }
 
-        let argc = machine.registers()[A4].clone();
-        let argv = machine.registers()[A5].clone();
+        let argc = machine.registers()[A4].to_u64();
+        let argv = machine.registers()[A5].to_u64();
         self.message_box
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?
@@ -112,8 +113,8 @@ where
                     data_piece_id,
                     offset,
                     length,
-                    argc: argc.to_u64(),
-                    argv: argv.to_u64(),
+                    argc: argc,
+                    argv: argv,
                 },
             ));
         Err(VMError::Yield)

@@ -151,6 +151,7 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
         let data = if length == 0 {
             data.slice(offset..data_size)
         } else {
+            // Both offset and length are <= u32::MAX, so offset.checked_add(length) will be always a Some.
             let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound)?;
             if end > data_size {
                 machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
