@@ -597,8 +597,7 @@ fn check_spawn_state() {
 
             loop {
                 times += 1;
-                let state: TransactionSnapshot =
-                    init_state.take().unwrap().try_into().expect("no snapshot");
+                let state: TransactionState = init_state.take().unwrap();
                 match verifier.resume_from_snap(&state, max_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         init_state = Some(state);

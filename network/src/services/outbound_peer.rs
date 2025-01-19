@@ -1,4 +1,5 @@
 use crate::{
+    network::TransportType,
     peer_store::{types::AddrInfo, PeerStore},
     NetworkState,
 };
@@ -6,7 +7,10 @@ use ckb_logger::trace;
 use ckb_systemtime::unix_time_as_millis;
 use futures::{Future, StreamExt};
 use p2p::runtime::{Interval, MissedTickBehavior};
-use p2p::{multiaddr::MultiAddr, service::ServiceControl};
+use p2p::{
+    multiaddr::{MultiAddr, Protocol},
+    service::ServiceControl,
+};
 use rand::prelude::IteratorRandom;
 use std::{
     pin::Pin,
@@ -27,6 +31,8 @@ pub struct OutboundPeerService {
     interval: Option<Interval>,
     try_connect_interval: Duration,
     try_identify_count: u8,
+    transport_type: TransportType,
+    update_outbound_connected_count: u8,
 }
 
 impl OutboundPeerService {
@@ -34,6 +40,7 @@ impl OutboundPeerService {
         network_state: Arc<NetworkState>,
         p2p_control: ServiceControl,
         try_connect_interval: Duration,
+        transport_type: TransportType,
     ) -> Self {
         OutboundPeerService {
             network_state,
@@ -41,6 +48,8 @@ impl OutboundPeerService {
             interval: None,
             try_connect_interval,
             try_identify_count: 0,
+            update_outbound_connected_count: 0,
+            transport_type,
         }
     }
 
@@ -63,8 +72,15 @@ impl OutboundPeerService {
             attempt_peers,
         );
 
-        for addr in attempt_peers.into_iter().map(|info| info.addr) {
-            self.network_state.dial_feeler(&self.p2p_control, addr);
+        for mut addr in attempt_peers.into_iter().map(|info| info.addr) {
+            self.network_state.dial_feeler(&self.p2p_control, {
+                match &self.transport_type {
+                    TransportType::Tcp => (),
+                    TransportType::Ws => addr.push(Protocol::Ws),
+                    TransportType::Wss => addr.push(Protocol::Wss),
+                }
+                addr
+            });
         }
     }
 
@@ -132,20 +148,61 @@ impl OutboundPeerService {
             Box::new(attempt_peers.into_iter().map(|info| info.addr))
         };
 
-        for addr in peers {
-            self.network_state.dial_identify(&self.p2p_control, addr);
+        for mut addr in peers {
+            self.network_state.dial_identify(&self.p2p_control, {
+                match &self.transport_type {
+                    TransportType::Tcp => (),
+                    TransportType::Ws => addr.push(Protocol::Ws),
+                    TransportType::Wss => addr.push(Protocol::Wss),
+                }
+                addr
+            });
         }
     }
 
     fn try_dial_whitelist(&self) {
-        for addr in self.network_state.config.whitelist_peers() {
-            self.network_state.dial_identify(&self.p2p_control, addr);
+        for mut addr in self.network_state.config.whitelist_peers() {
+            self.network_state.dial_identify(&self.p2p_control, {
+                match &self.transport_type {
+                    TransportType::Tcp => (),
+                    TransportType::Ws => addr.push(Protocol::Ws),
+                    TransportType::Wss => addr.push(Protocol::Wss),
+                }
+                addr
+            });
         }
     }
 
     fn try_dial_observed(&self) {
         self.network_state
             .try_dial_observed_addrs(&self.p2p_control);
+    }
+
+    fn update_outbound_connected_ms(&mut self) {
+        if self.update_outbound_connected_count > 10 {
+            let connected_outbounds: Vec<p2p::multiaddr::Multiaddr> =
+                self.network_state.with_peer_registry(|re| {
+                    re.peers()
+                        .values()
+                        .filter_map(|p| {
+                            if p.is_outbound() {
+                                Some(p.connected_addr.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                });
+
+            self.network_state.with_peer_store_mut(|p| {
+                for addr in connected_outbounds {
+                    p.update_outbound_addr_last_connected_ms(addr)
+                }
+            });
+            self.update_outbound_connected_count = 0;
+        } else {
+            self.update_outbound_connected_count += 1;
+        }
     }
 }
 
@@ -178,6 +235,8 @@ impl Future for OutboundPeerService {
             self.try_dial_peers();
             // try dial observed addrs
             self.try_dial_observed();
+            // Keep connected nodes up to date in the peer store
+            self.update_outbound_connected_ms();
         }
         Poll::Pending
     }

@@ -7,7 +7,7 @@ use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
 use ckb_script::ChunkCommand;
-use ckb_script::{TransactionScriptsVerifier, TransactionSnapshot};
+use ckb_script::{TransactionScriptsVerifier, TransactionState};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -201,7 +201,7 @@ where
         &self,
         max_cycles: Cycle,
         skip_script_verify: bool,
-        snapshot: &TransactionSnapshot,
+        state: &TransactionState,
     ) -> Result<Completed, Error> {
         self.compatible.verify()?;
         self.time_relative.verify()?;
@@ -209,7 +209,7 @@ where
         let cycles = if skip_script_verify {
             0
         } else {
-            self.script.complete(snapshot, max_cycles)?
+            self.script.complete(state, max_cycles)?
         };
         let fee = self.fee_calculator.transaction_fee()?;
         Ok(Completed { cycles, fee })

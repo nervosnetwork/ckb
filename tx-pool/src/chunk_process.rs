@@ -16,7 +16,7 @@ use ckb_verification::cache::TxVerificationCache;
 use ckb_verification::{
     cache::{CacheEntry, Completed},
     ContextualWithoutScriptTransactionVerifier, DaoScriptSizeVerifier, ScriptError, ScriptVerifier,
-    ScriptVerifyResult, ScriptVerifyState, TimeRelativeTransactionVerifier, TransactionSnapshot,
+    ScriptVerifyResult, ScriptVerifyState, TimeRelativeTransactionVerifier, TransactionState,
     TxVerifyEnv,
 };
 use std::sync::Arc;
@@ -37,7 +37,7 @@ pub(crate) enum ChunkCommand {
 
 enum State {
     Stopped,
-    Suspended(Arc<TransactionSnapshot>),
+    Suspended(Arc<TransactionState>),
     Completed(Cycle),
 }
 
@@ -133,7 +133,7 @@ impl ChunkProcess {
         &mut self,
         rtx: Arc<ResolvedTransaction>,
         data_loader: DL,
-        mut init_snap: Option<Arc<TransactionSnapshot>>,
+        mut init_snap: Option<Arc<TransactionState>>,
         max_cycles: Cycle,
         consensus: Arc<Consensus>,
         tx_env: Arc<TxVerifyEnv>,

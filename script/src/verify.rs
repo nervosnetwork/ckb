@@ -15,7 +15,7 @@ use crate::{
     type_id::TypeIdSystemScript,
     types::{
         CoreMachine, DebugPrinter, Indices, ScriptGroup, ScriptGroupType, ScriptVersion,
-        TransactionSnapshot, TransactionState, VerifyResult,
+        TransactionState, VerifyResult,
     },
     verify_env::TxVerifyEnv,
 };
@@ -730,7 +730,7 @@ where
     ///
     /// ## Params
     ///
-    /// * `snap` - Captured transaction verification snapshot.
+    /// * `snap` - Captured transaction verification state.
     ///
     /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     ///   when the consumed cycles exceed the limit.
@@ -741,7 +741,7 @@ where
     /// If verify is suspended, a borrowed state will returned.
     pub fn resume_from_snap(
         &self,
-        snap: &TransactionSnapshot,
+        snap: &TransactionState,
         limit_cycles: Cycle,
     ) -> Result<VerifyResult, Error> {
         let mut cycles = snap.current_cycles;
@@ -881,7 +881,7 @@ where
     ///
     /// ## Params
     ///
-    /// * `snap` - Captured transaction verification snapshot.
+    /// * `snap` - Captured transaction verification state.
     ///
     /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
     ///   when the consumed cycles exceed the limit.
@@ -889,7 +889,7 @@ where
     /// ## Returns
     ///
     /// It returns the total consumed cycles on completed, Otherwise it returns the verification error.
-    pub fn complete(&self, snap: &TransactionSnapshot, max_cycles: Cycle) -> Result<Cycle, Error> {
+    pub fn complete(&self, snap: &TransactionState, max_cycles: Cycle) -> Result<Cycle, Error> {
         let mut cycles = snap.current_cycles;
 
         let (_hash, current_group) = self.groups().nth(snap.current).ok_or_else(|| {
