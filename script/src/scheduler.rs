@@ -353,7 +353,7 @@ where
                         .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
                     old_machine
                         .machine
-                        .add_cycles(EXEC_LOAD_ELF_V2_CYCLES_BASE)?;
+                        .add_cycles_no_checking(EXEC_LOAD_ELF_V2_CYCLES_BASE)?;
                     let old_cycles = old_machine.machine.cycles();
                     let max_cycles = old_machine.machine.max_cycles();
                     let (context, mut new_machine) = self.create_dummy_vm(&vm_id)?;
