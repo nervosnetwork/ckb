@@ -2,7 +2,7 @@ use crate::syscalls::{
     Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
     SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
 };
-use crate::types::{DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
+use crate::types::{DataLocation, DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     machine::SupportMachine,
@@ -142,9 +142,11 @@ where
             .push(Message::Spawn(
                 self.id,
                 SpawnArgs {
-                    data_piece_id,
-                    offset,
-                    length,
+                    location: DataLocation {
+                        data_piece_id,
+                        offset,
+                        length,
+                    },
                     argc: argc.to_u64(),
                     argv: argv.to_u64(),
                     fds,

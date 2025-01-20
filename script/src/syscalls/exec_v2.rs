@@ -2,7 +2,7 @@ use crate::syscalls::{
     Place, Source, EXEC, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK,
     SOURCE_GROUP_FLAG,
 };
-use crate::types::{DataPieceId, ExecV2Args, Message, TxData, VmId};
+use crate::types::{DataLocation, DataPieceId, ExecV2Args, Message, TxData, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     registers::{A0, A1, A2, A3, A4, A5, A7},
@@ -110,9 +110,11 @@ where
             .push(Message::ExecV2(
                 self.id,
                 ExecV2Args {
-                    data_piece_id,
-                    offset,
-                    length,
+                    location: DataLocation {
+                        data_piece_id,
+                        offset,
+                        length,
+                    },
                     argc,
                     argv,
                 },

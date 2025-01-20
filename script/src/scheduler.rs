@@ -8,8 +8,8 @@ use crate::verify::TransactionScriptsSyscallsGenerator;
 use crate::ScriptVersion;
 
 use crate::types::{
-    CoreMachineType, DataPieceId, Fd, FdArgs, FullSuspendedState, Machine, Message, ReadState,
-    RunMode, TxData, VmId, VmState, WriteState, FIRST_FD_SLOT, FIRST_VM_ID,
+    CoreMachineType, DataLocation, DataPieceId, Fd, FdArgs, FullSuspendedState, Machine, Message,
+    ReadState, RunMode, TxData, VmId, VmState, WriteState, FIRST_FD_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -207,7 +207,14 @@ where
         if self.states.is_empty() {
             // Booting phase, we will need to initialize the first VM.
             assert_eq!(
-                self.boot_vm(&DataPieceId::Program, 0, u64::MAX, None)?,
+                self.boot_vm(
+                    &DataLocation {
+                        data_piece_id: DataPieceId::Program,
+                        offset: 0,
+                        length: u64::MAX,
+                    },
+                    None
+                )?,
                 ROOT_VM_ID
             );
         }
@@ -355,11 +362,11 @@ where
                     self.load_vm_program(
                         &context,
                         &mut new_machine,
-                        &args.data_piece_id,
-                        args.offset,
-                        args.length,
+                        &args.location,
                         Some((vm_id, args.argc, args.argv)),
                     )?;
+                    // The insert operation removes the old vm instance and adds the new vm instance.
+                    debug_assert!(self.instantiated.contains_key(&vm_id));
                     self.instantiated.insert(vm_id, (context, new_machine));
                 }
                 Message::Spawn(vm_id, args) => {
@@ -374,12 +381,8 @@ where
                         machine.machine.set_register(A0, MAX_VMS_SPAWNED as u64);
                         continue;
                     }
-                    let spawned_vm_id = self.boot_vm(
-                        &args.data_piece_id,
-                        args.offset,
-                        args.length,
-                        Some((vm_id, args.argc, args.argv)),
-                    )?;
+                    let spawned_vm_id =
+                        self.boot_vm(&args.location, Some((vm_id, args.argc, args.argv)))?;
                     // Move passed fds from spawner to spawnee
                     for fd in &args.fds {
                         self.fds.insert(*fd, spawned_vm_id);
@@ -772,15 +775,13 @@ where
     /// Boot a vm by given program and args.
     pub fn boot_vm(
         &mut self,
-        data_piece_id: &DataPieceId,
-        offset: u64,
-        length: u64,
+        location: &DataLocation,
         args: Option<(u64, u64, u64)>,
     ) -> Result<VmId, Error> {
         let id = self.next_vm_id;
         self.next_vm_id += 1;
         let (context, mut machine) = self.create_dummy_vm(&id)?;
-        self.load_vm_program(&context, &mut machine, data_piece_id, offset, length, args)?;
+        self.load_vm_program(&context, &mut machine, location, args)?;
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
             // Instantiated is a BTreeMap, first_entry will maintain key order
@@ -802,13 +803,12 @@ where
         &mut self,
         context: &MachineContext<DL>,
         machine: &mut Machine,
-        data_piece_id: &DataPieceId,
-        offset: u64,
-        length: u64,
+        location: &DataLocation,
         args: Option<(u64, u64, u64)>,
     ) -> Result<u64, Error> {
         let mut sc = context.snapshot2_context().lock().expect("lock");
-        let (program, _) = sc.load_data(data_piece_id, offset, length)?;
+        let (program, _) =
+            sc.load_data(&location.data_piece_id, location.offset, location.length)?;
         let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
         let bytes = match args {
             Some((vm_id, argc, argv)) => {
@@ -818,7 +818,12 @@ where
             }
             None => machine.load_program_with_metadata(&program, &metadata, vec![].into_iter())?,
         };
-        sc.mark_program(&mut machine.machine, &metadata, data_piece_id, offset)?;
+        sc.mark_program(
+            &mut machine.machine,
+            &metadata,
+            &location.data_piece_id,
+            location.offset,
+        )?;
         machine
             .machine
             .add_cycles_no_checking(transferred_byte_cycles(bytes))?;
