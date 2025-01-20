@@ -1,4 +1,3 @@
-use crate::types::Indices;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
@@ -6,9 +5,9 @@ use crate::{
         HeaderField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
     },
+    types::VmData,
 };
 use ckb_traits::HeaderProvider;
-use ckb_types::core::cell::ResolvedTransaction;
 use ckb_types::{
     core::{cell::CellMeta, HeaderView},
     packed::Byte32Vec,
@@ -22,41 +21,38 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadHeader<DL> {
-    data_loader: DL,
-    rtx: Arc<ResolvedTransaction>,
+    vm_data: Arc<VmData<DL>>,
+}
+
+impl<DL: HeaderProvider> LoadHeader<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadHeader<DL> {
+        LoadHeader {
+            vm_data: Arc::clone(vm_data),
+        }
+    }
+
     // This can only be used for liner search
     // header_deps: Byte32Vec,
     // resolved_inputs: &'a [CellMeta],
     // resolved_cell_deps: &'a [CellMeta],
-    group_inputs: Indices,
-}
-
-impl<DL: HeaderProvider> LoadHeader<DL> {
-    pub fn new(
-        data_loader: DL,
-        rtx: Arc<ResolvedTransaction>,
-        group_inputs: Indices,
-    ) -> LoadHeader<DL> {
-        LoadHeader {
-            data_loader,
-            rtx,
-            group_inputs,
-        }
+    #[inline]
+    fn group_inputs(&self) -> &[usize] {
+        self.vm_data.group_inputs()
     }
 
     #[inline]
     fn header_deps(&self) -> Byte32Vec {
-        self.rtx.transaction.header_deps()
+        self.vm_data.rtx().transaction.header_deps()
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_inputs
+        &self.vm_data.rtx().resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_cell_deps
+        &self.vm_data.rtx().resolved_cell_deps
     }
 
     fn load_header(&self, cell_meta: &CellMeta) -> Option<HeaderView> {
@@ -70,7 +66,11 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
             .into_iter()
             .any(|hash| &hash == block_hash)
         {
-            self.data_loader.get_header(block_hash)
+            self.vm_data
+                .sg_data
+                .tx_data
+                .data_loader
+                .get_header(block_hash)
         } else {
             None
         }
@@ -94,10 +94,15 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|block_hash| {
-                    self.data_loader.get_header(&block_hash).ok_or(ITEM_MISSING)
+                    self.vm_data
+                        .sg_data
+                        .tx_data
+                        .data_loader
+                        .get_header(&block_hash)
+                        .ok_or(ITEM_MISSING)
                 }),
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| {

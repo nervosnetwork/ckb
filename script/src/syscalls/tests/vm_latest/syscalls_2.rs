@@ -1,4 +1,4 @@
-use crate::syscalls::tests::utils::MockDataLoader;
+use crate::{syscalls::tests::utils::*, types::VmContext};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -53,7 +53,19 @@ fn test_current_cycles() {
 
     machine.set_cycles(cycles);
 
-    let result = CurrentCycles::new(Arc::new(Mutex::new(0))).ecall(&mut machine);
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction: TransactionBuilder::default().build(),
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![],
+        resolved_dep_groups: vec![],
+    });
+
+    let tx_data = Arc::new(build_tx_data(rtx));
+    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+
+    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+
+    let result = CurrentCycles::new(&vm_context).ecall(&mut machine);
 
     assert!(result.unwrap());
     assert_eq!(machine.registers()[A0], cycles);
@@ -99,7 +111,6 @@ fn _test_load_extension(
         extensions,
         ..Default::default()
     };
-    let group_inputs = Arc::new(vec![0]);
 
     let rtx = Arc::new(ResolvedTransaction {
         transaction: TransactionBuilder::default()
@@ -110,8 +121,10 @@ fn _test_load_extension(
         resolved_dep_groups: vec![],
     });
 
-    let mut load_block_extension: LoadBlockExtension<MockDataLoader> =
-        LoadBlockExtension::new(data_loader, rtx, group_inputs);
+    let tx_data = Arc::new(build_tx_data_with_loader(rtx, data_loader));
+    let vm_data = build_vm_data(tx_data, vec![0], vec![]);
+
+    let mut load_block_extension = LoadBlockExtension::new(&vm_data);
 
     prop_assert!(machine
         .memory_mut()

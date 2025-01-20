@@ -1,10 +1,11 @@
-use crate::types::DebugPrinter;
+use crate::types::{DebugContext, DebugPrinter, VmData};
 use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
 use ckb_types::packed::Byte32;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
+use std::sync::Arc;
 
 pub struct Debugger {
     hash: Byte32,
@@ -12,8 +13,11 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new(hash: Byte32, printer: DebugPrinter) -> Debugger {
-        Debugger { hash, printer }
+    pub fn new<DL>(vm_data: &Arc<VmData<DL>>, debug_context: &DebugContext) -> Debugger {
+        Debugger {
+            hash: vm_data.current_script_hash(),
+            printer: Arc::clone(&debug_context.debug_printer),
+        }
     }
 }
 

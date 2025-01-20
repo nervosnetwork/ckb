@@ -4,12 +4,9 @@ use crate::{
         utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_WITNESS_SYSCALL_NUMBER,
         SUCCESS,
     },
-    types::Indices,
+    types::VmData,
 };
-use ckb_types::{
-    core::cell::ResolvedTransaction,
-    packed::{Bytes, BytesVec},
-};
+use ckb_types::packed::{Bytes, BytesVec};
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -17,38 +14,32 @@ use ckb_vm::{
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct LoadWitness {
-    rtx: Arc<ResolvedTransaction>,
-    group_inputs: Indices,
-    group_outputs: Indices,
+pub struct LoadWitness<DL> {
+    vm_data: Arc<VmData<DL>>,
 }
 
-impl LoadWitness {
-    pub fn new(
-        rtx: Arc<ResolvedTransaction>,
-        group_inputs: Indices,
-        group_outputs: Indices,
-    ) -> LoadWitness {
+impl<DL> LoadWitness<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>) -> Self {
         LoadWitness {
-            rtx,
-            group_inputs,
-            group_outputs,
+            vm_data: Arc::clone(vm_data),
         }
     }
 
     #[inline]
     fn witnesses(&self) -> BytesVec {
-        self.rtx.transaction.witnesses()
+        self.vm_data.rtx().transaction.witnesses()
     }
 
     fn fetch_witness(&self, source: Source, index: usize) -> Option<Bytes> {
         match source {
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .vm_data
+                .group_inputs()
                 .get(index)
                 .and_then(|actual_index| self.witnesses().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
-                .group_outputs
+                .vm_data
+                .group_outputs()
                 .get(index)
                 .and_then(|actual_index| self.witnesses().get(*actual_index)),
             Source::Transaction(SourceEntry::Input) => self.witnesses().get(index),
@@ -58,7 +49,7 @@ impl LoadWitness {
     }
 }
 
-impl<Mac: SupportMachine> Syscalls<Mac> for LoadWitness {
+impl<Mac: SupportMachine, DL: Sync + Send> Syscalls<Mac> for LoadWitness<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

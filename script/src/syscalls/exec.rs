@@ -3,9 +3,9 @@ use crate::syscalls::{
     Place, Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, MAX_ARGV_LENGTH, SLICE_OUT_OF_BOUND,
     WRONG_FORMAT,
 };
-use crate::types::Indices;
+use crate::types::VmData;
 use ckb_traits::CellDataProvider;
-use ckb_types::core::cell::{CellMeta, ResolvedTransaction};
+use ckb_types::core::cell::CellMeta;
 use ckb_types::core::error::ARGV_TOO_LONG_TEXT;
 use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
 use ckb_vm::memory::load_c_string_byte_by_byte;
@@ -19,58 +19,46 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct Exec<DL> {
-    data_loader: DL,
-    rtx: Arc<ResolvedTransaction>,
-    outputs: Arc<Vec<CellMeta>>,
-    group_inputs: Indices,
-    group_outputs: Indices,
+    vm_data: Arc<VmData<DL>>,
 }
 
 impl<DL: CellDataProvider> Exec<DL> {
-    pub fn new(
-        data_loader: DL,
-        rtx: Arc<ResolvedTransaction>,
-        outputs: Arc<Vec<CellMeta>>,
-        group_inputs: Indices,
-        group_outputs: Indices,
-    ) -> Exec<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>) -> Exec<DL> {
         Exec {
-            data_loader,
-            rtx,
-            outputs,
-            group_inputs,
-            group_outputs,
+            vm_data: Arc::clone(vm_data),
         }
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_inputs
+        &self.vm_data.rtx().resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_cell_deps
+        &self.vm_data.rtx().resolved_cell_deps
     }
 
     #[inline]
     fn witnesses(&self) -> BytesVec {
-        self.rtx.transaction.witnesses()
+        self.vm_data.rtx().transaction.witnesses()
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
         let cell_opt = match source {
             Source::Transaction(SourceEntry::Input) => self.resolved_inputs().get(index),
-            Source::Transaction(SourceEntry::Output) => self.outputs.get(index),
+            Source::Transaction(SourceEntry::Output) => self.vm_data.outputs().get(index),
             Source::Transaction(SourceEntry::CellDep) => self.resolved_cell_deps().get(index),
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .vm_data
+                .group_inputs()
                 .get(index)
                 .and_then(|actual_index| self.resolved_inputs().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
-                .group_outputs
+                .vm_data
+                .group_outputs()
                 .get(index)
-                .and_then(|actual_index| self.outputs.get(*actual_index)),
+                .and_then(|actual_index| self.vm_data.outputs().get(*actual_index)),
             Source::Transaction(SourceEntry::HeaderDep)
             | Source::Group(SourceEntry::CellDep)
             | Source::Group(SourceEntry::HeaderDep) => {
@@ -84,11 +72,13 @@ impl<DL: CellDataProvider> Exec<DL> {
     fn fetch_witness(&self, source: Source, index: usize) -> Result<PackedBytes, u8> {
         let witness_opt = match source {
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .vm_data
+                .group_inputs()
                 .get(index)
                 .and_then(|actual_index| self.witnesses().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
-                .group_outputs
+                .vm_data
+                .group_outputs()
                 .get(index)
                 .and_then(|actual_index| self.witnesses().get(*actual_index)),
             Source::Transaction(SourceEntry::Input) => self.witnesses().get(index),
@@ -126,12 +116,15 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for 
                     return Ok(true);
                 }
                 let cell = cell.unwrap();
-                self.data_loader.load_cell_data(cell).ok_or_else(|| {
-                    VMError::Unexpected(format!(
-                        "Unexpected load_cell_data failed {}",
-                        cell.out_point,
-                    ))
-                })?
+                self.vm_data
+                    .data_loader()
+                    .load_cell_data(cell)
+                    .ok_or_else(|| {
+                        VMError::Unexpected(format!(
+                            "Unexpected load_cell_data failed {}",
+                            cell.out_point,
+                        ))
+                    })?
             }
             Place::Witness => {
                 let witness = self.fetch_witness(source, index as usize);

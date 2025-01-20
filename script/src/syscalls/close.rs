@@ -1,5 +1,6 @@
 use crate::syscalls::{CLOSE, SPAWN_YIELD_CYCLES_BASE};
-use crate::types::{Fd, Message, VmId};
+use crate::types::{Fd, Message, VmContext, VmData, VmId};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -13,8 +14,14 @@ pub struct Close {
 }
 
 impl Close {
-    pub fn new(id: VmId, message_box: Arc<Mutex<Vec<Message>>>) -> Self {
-        Self { id, message_box }
+    pub fn new<DL>(vm_data: &Arc<VmData<DL>>, vm_context: &VmContext<DL>) -> Self
+    where
+        DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    {
+        Self {
+            id: vm_data.vm_id,
+            message_box: Arc::clone(&vm_context.message_box),
+        }
     }
 }
 

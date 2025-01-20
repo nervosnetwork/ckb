@@ -1,18 +1,15 @@
-use crate::types::Indices;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
         utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
     },
+    types::{TxData, VmData},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_traits::CellDataProvider;
 use ckb_types::{
-    core::{
-        cell::{CellMeta, ResolvedTransaction},
-        Capacity,
-    },
+    core::{cell::CellMeta, Capacity},
     packed::CellOutput,
     prelude::*,
 };
@@ -23,38 +20,29 @@ use ckb_vm::{
 use std::sync::Arc;
 
 pub struct LoadCell<DL> {
-    data_loader: DL,
-    rtx: Arc<ResolvedTransaction>,
-    outputs: Arc<Vec<CellMeta>>,
-    group_inputs: Indices,
-    group_outputs: Indices,
+    vm_data: Arc<VmData<DL>>,
 }
 
 impl<DL: CellDataProvider> LoadCell<DL> {
-    pub fn new(
-        data_loader: DL,
-        rtx: Arc<ResolvedTransaction>,
-        outputs: Arc<Vec<CellMeta>>,
-        group_inputs: Indices,
-        group_outputs: Indices,
-    ) -> LoadCell<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadCell<DL> {
         LoadCell {
-            data_loader,
-            rtx,
-            outputs,
-            group_inputs,
-            group_outputs,
+            vm_data: Arc::clone(vm_data),
         }
     }
 
     #[inline]
+    fn tx_data(&self) -> &TxData<DL> {
+        &self.vm_data.sg_data.tx_data
+    }
+
+    #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_inputs
+        &self.vm_data.rtx().resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_cell_deps
+        &self.vm_data.rtx().resolved_cell_deps
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
@@ -63,7 +51,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 self.resolved_inputs().get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::Output) => {
-                self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
+                self.tx_data().outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::CellDep) => self
                 .resolved_cell_deps()
@@ -71,7 +59,8 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 .ok_or(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .vm_data
+                .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| {
@@ -80,10 +69,16 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                         .ok_or(INDEX_OUT_OF_BOUND)
                 }),
             Source::Group(SourceEntry::Output) => self
-                .group_outputs
+                .vm_data
+                .group_outputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| self.outputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
+                .and_then(|actual_index| {
+                    self.tx_data()
+                        .outputs
+                        .get(*actual_index)
+                        .ok_or(INDEX_OUT_OF_BOUND)
+                }),
             Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
         }
@@ -115,7 +110,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::DataHash => {
-                if let Some(bytes) = self.data_loader.load_cell_data_hash(cell) {
+                if let Some(bytes) = self.tx_data().data_loader.load_cell_data_hash(cell) {
                     (SUCCESS, store_data(machine, &bytes.as_bytes())?)
                 } else {
                     (ITEM_MISSING, 0)

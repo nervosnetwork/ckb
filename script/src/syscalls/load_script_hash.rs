@@ -1,12 +1,14 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{utils::store_data, LOAD_SCRIPT_HASH_SYSCALL_NUMBER, SUCCESS},
+    types::VmData,
 };
 use ckb_types::packed::Byte32;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadScriptHash {
@@ -14,8 +16,10 @@ pub struct LoadScriptHash {
 }
 
 impl LoadScriptHash {
-    pub fn new(hash: Byte32) -> LoadScriptHash {
-        LoadScriptHash { hash }
+    pub fn new<DL>(vm_data: &Arc<VmData<DL>>) -> LoadScriptHash {
+        LoadScriptHash {
+            hash: vm_data.sg_data.script_group.script.calc_script_hash(),
+        }
     }
 }
 

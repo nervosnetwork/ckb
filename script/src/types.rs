@@ -1,14 +1,21 @@
+use crate::{error::ScriptError, verify_env::TxVerifyEnv};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_types::{
-    core::{Cycle, ScriptHashType},
-    packed::{Byte32, Script},
+    core::{
+        cell::{CellMeta, ResolvedTransaction},
+        Cycle, ScriptHashType,
+    },
+    packed::{Byte32, CellOutput, OutPoint, Script},
+    prelude::*,
 };
 use ckb_vm::{
     machine::{VERSION0, VERSION1, VERSION2},
     ISA_B, ISA_IMC, ISA_MOP,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -16,10 +23,9 @@ use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 #[cfg(not(has_asm))]
 use ckb_vm::{DefaultCoreMachine, TraceMachine, WXorXMemory};
 
-use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
+use ckb_traits::CellDataProvider;
 use ckb_vm::snapshot2::Snapshot2Context;
 
-use ckb_types::core::cell::ResolvedTransaction;
 use ckb_vm::{
     bytes::Bytes,
     machine::Pause,
@@ -54,9 +60,13 @@ pub(crate) type Machine = AsmMachine;
 #[cfg(not(has_asm))]
 pub(crate) type Machine = TraceMachine<CoreMachine>;
 
-pub(crate) type Indices = Arc<Vec<usize>>;
-
 pub(crate) type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
+
+pub struct DebugContext {
+    pub debug_printer: DebugPrinter,
+    #[cfg(test)]
+    pub skip_pause: Arc<std::sync::atomic::AtomicBool>,
+}
 
 /// The version of CKB Script Verifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -126,7 +136,7 @@ impl ScriptVersion {
 /// A script group will only be executed once per transaction, the
 /// script itself should check against all inputs/outputs in its group
 /// if needed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ScriptGroup {
     /// The script.
     ///
@@ -140,9 +150,19 @@ pub struct ScriptGroup {
     pub output_indices: Vec<usize>,
 }
 
+/// The methods included here are defected in a way: all construction
+/// methods here create ScriptGroup without any `input_indices` or
+/// `output_indices` filled. One has to manually fill them later(or forgot
+/// about this).
+/// As a result, we are marking them as crate-only methods for now. This
+/// forces users to one of the following 2 solutions:
+/// * Call `groups()` on `TxData` so they can fetch `ScriptGroup` data with
+///   all correct data filled.
+/// * Manually construct the struct where they have to think what shall be
+///   used for `input_indices` and `output_indices`.
 impl ScriptGroup {
     /// Creates a new script group struct.
-    pub fn new(script: &Script, group_type: ScriptGroupType) -> Self {
+    pub(crate) fn new(script: &Script, group_type: ScriptGroupType) -> Self {
         Self {
             group_type,
             script: script.to_owned(),
@@ -152,12 +172,12 @@ impl ScriptGroup {
     }
 
     /// Creates a lock script group.
-    pub fn from_lock_script(script: &Script) -> Self {
+    pub(crate) fn from_lock_script(script: &Script) -> Self {
         Self::new(script, ScriptGroupType::Lock)
     }
 
     /// Creates a type script group.
-    pub fn from_type_script(script: &Script) -> Self {
+    pub(crate) fn from_type_script(script: &Script) -> Self {
         Self::new(script, ScriptGroupType::Type)
     }
 }
@@ -186,6 +206,7 @@ impl fmt::Display for ScriptGroupType {
 
 /// Struct specifies which script has verified so far.
 /// State is lifetime free, but capture snapshot need heavy memory copy
+#[derive(Clone)]
 pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
@@ -255,34 +276,6 @@ pub enum ChunkCommand {
     Resume,
     /// Stop the verification process
     Stop,
-}
-
-#[derive(Clone)]
-pub struct MachineContext<
-    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
-> {
-    pub(crate) base_cycles: Arc<Mutex<u64>>,
-    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
-}
-
-impl<DL> MachineContext<DL>
-where
-    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
-{
-    pub fn new(tx_data: TxData<DL>) -> Self {
-        Self {
-            base_cycles: Arc::new(Mutex::new(0)),
-            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(tx_data))),
-        }
-    }
-
-    pub fn snapshot2_context(&self) -> &Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>> {
-        &self.snapshot2_context
-    }
-
-    pub fn set_base_cycles(&mut self, base_cycles: u64) {
-        *self.base_cycles.lock().expect("lock") = base_cycles;
-    }
 }
 
 pub type VmId = u64;
@@ -408,8 +401,6 @@ pub enum Message {
 /// A pointer to the data that is part of the transaction.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DataPieceId {
-    /// Target program. Usually located in cell data.
-    Program,
     /// The nth input cell data.
     Input(u32),
     /// The nth output data.
@@ -495,62 +486,401 @@ impl FullSuspendedState {
     }
 }
 
-/// Context data for current running transaction & script
-#[derive(Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum DataGuard {
+    NotLoaded(OutPoint),
+    Loaded(Bytes),
+}
+
+/// LazyData wrapper make sure not-loaded data will be loaded only after one access
+#[derive(Debug, Clone)]
+pub struct LazyData(Arc<RwLock<DataGuard>>);
+
+impl LazyData {
+    fn from_cell_meta(cell_meta: &CellMeta) -> LazyData {
+        match &cell_meta.mem_cell_data {
+            Some(data) => LazyData(Arc::new(RwLock::new(DataGuard::Loaded(data.to_owned())))),
+            None => LazyData(Arc::new(RwLock::new(DataGuard::NotLoaded(
+                cell_meta.out_point.clone(),
+            )))),
+        }
+    }
+
+    fn access<DL: CellDataProvider>(&self, data_loader: &DL) -> Result<Bytes, ScriptError> {
+        let guard = self
+            .0
+            .read()
+            .map_err(|_| ScriptError::Other("RwLock poisoned".into()))?
+            .to_owned();
+        match guard {
+            DataGuard::NotLoaded(out_point) => {
+                let data = data_loader
+                    .get_cell_data(&out_point)
+                    .ok_or(ScriptError::Other("cell data not found".into()))?;
+                let mut write_guard = self
+                    .0
+                    .write()
+                    .map_err(|_| ScriptError::Other("RwLock poisoned".into()))?;
+                *write_guard = DataGuard::Loaded(data.clone());
+                Ok(data)
+            }
+            DataGuard::Loaded(bytes) => Ok(bytes),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Binaries {
+    Unique(Byte32, usize, LazyData),
+    Duplicate(Byte32, usize, LazyData),
+    Multiple,
+}
+
+impl Binaries {
+    fn new(data_hash: Byte32, dep_index: usize, data: LazyData) -> Self {
+        Self::Unique(data_hash, dep_index, data)
+    }
+
+    fn merge(&mut self, data_hash: &Byte32) {
+        match self {
+            Self::Unique(ref hash, dep_index, data)
+            | Self::Duplicate(ref hash, dep_index, data) => {
+                if hash != data_hash {
+                    *self = Self::Multiple;
+                } else {
+                    *self = Self::Duplicate(hash.to_owned(), *dep_index, data.to_owned());
+                }
+            }
+            Self::Multiple => {}
+        }
+    }
+}
+
+/// Immutable context data at transaction level
+#[derive(Clone, Debug)]
 pub struct TxData<DL> {
     /// ResolvedTransaction.
     pub rtx: Arc<ResolvedTransaction>,
     /// Data loader.
     pub data_loader: DL,
-    /// Ideally one might not want to keep program here, since program is totally
-    /// deducible from rtx + data_loader, however, for a demo here, program
-    /// does help us save some extra coding.
-    pub program: Bytes,
-    /// The script group to which the current program belongs.
-    pub script_group: Arc<ScriptGroup>,
+    /// Chain consensus parameters
+    pub consensus: Arc<Consensus>,
+    /// Transaction verification environment
+    pub tx_env: Arc<TxVerifyEnv>,
+
+    /// Potential binaries in current transaction indexed by data hash
+    pub binaries_by_data_hash: HashMap<Byte32, (usize, LazyData)>,
+    /// Potential binaries in current transaction indexed by type script hash
+    pub binaries_by_type_hash: HashMap<Byte32, Binaries>,
+    /// Lock script groups, orders here are important
+    pub lock_groups: BTreeMap<Byte32, ScriptGroup>,
+    /// Type script groups, orders here are important
+    pub type_groups: BTreeMap<Byte32, ScriptGroup>,
+    /// Output cells in current transaction reorganized in CellMeta format
+    pub outputs: Vec<CellMeta>,
 }
 
-impl<DL> DataSource<DataPieceId> for TxData<DL>
+impl<DL> TxData<DL>
 where
-    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider,
+{
+    /// Creates a new TxData structure
+    pub fn new(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+    ) -> Self {
+        let tx_hash = rtx.transaction.hash();
+        let resolved_cell_deps = &rtx.resolved_cell_deps;
+        let resolved_inputs = &rtx.resolved_inputs;
+        let outputs = rtx
+            .transaction
+            .outputs_with_data_iter()
+            .enumerate()
+            .map(|(index, (cell_output, data))| {
+                let out_point = OutPoint::new_builder()
+                    .tx_hash(tx_hash.clone())
+                    .index(index.pack())
+                    .build();
+                let data_hash = CellOutput::calc_data_hash(&data);
+                CellMeta {
+                    cell_output,
+                    out_point,
+                    transaction_info: None,
+                    data_bytes: data.len() as u64,
+                    mem_cell_data: Some(data),
+                    mem_cell_data_hash: Some(data_hash),
+                }
+            })
+            .collect();
+
+        let mut binaries_by_data_hash: HashMap<Byte32, (usize, LazyData)> = HashMap::default();
+        let mut binaries_by_type_hash: HashMap<Byte32, Binaries> = HashMap::default();
+        for (i, cell_meta) in resolved_cell_deps.iter().enumerate() {
+            let data_hash = data_loader
+                .load_cell_data_hash(cell_meta)
+                .expect("cell data hash");
+            let lazy = LazyData::from_cell_meta(cell_meta);
+            binaries_by_data_hash.insert(data_hash.to_owned(), (i, lazy.to_owned()));
+
+            if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
+                binaries_by_type_hash
+                    .entry(t.calc_script_hash())
+                    .and_modify(|bin| bin.merge(&data_hash))
+                    .or_insert_with(|| Binaries::new(data_hash.to_owned(), i, lazy.to_owned()));
+            }
+        }
+
+        let mut lock_groups = BTreeMap::default();
+        let mut type_groups = BTreeMap::default();
+        for (i, cell_meta) in resolved_inputs.iter().enumerate() {
+            // here we are only pre-processing the data, verify method validates
+            // each input has correct script setup.
+            let output = &cell_meta.cell_output;
+            let lock_group_entry = lock_groups
+                .entry(output.calc_lock_hash())
+                .or_insert_with(|| ScriptGroup::from_lock_script(&output.lock()));
+            lock_group_entry.input_indices.push(i);
+            if let Some(t) = &output.type_().to_opt() {
+                let type_group_entry = type_groups
+                    .entry(t.calc_script_hash())
+                    .or_insert_with(|| ScriptGroup::from_type_script(t));
+                type_group_entry.input_indices.push(i);
+            }
+        }
+        for (i, output) in rtx.transaction.outputs().into_iter().enumerate() {
+            if let Some(t) = &output.type_().to_opt() {
+                let type_group_entry = type_groups
+                    .entry(t.calc_script_hash())
+                    .or_insert_with(|| ScriptGroup::from_type_script(t));
+                type_group_entry.output_indices.push(i);
+            }
+        }
+
+        Self {
+            rtx,
+            data_loader,
+            consensus,
+            tx_env,
+            binaries_by_data_hash,
+            binaries_by_type_hash,
+            lock_groups,
+            type_groups,
+            outputs,
+        }
+    }
+
+    #[inline]
+    /// Extracts actual script binary either in dep cells.
+    pub fn extract_script(&self, script: &Script) -> Result<Bytes, ScriptError> {
+        let (lazy, _) = self.extract_script_and_dep_index(script)?;
+        lazy.access(&self.data_loader)
+    }
+}
+
+impl<DL> TxData<DL> {
+    #[inline]
+    /// Extracts the index of the script binary in dep cells
+    pub fn extract_referenced_dep_index(&self, script: &Script) -> Result<usize, ScriptError> {
+        let (_, dep_index) = self.extract_script_and_dep_index(script)?;
+        Ok(*dep_index)
+    }
+
+    fn extract_script_and_dep_index(
+        &self,
+        script: &Script,
+    ) -> Result<(&LazyData, &usize), ScriptError> {
+        let script_hash_type = ScriptHashType::try_from(script.hash_type())
+            .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
+        match script_hash_type {
+            ScriptHashType::Data | ScriptHashType::Data1 | ScriptHashType::Data2 => {
+                if let Some((dep_index, lazy)) = self.binaries_by_data_hash.get(&script.code_hash())
+                {
+                    Ok((lazy, dep_index))
+                } else {
+                    Err(ScriptError::ScriptNotFound(script.code_hash()))
+                }
+            }
+            ScriptHashType::Type => {
+                if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
+                    match bin {
+                        Binaries::Unique(_, dep_index, ref lazy) => Ok((lazy, dep_index)),
+                        Binaries::Duplicate(_, dep_index, ref lazy) => Ok((lazy, dep_index)),
+                        Binaries::Multiple => Err(ScriptError::MultipleMatches),
+                    }
+                } else {
+                    Err(ScriptError::ScriptNotFound(script.code_hash()))
+                }
+            }
+        }
+    }
+
+    #[inline]
+    /// Calculates transaction hash
+    pub fn tx_hash(&self) -> Byte32 {
+        self.rtx.transaction.hash()
+    }
+
+    /// Finds the script group from cell deps.
+    pub fn find_script_group(
+        &self,
+        script_group_type: ScriptGroupType,
+        script_hash: &Byte32,
+    ) -> Option<&ScriptGroup> {
+        match script_group_type {
+            ScriptGroupType::Lock => self.lock_groups.get(script_hash),
+            ScriptGroupType::Type => self.type_groups.get(script_hash),
+        }
+    }
+
+    fn is_vm_version_1_and_syscalls_2_enabled(&self) -> bool {
+        // If the proposal window is allowed to prejudge on the vm version,
+        // it will cause proposal tx to start a new vm in the blocks before hardfork,
+        // destroying the assumption that the transaction execution only uses the old vm
+        // before hardfork, leading to unexpected network splits.
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
+        let hardfork_switch = self.consensus.hardfork_switch();
+        hardfork_switch
+            .ckb2021
+            .is_vm_version_1_and_syscalls_2_enabled(epoch_number)
+    }
+
+    fn is_vm_version_2_and_syscalls_3_enabled(&self) -> bool {
+        // If the proposal window is allowed to prejudge on the vm version,
+        // it will cause proposal tx to start a new vm in the blocks before hardfork,
+        // destroying the assumption that the transaction execution only uses the old vm
+        // before hardfork, leading to unexpected network splits.
+        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
+        let hardfork_switch = self.consensus.hardfork_switch();
+        hardfork_switch
+            .ckb2023
+            .is_vm_version_2_and_syscalls_3_enabled(epoch_number)
+    }
+
+    /// Returns the version of the machine based on the script and the consensus rules.
+    pub fn select_version(&self, script: &Script) -> Result<ScriptVersion, ScriptError> {
+        let is_vm_version_2_and_syscalls_3_enabled = self.is_vm_version_2_and_syscalls_3_enabled();
+        let is_vm_version_1_and_syscalls_2_enabled = self.is_vm_version_1_and_syscalls_2_enabled();
+        let script_hash_type = ScriptHashType::try_from(script.hash_type())
+            .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
+        match script_hash_type {
+            ScriptHashType::Data => Ok(ScriptVersion::V0),
+            ScriptHashType::Data1 => {
+                if is_vm_version_1_and_syscalls_2_enabled {
+                    Ok(ScriptVersion::V1)
+                } else {
+                    Err(ScriptError::InvalidVmVersion(1))
+                }
+            }
+            ScriptHashType::Data2 => {
+                if is_vm_version_2_and_syscalls_3_enabled {
+                    Ok(ScriptVersion::V2)
+                } else {
+                    Err(ScriptError::InvalidVmVersion(2))
+                }
+            }
+            ScriptHashType::Type => {
+                if is_vm_version_2_and_syscalls_3_enabled {
+                    Ok(ScriptVersion::V2)
+                } else if is_vm_version_1_and_syscalls_2_enabled {
+                    Ok(ScriptVersion::V1)
+                } else {
+                    Ok(ScriptVersion::V0)
+                }
+            }
+        }
+    }
+
+    /// Returns all script groups.
+    pub fn groups(&self) -> impl Iterator<Item = (&'_ Byte32, &'_ ScriptGroup)> {
+        self.lock_groups.iter().chain(self.type_groups.iter())
+    }
+
+    /// Returns all script groups with type.
+    pub fn groups_with_type(
+        &self,
+    ) -> impl Iterator<Item = (ScriptGroupType, &'_ Byte32, &'_ ScriptGroup)> {
+        self.lock_groups
+            .iter()
+            .map(|(hash, group)| (ScriptGroupType::Lock, hash, group))
+            .chain(
+                self.type_groups
+                    .iter()
+                    .map(|(hash, group)| (ScriptGroupType::Type, hash, group)),
+            )
+    }
+}
+
+/// Immutable context data at script group level
+#[derive(Clone, Debug)]
+pub struct SgData<DL> {
+    /// Transaction level data
+    pub tx_data: Arc<TxData<DL>>,
+
+    /// Currently executed script version
+    pub script_version: ScriptVersion,
+    /// Currently executed script group
+    pub script_group: ScriptGroup,
+    /// DataPieceId for the root program
+    pub program_data_piece_id: DataPieceId,
+}
+
+impl<DL> SgData<DL> {
+    pub fn new(tx_data: &Arc<TxData<DL>>, script_group: &ScriptGroup) -> Result<Self, ScriptError> {
+        let script_version = tx_data.select_version(&script_group.script)?;
+        let dep_index = tx_data
+            .extract_referenced_dep_index(&script_group.script)?
+            .try_into()
+            .map_err(|_| ScriptError::Other("u32 overflow".to_string()))?;
+        Ok(Self {
+            tx_data: Arc::clone(tx_data),
+            script_version,
+            script_group: script_group.clone(),
+            program_data_piece_id: DataPieceId::CellDep(dep_index),
+        })
+    }
+}
+
+impl<DL> DataSource<DataPieceId> for Arc<SgData<DL>>
+where
+    DL: CellDataProvider,
 {
     fn load_data(&self, id: &DataPieceId, offset: u64, length: u64) -> Option<(Bytes, u64)> {
         match id {
-            DataPieceId::Program => {
-                // This is just a shortcut so we don't have to copy over the logic in extract_script,
-                // ideally you can also only define the rest 5, then figure out a way to convert
-                // script group to the actual cell dep index.
-                Some(self.program.clone())
-            }
             DataPieceId::Input(i) => self
+                .tx_data
                 .rtx
                 .resolved_inputs
                 .get(*i as usize)
-                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+                .and_then(|cell| self.tx_data.data_loader.load_cell_data(cell)),
             DataPieceId::Output(i) => self
+                .tx_data
                 .rtx
                 .transaction
                 .outputs_data()
                 .get(*i as usize)
                 .map(|data| data.raw_data()),
             DataPieceId::CellDep(i) => self
+                .tx_data
                 .rtx
                 .resolved_cell_deps
                 .get(*i as usize)
-                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+                .and_then(|cell| self.tx_data.data_loader.load_cell_data(cell)),
             DataPieceId::GroupInput(i) => self
                 .script_group
                 .input_indices
                 .get(*i as usize)
-                .and_then(|gi| self.rtx.resolved_inputs.get(*gi))
-                .and_then(|cell| self.data_loader.load_cell_data(cell)),
+                .and_then(|gi| self.tx_data.rtx.resolved_inputs.get(*gi))
+                .and_then(|cell| self.tx_data.data_loader.load_cell_data(cell)),
             DataPieceId::GroupOutput(i) => self
                 .script_group
                 .output_indices
                 .get(*i as usize)
-                .and_then(|gi| self.rtx.transaction.outputs_data().get(*gi))
+                .and_then(|gi| self.tx_data.rtx.transaction.outputs_data().get(*gi))
                 .map(|data| data.raw_data()),
             DataPieceId::Witness(i) => self
+                .tx_data
                 .rtx
                 .transaction
                 .witnesses()
@@ -560,13 +890,13 @@ where
                 .script_group
                 .input_indices
                 .get(*i as usize)
-                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
+                .and_then(|gi| self.tx_data.rtx.transaction.witnesses().get(*gi))
                 .map(|data| data.raw_data()),
             DataPieceId::WitnessGroupOutput(i) => self
                 .script_group
                 .output_indices
                 .get(*i as usize)
-                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
+                .and_then(|gi| self.tx_data.rtx.transaction.witnesses().get(*gi))
                 .map(|data| data.raw_data()),
         }
         .map(|data| {
@@ -579,6 +909,83 @@ where
             };
             (data.slice(offset..offset + real_length), full_length as u64)
         })
+    }
+}
+
+/// Immutable context data at virtual machine level
+#[derive(Clone, Debug)]
+pub struct VmData<DL> {
+    /// Script group level data
+    pub sg_data: Arc<SgData<DL>>,
+
+    /// Currently executed virtual machine ID
+    pub vm_id: VmId,
+}
+
+impl<DL> VmData<DL> {
+    pub fn rtx(&self) -> &ResolvedTransaction {
+        &self.sg_data.tx_data.rtx
+    }
+
+    pub fn data_loader(&self) -> &DL {
+        &self.sg_data.tx_data.data_loader
+    }
+
+    pub fn group_inputs(&self) -> &[usize] {
+        &self.sg_data.script_group.input_indices
+    }
+
+    pub fn group_outputs(&self) -> &[usize] {
+        &self.sg_data.script_group.output_indices
+    }
+
+    pub fn outputs(&self) -> &[CellMeta] {
+        &self.sg_data.tx_data.outputs
+    }
+
+    pub fn current_script_hash(&self) -> Byte32 {
+        self.sg_data.script_group.script.calc_script_hash()
+    }
+}
+
+impl<DL> DataSource<DataPieceId> for Arc<VmData<DL>>
+where
+    DL: CellDataProvider,
+{
+    fn load_data(&self, id: &DataPieceId, offset: u64, length: u64) -> Option<(Bytes, u64)> {
+        self.sg_data.load_data(id, offset, length)
+    }
+}
+
+/// Mutable data at virtual machine level
+#[derive(Clone)]
+pub struct VmContext<DL>
+where
+    DL: CellDataProvider,
+{
+    pub(crate) base_cycles: Arc<Mutex<u64>>,
+    /// A mutable reference to scheduler's message box
+    pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
+    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, Arc<VmData<DL>>>>>,
+}
+
+impl<DL> VmContext<DL>
+where
+    DL: CellDataProvider,
+{
+    /// Creates a new VM context. It is by design that parameters to this function
+    /// are references. It is a reminder that the inputs are designed to be shared
+    /// among different entities.
+    pub fn new(vm_data: &Arc<VmData<DL>>, message_box: &Arc<Mutex<Vec<Message>>>) -> Self {
+        Self {
+            base_cycles: Arc::new(Mutex::new(0)),
+            message_box: Arc::clone(message_box),
+            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(vm_data)))),
+        }
+    }
+
+    pub fn set_base_cycles(&mut self, base_cycles: u64) {
+        *self.base_cycles.lock().expect("lock") = base_cycles;
     }
 }
 

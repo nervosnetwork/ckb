@@ -1,13 +1,12 @@
-use crate::types::Indices;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
         utils::store_data, InputField, Source, SourceEntry, INDEX_OUT_OF_BOUND,
         LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER, SUCCESS,
     },
+    types::VmData,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use ckb_types::core::cell::ResolvedTransaction;
 use ckb_types::{
     packed::{CellInput, CellInputVec},
     prelude::*,
@@ -19,19 +18,20 @@ use ckb_vm::{
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct LoadInput {
-    rtx: Arc<ResolvedTransaction>,
-    group_inputs: Indices,
+pub struct LoadInput<DL> {
+    vm_data: Arc<VmData<DL>>,
 }
 
-impl LoadInput {
-    pub fn new(rtx: Arc<ResolvedTransaction>, group_inputs: Indices) -> LoadInput {
-        LoadInput { rtx, group_inputs }
+impl<DL> LoadInput<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>) -> Self {
+        LoadInput {
+            vm_data: Arc::clone(vm_data),
+        }
     }
 
     #[inline]
     fn inputs(&self) -> CellInputVec {
-        self.rtx.transaction.inputs()
+        self.vm_data.rtx().transaction.inputs()
     }
 
     fn fetch_input(&self, source: Source, index: usize) -> Result<CellInput, u8> {
@@ -43,7 +43,8 @@ impl LoadInput {
             Source::Transaction(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .vm_data
+                .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| {
@@ -87,7 +88,7 @@ impl LoadInput {
     }
 }
 
-impl<Mac: SupportMachine> Syscalls<Mac> for LoadInput {
+impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for LoadInput<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

@@ -1,12 +1,14 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{utils::store_data, LOAD_SCRIPT_SYSCALL_NUMBER, SUCCESS},
+    types::VmData,
 };
 use ckb_types::{packed::Script, prelude::*};
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadScript {
@@ -14,8 +16,10 @@ pub struct LoadScript {
 }
 
 impl LoadScript {
-    pub fn new(script: Script) -> Self {
-        Self { script }
+    pub fn new<DL>(vm_data: &Arc<VmData<DL>>) -> Self {
+        Self {
+            script: vm_data.sg_data.script_group.script.clone(),
+        }
     }
 }
 

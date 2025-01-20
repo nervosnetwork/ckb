@@ -2,7 +2,7 @@ use crate::syscalls::{
     Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
     SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
 };
-use crate::types::{DataLocation, DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
+use crate::types::{DataLocation, DataPieceId, Fd, Message, SpawnArgs, VmContext, VmData, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     machine::SupportMachine,
@@ -20,22 +20,18 @@ where
 {
     id: VmId,
     message_box: Arc<Mutex<Vec<Message>>>,
-    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, Arc<VmData<DL>>>>>,
 }
 
 impl<DL> Spawn<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    pub fn new(
-        id: VmId,
-        message_box: Arc<Mutex<Vec<Message>>>,
-        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
-    ) -> Self {
+    pub fn new(vm_data: &Arc<VmData<DL>>, vm_context: &VmContext<DL>) -> Self {
         Self {
-            id,
-            message_box,
-            snapshot2_context,
+            id: vm_data.vm_id,
+            message_box: Arc::clone(&vm_context.message_box),
+            snapshot2_context: Arc::clone(&vm_context.snapshot2_context),
         }
     }
 }

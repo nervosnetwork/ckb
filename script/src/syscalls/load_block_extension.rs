@@ -1,13 +1,12 @@
-use crate::types::Indices;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
         utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_BLOCK_EXTENSION, SUCCESS,
     },
+    types::VmData,
 };
 use ckb_traits::ExtensionProvider;
-use ckb_types::core::cell::ResolvedTransaction;
 use ckb_types::{
     core::cell::CellMeta,
     packed::{self, Byte32Vec},
@@ -20,37 +19,29 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadBlockExtension<DL> {
-    data_loader: DL,
-    rtx: Arc<ResolvedTransaction>,
-    group_inputs: Indices,
+    vm_data: Arc<VmData<DL>>,
 }
 
 impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
-    pub fn new(
-        data_loader: DL,
-        rtx: Arc<ResolvedTransaction>,
-        group_inputs: Indices,
-    ) -> LoadBlockExtension<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadBlockExtension<DL> {
         LoadBlockExtension {
-            data_loader,
-            rtx,
-            group_inputs,
+            vm_data: Arc::clone(vm_data),
         }
     }
 
     #[inline]
     fn header_deps(&self) -> Byte32Vec {
-        self.rtx.transaction.header_deps()
+        self.vm_data.rtx().transaction.header_deps()
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_inputs
+        &self.vm_data.rtx().resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_cell_deps
+        &self.vm_data.rtx().resolved_cell_deps
     }
 
     fn load_block_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
@@ -64,7 +55,7 @@ impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
             .into_iter()
             .any(|hash| &hash == block_hash)
         {
-            self.data_loader.get_block_extension(block_hash)
+            self.vm_data.data_loader().get_block_extension(block_hash)
         } else {
             None
         }
@@ -88,12 +79,14 @@ impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|block_hash| {
-                    self.data_loader
+                    self.vm_data
+                        .data_loader()
                         .get_block_extension(&block_hash)
                         .ok_or(ITEM_MISSING)
                 }),
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .vm_data
+                .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| {

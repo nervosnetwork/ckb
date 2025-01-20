@@ -1,11 +1,20 @@
+use crate::{
+    types::{DataPieceId, ScriptGroup, ScriptGroupType, ScriptVersion, SgData, TxData, VmData},
+    verify_env::TxVerifyEnv,
+};
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::CellMeta, Capacity, HeaderView},
-    packed::{self, Byte32, CellOutput, OutPoint},
+    core::{
+        cell::{CellMeta, ResolvedTransaction},
+        Capacity, HeaderBuilder, HeaderView,
+    },
+    packed::{self, Byte32, CellOutput, OutPoint, Script},
     prelude::*,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 #[derive(Default, Clone)]
 pub(crate) struct MockDataLoader {
@@ -51,4 +60,50 @@ pub(crate) fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
         mem_cell_data: Some(data),
         mem_cell_data_hash: Some(data_hash),
     }
+}
+
+pub(crate) fn build_tx_data(rtx: Arc<ResolvedTransaction>) -> TxData<MockDataLoader> {
+    build_tx_data_with_loader(rtx, new_mock_data_loader())
+}
+
+pub(crate) fn build_tx_data_with_loader(
+    rtx: Arc<ResolvedTransaction>,
+    data_loader: MockDataLoader,
+) -> TxData<MockDataLoader> {
+    let consensus = ConsensusBuilder::default().build();
+    let tx_env = TxVerifyEnv::new_commit(&HeaderBuilder::default().build());
+
+    TxData {
+        rtx,
+        data_loader,
+        consensus: Arc::new(consensus),
+        tx_env: Arc::new(tx_env),
+        binaries_by_data_hash: HashMap::default(),
+        binaries_by_type_hash: HashMap::default(),
+        lock_groups: BTreeMap::default(),
+        type_groups: BTreeMap::default(),
+        outputs: Vec::new(),
+    }
+}
+
+pub(crate) fn build_vm_data(
+    tx_data: Arc<TxData<MockDataLoader>>,
+    input_indices: Vec<usize>,
+    output_indices: Vec<usize>,
+) -> Arc<VmData<MockDataLoader>> {
+    let script_group = ScriptGroup {
+        script: Script::default(),
+        group_type: ScriptGroupType::Lock,
+        input_indices,
+        output_indices,
+    };
+    Arc::new(VmData {
+        sg_data: Arc::new(SgData {
+            tx_data,
+            script_version: ScriptVersion::latest(),
+            script_group,
+            program_data_piece_id: DataPieceId::CellDep(0),
+        }),
+        vm_id: 0,
+    })
 }
