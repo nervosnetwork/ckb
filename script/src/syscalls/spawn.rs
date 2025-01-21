@@ -1,6 +1,5 @@
-use crate::syscalls::utils::validate_offset_length;
 use crate::syscalls::{
-    Source, INDEX_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
+    Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
     SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
 };
 use crate::types::{DataLocation, DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
@@ -109,17 +108,32 @@ where
             }
         }
 
-        // We are fetching the actual cell here for some in-place validation.
-        if !validate_offset_length(
-            machine,
-            self.snapshot2_context.clone(),
-            &data_piece_id,
-            offset,
-            length,
-        )? {
+        // We are fetching the actual cell here for some in-place validation
+        let mut sc = self
+            .snapshot2_context
+            .lock()
+            .map_err(|e| VMError::Unexpected(e.to_string()))?;
+        let (_, full_length) = match sc.load_data(&data_piece_id, 0, 0) {
+            Ok(val) => val,
+            Err(VMError::SnapshotDataLoadError) => {
+                // This comes from TxData results in an out of bound error, to
+                // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
+                machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
+                return Ok(true);
+            }
+            Err(e) => return Err(e),
+        };
+        if offset >= full_length {
+            machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
             return Ok(true);
         }
-
+        if length > 0 {
+            let end = offset.checked_add(length).ok_or(VMError::MemOutOfBound)?;
+            if end > full_length {
+                machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
+                return Ok(true);
+            }
+        }
         machine.add_cycles_no_checking(SPAWN_EXTRA_CYCLES_BASE)?;
         machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
         self.message_box
