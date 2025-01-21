@@ -827,12 +827,17 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
+    let cycle_bound = if SCRIPT_VERSION >= ScriptVersion::V2 {
+        V2_CYCLE_BOUND
+    } else {
+        CYCLE_BOUND
+    };
     if SCRIPT_VERSION >= ScriptVersion::V1 {
         let mut rng = thread_rng();
         let step_cycles1 = rng.sample(Uniform::from(1..100u64));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles1);
 
-        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - cycle_bound));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles2);
     }
 }
