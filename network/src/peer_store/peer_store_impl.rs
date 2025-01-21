@@ -12,6 +12,7 @@ use crate::{
     Flags, PeerId, SessionType,
 };
 use ipnetwork::IpNetwork;
+use p2p::multiaddr::Protocol;
 use rand::prelude::IteratorRandom;
 use std::collections::{hash_map::Entry, HashMap};
 
@@ -110,7 +111,20 @@ impl PeerStore {
         if self.ban_list.is_addr_banned(&addr) {
             return;
         }
-        if let Some(info) = self.addr_manager.get_mut(&addr) {
+        let base_addr = addr
+            .iter()
+            .filter_map(|p| {
+                if matches!(
+                    p,
+                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
+                ) {
+                    None
+                } else {
+                    Some(p)
+                }
+            })
+            .collect();
+        if let Some(info) = self.addr_manager.get_mut(&base_addr) {
             info.last_connected_at_ms = ckb_systemtime::unix_time_as_millis()
         }
     }
