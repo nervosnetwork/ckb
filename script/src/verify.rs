@@ -183,11 +183,8 @@ where
     }
 
     /// Build syscall: exec. When script version >= V2, this exec implementation is used.
-    pub fn build_exec_v2(
-        &self,
-        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
-    ) -> ExecV2<DL> {
-        ExecV2::new(self.vm_id, Arc::clone(&self.message_box), snapshot2_context)
+    pub fn build_exec_v2(&self) -> ExecV2 {
+        ExecV2::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Build syscall: load_tx
@@ -329,7 +326,7 @@ where
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),
                 if script_version >= ScriptVersion::V2 {
-                    Box::new(self.build_exec_v2(Arc::clone(&snapshot2_context)))
+                    Box::new(self.build_exec_v2())
                 } else {
                     Box::new(self.build_exec(
                         Arc::clone(&script_group_input_indices),

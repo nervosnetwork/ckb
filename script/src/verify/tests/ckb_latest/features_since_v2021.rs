@@ -490,8 +490,17 @@ fn check_exec_big_offset_length() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    if script_version >= ScriptVersion::V1 {
-        assert!(result.unwrap_err().to_string().contains("error code 3"));
+    match script_version {
+        ScriptVersion::V0 => {}
+        ScriptVersion::V1 => {
+            assert!(result.unwrap_err().to_string().contains("error code 3"));
+        }
+        _ => {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("VM Internal Error: ElfParseError"));
+        }
     }
 }
 
@@ -1763,7 +1772,11 @@ fn exec_slice() {
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::OutOfSlice(length + 1);
-    let res = Err("error code 3".to_string());
+    let res = if script_version >= ScriptVersion::V2 {
+        Ok(2)
+    } else {
+        Err("error code 3".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::OutOfSlice(((length - 1) << 32) | 1);

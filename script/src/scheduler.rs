@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
-    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
+    EXEC_LOAD_ELF_V2_CYCLES_BASE, INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED,
+    OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
 };
 use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
@@ -15,6 +15,7 @@ use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
 use ckb_vm::snapshot2::Snapshot2Context;
 use ckb_vm::{
+    bytes::Bytes,
     cost_model::estimate_cycles,
     elf::parse_elf,
     machine::{CoreMachine, DefaultMachineBuilder, Pause, SupportMachine},
@@ -347,7 +348,7 @@ where
         for message in messages {
             match message {
                 Message::ExecV2(vm_id, args) => {
-                    let (_, old_machine) = self
+                    let (old_context, old_machine) = self
                         .instantiated
                         .get_mut(&vm_id)
                         .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
@@ -356,6 +357,25 @@ where
                         .add_cycles_no_checking(EXEC_LOAD_ELF_V2_CYCLES_BASE)?;
                     let old_cycles = old_machine.machine.cycles();
                     let max_cycles = old_machine.machine.max_cycles();
+                    let (program, _full_length) = {
+                        let mut sc = old_context.snapshot2_context().lock().expect("lock");
+                        match sc.load_data(
+                            &args.location.data_piece_id,
+                            args.location.offset,
+                            args.location.length,
+                        ) {
+                            Ok(val) => val,
+                            Err(Error::SnapshotDataLoadError) => {
+                                // This comes from TxData results in an out of bound error, to
+                                // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
+                                old_machine
+                                    .machine
+                                    .set_register(A0, INDEX_OUT_OF_BOUND as u64);
+                                continue;
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    };
                     let (context, mut new_machine) = self.create_dummy_vm(&vm_id)?;
                     new_machine.set_max_cycles(max_cycles);
                     new_machine.machine.add_cycles_no_checking(old_cycles)?;
@@ -363,6 +383,7 @@ where
                         &context,
                         &mut new_machine,
                         &args.location,
+                        program,
                         Some((vm_id, args.argc, args.argv)),
                     )?;
                     // The insert operation removes the old vm instance and adds the new vm instance.
@@ -781,7 +802,11 @@ where
         let id = self.next_vm_id;
         self.next_vm_id += 1;
         let (context, mut machine) = self.create_dummy_vm(&id)?;
-        self.load_vm_program(&context, &mut machine, location, args)?;
+        let (program, _) = {
+            let mut sc = context.snapshot2_context().lock().expect("lock");
+            sc.load_data(&location.data_piece_id, location.offset, location.length)?
+        };
+        self.load_vm_program(&context, &mut machine, location, program, args)?;
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
             // Instantiated is a BTreeMap, first_entry will maintain key order
@@ -804,11 +829,9 @@ where
         context: &MachineContext<DL>,
         machine: &mut Machine,
         location: &DataLocation,
+        program: Bytes,
         args: Option<(u64, u64, u64)>,
     ) -> Result<u64, Error> {
-        let mut sc = context.snapshot2_context().lock().expect("lock");
-        let (program, _) =
-            sc.load_data(&location.data_piece_id, location.offset, location.length)?;
         let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
         let bytes = match args {
             Some((vm_id, argc, argv)) => {
@@ -818,6 +841,7 @@ where
             }
             None => machine.load_program_with_metadata(&program, &metadata, vec![].into_iter())?,
         };
+        let mut sc = context.snapshot2_context().lock().expect("lock");
         sc.mark_program(
             &mut machine.machine,
             &metadata,
