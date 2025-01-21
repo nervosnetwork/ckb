@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    EXEC_LOAD_ELF_V2_CYCLES_BASE, INDEX_OUT_OF_BOUND, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED,
-    OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
+    EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
+    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
 };
 use crate::types::MachineContext;
 use crate::verify::TransactionScriptsSyscallsGenerator;
@@ -357,24 +357,14 @@ where
                         .add_cycles_no_checking(EXEC_LOAD_ELF_V2_CYCLES_BASE)?;
                     let old_cycles = old_machine.machine.cycles();
                     let max_cycles = old_machine.machine.max_cycles();
-                    let (program, _full_length) = {
+                    let program = {
                         let mut sc = old_context.snapshot2_context().lock().expect("lock");
-                        match sc.load_data(
+                        sc.load_data(
                             &args.location.data_piece_id,
                             args.location.offset,
                             args.location.length,
-                        ) {
-                            Ok(val) => val,
-                            Err(Error::SnapshotDataLoadError) => {
-                                // This comes from TxData results in an out of bound error, to
-                                // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
-                                old_machine
-                                    .machine
-                                    .set_register(A0, INDEX_OUT_OF_BOUND as u64);
-                                continue;
-                            }
-                            Err(e) => return Err(e),
-                        }
+                        )?
+                        .0
                     };
                     let (context, mut new_machine) = self.create_dummy_vm(&vm_id)?;
                     new_machine.set_max_cycles(max_cycles);

@@ -1,6 +1,4 @@
-use crate::syscalls::{
-    Place, Source, EXEC, INDEX_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG,
-};
+use crate::syscalls::{EXEC, INDEX_OUT_OF_BOUND};
 use crate::types::{DataLocation, DataPieceId, ExecV2Args, Message, VmId};
 use ckb_vm::{
     registers::{A0, A1, A2, A3, A4, A5, A7},
@@ -32,18 +30,8 @@ where
             return Ok(false);
         }
         let index = machine.registers()[A0].to_u64();
-        let mut source = machine.registers()[A1].to_u64();
+        let source = machine.registers()[A1].to_u64();
         let place = machine.registers()[A2].to_u64();
-        // To keep compatible with the old behavior. When Source is wrong, a
-        // Vm internal error should be returned.
-        if let Source::Group(_) = Source::parse_from_u64(source)? {
-            source = source & SOURCE_ENTRY_MASK | SOURCE_GROUP_FLAG;
-        } else {
-            source &= SOURCE_ENTRY_MASK;
-        }
-        // To keep compatible with the old behavior.
-        Place::parse_from_u64(place)?;
-
         let data_piece_id = match DataPieceId::try_from((source, index, place)) {
             Ok(id) => id,
             Err(_) => {

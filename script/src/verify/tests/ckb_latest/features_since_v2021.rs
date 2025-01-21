@@ -1753,8 +1753,14 @@ fn exec_from_cell_data_source_out_bound() {
 
 #[test]
 fn exec_from_witness_place_error() {
+    let script_version = SCRIPT_VERSION;
+
     let from = ExecFrom::OutOfBound(0, 1, 3, 0);
-    let res = Err("Place parse_from_u64".to_string());
+    let res = if script_version <= ScriptVersion::V1 {
+        Err("Place parse_from_u64".to_string())
+    } else {
+        Err("error code 1".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 }
 
