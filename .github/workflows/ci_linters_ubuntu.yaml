@@ -58,7 +58,7 @@ jobs:
     - run: rustup component add rustfmt
     - run: cargo fmt --all -- --check
     - run: rustup component add clippy
-    - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y
+    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev golang-go
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
             devtools/ci/ci_main.sh
