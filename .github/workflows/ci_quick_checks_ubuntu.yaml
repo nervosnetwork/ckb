@@ -45,6 +45,11 @@ jobs:
         LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_WORKFLOW: ${{ github.workflow }}
+    # Enable caching of the 'ckb-librocksdb-sys' crate by additionally caching the
+    # 'ckb-librocksdb-sys' src directory which is managed by cargo
+    - uses: bmwill/rust-cache@v1 # Fork of 'Swatinem/rust-cache' which allows caching additional paths
+      with:
+        path: ~/.cargo/registry/src/**/ckb-librocksdb-sys-*
   ci_quick_checks_ubuntu:
     name: ci_quick_checks_ubuntu
     needs: prologue
