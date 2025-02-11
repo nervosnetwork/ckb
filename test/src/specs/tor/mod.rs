@@ -11,6 +11,13 @@ pub use tor_connect_normal::*;
 
 use crate::utils::find_available_port;
 
+// Tor bridge:
+// obfs4 46.226.104.16:23022 CE5E1921FD4CB84D40833C1CF68B0892135B9F04 cert=C/FVw98Zeeoayu7pJSfGwkwOFRtzk4sO20xd3XJtB3kTAuSYv3iXwmfcSkXDgeW3SLKwXw iat-mode=0
+// obfs4 57.129.58.231:36884 9BF12EC5EADF1EF97078BB6E4E1CAA5041A38739 cert=GHa8FrPWOSqkdd7Y/rVQZue+gYnaFNJBXVOxBHE1WUSm/QIlxGNo25QS9kJ18OT8kDPccg iat-mode=0
+const TOR_BRIDGES: &[&str] = &[
+ "obfs4 46.226.104.16:23022 CE5E1921FD4CB84D40833C1CF68B0892135B9F04 cert=C/FVw98Zeeoayu7pJSfGwkwOFRtzk4sO20xd3XJtB3kTAuSYv3iXwmfcSkXDgeW3SLKwXw iat-mode=0",
+     "obfs4 57.129.58.231:36884 9BF12EC5EADF1EF97078BB6E4E1CAA5041A38739 cert=GHa8FrPWOSqkdd7Y/rVQZue+gYnaFNJBXVOxBHE1WUSm/QIlxGNo25QS9kJ18OT8kDPccg iat-mode=0"];
+
 #[derive(Clone, Debug)]
 struct TorServer {
     tor_command_path: String,
