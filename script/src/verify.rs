@@ -1,14 +1,14 @@
 use crate::scheduler::Scheduler;
 #[cfg(test)]
 use crate::syscalls::Pause;
-use crate::syscalls::{InheritedFd, ProcessID, EXEC_LOAD_ELF_V2_CYCLES_BASE};
+use crate::syscalls::{InheritedFd, ProcessID};
 use crate::types::{DataPieceId, FullSuspendedState, Message, RunMode, TxData, VmId, FIRST_VM_ID};
 #[cfg(not(target_family = "wasm"))]
 use crate::ChunkCommand;
 use crate::{
     error::{ScriptError, TransactionScriptError},
     syscalls::{
-        Close, CurrentCycles, Debugger, Exec, LoadBlockExtension, LoadCell, LoadCellData,
+        Close, CurrentCycles, Debugger, Exec, ExecV2, LoadBlockExtension, LoadCell, LoadCellData,
         LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, Pipe, Read, Spawn,
         VMVersion, Wait, Write,
     },
@@ -172,20 +172,19 @@ where
     }
 
     /// Build syscall: exec
-    pub fn build_exec(
-        &self,
-        group_inputs: Indices,
-        group_outputs: Indices,
-        load_elf_base_fee: u64,
-    ) -> Exec<DL> {
+    pub fn build_exec(&self, group_inputs: Indices, group_outputs: Indices) -> Exec<DL> {
         Exec::new(
             self.data_loader.clone(),
             Arc::clone(&self.rtx),
             Arc::clone(&self.outputs),
             group_inputs,
             group_outputs,
-            load_elf_base_fee,
         )
+    }
+
+    /// Build syscall: exec. When script version >= V2, this exec implementation is used.
+    pub fn build_exec_v2(&self) -> ExecV2 {
+        ExecV2::new(self.vm_id, Arc::clone(&self.message_box))
     }
 
     /// Build syscall: load_tx
@@ -326,15 +325,14 @@ where
         if script_version >= ScriptVersion::V1 {
             syscalls.append(&mut vec![
                 Box::new(self.build_vm_version()),
-                Box::new(self.build_exec(
-                    Arc::clone(&script_group_input_indices),
-                    Arc::clone(&script_group_output_indices),
-                    if script_version >= ScriptVersion::V2 {
-                        EXEC_LOAD_ELF_V2_CYCLES_BASE
-                    } else {
-                        0
-                    },
-                )),
+                if script_version >= ScriptVersion::V2 {
+                    Box::new(self.build_exec_v2())
+                } else {
+                    Box::new(self.build_exec(
+                        Arc::clone(&script_group_input_indices),
+                        Arc::clone(&script_group_output_indices),
+                    ))
+                },
                 Box::new(self.build_current_cycles()),
             ]);
         }
