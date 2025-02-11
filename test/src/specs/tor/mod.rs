@@ -9,7 +9,7 @@ pub use tor_basic::*;
 pub use tor_connect::*;
 pub use tor_connect_normal::*;
 
-use crate::utils::find_available_port;
+use crate::{global::obfs4proxy_binary, utils::find_available_port};
 
 // Tor bridge:
 // obfs4 46.226.104.16:23022 CE5E1921FD4CB84D40833C1CF68B0892135B9F04 cert=C/FVw98Zeeoayu7pJSfGwkwOFRtzk4sO20xd3XJtB3kTAuSYv3iXwmfcSkXDgeW3SLKwXw iat-mode=0

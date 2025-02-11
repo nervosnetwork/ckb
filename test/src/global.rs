@@ -4,6 +4,8 @@ use std::sync::atomic::AtomicU16;
 
 pub static BINARY_PATH: std::sync::LazyLock<Mutex<PathBuf>> =
     std::sync::LazyLock::new(|| Mutex::new(PathBuf::new()));
+pub static OBFS4PROXY_BINARY_PATH: std::sync::LazyLock<Mutex<PathBuf>> =
+    std::sync::LazyLock::new(|| Mutex::new(PathBuf::new()));
 pub static VENDOR_PATH: std::sync::LazyLock<Mutex<PathBuf>> = std::sync::LazyLock::new(|| {
     let default = ::std::env::current_dir()
         .expect("can't get current_dir")
@@ -15,6 +17,10 @@ pub static PORT_COUNTER: std::sync::LazyLock<AtomicU16> =
 
 pub fn binary() -> PathBuf {
     (*BINARY_PATH.lock()).clone()
+}
+
+pub fn obfs4proxy_binary() -> PathBuf {
+    (*OBFS4PROXY_BINARY_PATH.lock()).clone()
 }
 
 pub fn vendor() -> PathBuf {

@@ -1,5 +1,6 @@
 use ckb_channel::unbounded;
 use ckb_logger::{error, info, warn};
+use ckb_test::global::OBFS4PROXY_BINARY_PATH;
 use ckb_test::specs::*;
 use ckb_test::{
     global::{self, BINARY_PATH, PORT_COUNTER, VENDOR_PATH},
@@ -42,6 +43,10 @@ fn main() {
     let matches = clap_app.get_matches();
 
     let binary = matches.get_one::<PathBuf>("binary").cloned().unwrap();
+    let ofs4poxy_binary = matches
+        .get_one::<PathBuf>("obfs4proxy-bin")
+        .cloned()
+        .unwrap();
     let start_port = matches.get_one::<u16>("port").cloned().unwrap();
     let spec_names_to_run: Vec<_> = matches
         .get_many::<String>("specs")
@@ -102,9 +107,14 @@ fn main() {
     }
 
     *BINARY_PATH.lock() = binary;
+    *OBFS4PROXY_BINARY_PATH.lock() = ofs4poxy_binary;
     *VENDOR_PATH.lock() = vendor;
     PORT_COUNTER.store(start_port, Ordering::SeqCst);
     info!("binary: {}", global::binary().to_string_lossy());
+    info!(
+        "obfs4proxy binary: {}",
+        global::obfs4proxy_binary().to_string_lossy()
+    );
     info!("vendor dir: {}", global::vendor().to_string_lossy());
     info!("start port: {}", PORT_COUNTER.load(Ordering::SeqCst));
     info!("max time: {:?}", max_time);
@@ -280,9 +290,10 @@ fn main() {
     }
 
     info!(
-        "{} --bin {} --port {} {}",
+        "{} --bin {} --obfs4proxy-bin {} --port {} {}",
         canonicalize_path(env::args().next().unwrap_or_else(|| "ckb-test".to_string())).display(),
         canonicalize_path(global::binary()).display(),
+        canonicalize_path(global::obfs4proxy_binary()).display(),
         start_port,
         rerun_specs.join(" "),
     );
@@ -304,6 +315,14 @@ fn clap_app() -> Command {
                 .value_parser(clap::value_parser!(PathBuf))
                 .help("Path to ckb executable")
                 .default_value("../target/release/ckb"),
+        )
+        .arg(
+            Arg::new("obfs4proxy-bin")
+                .long("obfs4proxy-bin")
+                .action(clap::ArgAction::Set)
+                .value_parser(clap::value_parser!(PathBuf))
+                .help("Path to obfs4proxy executable")
+                .default_value("./obfs4/obfs4proxy/obfs4proxy"),
         )
         .arg(
             Arg::new("port")
