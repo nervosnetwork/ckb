@@ -15,7 +15,10 @@ use ckb_vm::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex, RwLock,
+};
 
 #[cfg(has_asm)]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
@@ -963,7 +966,7 @@ pub struct VmContext<DL>
 where
     DL: CellDataProvider,
 {
-    pub(crate) base_cycles: Arc<Mutex<u64>>,
+    pub(crate) base_cycles: Arc<AtomicU64>,
     /// A mutable reference to scheduler's message box
     pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
     pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, Arc<VmData<DL>>>>>,
@@ -978,14 +981,14 @@ where
     /// among different entities.
     pub fn new(vm_data: &Arc<VmData<DL>>, message_box: &Arc<Mutex<Vec<Message>>>) -> Self {
         Self {
-            base_cycles: Arc::new(Mutex::new(0)),
+            base_cycles: Arc::new(AtomicU64::new(0)),
             message_box: Arc::clone(message_box),
             snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(vm_data)))),
         }
     }
 
     pub fn set_base_cycles(&mut self, base_cycles: u64) {
-        *self.base_cycles.lock().expect("lock") = base_cycles;
+        self.base_cycles.store(base_cycles, Ordering::Release);
     }
 }
 

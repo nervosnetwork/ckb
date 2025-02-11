@@ -23,7 +23,10 @@ use ckb_vm::{
     Error, FlattenedArgsReader, Register,
 };
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 /// Root process's id.
 pub const ROOT_VM_ID: VmId = FIRST_VM_ID;
@@ -78,7 +81,7 @@ where
     ///
     /// One can consider that +total_cycles+ contains the total cycles
     /// consumed in current scheduler, when the scheduler is not busy executing.
-    pub total_cycles: Arc<Mutex<Cycle>>,
+    pub total_cycles: Arc<AtomicU64>,
     /// Iteration cycles, see +total_cycles+ on its usage
     pub iteration_cycles: Cycle,
     /// Next vm id used by spawn.
@@ -112,7 +115,7 @@ where
         Self {
             sg_data: Arc::new(sg_data),
             debug_context,
-            total_cycles: Arc::new(Mutex::new(0)),
+            total_cycles: Arc::new(AtomicU64::new(0)),
             iteration_cycles: 0,
             next_vm_id: FIRST_VM_ID,
             next_fd_slot: FIRST_FD_SLOT,
@@ -128,16 +131,19 @@ where
 
     /// Return total cycles.
     pub fn consumed_cycles(&self) -> Cycle {
-        *self.total_cycles.lock().expect("mutex")
+        self.total_cycles.load(Ordering::Acquire)
     }
 
     /// Add cycles to total cycles.
     pub fn consume_cycles(&mut self, cycles: Cycle) -> Result<(), Error> {
-        let mut total_cycles = self.total_cycles.lock().expect("mutex");
-        *total_cycles = (*total_cycles)
-            .checked_add(cycles)
-            .ok_or(Error::CyclesExceeded)?;
-        Ok(())
+        match self
+            .total_cycles
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |total_cycles| {
+                total_cycles.checked_add(cycles)
+            }) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::CyclesExceeded),
+        }
     }
 
     /// Resume a previously suspended scheduler state
@@ -149,7 +155,7 @@ where
         let mut scheduler = Self {
             sg_data: Arc::new(sg_data),
             debug_context,
-            total_cycles: Arc::new(Mutex::new(full.total_cycles)),
+            total_cycles: Arc::new(AtomicU64::new(full.total_cycles)),
             iteration_cycles: 0,
             next_vm_id: full.next_vm_id,
             next_fd_slot: full.next_fd_slot,
@@ -199,7 +205,7 @@ where
             // internal execution logic, it does not belong to VM execution
             // consensus. We are not charging cycles for suspending
             // a VM in the process of suspending the whole scheduler.
-            total_cycles: *self.total_cycles.lock().expect("mutex"),
+            total_cycles: self.total_cycles.load(Ordering::Acquire),
             next_vm_id: self.next_vm_id,
             next_fd_slot: self.next_fd_slot,
             vms,
