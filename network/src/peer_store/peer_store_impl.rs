@@ -157,7 +157,15 @@ impl PeerStore {
     }
 
     /// Get peers for outbound connection, this method randomly return recently connected peer addrs
-    pub fn fetch_addrs_to_attempt(&mut self, count: usize, required_flags: Flags) -> Vec<AddrInfo> {
+    pub fn fetch_addrs_to_attempt<F>(
+        &mut self,
+        count: usize,
+        required_flags: Flags,
+        filter: F,
+    ) -> Vec<AddrInfo>
+    where
+        F: Fn(&AddrInfo) -> bool,
+    {
         // Get info:
         // 1. Not already connected
         // 2. Connected within 3 days
@@ -167,9 +175,10 @@ impl PeerStore {
         let addr_expired_ms = now_ms.saturating_sub(ADDR_TRY_TIMEOUT_MS);
 
         let filter = |peer_addr: &AddrInfo| {
-            extract_peer_id(&peer_addr.addr)
-                .map(|peer_id| !peers.contains_key(&peer_id))
-                .unwrap_or_default()
+            filter(peer_addr)
+                && extract_peer_id(&peer_addr.addr)
+                    .map(|peer_id| !peers.contains_key(&peer_id))
+                    .unwrap_or_default()
                 && peer_addr
                     .connected(|t| t > addr_expired_ms && t <= now_ms.saturating_sub(DIAL_INTERVAL))
                 && required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
@@ -181,7 +190,10 @@ impl PeerStore {
 
     /// Get peers for feeler connection, this method randomly return peer addrs that we never
     /// connected to.
-    pub fn fetch_addrs_to_feeler(&mut self, count: usize) -> Vec<AddrInfo> {
+    pub fn fetch_addrs_to_feeler<F>(&mut self, count: usize, filter: F) -> Vec<AddrInfo>
+    where
+        F: Fn(&AddrInfo) -> bool,
+    {
         // Get info:
         // 1. Not already connected
         // 2. Not already tried in a minute
@@ -192,9 +204,10 @@ impl PeerStore {
         let peers = &self.connected_peers;
 
         let filter = |peer_addr: &AddrInfo| {
-            extract_peer_id(&peer_addr.addr)
-                .map(|peer_id| !peers.contains_key(&peer_id))
-                .unwrap_or_default()
+            filter(peer_addr)
+                && extract_peer_id(&peer_addr.addr)
+                    .map(|peer_id| !peers.contains_key(&peer_id))
+                    .unwrap_or_default()
                 && !peer_addr.tried_in_last_minute(now_ms)
                 && !peer_addr.connected(|t| t > addr_expired_ms)
         };

@@ -55,8 +55,19 @@ impl OutboundPeerService {
 
     fn dial_feeler(&mut self) {
         let now_ms = unix_time_as_millis();
+        let filter = |peer_addr: &AddrInfo| match self.transport_type {
+            TransportType::Tcp => true,
+            TransportType::Ws => peer_addr
+                .addr
+                .iter()
+                .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Tcp(_))),
+            TransportType::Wss => peer_addr
+                .addr
+                .iter()
+                .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_))),
+        };
         let attempt_peers = self.network_state.with_peer_store_mut(|peer_store| {
-            let paddrs = peer_store.fetch_addrs_to_feeler(FEELER_CONNECTION_COUNT);
+            let paddrs = peer_store.fetch_addrs_to_feeler(FEELER_CONNECTION_COUNT, filter);
             for paddr in paddrs.iter() {
                 // mark addr as tried
                 if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&paddr.addr) {
@@ -97,8 +108,20 @@ impl OutboundPeerService {
 
         let target = &self.network_state.required_flags;
 
+        let filter = |peer_addr: &AddrInfo| match self.transport_type {
+            TransportType::Tcp => true,
+            TransportType::Ws => peer_addr
+                .addr
+                .iter()
+                .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Tcp(_))),
+            TransportType::Wss => peer_addr
+                .addr
+                .iter()
+                .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_))),
+        };
+
         let f = |peer_store: &mut PeerStore, number: usize, now_ms: u64| -> Vec<AddrInfo> {
-            let paddrs = peer_store.fetch_addrs_to_attempt(number, *target);
+            let paddrs = peer_store.fetch_addrs_to_attempt(number, *target, filter);
             for paddr in paddrs.iter() {
                 // mark addr as tried
                 if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&paddr.addr) {
