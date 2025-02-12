@@ -97,11 +97,13 @@ pub(crate) fn build_vm_data(
         input_indices,
         output_indices,
     };
+    let script_hash = script_group.script.calc_script_hash();
     Arc::new(VmData {
         sg_data: Arc::new(SgData {
             tx_data,
             script_version: ScriptVersion::latest(),
             script_group,
+            script_hash,
             program_data_piece_id: DataPieceId::CellDep(0),
         }),
         vm_id: 0,
