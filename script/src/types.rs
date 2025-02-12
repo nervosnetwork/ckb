@@ -1,4 +1,3 @@
-use ckb_error::Error;
 use ckb_types::{
     core::{Cycle, ScriptHashType},
     packed::{Byte32, Script},
@@ -186,20 +185,7 @@ impl fmt::Display for ScriptGroupType {
 }
 
 /// Struct specifies which script has verified so far.
-/// Snapshot is lifetime free, but capture snapshot need heavy memory copy
-pub struct TransactionSnapshot {
-    /// current suspended script index
-    pub current: usize,
-    /// vm snapshots
-    pub state: Option<FullSuspendedState>,
-    /// current consumed cycle
-    pub current_cycles: Cycle,
-    /// limit cycles when snapshot create
-    pub limit_cycles: Cycle,
-}
-
-/// Struct specifies which script has verified so far.
-/// State lifetime bound with vm machine.
+/// State is lifetime free, but capture snapshot need heavy memory copy
 pub struct TransactionState {
     /// current suspended script index
     pub current: usize,
@@ -240,41 +226,6 @@ impl TransactionState {
     }
 }
 
-impl TransactionSnapshot {
-    /// Return next limit cycles according to max_cycles and step_cycles
-    pub fn next_limit_cycles(&self, step_cycles: Cycle, max_cycles: Cycle) -> (Cycle, bool) {
-        let remain = max_cycles - self.current_cycles;
-        let next_limit = self.limit_cycles + step_cycles;
-
-        if next_limit < remain {
-            (next_limit, false)
-        } else {
-            (remain, true)
-        }
-    }
-}
-
-impl TryFrom<TransactionState> for TransactionSnapshot {
-    type Error = Error;
-
-    fn try_from(state: TransactionState) -> Result<Self, Self::Error> {
-        let TransactionState {
-            current,
-            state,
-            current_cycles,
-            limit_cycles,
-            ..
-        } = state;
-
-        Ok(TransactionSnapshot {
-            current,
-            state,
-            current_cycles,
-            limit_cycles,
-        })
-    }
-}
-
 /// Enum represent resumable verify result
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
@@ -283,16 +234,6 @@ pub enum VerifyResult {
     Completed(Cycle),
     /// Suspended state
     Suspended(TransactionState),
-}
-
-impl std::fmt::Debug for TransactionSnapshot {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("TransactionSnapshot")
-            .field("current", &self.current)
-            .field("current_cycles", &self.current_cycles)
-            .field("limit_cycles", &self.limit_cycles)
-            .finish()
-    }
 }
 
 impl std::fmt::Debug for TransactionState {
@@ -410,11 +351,24 @@ pub enum VmState {
 }
 
 #[derive(Clone, Debug)]
-pub struct SpawnArgs {
+pub struct DataLocation {
     pub data_piece_id: DataPieceId,
     pub offset: u64,
     pub length: u64,
-    pub argv: Vec<Bytes>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExecV2Args {
+    pub location: DataLocation,
+    pub argc: u64,
+    pub argv: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct SpawnArgs {
+    pub location: DataLocation,
+    pub argc: u64,
+    pub argv: u64,
     pub fds: Vec<Fd>,
     pub process_id_addr: u64,
 }
@@ -441,6 +395,7 @@ pub struct FdArgs {
 
 #[derive(Clone, Debug)]
 pub enum Message {
+    ExecV2(VmId, ExecV2Args),
     Spawn(VmId, SpawnArgs),
     Wait(VmId, WaitArgs),
     Pipe(VmId, PipeArgs),

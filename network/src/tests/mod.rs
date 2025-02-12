@@ -20,7 +20,7 @@ fn random_addr_v6() -> crate::multiaddr::Multiaddr {
 
     multi_addr.push(crate::multiaddr::Protocol::Tcp(43));
     multi_addr.push(crate::multiaddr::Protocol::P2P(
-        crate::PeerId::random().to_base58().into_bytes().into(),
+        crate::PeerId::random().into_bytes().into(),
     ));
     multi_addr
 }

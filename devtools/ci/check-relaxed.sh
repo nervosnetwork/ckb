@@ -5,7 +5,7 @@ set -euo pipefail
 case "$OSTYPE" in
   darwin*)
     if ! type gsed &>/dev/null || ! type ggrep &>/dev/null; then
-      echo "GNU sed and grep not found! You can install via Homebrew" >&2
+      echo "GNU sed and grep not found! You can install them via Homebrew" >&2
       echo >&2
       echo "    brew install grep gnu-sed" >&2
       exit 1

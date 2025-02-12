@@ -91,9 +91,9 @@ TEXT_MAINNET=$(print_60_days_ago_block mainnet https://mainnet.ckb.dev https://e
 
 printf "TestNet:\n"
 TEXT_TESTNET=$(print_60_days_ago_block testnet https://testnet.ckb.dev https://pudge.explorer.nervos.org)
-echo "${TEXT_HEADER}" > util/constant/src/default_assume_valid_target.rs
-echo "${TEXT_MAINNET}" >> util/constant/src/default_assume_valid_target.rs
-echo "${TEXT_TESTNET}" >> util/constant/src/default_assume_valid_target.rs
+echo "${TEXT_HEADER}" > util/constant/src/latest_assume_valid_target.rs
+echo "${TEXT_MAINNET}" >> util/constant/src/latest_assume_valid_target.rs
+echo "${TEXT_TESTNET}" >> util/constant/src/latest_assume_valid_target.rs
 echo
-echo this script has overwrite file: util/constant/src/default_assume_valid_target.rs
+echo this script has overwrite file: util/constant/src/latest_assume_valid_target.rs
 echo Please review the changes

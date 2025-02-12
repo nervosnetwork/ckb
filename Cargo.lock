@@ -1754,7 +1754,6 @@ dependencies = [
  "ckb-stop-handler",
  "ckb-store",
  "ckb-systemtime",
- "ckb-traits",
  "ckb-types",
  "ckb-util",
  "ckb-verification",
@@ -1865,9 +1864,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.12"
+version = "0.24.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddff96029d3298cb630e95f29d4b9a93384e938a0b75758684aa8794b53bdd1a"
+checksum = "49dc9651f4fe97dc45fcbc9d5b35f1e2d66accbab6d78f847d3000336aec4dbf"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1883,9 +1882,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.12"
+version = "0.24.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c280bf1d589d23ab0358f58601c2187fc6be86a131644583ef72ea96a0a13ddd"
+checksum = "95db407ba457416941e70dbaa28fb546d94a4f55be623316d24fb750320b1f45"
 dependencies = [
  "paste",
 ]
@@ -4267,9 +4266,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openssl"
-version = "0.10.68"
+version = "0.10.70"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6174bc48f102d208783c2c84bf931bb75927a617866870de8a4ea85597f871f5"
+checksum = "61cfb4e166a8bb8c9b55c500bc2308550148ece889be90f609377e58140f42c6"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
@@ -4308,9 +4307,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.104"
+version = "0.9.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45abf306cbf99debc8195b66b7346498d7b10c210de50418b5ccd7ceba08c741"
+checksum = "8b22d5b84be05a8d6947c7cb71f7c849aa0f112acd4bf51c2a7c1c988ac0a9dc"
 dependencies = [
  "cc",
  "libc",

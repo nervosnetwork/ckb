@@ -11,6 +11,7 @@ use ckb_systemtime::unix_time_as_millis;
 use ckb_types::prelude::{Pack, Unpack};
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 const MAX_ADDRS: usize = 50;
@@ -586,8 +587,9 @@ impl NetRpc for NetRpcImpl {
             .connected_peers()
             .iter()
             .map(|(peer_index, peer)| {
-                let mut addresses = vec![&peer.connected_addr];
-                addresses.extend(peer.listened_addrs.iter());
+                let addresses: HashSet<_> = std::iter::once(peer.connected_addr.clone())
+                    .chain(peer.listened_addrs.iter().cloned())
+                    .collect();
 
                 let node_addresses = addresses
                     .iter()
@@ -739,7 +741,7 @@ impl NetRpc for NetRpcImpl {
         let unverified_tip = shared.get_unverified_tip();
         let sync_state = SyncState {
             ibd: chain.is_initial_block_download(),
-            assume_valid_target_reached: shared.assume_valid_target().is_none(),
+            assume_valid_target_reached: shared.assume_valid_targets().is_none(),
             assume_valid_target: shared
                 .assume_valid_target_specified()
                 .as_ref()

@@ -11,5 +11,8 @@ pub mod store;
 /// sync constant
 pub mod sync;
 
-/// hardcoded default assume valid target
+/// default assume valid target
 pub mod default_assume_valid_target;
+
+/// hardcoded default assume valid target
+pub mod latest_assume_valid_target;
