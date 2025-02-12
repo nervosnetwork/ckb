@@ -1,5 +1,5 @@
 use crate::syscalls::{SPAWN_YIELD_CYCLES_BASE, WAIT};
-use crate::types::{Message, VmContext, VmData, VmId, WaitArgs};
+use crate::types::{Message, VmContext, VmId, WaitArgs};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     registers::{A0, A1, A7},
@@ -14,12 +14,12 @@ pub struct Wait {
 }
 
 impl Wait {
-    pub fn new<DL>(vm_data: &Arc<VmData<DL>>, vm_context: &VmContext<DL>) -> Self
+    pub fn new<DL>(vm_id: &VmId, vm_context: &VmContext<DL>) -> Self
     where
         DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
     {
         Self {
-            id: vm_data.vm_id,
+            id: *vm_id,
             message_box: Arc::clone(&vm_context.message_box),
         }
     }

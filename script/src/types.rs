@@ -847,6 +847,30 @@ impl<DL> SgData<DL> {
             program_data_piece_id: DataPieceId::CellDep(dep_index),
         })
     }
+
+    pub fn rtx(&self) -> &ResolvedTransaction {
+        &self.tx_data.rtx
+    }
+
+    pub fn data_loader(&self) -> &DL {
+        &self.tx_data.data_loader
+    }
+
+    pub fn group_inputs(&self) -> &[usize] {
+        &self.script_group.input_indices
+    }
+
+    pub fn group_outputs(&self) -> &[usize] {
+        &self.script_group.output_indices
+    }
+
+    pub fn outputs(&self) -> &[CellMeta] {
+        &self.tx_data.outputs
+    }
+
+    pub fn current_script_hash(&self) -> &Byte32 {
+        &self.script_hash
+    }
 }
 
 impl<DL> DataSource<DataPieceId> for Arc<SgData<DL>>
@@ -919,51 +943,6 @@ where
     }
 }
 
-/// Immutable context data at virtual machine level
-#[derive(Clone, Debug)]
-pub struct VmData<DL> {
-    /// Script group level data
-    pub sg_data: Arc<SgData<DL>>,
-
-    /// Currently executed virtual machine ID
-    pub vm_id: VmId,
-}
-
-impl<DL> VmData<DL> {
-    pub fn rtx(&self) -> &ResolvedTransaction {
-        &self.sg_data.tx_data.rtx
-    }
-
-    pub fn data_loader(&self) -> &DL {
-        &self.sg_data.tx_data.data_loader
-    }
-
-    pub fn group_inputs(&self) -> &[usize] {
-        &self.sg_data.script_group.input_indices
-    }
-
-    pub fn group_outputs(&self) -> &[usize] {
-        &self.sg_data.script_group.output_indices
-    }
-
-    pub fn outputs(&self) -> &[CellMeta] {
-        &self.sg_data.tx_data.outputs
-    }
-
-    pub fn current_script_hash(&self) -> &Byte32 {
-        &self.sg_data.script_hash
-    }
-}
-
-impl<DL> DataSource<DataPieceId> for Arc<VmData<DL>>
-where
-    DL: CellDataProvider,
-{
-    fn load_data(&self, id: &DataPieceId, offset: u64, length: u64) -> Option<(Bytes, u64)> {
-        self.sg_data.load_data(id, offset, length)
-    }
-}
-
 /// Mutable data at virtual machine level
 #[derive(Clone)]
 pub struct VmContext<DL>
@@ -973,7 +952,7 @@ where
     pub(crate) base_cycles: Arc<AtomicU64>,
     /// A mutable reference to scheduler's message box
     pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
-    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, Arc<VmData<DL>>>>>,
+    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, Arc<SgData<DL>>>>>,
 }
 
 impl<DL> VmContext<DL>
@@ -983,11 +962,11 @@ where
     /// Creates a new VM context. It is by design that parameters to this function
     /// are references. It is a reminder that the inputs are designed to be shared
     /// among different entities.
-    pub fn new(vm_data: &Arc<VmData<DL>>, message_box: &Arc<Mutex<Vec<Message>>>) -> Self {
+    pub fn new(sg_data: &Arc<SgData<DL>>, message_box: &Arc<Mutex<Vec<Message>>>) -> Self {
         Self {
             base_cycles: Arc::new(AtomicU64::new(0)),
             message_box: Arc::clone(message_box),
-            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(vm_data)))),
+            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(sg_data)))),
         }
     }
 

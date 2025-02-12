@@ -4,7 +4,7 @@ use crate::{
         LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, Pipe,
         ProcessID, Read, Spawn, VMVersion, Wait, Write,
     },
-    types::{CoreMachine, DebugContext, ScriptVersion, VmContext, VmData},
+    types::{CoreMachine, DebugContext, ScriptVersion, SgData, VmContext, VmId},
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::Syscalls;
@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 /// Generate RISC-V syscalls in CKB environment
 pub fn generate_ckb_syscalls<DL>(
-    vm_data: &Arc<VmData<DL>>,
+    vm_id: &VmId,
+    sg_data: &Arc<SgData<DL>>,
     vm_context: &VmContext<DL>,
     debug_context: &DebugContext,
 ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
@@ -20,17 +21,17 @@ where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachine>)>> = vec![
-        Box::new(LoadScriptHash::new(vm_data)),
-        Box::new(LoadTx::new(vm_data)),
-        Box::new(LoadCell::new(vm_data)),
-        Box::new(LoadInput::new(vm_data)),
-        Box::new(LoadHeader::new(vm_data)),
-        Box::new(LoadWitness::new(vm_data)),
-        Box::new(LoadScript::new(vm_data)),
+        Box::new(LoadScriptHash::new(sg_data)),
+        Box::new(LoadTx::new(sg_data)),
+        Box::new(LoadCell::new(sg_data)),
+        Box::new(LoadInput::new(sg_data)),
+        Box::new(LoadHeader::new(sg_data)),
+        Box::new(LoadWitness::new(sg_data)),
+        Box::new(LoadScript::new(sg_data)),
         Box::new(LoadCellData::new(vm_context)),
-        Box::new(Debugger::new(vm_data, debug_context)),
+        Box::new(Debugger::new(sg_data, debug_context)),
     ];
-    let script_version = &vm_data.sg_data.script_version;
+    let script_version = &sg_data.script_version;
     if script_version >= &ScriptVersion::V1 {
         syscalls.append(&mut vec![
             Box::new(VMVersion::new()),
@@ -38,20 +39,20 @@ where
         ]);
     }
     if script_version == &ScriptVersion::V1 {
-        syscalls.push(Box::new(Exec::new(vm_data)));
+        syscalls.push(Box::new(Exec::new(sg_data)));
     }
     if script_version >= &ScriptVersion::V2 {
         syscalls.append(&mut vec![
-            Box::new(ExecV2::new(vm_data, vm_context)),
-            Box::new(LoadBlockExtension::new(vm_data)),
-            Box::new(Spawn::new(vm_data, vm_context)),
-            Box::new(ProcessID::new(vm_data)),
-            Box::new(Pipe::new(vm_data, vm_context)),
-            Box::new(Wait::new(vm_data, vm_context)),
-            Box::new(Write::new(vm_data, vm_context)),
-            Box::new(Read::new(vm_data, vm_context)),
-            Box::new(InheritedFd::new(vm_data, vm_context)),
-            Box::new(Close::new(vm_data, vm_context)),
+            Box::new(ExecV2::new(vm_id, vm_context)),
+            Box::new(LoadBlockExtension::new(sg_data)),
+            Box::new(Spawn::new(vm_id, vm_context)),
+            Box::new(ProcessID::new(vm_id)),
+            Box::new(Pipe::new(vm_id, vm_context)),
+            Box::new(Wait::new(vm_id, vm_context)),
+            Box::new(Write::new(vm_id, vm_context)),
+            Box::new(Read::new(vm_id, vm_context)),
+            Box::new(InheritedFd::new(vm_id, vm_context)),
+            Box::new(Close::new(vm_id, vm_context)),
         ]);
     }
     #[cfg(test)]

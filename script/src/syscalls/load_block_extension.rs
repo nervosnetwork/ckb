@@ -4,7 +4,7 @@ use crate::{
         utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_BLOCK_EXTENSION, SUCCESS,
     },
-    types::VmData,
+    types::SgData,
 };
 use ckb_traits::ExtensionProvider;
 use ckb_types::{
@@ -19,29 +19,29 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadBlockExtension<DL> {
-    vm_data: Arc<VmData<DL>>,
+    sg_data: Arc<SgData<DL>>,
 }
 
 impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
-    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadBlockExtension<DL> {
+    pub fn new(sg_data: &Arc<SgData<DL>>) -> LoadBlockExtension<DL> {
         LoadBlockExtension {
-            vm_data: Arc::clone(vm_data),
+            sg_data: Arc::clone(sg_data),
         }
     }
 
     #[inline]
     fn header_deps(&self) -> Byte32Vec {
-        self.vm_data.rtx().transaction.header_deps()
+        self.sg_data.rtx().transaction.header_deps()
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.vm_data.rtx().resolved_inputs
+        &self.sg_data.rtx().resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.vm_data.rtx().resolved_cell_deps
+        &self.sg_data.rtx().resolved_cell_deps
     }
 
     fn load_block_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
@@ -55,7 +55,7 @@ impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
             .into_iter()
             .any(|hash| &hash == block_hash)
         {
-            self.vm_data.data_loader().get_block_extension(block_hash)
+            self.sg_data.data_loader().get_block_extension(block_hash)
         } else {
             None
         }
@@ -79,13 +79,13 @@ impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|block_hash| {
-                    self.vm_data
+                    self.sg_data
                         .data_loader()
                         .get_block_extension(&block_hash)
                         .ok_or(ITEM_MISSING)
                 }),
             Source::Group(SourceEntry::Input) => self
-                .vm_data
+                .sg_data
                 .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)

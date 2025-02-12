@@ -61,9 +61,9 @@ fn test_current_cycles() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let result = CurrentCycles::new(&vm_context).ecall(&mut machine);
 
@@ -122,9 +122,9 @@ fn _test_load_extension(
     });
 
     let tx_data = Arc::new(build_tx_data_with_loader(rtx, data_loader));
-    let vm_data = build_vm_data(tx_data, vec![0], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![]);
 
-    let mut load_block_extension = LoadBlockExtension::new(&vm_data);
+    let mut load_block_extension = LoadBlockExtension::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()

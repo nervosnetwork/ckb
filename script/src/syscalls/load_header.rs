@@ -5,7 +5,7 @@ use crate::{
         HeaderField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
     },
-    types::VmData,
+    types::SgData,
 };
 use ckb_traits::HeaderProvider;
 use ckb_types::{
@@ -21,13 +21,13 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadHeader<DL> {
-    vm_data: Arc<VmData<DL>>,
+    sg_data: Arc<SgData<DL>>,
 }
 
 impl<DL: HeaderProvider> LoadHeader<DL> {
-    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadHeader<DL> {
+    pub fn new(sg_data: &Arc<SgData<DL>>) -> LoadHeader<DL> {
         LoadHeader {
-            vm_data: Arc::clone(vm_data),
+            sg_data: Arc::clone(sg_data),
         }
     }
 
@@ -37,22 +37,22 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
     // resolved_cell_deps: &'a [CellMeta],
     #[inline]
     fn group_inputs(&self) -> &[usize] {
-        self.vm_data.group_inputs()
+        self.sg_data.group_inputs()
     }
 
     #[inline]
     fn header_deps(&self) -> Byte32Vec {
-        self.vm_data.rtx().transaction.header_deps()
+        self.sg_data.rtx().transaction.header_deps()
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.vm_data.rtx().resolved_inputs
+        &self.sg_data.rtx().resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.vm_data.rtx().resolved_cell_deps
+        &self.sg_data.rtx().resolved_cell_deps
     }
 
     fn load_header(&self, cell_meta: &CellMeta) -> Option<HeaderView> {
@@ -66,11 +66,7 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
             .into_iter()
             .any(|hash| &hash == block_hash)
         {
-            self.vm_data
-                .sg_data
-                .tx_data
-                .data_loader
-                .get_header(block_hash)
+            self.sg_data.tx_data.data_loader.get_header(block_hash)
         } else {
             None
         }
@@ -94,8 +90,7 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|block_hash| {
-                    self.vm_data
-                        .sg_data
+                    self.sg_data
                         .tx_data
                         .data_loader
                         .get_header(&block_hash)

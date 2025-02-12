@@ -1,7 +1,7 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{utils::store_data, LOAD_SCRIPT_HASH_SYSCALL_NUMBER, SUCCESS},
-    types::VmData,
+    types::SgData,
 };
 use ckb_vm::{
     registers::{A0, A7},
@@ -11,13 +11,13 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadScriptHash<DL> {
-    vm_data: Arc<VmData<DL>>,
+    sg_data: Arc<SgData<DL>>,
 }
 
 impl<DL> LoadScriptHash<DL> {
-    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadScriptHash<DL> {
+    pub fn new(sg_data: &Arc<SgData<DL>>) -> LoadScriptHash<DL> {
         LoadScriptHash {
-            vm_data: Arc::clone(vm_data),
+            sg_data: Arc::clone(sg_data),
         }
     }
 }
@@ -32,7 +32,7 @@ impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for LoadScriptHash<DL> 
             return Ok(false);
         }
 
-        let data = self.vm_data.current_script_hash().as_reader().raw_data();
+        let data = self.sg_data.current_script_hash().as_reader().raw_data();
         let wrote_size = store_data(machine, data)?;
 
         machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;

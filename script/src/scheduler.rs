@@ -6,7 +6,7 @@ use crate::syscalls::{
 
 use crate::types::{
     CoreMachineType, DataLocation, DataPieceId, DebugContext, Fd, FdArgs, FullSuspendedState,
-    Machine, Message, ReadState, RunMode, SgData, VmContext, VmData, VmId, VmState, WriteState,
+    Machine, Message, ReadState, RunMode, SgData, VmContext, VmId, VmState, WriteState,
     FIRST_FD_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -884,21 +884,20 @@ where
             // We will update max_cycles for each machine when it gets a chance to run
             u64::MAX,
         );
-        let vm_data = Arc::new(VmData {
-            sg_data: Arc::clone(&self.sg_data),
-            vm_id: *id,
-        });
         let vm_context = VmContext {
             base_cycles: Arc::clone(&self.total_cycles),
             message_box: Arc::clone(&self.message_box),
-            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(&vm_data)))),
+            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(
+                &self.sg_data,
+            )))),
         };
 
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles));
-        let machine_builder = generate_ckb_syscalls(&vm_data, &vm_context, &self.debug_context)
-            .into_iter()
-            .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
+        let machine_builder =
+            generate_ckb_syscalls(id, &self.sg_data, &vm_context, &self.debug_context)
+                .into_iter()
+                .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
         Ok((vm_context, Machine::new(default_machine)))
     }

@@ -1,10 +1,9 @@
 use crate::syscalls::PROCESS_ID;
-use crate::types::VmData;
+use crate::types::VmId;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
 
 #[derive(Debug, Default)]
 pub struct ProcessID {
@@ -12,8 +11,8 @@ pub struct ProcessID {
 }
 
 impl ProcessID {
-    pub fn new<DL>(vm_data: &Arc<VmData<DL>>) -> Self {
-        Self { id: vm_data.vm_id }
+    pub fn new(vm_id: &VmId) -> Self {
+        Self { id: *vm_id }
     }
 }
 

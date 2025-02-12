@@ -1,5 +1,5 @@
 use crate::{
-    types::{DataPieceId, ScriptGroup, ScriptGroupType, ScriptVersion, SgData, TxData, VmData},
+    types::{DataPieceId, ScriptGroup, ScriptGroupType, ScriptVersion, SgData, TxData},
     verify_env::TxVerifyEnv,
 };
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -86,11 +86,11 @@ pub(crate) fn build_tx_data_with_loader(
     }
 }
 
-pub(crate) fn build_vm_data(
+pub(crate) fn build_sg_data(
     tx_data: Arc<TxData<MockDataLoader>>,
     input_indices: Vec<usize>,
     output_indices: Vec<usize>,
-) -> Arc<VmData<MockDataLoader>> {
+) -> Arc<SgData<MockDataLoader>> {
     let script_group = ScriptGroup {
         script: Script::default(),
         group_type: ScriptGroupType::Lock,
@@ -98,14 +98,11 @@ pub(crate) fn build_vm_data(
         output_indices,
     };
     let script_hash = script_group.script.calc_script_hash();
-    Arc::new(VmData {
-        sg_data: Arc::new(SgData {
-            tx_data,
-            script_version: ScriptVersion::latest(),
-            script_group,
-            script_hash,
-            program_data_piece_id: DataPieceId::CellDep(0),
-        }),
-        vm_id: 0,
+    Arc::new(SgData {
+        tx_data,
+        script_version: ScriptVersion::latest(),
+        script_group,
+        script_hash,
+        program_data_piece_id: DataPieceId::CellDep(0),
     })
 }

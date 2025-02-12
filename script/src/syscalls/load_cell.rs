@@ -4,7 +4,7 @@ use crate::{
         utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
     },
-    types::{TxData, VmData},
+    types::{SgData, TxData},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_traits::CellDataProvider;
@@ -20,29 +20,29 @@ use ckb_vm::{
 use std::sync::Arc;
 
 pub struct LoadCell<DL> {
-    vm_data: Arc<VmData<DL>>,
+    sg_data: Arc<SgData<DL>>,
 }
 
 impl<DL: CellDataProvider> LoadCell<DL> {
-    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadCell<DL> {
+    pub fn new(sg_data: &Arc<SgData<DL>>) -> LoadCell<DL> {
         LoadCell {
-            vm_data: Arc::clone(vm_data),
+            sg_data: Arc::clone(sg_data),
         }
     }
 
     #[inline]
     fn tx_data(&self) -> &TxData<DL> {
-        &self.vm_data.sg_data.tx_data
+        &self.sg_data.tx_data
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.vm_data.rtx().resolved_inputs
+        &self.sg_data.rtx().resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.vm_data.rtx().resolved_cell_deps
+        &self.sg_data.rtx().resolved_cell_deps
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
@@ -59,7 +59,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 .ok_or(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
-                .vm_data
+                .sg_data
                 .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
@@ -69,7 +69,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                         .ok_or(INDEX_OUT_OF_BOUND)
                 }),
             Source::Group(SourceEntry::Output) => self
-                .vm_data
+                .sg_data
                 .group_outputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)

@@ -1,5 +1,5 @@
 use crate::syscalls::{EXEC, INDEX_OUT_OF_BOUND};
-use crate::types::{DataLocation, DataPieceId, ExecV2Args, Message, VmContext, VmData, VmId};
+use crate::types::{DataLocation, DataPieceId, ExecV2Args, Message, VmContext, VmId};
 use ckb_traits::CellDataProvider;
 use ckb_vm::{
     registers::{A0, A1, A2, A3, A4, A5, A7},
@@ -13,12 +13,9 @@ pub struct ExecV2 {
 }
 
 impl ExecV2 {
-    pub fn new<DL: CellDataProvider>(
-        vm_data: &Arc<VmData<DL>>,
-        vm_context: &VmContext<DL>,
-    ) -> ExecV2 {
+    pub fn new<DL: CellDataProvider>(vm_id: &VmId, vm_context: &VmContext<DL>) -> ExecV2 {
         ExecV2 {
-            id: vm_data.vm_id,
+            id: *vm_id,
             message_box: Arc::clone(&vm_context.message_box),
         }
     }

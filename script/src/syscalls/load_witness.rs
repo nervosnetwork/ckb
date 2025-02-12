@@ -4,7 +4,7 @@ use crate::{
         utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_WITNESS_SYSCALL_NUMBER,
         SUCCESS,
     },
-    types::VmData,
+    types::SgData,
 };
 use ckb_types::packed::{Bytes, BytesVec};
 use ckb_vm::{
@@ -15,30 +15,30 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadWitness<DL> {
-    vm_data: Arc<VmData<DL>>,
+    sg_data: Arc<SgData<DL>>,
 }
 
 impl<DL> LoadWitness<DL> {
-    pub fn new(vm_data: &Arc<VmData<DL>>) -> Self {
+    pub fn new(sg_data: &Arc<SgData<DL>>) -> Self {
         LoadWitness {
-            vm_data: Arc::clone(vm_data),
+            sg_data: Arc::clone(sg_data),
         }
     }
 
     #[inline]
     fn witnesses(&self) -> BytesVec {
-        self.vm_data.rtx().transaction.witnesses()
+        self.sg_data.rtx().transaction.witnesses()
     }
 
     fn fetch_witness(&self, source: Source, index: usize) -> Option<Bytes> {
         match source {
             Source::Group(SourceEntry::Input) => self
-                .vm_data
+                .sg_data
                 .group_inputs()
                 .get(index)
                 .and_then(|actual_index| self.witnesses().get(*actual_index)),
             Source::Group(SourceEntry::Output) => self
-                .vm_data
+                .sg_data
                 .group_outputs()
                 .get(index)
                 .and_then(|actual_index| self.witnesses().get(*actual_index)),

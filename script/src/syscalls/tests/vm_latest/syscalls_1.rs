@@ -1,4 +1,4 @@
-use crate::types::{VmContext, VmData};
+use crate::types::VmContext;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use ckb_hash::blake2b_256;
 use ckb_types::{
@@ -59,9 +59,9 @@ fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
         tx_data.outputs = vec![output];
         Arc::new(tx_data)
     };
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
@@ -105,9 +105,9 @@ fn _test_load_cell_all(data: &[u8]) -> Result<(), TestCaseError> {
         tx_data.outputs = vec![output.clone()];
         Arc::new(tx_data)
     };
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     let input_correct_data = input_cell.cell_output.as_slice();
     let output_correct_data = output.cell_output.as_slice();
@@ -199,9 +199,9 @@ fn _test_load_cell_from_group(data: &[u8], source: SourceEntry) -> Result<(), Te
         tx_data.outputs = vec![output.clone()];
         Arc::new(tx_data)
     };
-    let vm_data = build_vm_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     let input_correct_data = input_cell.cell_output.as_slice();
     let output_correct_data = output.cell_output.as_slice();
@@ -290,9 +290,9 @@ fn _test_load_cell_out_of_bound(index: u64, source: u64) -> Result<(), TestCaseE
         tx_data.outputs = vec![output];
         Arc::new(tx_data)
     };
-    let vm_data = build_vm_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
@@ -352,9 +352,9 @@ fn _test_load_cell_length(data: &[u8]) -> Result<(), TestCaseError> {
         tx_data.outputs = vec![output];
         Arc::new(tx_data)
     };
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     let input_correct_data = input_cell.cell_output.as_slice();
 
@@ -408,9 +408,9 @@ fn _test_load_cell_partial(data: &[u8], offset: u64) -> Result<(), TestCaseError
         tx_data.outputs = vec![output];
         Arc::new(tx_data)
     };
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     let input_correct_data = input_cell.cell_output.as_slice();
 
@@ -472,9 +472,9 @@ fn _test_load_cell_capacity(capacity: Capacity) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(machine.memory_mut().store64(&size_addr, &16).is_ok());
 
@@ -531,9 +531,9 @@ fn _test_load_cell_occupied_capacity(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(machine.memory_mut().store64(&size_addr, &16).is_ok());
 
@@ -591,9 +591,9 @@ fn test_load_missing_data_hash() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
 
@@ -641,9 +641,9 @@ fn _test_load_missing_contract(field: CellField) {
         tx_data.outputs = vec![output_cell];
         Arc::new(tx_data)
     };
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
 
@@ -713,9 +713,9 @@ fn _test_load_header(
     });
 
     let tx_data = Arc::new(build_tx_data_with_loader(rtx, data_loader));
-    let vm_data = build_vm_data(tx_data, vec![0], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![]);
 
-    let mut load_header = LoadHeader::new(&vm_data);
+    let mut load_header = LoadHeader::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -831,9 +831,9 @@ fn _test_load_header_by_field(data: &[u8], field: HeaderField) -> Result<(), Tes
     });
 
     let tx_data = Arc::new(build_tx_data_with_loader(rtx, data_loader));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_header = LoadHeader::new(&vm_data);
+    let mut load_header = LoadHeader::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -884,9 +884,9 @@ fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_tx = LoadTx::new(&vm_data);
+    let mut load_tx = LoadTx::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -938,9 +938,9 @@ fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_tx = LoadTx::new(&vm_data);
+    let mut load_tx = LoadTx::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -993,19 +993,16 @@ fn _test_load_current_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
     // Swap the internal script in VmData
-    let vm_data = {
-        let mut sg_data = vm_data.sg_data.as_ref().clone();
+    let sg_data = {
+        let mut sg_data = sg_data.as_ref().clone();
         sg_data.script_hash = script.calc_script_hash();
         sg_data.script_group.script = script;
-        Arc::new(VmData {
-            sg_data: Arc::new(sg_data),
-            vm_id: vm_data.vm_id,
-        })
+        Arc::new(sg_data)
     };
 
-    let mut load_script_hash = LoadScriptHash::new(&vm_data);
+    let mut load_script_hash = LoadScriptHash::new(&sg_data);
 
     prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());
 
@@ -1078,9 +1075,9 @@ fn _test_load_input_lock_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());
 
@@ -1141,9 +1138,9 @@ fn _test_load_input_lock_script(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -1207,9 +1204,9 @@ fn _test_load_input_type_script(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -1275,9 +1272,9 @@ fn _test_load_input_type_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_cell = LoadCell::new(&vm_data);
+    let mut load_cell = LoadCell::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -1332,9 +1329,9 @@ fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseEr
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let mut load_witness = LoadWitness::new(&vm_data);
+    let mut load_witness = LoadWitness::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -1398,9 +1395,9 @@ fn _test_load_group_witness(data: &[u8], source: SourceEntry) -> Result<(), Test
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![1], vec![1]);
+    let sg_data = build_sg_data(tx_data, vec![1], vec![1]);
 
-    let mut load_witness = LoadWitness::new(&vm_data);
+    let mut load_witness = LoadWitness::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -1455,19 +1452,16 @@ fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
     // Swap the internal script in VmData
-    let vm_data = {
-        let mut sg_data = vm_data.sg_data.as_ref().clone();
+    let sg_data = {
+        let mut sg_data = sg_data.as_ref().clone();
         sg_data.script_hash = script.calc_script_hash();
         sg_data.script_group.script = script.clone();
-        Arc::new(VmData {
-            sg_data: Arc::new(sg_data),
-            vm_id: vm_data.vm_id,
-        })
+        Arc::new(sg_data)
     };
 
-    let mut load_script = LoadScript::new(&vm_data);
+    let mut load_script = LoadScript::new(&sg_data);
 
     prop_assert!(machine
         .memory_mut()
@@ -1531,9 +1525,9 @@ fn _test_load_cell_data_as_code(
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1599,9 +1593,9 @@ fn _test_load_cell_data(
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1702,9 +1696,9 @@ fn test_load_overflowed_cell_data_as_code() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1747,9 +1741,9 @@ fn _test_load_cell_data_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseErr
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1790,9 +1784,9 @@ fn _test_load_cell_data_as_code_on_freezed_memory(data: &[u8]) -> Result<(), Tes
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1844,9 +1838,9 @@ fn test_load_code_unaligned_error() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1885,9 +1879,9 @@ fn test_load_code_slice_out_of_bound_error() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1929,9 +1923,9 @@ fn test_load_code_not_enough_space_error() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![], vec![]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -1996,9 +1990,9 @@ fn _test_load_input(
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![0], vec![]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![]);
 
-    let mut load_input = LoadInput::new(&vm_data);
+    let mut load_input = LoadInput::new(&sg_data);
 
     let mut buffer = vec![];
     let expect = if let Some(field) = field {
@@ -2136,9 +2130,9 @@ fn test_load_cell_data_size_zero() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 
@@ -2176,9 +2170,9 @@ fn test_load_cell_data_size_zero_index_out_of_bound() {
     });
 
     let tx_data = Arc::new(build_tx_data(rtx));
-    let vm_data = build_vm_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
 
-    let vm_context = VmContext::new(&vm_data, &Arc::new(Mutex::new(Vec::new())));
+    let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
     let mut load_code = LoadCellData::new(&vm_context);
 

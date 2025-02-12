@@ -1,4 +1,4 @@
-use crate::types::{DebugContext, DebugPrinter, VmData};
+use crate::types::{DebugContext, DebugPrinter, SgData};
 use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
 use ckb_vm::{
     registers::{A0, A7},
@@ -7,14 +7,14 @@ use ckb_vm::{
 use std::sync::Arc;
 
 pub struct Debugger<DL> {
-    vm_data: Arc<VmData<DL>>,
+    sg_data: Arc<SgData<DL>>,
     printer: DebugPrinter,
 }
 
 impl<DL> Debugger<DL> {
-    pub fn new(vm_data: &Arc<VmData<DL>>, debug_context: &DebugContext) -> Debugger<DL> {
+    pub fn new(sg_data: &Arc<SgData<DL>>, debug_context: &DebugContext) -> Debugger<DL> {
         Debugger {
-            vm_data: Arc::clone(vm_data),
+            sg_data: Arc::clone(sg_data),
             printer: Arc::clone(&debug_context.debug_printer),
         }
     }
@@ -49,7 +49,7 @@ impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for Debugger<DL> {
         machine.add_cycles_no_checking(transferred_byte_cycles(buffer.len() as u64))?;
         let s = String::from_utf8(buffer)
             .map_err(|e| VMError::External(format!("String from buffer {e:?}")))?;
-        (self.printer)(self.vm_data.current_script_hash(), s.as_str());
+        (self.printer)(self.sg_data.current_script_hash(), s.as_str());
 
         Ok(true)
     }
