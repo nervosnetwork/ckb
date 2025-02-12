@@ -1460,6 +1460,7 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-error",
  "ckb-logger",
+ "ckb-network",
  "ckb-stop-handler",
  "tempfile",
  "tentacle-multiaddr",

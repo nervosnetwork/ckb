@@ -20,3 +20,4 @@ multiaddr = { git = "https://github.com/eval-exec/tentacle.git", branch="exec/pr
 
 [dev-dependencies]
 tempfile.workspace = true
+ckb-network = { path = "../../network", version = "= 0.200.0-pre" }
