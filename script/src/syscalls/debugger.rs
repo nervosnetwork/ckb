@@ -1,27 +1,26 @@
 use crate::types::{DebugContext, DebugPrinter, VmData};
 use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
-use ckb_types::packed::Byte32;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
 use std::sync::Arc;
 
-pub struct Debugger {
-    hash: Byte32,
+pub struct Debugger<DL> {
+    vm_data: Arc<VmData<DL>>,
     printer: DebugPrinter,
 }
 
-impl Debugger {
-    pub fn new<DL>(vm_data: &Arc<VmData<DL>>, debug_context: &DebugContext) -> Debugger {
+impl<DL> Debugger<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>, debug_context: &DebugContext) -> Debugger<DL> {
         Debugger {
-            hash: vm_data.current_script_hash(),
+            vm_data: Arc::clone(vm_data),
             printer: Arc::clone(&debug_context.debug_printer),
         }
     }
 }
 
-impl<Mac: SupportMachine> Syscalls<Mac> for Debugger {
+impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for Debugger<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
@@ -50,7 +49,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Debugger {
         machine.add_cycles_no_checking(transferred_byte_cycles(buffer.len() as u64))?;
         let s = String::from_utf8(buffer)
             .map_err(|e| VMError::External(format!("String from buffer {e:?}")))?;
-        (self.printer)(&self.hash, s.as_str());
+        (self.printer)(self.vm_data.current_script_hash(), s.as_str());
 
         Ok(true)
     }

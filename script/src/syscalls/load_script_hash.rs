@@ -3,7 +3,6 @@ use crate::{
     syscalls::{utils::store_data, LOAD_SCRIPT_HASH_SYSCALL_NUMBER, SUCCESS},
     types::VmData,
 };
-use ckb_types::packed::Byte32;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -11,19 +10,19 @@ use ckb_vm::{
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct LoadScriptHash {
-    hash: Byte32,
+pub struct LoadScriptHash<DL> {
+    vm_data: Arc<VmData<DL>>,
 }
 
-impl LoadScriptHash {
-    pub fn new<DL>(vm_data: &Arc<VmData<DL>>) -> LoadScriptHash {
+impl<DL> LoadScriptHash<DL> {
+    pub fn new(vm_data: &Arc<VmData<DL>>) -> LoadScriptHash<DL> {
         LoadScriptHash {
-            hash: vm_data.sg_data.script_group.script.calc_script_hash(),
+            vm_data: Arc::clone(vm_data),
         }
     }
 }
 
-impl<Mac: SupportMachine> Syscalls<Mac> for LoadScriptHash {
+impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for LoadScriptHash<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
@@ -33,7 +32,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for LoadScriptHash {
             return Ok(false);
         }
 
-        let data = self.hash.as_reader().raw_data();
+        let data = self.vm_data.current_script_hash().as_reader().raw_data();
         let wrote_size = store_data(machine, data)?;
 
         machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;

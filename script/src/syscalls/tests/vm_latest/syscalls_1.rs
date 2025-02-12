@@ -997,6 +997,7 @@ fn _test_load_current_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
     // Swap the internal script in VmData
     let vm_data = {
         let mut sg_data = vm_data.sg_data.as_ref().clone();
+        sg_data.script_hash = script.calc_script_hash();
         sg_data.script_group.script = script;
         Arc::new(VmData {
             sg_data: Arc::new(sg_data),
@@ -1458,6 +1459,7 @@ fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
     // Swap the internal script in VmData
     let vm_data = {
         let mut sg_data = vm_data.sg_data.as_ref().clone();
+        sg_data.script_hash = script.calc_script_hash();
         sg_data.script_group.script = script.clone();
         Arc::new(VmData {
             sg_data: Arc::new(sg_data),

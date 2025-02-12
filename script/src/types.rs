@@ -825,12 +825,15 @@ pub struct SgData<DL> {
     pub script_version: ScriptVersion,
     /// Currently executed script group
     pub script_group: ScriptGroup,
+    /// Currently executed script hash
+    pub script_hash: Byte32,
     /// DataPieceId for the root program
     pub program_data_piece_id: DataPieceId,
 }
 
 impl<DL> SgData<DL> {
     pub fn new(tx_data: &Arc<TxData<DL>>, script_group: &ScriptGroup) -> Result<Self, ScriptError> {
+        let script_hash = script_group.script.calc_script_hash();
         let script_version = tx_data.select_version(&script_group.script)?;
         let dep_index = tx_data
             .extract_referenced_dep_index(&script_group.script)?
@@ -839,6 +842,7 @@ impl<DL> SgData<DL> {
         Ok(Self {
             tx_data: Arc::clone(tx_data),
             script_version,
+            script_hash,
             script_group: script_group.clone(),
             program_data_piece_id: DataPieceId::CellDep(dep_index),
         })
@@ -946,8 +950,8 @@ impl<DL> VmData<DL> {
         &self.sg_data.tx_data.outputs
     }
 
-    pub fn current_script_hash(&self) -> Byte32 {
-        self.sg_data.script_group.script.calc_script_hash()
+    pub fn current_script_hash(&self) -> &Byte32 {
+        &self.sg_data.script_hash
     }
 }
 
