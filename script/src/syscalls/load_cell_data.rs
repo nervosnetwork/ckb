@@ -20,7 +20,7 @@ pub struct LoadCellData<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, Arc<SgData<DL>>>>>,
+    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, SgData<DL>>>>,
 }
 
 impl<DL> LoadCellData<DL>

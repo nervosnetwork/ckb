@@ -60,8 +60,7 @@ fn test_current_cycles() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -121,8 +120,7 @@ fn _test_load_extension(
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data_with_loader(rtx, data_loader));
-    let sg_data = build_sg_data(tx_data, vec![0], vec![]);
+    let sg_data = build_sg_data_with_loader(rtx, data_loader, vec![0], vec![]);
 
     let mut load_block_extension = LoadBlockExtension::new(&sg_data);
 

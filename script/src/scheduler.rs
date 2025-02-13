@@ -48,7 +48,7 @@ where
     DL: CellDataProvider,
 {
     /// Immutable context data for current running transaction & script.
-    pub sg_data: Arc<SgData<DL>>,
+    pub sg_data: SgData<DL>,
 
     /// Mutable context data used by current scheduler
     pub debug_context: DebugContext,
@@ -113,7 +113,7 @@ where
     /// Create a new scheduler from empty state
     pub fn new(sg_data: SgData<DL>, debug_context: DebugContext) -> Self {
         Self {
-            sg_data: Arc::new(sg_data),
+            sg_data,
             debug_context,
             total_cycles: Arc::new(AtomicU64::new(0)),
             iteration_cycles: 0,
@@ -153,7 +153,7 @@ where
         full: FullSuspendedState,
     ) -> Self {
         let mut scheduler = Self {
-            sg_data: Arc::new(sg_data),
+            sg_data,
             debug_context,
             total_cycles: Arc::new(AtomicU64::new(full.total_cycles)),
             iteration_cycles: 0,
@@ -232,7 +232,7 @@ where
     pub fn run(&mut self, mode: RunMode) -> Result<(i8, Cycle), Error> {
         if self.states.is_empty() {
             // Booting phase, we will need to initialize the first VM.
-            let program_id = self.sg_data.program_data_piece_id.clone();
+            let program_id = self.sg_data.sg_info.program_data_piece_id.clone();
             assert_eq!(
                 self.boot_vm(
                     &DataLocation {
@@ -877,7 +877,7 @@ where
         // The code here looks slightly weird, since I don't want to copy over all syscall
         // impls here again. Ideally, this scheduler package should be merged with ckb-script,
         // or simply replace ckb-script. That way, the quirks here will be eliminated.
-        let version = &self.sg_data.script_version;
+        let version = &self.sg_data.sg_info.script_version;
         let core_machine = CoreMachineType::new(
             version.vm_isa(),
             version.vm_version(),
@@ -887,9 +887,7 @@ where
         let vm_context = VmContext {
             base_cycles: Arc::clone(&self.total_cycles),
             message_box: Arc::clone(&self.message_box),
-            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(
-                &self.sg_data,
-            )))),
+            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(self.sg_data.clone()))),
         };
 
         let machine_builder = DefaultMachineBuilder::new(core_machine)

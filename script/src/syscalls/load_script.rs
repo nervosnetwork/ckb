@@ -1,7 +1,7 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{utils::store_data, LOAD_SCRIPT_SYSCALL_NUMBER, SUCCESS},
-    types::SgData,
+    types::{SgData, SgInfo},
 };
 use ckb_types::prelude::*;
 use ckb_vm::{
@@ -11,19 +11,19 @@ use ckb_vm::{
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct LoadScript<DL> {
-    sg_data: Arc<SgData<DL>>,
+pub struct LoadScript {
+    sg_info: Arc<SgInfo>,
 }
 
-impl<DL> LoadScript<DL> {
-    pub fn new(sg_data: &Arc<SgData<DL>>) -> Self {
+impl LoadScript {
+    pub fn new<DL>(sg_data: &SgData<DL>) -> Self {
         Self {
-            sg_data: Arc::clone(sg_data),
+            sg_info: Arc::clone(&sg_data.sg_info),
         }
     }
 }
 
-impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for LoadScript<DL> {
+impl<Mac: SupportMachine> Syscalls<Mac> for LoadScript {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
@@ -33,7 +33,7 @@ impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for LoadScript<DL> {
             return Ok(false);
         }
 
-        let data = self.sg_data.script_group.script.as_slice();
+        let data = self.sg_info.script_group.script.as_slice();
         let wrote_size = store_data(machine, data)?;
 
         machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;

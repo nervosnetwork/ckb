@@ -11,23 +11,22 @@ use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadWitness<DL> {
-    sg_data: Arc<SgData<DL>>,
+    sg_data: SgData<DL>,
 }
 
-impl<DL> LoadWitness<DL> {
-    pub fn new(sg_data: &Arc<SgData<DL>>) -> Self {
+impl<DL: Clone> LoadWitness<DL> {
+    pub fn new(sg_data: &SgData<DL>) -> Self {
         LoadWitness {
-            sg_data: Arc::clone(sg_data),
+            sg_data: sg_data.clone(),
         }
     }
 
     #[inline]
     fn witnesses(&self) -> BytesVec {
-        self.sg_data.rtx().transaction.witnesses()
+        self.sg_data.rtx.transaction.witnesses()
     }
 
     fn fetch_witness(&self, source: Source, index: usize) -> Option<Bytes> {
@@ -49,7 +48,7 @@ impl<DL> LoadWitness<DL> {
     }
 }
 
-impl<Mac: SupportMachine, DL: Sync + Send> Syscalls<Mac> for LoadWitness<DL> {
+impl<Mac: SupportMachine, DL: Sync + Send + Clone> Syscalls<Mac> for LoadWitness<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

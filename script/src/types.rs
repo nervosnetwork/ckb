@@ -564,6 +564,15 @@ impl Binaries {
 pub struct TxData<DL> {
     /// ResolvedTransaction.
     pub rtx: Arc<ResolvedTransaction>,
+
+    /// Passed & derived information.
+    pub info: Arc<TxInfo<DL>>,
+}
+
+/// Information that is either passed as the context of the transaction,
+/// or can be derived from the transaction.
+#[derive(Clone, Debug)]
+pub struct TxInfo<DL> {
     /// Data loader.
     pub data_loader: DL,
     /// Chain consensus parameters
@@ -663,17 +672,30 @@ where
 
         Self {
             rtx,
-            data_loader,
-            consensus,
-            tx_env,
-            binaries_by_data_hash,
-            binaries_by_type_hash,
-            lock_groups,
-            type_groups,
-            outputs,
+            info: Arc::new(TxInfo {
+                data_loader,
+                consensus,
+                tx_env,
+                binaries_by_data_hash,
+                binaries_by_type_hash,
+                lock_groups,
+                type_groups,
+                outputs,
+            }),
         }
     }
 
+    #[inline]
+    /// Extracts actual script binary either in dep cells.
+    pub fn extract_script(&self, script: &Script) -> Result<Bytes, ScriptError> {
+        self.info.extract_script(script)
+    }
+}
+
+impl<DL> TxInfo<DL>
+where
+    DL: CellDataProvider,
+{
     #[inline]
     /// Extracts actual script binary either in dep cells.
     pub fn extract_script(&self, script: &Script) -> Result<Bytes, ScriptError> {
@@ -683,6 +705,50 @@ where
 }
 
 impl<DL> TxData<DL> {
+    #[inline]
+    /// Calculates transaction hash
+    pub fn tx_hash(&self) -> Byte32 {
+        self.rtx.transaction.hash()
+    }
+
+    #[inline]
+    /// Extracts the index of the script binary in dep cells
+    pub fn extract_referenced_dep_index(&self, script: &Script) -> Result<usize, ScriptError> {
+        self.info.extract_referenced_dep_index(script)
+    }
+
+    #[inline]
+    /// Finds the script group from cell deps.
+    pub fn find_script_group(
+        &self,
+        script_group_type: ScriptGroupType,
+        script_hash: &Byte32,
+    ) -> Option<&ScriptGroup> {
+        self.info.find_script_group(script_group_type, script_hash)
+    }
+
+    #[inline]
+    /// Returns the version of the machine based on the script and the consensus rules.
+    pub fn select_version(&self, script: &Script) -> Result<ScriptVersion, ScriptError> {
+        self.info.select_version(script)
+    }
+
+    #[inline]
+    /// Returns all script groups.
+    pub fn groups(&self) -> impl Iterator<Item = (&'_ Byte32, &'_ ScriptGroup)> {
+        self.info.groups()
+    }
+
+    #[inline]
+    /// Returns all script groups with type.
+    pub fn groups_with_type(
+        &self,
+    ) -> impl Iterator<Item = (ScriptGroupType, &'_ Byte32, &'_ ScriptGroup)> {
+        self.info.groups_with_type()
+    }
+}
+
+impl<DL> TxInfo<DL> {
     #[inline]
     /// Extracts the index of the script binary in dep cells
     pub fn extract_referenced_dep_index(&self, script: &Script) -> Result<usize, ScriptError> {
@@ -717,12 +783,6 @@ impl<DL> TxData<DL> {
                 }
             }
         }
-    }
-
-    #[inline]
-    /// Calculates transaction hash
-    pub fn tx_hash(&self) -> Byte32 {
-        self.rtx.transaction.hash()
     }
 
     /// Finds the script group from cell deps.
@@ -818,9 +878,19 @@ impl<DL> TxData<DL> {
 /// Immutable context data at script group level
 #[derive(Clone, Debug)]
 pub struct SgData<DL> {
-    /// Transaction level data
-    pub tx_data: Arc<TxData<DL>>,
+    /// ResolvedTransaction.
+    pub rtx: Arc<ResolvedTransaction>,
 
+    /// Passed & derived information at transaction level.
+    pub tx_info: Arc<TxInfo<DL>>,
+
+    /// Passed & derived information at script group level.
+    pub sg_info: Arc<SgInfo>,
+}
+
+/// Script group level derived information.
+#[derive(Clone, Debug)]
+pub struct SgInfo {
     /// Currently executed script version
     pub script_version: ScriptVersion,
     /// Currently executed script group
@@ -832,7 +902,7 @@ pub struct SgData<DL> {
 }
 
 impl<DL> SgData<DL> {
-    pub fn new(tx_data: &Arc<TxData<DL>>, script_group: &ScriptGroup) -> Result<Self, ScriptError> {
+    pub fn new(tx_data: &TxData<DL>, script_group: &ScriptGroup) -> Result<Self, ScriptError> {
         let script_hash = script_group.script.calc_script_hash();
         let script_version = tx_data.select_version(&script_group.script)?;
         let dep_index = tx_data
@@ -840,94 +910,89 @@ impl<DL> SgData<DL> {
             .try_into()
             .map_err(|_| ScriptError::Other("u32 overflow".to_string()))?;
         Ok(Self {
-            tx_data: Arc::clone(tx_data),
-            script_version,
-            script_hash,
-            script_group: script_group.clone(),
-            program_data_piece_id: DataPieceId::CellDep(dep_index),
+            rtx: Arc::clone(&tx_data.rtx),
+            tx_info: Arc::clone(&tx_data.info),
+            sg_info: Arc::new(SgInfo {
+                script_version,
+                script_hash,
+                script_group: script_group.clone(),
+                program_data_piece_id: DataPieceId::CellDep(dep_index),
+            }),
         })
     }
 
-    pub fn rtx(&self) -> &ResolvedTransaction {
-        &self.tx_data.rtx
-    }
-
     pub fn data_loader(&self) -> &DL {
-        &self.tx_data.data_loader
+        &self.tx_info.data_loader
     }
 
     pub fn group_inputs(&self) -> &[usize] {
-        &self.script_group.input_indices
+        &self.sg_info.script_group.input_indices
     }
 
     pub fn group_outputs(&self) -> &[usize] {
-        &self.script_group.output_indices
+        &self.sg_info.script_group.output_indices
     }
 
     pub fn outputs(&self) -> &[CellMeta] {
-        &self.tx_data.outputs
-    }
-
-    pub fn current_script_hash(&self) -> &Byte32 {
-        &self.script_hash
+        &self.tx_info.outputs
     }
 }
 
-impl<DL> DataSource<DataPieceId> for Arc<SgData<DL>>
+impl<DL> DataSource<DataPieceId> for SgData<DL>
 where
     DL: CellDataProvider,
 {
     fn load_data(&self, id: &DataPieceId, offset: u64, length: u64) -> Option<(Bytes, u64)> {
         match id {
             DataPieceId::Input(i) => self
-                .tx_data
                 .rtx
                 .resolved_inputs
                 .get(*i as usize)
-                .and_then(|cell| self.tx_data.data_loader.load_cell_data(cell)),
+                .and_then(|cell| self.data_loader().load_cell_data(cell)),
             DataPieceId::Output(i) => self
-                .tx_data
                 .rtx
                 .transaction
                 .outputs_data()
                 .get(*i as usize)
                 .map(|data| data.raw_data()),
             DataPieceId::CellDep(i) => self
-                .tx_data
                 .rtx
                 .resolved_cell_deps
                 .get(*i as usize)
-                .and_then(|cell| self.tx_data.data_loader.load_cell_data(cell)),
+                .and_then(|cell| self.data_loader().load_cell_data(cell)),
             DataPieceId::GroupInput(i) => self
+                .sg_info
                 .script_group
                 .input_indices
                 .get(*i as usize)
-                .and_then(|gi| self.tx_data.rtx.resolved_inputs.get(*gi))
-                .and_then(|cell| self.tx_data.data_loader.load_cell_data(cell)),
+                .and_then(|gi| self.rtx.resolved_inputs.get(*gi))
+                .and_then(|cell| self.data_loader().load_cell_data(cell)),
             DataPieceId::GroupOutput(i) => self
+                .sg_info
                 .script_group
                 .output_indices
                 .get(*i as usize)
-                .and_then(|gi| self.tx_data.rtx.transaction.outputs_data().get(*gi))
+                .and_then(|gi| self.rtx.transaction.outputs_data().get(*gi))
                 .map(|data| data.raw_data()),
             DataPieceId::Witness(i) => self
-                .tx_data
                 .rtx
                 .transaction
                 .witnesses()
                 .get(*i as usize)
                 .map(|data| data.raw_data()),
             DataPieceId::WitnessGroupInput(i) => self
+                .sg_info
                 .script_group
                 .input_indices
                 .get(*i as usize)
-                .and_then(|gi| self.tx_data.rtx.transaction.witnesses().get(*gi))
+                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
                 .map(|data| data.raw_data()),
             DataPieceId::WitnessGroupOutput(i) => self
+                .sg_info
                 .script_group
                 .output_indices
                 .get(*i as usize)
-                .and_then(|gi| self.tx_data.rtx.transaction.witnesses().get(*gi))
+                .and_then(|gi| self.rtx.transaction.witnesses().get(*gi))
                 .map(|data| data.raw_data()),
         }
         .map(|data| {
@@ -952,21 +1017,21 @@ where
     pub(crate) base_cycles: Arc<AtomicU64>,
     /// A mutable reference to scheduler's message box
     pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
-    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, Arc<SgData<DL>>>>>,
+    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, SgData<DL>>>>,
 }
 
 impl<DL> VmContext<DL>
 where
-    DL: CellDataProvider,
+    DL: CellDataProvider + Clone,
 {
     /// Creates a new VM context. It is by design that parameters to this function
     /// are references. It is a reminder that the inputs are designed to be shared
     /// among different entities.
-    pub fn new(sg_data: &Arc<SgData<DL>>, message_box: &Arc<Mutex<Vec<Message>>>) -> Self {
+    pub fn new(sg_data: &SgData<DL>, message_box: &Arc<Mutex<Vec<Message>>>) -> Self {
         Self {
             base_cycles: Arc::new(AtomicU64::new(0)),
             message_box: Arc::clone(message_box),
-            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(Arc::clone(sg_data)))),
+            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(sg_data.clone()))),
         }
     }
 

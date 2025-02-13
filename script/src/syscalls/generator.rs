@@ -8,12 +8,11 @@ use crate::{
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::Syscalls;
-use std::sync::Arc;
 
 /// Generate RISC-V syscalls in CKB environment
 pub fn generate_ckb_syscalls<DL>(
     vm_id: &VmId,
-    sg_data: &Arc<SgData<DL>>,
+    sg_data: &SgData<DL>,
     vm_context: &VmContext<DL>,
     debug_context: &DebugContext,
 ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
@@ -31,7 +30,7 @@ where
         Box::new(LoadCellData::new(vm_context)),
         Box::new(Debugger::new(sg_data, debug_context)),
     ];
-    let script_version = &sg_data.script_version;
+    let script_version = &sg_data.sg_info.script_version;
     if script_version >= &ScriptVersion::V1 {
         syscalls.append(&mut vec![
             Box::new(VMVersion::new()),
@@ -56,8 +55,8 @@ where
         ]);
     }
     #[cfg(test)]
-    syscalls.push(Box::new(crate::syscalls::Pause::new(Arc::clone(
-        &debug_context.skip_pause,
-    ))));
+    syscalls.push(Box::new(crate::syscalls::Pause::new(
+        std::sync::Arc::clone(&debug_context.skip_pause),
+    )));
     syscalls
 }

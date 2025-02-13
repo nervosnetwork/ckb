@@ -18,9 +18,9 @@ pub struct LoadTx {
 }
 
 impl LoadTx {
-    pub fn new<DL>(sg_data: &Arc<SgData<DL>>) -> LoadTx {
+    pub fn new<DL>(sg_data: &SgData<DL>) -> LoadTx {
         LoadTx {
-            rtx: Arc::clone(&sg_data.tx_data.rtx),
+            rtx: Arc::clone(&sg_data.rtx),
         }
     }
 }

@@ -15,33 +15,32 @@ use ckb_vm::{
     Error as VMError, Register, SupportMachine, Syscalls,
 };
 use ckb_vm::{DEFAULT_STACK_SIZE, RISCV_MAX_MEMORY};
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct Exec<DL> {
-    sg_data: Arc<SgData<DL>>,
+    sg_data: SgData<DL>,
 }
 
-impl<DL: CellDataProvider> Exec<DL> {
-    pub fn new(sg_data: &Arc<SgData<DL>>) -> Exec<DL> {
+impl<DL: CellDataProvider + Clone> Exec<DL> {
+    pub fn new(sg_data: &SgData<DL>) -> Exec<DL> {
         Exec {
-            sg_data: Arc::clone(sg_data),
+            sg_data: sg_data.clone(),
         }
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_inputs
+        &self.sg_data.rtx.resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_cell_deps
+        &self.sg_data.rtx.resolved_cell_deps
     }
 
     #[inline]
     fn witnesses(&self) -> BytesVec {
-        self.sg_data.rtx().transaction.witnesses()
+        self.sg_data.rtx.transaction.witnesses()
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
@@ -92,7 +91,7 @@ impl<DL: CellDataProvider> Exec<DL> {
     }
 }
 
-impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for Exec<DL> {
+impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync + Clone> Syscalls<Mac> for Exec<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

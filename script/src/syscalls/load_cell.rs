@@ -4,7 +4,7 @@ use crate::{
         utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
     },
-    types::{SgData, TxData},
+    types::{SgData, TxInfo},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_traits::CellDataProvider;
@@ -17,32 +17,31 @@ use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
 
 pub struct LoadCell<DL> {
-    sg_data: Arc<SgData<DL>>,
+    sg_data: SgData<DL>,
 }
 
-impl<DL: CellDataProvider> LoadCell<DL> {
-    pub fn new(sg_data: &Arc<SgData<DL>>) -> LoadCell<DL> {
+impl<DL: CellDataProvider + Clone> LoadCell<DL> {
+    pub fn new(sg_data: &SgData<DL>) -> LoadCell<DL> {
         LoadCell {
-            sg_data: Arc::clone(sg_data),
+            sg_data: sg_data.clone(),
         }
     }
 
     #[inline]
-    fn tx_data(&self) -> &TxData<DL> {
-        &self.sg_data.tx_data
+    fn tx_info(&self) -> &TxInfo<DL> {
+        &self.sg_data.tx_info
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_inputs
+        &self.sg_data.rtx.resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_cell_deps
+        &self.sg_data.rtx.resolved_cell_deps
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
@@ -51,7 +50,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 self.resolved_inputs().get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::Output) => {
-                self.tx_data().outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
+                self.tx_info().outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::CellDep) => self
                 .resolved_cell_deps()
@@ -74,7 +73,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| {
-                    self.tx_data()
+                    self.tx_info()
                         .outputs
                         .get(*actual_index)
                         .ok_or(INDEX_OUT_OF_BOUND)
@@ -110,7 +109,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::DataHash => {
-                if let Some(bytes) = self.tx_data().data_loader.load_cell_data_hash(cell) {
+                if let Some(bytes) = self.tx_info().data_loader.load_cell_data_hash(cell) {
                     (SUCCESS, store_data(machine, &bytes.as_bytes())?)
                 } else {
                     (ITEM_MISSING, 0)
@@ -160,7 +159,9 @@ impl<DL: CellDataProvider> LoadCell<DL> {
     }
 }
 
-impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for LoadCell<DL> {
+impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync + Clone> Syscalls<Mac>
+    for LoadCell<DL>
+{
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

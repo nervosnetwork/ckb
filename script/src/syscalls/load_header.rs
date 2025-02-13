@@ -17,17 +17,15 @@ use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
-
 #[derive(Debug)]
 pub struct LoadHeader<DL> {
-    sg_data: Arc<SgData<DL>>,
+    sg_data: SgData<DL>,
 }
 
-impl<DL: HeaderProvider> LoadHeader<DL> {
-    pub fn new(sg_data: &Arc<SgData<DL>>) -> LoadHeader<DL> {
+impl<DL: HeaderProvider + Clone> LoadHeader<DL> {
+    pub fn new(sg_data: &SgData<DL>) -> LoadHeader<DL> {
         LoadHeader {
-            sg_data: Arc::clone(sg_data),
+            sg_data: sg_data.clone(),
         }
     }
 
@@ -42,17 +40,17 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
 
     #[inline]
     fn header_deps(&self) -> Byte32Vec {
-        self.sg_data.rtx().transaction.header_deps()
+        self.sg_data.rtx.transaction.header_deps()
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_inputs
+        &self.sg_data.rtx.resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_cell_deps
+        &self.sg_data.rtx.resolved_cell_deps
     }
 
     fn load_header(&self, cell_meta: &CellMeta) -> Option<HeaderView> {
@@ -66,7 +64,7 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
             .into_iter()
             .any(|hash| &hash == block_hash)
         {
-            self.sg_data.tx_data.data_loader.get_header(block_hash)
+            self.sg_data.tx_info.data_loader.get_header(block_hash)
         } else {
             None
         }
@@ -91,7 +89,7 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|block_hash| {
                     self.sg_data
-                        .tx_data
+                        .tx_info
                         .data_loader
                         .get_header(&block_hash)
                         .ok_or(ITEM_MISSING)
@@ -146,7 +144,9 @@ impl<DL: HeaderProvider> LoadHeader<DL> {
     }
 }
 
-impl<DL: HeaderProvider + Send + Sync, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<DL> {
+impl<DL: HeaderProvider + Send + Sync + Clone, Mac: SupportMachine> Syscalls<Mac>
+    for LoadHeader<DL>
+{
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

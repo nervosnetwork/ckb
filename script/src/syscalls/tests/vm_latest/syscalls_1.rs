@@ -53,13 +53,8 @@ fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = {
-        // Mutable TxData should only used in tests
-        let mut tx_data = build_tx_data(rtx);
-        tx_data.outputs = vec![output];
-        Arc::new(tx_data)
-    };
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
+    let sg_data = update_tx_info(sg_data, |tx_info| tx_info.outputs = vec![output.clone()]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -99,13 +94,8 @@ fn _test_load_cell_all(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = {
-        // Mutable TxData should only used in tests
-        let mut tx_data = build_tx_data(rtx);
-        tx_data.outputs = vec![output.clone()];
-        Arc::new(tx_data)
-    };
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
+    let sg_data = update_tx_info(sg_data, |tx_info| tx_info.outputs = vec![output.clone()]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -193,13 +183,8 @@ fn _test_load_cell_from_group(data: &[u8], source: SourceEntry) -> Result<(), Te
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = {
-        // Mutable TxData should only used in tests
-        let mut tx_data = build_tx_data(rtx);
-        tx_data.outputs = vec![output.clone()];
-        Arc::new(tx_data)
-    };
-    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(rtx, vec![0], vec![0]);
+    let sg_data = update_tx_info(sg_data, |tx_info| tx_info.outputs = vec![output.clone()]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -284,13 +269,8 @@ fn _test_load_cell_out_of_bound(index: u64, source: u64) -> Result<(), TestCaseE
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = {
-        // Mutable TxData should only used in tests
-        let mut tx_data = build_tx_data(rtx);
-        tx_data.outputs = vec![output];
-        Arc::new(tx_data)
-    };
-    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(rtx, vec![0], vec![0]);
+    let sg_data = update_tx_info(sg_data, |tx_info| tx_info.outputs = vec![output.clone()]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -346,13 +326,8 @@ fn _test_load_cell_length(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = {
-        // Mutable TxData should only used in tests
-        let mut tx_data = build_tx_data(rtx);
-        tx_data.outputs = vec![output];
-        Arc::new(tx_data)
-    };
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
+    let sg_data = update_tx_info(sg_data, |tx_info| tx_info.outputs = vec![output.clone()]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -402,13 +377,8 @@ fn _test_load_cell_partial(data: &[u8], offset: u64) -> Result<(), TestCaseError
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = {
-        // Mutable TxData should only used in tests
-        let mut tx_data = build_tx_data(rtx);
-        tx_data.outputs = vec![output];
-        Arc::new(tx_data)
-    };
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
+    let sg_data = update_tx_info(sg_data, |tx_info| tx_info.outputs = vec![output.clone()]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -471,8 +441,7 @@ fn _test_load_cell_capacity(capacity: Capacity) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -530,8 +499,7 @@ fn _test_load_cell_occupied_capacity(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -590,8 +558,7 @@ fn test_load_missing_data_hash() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -635,13 +602,10 @@ fn _test_load_missing_contract(field: CellField) {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = {
-        // Mutable TxData should only used in tests
-        let mut tx_data = build_tx_data(rtx);
-        tx_data.outputs = vec![output_cell];
-        Arc::new(tx_data)
-    };
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
+    let sg_data = update_tx_info(sg_data, |tx_info| {
+        tx_info.outputs = vec![output_cell.clone()]
+    });
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -712,8 +676,7 @@ fn _test_load_header(
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data_with_loader(rtx, data_loader));
-    let sg_data = build_sg_data(tx_data, vec![0], vec![]);
+    let sg_data = build_sg_data_with_loader(rtx, data_loader, vec![0], vec![]);
 
     let mut load_header = LoadHeader::new(&sg_data);
 
@@ -830,8 +793,7 @@ fn _test_load_header_by_field(data: &[u8], field: HeaderField) -> Result<(), Tes
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data_with_loader(rtx, data_loader));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data_with_loader(rtx, data_loader, vec![], vec![]);
 
     let mut load_header = LoadHeader::new(&sg_data);
 
@@ -883,8 +845,7 @@ fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_tx = LoadTx::new(&sg_data);
 
@@ -937,8 +898,7 @@ fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_tx = LoadTx::new(&sg_data);
 
@@ -992,15 +952,12 @@ fn _test_load_current_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
     // Swap the internal script in VmData
-    let sg_data = {
-        let mut sg_data = sg_data.as_ref().clone();
-        sg_data.script_hash = script.calc_script_hash();
-        sg_data.script_group.script = script;
-        Arc::new(sg_data)
-    };
+    let sg_data = update_sg_info(sg_data, |sg_info| {
+        sg_info.script_hash = script.calc_script_hash();
+        sg_info.script_group.script = script.clone();
+    });
 
     let mut load_script_hash = LoadScriptHash::new(&sg_data);
 
@@ -1074,8 +1031,7 @@ fn _test_load_input_lock_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -1137,8 +1093,7 @@ fn _test_load_input_lock_script(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -1203,8 +1158,7 @@ fn _test_load_input_type_script(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -1271,8 +1225,7 @@ fn _test_load_input_type_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_cell = LoadCell::new(&sg_data);
 
@@ -1328,8 +1281,7 @@ fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseEr
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let mut load_witness = LoadWitness::new(&sg_data);
 
@@ -1394,8 +1346,7 @@ fn _test_load_group_witness(data: &[u8], source: SourceEntry) -> Result<(), Test
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![1], vec![1]);
+    let sg_data = build_sg_data(rtx, vec![1], vec![1]);
 
     let mut load_witness = LoadWitness::new(&sg_data);
 
@@ -1451,15 +1402,12 @@ fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
     // Swap the internal script in VmData
-    let sg_data = {
-        let mut sg_data = sg_data.as_ref().clone();
-        sg_data.script_hash = script.calc_script_hash();
-        sg_data.script_group.script = script.clone();
-        Arc::new(sg_data)
-    };
+    let sg_data = update_sg_info(sg_data, |sg_info| {
+        sg_info.script_hash = script.calc_script_hash();
+        sg_info.script_group.script = script.clone();
+    });
 
     let mut load_script = LoadScript::new(&sg_data);
 
@@ -1524,8 +1472,7 @@ fn _test_load_cell_data_as_code(
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(rtx, vec![0], vec![0]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1592,8 +1539,7 @@ fn _test_load_cell_data(
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(rtx, vec![0], vec![0]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1695,8 +1641,7 @@ fn test_load_overflowed_cell_data_as_code() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1740,8 +1685,7 @@ fn _test_load_cell_data_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseErr
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1783,8 +1727,7 @@ fn _test_load_cell_data_as_code_on_freezed_memory(data: &[u8]) -> Result<(), Tes
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1837,8 +1780,7 @@ fn test_load_code_unaligned_error() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1878,8 +1820,7 @@ fn test_load_code_slice_out_of_bound_error() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1922,8 +1863,7 @@ fn test_load_code_not_enough_space_error() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![], vec![]);
+    let sg_data = build_sg_data(rtx, vec![], vec![]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -1989,8 +1929,7 @@ fn _test_load_input(
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![0], vec![]);
+    let sg_data = build_sg_data(rtx, vec![0], vec![]);
 
     let mut load_input = LoadInput::new(&sg_data);
 
@@ -2129,8 +2068,7 @@ fn test_load_cell_data_size_zero() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(rtx, vec![0], vec![0]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 
@@ -2169,8 +2107,7 @@ fn test_load_cell_data_size_zero_index_out_of_bound() {
         resolved_dep_groups: vec![],
     });
 
-    let tx_data = Arc::new(build_tx_data(rtx));
-    let sg_data = build_sg_data(tx_data, vec![0], vec![0]);
+    let sg_data = build_sg_data(rtx, vec![0], vec![0]);
 
     let vm_context = VmContext::new(&sg_data, &Arc::new(Mutex::new(Vec::new())));
 

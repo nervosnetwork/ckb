@@ -15,33 +15,32 @@ use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadBlockExtension<DL> {
-    sg_data: Arc<SgData<DL>>,
+    sg_data: SgData<DL>,
 }
 
-impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
-    pub fn new(sg_data: &Arc<SgData<DL>>) -> LoadBlockExtension<DL> {
+impl<DL: ExtensionProvider + Clone> LoadBlockExtension<DL> {
+    pub fn new(sg_data: &SgData<DL>) -> LoadBlockExtension<DL> {
         LoadBlockExtension {
-            sg_data: Arc::clone(sg_data),
+            sg_data: sg_data.clone(),
         }
     }
 
     #[inline]
     fn header_deps(&self) -> Byte32Vec {
-        self.sg_data.rtx().transaction.header_deps()
+        self.sg_data.rtx.transaction.header_deps()
     }
 
     #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_inputs
+        &self.sg_data.rtx.resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.sg_data.rtx().resolved_cell_deps
+        &self.sg_data.rtx.resolved_cell_deps
     }
 
     fn load_block_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
@@ -102,7 +101,7 @@ impl<DL: ExtensionProvider> LoadBlockExtension<DL> {
     }
 }
 
-impl<DL: ExtensionProvider + Send + Sync, Mac: SupportMachine> Syscalls<Mac>
+impl<DL: ExtensionProvider + Send + Sync + Clone, Mac: SupportMachine> Syscalls<Mac>
     for LoadBlockExtension<DL>
 {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {

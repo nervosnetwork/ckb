@@ -15,23 +15,22 @@ use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadInput<DL> {
-    sg_data: Arc<SgData<DL>>,
+    sg_data: SgData<DL>,
 }
 
-impl<DL> LoadInput<DL> {
-    pub fn new(sg_data: &Arc<SgData<DL>>) -> Self {
+impl<DL: Clone> LoadInput<DL> {
+    pub fn new(sg_data: &SgData<DL>) -> Self {
         LoadInput {
-            sg_data: Arc::clone(sg_data),
+            sg_data: sg_data.clone(),
         }
     }
 
     #[inline]
     fn inputs(&self) -> CellInputVec {
-        self.sg_data.rtx().transaction.inputs()
+        self.sg_data.rtx.transaction.inputs()
     }
 
     fn fetch_input(&self, source: Source, index: usize) -> Result<CellInput, u8> {
@@ -88,7 +87,7 @@ impl<DL> LoadInput<DL> {
     }
 }
 
-impl<Mac: SupportMachine, DL: Send + Sync> Syscalls<Mac> for LoadInput<DL> {
+impl<Mac: SupportMachine, DL: Send + Sync + Clone> Syscalls<Mac> for LoadInput<DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
