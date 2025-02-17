@@ -645,6 +645,10 @@ impl ServiceHandle for EventHandler {
                         debug!("DialerError({}) {}", address, error);
                     }
                 }
+                info!(
+                    "Dial {} failed, remove it from network_state.public_addrs",
+                    address
+                );
                 public_addrs.remove(&address);
                 self.network_state.dial_failed(&address);
             }
