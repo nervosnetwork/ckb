@@ -106,14 +106,16 @@ impl NetworkState {
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
-            .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
-                Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
-                _ => {
-                    if extract_peer_id(&addr).is_none() {
-                        addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+            .filter_map(|mut addr| {
+                if let Some(socket_addr) = multiaddr_to_socketaddr(&addr) {
+                    if !is_reachable(socket_addr.ip()) {
+                        return None;
                     }
-                    Some(addr)
                 }
+                if extract_peer_id(&addr).is_none() {
+                    addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                }
+                Some(addr)
             })
             .collect();
         info!("Loading the peer store. This process may take a few seconds to complete.");
