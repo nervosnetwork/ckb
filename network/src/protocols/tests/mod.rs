@@ -488,7 +488,7 @@ fn test_discovery_behavior() {
         let mut locked = node1.network_state.peer_store.lock();
 
         locked
-            .fetch_addrs_to_feeler(6)
+            .fetch_addrs_to_feeler(6, |_| true)
             .into_iter()
             .map(|peer| peer.addr)
             .flat_map(|addr| {
