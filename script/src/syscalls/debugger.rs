@@ -1,19 +1,24 @@
-use crate::types::DebugPrinter;
+use crate::types::{
+    DebugContext, DebugPrinter, {SgData, SgInfo},
+};
 use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
-use ckb_types::packed::Byte32;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
+use std::sync::Arc;
 
 pub struct Debugger {
-    hash: Byte32,
+    sg_info: Arc<SgInfo>,
     printer: DebugPrinter,
 }
 
 impl Debugger {
-    pub fn new(hash: Byte32, printer: DebugPrinter) -> Debugger {
-        Debugger { hash, printer }
+    pub fn new<DL>(sg_data: &SgData<DL>, debug_context: &DebugContext) -> Debugger {
+        Debugger {
+            sg_info: Arc::clone(&sg_data.sg_info),
+            printer: Arc::clone(&debug_context.debug_printer),
+        }
     }
 }
 
@@ -46,7 +51,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Debugger {
         machine.add_cycles_no_checking(transferred_byte_cycles(buffer.len() as u64))?;
         let s = String::from_utf8(buffer)
             .map_err(|e| VMError::External(format!("String from buffer {e:?}")))?;
-        (self.printer)(&self.hash, s.as_str());
+        (self.printer)(&self.sg_info.script_hash, s.as_str());
 
         Ok(true)
     }

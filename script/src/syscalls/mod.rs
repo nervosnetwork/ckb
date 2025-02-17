@@ -28,6 +28,8 @@ mod pause;
 #[cfg(test)]
 mod tests;
 
+pub mod generator;
+
 pub use self::close::Close;
 pub use self::current_cycles::CurrentCycles;
 pub use self::debugger::Debugger;

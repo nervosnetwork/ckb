@@ -1,4 +1,4 @@
-use crate::types::{DataPieceId, TxData};
+use crate::types::{DataPieceId, SgData, VmContext};
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
@@ -20,17 +20,17 @@ pub struct LoadCellData<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, SgData<DL>>>>,
 }
 
 impl<DL> LoadCellData<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    pub fn new(
-        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
-    ) -> LoadCellData<DL> {
-        LoadCellData { snapshot2_context }
+    pub fn new(vm_context: &VmContext<DL>) -> LoadCellData<DL> {
+        LoadCellData {
+            snapshot2_context: Arc::clone(&vm_context.snapshot2_context),
+        }
     }
 
     fn load_data<Mac: SupportMachine>(&self, machine: &mut Mac) -> Result<(), VMError> {

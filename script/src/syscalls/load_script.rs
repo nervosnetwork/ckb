@@ -1,21 +1,25 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{utils::store_data, LOAD_SCRIPT_SYSCALL_NUMBER, SUCCESS},
+    types::{SgData, SgInfo},
 };
-use ckb_types::{packed::Script, prelude::*};
+use ckb_types::prelude::*;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LoadScript {
-    script: Script,
+    sg_info: Arc<SgInfo>,
 }
 
 impl LoadScript {
-    pub fn new(script: Script) -> Self {
-        Self { script }
+    pub fn new<DL>(sg_data: &SgData<DL>) -> Self {
+        Self {
+            sg_info: Arc::clone(&sg_data.sg_info),
+        }
     }
 }
 
@@ -29,7 +33,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for LoadScript {
             return Ok(false);
         }
 
-        let data = self.script.as_slice();
+        let data = self.sg_info.script_group.script.as_slice();
         let wrote_size = store_data(machine, data)?;
 
         machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
