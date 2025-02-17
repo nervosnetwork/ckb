@@ -3,9 +3,12 @@ use ckb_async_runtime::Handle;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info};
 use multiaddr::MultiAddr;
+use std::future::Future;
 use std::{borrow::Cow, str::FromStr};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::{fs::File, io::AsyncReadExt};
+use torut::control::{AsyncEvent, AuthenticatedConn, ConnError};
 use torut::{
     control::{TorAuthData, TorAuthMethod, UnauthenticatedConn, COOKIE_LENGTH},
     onion::TorSecretKeyV3,
@@ -157,6 +160,8 @@ impl OnionService {
         let mut ac = utc.into_authenticated().await;
         ac.set_async_event_handler(Some(|_| async move { Ok(()) }));
 
+        ac.wait_tor_server_bootstrap_done().await;
+
         info!("Adding onion service v3...");
         ac.add_onion_v3(
             &self.key,
@@ -195,22 +200,55 @@ impl OnionService {
             // wait stop_rx
             info!("OnionService received stop signal, exiting...");
 
-            info!("Deleting created onion service...");
-            // delete onion service so it works no more
-            if let Err(err) = ac
-                .del_onion(&tor_address_without_dot_onion)
-                .await
-                .map_err(|err| {
-                    InternalErrorKind::Other
-                        .other(format!("Failed to delete onion service: {:?}", err))
-                })
-            {
-                error!("Failed to delete onion service: {:?}", err);
-            } else {
-                info!("Deleted created onion service! It runs no more!");
-            }
+            // Don't do delete onion service
+            // info!("Deleting created onion service...");
+            // // delete onion service so it works no more
+            // if let Err(err) = ac
+            //     .del_onion(&tor_address_without_dot_onion)
+            //     .await
+            //     .map_err(|err| {
+            //         InternalErrorKind::Other
+            //             .other(format!("Failed to delete onion service: {:?}", err))
+            //     })
+            // {
+            //     error!("Failed to delete onion service: {:?}", err);
+            // } else {
+            //     info!("Deleted created onion service! It runs no more!");
+            // }
         });
 
         Ok(onion_multi_addr)
+    }
+}
+
+trait AuthenticatedConnExt<S, H> {
+    async fn wait_tor_server_bootstrap_done(&mut self);
+}
+
+impl<S, F, H> AuthenticatedConnExt<S, H> for AuthenticatedConn<S, H>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    H: Fn(AsyncEvent<'static>) -> F,
+    F: Future<Output = Result<(), ConnError>>,
+{
+    async fn wait_tor_server_bootstrap_done(&mut self) {
+        info!("waiting tor server bootstrap");
+        loop {
+            let boostra_done = match self.get_info_unquote("status/bootstrap-phase").await {
+                Ok(info) => {
+                    info!("Tor bootstrap status: {:?}", info);
+                    info.contains("Done")
+                }
+                Err(err) => {
+                    error!("Failed to get tor bootstrap status: {:?}", err);
+                    false
+                }
+            };
+            if boostra_done {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        info!("Tor server bootstrap done!")
     }
 }

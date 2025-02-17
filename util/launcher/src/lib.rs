@@ -281,7 +281,10 @@ impl Launcher {
                 onion_config.onion_server,
                 self.args.config.network.proxy.proxy_url.clone(),
             ) {
-                (Some(onion_server), _) => onion_server,
+                (Some(onion_server), _) => {
+                    info!("CKB use {} as onion server", onion_server);
+                    onion_server
+                }
                 (None, Some(proxy_url)) => {
                     let proxy_url = Url::parse(&proxy_url)
                         .map_err(|err| Error::Config(format!("parse proxy_url failed: {}", err)))?;
