@@ -647,7 +647,10 @@ impl ServiceHandle for EventHandler {
                         debug!("DialerError({}) {}", address, error);
                     }
                 }
-                if public_addrs.remove(&address) {
+
+                if address.to_string().starts_with("/onion3/") {
+                    // don't remove onion addr from public_addrs
+                } else if public_addrs.remove(&address) {
                     info!(
                         "Dial {} failed, remove it from network_state.public_addrs",
                         address
