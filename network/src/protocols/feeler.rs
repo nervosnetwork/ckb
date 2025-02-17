@@ -34,11 +34,8 @@ impl ServiceProtocol for Feeler {
                 .remove(&session.address);
         } else if context.session.ty.is_outbound() {
             let flags = self.network_state.with_peer_registry(|reg| {
-                if let Some(p) = reg.get_peer(session.id) {
-                    p.identify_info
-                        .as_ref()
-                        .map(|i| i.flags)
-                        .unwrap_or(Flags::COMPATIBILITY)
+                if let Some(p) = reg.feeler_flags(&session.address) {
+                    p
                 } else {
                     Flags::COMPATIBILITY
                 }

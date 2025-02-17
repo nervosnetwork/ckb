@@ -139,10 +139,9 @@ impl<T: Callback> IdentifyProtocol<T> {
             let global_ip_only = self.global_ip_only;
             let reachable_addrs = listens
                 .into_iter()
-                .filter(|addr| {
-                    multiaddr_to_socketaddr(addr)
-                        .map(|socket_addr| !global_ip_only || is_reachable(socket_addr.ip()))
-                        .unwrap_or(false)
+                .filter(|addr| match multiaddr_to_socketaddr(addr) {
+                    Some(socket_addr) => !global_ip_only || is_reachable(socket_addr.ip()),
+                    None => true,
                 })
                 .collect::<Vec<_>>();
             self.callback
@@ -458,15 +457,21 @@ impl Callback for IdentifyCallback {
                     // and if set it to peer store, it will be broadcast to the entire network,
                     // but this is an unverified address
                     if renew {
+                        let dns_addr = self.network_state.pending_dns_addrs.write().remove(
+                            &extract_peer_id(&context.session.address).expect("must have peerid"),
+                        );
                         self.network_state.with_peer_store_mut(|peer_store| {
                             peer_store.add_outbound_addr(context.session.address.clone(), flags);
+                            if let Some(dns) = dns_addr {
+                                // mark dns address connected time
+                                peer_store.add_outbound_addr(dns, flags);
+                            }
                         });
                     }
 
-                    if self
-                        .network_state
-                        .with_peer_registry(|reg| reg.is_feeler(&context.session.address))
-                    {
+                    if self.network_state.with_peer_registry_mut(|reg| {
+                        reg.change_feeler_flags(&context.session.address, flags)
+                    }) {
                         let _ = context
                             .open_protocols(
                                 context.session.id,

@@ -25,6 +25,7 @@ use ckb_tx_pool::{
 };
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::prelude::Pack;
+use ckb_types::H256;
 use ckb_types::{
     core::service::PoolTransactionEntry, core::tx_pool::Reject, core::EpochExt, core::HeaderView,
 };
@@ -347,20 +348,6 @@ impl SharedBuilder {
         Ok((snapshot, proposal_table))
     }
 
-    /// Check whether the data already exists in the database before starting
-    fn check_assume_valid_target_already_exists(
-        sync_config: &SyncConfig,
-        snapshot: &Snapshot,
-    ) -> bool {
-        if let Some(ref target) = sync_config.assume_valid_target {
-            if snapshot.block_exists(&target.pack()) {
-                info!("assume valid target is already in db, CKB will do full verification from now on");
-                return true;
-            }
-        }
-        false
-    }
-
     /// TODO(doc): @quake
     pub fn build(self) -> Result<(Shared, SharedPackage), ExitCode> {
         let SharedBuilder {
@@ -442,14 +429,38 @@ impl SharedBuilder {
 
         let block_status_map = Arc::new(DashMap::new());
 
-        let assume_valid_target = Arc::new(Mutex::new({
-            if Self::check_assume_valid_target_already_exists(&sync_config, &snapshot) {
+        let assume_valid_targets = Arc::new(Mutex::new({
+            let not_exists_targets: Option<Vec<H256>> =
+                sync_config.assume_valid_targets.clone().map(|targets| {
+                    targets
+                        .iter()
+                        .filter(|&target_hash| {
+                            let exists = snapshot.block_exists(&target_hash.pack());
+                            if exists {
+                                info!("assume valid target 0x{} already exists in db", target_hash);
+                            }
+                            !exists
+                        })
+                        .cloned()
+                        .collect::<Vec<H256>>()
+                });
+
+            if not_exists_targets
+                .as_ref()
+                .is_some_and(|targets| targets.is_empty())
+            {
+                info!("all assume valid targets is already in db, CKB will do full verification from now on");
                 None
             } else {
-                sync_config.assume_valid_target.clone()
+                not_exists_targets
             }
         }));
-        let assume_valid_target_specified = Arc::new(sync_config.assume_valid_target);
+
+        let assume_valid_target_specified: Arc<Option<H256>> = Arc::new(
+            sync_config
+                .assume_valid_targets
+                .and_then(|targets| targets.last().cloned()),
+        );
 
         let shared = Shared::new(
             store,
@@ -460,7 +471,7 @@ impl SharedBuilder {
             snapshot_mgr,
             async_handle,
             ibd_finished,
-            assume_valid_target,
+            assume_valid_targets,
             assume_valid_target_specified,
             header_map,
             block_status_map,

@@ -1,15 +1,13 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE,
-    SUCCESS, WAIT_FAILURE,
+    generator::generate_ckb_syscalls, EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED,
+    MAX_VMS_SPAWNED, OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
 };
-use crate::types::MachineContext;
-use crate::verify::TransactionScriptsSyscallsGenerator;
-use crate::ScriptVersion;
 
 use crate::types::{
-    CoreMachineType, DataPieceId, Fd, FdArgs, FullSuspendedState, Machine, Message, ReadState,
-    RunMode, TxData, VmId, VmState, WriteState, FIRST_FD_SLOT, FIRST_VM_ID,
+    CoreMachineType, DataLocation, DataPieceId, DebugContext, Fd, FdArgs, FullSuspendedState,
+    Machine, Message, ReadState, RunMode, SgData, VmContext, VmId, VmState, WriteState,
+    FIRST_FD_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -22,10 +20,13 @@ use ckb_vm::{
     memory::Memory,
     registers::A0,
     snapshot2::Snapshot2,
-    Error, Register,
+    Error, FlattenedArgsReader, Register,
 };
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 /// Root process's id.
 pub const ROOT_VM_ID: VmId = FIRST_VM_ID;
@@ -44,23 +45,45 @@ pub const MAX_FDS: u64 = 64;
 /// of the core for IO operations.
 pub struct Scheduler<DL>
 where
-    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    DL: CellDataProvider,
 {
-    /// Context data for current running transaction & script.
-    pub tx_data: TxData<DL>,
-    /// In fact, Scheduler here has the potential to totally replace
-    /// TransactionScriptsVerifier, nonetheless much of current syscall
-    /// implementation is strictly tied to TransactionScriptsVerifier, we
-    /// are using it here to save some extra code.
-    pub script_version: ScriptVersion,
-    /// Generate system calls.
-    pub syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
+    /// Immutable context data for current running transaction & script.
+    pub sg_data: SgData<DL>,
 
-    /// Total cycles.
-    pub total_cycles: Cycle,
-    /// Current iteration cycles. This value is periodically added to
-    /// total_cycles and cleared
-    pub current_iteration_cycles: Cycle,
+    /// Mutable context data used by current scheduler
+    pub debug_context: DebugContext,
+
+    /// Total cycles. When a scheduler executes, there are 3 variables
+    /// that might all contain charged cycles: +total_cycles+,
+    /// +iteration_cycles+ and +machine.cycles()+ from the current
+    /// executing virtual machine. At any given time, the sum of all 3
+    /// variables here, represent the total consumed cycles by the current
+    /// scheduler.
+    /// But there are also exceptions: at certain period of time, the cycles
+    /// stored in `machine.cycles()` are moved over to +iteration_cycles+,
+    /// the cycles stored in +iteration_cycles+ would also be moved over to
+    /// +total_cycles+:
+    ///
+    /// * The current running virtual machine would contain consumed
+    ///   cycles in its own machine.cycles() structure.
+    /// * +iteration_cycles+ holds the current consumed cycles each time
+    ///   we executed a virtual machine(also named an iteration). It will
+    ///   always be zero before each iteration(i.e., before each VM starts
+    ///   execution). When a virtual machine finishes execution, the cycles
+    ///   stored in `machine.cycles()` will be moved over to +iteration_cycles+.
+    ///   `machine.cycles()` will then be reset to zero.
+    /// * Processing messages in the message box would alao charge cycles
+    ///   for operations, such as suspending/resuming VMs, transferring data
+    ///   etc. Those cycles were added to +iteration_cycles+ directly. When all
+    ///   postprocessing work is completed, the cycles consumed in
+    ///   +iteration_cycles+ will then be moved to +total_cycles+.
+    ///   +iteration_cycles+ will then be reset to zero.
+    ///
+    /// One can consider that +total_cycles+ contains the total cycles
+    /// consumed in current scheduler, when the scheduler is not busy executing.
+    pub total_cycles: Arc<AtomicU64>,
+    /// Iteration cycles, see +total_cycles+ on its usage
+    pub iteration_cycles: Cycle,
     /// Next vm id used by spawn.
     pub next_vm_id: VmId,
     /// Next fd used by pipe.
@@ -72,7 +95,7 @@ where
     /// Verify the VM's inherited fd list.
     pub inherited_fd: BTreeMap<VmId, Vec<Fd>>,
     /// Instantiated vms.
-    pub instantiated: BTreeMap<VmId, (MachineContext<DL>, Machine)>,
+    pub instantiated: BTreeMap<VmId, (VmContext<DL>, Machine)>,
     /// Suspended vms.
     pub suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
     /// Terminated vms.
@@ -88,18 +111,12 @@ where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     /// Create a new scheduler from empty state
-    pub fn new(
-        tx_data: TxData<DL>,
-        script_version: ScriptVersion,
-        syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
-    ) -> Self {
-        let message_box = Arc::clone(&syscalls_generator.message_box);
+    pub fn new(sg_data: SgData<DL>, debug_context: DebugContext) -> Self {
         Self {
-            tx_data,
-            script_version,
-            syscalls_generator,
-            total_cycles: 0,
-            current_iteration_cycles: 0,
+            sg_data,
+            debug_context,
+            total_cycles: Arc::new(AtomicU64::new(0)),
+            iteration_cycles: 0,
             next_vm_id: FIRST_VM_ID,
             next_fd_slot: FIRST_FD_SLOT,
             states: BTreeMap::default(),
@@ -107,39 +124,39 @@ where
             inherited_fd: BTreeMap::default(),
             instantiated: BTreeMap::default(),
             suspended: BTreeMap::default(),
-            message_box,
+            message_box: Arc::new(Mutex::new(Vec::new())),
             terminated_vms: BTreeMap::default(),
         }
     }
 
     /// Return total cycles.
     pub fn consumed_cycles(&self) -> Cycle {
-        self.total_cycles
+        self.total_cycles.load(Ordering::Acquire)
     }
 
     /// Add cycles to total cycles.
-    pub fn consumed_cycles_add(&mut self, cycles: Cycle) -> Result<(), Error> {
-        self.total_cycles = self
+    pub fn consume_cycles(&mut self, cycles: Cycle) -> Result<(), Error> {
+        match self
             .total_cycles
-            .checked_add(cycles)
-            .ok_or(Error::CyclesExceeded)?;
-        Ok(())
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |total_cycles| {
+                total_cycles.checked_add(cycles)
+            }) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::CyclesExceeded),
+        }
     }
 
     /// Resume a previously suspended scheduler state
     pub fn resume(
-        tx_data: TxData<DL>,
-        script_version: ScriptVersion,
-        syscalls_generator: TransactionScriptsSyscallsGenerator<DL>,
+        sg_data: SgData<DL>,
+        debug_context: DebugContext,
         full: FullSuspendedState,
     ) -> Self {
-        let message_box = Arc::clone(&syscalls_generator.message_box);
         let mut scheduler = Self {
-            tx_data,
-            script_version,
-            syscalls_generator,
-            total_cycles: full.total_cycles,
-            current_iteration_cycles: 0,
+            sg_data,
+            debug_context,
+            total_cycles: Arc::new(AtomicU64::new(full.total_cycles)),
+            iteration_cycles: 0,
             next_vm_id: full.next_vm_id,
             next_fd_slot: full.next_fd_slot,
             states: full
@@ -155,12 +172,16 @@ where
                 .into_iter()
                 .map(|(id, _, snapshot)| (id, snapshot))
                 .collect(),
-            message_box,
+            message_box: Arc::new(Mutex::new(Vec::new())),
             terminated_vms: full.terminated_vms.into_iter().collect(),
         };
         scheduler
             .ensure_vms_instantiated(&full.instantiated_ids)
             .unwrap();
+        // NOTE: suspending/resuming a scheduler is part of CKB's implementation
+        // details. It is not part of execution consensue. We should not charge
+        // cycles for them.
+        scheduler.iteration_cycles = 0;
         scheduler
     }
 
@@ -180,7 +201,11 @@ where
             vms.push((id, state, snapshot));
         }
         Ok(FullSuspendedState {
-            total_cycles: self.total_cycles,
+            // NOTE: suspending a scheduler is actually part of CKB's
+            // internal execution logic, it does not belong to VM execution
+            // consensus. We are not charging cycles for suspending
+            // a VM in the process of suspending the whole scheduler.
+            total_cycles: self.total_cycles.load(Ordering::Acquire),
             next_vm_id: self.next_vm_id,
             next_fd_slot: self.next_fd_slot,
             vms,
@@ -207,8 +232,16 @@ where
     pub fn run(&mut self, mode: RunMode) -> Result<(i8, Cycle), Error> {
         if self.states.is_empty() {
             // Booting phase, we will need to initialize the first VM.
+            let program_id = self.sg_data.sg_info.program_data_piece_id.clone();
             assert_eq!(
-                self.boot_vm(&DataPieceId::Program, 0, u64::MAX, &[])?,
+                self.boot_vm(
+                    &DataLocation {
+                        data_piece_id: program_id,
+                        offset: 0,
+                        length: u64::MAX,
+                    },
+                    None
+                )?,
                 ROOT_VM_ID
             );
         }
@@ -220,26 +253,24 @@ where
         };
 
         while self.states[&ROOT_VM_ID] != VmState::Terminated {
-            self.current_iteration_cycles = 0;
+            assert_eq!(self.iteration_cycles, 0);
             let iterate_return = self.iterate(pause.clone(), limit_cycles);
-            self.consumed_cycles_add(self.current_iteration_cycles)?;
+            self.consume_cycles(self.iteration_cycles)?;
             limit_cycles = limit_cycles
-                .checked_sub(self.current_iteration_cycles)
+                .checked_sub(self.iteration_cycles)
                 .ok_or(Error::CyclesExceeded)?;
+            // Clear iteration cycles intentionally after each run
+            self.iteration_cycles = 0;
             iterate_return?;
         }
 
         // At this point, root VM cannot be suspended
         let root_vm = &self.instantiated[&ROOT_VM_ID];
-        Ok((root_vm.1.machine.exit_code(), self.total_cycles))
+        Ok((root_vm.1.machine.exit_code(), self.consumed_cycles()))
     }
 
     /// Returns the machine that needs to be executed in the current iterate.
-    pub fn iterate_prepare_machine(
-        &mut self,
-        pause: Pause,
-        limit_cycles: Cycle,
-    ) -> Result<(u64, &mut Machine), Error> {
+    pub fn iterate_prepare_machine(&mut self) -> Result<(u64, &mut Machine), Error> {
         // Process all pending VM reads & writes.
         self.process_io()?;
         // Find a runnable VM that has the largest ID.
@@ -253,11 +284,7 @@ where
         let vm_id_to_run = vm_id_to_run.ok_or_else(|| {
             Error::Unexpected("A deadlock situation has been reached!".to_string())
         })?;
-        let total_cycles = self.total_cycles;
-        let (context, machine) = self.ensure_get_instantiated(&vm_id_to_run)?;
-        context.set_base_cycles(total_cycles);
-        machine.set_max_cycles(limit_cycles);
-        machine.machine.set_pause(pause);
+        let (_context, machine) = self.ensure_get_instantiated(&vm_id_to_run)?;
         Ok((vm_id_to_run, machine))
     }
 
@@ -266,12 +293,7 @@ where
         &mut self,
         vm_id_to_run: u64,
         result: Result<i8, Error>,
-        cycles: u64,
     ) -> Result<(), Error> {
-        self.current_iteration_cycles = self
-            .current_iteration_cycles
-            .checked_add(cycles)
-            .ok_or(Error::CyclesOverflow)?;
         // Process message box, update VM states accordingly
         self.process_message_box()?;
         assert!(self.message_box.lock().expect("lock").is_empty());
@@ -329,17 +351,62 @@ where
     // Here both pause signal and limit_cycles are provided so as to simplify
     // branches.
     fn iterate(&mut self, pause: Pause, limit_cycles: Cycle) -> Result<(), Error> {
-        let (id, vm) = self.iterate_prepare_machine(pause, limit_cycles)?;
-        let result = vm.run();
-        let cycles = vm.machine.cycles();
-        vm.machine.set_cycles(0);
-        self.iterate_process_results(id, result, cycles)
+        // Execute the VM for real, consumed cycles in the virtual machine is
+        // moved over to +iteration_cycles+, then we reset virtual machine's own
+        // cycle count to zero.
+        let (id, result, cycles) = {
+            let (id, vm) = self.iterate_prepare_machine()?;
+            vm.set_max_cycles(limit_cycles);
+            vm.machine.set_pause(pause);
+            let result = vm.run();
+            let cycles = vm.machine.cycles();
+            vm.machine.set_cycles(0);
+            (id, result, cycles)
+        };
+        self.iteration_cycles = self
+            .iteration_cycles
+            .checked_add(cycles)
+            .ok_or(Error::CyclesExceeded)?;
+        self.iterate_process_results(id, result)
     }
 
     fn process_message_box(&mut self) -> Result<(), Error> {
         let messages: Vec<Message> = self.message_box.lock().expect("lock").drain(..).collect();
         for message in messages {
             match message {
+                Message::ExecV2(vm_id, args) => {
+                    let (old_context, old_machine) = self
+                        .instantiated
+                        .get_mut(&vm_id)
+                        .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
+                    old_machine
+                        .machine
+                        .add_cycles_no_checking(EXEC_LOAD_ELF_V2_CYCLES_BASE)?;
+                    let old_cycles = old_machine.machine.cycles();
+                    let max_cycles = old_machine.machine.max_cycles();
+                    let program = {
+                        let mut sc = old_context.snapshot2_context.lock().expect("lock");
+                        sc.load_data(
+                            &args.location.data_piece_id,
+                            args.location.offset,
+                            args.location.length,
+                        )?
+                        .0
+                    };
+                    let (context, mut new_machine) = self.create_dummy_vm(&vm_id)?;
+                    new_machine.set_max_cycles(max_cycles);
+                    new_machine.machine.add_cycles_no_checking(old_cycles)?;
+                    self.load_vm_program(
+                        &context,
+                        &mut new_machine,
+                        &args.location,
+                        program,
+                        Some((vm_id, args.argc, args.argv)),
+                    )?;
+                    // The insert operation removes the old vm instance and adds the new vm instance.
+                    debug_assert!(self.instantiated.contains_key(&vm_id));
+                    self.instantiated.insert(vm_id, (context, new_machine));
+                }
                 Message::Spawn(vm_id, args) => {
                     // All fds must belong to the correct owner
                     if args.fds.iter().any(|fd| self.fds.get(fd) != Some(&vm_id)) {
@@ -353,7 +420,7 @@ where
                         continue;
                     }
                     let spawned_vm_id =
-                        self.boot_vm(&args.data_piece_id, args.offset, args.length, &args.argv)?;
+                        self.boot_vm(&args.location, Some((vm_id, args.argc, args.argv)))?;
                     // Move passed fds from spawner to spawnee
                     for fd in &args.fds {
                         self.fds.insert(*fd, spawned_vm_id);
@@ -560,7 +627,7 @@ where
                 _ => (),
             }
         }
-        // Transfering data from write fds to read fds
+        // Transferring data from write fds to read fds
         for (read_vm_id, read_state, write_vm_id, write_state) in pairs {
             let ReadState {
                 length: read_length,
@@ -691,7 +758,7 @@ where
     fn ensure_get_instantiated(
         &mut self,
         id: &VmId,
-    ) -> Result<&mut (MachineContext<DL>, Machine), Error> {
+    ) -> Result<&mut (VmContext<DL>, Machine), Error> {
         self.ensure_vms_instantiated(&[*id])?;
         self.instantiated
             .get_mut(id)
@@ -704,13 +771,13 @@ where
             return Err(Error::Unexpected(format!("VM {:?} is not suspended!", id)));
         }
         let snapshot = &self.suspended[id];
-        self.current_iteration_cycles = self
-            .current_iteration_cycles
+        self.iteration_cycles = self
+            .iteration_cycles
             .checked_add(SPAWN_EXTRA_CYCLES_BASE)
             .ok_or(Error::CyclesExceeded)?;
         let (context, mut machine) = self.create_dummy_vm(id)?;
         {
-            let mut sc = context.snapshot2_context().lock().expect("lock");
+            let mut sc = context.snapshot2_context.lock().expect("lock");
             sc.resume(&mut machine.machine, snapshot)?;
         }
         self.instantiated.insert(*id, (context, machine));
@@ -726,8 +793,8 @@ where
                 id
             )));
         }
-        self.current_iteration_cycles = self
-            .current_iteration_cycles
+        self.iteration_cycles = self
+            .iteration_cycles
             .checked_add(SPAWN_EXTRA_CYCLES_BASE)
             .ok_or(Error::CyclesExceeded)?;
         let (context, machine) = self
@@ -735,7 +802,7 @@ where
             .get_mut(id)
             .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
         let snapshot = {
-            let sc = context.snapshot2_context().lock().expect("lock");
+            let sc = context.snapshot2_context.lock().expect("lock");
             sc.make_snapshot(&mut machine.machine)?
         };
         self.suspended.insert(*id, snapshot);
@@ -746,11 +813,17 @@ where
     /// Boot a vm by given program and args.
     pub fn boot_vm(
         &mut self,
-        data_piece_id: &DataPieceId,
-        offset: u64,
-        length: u64,
-        args: &[Bytes],
+        location: &DataLocation,
+        args: Option<(u64, u64, u64)>,
     ) -> Result<VmId, Error> {
+        let id = self.next_vm_id;
+        self.next_vm_id += 1;
+        let (context, mut machine) = self.create_dummy_vm(&id)?;
+        let (program, _) = {
+            let mut sc = context.snapshot2_context.lock().expect("lock");
+            sc.load_data(&location.data_piece_id, location.offset, location.length)?
+        };
+        self.load_vm_program(&context, &mut machine, location, program, args)?;
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
             // Instantiated is a BTreeMap, first_entry will maintain key order
@@ -762,55 +835,68 @@ where
             self.suspend_vm(&id)?;
         }
 
-        let id = self.next_vm_id;
-        self.next_vm_id += 1;
-        let (context, mut machine) = self.create_dummy_vm(&id)?;
-        {
-            let mut sc = context.snapshot2_context().lock().expect("lock");
-            let (program, _) = sc.load_data(data_piece_id, offset, length)?;
-            let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
-            let bytes = machine.load_program_with_metadata(&program, &metadata, args)?;
-            sc.mark_program(&mut machine.machine, &metadata, data_piece_id, offset)?;
-            machine
-                .machine
-                .add_cycles_no_checking(transferred_byte_cycles(bytes))?;
-        }
         self.instantiated.insert(id, (context, machine));
         self.states.insert(id, VmState::Runnable);
 
         Ok(id)
     }
 
+    // Load the program into an empty vm.
+    fn load_vm_program(
+        &mut self,
+        context: &VmContext<DL>,
+        machine: &mut Machine,
+        location: &DataLocation,
+        program: Bytes,
+        args: Option<(u64, u64, u64)>,
+    ) -> Result<u64, Error> {
+        let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
+        let bytes = match args {
+            Some((vm_id, argc, argv)) => {
+                let (_, machine_from) = self.ensure_get_instantiated(&vm_id)?;
+                let argv = FlattenedArgsReader::new(machine_from.machine.memory_mut(), argc, argv);
+                machine.load_program_with_metadata(&program, &metadata, argv)?
+            }
+            None => machine.load_program_with_metadata(&program, &metadata, vec![].into_iter())?,
+        };
+        let mut sc = context.snapshot2_context.lock().expect("lock");
+        sc.mark_program(
+            &mut machine.machine,
+            &metadata,
+            &location.data_piece_id,
+            location.offset,
+        )?;
+        machine
+            .machine
+            .add_cycles_no_checking(transferred_byte_cycles(bytes))?;
+        Ok(bytes)
+    }
+
     // Create a new VM instance with syscalls attached
-    fn create_dummy_vm(&self, id: &VmId) -> Result<(MachineContext<DL>, Machine), Error> {
+    fn create_dummy_vm(&self, id: &VmId) -> Result<(VmContext<DL>, Machine), Error> {
         // The code here looks slightly weird, since I don't want to copy over all syscall
         // impls here again. Ideally, this scheduler package should be merged with ckb-script,
         // or simply replace ckb-script. That way, the quirks here will be eliminated.
-        let version = self.script_version;
+        let version = &self.sg_data.sg_info.script_version;
         let core_machine = CoreMachineType::new(
             version.vm_isa(),
             version.vm_version(),
             // We will update max_cycles for each machine when it gets a chance to run
             u64::MAX,
         );
-        let snapshot2_context = Arc::new(Mutex::new(Snapshot2Context::new(self.tx_data.clone())));
-        let mut syscalls_generator = self.syscalls_generator.clone();
-        syscalls_generator.vm_id = *id;
-        let mut machine_context = MachineContext::new(self.tx_data.clone());
-        machine_context.base_cycles = Arc::clone(&self.syscalls_generator.base_cycles);
-        machine_context.snapshot2_context = Arc::clone(&snapshot2_context);
+        let vm_context = VmContext {
+            base_cycles: Arc::clone(&self.total_cycles),
+            message_box: Arc::clone(&self.message_box),
+            snapshot2_context: Arc::new(Mutex::new(Snapshot2Context::new(self.sg_data.clone()))),
+        };
 
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles));
-        let machine_builder = syscalls_generator
-            .generate_syscalls(
-                version,
-                &self.tx_data.script_group,
-                Arc::clone(&snapshot2_context),
-            )
-            .into_iter()
-            .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
+        let machine_builder =
+            generate_ckb_syscalls(id, &self.sg_data, &vm_context, &self.debug_context)
+                .into_iter()
+                .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
-        Ok((machine_context, Machine::new(default_machine)))
+        Ok((vm_context, Machine::new(default_machine)))
     }
 }

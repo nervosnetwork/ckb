@@ -2,6 +2,7 @@ mod close;
 mod current_cycles;
 mod debugger;
 mod exec;
+mod exec_v2;
 mod inherited_fd;
 mod load_block_extension;
 mod load_cell;
@@ -27,10 +28,13 @@ mod pause;
 #[cfg(test)]
 mod tests;
 
+pub mod generator;
+
 pub use self::close::Close;
 pub use self::current_cycles::CurrentCycles;
 pub use self::debugger::Debugger;
 pub use self::exec::Exec;
+pub use self::exec_v2::ExecV2;
 pub use self::inherited_fd::InheritedFd;
 pub use self::load_block_extension::LoadBlockExtension;
 pub use self::load_cell::LoadCell;
@@ -101,6 +105,8 @@ pub const DEBUG_PAUSE: u64 = 2178;
 pub const EXEC_LOAD_ELF_V2_CYCLES_BASE: u64 = 75_000;
 pub const SPAWN_EXTRA_CYCLES_BASE: u64 = 100_000;
 pub const SPAWN_YIELD_CYCLES_BASE: u64 = 800;
+
+pub const MAX_ARGV_LENGTH: u64 = 1024 * 1024;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum CellField {

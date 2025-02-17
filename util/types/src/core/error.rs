@@ -223,3 +223,6 @@ impl OutPointError {
         matches!(self, OutPointError::Unknown(_))
     }
 }
+
+#[allow(missing_docs)]
+pub const ARGV_TOO_LONG_TEXT: &str = "@@@VM@@@UNEXPECTED@@@ARGV@@@TOOLONG@@@";

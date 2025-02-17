@@ -127,4 +127,16 @@ impl TxVerifyEnv {
         };
         self.epoch.minimum_epoch_number_after_n_blocks(n_blocks)
     }
+
+    /// Returns true if TxVerifyEnv is created to verify a submitted or
+    /// proposed tx
+    pub fn verifying_inflight_tx(&self) -> bool {
+        !self.verifying_committed_tx()
+    }
+
+    /// Returns true if TxVerifyEnv is created to verify a committed tx
+    /// in a block
+    pub fn verifying_committed_tx(&self) -> bool {
+        matches!(self.phase, TxVerifyPhase::Committed)
+    }
 }

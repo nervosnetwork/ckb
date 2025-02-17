@@ -1,9 +1,8 @@
-use crate::syscalls::utils::load_c_string;
 use crate::syscalls::{
     Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
     SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
 };
-use crate::types::{DataPieceId, Fd, Message, SpawnArgs, TxData, VmId};
+use crate::types::{DataLocation, DataPieceId, Fd, Message, SgData, SpawnArgs, VmContext, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     machine::SupportMachine,
@@ -21,22 +20,18 @@ where
 {
     id: VmId,
     message_box: Arc<Mutex<Vec<Message>>>,
-    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
+    snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, SgData<DL>>>>,
 }
 
 impl<DL> Spawn<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    pub fn new(
-        id: VmId,
-        message_box: Arc<Mutex<Vec<Message>>>,
-        snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, TxData<DL>>>>,
-    ) -> Self {
+    pub fn new(vm_id: &VmId, vm_context: &VmContext<DL>) -> Self {
         Self {
-            id,
-            message_box,
-            snapshot2_context,
+            id: *vm_id,
+            message_box: Arc::clone(&vm_context.message_box),
+            snapshot2_context: Arc::clone(&vm_context.snapshot2_context),
         }
     }
 }
@@ -78,25 +73,11 @@ where
         let argc_addr = spgs_addr;
         let argc = machine
             .memory_mut()
-            .load64(&Mac::REG::from_u64(argc_addr))?
-            .to_u64();
-        let argv_addr_addr = spgs_addr.wrapping_add(8);
-        let argv_addr = machine
+            .load64(&Mac::REG::from_u64(argc_addr))?;
+        let argv_addr = spgs_addr.wrapping_add(8);
+        let argv = machine
             .memory_mut()
-            .load64(&Mac::REG::from_u64(argv_addr_addr))?
-            .to_u64();
-        let mut addr = argv_addr;
-        let mut argv = Vec::new();
-        for _ in 0..argc {
-            let target_addr = machine
-                .memory_mut()
-                .load64(&Mac::REG::from_u64(addr))?
-                .to_u64();
-            let cstr = load_c_string(machine, target_addr)?;
-            argv.push(cstr);
-            addr = addr.wrapping_add(8);
-        }
-
+            .load64(&Mac::REG::from_u64(argv_addr))?;
         let process_id_addr_addr = spgs_addr.wrapping_add(16);
         let process_id_addr = machine
             .memory_mut()
@@ -157,10 +138,13 @@ where
             .push(Message::Spawn(
                 self.id,
                 SpawnArgs {
-                    data_piece_id,
-                    offset,
-                    length,
-                    argv,
+                    location: DataLocation {
+                        data_piece_id,
+                        offset,
+                        length,
+                    },
+                    argc: argc.to_u64(),
+                    argv: argv.to_u64(),
                     fds,
                     process_id_addr,
                 },

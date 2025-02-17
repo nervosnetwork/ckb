@@ -121,7 +121,7 @@ int parent_invalid_fd(uint64_t* pid) {
     err = ckb_write(fds[CKB_STDOUT], data, &data_length);
     CHECK2(err == CKB_OTHER_END_CLOSED, -2);
 
-    // read from fd but the ohter end is closed
+    // read from fd but the other end is closed
     err = ckb_pipe(fds);
     CHECK(err);
     err = ckb_close(fds[CKB_STDOUT]);

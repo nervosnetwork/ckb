@@ -15,21 +15,21 @@ use ckb_test_chain_utils::{
 use ckb_types::{
     core::{
         capacity_bytes,
-        cell::CellMetaBuilder,
+        cell::{CellMeta, CellMetaBuilder},
         hardfork::{HardForks, CKB2021, CKB2023},
         Capacity, Cycle, DepType, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
         TransactionBuilder, TransactionInfo,
     },
     h256,
     packed::{
-        Byte32, CellDep, CellInput, OutPoint, Script, TransactionInfoBuilder,
+        Byte32, CellDep, CellInput, CellOutput, OutPoint, Script, TransactionInfoBuilder,
         TransactionKeyBuilder, WitnessArgs,
     },
     H256,
 };
 use faster_hex::hex_encode;
 use std::sync::Arc;
-use std::{convert::TryInto as _, fs::File, path::Path};
+use std::{fs::File, path::Path};
 use tempfile::TempDir;
 
 use crate::verify::*;
@@ -236,7 +236,7 @@ impl TransactionScriptsVerifierWithEnv {
             times += 1;
 
             let mut init_snap = match verifier.resumable_verify(max_cycles).unwrap() {
-                VerifyResult::Suspended(state) => Some(state.try_into().unwrap()),
+                VerifyResult::Suspended(state) => Some(state),
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
                     return Ok((cycles, times));
@@ -246,9 +246,9 @@ impl TransactionScriptsVerifierWithEnv {
             loop {
                 times += 1;
                 let snap = init_snap.take().unwrap();
-                match verifier.resume_from_snap(&snap, max_cycles) {
+                match verifier.resume_from_state(&snap, max_cycles) {
                     Ok(VerifyResult::Suspended(state)) => {
-                        init_snap = Some(state.try_into().unwrap());
+                        init_snap = Some(state);
                     }
                     Ok(VerifyResult::Completed(cycle)) => {
                         cycles = cycle;

@@ -10,9 +10,10 @@ mod verify_env;
 
 pub use crate::error::{ScriptError, TransactionScriptError};
 pub use crate::scheduler::{Scheduler, ROOT_VM_ID};
+pub use crate::syscalls::generator::generate_ckb_syscalls;
 pub use crate::types::{
     ChunkCommand, CoreMachine, DataPieceId, RunMode, ScriptGroup, ScriptGroupType, ScriptVersion,
-    TransactionSnapshot, TransactionState, TxData, VerifyResult, VmIsa, VmState, VmVersion,
+    TransactionState, TxData, VerifyResult, VmIsa, VmState, VmVersion,
 };
-pub use crate::verify::{TransactionScriptsSyscallsGenerator, TransactionScriptsVerifier};
+pub use crate::verify::TransactionScriptsVerifier;
 pub use crate::verify_env::TxVerifyEnv;

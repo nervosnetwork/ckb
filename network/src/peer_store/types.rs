@@ -62,7 +62,20 @@ impl AddrInfo {
     /// Init
     pub fn new(addr: Multiaddr, last_connected_at_ms: u64, score: Score, flags: u64) -> Self {
         AddrInfo {
-            addr,
+            // only store tcp protocol
+            addr: addr
+                .iter()
+                .filter_map(|p| {
+                    if matches!(
+                        p,
+                        Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
+                    ) {
+                        None
+                    } else {
+                        Some(p)
+                    }
+                })
+                .collect(),
             score,
             last_connected_at_ms,
             last_tried_at_ms: 0,

@@ -5,9 +5,9 @@ use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_network::{
-    async_trait, bytes::Bytes as P2pBytes, Behaviour, CKBProtocolContext, Error, Flags,
-    NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId, SupportProtocols,
-    TargetSession,
+    async_trait, bytes::Bytes as P2pBytes, network::TransportType, Behaviour, CKBProtocolContext,
+    Error, Flags, NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId,
+    SupportProtocols, TargetSession,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
@@ -127,6 +127,7 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
             "test".to_string(),
             Flags::COMPATIBILITY,
         ),
+        TransportType::Tcp,
     )
     .start(shared.async_handle())
     .expect("Start network service failed")

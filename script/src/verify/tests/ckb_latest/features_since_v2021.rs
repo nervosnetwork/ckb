@@ -490,8 +490,17 @@ fn check_exec_big_offset_length() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    if script_version >= ScriptVersion::V1 {
-        assert!(result.unwrap_err().to_string().contains("error code 3"));
+    match script_version {
+        ScriptVersion::V0 => {}
+        ScriptVersion::V1 => {
+            assert!(result.unwrap_err().to_string().contains("error code 3"));
+        }
+        _ => {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("VM Internal Error: ElfParseError"));
+        }
     }
 }
 
@@ -720,7 +729,7 @@ fn _check_type_id_one_in_one_out_resume_with_state(
             loop {
                 times += 1;
                 let state = init_state.take().unwrap();
-                match verifier.resume_from_state(state, limit).unwrap() {
+                match verifier.resume_from_state(&state, limit).unwrap() {
                     VerifyResult::Suspended(state) => {
                         init_state = Some(state);
                         limit *= 2;
@@ -818,12 +827,17 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
+    let cycle_bound = if SCRIPT_VERSION >= ScriptVersion::V2 {
+        V2_CYCLE_BOUND
+    } else {
+        CYCLE_BOUND
+    };
     if SCRIPT_VERSION >= ScriptVersion::V1 {
         let mut rng = thread_rng();
         let step_cycles1 = rng.sample(Uniform::from(1..100u64));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles1);
 
-        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - cycle_bound));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles2);
     }
 }
@@ -846,7 +860,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
         loop {
             let state = init_state.take().unwrap();
             let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-            match verifier.resume_from_state(state, limit_cycles).unwrap() {
+            match verifier.resume_from_state(&state, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_state = Some(state),
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
@@ -876,12 +890,17 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
+    let cycle_bound = if SCRIPT_VERSION >= ScriptVersion::V2 {
+        V2_CYCLE_BOUND
+    } else {
+        CYCLE_BOUND
+    };
     if SCRIPT_VERSION >= ScriptVersion::V1 {
         let mut rng = thread_rng();
         let step_cycles1 = rng.sample(Uniform::from(1..100u64));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles1);
 
-        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - cycle_bound));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles2);
     }
 }
@@ -894,11 +913,11 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
 
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
         #[allow(unused_assignments)]
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
         let mut init_state: Option<TransactionState> = None;
 
         match verifier.resumable_verify(step_cycles).unwrap() {
-            VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
+            VerifyResult::Suspended(state) => init_snap = Some(state),
             VerifyResult::Completed(cycle) => return Ok(cycle),
         }
 
@@ -908,10 +927,10 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
                 let snap = init_snap.take().unwrap();
                 let (limit_cycles, _last) =
                     snap.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-                match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
+                match verifier.resume_from_state(&snap, limit_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         if count % 500 == 0 {
-                            init_snap = Some(state.try_into().unwrap());
+                            init_snap = Some(state);
                         } else {
                             init_state = Some(state);
                         }
@@ -925,10 +944,10 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
                 let state = init_state.take().unwrap();
                 let (limit_cycles, _last) =
                     state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-                match verifier.resume_from_state(state, limit_cycles).unwrap() {
+                match verifier.resume_from_state(&state, limit_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         if count % 500 == 0 {
-                            init_snap = Some(state.try_into().unwrap());
+                            init_snap = Some(state);
                         } else {
                             init_state = Some(state);
                         }
@@ -963,13 +982,18 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap() {
+    let cycle_bound = if SCRIPT_VERSION >= ScriptVersion::V2 {
+        V2_CYCLE_BOUND
+    } else {
+        CYCLE_BOUND
+    };
     if SCRIPT_VERSION >= ScriptVersion::V1 {
         let mut rng = thread_rng();
         let step_cycles1 = rng.sample(Uniform::from(1..100u64));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles1);
 
         let step_cycles2 = rng.sample(Uniform::from(
-            TWO_IN_TWO_OUT_CYCLES / 10..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+            TWO_IN_TWO_OUT_CYCLES / 10..TWO_IN_TWO_OUT_CYCLES - cycle_bound,
         ));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles2);
     }
@@ -983,21 +1007,21 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
     let mut cycles = 0;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier
             .resumable_verify(TWO_IN_TWO_OUT_CYCLES / 10)
             .unwrap()
         {
-            init_snap = Some(state.try_into().unwrap());
+            init_snap = Some(state);
         }
 
         for _ in 0..2 {
             let snap = init_snap.take().unwrap();
             let (limit_cycles, _last) =
                 snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
-            match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
-                VerifyResult::Suspended(state) => init_snap = Some(state.try_into().unwrap()),
+            match verifier.resume_from_state(&snap, limit_cycles).unwrap() {
+                VerifyResult::Suspended(state) => init_snap = Some(state),
                 VerifyResult::Completed(_) => {
                     unreachable!()
                 }
@@ -1133,14 +1157,14 @@ fn load_code_with_snapshot() {
     let max_cycles = Cycle::MAX;
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
-            init_snap = Some(state.try_into().unwrap());
+            init_snap = Some(state);
         }
 
         let snap = init_snap.take().unwrap();
-        let result = verifier.resume_from_snap(&snap, max_cycles);
+        let result = verifier.resume_from_state(&snap, max_cycles);
 
         match result.unwrap() {
             VerifyResult::Suspended(state) => {
@@ -1232,19 +1256,19 @@ fn load_code_with_snapshot_more_times() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
 
     verifier.verify_map(script_version, &rtx, |verifier| {
-        let mut init_snap: Option<TransactionSnapshot> = None;
+        let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
-            init_snap = Some(state.try_into().unwrap());
+            init_snap = Some(state);
         }
 
         loop {
             let snap = init_snap.take().unwrap();
-            let result = verifier.resume_from_snap(&snap, max_cycles);
+            let result = verifier.resume_from_state(&snap, max_cycles);
 
             match result.unwrap() {
                 VerifyResult::Suspended(state) => {
-                    init_snap = Some(state.try_into().unwrap());
+                    init_snap = Some(state);
                 }
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
@@ -1744,13 +1768,21 @@ fn exec_from_cell_data_source_out_bound() {
 
 #[test]
 fn exec_from_witness_place_error() {
+    let script_version = SCRIPT_VERSION;
+
     let from = ExecFrom::OutOfBound(0, 1, 3, 0);
-    let res = Err("Place parse_from_u64".to_string());
+    let res = if script_version <= ScriptVersion::V1 {
+        Err("Place parse_from_u64".to_string())
+    } else {
+        Err("error code 1".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 }
 
 #[test]
 fn exec_slice() {
+    let script_version = SCRIPT_VERSION;
+
     let (exec_callee_cell, _exec_callee_data_hash) =
         load_cell_from_path("testdata/exec_configurable_callee");
     let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
@@ -1761,11 +1793,19 @@ fn exec_slice() {
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::OutOfSlice(length + 1);
-    let res = Err("error code 3".to_string());
+    let res = if script_version >= ScriptVersion::V2 {
+        Ok(2)
+    } else {
+        Err("error code 3".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::OutOfSlice(((length - 1) << 32) | 1);
-    let res = Err("MemWriteOnExecutablePage".to_string());
+    let res = if script_version >= ScriptVersion::V2 {
+        Err("Malformed entity: Too small".to_string())
+    } else {
+        Err("MemWriteOnExecutablePage".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::Slice((10 << 32) | length);

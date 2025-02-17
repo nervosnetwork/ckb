@@ -1193,7 +1193,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_resume_load_cycles(step_cycles: 
         loop {
             let state = init_state.take().unwrap();
             let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-            match verifier.resume_from_state(state, limit_cycles).unwrap() {
+            match verifier.resume_from_state(&state, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_state = Some(state),
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
