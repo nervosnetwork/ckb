@@ -31,17 +31,17 @@ fn test_add_addr() {
     let mut peer_store: PeerStore = Default::default();
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY, |_| true)
             .len(),
         0
     );
     let addr = random_addr();
     peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
-    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2, |_| true).len(), 1);
     // we have not connected yet, so return 0
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY, |_| true)
             .len(),
         0
     );
@@ -141,14 +141,14 @@ fn test_attempt_ban() {
 
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY, |_| true)
             .len(),
         1
     );
     peer_store.ban_addr(&addr, 10_000, "no reason".into());
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY, |_| true)
             .len(),
         0
     );
@@ -161,7 +161,7 @@ fn test_fetch_addrs_to_attempt() {
 
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store
-        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY, |_| true)
         .is_empty());
     let addr = random_addr();
     peer_store
@@ -176,13 +176,13 @@ fn test_fetch_addrs_to_attempt() {
 
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY, |_| true)
             .len(),
         1
     );
     peer_store.add_connected_peer(addr, SessionType::Outbound);
     assert!(peer_store
-        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY, |_| true)
         .is_empty());
 }
 
@@ -199,18 +199,18 @@ fn test_fetch_addrs_to_attempt_or_feeler() {
 
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY, |_| true)
             .len(),
         1
     );
-    assert!(peer_store.fetch_addrs_to_feeler(2).is_empty());
+    assert!(peer_store.fetch_addrs_to_feeler(2, |_| true).is_empty());
 
     _faketime_guard.set_faketime(100_000 + ADDR_TRY_TIMEOUT_MS + 1);
 
     assert!(peer_store
-        .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY)
+        .fetch_addrs_to_attempt(2, Flags::COMPATIBILITY, |_| true)
         .is_empty());
-    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2, |_| true).len(), 1);
 }
 
 #[test]
@@ -229,14 +229,14 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
         paddr.mark_tried(now);
     }
     assert!(peer_store
-        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY, |_| true)
         .is_empty());
     // after 60 seconds
     if let Some(paddr) = peer_store.mut_addr_manager().get_mut(&addr) {
         paddr.mark_tried(now - 60_001);
     }
     assert!(peer_store
-        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+        .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY, |_| true)
         .is_empty());
     peer_store
         .mut_addr_manager()
@@ -247,7 +247,7 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
 
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY, |_| true)
             .len(),
         1
     );
@@ -256,7 +256,7 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
     }
     assert_eq!(
         peer_store
-            .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY)
+            .fetch_addrs_to_attempt(1, Flags::COMPATIBILITY, |_| true)
             .len(),
         1
     );
@@ -265,18 +265,18 @@ fn test_fetch_addrs_to_attempt_in_last_minutes() {
 #[test]
 fn test_fetch_addrs_to_feeler() {
     let mut peer_store: PeerStore = Default::default();
-    assert!(peer_store.fetch_addrs_to_feeler(1).is_empty());
+    assert!(peer_store.fetch_addrs_to_feeler(1, |_| true).is_empty());
     let addr = random_addr();
 
     // add an addr
     peer_store
         .add_addr(addr.clone(), Flags::COMPATIBILITY)
         .unwrap();
-    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2, |_| true).len(), 1);
 
     // ignores connected peers' addrs
     peer_store.add_connected_peer(addr.clone(), SessionType::Outbound);
-    assert!(peer_store.fetch_addrs_to_feeler(1).is_empty());
+    assert!(peer_store.fetch_addrs_to_feeler(1, |_| true).is_empty());
 
     // peer does not need feeler if it connected to us recently
     peer_store
@@ -285,7 +285,7 @@ fn test_fetch_addrs_to_feeler() {
         .unwrap()
         .last_connected_at_ms = ckb_systemtime::unix_time_as_millis();
     peer_store.remove_disconnected_peer(&addr);
-    assert!(peer_store.fetch_addrs_to_feeler(1).is_empty());
+    assert!(peer_store.fetch_addrs_to_feeler(1, |_| true).is_empty());
 }
 
 #[test]
@@ -581,10 +581,10 @@ fn test_addr_unique() {
         .unwrap();
     peer_store.add_addr(addr_1, Flags::COMPATIBILITY).unwrap();
     assert_eq!(peer_store.addr_manager().addrs_iter().count(), 2);
-    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 2);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2, |_| true).len(), 2);
 
     peer_store.add_addr(addr, Flags::COMPATIBILITY).unwrap();
-    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 2);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2, |_| true).len(), 2);
 
     assert_eq!(peer_store.addr_manager().addrs_iter().count(), 2);
 }
@@ -597,8 +597,8 @@ fn test_only_tcp_store() {
     peer_store
         .add_addr(addr.clone(), Flags::COMPATIBILITY)
         .unwrap();
-    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
-    assert_eq!(peer_store.fetch_addrs_to_feeler(1)[0].addr, {
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2, |_| true).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(1, |_| true)[0].addr, {
         addr.pop();
         addr
     });
@@ -618,6 +618,6 @@ fn test_support_dns_store() {
     peer_store
         .add_addr(addr.clone(), Flags::COMPATIBILITY)
         .unwrap();
-    assert_eq!(peer_store.fetch_addrs_to_feeler(2).len(), 1);
-    assert_eq!(peer_store.fetch_addrs_to_feeler(1)[0].addr, addr);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(2, |_| true).len(), 1);
+    assert_eq!(peer_store.fetch_addrs_to_feeler(1, |_| true)[0].addr, addr);
 }

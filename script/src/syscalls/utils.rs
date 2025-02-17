@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_vm::{
     registers::{A0, A1, A2},
-    Bytes, Error as VMError, Memory, Register, SupportMachine,
+    Error as VMError, Memory, Register, SupportMachine,
 };
 use std::cmp;
 
@@ -27,23 +27,4 @@ pub fn store_u64<Mac: SupportMachine>(machine: &mut Mac, v: u64) -> Result<u64, 
     let mut buffer = [0u8; std::mem::size_of::<u64>()];
     LittleEndian::write_u64(&mut buffer, v);
     store_data(machine, &buffer)
-}
-
-pub fn load_c_string<Mac: SupportMachine>(machine: &mut Mac, addr: u64) -> Result<Bytes, VMError> {
-    let mut buffer = Vec::new();
-    let mut addr = addr;
-
-    loop {
-        let byte = machine
-            .memory_mut()
-            .load8(&Mac::REG::from_u64(addr))?
-            .to_u8();
-        if byte == 0 {
-            break;
-        }
-        buffer.push(byte);
-        addr += 1;
-    }
-
-    Ok(Bytes::from(buffer))
 }

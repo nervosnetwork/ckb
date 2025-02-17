@@ -351,11 +351,24 @@ pub enum VmState {
 }
 
 #[derive(Clone, Debug)]
-pub struct SpawnArgs {
+pub struct DataLocation {
     pub data_piece_id: DataPieceId,
     pub offset: u64,
     pub length: u64,
-    pub argv: Vec<Bytes>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExecV2Args {
+    pub location: DataLocation,
+    pub argc: u64,
+    pub argv: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct SpawnArgs {
+    pub location: DataLocation,
+    pub argc: u64,
+    pub argv: u64,
     pub fds: Vec<Fd>,
     pub process_id_addr: u64,
 }
@@ -382,6 +395,7 @@ pub struct FdArgs {
 
 #[derive(Clone, Debug)]
 pub enum Message {
+    ExecV2(VmId, ExecV2Args),
     Spawn(VmId, SpawnArgs),
     Wait(VmId, WaitArgs),
     Pipe(VmId, PipeArgs),

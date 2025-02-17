@@ -490,8 +490,17 @@ fn check_exec_big_offset_length() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify_without_limit(script_version, &rtx);
-    if script_version >= ScriptVersion::V1 {
-        assert!(result.unwrap_err().to_string().contains("error code 3"));
+    match script_version {
+        ScriptVersion::V0 => {}
+        ScriptVersion::V1 => {
+            assert!(result.unwrap_err().to_string().contains("error code 3"));
+        }
+        _ => {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("VM Internal Error: ElfParseError"));
+        }
     }
 }
 
@@ -818,12 +827,17 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles: Cycle
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk() {
+    let cycle_bound = if SCRIPT_VERSION >= ScriptVersion::V2 {
+        V2_CYCLE_BOUND
+    } else {
+        CYCLE_BOUND
+    };
     if SCRIPT_VERSION >= ScriptVersion::V1 {
         let mut rng = thread_rng();
         let step_cycles1 = rng.sample(Uniform::from(1..100u64));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles1);
 
-        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - cycle_bound));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_chunk(step_cycles2);
     }
 }
@@ -876,12 +890,17 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_state() {
+    let cycle_bound = if SCRIPT_VERSION >= ScriptVersion::V2 {
+        V2_CYCLE_BOUND
+    } else {
+        CYCLE_BOUND
+    };
     if SCRIPT_VERSION >= ScriptVersion::V1 {
         let mut rng = thread_rng();
         let step_cycles1 = rng.sample(Uniform::from(1..100u64));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles1);
 
-        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND));
+        let step_cycles2 = rng.sample(Uniform::from(100u64..TWO_IN_TWO_OUT_CYCLES - cycle_bound));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles2);
     }
 }
@@ -963,13 +982,18 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
 
 #[test]
 fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap() {
+    let cycle_bound = if SCRIPT_VERSION >= ScriptVersion::V2 {
+        V2_CYCLE_BOUND
+    } else {
+        CYCLE_BOUND
+    };
     if SCRIPT_VERSION >= ScriptVersion::V1 {
         let mut rng = thread_rng();
         let step_cycles1 = rng.sample(Uniform::from(1..100u64));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles1);
 
         let step_cycles2 = rng.sample(Uniform::from(
-            TWO_IN_TWO_OUT_CYCLES / 10..TWO_IN_TWO_OUT_CYCLES - CYCLE_BOUND,
+            TWO_IN_TWO_OUT_CYCLES / 10..TWO_IN_TWO_OUT_CYCLES - cycle_bound,
         ));
         _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles2);
     }
@@ -1744,13 +1768,21 @@ fn exec_from_cell_data_source_out_bound() {
 
 #[test]
 fn exec_from_witness_place_error() {
+    let script_version = SCRIPT_VERSION;
+
     let from = ExecFrom::OutOfBound(0, 1, 3, 0);
-    let res = Err("Place parse_from_u64".to_string());
+    let res = if script_version <= ScriptVersion::V1 {
+        Err("Place parse_from_u64".to_string())
+    } else {
+        Err("error code 1".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 }
 
 #[test]
 fn exec_slice() {
+    let script_version = SCRIPT_VERSION;
+
     let (exec_callee_cell, _exec_callee_data_hash) =
         load_cell_from_path("testdata/exec_configurable_callee");
     let exec_callee_cell_data = exec_callee_cell.mem_cell_data.as_ref().unwrap();
@@ -1761,11 +1793,19 @@ fn exec_slice() {
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::OutOfSlice(length + 1);
-    let res = Err("error code 3".to_string());
+    let res = if script_version >= ScriptVersion::V2 {
+        Ok(2)
+    } else {
+        Err("error code 3".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::OutOfSlice(((length - 1) << 32) | 1);
-    let res = Err("MemWriteOnExecutablePage".to_string());
+    let res = if script_version >= ScriptVersion::V2 {
+        Err("Malformed entity: Too small".to_string())
+    } else {
+        Err("MemWriteOnExecutablePage".to_string())
+    };
     test_exec(0b0000, 1, 2, 1, from, res);
 
     let from = ExecFrom::Slice((10 << 32) | length);
