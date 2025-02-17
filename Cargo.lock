@@ -481,7 +481,7 @@ dependencies = [
  "sha2",
  "ssri",
  "tempfile",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "walkdir",
@@ -845,7 +845,7 @@ dependencies = [
  "faster-hex",
  "rand 0.8.5",
  "secp256k1",
- "thiserror 1.0.64",
+ "thiserror 2.0.9",
 ]
 
 [[package]]
@@ -912,7 +912,7 @@ dependencies = [
  "anyhow",
  "ckb-occupied-capacity",
  "derive_more 1.0.0",
- "thiserror 1.0.64",
+ "thiserror 2.0.9",
 ]
 
 [[package]]
@@ -923,7 +923,7 @@ dependencies = [
  "ckb-logger",
  "ckb-types",
  "ckb-util",
- "thiserror 1.0.64",
+ "thiserror 2.0.9",
 ]
 
 [[package]]
@@ -942,7 +942,7 @@ dependencies = [
  "faster-hex",
  "serde",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 2.0.9",
 ]
 
 [[package]]
@@ -1026,7 +1026,7 @@ dependencies = [
  "numext-fixed-uint",
  "rhai",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 2.0.9",
 ]
 
 [[package]]
@@ -3102,7 +3102,7 @@ dependencies = [
  "ipnet",
  "once_cell",
  "rand 0.8.5",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tinyvec",
  "tokio",
  "tracing",
@@ -3125,7 +3125,7 @@ dependencies = [
  "rand 0.8.5",
  "resolv-conf",
  "smallvec",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -3486,7 +3486,7 @@ checksum = "3afe8830d5802f769dc0be20a87f9f116798c896650cb6266eb5c19a3c109eed"
 dependencies = [
  "js-sys",
  "num-traits",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "wasm-bindgen",
  "web-sys",
@@ -3959,7 +3959,7 @@ checksum = "59bb584eaeeab6bd0226ccf3509a69d7936d148cf3d036ad350abe35e8c6856e"
 dependencies = [
  "miette-derive",
  "once_cell",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "unicode-width",
 ]
 
@@ -4222,7 +4222,7 @@ dependencies = [
  "numext-constructor",
  "rand 0.7.3",
  "serde",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4445,7 +4445,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879952a81a83930934cbf1786752d6dedc3b1f29e8f8fb2ad1d0a36f377cf442"
 dependencies = [
  "memchr",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "ucd-trie",
 ]
 
@@ -4753,7 +4753,7 @@ dependencies = [
  "memchr",
  "parking_lot 0.12.3",
  "protobuf",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5481,7 +5481,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "time",
  "url",
  "uuid",
@@ -5742,7 +5742,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1008d95d2ec2d062959352527be30e10fec42a1aa5e5a48d990a5ff0fb9bdc0"
 dependencies = [
  "anyhow",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5802,7 +5802,7 @@ dependencies = [
  "sha2",
  "smallvec",
  "sqlformat",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -5886,7 +5886,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "whoami",
 ]
@@ -5924,7 +5924,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "whoami",
 ]
@@ -5965,7 +5965,7 @@ dependencies = [
  "serde",
  "sha-1",
  "sha2",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "xxhash-rust",
 ]
 
@@ -6114,7 +6114,7 @@ dependencies = [
  "socket2",
  "tentacle-multiaddr",
  "tentacle-secio",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.26.1",
  "tokio-util",
@@ -6213,11 +6213,11 @@ checksum = "a38c90d48152c236a3ab59271da4f4ae63d678c5d7ad6b7714d7cb9760be5e4b"
 
 [[package]]
 name = "thiserror"
-version = "1.0.64"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d50af8abc119fb8bb6dbabcfa89656f46f84aa0ac7688088608076ad2b459a84"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl 1.0.64",
+ "thiserror-impl 1.0.69",
 ]
 
 [[package]]
@@ -6231,9 +6231,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.64"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08904e7672f5eb876eaaf87e0ce17857500934f4981c4a0ab2b4aa98baac7fc3"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6662,7 +6662,7 @@ dependencies = [
  "log",
  "rand 0.8.5",
  "sha1",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "utf-8",
 ]
 
