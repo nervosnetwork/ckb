@@ -460,8 +460,15 @@ impl Callback for IdentifyCallback {
                     // and if set it to peer store, it will be broadcast to the entire network,
                     // but this is an unverified address
                     if renew {
+                        let dns_addr = self.network_state.pending_dns_addrs.write().remove(
+                            &extract_peer_id(&context.session.address).expect("must have peerid"),
+                        );
                         self.network_state.with_peer_store_mut(|peer_store| {
                             peer_store.add_outbound_addr(context.session.address.clone(), flags);
+                            if let Some(dns) = dns_addr {
+                                // mark dns address connected time
+                                peer_store.add_outbound_addr(dns, flags);
+                            }
                         });
                     }
 
