@@ -15,14 +15,14 @@ use ckb_test_chain_utils::{
 use ckb_types::{
     core::{
         capacity_bytes,
-        cell::CellMetaBuilder,
+        cell::{CellMeta, CellMetaBuilder},
         hardfork::{HardForks, CKB2021, CKB2023},
         Capacity, Cycle, DepType, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
         TransactionBuilder, TransactionInfo,
     },
     h256,
     packed::{
-        Byte32, CellDep, CellInput, OutPoint, Script, TransactionInfoBuilder,
+        Byte32, CellDep, CellInput, CellOutput, OutPoint, Script, TransactionInfoBuilder,
         TransactionKeyBuilder, WitnessArgs,
     },
     H256,
@@ -246,7 +246,7 @@ impl TransactionScriptsVerifierWithEnv {
             loop {
                 times += 1;
                 let snap = init_snap.take().unwrap();
-                match verifier.resume_from_snap(&snap, max_cycles) {
+                match verifier.resume_from_state(&snap, max_cycles) {
                     Ok(VerifyResult::Suspended(state)) => {
                         init_snap = Some(state);
                     }

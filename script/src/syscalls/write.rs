@@ -1,5 +1,6 @@
 use crate::syscalls::{INVALID_FD, SPAWN_YIELD_CYCLES_BASE, WRITE};
-use crate::types::{Fd, FdArgs, Message, VmId};
+use crate::types::{Fd, FdArgs, Message, VmContext, VmId};
+use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
     registers::{A0, A1, A2, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
@@ -13,8 +14,14 @@ pub struct Write {
 }
 
 impl Write {
-    pub fn new(id: VmId, message_box: Arc<Mutex<Vec<Message>>>) -> Self {
-        Self { id, message_box }
+    pub fn new<DL>(vm_id: &VmId, vm_context: &VmContext<DL>) -> Self
+    where
+        DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    {
+        Self {
+            id: *vm_id,
+            message_box: Arc::clone(&vm_context.message_box),
+        }
     }
 }
 

@@ -1,18 +1,15 @@
-use crate::types::Indices;
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
         utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
         LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
     },
+    types::{SgData, TxInfo},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_traits::CellDataProvider;
 use ckb_types::{
-    core::{
-        cell::{CellMeta, ResolvedTransaction},
-        Capacity,
-    },
+    core::{cell::CellMeta, Capacity},
     packed::CellOutput,
     prelude::*,
 };
@@ -20,41 +17,31 @@ use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
 
 pub struct LoadCell<DL> {
-    data_loader: DL,
-    rtx: Arc<ResolvedTransaction>,
-    outputs: Arc<Vec<CellMeta>>,
-    group_inputs: Indices,
-    group_outputs: Indices,
+    sg_data: SgData<DL>,
 }
 
-impl<DL: CellDataProvider> LoadCell<DL> {
-    pub fn new(
-        data_loader: DL,
-        rtx: Arc<ResolvedTransaction>,
-        outputs: Arc<Vec<CellMeta>>,
-        group_inputs: Indices,
-        group_outputs: Indices,
-    ) -> LoadCell<DL> {
+impl<DL: CellDataProvider + Clone> LoadCell<DL> {
+    pub fn new(sg_data: &SgData<DL>) -> LoadCell<DL> {
         LoadCell {
-            data_loader,
-            rtx,
-            outputs,
-            group_inputs,
-            group_outputs,
+            sg_data: sg_data.clone(),
         }
     }
 
     #[inline]
+    fn tx_info(&self) -> &TxInfo<DL> {
+        &self.sg_data.tx_info
+    }
+
+    #[inline]
     fn resolved_inputs(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_inputs
+        &self.sg_data.rtx.resolved_inputs
     }
 
     #[inline]
     fn resolved_cell_deps(&self) -> &Vec<CellMeta> {
-        &self.rtx.resolved_cell_deps
+        &self.sg_data.rtx.resolved_cell_deps
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
@@ -63,7 +50,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 self.resolved_inputs().get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::Output) => {
-                self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
+                self.tx_info().outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::CellDep) => self
                 .resolved_cell_deps()
@@ -71,7 +58,8 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 .ok_or(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
-                .group_inputs
+                .sg_data
+                .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| {
@@ -80,10 +68,16 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                         .ok_or(INDEX_OUT_OF_BOUND)
                 }),
             Source::Group(SourceEntry::Output) => self
-                .group_outputs
+                .sg_data
+                .group_outputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| self.outputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
+                .and_then(|actual_index| {
+                    self.tx_info()
+                        .outputs
+                        .get(*actual_index)
+                        .ok_or(INDEX_OUT_OF_BOUND)
+                }),
             Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
         }
@@ -115,7 +109,7 @@ impl<DL: CellDataProvider> LoadCell<DL> {
                 (SUCCESS, store_data(machine, &buffer)?)
             }
             CellField::DataHash => {
-                if let Some(bytes) = self.data_loader.load_cell_data_hash(cell) {
+                if let Some(bytes) = self.tx_info().data_loader.load_cell_data_hash(cell) {
                     (SUCCESS, store_data(machine, &bytes.as_bytes())?)
                 } else {
                     (ITEM_MISSING, 0)
@@ -165,7 +159,9 @@ impl<DL: CellDataProvider> LoadCell<DL> {
     }
 }
 
-impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync> Syscalls<Mac> for LoadCell<DL> {
+impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync + Clone> Syscalls<Mac>
+    for LoadCell<DL>
+{
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

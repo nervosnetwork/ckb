@@ -729,7 +729,7 @@ fn _check_type_id_one_in_one_out_resume_with_state(
             loop {
                 times += 1;
                 let state = init_state.take().unwrap();
-                match verifier.resume_from_state(state, limit).unwrap() {
+                match verifier.resume_from_state(&state, limit).unwrap() {
                     VerifyResult::Suspended(state) => {
                         init_state = Some(state);
                         limit *= 2;
@@ -860,7 +860,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_state(step_cycles: Cycle
         loop {
             let state = init_state.take().unwrap();
             let (limit_cycles, _last) = state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-            match verifier.resume_from_state(state, limit_cycles).unwrap() {
+            match verifier.resume_from_state(&state, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_state = Some(state),
                 VerifyResult::Completed(cycle) => {
                     cycles = cycle;
@@ -927,7 +927,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
                 let snap = init_snap.take().unwrap();
                 let (limit_cycles, _last) =
                     snap.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-                match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
+                match verifier.resume_from_state(&snap, limit_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         if count % 500 == 0 {
                             init_snap = Some(state);
@@ -944,7 +944,7 @@ fn _check_typical_secp256k1_blake160_2_in_2_out_tx_with_snap(step_cycles: Cycle)
                 let state = init_state.take().unwrap();
                 let (limit_cycles, _last) =
                     state.next_limit_cycles(step_cycles, TWO_IN_TWO_OUT_CYCLES);
-                match verifier.resume_from_state(state, limit_cycles).unwrap() {
+                match verifier.resume_from_state(&state, limit_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         if count % 500 == 0 {
                             init_snap = Some(state);
@@ -1020,7 +1020,7 @@ fn check_typical_secp256k1_blake160_2_in_2_out_tx_with_complete() {
             let snap = init_snap.take().unwrap();
             let (limit_cycles, _last) =
                 snap.next_limit_cycles(TWO_IN_TWO_OUT_CYCLES / 10, TWO_IN_TWO_OUT_CYCLES);
-            match verifier.resume_from_snap(&snap, limit_cycles).unwrap() {
+            match verifier.resume_from_state(&snap, limit_cycles).unwrap() {
                 VerifyResult::Suspended(state) => init_snap = Some(state),
                 VerifyResult::Completed(_) => {
                     unreachable!()
@@ -1164,7 +1164,7 @@ fn load_code_with_snapshot() {
         }
 
         let snap = init_snap.take().unwrap();
-        let result = verifier.resume_from_snap(&snap, max_cycles);
+        let result = verifier.resume_from_state(&snap, max_cycles);
 
         match result.unwrap() {
             VerifyResult::Suspended(state) => {
@@ -1264,7 +1264,7 @@ fn load_code_with_snapshot_more_times() {
 
         loop {
             let snap = init_snap.take().unwrap();
-            let result = verifier.resume_from_snap(&snap, max_cycles);
+            let result = verifier.resume_from_state(&snap, max_cycles);
 
             match result.unwrap() {
                 VerifyResult::Suspended(state) => {

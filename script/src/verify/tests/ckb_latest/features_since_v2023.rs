@@ -8,6 +8,7 @@ use ckb_types::{
 };
 use proptest::prelude::*;
 use proptest::proptest;
+use std::collections::{BTreeMap, HashMap};
 
 fn simple_spawn_test(bin_path: &str, args: &[u8]) -> Result<Cycle, Error> {
     let script_version = SCRIPT_VERSION;
@@ -598,7 +599,7 @@ fn check_spawn_state() {
             loop {
                 times += 1;
                 let state: TransactionState = init_state.take().unwrap();
-                match verifier.resume_from_snap(&state, max_cycles).unwrap() {
+                match verifier.resume_from_state(&state, max_cycles).unwrap() {
                     VerifyResult::Suspended(state) => {
                         init_state = Some(state);
                     }
