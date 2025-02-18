@@ -1014,9 +1014,28 @@ impl NetworkService {
                     }
                     let proxy_config_enable =
                         config.proxy.proxy_url.is_some() || config.onion.onion_server.is_some();
-                    service_builder = service_builder
-                        .tcp_proxy_config(config.proxy.proxy_url.clone())
-                        .tcp_onion_config(config.onion.onion_server.clone());
+                    service_builder =
+                        service_builder.tcp_proxy_config(config.proxy.proxy_url.clone());
+                    info!(
+                        "listen_addresse: {:?}, set tcp_proxy_config: {:?}",
+                        multi_addr,
+                        config.proxy.proxy_url.clone(),
+                    );
+
+                    let onion_proxy_url = {
+                        config.onion.onion_server.clone().map(|onion_server| {
+                            if !onion_server.starts_with("socks5://") {
+                                format!("socks5://{}", onion_server)
+                            } else {
+                                onion_server
+                            }
+                        })
+                    };
+                    service_builder = service_builder.tcp_onion_config(onion_proxy_url.clone());
+                    info!(
+                        "listen_addresse: {:?}, set tcp_onion_config: {:?}",
+                        multi_addr, onion_proxy_url
+                    );
 
                     match find_type(multi_addr) {
                         TransportType::Tcp => {
