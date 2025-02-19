@@ -4,6 +4,7 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info};
 use multiaddr::MultiAddr;
 use std::future::Future;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::{borrow::Cow, str::FromStr};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -169,7 +170,14 @@ impl OnionService {
             false,
             false,
             None,
-            &mut [(8115, self.config.onion_service_target)].iter(),
+            &mut [
+                (8115, self.config.onion_service_target),
+                (
+                    8114,
+                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8114)),
+                ),
+            ]
+            .iter(),
         )
         .await
         .map_err(|err| {
@@ -197,24 +205,10 @@ impl OnionService {
         self.handle.spawn(async move {
             let stop_rx = ckb_stop_handler::new_tokio_exit_rx();
             stop_rx.cancelled().await;
+            let _ac = ac;
+
             // wait stop_rx
             info!("OnionService received stop signal, exiting...");
-
-            // Don't do delete onion service
-            // info!("Deleting created onion service...");
-            // // delete onion service so it works no more
-            // if let Err(err) = ac
-            //     .del_onion(&tor_address_without_dot_onion)
-            //     .await
-            //     .map_err(|err| {
-            //         InternalErrorKind::Other
-            //             .other(format!("Failed to delete onion service: {:?}", err))
-            //     })
-            // {
-            //     error!("Failed to delete onion service: {:?}", err);
-            // } else {
-            //     info!("Deleted created onion service! It runs no more!");
-            // }
         });
 
         Ok(onion_multi_addr)
