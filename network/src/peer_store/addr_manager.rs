@@ -1,9 +1,6 @@
 //! Address manager
-use crate::peer_store::types::AddrInfo;
-use p2p::{
-    multiaddr::{Multiaddr, Protocol},
-    utils::multiaddr_to_socketaddr,
-};
+use crate::peer_store::{base_addr, types::AddrInfo};
+use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
@@ -95,19 +92,7 @@ impl AddrManager {
 
     /// Remove an address by ip and port
     pub fn remove(&mut self, addr: &Multiaddr) -> Option<AddrInfo> {
-        let base_addr = addr
-            .iter()
-            .filter_map(|p| {
-                if matches!(
-                    p,
-                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
-                ) {
-                    None
-                } else {
-                    Some(p)
-                }
-            })
-            .collect();
+        let base_addr = base_addr(addr);
         self.addr_to_id.remove(&base_addr).and_then(|id| {
             let random_id_pos = self.id_to_info.get(&id).expect("exists").random_id_pos;
             // swap with last index, then remove the last index
@@ -119,19 +104,7 @@ impl AddrManager {
 
     /// Get an address information by ip and port
     pub fn get(&self, addr: &Multiaddr) -> Option<&AddrInfo> {
-        let base_addr = addr
-            .iter()
-            .filter_map(|p| {
-                if matches!(
-                    p,
-                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
-                ) {
-                    None
-                } else {
-                    Some(p)
-                }
-            })
-            .collect();
+        let base_addr = base_addr(addr);
         self.addr_to_id
             .get(&base_addr)
             .and_then(|id| self.id_to_info.get(id))
@@ -139,19 +112,7 @@ impl AddrManager {
 
     /// Get a mutable address information by ip and port
     pub fn get_mut(&mut self, addr: &Multiaddr) -> Option<&mut AddrInfo> {
-        let base_addr = addr
-            .iter()
-            .filter_map(|p| {
-                if matches!(
-                    p,
-                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
-                ) {
-                    None
-                } else {
-                    Some(p)
-                }
-            })
-            .collect();
+        let base_addr = base_addr(addr);
         if let Some(id) = self.addr_to_id.get(&base_addr) {
             self.id_to_info.get_mut(id)
         } else {

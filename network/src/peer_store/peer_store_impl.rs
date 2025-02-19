@@ -5,6 +5,7 @@ use crate::{
     peer_store::{
         addr_manager::AddrManager,
         ban_list::BanList,
+        base_addr,
         types::{ip_to_network, AddrInfo, BannedAddr, PeerInfo},
         Behaviour, Multiaddr, PeerScoreConfig, ReportResult, Status, ADDR_COUNT_LIMIT,
         ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS, DIAL_INTERVAL,
@@ -12,7 +13,6 @@ use crate::{
     Flags, PeerId, SessionType,
 };
 use ipnetwork::IpNetwork;
-use p2p::multiaddr::Protocol;
 use rand::prelude::IteratorRandom;
 use std::collections::{hash_map::Entry, HashMap};
 
@@ -111,19 +111,7 @@ impl PeerStore {
         if self.ban_list.is_addr_banned(&addr) {
             return;
         }
-        let base_addr = addr
-            .iter()
-            .filter_map(|p| {
-                if matches!(
-                    p,
-                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
-                ) {
-                    None
-                } else {
-                    Some(p)
-                }
-            })
-            .collect();
+        let base_addr = base_addr(&addr);
         if let Some(info) = self.addr_manager.get_mut(&base_addr) {
             info.last_connected_at_ms = ckb_systemtime::unix_time_as_millis()
         }
