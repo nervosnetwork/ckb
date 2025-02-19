@@ -156,6 +156,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 
 [[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6126,12 +6132,15 @@ dependencies = [
 
 [[package]]
 name = "tentacle-multiaddr"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a9e71b28bf0bbf274b92f47cb2c5b42755d84a11e2246cf7bcb7b65c89483b9"
+checksum = "35d1c1fa03d7fbdde1314f89e740cf5dbb5484ccc2b13fff9b82d4ddd0d51cef"
 dependencies = [
+ "arrayref",
  "bs58",
+ "byteorder",
  "bytes",
+ "data-encoding",
  "serde",
  "sha2",
  "unsigned-varint",
@@ -6139,9 +6148,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53d53673d63399e1d557c2e884b045d242811079d3b2f17a569310e5c3f1db33"
+checksum = "01d1c8be16ed68e4d69b60e445d453c392d07e613fe9fab0688d46910f6dd013"
 dependencies = [
  "bs58",
  "bytes",

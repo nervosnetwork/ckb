@@ -17,7 +17,7 @@ pub mod types;
 
 pub(crate) use crate::Behaviour;
 pub use crate::SessionType;
-use p2p::multiaddr::Multiaddr;
+use p2p::multiaddr::{Multiaddr, Protocol};
 pub(crate) use peer_store_impl::required_flags_filter;
 pub use peer_store_impl::PeerStore;
 
@@ -85,4 +85,24 @@ impl ReportResult {
     pub fn is_ok(self) -> bool {
         self == ReportResult::Ok
     }
+}
+
+// Remove unnecessary protocols
+pub(crate) fn base_addr(addr: &Multiaddr) -> Multiaddr {
+    addr.iter()
+        .filter_map(|p| {
+            if matches!(
+                p,
+                Protocol::Ws
+                    | Protocol::Wss
+                    | Protocol::Memory(_)
+                    | Protocol::Tls(_)
+                    | Protocol::Onion3(_)
+            ) {
+                None
+            } else {
+                Some(p)
+            }
+        })
+        .collect()
 }
