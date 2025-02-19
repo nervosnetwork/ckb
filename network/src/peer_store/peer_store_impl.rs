@@ -116,7 +116,11 @@ impl PeerStore {
             .filter_map(|p| {
                 if matches!(
                     p,
-                    Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
+                    Protocol::Ws
+                        | Protocol::Wss
+                        | Protocol::Memory(_)
+                        | Protocol::Tls(_)
+                        | Protocol::Onion3(_)
                 ) {
                     None
                 } else {
