@@ -1694,8 +1694,8 @@ Response
             { "rfc": "0032", "epoch_number": "0x1526" },
             { "rfc": "0036", "epoch_number": "0x0" },
             { "rfc": "0038", "epoch_number": "0x0" },
-            { "rfc": "0048", "epoch_number": null },
-            { "rfc": "0049", "epoch_number": null }
+            { "rfc": "0048", "epoch_number": "0x3005" },
+            { "rfc": "0049", "epoch_number": "0x3005" }
          ],
         "id": "main",
         "initial_primary_epoch_reward": "0x71afd498d000",
