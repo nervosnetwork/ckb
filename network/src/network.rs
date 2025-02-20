@@ -74,8 +74,7 @@ pub struct NetworkState {
     pub(crate) peer_store: Mutex<PeerStore>,
     /// Node listened addresses
     pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
-    dialing_addrs: RwLock<HashMap<PeerId, (Instant, Multiaddr)>>,
-    pub(crate) pending_dns_addrs: RwLock<HashMap<PeerId, Multiaddr>>,
+    dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
     /// Node public addresses,
     /// includes manually public addrs and remote peer observed addrs
     public_addrs: RwLock<HashSet<Multiaddr>>,
@@ -136,7 +135,6 @@ impl NetworkState {
             bootnodes,
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
-            pending_dns_addrs: RwLock::new(HashMap::default()),
             public_addrs: RwLock::new(public_addrs),
             listened_addrs: RwLock::new(Vec::new()),
             pending_observed_addrs: RwLock::new(HashSet::default()),
@@ -408,7 +406,7 @@ impl NetworkState {
             return false;
         }
 
-        if let Some((dial_started, _)) = self.dialing_addrs.read().get(peer_id) {
+        if let Some(dial_started) = self.dialing_addrs.read().get(peer_id) {
             trace!(
                 "Do not send repeated dial commands to network service: {:?}, {}",
                 peer_id,
@@ -440,15 +438,7 @@ impl NetworkState {
 
     pub(crate) fn dial_success(&self, addr: &Multiaddr) {
         if let Some(peer_id) = extract_peer_id(addr) {
-            if let Some(dial_addr) = self.dialing_addrs.write().remove(&peer_id).map(|a| a.1) {
-                let has_dns = dial_addr
-                    .iter()
-                    .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_)));
-
-                if &dial_addr != addr && has_dns {
-                    self.pending_dns_addrs.write().insert(peer_id, dial_addr);
-                }
-            }
+            self.dialing_addrs.write().remove(&peer_id);
         }
     }
 
@@ -478,7 +468,7 @@ impl NetworkState {
         p2p_control.dial(addr.clone(), target)?;
         self.dialing_addrs.write().insert(
             extract_peer_id(&addr).expect("verified addr"),
-            (Instant::now(), addr),
+            Instant::now(),
         );
         Ok(())
     }
@@ -820,10 +810,6 @@ impl ServiceHandle for EventHandler {
                         peer_store.remove_disconnected_peer(&session_context.address);
                     });
                 }
-                self.network_state
-                    .pending_dns_addrs
-                    .write()
-                    .remove(&extract_peer_id(&session_context.address).expect("must have peerid"));
             }
             _ => {
                 info!("p2p service event: {:?}", event);
