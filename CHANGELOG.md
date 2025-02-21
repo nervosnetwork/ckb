@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [v0.121.0](https://github.com/nervosnetwork/ckb/compare/v0.120.0...v0.121.0) (2025-01-22)
+
+### Improvements
+
+-   #4760: Peer-store, wasm: use `path` as database name in wasm peer-store implementation (@Officeyutong)
+-   #4768: Replace broken link in `CONTRIBUTING.md` (@NotNotARobot)
+-   #4769: Add missing word to echoed message (@NotNotARobot)
+-   #4742: Extend the hardcoded `assume_valid_target` to an array. (@eval-exec)
+-   #4783: Peer store optimization (@driftluo)
+
 ## [v0.120.0](https://github.com/nervosnetwork/ckb/compare/v0.119.0...v0.120.0) (2024-12-11)
 
 ### Features

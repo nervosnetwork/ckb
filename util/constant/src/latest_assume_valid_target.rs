@@ -9,12 +9,12 @@ pub mod mainnet {
     ///
     /// Need to update when CKB's new release
     /// in mainnet: the 60 days ago block is:
-    /// height: 14050088
-    /// hash: 0x323642363d254e830556ba670907d4455c2aeb8a38a227da7401e92a297efede
-    /// date: Wed Sep 18 08:24:48 AM CST 2024
-    /// you can view this block in https://explorer.nervos.org/block/0x323642363d254e830556ba670907d4455c2aeb8a38a227da7401e92a297efede
+    /// height: 14502091
+    /// hash: 0x16b0d58543751a21c2cdb7be5d7077fbbcbc2097031e8c72b24dc5bd02a492f9
+    /// date: Fri Nov  8 02:26:34 PM CST 2024
+    /// you can view this block in https://explorer.nervos.org/block/0x16b0d58543751a21c2cdb7be5d7077fbbcbc2097031e8c72b24dc5bd02a492f9
     pub const DEFAULT_ASSUME_VALID_TARGET: &str =
-        "0x323642363d254e830556ba670907d4455c2aeb8a38a227da7401e92a297efede";
+        "0x16b0d58543751a21c2cdb7be5d7077fbbcbc2097031e8c72b24dc5bd02a492f9";
 }
 /// sync config related to testnet
 pub mod testnet {
@@ -22,10 +22,10 @@ pub mod testnet {
     ///
     /// Need to update when CKB's new release
     /// in testnet: the 60 days ago block is:
-    /// height: 14613282
-    /// hash: 0x9674c22c68f4b65ff97944151c39ff3f8108707b4bc86378393b3312a823db77
-    /// date: Wed Sep 18 08:25:27 AM CST 2024
-    /// you can view this block in https://pudge.explorer.nervos.org/block/0x9674c22c68f4b65ff97944151c39ff3f8108707b4bc86378393b3312a823db77
+    /// height: 15166546
+    /// hash: 0x4400bcbdf652827f21e86ca88d50aa0ac3340968ff19eba6b183fd95164bc8f8
+    /// date: Fri Nov  8 02:27:19 PM CST 2024
+    /// you can view this block in https://pudge.explorer.nervos.org/block/0x4400bcbdf652827f21e86ca88d50aa0ac3340968ff19eba6b183fd95164bc8f8
     pub const DEFAULT_ASSUME_VALID_TARGET: &str =
-        "0x9674c22c68f4b65ff97944151c39ff3f8108707b4bc86378393b3312a823db77";
+        "0x4400bcbdf652827f21e86ca88d50aa0ac3340968ff19eba6b183fd95164bc8f8";
 }
