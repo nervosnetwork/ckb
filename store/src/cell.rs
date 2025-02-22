@@ -3,7 +3,7 @@ use ckb_error::Error;
 use ckb_types::{core::BlockView, packed, prelude::*};
 use std::collections::HashMap;
 
-/**
+/*
  * Live cell entry.
  *
  *  table CellEntry {
@@ -22,7 +22,7 @@ use std::collections::HashMap;
  *  }
  */
 
-// Apply the effects of this block on the live cell set.
+/// Apply the effects of this block on the live cell set.
 pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
     let transactions = block.transactions();
 

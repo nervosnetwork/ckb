@@ -52,7 +52,7 @@ use tokio::sync::broadcast;
 #[async_trait]
 pub trait SubscriptionRpc {
     /// Context to implement the subscription RPC.
-
+    ///
     /// The stream of subscription messages.
     type S: Stream<Item = PublishMsg<String>> + Send + 'static;
     /// #### Method `subscribe`
