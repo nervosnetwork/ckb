@@ -1,7 +1,7 @@
 [package]
 name = "ckb-rpc-gen"
 version = "0.200.0-pre"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 description = "CKB RPC documentation generator"
