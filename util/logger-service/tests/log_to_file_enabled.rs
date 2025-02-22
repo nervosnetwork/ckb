@@ -1,3 +1,5 @@
+//! Code: log_to_file_enabled
+
 mod utils;
 
 #[test]

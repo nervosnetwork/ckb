@@ -1,3 +1,4 @@
+//! This file contains tests for the silent logger.
 mod utils;
 
 #[test]

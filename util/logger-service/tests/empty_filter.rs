@@ -1,3 +1,5 @@
+//! Tests for the case when the filter is empty.
+
 use ckb_logger::Level;
 
 mod utils;

@@ -1,3 +1,4 @@
+//! This file contains tests for logging panic information.
 use ckb_logger::Level;
 
 mod utils;
