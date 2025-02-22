@@ -185,7 +185,7 @@ impl Resource {
     ///
     /// If the path is relative, expand the path relative to the directory `base`.
     pub fn absolutize<P: AsRef<Path>>(&mut self, base: P) {
-        if let Resource::FileSystem { file: ref mut path } = self {
+        if let Resource::FileSystem { file: path } = self {
             if path.is_relative() {
                 *path = base.as_ref().join(&path)
             }
