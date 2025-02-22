@@ -469,7 +469,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     }
 
     /// Generates the network secret key.
-    pub fn gen(matches: &ArgMatches) -> Result<(), ExitCode> {
+    pub fn generate(matches: &ArgMatches) -> Result<(), ExitCode> {
         let path = matches
             .get_one::<String>(cli::ARG_SECRET_PATH)
             .expect("required on command line");

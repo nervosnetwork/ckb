@@ -53,7 +53,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
             cli::CMD_PEERID => {
                 if let Some((cli, matches)) = matches.subcommand() {
                     match cli {
-                        cli::CMD_GEN_SECRET => return Setup::gen(matches),
+                        cli::CMD_GEN_SECRET => return Setup::generate(matches),
                         cli::CMD_FROM_SECRET => {
                             return subcommand::peer_id(Setup::peer_id(matches)?)
                         }
