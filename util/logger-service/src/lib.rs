@@ -504,7 +504,7 @@ pub fn flush() {
 // This function will replace all hooks that was previously registered, so make sure involving
 // before other register operations.
 fn setup_panic_logger() {
-    let panic_logger = |info: &panic::PanicInfo| {
+    let panic_logger = |info: &panic::PanicHookInfo| {
         let backtrace = Backtrace::new();
         let thread = thread::current();
         let name = thread.name().unwrap_or("unnamed");
