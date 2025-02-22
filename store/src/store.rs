@@ -279,13 +279,11 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// TODO(doc): @quake
     fn get_tip_header(&self) -> Option<HeaderView> {
-        self.get(COLUMN_META, META_TIP_HEADER_KEY)
-            .and_then(|raw| {
-                self.get_block_header(
-                    &packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity(),
-                )
-            })
-            .map(Into::into)
+        self.get(COLUMN_META, META_TIP_HEADER_KEY).and_then(|raw| {
+            self.get_block_header(
+                &packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity(),
+            )
+        })
     }
 
     /// Returns true if the transaction confirmed in main chain.

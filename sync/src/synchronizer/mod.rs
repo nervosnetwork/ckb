@@ -450,6 +450,7 @@ impl Synchronizer {
         }
     }
 
+    /// Process new block in blocking way
     #[cfg(test)]
     pub fn blocking_process_new_block(
         &self,

@@ -276,7 +276,7 @@ impl BlockFetcher {
 
         let tip = self.active_chain.tip_number();
         let unverified_tip = self.active_chain.unverified_tip_number();
-        let should_mark = fetch.last().map_or(false, |header| {
+        let should_mark = fetch.last().is_some_and(|header| {
             header.number().saturating_sub(CHECK_POINT_WINDOW) > unverified_tip
         });
         if should_mark {

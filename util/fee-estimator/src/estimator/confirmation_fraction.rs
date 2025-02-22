@@ -188,10 +188,7 @@ impl TxConfirmStat {
     // track an unconfirmed tx
     // entry_height - tip number when tx enter txpool
     fn add_unconfirmed_tx(&mut self, entry_height: u64, fee_rate: FeeRate) -> Option<usize> {
-        let bucket_index = match self.bucket_index_by_fee_rate(fee_rate) {
-            Some(index) => index,
-            None => return None,
-        };
+        let bucket_index = self.bucket_index_by_fee_rate(fee_rate)?;
         let block_index = (entry_height % (self.block_unconfirmed_txs.len() as u64)) as usize;
         self.block_unconfirmed_txs[block_index][bucket_index] += 1;
         Some(bucket_index)

@@ -595,10 +595,7 @@ pub(crate) fn build_input_rows(
 }
 
 fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
-    let row = match row {
-        Some(row) => row,
-        None => return None,
-    };
+    let row = row?;
     let id: i64 = row.get("id");
     let capacity: i64 = row.get("capacity");
     let data: Vec<u8> = row.get("data");

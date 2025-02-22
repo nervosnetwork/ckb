@@ -291,7 +291,7 @@ impl NetworkState {
                 &mut peer_store,
             )
         };
-        accept_peer_result.map_err(Into::into)
+        accept_peer_result
     }
 
     /// For restrict lock in inner scope
