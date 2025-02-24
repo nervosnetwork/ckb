@@ -12,8 +12,8 @@ pub use crate::error::{ScriptError, TransactionScriptError};
 pub use crate::scheduler::{Scheduler, ROOT_VM_ID};
 pub use crate::syscalls::generator::generate_ckb_syscalls;
 pub use crate::types::{
-    ChunkCommand, CoreMachine, DataPieceId, RunMode, ScriptGroup, ScriptGroupType, ScriptVersion,
-    TransactionState, TxData, VerifyResult, VmIsa, VmState, VmVersion,
+    ChunkCommand, CoreMachine, DataLocation, DataPieceId, RunMode, ScriptGroup, ScriptGroupType,
+    ScriptVersion, TransactionState, TxData, VerifyResult, VmIsa, VmState, VmVersion,
 };
 pub use crate::verify::TransactionScriptsVerifier;
 pub use crate::verify_env::TxVerifyEnv;
