@@ -14,13 +14,14 @@ use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::internal::warn;
 use ckb_logger::{error, info};
-use ckb_network::Error;
+use ckb_network::multiaddr::MultiAddr;
+use ckb_network::{network, Error};
 use ckb_network::{
     network::TransportType, observe_listen_port_occupancy, CKBProtocol, Flags, NetworkController,
     NetworkService, NetworkState, SupportProtocols,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
-use ckb_onion::OnionServiceConfig;
+use ckb_onion::{onion_service, OnionServiceConfig};
 use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
@@ -32,6 +33,7 @@ use ckb_types::prelude::*;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
 use std::sync::Arc;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
@@ -347,21 +349,25 @@ impl Launcher {
             tor_password: onion_config.tor_password,
             onion_service_target,
         };
-        let onion_service = ckb_onion::onion_service::OnionService::new(
+        let (onion_service, onion_service_addr) = ckb_onion::onion_service::OnionService::new(
             self.async_handle.clone(),
             onion_service_config,
+            network_controller.node_id(),
         )
         .map_err(|err| Error::Config(format!("Failed to create onion service: {}", err)))?;
-        let node_id = network_controller.node_id();
+
         self.async_handle.spawn(async move {
-                    match onion_service.start(node_id).await {
-                        Ok(onion_service_addr) => {
-                            info!("CKB has started listening on the onion hidden network, the onion service address is: {}", onion_service_addr);
-                            network_controller.add_public_addr(onion_service_addr);
-                        },
-                        Err(err) => error!("CKB failed to start listening on the onion hidden network: {}", err),
-                    }
-                });
+            match onion_service
+                .start(network_controller, onion_service_addr)
+                .await
+            {
+                Ok(()) => {}
+                Err(err) => error!(
+                    "CKB failed to start listening on the onion hidden network: {}",
+                    err
+                ),
+            }
+        });
         Ok(())
     }
 

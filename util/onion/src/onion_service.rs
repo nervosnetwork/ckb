@@ -1,13 +1,20 @@
 use base64::Engine;
 use ckb_async_runtime::Handle;
 use ckb_error::{Error, InternalErrorKind};
-use ckb_logger::{debug, error, info};
-use multiaddr::MultiAddr;
+use ckb_logger::{debug, error, info, warn};
+use ckb_network::multiaddr::MultiAddr;
+use ckb_network::NetworkController;
+use ckb_stop_handler::CancellationToken;
+use multiaddr::Multiaddr;
+use std::borrow::Cow;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::{borrow::Cow, str::FromStr};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::{fs::File, io::AsyncReadExt};
 use torut::control::{AsyncEvent, AuthenticatedConn, ConnError};
 use torut::{
@@ -25,7 +32,11 @@ pub struct OnionService {
 }
 impl OnionService {
     /// Create a new onion service with the given configuration.
-    pub fn new(handle: Handle, config: OnionServiceConfig) -> Result<OnionService, Error> {
+    pub fn new(
+        handle: Handle,
+        config: OnionServiceConfig,
+        node_id: String,
+    ) -> Result<(OnionService, MultiAddr), Error> {
         let key = if std::fs::exists(&config.onion_private_key_path).map_err(|err| {
             InternalErrorKind::Other
                 .other(format!("Failed to check onion private key path: {:?}", err))
@@ -65,16 +76,60 @@ impl OnionService {
             key
         };
 
+        let tor_address_without_dot_onion = key
+            .public()
+            .get_onion_address()
+            .get_address_without_dot_onion();
+
+        let onion_multi_addr_str = format!(
+            "/onion3/{}:8115/p2p/{}",
+            tor_address_without_dot_onion, node_id
+        );
+        let onion_multi_addr = MultiAddr::from_str(&onion_multi_addr_str).map_err(|err| {
+            InternalErrorKind::Other.other(format!(
+                "Failed to parse onion address {} to multi_addr: {:?}",
+                onion_multi_addr_str, err
+            ))
+        })?;
+
         let onion_service = OnionService {
             config,
             key,
             handle,
         };
-        Ok(onion_service)
+        Ok((onion_service, onion_multi_addr))
     }
 
-    /// Start the onion service with the given node id.
-    pub async fn start(&self, node_id: String) -> Result<MultiAddr, Error> {
+    pub async fn start(
+        &self,
+        network_controller: NetworkController,
+        onion_service_addr: MultiAddr,
+    ) -> Result<(), Error> {
+        let stop_rx = ckb_stop_handler::new_tokio_exit_rx();
+        loop {
+            let (tor_server_alive_tx, mut tor_server_alive_rx) =
+                tokio::sync::mpsc::unbounded_channel::<()>();
+            match self.start_inner(stop_rx.clone(), tor_server_alive_tx).await {
+                Ok(_) => {
+                    info!("CKB has started listening on the onion hidden network, the onion service address is: {}", onion_service_addr.clone());
+                    network_controller.add_public_addr(onion_service_addr.clone());
+                }
+                Err(err) => {
+                    error!("start onion service failed: {}", err);
+                }
+            }
+
+            let _ = tor_server_alive_rx.recv().await;
+            warn!("It seem that the connection to tor server's controller has been closed, retry connect to tor controller({})", self.config.tor_controller.to_string());
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    pub async fn start_inner(
+        &self,
+        stop_rx: CancellationToken,
+        mut tor_server_alive_tx: UnboundedSender<()>,
+    ) -> Result<(), Error> {
         let s = TcpStream::connect(self.config.tor_controller.to_string())
             .await
             .map_err(|err| {
@@ -161,87 +216,109 @@ impl OnionService {
         let mut ac = utc.into_authenticated().await;
         ac.set_async_event_handler(Some(|_| async move { Ok(()) }));
 
-        ac.wait_tor_server_bootstrap_done().await;
+        let mut tor_controller = TorController::new(ac);
+
+        tor_controller.wait_tor_server_bootstrap_done().await;
 
         info!("Adding onion service v3...");
-        ac.add_onion_v3(
-            &self.key,
-            false,
-            false,
-            false,
-            None,
-            &mut [
-                (8115, self.config.onion_service_target),
-                (
-                    8114,
-                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8114)),
-                ),
-            ]
-            .iter(),
-        )
-        .await
-        .map_err(|err| {
-            InternalErrorKind::Other.other(format!("Failed to add onion service: {:?}", err))
-        })?;
+        tor_controller
+            .inner
+            .add_onion_v3(
+                &self.key,
+                false,
+                false,
+                false,
+                None,
+                &mut [
+                    (8115, self.config.onion_service_target),
+                    (
+                        8114,
+                        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8114)),
+                    ),
+                ]
+                .iter(),
+            )
+            .await
+            .map_err(|err| {
+                InternalErrorKind::Other.other(format!("Failed to add onion service: {:?}", err))
+            })?;
         info!("Added onion service v3!");
 
-        let tor_address_without_dot_onion = self
-            .key
-            .public()
-            .get_onion_address()
-            .get_address_without_dot_onion();
-
-        let onion_multi_addr_str = format!(
-            "/onion3/{}:8115/p2p/{}",
-            tor_address_without_dot_onion, node_id
-        );
-        let onion_multi_addr = MultiAddr::from_str(&onion_multi_addr_str).map_err(|err| {
-            InternalErrorKind::Other.other(format!(
-                "Failed to parse onion address {} to multi_addr: {:?}",
-                onion_multi_addr_str, err
-            ))
-        })?;
-
         self.handle.spawn(async move {
-            let stop_rx = ckb_stop_handler::new_tokio_exit_rx();
-            stop_rx.cancelled().await;
-            let _ac = ac;
-
-            // wait stop_rx
-            info!("OnionService received stop signal, exiting...");
+            let _tx = tor_server_alive_tx;
+            loop {
+                if stop_rx.is_cancelled() {
+                    info!("OnionService received stop signal, exiting...");
+                    return;
+                }
+                if let Err(err) = tor_controller.get_version().await {
+                    error!("tor_controller get_version failed: {}", err);
+                    return;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
         });
-
-        Ok(onion_multi_addr)
+        Ok(())
     }
 }
 
-trait AuthenticatedConnExt<S, H> {
-    async fn wait_tor_server_bootstrap_done(&mut self);
+struct TorController<S, H> {
+    inner: AuthenticatedConn<S, H>,
 }
 
-impl<S, F, H> AuthenticatedConnExt<S, H> for AuthenticatedConn<S, H>
+impl<S, F, H> TorController<S, H>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     H: Fn(AsyncEvent<'static>) -> F,
     F: Future<Output = Result<(), ConnError>>,
 {
-    async fn wait_tor_server_bootstrap_done(&mut self) {
+    pub fn new(inner: AuthenticatedConn<S, H>) -> Self {
+        TorController { inner }
+    }
+
+    pub async fn get_bootstrap_phase(&mut self) -> Result<String, ConnError> {
+        self.inner.get_info_unquote("status/bootstrap-phase").await
+    }
+
+    pub async fn get_version(&mut self) -> Result<String, ConnError> {
+        self.inner.get_info("version").await
+    }
+
+    /// get tor server's uptime
+    pub async fn get_uptime(&mut self) -> Result<Duration, ConnError> {
+        let uptime = self.inner.get_info("uptime").await.map_err(|err| {
+            // the tor server's version is less than 0.3.5.1-alpha
+            warn!("failed to get uptime: {}, It seems that the tor server's version is less than 0.3.5.1-alpha", err);
+            err
+        })?;
+        info!("tor server's uptime is {}", uptime);
+        let secs: u64 = uptime.parse().map_err(|err| {
+            ConnError::IOError(std::io::Error::other(format!(
+                "failed to parse uptime {} to u64",
+                uptime
+            )))
+        })?;
+        Ok(Duration::from_secs(secs))
+    }
+
+    // Implement the new method:
+    pub async fn wait_tor_server_bootstrap_done(&mut self) {
         info!("waiting tor server bootstrap");
         loop {
-            let boostra_done = match self.get_info_unquote("status/bootstrap-phase").await {
+            let boostrap_done = match self.get_bootstrap_phase().await {
                 Ok(info) => {
                     info!("Tor bootstrap status: {:?}", info);
                     info.contains("Done")
                 }
                 Err(err) => {
                     error!("Failed to get tor bootstrap status: {:?}", err);
-                    false
+                    return;
                 }
             };
-            if boostra_done {
+            if boostrap_done {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Use tokio::time::sleep for async
         }
         info!("Tor server bootstrap done!")
     }
