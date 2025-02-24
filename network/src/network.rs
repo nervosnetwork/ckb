@@ -183,7 +183,6 @@ impl NetworkState {
             bootnodes,
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
-            pending_dns_addrs: RwLock::new(HashMap::default()),
             public_addrs: RwLock::new(public_addrs),
             listened_addrs: RwLock::new(Vec::new()),
             pending_observed_addrs: RwLock::new(HashSet::default()),
