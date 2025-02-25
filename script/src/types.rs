@@ -1012,6 +1012,13 @@ where
     }
 }
 
+/// When the vm is initialized, arguments are loaded onto the stack.
+/// This enum specifies how to locate these arguments.
+pub enum VmArgs {
+    Reader(u64, u64, u64),
+    Vector(Vec<Bytes>),
+}
+
 /// Mutable data at virtual machine level
 #[derive(Clone)]
 pub struct VmContext<DL>

@@ -6,7 +6,7 @@ use crate::syscalls::{
 
 use crate::types::{
     CoreMachineType, DataLocation, DataPieceId, DebugContext, Fd, FdArgs, FullSuspendedState,
-    Machine, Message, ReadState, RunMode, SgData, VmContext, VmId, VmState, WriteState,
+    Machine, Message, ReadState, RunMode, SgData, VmArgs, VmContext, VmId, VmState, WriteState,
     FIRST_FD_SLOT, FIRST_VM_ID,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -240,7 +240,7 @@ where
                         offset: 0,
                         length: u64::MAX,
                     },
-                    None
+                    VmArgs::Vector(vec![]),
                 )?,
                 ROOT_VM_ID
             );
@@ -401,7 +401,7 @@ where
                         &mut new_machine,
                         &args.location,
                         program,
-                        Some((vm_id, args.argc, args.argv)),
+                        VmArgs::Reader(vm_id, args.argc, args.argv),
                     )?;
                     // The insert operation removes the old vm instance and adds the new vm instance.
                     debug_assert!(self.instantiated.contains_key(&vm_id));
@@ -420,7 +420,7 @@ where
                         continue;
                     }
                     let spawned_vm_id =
-                        self.boot_vm(&args.location, Some((vm_id, args.argc, args.argv)))?;
+                        self.boot_vm(&args.location, VmArgs::Reader(vm_id, args.argc, args.argv))?;
                     // Move passed fds from spawner to spawnee
                     for fd in &args.fds {
                         self.fds.insert(*fd, spawned_vm_id);
@@ -811,11 +811,7 @@ where
     }
 
     /// Boot a vm by given program and args.
-    pub fn boot_vm(
-        &mut self,
-        location: &DataLocation,
-        args: Option<(u64, u64, u64)>,
-    ) -> Result<VmId, Error> {
+    pub fn boot_vm(&mut self, location: &DataLocation, args: VmArgs) -> Result<VmId, Error> {
         let id = self.next_vm_id;
         self.next_vm_id += 1;
         let (context, mut machine) = self.create_dummy_vm(&id)?;
@@ -848,16 +844,18 @@ where
         machine: &mut Machine,
         location: &DataLocation,
         program: Bytes,
-        args: Option<(u64, u64, u64)>,
+        args: VmArgs,
     ) -> Result<u64, Error> {
         let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
         let bytes = match args {
-            Some((vm_id, argc, argv)) => {
+            VmArgs::Reader(vm_id, argc, argv) => {
                 let (_, machine_from) = self.ensure_get_instantiated(&vm_id)?;
                 let argv = FlattenedArgsReader::new(machine_from.machine.memory_mut(), argc, argv);
                 machine.load_program_with_metadata(&program, &metadata, argv)?
             }
-            None => machine.load_program_with_metadata(&program, &metadata, vec![].into_iter())?,
+            VmArgs::Vector(data) => {
+                machine.load_program_with_metadata(&program, &metadata, data.into_iter().map(Ok))?
+            }
         };
         let mut sc = context.snapshot2_context.lock().expect("lock");
         sc.mark_program(
