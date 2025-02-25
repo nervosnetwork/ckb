@@ -437,7 +437,7 @@ impl SharedBuilder {
                         .filter(|&target_hash| {
                             let exists = snapshot.block_exists(&target_hash.pack());
                             if exists {
-                                info!("assume valid target 0x{} already exists in db", target_hash);
+                                info!("assume-valid target 0x{} exists in local db", target_hash);
                             }
                             !exists
                         })
@@ -449,7 +449,7 @@ impl SharedBuilder {
                 .as_ref()
                 .is_some_and(|targets| targets.is_empty())
             {
-                info!("all assume valid targets is already in db, CKB will do full verification from now on");
+                info!("all assume-valid targets synchronized, enter full verification mode");
                 None
             } else {
                 not_exists_targets
