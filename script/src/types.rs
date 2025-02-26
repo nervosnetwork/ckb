@@ -1014,8 +1014,18 @@ where
 
 /// When the vm is initialized, arguments are loaded onto the stack.
 /// This enum specifies how to locate these arguments.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum VmArgs {
-    Reader { vm_id: u64, argc: u64, argv: u64 },
+    /// Represents reading arguments from other vm.
+    Reader {
+        /// An identifier for the virtual machine/process.
+        vm_id: u64,
+        /// The number of arguments provided.
+        argc: u64,
+        /// The pointer of the actual arguments.
+        argv: u64,
+    },
+    /// Represents reading arguments from a vector.
     Vector(Vec<Bytes>),
 }
 
