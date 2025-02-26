@@ -401,7 +401,11 @@ where
                         &mut new_machine,
                         &args.location,
                         program,
-                        VmArgs::Reader(vm_id, args.argc, args.argv),
+                        VmArgs::Reader {
+                            vm_id,
+                            argc: args.argc,
+                            argv: args.argv,
+                        },
                     )?;
                     // The insert operation removes the old vm instance and adds the new vm instance.
                     debug_assert!(self.instantiated.contains_key(&vm_id));
@@ -419,8 +423,14 @@ where
                         machine.machine.set_register(A0, MAX_VMS_SPAWNED as u64);
                         continue;
                     }
-                    let spawned_vm_id =
-                        self.boot_vm(&args.location, VmArgs::Reader(vm_id, args.argc, args.argv))?;
+                    let spawned_vm_id = self.boot_vm(
+                        &args.location,
+                        VmArgs::Reader {
+                            vm_id,
+                            argc: args.argc,
+                            argv: args.argv,
+                        },
+                    )?;
                     // Move passed fds from spawner to spawnee
                     for fd in &args.fds {
                         self.fds.insert(*fd, spawned_vm_id);
@@ -848,7 +858,7 @@ where
     ) -> Result<u64, Error> {
         let metadata = parse_elf::<u64>(&program, machine.machine.version())?;
         let bytes = match args {
-            VmArgs::Reader(vm_id, argc, argv) => {
+            VmArgs::Reader { vm_id, argc, argv } => {
                 let (_, machine_from) = self.ensure_get_instantiated(&vm_id)?;
                 let argv = FlattenedArgsReader::new(machine_from.machine.memory_mut(), argc, argv);
                 machine.load_program_with_metadata(&program, &metadata, argv)?
