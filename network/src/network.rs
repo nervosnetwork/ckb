@@ -1,4 +1,5 @@
 //! Global state struct and start function
+use crate::address::NetworkAddresses;
 use crate::errors::Error;
 #[cfg(not(target_family = "wasm"))]
 use crate::errors::P2PError;
@@ -19,7 +20,7 @@ use crate::services::{
     dump_peer_store::DumpPeerStoreService, outbound_peer::OutboundPeerService,
     protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
+use crate::{proxy, Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
 use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtocol};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
@@ -73,7 +74,7 @@ pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<PeerStore>,
     /// Node listened addresses
-    pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
+    pub(crate) listened_addrs: RwLock<NetworkAddresses>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
     /// Node public addresses,
     /// includes manually public addrs and remote peer observed addrs
@@ -120,6 +121,12 @@ impl NetworkState {
         let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
             config.peer_store_path(),
         ));
+        info!("Loaded the peer store.");
+
+        if let Some(ref proxy_url) = config.proxy.proxy_url {
+            proxy::check_proxy_url(proxy_url).map_err(Error::Config)?;
+        }
+
         let bootnodes = config.bootnodes();
 
         let peer_registry = PeerRegistry::new(
@@ -136,7 +143,7 @@ impl NetworkState {
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
             public_addrs: RwLock::new(public_addrs),
-            listened_addrs: RwLock::new(Vec::new()),
+            listened_addrs: RwLock::new(NetworkAddresses::default()),
             pending_observed_addrs: RwLock::new(HashSet::default()),
             local_private_key,
             local_peer_id,
@@ -342,6 +349,12 @@ impl NetworkState {
             .collect()
     }
 
+    /// After onion service created,
+    /// ckb use this method to add onion address to public_addr
+    pub fn add_public_addr(&self, addr: Multiaddr) {
+        self.public_addrs.write().insert(addr);
+    }
+
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
         self.peer_registry.read().connection_status()
     }
@@ -358,7 +371,7 @@ impl NetworkState {
                     None
                 }
             })
-            .chain(listened_addrs.iter().map(|addr| (addr.to_owned(), 1)))
+            .chain(listened_addrs.into_iter().map(|addr| (addr.to_owned(), 1)))
             .map(|(addr, score)| (addr.to_string(), score))
             .collect()
     }
@@ -634,7 +647,10 @@ impl ServiceHandle for EventHandler {
                         debug!("DialerError({}) {}", address, error);
                     }
                 }
-                if public_addrs.remove(&address) {
+
+                if address.to_string().starts_with("/onion3/") {
+                    // don't remove onion addr from public_addrs
+                } else if public_addrs.remove(&address) {
                     info!(
                         "Dial {} failed, remove it from network_state.public_addrs",
                         address
@@ -954,7 +970,7 @@ impl NetworkService {
             .max_connection_number(1024)
             .set_send_buffer_size(config.max_send_buffer())
             .set_channel_size(config.channel_size())
-            .timeout(Duration::from_secs(5));
+            .timeout(Duration::from_secs(50));
 
         #[cfg(not(target_family = "wasm"))]
         {
@@ -996,6 +1012,31 @@ impl NetworkService {
                     if init.is_ready() {
                         break;
                     }
+                    let proxy_config_enable =
+                        config.proxy.proxy_url.is_some() || config.onion.onion_server.is_some();
+                    service_builder =
+                        service_builder.tcp_proxy_config(config.proxy.proxy_url.clone());
+                    info!(
+                        "listen_addresse: {:?}, set tcp_proxy_config: {:?}",
+                        multi_addr,
+                        config.proxy.proxy_url.clone(),
+                    );
+
+                    let onion_proxy_url = {
+                        config.onion.onion_server.clone().map(|onion_server| {
+                            if !onion_server.starts_with("socks5://") {
+                                format!("socks5://{}", onion_server)
+                            } else {
+                                onion_server
+                            }
+                        })
+                    };
+                    service_builder = service_builder.tcp_onion_config(onion_proxy_url.clone());
+                    info!(
+                        "listen_addresse: {:?}, set tcp_onion_config: {:?}",
+                        multi_addr, onion_proxy_url
+                    );
+
                     match find_type(multi_addr) {
                         TransportType::Tcp => {
                             // only bind once
@@ -1004,7 +1045,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, context: p2p::service::TransformerContext| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,
@@ -1014,7 +1055,11 @@ impl NetworkService {
                                     socket_ref.set_reuse_port(true)?;
                                     socket_ref.set_reuse_address(true)?;
                                     if socket_ref.domain()? == domain {
-                                        socket_ref.bind(&addr.into())?;
+                                        if !(proxy_config_enable && matches!(context.state, p2p::service::SocketState::Dial)) {
+                                            socket_ref.bind(&addr.into())?;
+                                        } else {
+                                            // skip bind if proxy enabled
+                                        }
                                     }
                                     Ok(socket)
                                 };
@@ -1029,7 +1074,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, context: p2p::service::TransformerContext| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,
@@ -1039,7 +1084,16 @@ impl NetworkService {
                                     socket_ref.set_reuse_port(true)?;
                                     socket_ref.set_reuse_address(true)?;
                                     if socket_ref.domain()? == domain {
-                                        socket_ref.bind(&addr.into())?;
+                                        if !(proxy_config_enable
+                                            && matches!(
+                                                context.state,
+                                                p2p::service::SocketState::Dial
+                                            ))
+                                        {
+                                            socket_ref.bind(&addr.into())?;
+                                        } else {
+                                            // skip bind if proxy enabled
+                                        }
                                     }
                                     Ok(socket)
                                 };
@@ -1313,6 +1367,11 @@ impl NetworkController {
     /// Dial remote node
     pub fn add_node(&self, address: Multiaddr) {
         self.network_state.add_node(&self.p2p_control, address)
+    }
+
+    /// Add a public_addr to NetworkState.public_addrs
+    pub fn add_public_addr(&self, public_addr: Multiaddr) {
+        self.network_state.add_public_addr(public_addr)
     }
 
     /// Disconnect session with peer id

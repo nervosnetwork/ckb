@@ -60,7 +60,7 @@ jobs:
         toolchain: 1.81.0
     - run: rustup component add rustfmt
     - run: rustup component add clippy
-    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
+    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev tor golang-go
     - uses: actions/checkout@v3
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
@@ -89,7 +89,7 @@ jobs:
         toolchain: 1.81.0
     - run: rustup component add rustfmt
     - run: rustup component add clippy
-    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
+    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev tor
     - uses: actions/checkout@v3
     - name: build ckb and run bats cli test
       run: |

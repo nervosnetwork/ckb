@@ -95,6 +95,51 @@ pub struct Config {
     #[cfg(target_family = "wasm")]
     #[serde(skip)]
     pub secret_key: [u8; 32],
+
+    /// Proxy related config options
+    #[serde(default)]
+    pub proxy: ProxyConfig,
+
+    /// Onion related config options
+    #[serde(default)]
+    pub onion: OnionConfig,
+}
+
+/// Proxy related config options
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ProxyConfig {
+    // like: socks5://username:password@127.0.0.1:1080
+    pub proxy_url: Option<String>,
+}
+
+/// Onion related config options
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OnionConfig {
+    // Automatically create Tor onion service, default: true
+    #[serde(default = "default_listen_on_onion")]
+    pub listen_on_onion: bool,
+    // Tor server url: like: 127.0.0.1:9050
+    pub onion_server: Option<String>,
+    // onion service target, if CKB's p2p listen address not on default 127.0.0.1:8115, you should set this
+    pub onion_service_target: Option<String>,
+    // path to store onion private key, default is ./data/network/onion/onion_private_key
+    pub onion_private_key_path: Option<String>,
+    // tor controllr url, example: 127.0.0.1:9050
+    #[serde(default = "default_tor_controller")]
+    pub tor_controller: String,
+    // tor controller hashed password
+    pub tor_password: Option<String>,
+}
+
+/// By default, allow ckb to listen on onion address
+const fn default_listen_on_onion() -> bool {
+    true
+}
+
+/// By default, use tor controller on "127.0.0.1:9051"
+fn default_tor_controller() -> String {
+    "127.0.0.1:9051".to_string()
 }
 
 /// Chain synchronization config options.
@@ -249,6 +294,13 @@ impl Config {
     pub fn secret_key_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("secret_key");
+        path
+    }
+
+    /// Gets the onion network private key path.
+    pub fn onion_private_key_path(&self) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push("onion_private_key");
         path
     }
 

@@ -67,10 +67,14 @@ cov: cov-install-tools ## Run code coverage.
 	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 test --all
 	GRCOV_OUTPUT=lcov-unit-test.info make cov-collect-data
 
+.PHONY: obfs
+obfs:
+	go build -C test/obfs4 -v -o obfs4proxy/obfs4proxy ./obfs4proxy
 
 .PHONY: setup-ckb-test
-setup-ckb-test:
+setup-ckb-test: submodule-init
 	cp -f Cargo.lock test/Cargo.lock
+	$(MAKE) obfs
 
 .PHONY: submodule-init
 submodule-init:

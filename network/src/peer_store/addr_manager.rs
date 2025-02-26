@@ -68,8 +68,14 @@ impl AddrManager {
                     }
                 }
                 None => {
-                    if addr_info.is_connectable(now_ms) && filter(&addr_info) {
-                        addr_infos.push(addr_info);
+                    if filter(&addr_info) {
+                        if addr_info.is_connectable(now_ms)
+                            || addr_info.addr.to_string().starts_with("/onion3/")
+                        {
+                            addr_infos.push(addr_info);
+                        } else {
+                            // addr_info is not connectable or not onion address
+                        }
                     }
                 }
             }

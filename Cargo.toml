@@ -42,6 +42,7 @@ members = [
     "util/logger-service",
     "util/runtime",
     "util/stop-handler",
+    "util/onion",
     "util/metrics",
     "util/metrics-service",
     "util/fixed-hash",

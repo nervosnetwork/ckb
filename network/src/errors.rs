@@ -27,6 +27,8 @@ pub enum Error {
     Dial(String),
     /// Peer store error
     PeerStore(PeerStoreError),
+    /// Config error
+    Config(String),
 }
 
 /// Error from tentacle
