@@ -34,6 +34,11 @@ jobs:
       runner_label: ${{ steps.prologue.outputs.runner_label }}
     steps:
       - uses: actions/checkout@v3
+      # Enable caching of the 'ckb-librocksdb-sys' crate by additionally caching the
+      # 'ckb-librocksdb-sys' src directory which is managed by cargo
+      - uses: bmwill/rust-cache@v1 # Fork of 'Swatinem/rust-cache' which allows caching additional paths
+        with:
+          path: ~/.cargo/registry/src/**/ckb-librocksdb-sys-*
       - name: prologue
         id: prologue
         uses: ./.github/actions/ci_prologue
