@@ -182,10 +182,11 @@ impl BlockFetcher {
         let state = self.sync_shared.state();
 
         let mut start = {
-            match self.ibd {
-                IBDState::In => self.sync_shared.shared().get_unverified_tip().number() + 1,
-                IBDState::Out => last_common.number() + 1,
-            }
+            last_common.number() + 1
+            // match self.ibd {
+            //     IBDState::In => self.sync_shared.shared().get_unverified_tip().number() + 1,
+            //     IBDState::Out => last_common.number() + 1,
+            // }
         };
         let mut end = min(
             fetch_end,
