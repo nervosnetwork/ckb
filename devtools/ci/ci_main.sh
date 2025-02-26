@@ -83,7 +83,7 @@ case $GITHUB_WORKFLOW in
     ;;
   ci_cargo_deny*)
     echo "ci_security_audit_licenses"
-    cargo deny --version || cargo +stable install cargo-deny --locked
+    cargo deny --version || cargo +stable install cargo-deny --locked --version 0.17.0
     make security-audit
     make check-crates
     make check-licenses
