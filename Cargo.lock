@@ -958,7 +958,7 @@ dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.94",
 ]
 
 [[package]]
@@ -1233,7 +1233,7 @@ name = "ckb-migration-template"
 version = "0.200.0-pre"
 dependencies = [
  "quote",
- "syn 1.0.109",
+ "syn 2.0.94",
 ]
 
 [[package]]
@@ -1370,7 +1370,7 @@ version = "0.200.0-pre"
 dependencies = [
  "ckb-occupied-capacity-core",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.94",
 ]
 
 [[package]]
