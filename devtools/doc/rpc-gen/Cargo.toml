@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc-gen"
-version = "0.200.0-rc1"
+version = "0.200.0-rc2"
 edition = "2021"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-rpc ={ path = "../../../rpc", version = "= 0.200.0-rc1" }
+ckb-rpc ={ path = "../../../rpc", version = "= 0.200.0-rc2" }
 schemars = { version = "0.8.19", package = "ckb_schemars" }
 serde_json = "~1.0"
 tera = "1"
