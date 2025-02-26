@@ -346,10 +346,14 @@ pub enum VmState {
     WaitForRead(ReadState),
 }
 
+/// Used to specify the location of script data.
 #[derive(Clone, Debug)]
 pub struct DataLocation {
+    /// A pointer to the data.
     pub data_piece_id: DataPieceId,
+    /// Data offset.
     pub offset: u64,
+    /// Data length.
     pub length: u64,
 }
 
