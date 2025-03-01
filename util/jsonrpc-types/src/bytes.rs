@@ -20,8 +20,8 @@ impl JsonSchema for JsonBytes {
     fn schema_name() -> String {
         String::from("JsonBytes")
     }
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        gen.subschema_for::<String>().into_object().into()
+    fn json_schema(generate: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        generate.subschema_for::<String>().into_object().into()
     }
 }
 
