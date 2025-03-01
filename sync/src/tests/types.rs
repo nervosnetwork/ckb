@@ -1,11 +1,11 @@
 use ckb_shared::types::HeaderIndexView;
 use ckb_types::{
+    U256,
     core::{BlockNumber, EpochNumberWithFraction, HeaderBuilder},
     packed::Byte32,
     prelude::*,
-    U256,
 };
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::atomic::{
@@ -14,7 +14,7 @@ use std::{
     },
 };
 
-use crate::types::{TtlFilter, FILTER_TTL};
+use crate::types::{FILTER_TTL, TtlFilter};
 
 const SKIPLIST_LENGTH: u64 = 10_000;
 

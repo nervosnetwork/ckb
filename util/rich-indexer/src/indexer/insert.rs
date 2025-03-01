@@ -12,9 +12,9 @@ use ckb_types::{
 };
 use sql_builder::SqlBuilder;
 use sqlx::{
+    Row, Transaction,
     any::{Any, AnyArguments, AnyRow},
     query::Query,
-    Row, Transaction,
 };
 
 use std::collections::HashSet;
@@ -291,7 +291,7 @@ pub(crate) async fn bulk_insert_output_table(
             tx_id.into(),
             row.0.into(),
             row.1.into(),
-            query_script_id(&row.2 .0, row.2 .1, &row.2 .2, tx)
+            query_script_id(&row.2.0, row.2.1, &row.2.2, tx)
                 .await?
                 .map_or(FieldValue::NoneBigInt, FieldValue::BigInt),
             type_script_id.map_or(FieldValue::NoneBigInt, FieldValue::BigInt),

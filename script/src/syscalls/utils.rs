@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_vm::{
-    registers::{A0, A1, A2},
     Error as VMError, Memory, Register, SupportMachine,
+    registers::{A0, A1, A2},
 };
 use std::cmp;
 

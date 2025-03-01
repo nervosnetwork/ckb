@@ -2,8 +2,8 @@
 
 use ckb_channel::oneshot::RecvError;
 use ckb_error::{
-    impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, prelude::*, Error,
-    InternalError, InternalErrorKind, OtherError,
+    Error, InternalError, InternalErrorKind, OtherError, impl_error_conversion_with_adaptor,
+    impl_error_conversion_with_kind, prelude::*,
 };
 pub use ckb_types::core::tx_pool::Reject;
 use std::fmt;

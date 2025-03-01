@@ -1,4 +1,4 @@
-use crate::{error::FromStrError, H160, H256, H512, H520};
+use crate::{H160, H256, H512, H520, error::FromStrError};
 
 pub(crate) const DICT_HEX_ERROR: u8 = u8::MAX;
 pub(crate) static DICT_HEX_LO: [u8; 256] = {

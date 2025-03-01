@@ -1,15 +1,14 @@
 //! Tx-pool shared type define.
 use crate::{
+    H256,
     core::{
-        self,
-        error::{OutPointError, TransactionError, ARGV_TOO_LONG_TEXT},
-        BlockNumber, Capacity, Cycle, FeeRate,
+        self, BlockNumber, Capacity, Cycle, FeeRate,
+        error::{ARGV_TOO_LONG_TEXT, OutPointError, TransactionError},
     },
     packed::Byte32,
-    H256,
 };
 use ckb_error::{
-    impl_error_conversion_with_kind, prelude::*, Error, ErrorKind, InternalError, InternalErrorKind,
+    Error, ErrorKind, InternalError, InternalErrorKind, impl_error_conversion_with_kind, prelude::*,
 };
 use std::collections::HashMap;
 
@@ -17,7 +16,9 @@ use std::collections::HashMap;
 #[derive(Error, Debug, Clone)]
 pub enum Reject {
     /// Transaction fee lower than config
-    #[error("The min fee rate is {0}, requiring a transaction fee of at least {1} shannons, but the fee provided is only {2}")]
+    #[error(
+        "The min fee rate is {0}, requiring a transaction fee of at least {1} shannons, but the fee provided is only {2}"
+    )]
     LowFeeRate(FeeRate, u64, u64),
 
     /// Transaction exceeded maximum ancestors count limit

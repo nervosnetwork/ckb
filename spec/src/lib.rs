@@ -11,9 +11,9 @@
 // details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{
-    build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
-    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TESTNET_ACTIVATION_THRESHOLD,
-    TYPE_ID_CODE_HASH,
+    Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
+    TESTNET_ACTIVATION_THRESHOLD, TYPE_ID_CODE_HASH, build_genesis_dao_data,
+    build_genesis_epoch_ext,
 };
 use crate::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_constant::hardfork::{mainnet, testnet};
@@ -22,19 +22,19 @@ use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
-    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
-    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
+    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA, Resource,
 };
 use ckb_types::{
+    H160, H256, U128,
     bytes::Bytes,
     core::{
-        capacity_bytes, hardfork::HardForks, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle,
-        EpochNumber, EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder,
-        TransactionView,
+        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochNumber,
+        EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
+        capacity_bytes, hardfork::HardForks,
     },
     h256, packed,
     prelude::*,
-    H160, H256, U128,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

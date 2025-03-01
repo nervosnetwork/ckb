@@ -3,7 +3,7 @@ use crate::scheduler::{MAX_FDS, MAX_VMS_COUNT};
 use crate::syscalls::SOURCE_GROUP_FLAG;
 use crate::verify::{tests::utils::*, *};
 use ckb_types::{
-    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, TransactionBuilder},
+    core::{Capacity, TransactionBuilder, capacity_bytes, cell::CellMetaBuilder},
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
 };
 use proptest::prelude::*;
@@ -205,10 +205,12 @@ fn check_spawn_out_of_cycles() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify(script_version, &rtx, 0xffffff);
     if script_version >= ScriptVersion::V2 {
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("ExceededMaximumCycles"))
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("ExceededMaximumCycles")
+        )
     } else {
         assert!(result.is_err())
     }
@@ -323,10 +325,12 @@ fn check_spawn_out_of_cycles_wrap() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify(script_version, &rtx, 0xffffff);
     if script_version >= ScriptVersion::V2 {
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("ExceededMaximumCycles"))
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("ExceededMaximumCycles")
+        )
     } else {
         assert!(result.is_err());
     }
@@ -857,7 +861,7 @@ mod spawn_dag;
 use ckb_types::bytes::Bytes;
 use daggy::{Dag, Walker};
 use molecule::prelude::Byte;
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use spawn_dag as dag;
 use std::collections::{HashSet, VecDeque};
 
@@ -1364,10 +1368,12 @@ fn check_infinite_exec() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify(script_version, &rtx, 70000000);
     if script_version >= ScriptVersion::V1 {
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("ExceededMaximumCycles"))
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("ExceededMaximumCycles")
+        )
     } else {
         assert!(result.is_err())
     }
@@ -1401,14 +1407,18 @@ fn check_fuzz_crash_1() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify(script_version, &rtx, 70000000);
     match script_version {
-        ScriptVersion::V0 => assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("MemWriteOnExecutablePage")),
-        ScriptVersion::V1 | ScriptVersion::V2 => assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("SourceEntry parse_from_u64 0")),
+        ScriptVersion::V0 => assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("MemWriteOnExecutablePage")
+        ),
+        ScriptVersion::V1 | ScriptVersion::V2 => assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("SourceEntry parse_from_u64 0")
+        ),
     }
 }
 
@@ -1436,10 +1446,12 @@ fn check_fuzz_crash_2() {
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify(script_version, &rtx, 70000000);
     match script_version {
-        ScriptVersion::V0 => assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("MemWriteOnExecutablePage")),
+        ScriptVersion::V0 => assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("MemWriteOnExecutablePage")
+        ),
         ScriptVersion::V1 => assert_eq!(result.unwrap(), 58741),
         ScriptVersion::V2 => assert_eq!(result.unwrap(), 58686),
     }
@@ -1468,8 +1480,10 @@ fn check_fuzz_crash_3() {
     };
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier.verify(script_version, &rtx, 70000000);
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("MemWriteOnExecutablePage"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("MemWriteOnExecutablePage")
+    );
 }

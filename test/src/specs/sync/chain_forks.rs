@@ -8,7 +8,7 @@ use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
 use ckb_logger::info;
 use ckb_types::{
-    core::{capacity_bytes, BlockView, Capacity, TransactionView},
+    core::{BlockView, Capacity, TransactionView, capacity_bytes},
     h256,
     prelude::*,
 };

@@ -1,5 +1,5 @@
 use crate::relayer::block_transactions_process::BlockTransactionsProcess;
-use crate::relayer::tests::helper::{build_chain, MockProtocolContext};
+use crate::relayer::tests::helper::{MockProtocolContext, build_chain};
 use crate::{Status, StatusCode};
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_store::ChainStore;
@@ -89,10 +89,12 @@ fn test_accept_block() {
     let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
     assert!(pending_compact_blocks.get(&hash).is_none());
 
-    assert!(relayer
-        .shared
-        .state()
-        .contains_inflight_proposal(&tx3.proposal_short_id()));
+    assert!(
+        relayer
+            .shared
+            .state()
+            .contains_inflight_proposal(&tx3.proposal_short_id())
+    );
 }
 
 #[test]

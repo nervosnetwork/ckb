@@ -1,4 +1,4 @@
-use ckb_resource::{Resource, TemplateContext, AVAILABLE_SPECS};
+use ckb_resource::{AVAILABLE_SPECS, Resource, TemplateContext};
 
 use crate::{
     deprecate,

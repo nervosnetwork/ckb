@@ -1,11 +1,11 @@
 //! Error module
 use p2p::{
+    SessionId,
     error::{
         DialerErrorKind, ListenErrorKind, ProtocolHandleErrorKind, SendErrorKind,
         TransportErrorKind,
     },
     secio::PeerId,
-    SessionId,
 };
 use std::fmt;
 use std::fmt::Display;

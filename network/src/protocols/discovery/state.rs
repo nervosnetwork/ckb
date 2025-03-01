@@ -2,18 +2,18 @@ use ckb_systemtime::{Duration, Instant};
 
 use ckb_logger::debug;
 use p2p::{
+    SessionId,
     context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::{Multiaddr, Protocol},
     utils::multiaddr_to_socketaddr,
-    SessionId,
 };
 
 use crate::Flags;
 
 use super::{
-    addr::AddrKnown,
-    protocol::{encode, DiscoveryMessage, Node, Nodes},
     AddressManager, MAX_ADDR_TO_SEND,
+    addr::AddrKnown,
+    protocol::{DiscoveryMessage, Node, Nodes, encode},
 };
 
 // FIXME: should be a more high level version number

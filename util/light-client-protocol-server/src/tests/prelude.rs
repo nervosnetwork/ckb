@@ -1,11 +1,11 @@
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
+    U256,
     core::{BlockExt, BlockNumber, BlockView, HeaderView},
     packed,
     prelude::*,
     utilities::compact_to_difficulty,
-    U256,
 };
 
 #[allow(dead_code)]
@@ -17,7 +17,7 @@ pub(crate) trait SnapshotExt {
     fn get_block_ext_by_number(&self, num: BlockNumber) -> Option<BlockExt>;
 
     fn get_verifiable_header_by_number(&self, num: BlockNumber)
-        -> Option<packed::VerifiableHeader>;
+    -> Option<packed::VerifiableHeader>;
 
     fn get_block_difficulty_by_number(&self, num: BlockNumber) -> Option<U256> {
         self.get_header_by_number(num)

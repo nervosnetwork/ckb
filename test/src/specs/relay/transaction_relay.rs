@@ -9,7 +9,7 @@ use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_network::SupportProtocols;
 use ckb_types::{
-    core::{capacity_bytes, Capacity, TransactionBuilder},
+    core::{Capacity, TransactionBuilder, capacity_bytes},
     packed::{CellOutputBuilder, GetRelayTransactions, RelayMessage},
     prelude::*,
 };
@@ -258,11 +258,12 @@ impl Spec for TransactionRelayConflict {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err());
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("TransactionFailedToResolve: Resolve failed Dead"));
+        assert!(
+            res.err()
+                .unwrap()
+                .to_string()
+                .contains("TransactionFailedToResolve: Resolve failed Dead")
+        );
 
         let relayed = wait_until(20, || {
             [tx1.hash()].iter().all(|hash| {

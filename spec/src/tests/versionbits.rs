@@ -1,16 +1,16 @@
+use crate::TESTNET_ACTIVATION_THRESHOLD;
 use crate::consensus::Consensus;
 use crate::consensus::{
-    build_genesis_epoch_ext, ConsensusBuilder, DEFAULT_EPOCH_DURATION_TARGET,
-    DEFAULT_ORPHAN_RATE_TARGET,
+    ConsensusBuilder, DEFAULT_EPOCH_DURATION_TARGET, DEFAULT_ORPHAN_RATE_TARGET,
+    build_genesis_epoch_ext,
 };
 use crate::versionbits::{
     ActiveMode, Deployment, DeploymentPos, ThresholdState, VersionbitsIndexer,
 };
-use crate::TESTNET_ACTIVATION_THRESHOLD;
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochExt, EpochNumber, HeaderView,
-        TransactionBuilder, TransactionView, Version,
+        BlockBuilder, BlockView, Capacity, EpochExt, EpochNumber, HeaderView, TransactionBuilder,
+        TransactionView, Version, capacity_bytes,
     },
     global::DATA_DIR,
     packed::{Byte32, Bytes, CellbaseWitness},

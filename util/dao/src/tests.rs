@@ -4,18 +4,17 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
+    U256,
     bytes::Bytes,
     core::{
-        capacity_bytes,
-        cell::{CellMetaBuilder, ResolvedTransaction},
         BlockBuilder, BlockNumber, Capacity, EpochExt, EpochNumberWithFraction, HeaderBuilder,
-        HeaderView, TransactionBuilder,
+        HeaderView, TransactionBuilder, capacity_bytes,
+        cell::{CellMetaBuilder, ResolvedTransaction},
     },
     h256,
     packed::CellOutput,
     prelude::*,
     utilities::DIFF_TWO,
-    U256,
 };
 use tempfile::TempDir;
 

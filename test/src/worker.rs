@@ -1,11 +1,11 @@
-use crate::{utils::nodes_panicked, Spec};
-use ckb_channel::{unbounded, Receiver, Sender};
+use crate::{Spec, utils::nodes_panicked};
+use ckb_channel::{Receiver, Sender, unbounded};
 use ckb_logger::{error, info};
 use ckb_util::Mutex;
 use std::any::Any;
 use std::panic;
 use std::path::PathBuf;
-use std::sync::{atomic::AtomicU16, Arc};
+use std::sync::{Arc, atomic::AtomicU16};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 

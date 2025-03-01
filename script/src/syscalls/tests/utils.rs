@@ -9,8 +9,8 @@ use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{CellMeta, ResolvedTransaction},
         Capacity, HeaderBuilder, HeaderView,
+        cell::{CellMeta, ResolvedTransaction},
     },
     packed::{self, Byte32, CellOutput, OutPoint, Script},
     prelude::*,

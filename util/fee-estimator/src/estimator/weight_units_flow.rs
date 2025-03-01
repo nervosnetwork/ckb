@@ -56,11 +56,11 @@ use std::collections::HashMap;
 
 use ckb_chain_spec::consensus::MAX_BLOCK_BYTES;
 use ckb_types::core::{
-    tx_pool::{get_transaction_weight, TxEntryInfo, TxPoolEntryInfo},
     BlockNumber, BlockView, FeeRate,
+    tx_pool::{TxEntryInfo, TxPoolEntryInfo, get_transaction_weight},
 };
 
-use crate::{constants, Error};
+use crate::{Error, constants};
 
 const FEE_RATE_UNIT: u64 = 1000;
 

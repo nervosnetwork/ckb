@@ -57,7 +57,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
                     match cli {
                         cli::CMD_GEN_SECRET => return Setup::generate(matches),
                         cli::CMD_FROM_SECRET => {
-                            return subcommand::peer_id(Setup::peer_id(matches)?)
+                            return subcommand::peer_id(Setup::peer_id(matches)?);
                         }
                         _ => {}
                     }

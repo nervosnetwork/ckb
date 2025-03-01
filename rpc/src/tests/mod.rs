@@ -7,8 +7,8 @@ use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::{
     core::{
-        cell::resolve_transaction, BlockBuilder, BlockView, HeaderView, TransactionBuilder,
-        TransactionView,
+        BlockBuilder, BlockView, HeaderView, TransactionBuilder, TransactionView,
+        cell::resolve_transaction,
     },
     packed::{CellInput, OutPoint},
     prelude::*,

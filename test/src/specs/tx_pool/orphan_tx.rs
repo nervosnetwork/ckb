@@ -6,7 +6,7 @@ use ckb_network::SupportProtocols;
 use ckb_types::packed::CellOutputBuilder;
 use ckb_types::{
     bytes::Bytes,
-    core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView},
+    core::{Capacity, TransactionBuilder, TransactionView, capacity_bytes},
     packed,
 };
 use ckb_types::{
@@ -307,11 +307,12 @@ impl Spec for TxPoolOrphanUnordered {
         let ret = node0
             .rpc_client()
             .send_transaction_result(tx12_clone.data().into());
-        assert!(ret
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("already exists in transaction_pool"));
+        assert!(
+            ret.err()
+                .unwrap()
+                .to_string()
+                .contains("already exists in transaction_pool")
+        );
 
         assert!(
             run_replay_tx(&net, node0, parent, 3, 1),

@@ -1,11 +1,12 @@
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::{
-    build_genesis_type_id_script, ChainSpec, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
-    OUTPUT_INDEX_SECP256K1_DATA,
+    ChainSpec, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL, OUTPUT_INDEX_SECP256K1_DATA,
+    build_genesis_type_id_script,
 };
 use ckb_dao_utils::genesis_dao_data;
 use ckb_resource::Resource;
 use ckb_types::{
+    H256, U256,
     bytes::Bytes,
     core::{
         BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, ScriptHashType,
@@ -14,7 +15,6 @@ use ckb_types::{
     packed::{CellInput, CellOutput, OutPoint, Script},
     prelude::*,
     utilities::difficulty_to_compact,
-    H256, U256,
 };
 use std::fs::File;
 use std::io::Read;

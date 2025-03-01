@@ -1,6 +1,6 @@
 use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
-use ckb_types::core::{Cycle, FeeRate};
 use ckb_types::H256;
+use ckb_types::core::{Cycle, FeeRate};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use url::Url;

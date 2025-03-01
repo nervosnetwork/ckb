@@ -2,7 +2,6 @@
 //! by script: ./devtools/release/update_default_valid_target.sh
 //! Please don't modify them manually.
 
-
 /// sync config related to mainnet
 pub mod mainnet {
     /// Default assume valid target for mainnet, expect to be a block 60 days ago.

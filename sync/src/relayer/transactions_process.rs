@@ -1,5 +1,5 @@
-use crate::relayer::Relayer;
 use crate::Status;
+use crate::relayer::Relayer;
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{

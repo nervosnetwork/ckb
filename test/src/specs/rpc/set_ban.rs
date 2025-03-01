@@ -57,20 +57,22 @@ impl Spec for RpcSetBan {
         let mut banned_ip_node = Node::new(spec_name(self), "banned_ip_node");
         banned_ip_node.modify_app_config(|app_config| {
             let p2p_port = find_available_port();
-            app_config.network.listen_addresses =
-                vec![format!("/ip4/{BAD_NODE_IP_1}/tcp/{p2p_port}")
+            app_config.network.listen_addresses = vec![
+                format!("/ip4/{BAD_NODE_IP_1}/tcp/{p2p_port}")
                     .parse()
-                    .unwrap()];
+                    .unwrap(),
+            ];
         });
         banned_ip_node.start();
 
         let mut banned_ipsubnet_node = Node::new(spec_name(self), "banned_ipsubnet_node");
         banned_ipsubnet_node.modify_app_config(|app_config| {
             let p2p_port = find_available_port();
-            app_config.network.listen_addresses =
-                vec![format!("/ip4/{BAD_NODE_IP_2}/tcp/{p2p_port}")
+            app_config.network.listen_addresses = vec![
+                format!("/ip4/{BAD_NODE_IP_2}/tcp/{p2p_port}")
                     .parse()
-                    .unwrap()];
+                    .unwrap(),
+            ];
         });
         banned_ipsubnet_node.start();
 

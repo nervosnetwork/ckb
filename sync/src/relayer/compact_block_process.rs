@@ -1,9 +1,9 @@
+use crate::SyncShared;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
 use crate::types::{ActiveChain, PendingCompactBlockMap};
 use crate::utils::send_message_to;
-use crate::SyncShared;
-use crate::{attempt, Status, StatusCode};
+use crate::{Status, StatusCode, attempt};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -16,8 +16,8 @@ use ckb_types::{
     packed::{self, Byte32, CompactBlock},
     prelude::*,
 };
-use ckb_util::shrink_to_fit;
 use ckb_util::MutexGuard;
+use ckb_util::shrink_to_fit;
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
 use std::collections::HashMap;

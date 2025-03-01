@@ -6,13 +6,13 @@
 //! A cli to generate alert message,
 //! A config option to set alert messages to broadcast.
 //
+use crate::BAD_MESSAGE_BAN_TIME;
 use crate::notifier::Notifier;
 use crate::verifier::Verifier;
-use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_app_config::NetworkAlertConfig;
 use ckb_logger::{debug, info, trace};
 use ckb_network::{
-    async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession,
+    CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession, async_trait, bytes::Bytes,
 };
 use ckb_notify::NotifyController;
 use ckb_types::{packed, prelude::*};

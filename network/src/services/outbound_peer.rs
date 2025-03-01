@@ -1,7 +1,7 @@
 use crate::{
-    network::TransportType,
-    peer_store::{types::AddrInfo, PeerStore},
     NetworkState,
+    network::TransportType,
+    peer_store::{PeerStore, types::AddrInfo},
 };
 use ckb_logger::trace;
 use ckb_systemtime::unix_time_as_millis;

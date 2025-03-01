@@ -1,12 +1,12 @@
 //! RocksDB iterator wrapper base on DBIter
 use crate::db::cf_handle;
 use crate::{
-    internal_error, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction,
-    RocksDBTransactionSnapshot,
+    Result, RocksDB, RocksDBSnapshot, RocksDBTransaction, RocksDBTransactionSnapshot,
+    internal_error,
 };
 use ckb_db_schema::Col;
-use rocksdb::{ops::IterateCF, ReadOptions};
 pub use rocksdb::{DBIterator as DBIter, Direction, IteratorMode};
+use rocksdb::{ReadOptions, ops::IterateCF};
 
 /// An iterator over a column family, with specifiable ranges and direction.
 pub trait DBIterator {

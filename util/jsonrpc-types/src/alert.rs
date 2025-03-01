@@ -1,4 +1,4 @@
-use crate::{bytes::JsonBytes, Timestamp, Uint32};
+use crate::{Timestamp, Uint32, bytes::JsonBytes};
 use ckb_types::{packed, prelude::*};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

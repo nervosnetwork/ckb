@@ -1,10 +1,10 @@
 use crate::types::HeaderIndexView;
 use ckb_types::{
+    U256,
     core::{BlockNumber, EpochNumberWithFraction},
     packed::Byte32,
-    U256,
 };
-use ckb_util::{shrink_to_fit, LinkedHashMap, RwLock};
+use ckb_util::{LinkedHashMap, RwLock, shrink_to_fit};
 use std::default;
 
 const SHRINK_THRESHOLD: usize = 300;

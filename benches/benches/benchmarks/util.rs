@@ -1,4 +1,4 @@
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
@@ -8,12 +8,12 @@ use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
+    H160, H256, U256,
     bytes::Bytes,
     core::{
-        capacity_bytes,
-        cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        TransactionBuilder, TransactionView, capacity_bytes,
+        cell::{OverlayCellProvider, TransactionsProvider, resolve_transaction},
     },
     h160, h256,
     packed::{
@@ -21,7 +21,6 @@ use ckb_types::{
     },
     prelude::*,
     utilities::difficulty_to_compact,
-    H160, H256, U256,
 };
 use rand::random;
 use std::collections::HashSet;

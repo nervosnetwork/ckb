@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ckb_types::{core::BlockNumber, U256};
+use ckb_types::{U256, core::BlockNumber};
 
 use super::super::get_last_state_proof::FindBlocksViaDifficulties;
 

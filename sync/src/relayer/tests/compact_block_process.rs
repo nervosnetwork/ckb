@@ -1,12 +1,12 @@
 use crate::relayer::compact_block_process::CompactBlockProcess;
 use crate::relayer::tests::helper::{
-    build_chain, gen_block, new_header_builder, MockProtocolContext,
+    MockProtocolContext, build_chain, gen_block, new_header_builder,
 };
 use crate::{Status, StatusCode};
 use ckb_chain::start_chain_services;
 use ckb_network::{PeerIndex, SupportProtocols};
-use ckb_shared::block_status::BlockStatus;
 use ckb_shared::ChainServicesBuilder;
+use ckb_shared::block_status::BlockStatus;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{PlugTarget, TxEntry};
@@ -310,10 +310,12 @@ fn test_send_missing_indexes() {
         peer_index,
     );
 
-    assert!(!relayer
-        .shared
-        .state()
-        .contains_inflight_proposal(&proposal_id));
+    assert!(
+        !relayer
+            .shared
+            .state()
+            .contains_inflight_proposal(&proposal_id)
+    );
     assert_eq!(
         compact_block_process.execute(),
         StatusCode::CompactBlockRequiresFreshTransactions.into()
@@ -331,10 +333,12 @@ fn test_send_missing_indexes() {
     assert!(nc.has_sent(SupportProtocols::RelayV2.protocol_id(), peer_index, data));
 
     // insert inflight proposal
-    assert!(relayer
-        .shared
-        .state()
-        .contains_inflight_proposal(&proposal_id));
+    assert!(
+        relayer
+            .shared
+            .state()
+            .contains_inflight_proposal(&proposal_id)
+    );
 
     let content = packed::GetBlockProposal::new_builder()
         .block_hash(block.header().hash())
@@ -429,12 +433,16 @@ fn test_accept_block() {
     assert_eq!(compact_block_process.execute(), Status::ok(),);
 
     let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
-    assert!(pending_compact_blocks
-        .get(&mock_block_1.header().hash())
-        .is_none());
-    assert!(pending_compact_blocks
-        .get(&mock_block_2.header().hash())
-        .is_some());
+    assert!(
+        pending_compact_blocks
+            .get(&mock_block_1.header().hash())
+            .is_none()
+    );
+    assert!(
+        pending_compact_blocks
+            .get(&mock_block_2.header().hash())
+            .is_some()
+    );
 }
 
 #[test]
@@ -578,10 +586,12 @@ fn test_collision() {
         peer_index,
     );
 
-    assert!(!relayer
-        .shared
-        .state()
-        .contains_inflight_proposal(&proposal_id));
+    assert!(
+        !relayer
+            .shared
+            .state()
+            .contains_inflight_proposal(&proposal_id)
+    );
     assert_eq!(
         compact_block_process.execute(),
         StatusCode::CompactBlockMeetsShortIdsCollision.into(),

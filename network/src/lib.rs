@@ -32,19 +32,18 @@ pub use crate::{
     peer_registry::PeerRegistry,
     peer_store::Score,
     protocols::{
-        identify::Flags, support_protocols::SupportProtocols, BoxedCKBProtocolContext, CKBProtocol,
-        CKBProtocolContext, CKBProtocolHandler, PeerIndex,
+        BoxedCKBProtocolContext, CKBProtocol, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
+        identify::Flags, support_protocols::SupportProtocols,
     },
 };
 pub use p2p::{
-    async_trait,
+    ProtocolId, SessionId, async_trait,
     builder::ServiceBuilder,
     bytes, multiaddr, runtime,
     secio::{self, PeerId, PublicKey},
     service::{ServiceControl, SessionType, TargetProtocol, TargetSession},
     traits::ServiceProtocol,
     utils::{extract_peer_id, multiaddr_to_socketaddr},
-    ProtocolId, SessionId,
 };
 pub use tokio;
 

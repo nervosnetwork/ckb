@@ -1,18 +1,17 @@
-use crate::network::async_disconnect_with_message;
 use crate::NetworkState;
+use crate::network::async_disconnect_with_message;
 use ckb_logger::{debug, error, trace, warn};
 use ckb_types::{packed, prelude::*};
 use futures::{
-    channel::mpsc::{channel, Receiver, Sender},
+    channel::mpsc::{Receiver, Sender, channel},
     prelude::*,
 };
 use p2p::{
-    async_trait,
+    SessionId, async_trait,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     service::TargetSession,
     traits::ServiceProtocol,
-    SessionId,
 };
 use std::{
     collections::{HashMap, HashSet},

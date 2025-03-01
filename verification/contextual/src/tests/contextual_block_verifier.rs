@@ -1,6 +1,6 @@
 use super::super::contextual_block_verifier::{EpochVerifier, TwoPhaseCommitVerifier};
 use crate::contextual_block_verifier::{RewardVerifier, VerifyContext};
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_shared::{Shared, SharedBuilder};
@@ -9,9 +9,9 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, cell::ResolvedTransaction, BlockBuilder, BlockNumber, BlockView, Capacity,
-        EpochExt, EpochNumberWithFraction, HeaderBuilder, HeaderView, TransactionBuilder,
-        TransactionView, UncleBlockView,
+        BlockBuilder, BlockNumber, BlockView, Capacity, EpochExt, EpochNumberWithFraction,
+        HeaderBuilder, HeaderView, TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, cell::ResolvedTransaction,
     },
     packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,

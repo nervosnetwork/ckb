@@ -18,18 +18,18 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
+    H256, U256,
     core::{BlockNumber, EpochExt, EpochNumber, HeaderView, Version},
     packed::{self, Byte32},
     prelude::*,
-    H256, U256,
 };
-use ckb_util::{shrink_to_fit, Mutex, MutexGuard};
+use ckb_util::{Mutex, MutexGuard, shrink_to_fit};
 use ckb_verification::cache::TxVerificationCache;
 use dashmap::DashMap;
 use std::cmp;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -120,17 +120,19 @@ impl Shared {
             let signal_receiver = new_crossbeam_exit_rx();
             let shared = self.clone();
             let freeze_jh = thread::Builder::new()
-                .spawn(move || loop {
-                    match signal_receiver.recv_timeout(FREEZER_INTERVAL) {
-                        Err(_) => {
-                            if let Err(e) = shared.freeze() {
-                                ckb_logger::error!("Freezer error {}", e);
+                .spawn(move || {
+                    loop {
+                        match signal_receiver.recv_timeout(FREEZER_INTERVAL) {
+                            Err(_) => {
+                                if let Err(e) = shared.freeze() {
+                                    ckb_logger::error!("Freezer error {}", e);
+                                    break;
+                                }
+                            }
+                            Ok(_) => {
+                                ckb_logger::info!("Freezer closing");
                                 break;
                             }
-                        }
-                        Ok(_) => {
-                            ckb_logger::info!("Freezer closing");
-                            break;
                         }
                     }
                 })

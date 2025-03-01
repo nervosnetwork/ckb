@@ -10,13 +10,13 @@ use std::{
 
 use ckb_types::{
     core::{
-        tx_pool::{get_transaction_weight, TxEntryInfo},
         BlockNumber, BlockView, FeeRate,
+        tx_pool::{TxEntryInfo, get_transaction_weight},
     },
     packed::Byte32,
 };
 
-use crate::{constants, Error};
+use crate::{Error, constants};
 
 /// The number of blocks that the esitmator will trace the statistics.
 const MAX_CONFIRM_BLOCKS: usize = 1000;

@@ -1,7 +1,7 @@
 //! Top-level Pool type, methods, and tests
 extern crate rustc_hash;
 extern crate slab;
-use super::component::{commit_txs_scanner::CommitTxsScanner, TxEntry};
+use super::component::{TxEntry, commit_txs_scanner::CommitTxsScanner};
 use crate::callback::Callbacks;
 use crate::component::pool_map::{PoolEntry, PoolMap, Status};
 use crate::component::recent_reject::RecentReject;
@@ -17,9 +17,9 @@ use ckb_types::core::{BlockNumber, CapacityError, FeeRate};
 use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
-        cell::{resolve_transaction, OverlayCellChecker, OverlayCellProvider, ResolvedTransaction},
-        tx_pool::{TxPoolEntryInfo, TxPoolIds},
         Capacity, Cycle, TransactionView, UncleBlockView,
+        cell::{OverlayCellChecker, OverlayCellProvider, ResolvedTransaction, resolve_transaction},
+        tx_pool::{TxPoolEntryInfo, TxPoolIds},
     },
     packed::{Byte32, ProposalShortId},
 };

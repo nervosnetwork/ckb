@@ -11,12 +11,12 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::{fs, panic, process, sync, thread};
 use time::{
-    format_description::{self, FormatItem},
     OffsetDateTime,
+    format_description::{self, FormatItem},
 };
 
 use ckb_logger_config::Config;
-use ckb_util::{strings, Mutex, RwLock};
+use ckb_util::{Mutex, RwLock, strings};
 use yansi::Paint;
 
 #[cfg(test)]

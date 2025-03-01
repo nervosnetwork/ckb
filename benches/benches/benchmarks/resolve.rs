@@ -1,24 +1,23 @@
 use crate::benchmarks::util::create_2out_transaction;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::Resource;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_types::global::DATA_DIR;
 use ckb_types::{
+    H160, H256,
     bytes::Bytes,
     core::{
-        capacity_bytes,
+        BlockView, Capacity, DepType, FeeRate, ScriptHashType, TransactionView, capacity_bytes,
         cell::{resolve_transaction, setup_system_cell_cache},
-        BlockView, Capacity, DepType, FeeRate, ScriptHashType, TransactionView,
     },
     h160, h256,
     packed::{CellDep, OutPoint, Script},
     prelude::*,
-    H160, H256,
 };
-use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group};
 use std::collections::HashSet;
 
 #[cfg(not(feature = "ci"))]

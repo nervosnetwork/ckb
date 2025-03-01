@@ -1,7 +1,7 @@
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
 
-use crate::{prelude::*, LightClientProtocol, Status, StatusCode};
+use crate::{LightClientProtocol, Status, StatusCode, prelude::*};
 
 pub(crate) struct GetLastStateProcess<'a> {
     message: packed::GetLastStateReader<'a>,

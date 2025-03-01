@@ -1,5 +1,5 @@
 use crate::protocols::{
-    discovery::protocol::{decode, encode, DiscoveryMessage},
+    discovery::protocol::{DiscoveryMessage, decode, encode},
     identify::Flags,
 };
 

@@ -9,7 +9,7 @@ mod verify;
 mod verify_env;
 
 pub use crate::error::{ScriptError, TransactionScriptError};
-pub use crate::scheduler::{Scheduler, ROOT_VM_ID};
+pub use crate::scheduler::{ROOT_VM_ID, Scheduler};
 pub use crate::syscalls::generator::generate_ckb_syscalls;
 pub use crate::types::{
     ChunkCommand, CoreMachine, DataLocation, DataPieceId, RunMode, ScriptGroup, ScriptGroupType,

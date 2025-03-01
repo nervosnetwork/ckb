@@ -6,12 +6,12 @@ use ckb_hash::new_blake2b;
 use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
+    U256,
     bytes::Bytes,
     core::{BlockNumber, Capacity, EpochNumberWithFraction, Version},
     packed,
     prelude::*,
     utilities::merkle_root,
-    U256,
 };
 
 /*

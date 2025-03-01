@@ -1,5 +1,5 @@
 use crate::notifier::Notifier;
-use ckb_async_runtime::{new_background_runtime, Handle};
+use ckb_async_runtime::{Handle, new_background_runtime};
 use ckb_notify::NotifyService;
 
 use ckb_types::{packed, prelude::*};

@@ -1,6 +1,6 @@
 use crate::component::edges::Edges;
 use crate::component::tests::util::{
-    build_tx, build_tx_with_dep, build_tx_with_header_dep, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
+    MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, build_tx, build_tx_with_dep, build_tx_with_header_dep,
 };
 use crate::component::{
     entry::TxEntry,

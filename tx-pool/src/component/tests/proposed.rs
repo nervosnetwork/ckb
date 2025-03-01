@@ -1,19 +1,19 @@
 use crate::component::pool_map::Status;
 use crate::component::tests::util::{
-    build_tx, build_tx_with_dep, build_tx_with_header_dep, DEFAULT_MAX_ANCESTORS_COUNT,
-    MOCK_CYCLES, MOCK_FEE, MOCK_SIZE,
+    DEFAULT_MAX_ANCESTORS_COUNT, MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, build_tx, build_tx_with_dep,
+    build_tx_with_header_dep,
 };
-use ckb_types::core::{capacity_bytes, ScriptHashType};
-use ckb_types::packed::{CellOutputBuilder, ScriptBuilder};
 use ckb_types::H256;
+use ckb_types::core::{ScriptHashType, capacity_bytes};
+use ckb_types::packed::{CellOutputBuilder, ScriptBuilder};
 use std::time::Instant;
 
 use crate::component::{entry::TxEntry, pool_map::PoolMap};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{get_related_dep_out_points, CellMeta, ResolvedTransaction},
         Capacity, DepType, TransactionBuilder, TransactionView,
+        cell::{CellMeta, ResolvedTransaction, get_related_dep_out_points},
     },
     h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
@@ -152,11 +152,12 @@ fn test_add_entry_from_detached() {
         .collect::<Vec<_>>();
     assert_eq!(left, got);
 
-    assert!(pool
-        .links
-        .get_parents(&entry2.proposal_short_id())
-        .unwrap()
-        .is_empty());
+    assert!(
+        pool.links
+            .get_parents(&entry2.proposal_short_id())
+            .unwrap()
+            .is_empty()
+    );
 
     assert!(pool.add_proposed(entry1).unwrap());
 
@@ -684,10 +685,11 @@ fn test_max_ancestors_with_dep() {
     assert!(pool.add_proposed(entry1).is_ok());
     assert!(pool.add_proposed(entry2).is_err());
     assert_eq!(pool.edges.deps.len(), 1);
-    assert!(pool
-        .edges
-        .deps
-        .contains_key(&OutPoint::new(h256!("0x1").pack(), 0)));
+    assert!(
+        pool.edges
+            .deps
+            .contains_key(&OutPoint::new(h256!("0x1").pack(), 0))
+    );
     assert!(pool.calc_descendants(&tx1_id).is_empty());
 
     assert_eq!(pool.edges.inputs_len(), 1);

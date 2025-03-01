@@ -2,7 +2,7 @@
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::write_batch::RocksDBWriteBatch;
-use crate::{internal_error, Result};
+use crate::{Result, internal_error};
 use ckb_app_config::DBConfig;
 use ckb_db_schema::Col;
 use ckb_logger::info;
@@ -11,9 +11,9 @@ use rocksdb::ops::{
     Put, SetOptions, WriteOps,
 };
 use rocksdb::{
-    ffi, BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
+    BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
     DBPinnableSlice, FullOptions, IteratorMode, OptimisticTransactionDB,
-    OptimisticTransactionOptions, Options, SliceTransform, WriteBatch, WriteOptions,
+    OptimisticTransactionOptions, Options, SliceTransform, WriteBatch, WriteOptions, ffi,
 };
 use std::path::Path;
 use std::sync::Arc;

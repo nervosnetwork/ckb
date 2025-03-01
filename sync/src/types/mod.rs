@@ -1,4 +1,4 @@
-use crate::{Status, StatusCode, FAST_INDEX, LOW_INDEX, NORMAL_INDEX, TIME_TRACE_SIZE};
+use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, Status, StatusCode, TIME_TRACE_SIZE};
 use ckb_app_config::SyncConfig;
 #[cfg(test)]
 use ckb_chain::VerifyResult;
@@ -15,10 +15,10 @@ use ckb_constant::sync::{
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_shared::{
+    Snapshot,
     block_status::BlockStatus,
     shared::Shared,
     types::{HeaderIndex, HeaderIndexView, SHRINK_THRESHOLD},
-    Snapshot,
 };
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
@@ -26,19 +26,19 @@ use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::BlockNumberAndHash;
 use ckb_types::{
+    U256,
     core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
-    U256,
 };
-use ckb_util::{shrink_to_fit, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ckb_util::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, shrink_to_fit};
 use dashmap::{self, DashMap};
 use keyed_priority_queue::{self, KeyedPriorityQueue};
 use lru::LruCache;
-use std::collections::{btree_map::Entry, BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, btree_map::Entry};
 use std::hash::Hash;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use std::{cmp, fmt, iter};
 
@@ -1972,11 +1972,7 @@ pub enum IBDState {
 
 impl From<bool> for IBDState {
     fn from(src: bool) -> Self {
-        if src {
-            IBDState::In
-        } else {
-            IBDState::Out
-        }
+        if src { IBDState::In } else { IBDState::Out }
     }
 }
 

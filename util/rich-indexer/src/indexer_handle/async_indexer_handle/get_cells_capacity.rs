@@ -6,7 +6,7 @@ use ckb_indexer_sync::Error;
 use ckb_jsonrpc_types::{IndexerCellsCapacity, IndexerSearchKey};
 use ckb_jsonrpc_types::{IndexerScriptType, IndexerSearchMode};
 use ckb_types::prelude::*;
-use sql_builder::{name, name::SqlName, SqlBuilder};
+use sql_builder::{SqlBuilder, name, name::SqlName};
 use sqlx::Row;
 
 impl AsyncRichIndexerHandle {

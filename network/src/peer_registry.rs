@@ -1,14 +1,15 @@
 //! Peer registry
+use crate::Flags;
 use crate::network_group::Group;
 use crate::peer_store::PeerStore;
-use crate::Flags;
 use crate::{
+    Peer, PeerId, SessionType,
     errors::{Error, PeerError},
-    extract_peer_id, Peer, PeerId, SessionType,
+    extract_peer_id,
 };
 use ckb_logger::debug;
 use ckb_systemtime::Instant;
-use p2p::{multiaddr::Multiaddr, SessionId};
+use p2p::{SessionId, multiaddr::Multiaddr};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::{HashMap, HashSet};

@@ -1,6 +1,6 @@
 use crate::{
-    tests::{always_success_transaction, next_block},
     RpcServer, ServiceBuilder,
+    tests::{always_success_transaction, next_block},
 };
 use ckb_app_config::{
     BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
@@ -9,7 +9,7 @@ use ckb_chain::start_chain_services;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_network::{network::TransportType, Flags, NetworkService, NetworkState};
+use ckb_network::{Flags, NetworkService, NetworkState, network::TransportType};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_shared::SharedBuilder;

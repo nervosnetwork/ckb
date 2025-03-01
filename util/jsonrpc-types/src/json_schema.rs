@@ -1,4 +1,4 @@
-use crate::{Byte32, Uint128, Uint32, Uint64};
+use crate::{Byte32, Uint32, Uint64, Uint128};
 use schemars::JsonSchema;
 
 macro_rules! impl_json_schema_for_type {

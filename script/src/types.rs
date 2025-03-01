@@ -2,22 +2,22 @@ use crate::{error::ScriptError, verify_env::TxVerifyEnv};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_types::{
     core::{
-        cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
+        cell::{CellMeta, ResolvedTransaction},
     },
     packed::{Byte32, CellOutput, OutPoint, Script},
     prelude::*,
 };
 use ckb_vm::{
-    machine::{VERSION0, VERSION1, VERSION2},
     ISA_B, ISA_IMC, ISA_MOP,
+    machine::{VERSION0, VERSION1, VERSION2},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc, Mutex, RwLock,
+    atomic::{AtomicU64, Ordering},
 };
 
 #[cfg(has_asm)]
@@ -30,10 +30,10 @@ use ckb_traits::CellDataProvider;
 use ckb_vm::snapshot2::Snapshot2Context;
 
 use ckb_vm::{
+    RISCV_GENERAL_REGISTER_NUMBER,
     bytes::Bytes,
     machine::Pause,
     snapshot2::{DataSource, Snapshot2},
-    RISCV_GENERAL_REGISTER_NUMBER,
 };
 use std::mem::size_of;
 

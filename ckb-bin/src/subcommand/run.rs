@@ -2,7 +2,7 @@ use std::thread::available_parallelism;
 
 use crate::helper::deadlock_detection;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_async_runtime::{new_global_runtime, Handle};
+use ckb_async_runtime::{Handle, new_global_runtime};
 use ckb_build_info::Version;
 use ckb_launcher::Launcher;
 use ckb_logger::info;

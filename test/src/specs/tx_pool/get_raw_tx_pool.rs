@@ -1,7 +1,7 @@
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::RawTxPool;
 use ckb_logger::info;
-use ckb_types::{prelude::Unpack, H256};
+use ckb_types::{H256, prelude::Unpack};
 
 pub struct GetRawTxPool;
 

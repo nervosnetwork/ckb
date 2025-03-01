@@ -1,4 +1,4 @@
-use crate::{BlockNumber, Byte32, Timestamp, Uint128, Uint64};
+use crate::{BlockNumber, Byte32, Timestamp, Uint64, Uint128};
 use ckb_types::H256;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

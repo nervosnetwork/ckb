@@ -9,10 +9,9 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes,
-        hardfork::{HardForks, CKB2021, CKB2023},
         BlockBuilder, Capacity, EpochNumberWithFraction, ScriptHashType, TransactionBuilder,
-        TransactionView,
+        TransactionView, capacity_bytes,
+        hardfork::{CKB2021, CKB2023, HardForks},
     },
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
     utilities::DIFF_TWO,

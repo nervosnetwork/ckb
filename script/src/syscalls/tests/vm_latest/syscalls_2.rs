@@ -2,15 +2,15 @@ use crate::{syscalls::tests::utils::*, types::VmContext};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{CellMeta, ResolvedTransaction},
         HeaderBuilder, TransactionBuilder, TransactionInfo,
+        cell::{CellMeta, ResolvedTransaction},
     },
     packed::{CellOutput, OutPoint},
     prelude::*,
 };
 use ckb_vm::{
-    registers::{A0, A1, A2, A3, A4, A5, A7},
     CoreMachine, Memory, SupportMachine, Syscalls,
+    registers::{A0, A1, A2, A3, A4, A5, A7},
 };
 use proptest::{collection::size_range, prelude::*};
 use std::collections::HashMap;
@@ -124,10 +124,12 @@ fn _test_load_extension(
 
     let mut load_block_extension = LoadBlockExtension::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(data.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(data.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_block_extension.ecall(&mut machine).is_ok());
 

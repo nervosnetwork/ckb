@@ -23,7 +23,7 @@ mod tests;
 
 pub use self::template::Template;
 pub use self::template::{
-    TemplateContext, AVAILABLE_SPECS, DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC,
+    AVAILABLE_SPECS, DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC, TemplateContext,
 };
 pub use std::io::{Error, Result};
 

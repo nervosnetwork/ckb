@@ -1,11 +1,11 @@
-use super::error::Error;
-use super::pubkey::Pubkey;
 use super::Message;
 use super::SECP256K1;
-use ckb_fixed_hash::{h256, H256, H520};
+use super::error::Error;
+use super::pubkey::Pubkey;
+use ckb_fixed_hash::{H256, H520, h256};
 use faster_hex::hex_string;
-use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use secp256k1::Message as SecpMessage;
+use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use std::fmt;
 use std::str::FromStr;
 

@@ -2,9 +2,9 @@ use ckb_channel::unbounded;
 use ckb_logger::{error, info, warn};
 use ckb_test::specs::*;
 use ckb_test::{
+    Spec,
     global::{self, BINARY_PATH, PORT_COUNTER, VENDOR_PATH},
     worker::{Notify, Workers},
-    Spec,
 };
 use ckb_types::core::ScriptHashType;
 use ckb_util::Mutex;
@@ -14,11 +14,11 @@ use std::any::Any;
 use std::cmp::min;
 use std::collections::HashSet;
 use std::env;
-use std::fs::{self, read_to_string, File};
+use std::fs::{self, File, read_to_string};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]

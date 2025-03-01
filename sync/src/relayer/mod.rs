@@ -20,8 +20,8 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
-use crate::types::{post_sync_process, ActiveChain, SyncShared};
-use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
+use crate::types::{ActiveChain, SyncShared, post_sync_process};
+use crate::utils::{MetricDirection, metric_ckb_message_bytes, send_message_to};
 use crate::{Status, StatusCode};
 use ckb_chain::VerifyResult;
 use ckb_chain::{ChainController, RemoteBlock};
@@ -31,11 +31,11 @@ use ckb_logger::{
     debug, debug_target, error, error_target, info_target, trace_target, warn_target,
 };
 use ckb_network::{
-    async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
-    SupportProtocols, TargetSession,
+    CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols, TargetSession,
+    async_trait, bytes::Bytes, tokio,
 };
-use ckb_shared::block_status::BlockStatus;
 use ckb_shared::Shared;
+use ckb_shared::block_status::BlockStatus;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::BlockNumberAndHash;
@@ -138,7 +138,7 @@ impl Relayer {
                 // before ckb2023, v3 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v3) {
                     RelaySwitch::Ckb2023RelayV2 | RelaySwitch::Ckb2021RelayV3 => {
-                        return Status::ignored()
+                        return Status::ignored();
                     }
                     RelaySwitch::Ckb2023RelayV3 | RelaySwitch::Ckb2021RelayV2 => (),
                 }
@@ -154,7 +154,7 @@ impl Relayer {
                 // before ckb2023, v3 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v3) {
                     RelaySwitch::Ckb2023RelayV2 | RelaySwitch::Ckb2021RelayV3 => {
-                        return Status::ignored()
+                        return Status::ignored();
                     }
                     RelaySwitch::Ckb2023RelayV3 | RelaySwitch::Ckb2021RelayV2 => (),
                 }
@@ -165,7 +165,7 @@ impl Relayer {
                 // before ckb2023, v3 doesn't work with relay tx
                 match RelaySwitch::new(&nc, self.v3) {
                     RelaySwitch::Ckb2023RelayV2 | RelaySwitch::Ckb2021RelayV3 => {
-                        return Status::ignored()
+                        return Status::ignored();
                     }
                     RelaySwitch::Ckb2023RelayV3 | RelaySwitch::Ckb2021RelayV2 => (),
                 }
@@ -324,7 +324,7 @@ impl Relayer {
                         "verify block {}-{} failed: {:?}, won't build compact block and broadcast it",
                         block.number(),
                         block.hash(),
-                            err
+                        err
                     );
 
                     let is_internal_db_error = is_internal_db_error(&err);
@@ -481,7 +481,7 @@ impl Relayer {
                 BlockStatus::BLOCK_INVALID => {
                     return ReconstructionResult::Error(
                         StatusCode::CompactBlockHasInvalidUncle.with_context(uncle_hash),
-                    )
+                    );
                 }
                 _ => missing_uncles.push(i),
             }

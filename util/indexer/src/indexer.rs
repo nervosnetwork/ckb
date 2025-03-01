@@ -933,13 +933,13 @@ mod tests {
     use super::*;
     use crate::store::RocksdbStore;
     use ckb_types::{
+        H256,
         bytes::Bytes,
         core::{
-            capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
-            ScriptHashType, TransactionBuilder,
+            BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder, ScriptHashType,
+            TransactionBuilder, capacity_bytes,
         },
         packed::{CellInput, CellOutputBuilder, OutPoint, ScriptBuilder},
-        H256,
     };
 
     const KEEP_NUM: u64 = 10;

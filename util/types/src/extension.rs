@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
 use crate::{
+    U256,
     core::{self},
     packed,
     prelude::*,
     utilities::{compact_to_difficulty, merkle_root},
-    U256,
 };
 
 impl Difficulty for packed::RawHeader {

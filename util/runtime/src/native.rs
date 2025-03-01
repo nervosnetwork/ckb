@@ -102,11 +102,7 @@ fn new_runtime(worker_num: Option<usize>) -> Runtime {
                     // When id wraps around, we couldn't know whether the old id
                     // is released or not.
                     // But we can ignore this, because it's almost impossible.
-                    if n >= 999_999 {
-                        Some(0)
-                    } else {
-                        Some(n + 1)
-                    }
+                    if n >= 999_999 { Some(0) } else { Some(n + 1) }
                 })
                 .expect("impossible since the above closure must return Some(number)");
             format!("GlobalRt-{id}")

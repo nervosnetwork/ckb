@@ -2,7 +2,7 @@
 
 use ckb_build_info::Version;
 use sentry::{
-    configure_scope, init, protocol::Event, types::Dsn, ClientInitGuard, ClientOptions, Level,
+    ClientInitGuard, ClientOptions, Level, configure_scope, init, protocol::Event, types::Dsn,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;

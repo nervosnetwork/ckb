@@ -7,7 +7,7 @@
 use ckb_app_config::NetworkAlertConfig;
 use ckb_error::AnyError;
 use ckb_logger::{debug, trace};
-use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
+use ckb_multisig::secp256k1::{Message, Pubkey, Signature, verify_m_of_n};
 use ckb_types::{packed, prelude::*};
 use std::collections::HashSet;
 

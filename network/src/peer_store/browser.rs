@@ -4,7 +4,7 @@ use idb::{
 };
 use p2p::runtime;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc::channel, OnceCell};
+use tokio::sync::{OnceCell, mpsc::channel};
 
 use std::path::Path;
 

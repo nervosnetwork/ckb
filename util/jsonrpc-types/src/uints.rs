@@ -3,8 +3,8 @@ use ckb_types::{
     prelude::{Pack, Unpack},
 };
 use serde::{
-    de::{Error, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
+    de::{Error, Visitor},
 };
 use std::{fmt, marker, num};
 

@@ -2,7 +2,7 @@ use crate::{
     BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, JsonBytes, ProposalShortId,
     Timestamp, Transaction, Uint32, Uint64, Version,
 };
-use ckb_types::{packed, prelude::*, H256};
+use ckb_types::{H256, packed, prelude::*};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::convert::From;

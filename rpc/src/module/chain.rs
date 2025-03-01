@@ -9,20 +9,20 @@ use ckb_jsonrpc_types::{
 };
 use ckb_logger::error;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::{shared::Shared, Snapshot};
-use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
+use ckb_shared::{Snapshot, shared::Shared};
+use ckb_store::{ChainStore, data_loader_wrapper::AsDataLoader};
 use ckb_traits::HeaderFieldsProvider;
 use ckb_types::core::tx_pool::TransactionWithStatus;
 use ckb_types::{
+    H256,
     core::{
         self,
-        cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
+        cell::{CellProvider, CellStatus, HeaderChecker, resolve_transaction},
         error::OutPointError,
     },
     packed,
     prelude::*,
-    utilities::{merkle_root, MerkleProof, CBMT},
-    H256,
+    utilities::{CBMT, MerkleProof, merkle_root},
 };
 use ckb_verification::ScriptVerifier;
 use ckb_verification::TxVerifyEnv;

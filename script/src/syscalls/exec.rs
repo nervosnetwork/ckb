@@ -1,6 +1,6 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    Place, Source, SourceEntry, EXEC, INDEX_OUT_OF_BOUND, MAX_ARGV_LENGTH, SLICE_OUT_OF_BOUND,
+    EXEC, INDEX_OUT_OF_BOUND, MAX_ARGV_LENGTH, Place, SLICE_OUT_OF_BOUND, Source, SourceEntry,
     WRONG_FORMAT,
 };
 use crate::types::SgData;
@@ -8,13 +8,13 @@ use ckb_traits::CellDataProvider;
 use ckb_types::core::cell::CellMeta;
 use ckb_types::core::error::ARGV_TOO_LONG_TEXT;
 use ckb_types::packed::{Bytes as PackedBytes, BytesVec};
-use ckb_vm::memory::load_c_string_byte_by_byte;
 use ckb_vm::Memory;
-use ckb_vm::{
-    registers::{A0, A1, A2, A3, A4, A5, A7},
-    Error as VMError, Register, SupportMachine, Syscalls,
-};
+use ckb_vm::memory::load_c_string_byte_by_byte;
 use ckb_vm::{DEFAULT_STACK_SIZE, RISCV_MAX_MEMORY};
+use ckb_vm::{
+    Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A1, A2, A3, A4, A5, A7},
+};
 
 #[derive(Debug)]
 pub struct Exec<DL> {

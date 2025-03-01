@@ -1,4 +1,4 @@
-use ckb_error::{prelude::*, Error, ErrorKind};
+use ckb_error::{Error, ErrorKind, prelude::*};
 use ckb_types::core::CapacityError;
 
 /// Errors due to the fact that the NervosDAO rules are not respected.

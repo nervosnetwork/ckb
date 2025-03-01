@@ -2,9 +2,9 @@ use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
-        cell::ResolvedTransaction,
-        tx_pool::{get_transaction_weight, TxEntryInfo},
         Capacity, Cycle, FeeRate, TransactionView,
+        cell::ResolvedTransaction,
+        tx_pool::{TxEntryInfo, get_transaction_weight},
     },
     packed::{OutPoint, ProposalShortId},
 };

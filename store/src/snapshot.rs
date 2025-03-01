@@ -1,8 +1,8 @@
 use crate::cache::StoreCache;
 use crate::store::ChainStore;
 use ckb_db::{
-    iter::{DBIter, DBIterator, IteratorMode},
     DBPinnableSlice, RocksDBSnapshot,
+    iter::{DBIter, DBIterator, IteratorMode},
 };
 use ckb_db_schema::Col;
 use ckb_freezer::Freezer;

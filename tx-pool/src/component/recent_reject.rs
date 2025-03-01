@@ -3,7 +3,7 @@ use ckb_db::DBWithTTL;
 use ckb_error::AnyError;
 use ckb_types::{packed::Byte32, prelude::*};
 use rand::distributions::Uniform;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::path::Path;
 
 const DEFAULT_SHARDS: u32 = 5;

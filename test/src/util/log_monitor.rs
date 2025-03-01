@@ -1,6 +1,6 @@
 use crate::node::Node;
 use crate::utils::{sleep, tweaked_duration};
-use std::fs::{metadata, File};
+use std::fs::{File, metadata};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::time::Instant;
 

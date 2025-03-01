@@ -5,7 +5,7 @@ use ckb_jsonrpc_types::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState, Timestamp,
 };
-use ckb_network::{extract_peer_id, multiaddr::Multiaddr, NetworkController};
+use ckb_network::{NetworkController, extract_peer_id, multiaddr::Multiaddr};
 use ckb_sync::SyncShared;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::prelude::{Pack, Unpack};

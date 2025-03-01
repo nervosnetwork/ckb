@@ -1,9 +1,9 @@
 use crate::net_time_checker::{NetTimeChecker, NetTimeProtocol, TOLERANT_OFFSET};
 use ckb_app_config::NetworkConfig;
 use ckb_network::{
-    multiaddr::{Multiaddr, Protocol},
     CKBProtocol, EventHandler, NetworkState, ServiceBuilder, ServiceControl, SessionId,
     SupportProtocols, TargetProtocol,
+    multiaddr::{Multiaddr, Protocol},
 };
 use std::{
     borrow::Cow,

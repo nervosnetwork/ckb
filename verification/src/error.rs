@@ -1,10 +1,10 @@
-use ckb_error::{def_error_base_on_kind, prelude::*, Error};
+use ckb_error::{Error, def_error_base_on_kind, prelude::*};
 use ckb_types::{core::Version, packed::Byte32};
 use derive_more::Display;
 
 pub use ckb_types::core::{
-    error::{TransactionError, TransactionErrorSource},
     EpochNumberWithFraction,
+    error::{TransactionError, TransactionErrorSource},
 };
 
 /// A list specifying categories of ckb header error.
@@ -275,7 +275,9 @@ pub struct InvalidParentError {
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum PowError {
     /// Error occurs during PoW verification.
-    #[error("InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" for detailed PoW verification information")]
+    #[error(
+        "InvalidNonce: please set logger.filter to \"info,ckb-pow=debug\" for detailed PoW verification information"
+    )]
     InvalidNonce,
 }
 

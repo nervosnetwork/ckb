@@ -1,8 +1,8 @@
 use crate::syscalls::DEBUG_PAUSE;
-use ckb_vm::{registers::A7, Error as VMError, Register, SupportMachine, Syscalls};
+use ckb_vm::{Error as VMError, Register, SupportMachine, Syscalls, registers::A7};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 #[derive(Debug)]

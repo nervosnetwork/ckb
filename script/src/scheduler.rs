@@ -1,18 +1,19 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
-    generator::generate_ckb_syscalls, EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED,
-    MAX_VMS_SPAWNED, OTHER_END_CLOSED, SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
+    EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
+    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE, generator::generate_ckb_syscalls,
 };
 
 use crate::types::{
-    CoreMachineType, DataLocation, DataPieceId, DebugContext, Fd, FdArgs, FullSuspendedState,
-    Machine, Message, ReadState, RunMode, SgData, VmArgs, VmContext, VmId, VmState, WriteState,
-    FIRST_FD_SLOT, FIRST_VM_ID,
+    CoreMachineType, DataLocation, DataPieceId, DebugContext, FIRST_FD_SLOT, FIRST_VM_ID, Fd,
+    FdArgs, FullSuspendedState, Machine, Message, ReadState, RunMode, SgData, VmArgs, VmContext,
+    VmId, VmState, WriteState,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
 use ckb_vm::snapshot2::Snapshot2Context;
 use ckb_vm::{
+    Error, FlattenedArgsReader, Register,
     bytes::Bytes,
     cost_model::estimate_cycles,
     elf::parse_elf,
@@ -20,12 +21,11 @@ use ckb_vm::{
     memory::Memory,
     registers::A0,
     snapshot2::Snapshot2,
-    Error, FlattenedArgsReader, Register,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
 };
 
 /// Root process's id.

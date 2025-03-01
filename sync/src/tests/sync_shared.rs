@@ -1,12 +1,12 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-use crate::relayer::tests::helper::MockProtocolContext;
 use crate::relayer::CompactBlockProcess;
+use crate::relayer::tests::helper::MockProtocolContext;
 use crate::synchronizer::HeadersProcess;
 use crate::tests::util::{build_chain, inherit_block};
 use crate::{Relayer, Status, SyncShared, Synchronizer};
-use ckb_chain::{start_chain_services, RemoteBlock, VerifyResult};
+use ckb_chain::{RemoteBlock, VerifyResult, start_chain_services};
 use ckb_logger::info;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::{Shared, SharedBuilder};
@@ -44,12 +44,16 @@ fn test_insert_new_block() {
         Arc::new(next_block)
     };
 
-    assert!(shared
-        .blocking_insert_new_block(&chain, Arc::clone(&new_block))
-        .expect("insert valid block"));
-    assert!(!shared
-        .blocking_insert_new_block(&chain, Arc::clone(&new_block))
-        .expect("insert duplicated valid block"),);
+    assert!(
+        shared
+            .blocking_insert_new_block(&chain, Arc::clone(&new_block))
+            .expect("insert valid block")
+    );
+    assert!(
+        !shared
+            .blocking_insert_new_block(&chain, Arc::clone(&new_block))
+            .expect("insert duplicated valid block"),
+    );
 }
 
 #[test]
@@ -67,9 +71,11 @@ fn test_insert_invalid_block() {
         Arc::new(next_block)
     };
 
-    assert!(shared
-        .blocking_insert_new_block(&chain, Arc::clone(&invalid_block))
-        .is_err(),);
+    assert!(
+        shared
+            .blocking_insert_new_block(&chain, Arc::clone(&invalid_block))
+            .is_err(),
+    );
 }
 
 #[test]
@@ -157,9 +163,11 @@ fn test_insert_parent_unknown_block() {
 
     // After inserting parent of an orphan block
 
-    assert!(shared
-        .blocking_insert_new_block(&chain, Arc::clone(&parent))
-        .expect("insert parent of orphan block"));
+    assert!(
+        shared
+            .blocking_insert_new_block(&chain, Arc::clone(&parent))
+            .expect("insert parent of orphan block")
+    );
 
     assert!(wait_for_block_status_match(
         &valid_hash,
@@ -225,9 +233,11 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
         )
     };
 
-    assert!(shared
-        .blocking_insert_new_block(&chain, Arc::clone(&child))
-        .expect("insert child block"));
+    assert!(
+        shared
+            .blocking_insert_new_block(&chain, Arc::clone(&child))
+            .expect("insert child block")
+    );
 
     assert!(wait_for_expected_block_status(
         &shared,
@@ -259,12 +269,16 @@ fn test_switch_valid_fork() {
             .timestamp((parent_header.timestamp() + 3).pack())
             .build();
         let arc_block = Arc::new(block.clone());
-        assert!(fork_shared
-            .blocking_insert_new_block(&fork_chain, Arc::clone(&arc_block))
-            .expect("insert fork"),);
-        assert!(shared
-            .blocking_insert_new_block(&chain, arc_block)
-            .expect("insert fork"),);
+        assert!(
+            fork_shared
+                .blocking_insert_new_block(&fork_chain, Arc::clone(&arc_block))
+                .expect("insert fork"),
+        );
+        assert!(
+            shared
+                .blocking_insert_new_block(&chain, arc_block)
+                .expect("insert fork"),
+        );
         parent_header = block.header().clone();
         valid_fork.push(block);
     }
@@ -284,12 +298,16 @@ fn test_switch_valid_fork() {
             .timestamp((parent_header.timestamp() + 3).pack())
             .build();
         let arc_block = Arc::new(block.clone());
-        assert!(fork_shared
-            .blocking_insert_new_block(&fork_chain, Arc::clone(&arc_block))
-            .expect("insert fork"),);
-        assert!(shared
-            .blocking_insert_new_block(&chain, arc_block)
-            .expect("insert fork"),);
+        assert!(
+            fork_shared
+                .blocking_insert_new_block(&fork_chain, Arc::clone(&arc_block))
+                .expect("insert fork"),
+        );
+        assert!(
+            shared
+                .blocking_insert_new_block(&chain, arc_block)
+                .expect("insert fork"),
+        );
         parent_header = block.header().clone();
         valid_fork.push(block);
     }

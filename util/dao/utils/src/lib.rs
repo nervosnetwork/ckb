@@ -4,10 +4,10 @@ mod error;
 
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_types::{
-    core::{capacity_bytes, Capacity, Ratio, TransactionView},
+    H160,
+    core::{Capacity, Ratio, TransactionView, capacity_bytes},
     packed::{Byte32, OutPoint},
     prelude::*,
-    H160,
 };
 use std::collections::HashSet;
 

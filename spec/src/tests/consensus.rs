@@ -1,8 +1,8 @@
 use ckb_traits::{BlockEpoch, EpochProvider};
 use ckb_types::{
     core::{
-        capacity_bytes, BlockBuilder, BlockExt, BlockNumber, Capacity, EpochExt, HeaderBuilder,
-        HeaderView, TransactionBuilder,
+        BlockBuilder, BlockExt, BlockNumber, Capacity, EpochExt, HeaderBuilder, HeaderView,
+        TransactionBuilder, capacity_bytes,
     },
     packed::{Byte32, Bytes},
     prelude::*,
@@ -10,8 +10,8 @@ use ckb_types::{
 };
 
 use crate::consensus::{
-    build_genesis_epoch_ext, ConsensusBuilder, DEFAULT_EPOCH_DURATION_TARGET,
-    DEFAULT_ORPHAN_RATE_TARGET, GENESIS_EPOCH_LENGTH,
+    ConsensusBuilder, DEFAULT_EPOCH_DURATION_TARGET, DEFAULT_ORPHAN_RATE_TARGET,
+    GENESIS_EPOCH_LENGTH, build_genesis_epoch_ext,
 };
 
 #[test]

@@ -1,9 +1,9 @@
 use ckb_resource::Resource;
-use ckb_types::{core::Capacity, packed, prelude::*, H256};
+use ckb_types::{H256, core::Capacity, packed, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{build_genesis_epoch_ext, ChainSpec, Params};
+use crate::{ChainSpec, Params, build_genesis_epoch_ext};
 
 mod consensus;
 mod versionbits;
@@ -240,7 +240,7 @@ fn test_params_skip_serializing_if_option_is_none() {
 #[test]
 fn test_default_genesis_epoch_ext() {
     use ckb_types::core::EpochExt;
-    use ckb_types::{packed, U256};
+    use ckb_types::{U256, packed};
 
     let params = Params::default();
     let compact_target = 0x1a08a97e;

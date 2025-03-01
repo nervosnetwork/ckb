@@ -1,6 +1,6 @@
 use super::{Batch, IteratorDirection, IteratorItem, Store};
 use ckb_indexer_sync::Error;
-use rocksdb::{prelude::*, Direction, IteratorMode, WriteBatch, DB};
+use rocksdb::{DB, Direction, IteratorMode, WriteBatch, prelude::*};
 use std::path::Path;
 use std::sync::Arc;
 

@@ -1,26 +1,26 @@
 use super::{
-    setup::{always_success_consensus, setup_rpc_test_suite},
     RpcTestRequest, RpcTestResponse, RpcTestSuite,
+    setup::{always_success_consensus, setup_rpc_test_suite},
 };
 use crate::tests::always_success_transaction;
 use ckb_test_chain_utils::always_success_cell;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use serde::de::DeserializeOwned;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::cmp;
 use std::collections::BTreeSet;
 
-use std::fs::{read_dir, File};
+use std::fs::{File, read_dir};
 use std::hash;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
 use ckb_types::{
-    core::{capacity_bytes, Capacity, TransactionBuilder, TransactionView},
+    H256,
+    core::{Capacity, TransactionBuilder, TransactionView, capacity_bytes},
     h256,
     packed::{CellDep, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
-    H256,
 };
 
 const TARGET_HEIGHT: u64 = 1024;

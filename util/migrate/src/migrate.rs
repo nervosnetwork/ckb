@@ -3,7 +3,7 @@
 use crate::migrations;
 use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
-use ckb_db_schema::{COLUMNS, COLUMN_META};
+use ckb_db_schema::{COLUMN_META, COLUMNS};
 use ckb_error::Error;
 use ckb_types::core::hardfork::HardForks;
 use std::cmp::Ordering;

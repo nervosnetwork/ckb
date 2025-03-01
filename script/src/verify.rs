@@ -1,6 +1,6 @@
-use crate::scheduler::Scheduler;
 #[cfg(not(target_family = "wasm"))]
 use crate::ChunkCommand;
+use crate::scheduler::Scheduler;
 use crate::{
     error::{ScriptError, TransactionScriptError},
     type_id::TypeIdSystemScript,
@@ -17,13 +17,13 @@ use ckb_logger::{debug, info};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::ResolvedTransaction, Cycle, ScriptHashType},
+    core::{Cycle, ScriptHashType, cell::ResolvedTransaction},
     packed::{Byte32, Script},
     prelude::*,
 };
+use ckb_vm::Error as VMInternalError;
 #[cfg(not(target_family = "wasm"))]
 use ckb_vm::machine::Pause as VMPause;
-use ckb_vm::Error as VMInternalError;
 use std::sync::Arc;
 #[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
@@ -710,7 +710,7 @@ fn wrapping_cycles_add(
 
 #[cfg(feature = "logging")]
 mod logging {
-    use super::{info, Byte32, ScriptError};
+    use super::{Byte32, ScriptError, info};
 
     pub fn on_script_error(group: &Byte32, tx: &Byte32, error: &ScriptError) {
         info!(

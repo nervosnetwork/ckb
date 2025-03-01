@@ -7,8 +7,8 @@ use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, Capacity, HeaderBuilder, TransactionBuilder,
-        TransactionView,
+        BlockBuilder, BlockNumber, Capacity, HeaderBuilder, TransactionBuilder, TransactionView,
+        capacity_bytes,
     },
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},

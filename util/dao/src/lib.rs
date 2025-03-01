@@ -2,13 +2,13 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
+use ckb_dao_utils::{DaoError, extract_dao_data, pack_dao_data};
 use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{CellMeta, ResolvedTransaction},
         Capacity, CapacityResult, EpochExt, HeaderView, ScriptHashType,
+        cell::{CellMeta, ResolvedTransaction},
     },
     packed::{Byte32, CellOutput, Script, WitnessArgs},
     prelude::*,

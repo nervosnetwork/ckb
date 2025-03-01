@@ -9,7 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::services::dns_seeding::seed_record::{SeedRecord, SeedRecordError, SECP256K1, SEP};
+use crate::services::dns_seeding::seed_record::{SECP256K1, SEP, SeedRecord, SeedRecordError};
 
 struct Generator;
 

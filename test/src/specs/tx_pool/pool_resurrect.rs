@@ -1,5 +1,5 @@
 use crate::node::waiting_for_sync;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{DEFAULT_TX_PROPOSAL_WINDOW, Node, Spec};
 use ckb_logger::info;
 
 pub struct PoolResurrect;

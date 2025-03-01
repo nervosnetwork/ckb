@@ -5,7 +5,7 @@ pub use alert_propagation::*;
 use ckb_app_config::NetworkAlertConfig;
 use ckb_crypto::secp::Privkey;
 use ckb_jsonrpc_types::JsonBytes;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
 pub(crate) fn random_privkey() -> Privkey {
     let mut rng = thread_rng();

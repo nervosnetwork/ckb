@@ -2,7 +2,7 @@ use crate::util::mining::out_ibd_mode;
 use crate::utils::{sleep, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_logger::info;
-use ckb_network::{bytes::Bytes, SupportProtocols};
+use ckb_network::{SupportProtocols, bytes::Bytes};
 use ckb_types::{
     packed::{GetHeaders, SyncMessage},
     prelude::*,

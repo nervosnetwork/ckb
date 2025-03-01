@@ -1,6 +1,6 @@
 use crate::synchronizer::Synchronizer;
 use crate::utils::{send_message, send_message_to};
-use crate::{attempt, Status, StatusCode};
+use crate::{Status, StatusCode, attempt};
 use ckb_constant::sync::MAX_LOCATOR_SIZE;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};

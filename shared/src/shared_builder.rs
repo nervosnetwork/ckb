@@ -5,9 +5,9 @@ use ckb_app_config::{
     BlockAssemblerConfig, DBConfig, ExitCode, FeeEstimatorAlgo, FeeEstimatorConfig, NotifyConfig,
     StoreConfig, SyncConfig, TxPoolConfig,
 };
-use ckb_async_runtime::{new_background_runtime, Handle};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_async_runtime::{Handle, new_background_runtime};
 use ckb_chain_spec::SpecError;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
@@ -21,13 +21,13 @@ use ckb_proposal_table::ProposalView;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_store::{ChainDB, ChainStore, Freezer};
 use ckb_tx_pool::{
-    service::TxVerificationResult, TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder,
+    TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder, service::TxVerificationResult,
 };
+use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::prelude::Pack;
-use ckb_types::H256;
 use ckb_types::{
-    core::service::PoolTransactionEntry, core::tx_pool::Reject, core::EpochExt, core::HeaderView,
+    core::EpochExt, core::HeaderView, core::service::PoolTransactionEntry, core::tx_pool::Reject,
 };
 use ckb_util::Mutex;
 use ckb_verification::cache::init_cache;
@@ -35,8 +35,8 @@ use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tempfile::TempDir;
 
 /// Shared builder for construct new shared.

@@ -1,16 +1,16 @@
 use crate::syscalls::{
-    Source, INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
-    SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE,
+    INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
+    SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE, Source,
 };
 use crate::types::{DataLocation, DataPieceId, Fd, Message, SgData, SpawnArgs, VmContext, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
+    Error as VMError, Register,
     machine::SupportMachine,
     memory::Memory,
     registers::{A0, A1, A2, A3, A4, A7},
     snapshot2::Snapshot2Context,
     syscalls::Syscalls,
-    Error as VMError, Register,
 };
 use std::sync::{Arc, Mutex};
 

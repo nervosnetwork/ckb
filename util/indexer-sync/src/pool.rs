@@ -1,12 +1,12 @@
 //! An overlay to index the pending txs in the ckb tx pool
 
 use ckb_async_runtime::{
-    tokio::{self, task::JoinHandle},
     Handle,
+    tokio::{self, task::JoinHandle},
 };
 use ckb_logger::info;
 use ckb_notify::NotifyController;
-use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_types::{core::TransactionView, packed::OutPoint};
 
 use std::collections::HashSet;

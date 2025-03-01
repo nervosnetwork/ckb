@@ -1,4 +1,4 @@
-use crate::core::{capacity_bytes, Capacity, FeeRate};
+use crate::core::{Capacity, FeeRate, capacity_bytes};
 
 #[test]
 

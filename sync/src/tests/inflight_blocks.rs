@@ -1,8 +1,8 @@
 use crate::types::InflightBlocks;
 use ckb_constant::sync::BLOCK_DOWNLOAD_TIMEOUT;
+use ckb_types::BlockNumberAndHash;
 use ckb_types::h256;
 use ckb_types::prelude::*;
-use ckb_types::BlockNumberAndHash;
 use std::collections::HashSet;
 
 #[test]
@@ -186,12 +186,16 @@ fn inflight_trace_number_state() {
 
     assert!(inflight_blocks.restart_number == 3);
 
-    assert!(inflight_blocks
-        .inflight_state_by_block(&(3, h256!("0x3").pack()).into())
-        .is_none());
-    assert!(inflight_blocks
-        .inflight_state_by_block(&(3, h256!("0x33").pack()).into())
-        .is_none());
+    assert!(
+        inflight_blocks
+            .inflight_state_by_block(&(3, h256!("0x3").pack()).into())
+            .is_none()
+    );
+    assert!(
+        inflight_blocks
+            .inflight_state_by_block(&(3, h256!("0x33").pack()).into())
+            .is_none()
+    );
 
     assert_eq!(inflight_blocks.peer_can_fetch_count(3.into()), 32 >> 1);
     assert_eq!(inflight_blocks.peer_can_fetch_count(4.into()), 32 >> 1);

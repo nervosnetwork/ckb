@@ -8,7 +8,7 @@
 /// 2. feeler: only open feeler protocol is open.
 ///
 /// Other protocols will be closed after a timeout.
-use crate::{network::disconnect_with_message, NetworkState, Peer, ProtocolId, SupportProtocols};
+use crate::{NetworkState, Peer, ProtocolId, SupportProtocols, network::disconnect_with_message};
 use ckb_logger::debug;
 use ckb_systemtime::{Duration, Instant};
 use futures::{Future, StreamExt};

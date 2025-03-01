@@ -1,7 +1,7 @@
 use crate::{
+    PeerId,
     multiaddr::Multiaddr,
     peer_store::{addr_manager::AddrManager, types::AddrInfo},
-    PeerId,
 };
 use proptest::prelude::*;
 use std::net::Ipv4Addr;

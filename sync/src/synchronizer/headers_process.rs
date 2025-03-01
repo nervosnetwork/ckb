@@ -3,7 +3,7 @@ use crate::types::{ActiveChain, SyncShared};
 use crate::{Status, StatusCode};
 use ckb_constant::sync::MAX_HEADERS_LEN;
 use ckb_error::Error;
-use ckb_logger::{debug, log_enabled, warn, Level};
+use ckb_logger::{Level, debug, log_enabled, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
 use ckb_traits::HeaderFieldsProvider;

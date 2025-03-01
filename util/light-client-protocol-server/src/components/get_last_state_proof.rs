@@ -1,12 +1,12 @@
-use std::cmp::{min, Ordering};
+use std::cmp::{Ordering, min};
 
 use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::{core::BlockNumber, packed, prelude::*, U256};
+use ckb_types::{U256, core::BlockNumber, packed, prelude::*};
 
-use crate::{constant, LightClientProtocol, Status, StatusCode};
+use crate::{LightClientProtocol, Status, StatusCode, constant};
 
 pub(crate) struct GetLastStateProofProcess<'a> {
     message: packed::GetLastStateProofReader<'a>,
@@ -296,8 +296,8 @@ impl<'a> GetLastStateProofProcess<'a> {
                 num
             } else {
                 let errmsg = format!(
-                        "the difficulty boundary ({difficulty_boundary:#x}) is not in the block range [{start_block_number}, {last_block_number})"
-                    );
+                    "the difficulty boundary ({difficulty_boundary:#x}) is not in the block range [{start_block_number}, {last_block_number})"
+                );
                 return StatusCode::InvaildDifficultyBoundary.with_context(errmsg);
             };
 
@@ -319,8 +319,8 @@ impl<'a> GetLastStateProofProcess<'a> {
                         .collect();
                 } else {
                     let errmsg = format!(
-                            "the total difficulty for block#{difficulty_boundary_block_number} is not found"
-                        );
+                        "the total difficulty for block#{difficulty_boundary_block_number} is not found"
+                    );
                     return StatusCode::InternalError.with_context(errmsg);
                 };
                 match sampler.get_block_numbers_via_difficulties(
