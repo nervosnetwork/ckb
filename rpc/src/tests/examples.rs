@@ -58,7 +58,7 @@ fn collect_code_block(
     code_block: String,
 ) -> io::Result<()> {
     if code_block.contains("\"method\":") {
-        if let Some(ref request) = request {
+        if let Some(request) = request {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 format!("Unexpected request. The request {request} has no matched response yet."),

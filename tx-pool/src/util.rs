@@ -94,7 +94,7 @@ pub(crate) async fn verify_rtx(
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
-    if let Some(ref completed) = cache_entry {
+    if let Some(completed) = cache_entry {
         TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
             .verify()
             .map(|_| *completed)

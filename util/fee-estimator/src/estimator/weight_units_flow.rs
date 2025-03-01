@@ -304,7 +304,7 @@ impl Algorithm {
         let mut statuses: Vec<_> = self
             .txs
             .iter()
-            .filter(|(&num, _)| num >= historical_tip)
+            .filter(|&(&num, _)| num >= historical_tip)
             .flat_map(|(_, statuses)| statuses.to_owned())
             .collect();
         statuses.sort_unstable_by(|a, b| b.cmp(a));

@@ -39,7 +39,9 @@ pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 ///   re-linking.
 pub fn run_app(version: Version) -> Result<(), ExitCode> {
     // Always print backtrace on panic.
-    ::std::env::set_var("RUST_BACKTRACE", "full");
+    unsafe {
+        ::std::env::set_var("RUST_BACKTRACE", "full");
+    }
 
     let (bin_name, app_matches) = cli::get_bin_name_and_matches(&version);
     if let Some((cli, matches)) = app_matches.subcommand() {

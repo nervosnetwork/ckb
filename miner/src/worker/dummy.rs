@@ -55,9 +55,9 @@ impl Delay {
         let mut rng = thread_rng();
         let millis = match self {
             Delay::Constant(v) => *v,
-            Delay::Uniform(ref d) => d.sample(&mut rng),
-            Delay::Normal(ref d) => d.sample(&mut rng) as u64,
-            Delay::Poisson(ref d) => d.sample(&mut rng) as u64,
+            Delay::Uniform(d) => d.sample(&mut rng),
+            Delay::Normal(d) => d.sample(&mut rng) as u64,
+            Delay::Poisson(d) => d.sample(&mut rng) as u64,
         };
         Duration::from_millis(millis)
     }

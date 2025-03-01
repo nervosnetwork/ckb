@@ -20,7 +20,7 @@ use std::collections::HashSet;
 const MIN_CAP: Capacity = capacity_bytes!(60);
 
 pub fn create_always_success_tx() -> TransactionView {
-    let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
+    let ( always_success_cell,  always_success_cell_data,  script) = always_success_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
@@ -30,7 +30,7 @@ pub fn create_always_success_tx() -> TransactionView {
 }
 
 pub fn create_load_input_data_hash_cell_tx() -> TransactionView {
-    let (ref load_input_data_hash_cell_cell, ref load_input_data_hash_cell_data, ref script) =
+    let (load_input_data_hash_cell_cell,  load_input_data_hash_cell_data,  script) =
         load_input_data_hash_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
@@ -41,7 +41,7 @@ pub fn create_load_input_data_hash_cell_tx() -> TransactionView {
 }
 
 pub fn create_load_input_one_byte_cell_tx() -> TransactionView {
-    let (ref load_input_one_byte_cell, ref load_input_one_byte_cell_data, ref script) =
+    let (load_input_one_byte_cell, load_input_one_byte_cell_data, script) =
         load_input_one_byte_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())

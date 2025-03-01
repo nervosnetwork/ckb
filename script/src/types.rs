@@ -550,8 +550,7 @@ impl Binaries {
 
     fn merge(&mut self, data_hash: &Byte32) {
         match self {
-            Self::Unique(ref hash, dep_index, data)
-            | Self::Duplicate(ref hash, dep_index, data) => {
+            Self::Unique(hash, dep_index, data) | Self::Duplicate(hash, dep_index, data) => {
                 if hash != data_hash {
                     *self = Self::Multiple;
                 } else {
@@ -778,8 +777,8 @@ impl<DL> TxInfo<DL> {
             ScriptHashType::Type => {
                 if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
                     match bin {
-                        Binaries::Unique(_, dep_index, ref lazy) => Ok((lazy, dep_index)),
-                        Binaries::Duplicate(_, dep_index, ref lazy) => Ok((lazy, dep_index)),
+                        Binaries::Unique(_, dep_index, lazy) => Ok((lazy, dep_index)),
+                        Binaries::Duplicate(_, dep_index, lazy) => Ok((lazy, dep_index)),
                         Binaries::Multiple => Err(ScriptError::MultipleMatches),
                     }
                 } else {

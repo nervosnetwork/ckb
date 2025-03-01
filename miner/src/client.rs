@@ -107,7 +107,7 @@ impl Rpc {
     }
 
     pub fn request(
-        &self,
+        self,
         method: String,
         params: Vec<Value>,
     ) -> impl Future<Output = Result<Output, RpcError>> {
@@ -121,7 +121,7 @@ impl Rpc {
         };
 
         let req = (tx, call);
-        let sender = self.sender.clone();
+        let sender = self.sender;
         async move {
             sender
                 .clone()
@@ -346,6 +346,7 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
         let params = vec![];
 
         self.rpc
+            .clone()
             .request(method, params)
             .and_then(parse_response)
             .await

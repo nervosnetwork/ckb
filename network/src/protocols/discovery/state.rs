@@ -140,7 +140,7 @@ pub(crate) enum RemoteAddress {
 impl RemoteAddress {
     pub(crate) fn to_inner(&self) -> &Multiaddr {
         match self {
-            RemoteAddress::Init(ref addr) | RemoteAddress::Listen(ref addr) => addr,
+            RemoteAddress::Init(addr) | RemoteAddress::Listen(addr) => addr,
         }
     }
 
@@ -151,7 +151,7 @@ impl RemoteAddress {
     }
 
     pub(crate) fn update_port(&mut self, port: u16) {
-        if let RemoteAddress::Init(ref addr) = self {
+        if let RemoteAddress::Init(addr) = self {
             let addr = addr
                 .into_iter()
                 .map(|proto| {

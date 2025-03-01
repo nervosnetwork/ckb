@@ -86,7 +86,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
 }
 
 pub fn create_always_success_tx() -> TransactionView {
-    let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
+    let (always_success_cell, always_success_cell_data, script) = always_success_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
@@ -239,8 +239,8 @@ pub fn secp_data_cell() -> &'static (CellOutput, Bytes) {
 }
 
 pub fn create_secp_tx() -> TransactionView {
-    let (ref secp_data_cell, ref secp_data_cell_data) = secp_data_cell();
-    let (ref secp_cell, ref secp_cell_data, ref script) = secp_cell();
+    let (secp_data_cell, secp_data_cell_data) = secp_data_cell();
+    let (secp_cell, secp_cell_data, script) = secp_cell();
     let outputs = vec![secp_data_cell.clone(), secp_cell.clone()];
     let outputs_data = vec![secp_data_cell_data.pack(), secp_cell_data.pack()];
     TransactionBuilder::default()
