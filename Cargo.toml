@@ -100,6 +100,8 @@ members = [
 [workspace.dependencies]
 tempfile = "3"
 itertools = "0.11.0"
+# issue tracking: https://github.com/GREsau/schemars/pull/251
+schemars = { package = "ckb_schemars", version="0.8.22" }
 
 [profile.release]
 overflow-checks = true

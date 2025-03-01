@@ -50,8 +50,7 @@ futures-util = { version = "0.3.21" }
 tower-http = { version = "0.6", features = ["timeout", "cors"] }
 async-stream = "0.3.3"
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.200.0-pre" }
-# issue tracking: https://github.com/GREsau/schemars/pull/251
-schemars = { version = "0.8.19", package = "ckb_schemars" }
+schemars.workspace = true
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking", "json"] }
