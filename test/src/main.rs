@@ -36,7 +36,9 @@ struct TestResult {
 
 #[allow(clippy::cognitive_complexity)]
 fn main() {
-    env::set_var("RUST_BACKTRACE", "full");
+    unsafe {
+        env::set_var("RUST_BACKTRACE", "full");
+    }
 
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
