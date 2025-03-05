@@ -3,8 +3,8 @@ use crate::types::{
 };
 use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
 use ckb_vm::{
-    registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
+    registers::{A0, A7},
 };
 use std::sync::Arc;
 

@@ -2,7 +2,7 @@
 extern crate proc_macro;
 
 use quote::quote;
-use syn::{parse_macro_input, Error as SynError};
+use syn::{Error as SynError, parse_macro_input};
 
 use ckb_occupied_capacity_core::Capacity;
 

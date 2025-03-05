@@ -1,12 +1,12 @@
 use crate::bytes::JsonBytes;
 use crate::{
     BlockNumber, Byte32, Capacity, Cycle, DeploymentPos, EpochNumber, EpochNumberWithFraction,
-    ProposalShortId, ResponseFormat, ResponseFormatInnerType, Timestamp, Uint128, Uint32, Uint64,
+    ProposalShortId, ResponseFormat, ResponseFormatInnerType, Timestamp, Uint32, Uint64, Uint128,
     Version,
 };
 use ckb_types::core::tx_pool;
 use ckb_types::utilities::MerkleProof as RawMerkleProof;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{H256, core, packed, prelude::*};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

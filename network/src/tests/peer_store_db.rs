@@ -1,10 +1,10 @@
 use crate::{
+    PeerId,
     multiaddr::Multiaddr,
     peer_store::{
-        types::{multiaddr_to_ip_network, AddrInfo, BannedAddr},
         PeerStore,
+        types::{AddrInfo, BannedAddr, multiaddr_to_ip_network},
     },
-    PeerId,
 };
 
 use std::fs::File;

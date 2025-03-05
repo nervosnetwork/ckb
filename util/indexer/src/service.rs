@@ -1,6 +1,6 @@
 //！The indexer service.
 
-use crate::indexer::{self, extract_raw_data, Indexer, Key, KeyPrefix, Value};
+use crate::indexer::{self, Indexer, Key, KeyPrefix, Value, extract_raw_data};
 use crate::store::{IteratorDirection, RocksdbStore, Store};
 
 use ckb_app_config::IndexerConfig;
@@ -12,9 +12,9 @@ use ckb_jsonrpc_types::{
     IndexerTxWithCell, IndexerTxWithCells, JsonBytes, Uint32,
 };
 use ckb_notify::NotifyController;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{H256, core, packed, prelude::*};
 use memchr::memmem;
-use rocksdb::{prelude::*, Direction, IteratorMode};
+use rocksdb::{Direction, IteratorMode, prelude::*};
 
 use std::convert::TryInto;
 use std::num::NonZeroUsize;
@@ -921,13 +921,13 @@ mod tests {
     use ckb_indexer_sync::IndexerSync;
     use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter};
     use ckb_types::{
+        H256,
         bytes::Bytes,
         core::{
-            capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
-            ScriptHashType, TransactionBuilder,
+            BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder, ScriptHashType,
+            TransactionBuilder, capacity_bytes,
         },
         packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
-        H256,
     };
     use faster_hex::hex_decode;
 
@@ -1265,7 +1265,11 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(total_blocks as usize * 3 - 1, txs_page_1.objects.len() + txs_page_2.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
+        assert_eq!(
+            total_blocks as usize * 3 - 1,
+            txs_page_1.objects.len() + txs_page_2.objects.len(),
+            "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)"
+        );
 
         let desc_txs_page_1 = rpc
             .get_transactions(
@@ -1290,7 +1294,11 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(total_blocks as usize * 3 - 1, desc_txs_page_1.objects.len() + desc_txs_page_2.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
+        assert_eq!(
+            total_blocks as usize * 3 - 1,
+            desc_txs_page_1.objects.len() + desc_txs_page_2.objects.len(),
+            "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)"
+        );
         assert_eq!(
             desc_txs_page_1.objects.first().unwrap().tx_hash(),
             txs_page_2.objects.last().unwrap().tx_hash()
@@ -1722,7 +1730,11 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(total_blocks as usize * 3 - 1, txs.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
+        assert_eq!(
+            total_blocks as usize * 3 - 1,
+            txs.objects.len(),
+            "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)"
+        );
 
         // test get_transactions rpc group by tx hash with exact search mode
         let txs = rpc

@@ -3,7 +3,7 @@ use crate::specs::spec_name;
 use crate::{Node, Spec};
 
 use ckb_types::{
-    core::{capacity_bytes, Capacity},
+    core::{Capacity, capacity_bytes},
     packed::CellOutput,
     prelude::*,
 };

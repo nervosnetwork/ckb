@@ -1,16 +1,16 @@
 use crate::{
     errors::{Error, PeerStoreError},
     peer_store::{
+        PeerStore,
         addr_manager::AddrManager,
         ban_list::BanList,
         types::{AddrInfo, BannedAddr},
-        PeerStore,
     },
 };
 use ckb_logger::{debug, error};
 use std::path::Path;
 use std::{
-    fs::{copy, create_dir_all, remove_file, rename, File, OpenOptions},
+    fs::{File, OpenOptions, copy, create_dir_all, remove_file, rename},
     io::{Read, Write},
 };
 

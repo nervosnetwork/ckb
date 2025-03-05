@@ -2,11 +2,11 @@ use crate::{
     broadcast_exit_signals, new_crossbeam_exit_rx, new_tokio_exit_rx, register_thread,
     wait_all_ckb_services_exit,
 };
-use ckb_async_runtime::{new_global_runtime, Handle};
+use ckb_async_runtime::{Handle, new_global_runtime};
 use ckb_channel::select;
 use rand::Rng;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 

@@ -1,4 +1,4 @@
-use crate::{bytes::JsonBytes, Timestamp, Uint32};
+use crate::{Timestamp, Uint32, bytes::JsonBytes};
 use ckb_types::{packed, prelude::*};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -119,7 +119,7 @@ impl From<packed::Alert> for Alert {
                 .map(|b| unsafe { b.as_utf8_unchecked() }.to_owned()),
             priority: raw.priority().unpack(),
             notice_until: raw.notice_until().unpack(),
-            message: unsafe { raw.as_reader().message().as_utf8_unchecked() }.to_owned(),
+            message: unsafe { raw.as_reader().message().as_utf8_unchecked().to_string() },
             signatures: input.signatures().into_iter().map(Into::into).collect(),
         }
     }
@@ -132,7 +132,7 @@ impl From<packed::Alert> for AlertMessage {
             id: raw.id().unpack(),
             priority: raw.priority().unpack(),
             notice_until: raw.notice_until().unpack(),
-            message: unsafe { raw.as_reader().message().as_utf8_unchecked() }.to_owned(),
+            message: unsafe { raw.as_reader().message().as_utf8_unchecked().to_string() },
         }
     }
 }

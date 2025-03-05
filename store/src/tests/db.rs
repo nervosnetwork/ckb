@@ -1,6 +1,6 @@
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_db::RocksDB;
-use ckb_db_schema::{COLUMNS, COLUMN_BLOCK_HEADER};
+use ckb_db_schema::{COLUMN_BLOCK_HEADER, COLUMNS};
 use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
 use tempfile::TempDir;

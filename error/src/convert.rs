@@ -1,6 +1,6 @@
 use crate::{
-    impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, Error, InternalError,
-    InternalErrorKind,
+    Error, InternalError, InternalErrorKind, impl_error_conversion_with_adaptor,
+    impl_error_conversion_with_kind,
 };
 
 impl_error_conversion_with_kind!(

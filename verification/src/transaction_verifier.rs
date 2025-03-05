@@ -13,8 +13,8 @@ use ckb_traits::{
 };
 use ckb_types::{
     core::{
-        cell::{CellMeta, ResolvedTransaction},
         Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView, Version,
+        cell::{CellMeta, ResolvedTransaction},
     },
     packed::{Byte32, CellOutput},
     prelude::*,

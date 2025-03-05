@@ -1,6 +1,6 @@
 use ckb_logger::debug;
 
-use std::io::{stdin, stdout, Write};
+use std::io::{Write, stdin, stdout};
 
 #[cfg(not(feature = "deadlock_detection"))]
 pub fn deadlock_detection() {}

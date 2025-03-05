@@ -1,6 +1,6 @@
-use crate::util::chain::forward_main_blocks;
-use crate::Node;
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
+use crate::Node;
+use crate::util::chain::forward_main_blocks;
 use ckb_jsonrpc_types::{BlockTemplate, ProposalShortId};
 use ckb_types::{
     core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView},

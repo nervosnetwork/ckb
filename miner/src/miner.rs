@@ -1,8 +1,8 @@
-use crate::client::{Client, Works};
-use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
+use crate::client::{Client, Works};
+use crate::worker::{WorkerController, WorkerMessage, start_worker};
 use ckb_app_config::MinerWorkerConfig;
-use ckb_channel::{select, unbounded, Receiver};
+use ckb_channel::{Receiver, select, unbounded};
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
 use ckb_stop_handler::broadcast_exit_signals;

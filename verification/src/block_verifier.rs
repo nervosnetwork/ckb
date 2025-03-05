@@ -1,5 +1,5 @@
 use crate::{
-    transaction_verifier::NonContextualTransactionVerifier, BlockErrorKind, CellbaseError,
+    BlockErrorKind, CellbaseError, transaction_verifier::NonContextualTransactionVerifier,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;

@@ -1,6 +1,6 @@
 use crate::network_group::Group;
 use crate::{
-    multiaddr::Multiaddr, protocols::identify::Flags, ProtocolId, ProtocolVersion, SessionType,
+    ProtocolId, ProtocolVersion, SessionType, multiaddr::Multiaddr, protocols::identify::Flags,
 };
 use ckb_systemtime::{Duration, Instant};
 use p2p::SessionId;

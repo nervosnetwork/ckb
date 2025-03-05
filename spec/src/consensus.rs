@@ -4,13 +4,12 @@
 #![allow(clippy::inconsistent_digit_grouping)]
 
 use crate::{
-    calculate_block_reward,
+    OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
+    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL, calculate_block_reward,
     versionbits::{
         self, Deployment, DeploymentPos, ThresholdState, Versionbits, VersionbitsCache,
         VersionbitsConditionChecker, VersionbitsIndexer,
     },
-    OUTPUT_INDEX_DAO, OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL,
-    OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL,
 };
 use ckb_constant::{
     consensus::TAU,
@@ -23,18 +22,18 @@ use ckb_rational::RationalU256;
 use ckb_resource::Resource;
 use ckb_traits::{BlockEpoch, EpochProvider};
 use ckb_types::{
+    H160, H256, U256,
     bytes::Bytes,
     constants::{BLOCK_VERSION, TX_VERSION},
     core::{
-        hardfork::HardForks, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
-        EpochNumber, EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder,
-        TransactionView, Version,
+        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, EpochNumber,
+        EpochNumberWithFraction, HeaderView, Ratio, TransactionBuilder, TransactionView, Version,
+        hardfork::HardForks,
     },
     h160, h256,
     packed::{Byte32, CellInput, CellOutput, Script},
     prelude::*,
-    utilities::{compact_to_difficulty, difficulty_to_compact, DIFF_TWO},
-    H160, H256, U256,
+    utilities::{DIFF_TWO, compact_to_difficulty, difficulty_to_compact},
 };
 use std::cmp;
 use std::collections::HashMap;
@@ -828,9 +827,8 @@ impl Consensus {
                     epoch_duration_in_milliseconds,
                 } => {
                     if self.permanent_difficulty() {
-                        let next_epoch_length = (self.epoch_duration_target() + MIN_BLOCK_INTERVAL
-                            - 1)
-                            / MIN_BLOCK_INTERVAL;
+                        let next_epoch_length =
+                            self.epoch_duration_target().div_ceil(MIN_BLOCK_INTERVAL);
                         let primary_epoch_reward =
                             self.primary_epoch_reward_of_next_epoch(&epoch).as_u64();
                         let block_reward =

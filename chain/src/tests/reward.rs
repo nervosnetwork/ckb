@@ -5,15 +5,15 @@ use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{
-    always_success_cell, calculate_reward, create_always_success_out_point,
-    create_always_success_tx, dao_data, MockStore,
+    MockStore, always_success_cell, calculate_reward, create_always_success_out_point,
+    create_always_success_tx, dao_data,
 };
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView,
-        ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, ScriptHashType,
+        TransactionBuilder, TransactionView, UncleBlockView, capacity_bytes,
     },
     packed::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,

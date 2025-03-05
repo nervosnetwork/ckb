@@ -4,8 +4,8 @@ use crate::errors::Error;
 use crate::errors::P2PError;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
 use crate::peer_store::{
-    types::{AddrInfo, BannedAddr},
     PeerStore,
+    types::{AddrInfo, BannedAddr},
 };
 use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
@@ -20,22 +20,22 @@ use crate::services::{
     protocol_type_checker::ProtocolTypeCheckerService,
 };
 use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
-use ckb_app_config::{default_support_all_protocols, NetworkConfig, SupportProtocol};
+use ckb_app_config::{NetworkConfig, SupportProtocol, default_support_all_protocols};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
-use ckb_stop_handler::{broadcast_exit_signals, new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{CancellationToken, broadcast_exit_signals, new_tokio_exit_rx};
 use ckb_systemtime::{Duration, Instant};
 use ckb_util::{Condvar, Mutex, RwLock};
-use futures::{channel::mpsc::Sender, Future};
+use futures::{Future, channel::mpsc::Sender};
 use ipnetwork::IpNetwork;
 use p2p::{
-    async_trait,
+    SessionId, async_trait,
     builder::ServiceBuilder,
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
     multiaddr::{Multiaddr, Protocol},
-    secio::{self, error::SecioError, PeerId, SecioKeyPair},
+    secio::{self, PeerId, SecioKeyPair, error::SecioError},
     service::{
         ProtocolHandle, Service, ServiceAsyncControl, ServiceError, ServiceEvent, TargetProtocol,
         TargetSession,
@@ -43,11 +43,10 @@ use p2p::{
     traits::ServiceHandle,
     utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
     yamux::config::Config as YamuxConfig,
-    SessionId,
 };
 use rand::prelude::IteratorRandom;
 #[cfg(feature = "with_sentry")]
-use sentry::{capture_message, with_scope, Level};
+use sentry::{Level, capture_message, with_scope};
 #[cfg(not(target_family = "wasm"))]
 use std::sync::mpsc;
 use std::{
@@ -56,8 +55,8 @@ use std::{
     collections::{HashMap, HashSet},
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
 };
@@ -291,7 +290,7 @@ impl NetworkState {
                 &mut peer_store,
             )
         };
-        accept_peer_result.map_err(Into::into)
+        accept_peer_result
     }
 
     /// For restrict lock in inner scope
@@ -391,8 +390,7 @@ impl NetworkState {
         if self.public_addrs.read().contains(addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
-                peer_id,
-                addr
+                peer_id, addr
             );
             return false;
         }
@@ -408,8 +406,7 @@ impl NetworkState {
         if let Some(dial_started) = self.dialing_addrs.read().get(peer_id) {
             trace!(
                 "Do not send repeated dial commands to network service: {:?}, {}",
-                peer_id,
-                addr
+                peer_id, addr
             );
             if Instant::now().saturating_duration_since(*dial_started) > DIAL_HANG_TIMEOUT {
                 #[cfg(feature = "with_sentry")]
@@ -705,12 +702,16 @@ impl ServiceHandle for EventHandler {
                         |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
                         || {
                             capture_message(
-                                &format!("ProtocolHandleError: AbnormallyClosed, proto_id: {opt_session_id:?}, session id: {opt_session_id:?}"),
+                                &format!(
+                                    "ProtocolHandleError: AbnormallyClosed, proto_id: {opt_session_id:?}, session id: {opt_session_id:?}"
+                                ),
                                 Level::Warning,
                             )
                         },
                     );
-                    error!("ProtocolHandleError: AbnormallyClosed, proto_id: {opt_session_id:?}, session id: {opt_session_id:?}");
+                    error!(
+                        "ProtocolHandleError: AbnormallyClosed, proto_id: {opt_session_id:?}, session id: {opt_session_id:?}"
+                    );
 
                     broadcast_exit_signals();
                 }

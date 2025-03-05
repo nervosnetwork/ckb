@@ -1,3 +1,4 @@
+//! This file tests the `update_main_logger` method of the `Logger` service.
 use ckb_logger::Level;
 use ckb_logger_service::Logger;
 

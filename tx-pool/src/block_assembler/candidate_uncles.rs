@@ -1,5 +1,5 @@
 use ckb_types::core::{BlockNumber, EpochExt, UncleBlockView};
-use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;

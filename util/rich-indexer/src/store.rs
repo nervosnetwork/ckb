@@ -1,13 +1,13 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use log::LevelFilter;
 use sqlx::{
+    AnyPool, ConnectOptions, IntoArguments, Row, Transaction,
     any::{Any, AnyArguments, AnyConnectOptions, AnyPoolOptions, AnyRow},
     migrate::Migrator,
     query::{Query, QueryAs},
-    AnyPool, ConnectOptions, IntoArguments, Row, Transaction,
 };
 use std::sync::OnceLock;
 use tempfile::tempdir;

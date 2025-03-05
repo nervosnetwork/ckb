@@ -1,6 +1,6 @@
 use crate::{
-    error::CellbaseError, BlockErrorKind, BlockVerifier, EpochError, NumberError, UnclesError,
-    UnknownParentError,
+    BlockErrorKind, BlockVerifier, EpochError, NumberError, UnclesError, UnknownParentError,
+    error::CellbaseError,
 };
 use ckb_chain_spec::{calculate_block_reward, consensus::Consensus};
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;

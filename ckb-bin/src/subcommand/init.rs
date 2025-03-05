@@ -7,10 +7,10 @@ use ckb_app_config::{AppConfig, ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
-    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME,
-    MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
+    AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME, MINER_CONFIG_FILE_NAME, Resource,
+    SPEC_DEV_FILE_NAME, TemplateContext,
 };
-use ckb_types::{prelude::*, H256};
+use ckb_types::{H256, prelude::*};
 
 use crate::cli;
 
@@ -131,7 +131,9 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             )
         }
         None => {
-            eprintln!("WARN: Mining feature is disabled because of the lack of the block assembler config options.");
+            eprintln!(
+                "WARN: Mining feature is disabled because of the lack of the block assembler config options."
+            );
             format!(
                 "# secp256k1_blake160_sighash_all example:\n\
                  # [block_assembler]\n\

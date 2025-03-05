@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::{
     module::pool::WellKnownScriptsOnlyValidator,
-    tests::{always_success_transaction, setup, RpcTestRequest},
+    tests::{RpcTestRequest, always_success_transaction, setup},
 };
 
 #[test]
@@ -175,10 +175,12 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
         if i != 2000 {
             assert_eq!(response.error.to_string(), "null".to_string());
         } else {
-            assert!(response
-                .error
-                .to_string()
-                .contains("ExceededMaximumAncestorsCount"));
+            assert!(
+                response
+                    .error
+                    .to_string()
+                    .contains("ExceededMaximumAncestorsCount")
+            );
         }
         parent_tx_hash = tx.hash();
     }

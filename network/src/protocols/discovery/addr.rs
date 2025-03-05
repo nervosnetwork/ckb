@@ -1,7 +1,7 @@
 use std::collections::hash_map::RandomState;
 
 use bloom_filters::{BloomFilter, DefaultBuildHashKernels, StableBloomFilter};
-use p2p::{context::SessionContext, multiaddr::Multiaddr, ProtocolId, SessionId};
+use p2p::{ProtocolId, SessionId, context::SessionContext, multiaddr::Multiaddr};
 
 use crate::Flags;
 

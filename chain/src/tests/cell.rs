@@ -2,18 +2,17 @@ use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::shared::Shared;
-use ckb_store::{attach_block_cell, detach_block_cell, ChainStore};
+use ckb_store::{ChainStore, attach_block_cell, detach_block_cell};
 use ckb_test_chain_utils::{
-    always_success_cell, calculate_reward, create_always_success_tx, MockStore,
+    MockStore, always_success_cell, calculate_reward, create_always_success_tx,
 };
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes,
-        cell::{CellProvider, CellStatus},
         BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, TransactionBuilder,
-        TransactionView,
+        TransactionView, capacity_bytes,
+        cell::{CellProvider, CellStatus},
     },
     packed::{CellInput, CellOutputBuilder, OutPoint},
     utilities::DIFF_TWO,
@@ -171,7 +170,9 @@ fn test_block_cells_update() {
     }
 
     // ensure issue_tx outputs is back to live after detach_block_cell
-    assert!(txn_cell_provider
-        .cell(&issue_tx.output_pts()[0], false)
-        .is_live());
+    assert!(
+        txn_cell_provider
+            .cell(&issue_tx.output_pts()[0], false)
+            .is_live()
+    );
 }

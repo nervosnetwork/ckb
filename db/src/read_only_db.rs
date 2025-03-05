@@ -1,5 +1,5 @@
 //! ReadOnlyDB wrapper base on rocksdb read_only_open mode
-use crate::{internal_error, Result};
+use crate::{Result, internal_error};
 use ckb_db_schema::Col;
 use ckb_logger::info;
 use rocksdb::ops::{GetColumnFamilys, GetPinned, GetPinnedCF, OpenCF};

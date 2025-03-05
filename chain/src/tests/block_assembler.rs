@@ -1,12 +1,12 @@
 use crate::tests::util::dummy_network;
-use crate::{start_chain_services, ChainController};
+use crate::{ChainController, start_chain_services};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_shared::{ChainServicesBuilder, Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
-use ckb_tx_pool::{block_assembler::CandidateUncles, PlugTarget, TxEntry};
+use ckb_tx_pool::{PlugTarget, TxEntry, block_assembler::CandidateUncles};
 use ckb_types::{
     bytes::Bytes,
     core::{

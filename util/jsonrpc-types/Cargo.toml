@@ -3,7 +3,7 @@ name = "ckb-jsonrpc-types"
 version = "0.200.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "CKB common types for JSON serialization."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
@@ -13,7 +13,7 @@ ckb-types = { path = "../types", version = "= 0.200.0-pre" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 faster-hex = "0.6"
-schemars = { version = "0.8.19", package = "ckb_schemars" }
+schemars.workspace = true
 
 
 [dev-dependencies]

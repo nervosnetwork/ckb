@@ -7,8 +7,8 @@ use super::{
 };
 
 use crate::{
-    network::EventHandler, services::protocol_type_checker::ProtocolTypeCheckerService,
-    NetworkState, PeerIdentifyInfo, SupportProtocols,
+    NetworkState, PeerIdentifyInfo, SupportProtocols, network::EventHandler,
+    services::protocol_type_checker::ProtocolTypeCheckerService,
 };
 
 use std::{
@@ -20,11 +20,11 @@ use std::{
 
 use ckb_app_config::NetworkConfig;
 use p2p::{
+    ProtocolId, SessionId,
     builder::ServiceBuilder,
     multiaddr::{Multiaddr, Protocol},
     service::{ProtocolHandle, ServiceControl, TargetProtocol},
     utils::multiaddr_to_socketaddr,
-    ProtocolId, SessionId,
 };
 use tempfile::tempdir;
 
@@ -121,12 +121,14 @@ fn net_service_start(
         discovery_local_address: true,
         bootnode_mode: true,
         reuse_port_on_linux: true,
-        public_addresses: vec![format!(
-            "/ip4/225.0.0.1/tcp/42/p2p/{}",
-            crate::PeerId::random().to_base58()
-        )
-        .parse()
-        .unwrap()],
+        public_addresses: vec![
+            format!(
+                "/ip4/225.0.0.1/tcp/42/p2p/{}",
+                crate::PeerId::random().to_base58()
+            )
+            .parse()
+            .unwrap(),
+        ],
         ..Default::default()
     };
 

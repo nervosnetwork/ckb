@@ -2,8 +2,8 @@ use crate::syscalls::{EXEC, INDEX_OUT_OF_BOUND};
 use crate::types::{DataLocation, DataPieceId, ExecV2Args, Message, VmContext, VmId};
 use ckb_traits::CellDataProvider;
 use ckb_vm::{
-    registers::{A0, A1, A2, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A1, A2, A3, A4, A5, A7},
 };
 use std::sync::{Arc, Mutex};
 

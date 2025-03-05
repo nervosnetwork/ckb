@@ -77,10 +77,10 @@ END_HEREDOC
 }
 
 IFS='' read -r -d '' TEXT_HEADER <<'EOF' || true
-/// The mod mainnet and mod testnet's codes are generated
-/// by script: ./devtools/release/update_default_valid_target.sh
-/// Please don't modify them manually.
-///
+//! The mod mainnet and mod testnet's codes are generated
+//! by script: ./devtools/release/update_default_valid_target.sh
+//! Please don't modify them manually.
+
 EOF
 
 printf "Now: %s\n\n" "$(date)"

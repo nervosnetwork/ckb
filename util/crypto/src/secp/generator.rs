@@ -1,6 +1,6 @@
+use super::SECP256K1;
 use super::privkey::Privkey;
 use super::pubkey::Pubkey;
-use super::SECP256K1;
 use rand::{self, Rng, SeedableRng};
 use secp256k1::{PublicKey, SecretKey};
 

@@ -1,7 +1,7 @@
 use crate::{ScriptError, ScriptGroup};
 use ckb_hash::new_blake2b;
 use ckb_types::{
-    core::{cell::ResolvedTransaction, Cycle},
+    core::{Cycle, cell::ResolvedTransaction},
     prelude::*,
 };
 

@@ -4,7 +4,7 @@ use crate::{
     core::{Capacity, Version},
     packed::{Byte32, OutPoint},
 };
-use ckb_error::{impl_error_conversion_with_kind, prelude::*, Error, ErrorKind};
+use ckb_error::{Error, ErrorKind, impl_error_conversion_with_kind, prelude::*};
 use derive_more::Display;
 
 /// Errors due to the fact that the out-point rules are not respected.
@@ -65,7 +65,9 @@ pub enum TransactionErrorSource {
 #[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum TransactionError {
     /// There is an erroneous output that its occupied capacity is greater than its capacity (`output.occupied_capacity() > output.capacity()`).
-    #[error("InsufficientCellCapacity({inner}[{index}]): expected occupied capacity ({occupied_capacity:#x}) <= capacity ({capacity:#x})")]
+    #[error(
+        "InsufficientCellCapacity({inner}[{index}]): expected occupied capacity ({occupied_capacity:#x}) <= capacity ({capacity:#x})"
+    )]
     InsufficientCellCapacity {
         /// The transaction field that causes error.
         /// It should always be `TransactionErrorSource::Outputs.`
@@ -79,7 +81,9 @@ pub enum TransactionError {
     },
 
     /// The total capacity of outputs is less than the total capacity of inputs (`SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs]`).
-    #[error("OutputsSumOverflow: expected outputs capacity ({outputs_sum:#x}) <= inputs capacity ({inputs_sum:#x})")]
+    #[error(
+        "OutputsSumOverflow: expected outputs capacity ({outputs_sum:#x}) <= inputs capacity ({inputs_sum:#x})"
+    )]
     OutputsSumOverflow {
         /// The total capacity of inputs.
         inputs_sum: Capacity,
@@ -114,7 +118,9 @@ pub enum TransactionError {
     },
 
     /// The length of outputs is not equal to the length of outputs-data (`outputs.len() != outputs_data.len()`).
-    #[error("OutputsDataLengthMismatch: expected outputs data length ({outputs_data_len}) = outputs length ({outputs_len})")]
+    #[error(
+        "OutputsDataLengthMismatch: expected outputs data length ({outputs_data_len}) = outputs length ({outputs_len})"
+    )]
     OutputsDataLengthMismatch {
         /// The length of outputs.
         outputs_len: usize,
@@ -162,7 +168,9 @@ pub enum TransactionError {
     },
 
     /// The transaction size exceeds limit.
-    #[error("ExceededMaximumBlockBytes: expected transaction serialized size ({actual}) < block size limit ({limit})")]
+    #[error(
+        "ExceededMaximumBlockBytes: expected transaction serialized size ({actual}) < block size limit ({limit})"
+    )]
     ExceededMaximumBlockBytes {
         /// The limited transaction size.
         limit: u64,
@@ -171,21 +179,28 @@ pub enum TransactionError {
     },
 
     /// The compatible error.
-    #[error("Compatible: the feature \"{feature}\" is used in current transaction, but not enabled in current chain")]
+    #[error(
+        "Compatible: the feature \"{feature}\" is used in current transaction, but not enabled in current chain"
+    )]
     Compatible {
         /// The feature name.
         feature: &'static str,
     },
 
     /// Nervos DAO lock size mismatch.
-    #[error("The lock script size of deposit cell at index {} does not match the withdrawing cell at the same index", index)]
+    #[error(
+        "The lock script size of deposit cell at index {} does not match the withdrawing cell at the same index",
+        index
+    )]
     DaoLockSizeMismatch {
         /// The index of mismatched DAO cells.
         index: usize,
     },
 
     /// The internal error.
-    #[error("Internal: {description}, this error shouldn't happen; please report this bug to developers.")]
+    #[error(
+        "Internal: {description}, this error shouldn't happen; please report this bug to developers."
+    )]
     Internal {
         /// The error description
         description: String,

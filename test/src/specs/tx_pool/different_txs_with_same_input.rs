@@ -2,7 +2,7 @@ use crate::{Node, Spec};
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
-    core::{capacity_bytes, Capacity, TransactionView},
+    core::{Capacity, TransactionView, capacity_bytes},
     packed::CellOutputBuilder,
     prelude::*,
 };

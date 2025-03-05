@@ -4,7 +4,7 @@ use crate::error::{
     PowError, TimestampError, UnclesError, UnknownParentError,
 };
 use ckb_error::{
-    impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, Error, ErrorKind,
+    Error, ErrorKind, impl_error_conversion_with_adaptor, impl_error_conversion_with_kind,
 };
 
 impl_error_conversion_with_kind!(HeaderError, ErrorKind::Header, Error);

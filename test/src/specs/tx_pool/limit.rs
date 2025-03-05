@@ -1,11 +1,11 @@
 use crate::{
-    util::{cell::gen_spendable, transaction::always_success_transaction},
     Node, Spec,
+    util::{cell::gen_spendable, transaction::always_success_transaction},
 };
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
-    core::{cell::CellMetaBuilder, DepType, FeeRate},
+    core::{DepType, FeeRate, cell::CellMetaBuilder},
     packed::CellDepBuilder,
 };
 use std::{thread::sleep, time::Duration};

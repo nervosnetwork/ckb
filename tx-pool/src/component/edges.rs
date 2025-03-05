@@ -2,7 +2,7 @@ use ckb_types::{
     core::tx_pool::Reject,
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct Edges {
@@ -38,10 +38,11 @@ impl Edges {
         // inputs is occupied means double speanding happened here
         match self.inputs.entry(out_point.clone()) {
             Entry::Occupied(occupied) => {
-                let msg =
-                    format!(
+                let msg = format!(
                     "txpool unexpected double-spending out_point: {:?} old_tx: {:?} new_tx: {:?}",
-                    out_point, occupied.get(), txid
+                    out_point,
+                    occupied.get(),
+                    txid
                 );
                 Err(Reject::RBFRejected(msg))
             }

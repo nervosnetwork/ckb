@@ -1,8 +1,8 @@
-use ckb_channel::{bounded, Receiver, Select, Sender};
+use ckb_channel::{Receiver, Select, Sender, bounded};
 use ckb_network::async_trait;
 use ckb_network::{
-    bytes::Bytes, Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId,
-    TargetSession,
+    Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId, TargetSession,
+    bytes::Bytes,
 };
 use ckb_util::RwLock;
 use futures::{executor::block_on, future::Future};
@@ -213,9 +213,11 @@ impl CKBProtocolContext for TestNetworkContext {
         let index = Index::Timer(self.protocol, token);
         if let Some(sender) = self.senders.get(&index) {
             let sender = sender.clone();
-            thread::spawn(move || loop {
-                thread::sleep(interval);
-                let _ = sender.send(Msg::Empty);
+            thread::spawn(move || {
+                loop {
+                    thread::sleep(interval);
+                    let _ = sender.send(Msg::Empty);
+                }
             });
         }
         Ok(())

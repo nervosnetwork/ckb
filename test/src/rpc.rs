@@ -15,7 +15,7 @@ use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
     Version as CoreVersion,
 };
-use ckb_types::{packed::Byte32, prelude::*, H256};
+use ckb_types::{H256, packed::Byte32, prelude::*};
 
 pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
     std::sync::LazyLock::new(|| {

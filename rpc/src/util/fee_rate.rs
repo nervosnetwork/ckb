@@ -1,7 +1,7 @@
 use ckb_jsonrpc_types::FeeRateStatistics;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::{tx_pool::get_transaction_weight, BlockExt, BlockNumber, FeeRate};
+use ckb_types::core::{BlockExt, BlockNumber, FeeRate, tx_pool::get_transaction_weight};
 
 const DEFAULT_TARGET: u64 = 21;
 const MIN_TARGET: u64 = 1;

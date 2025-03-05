@@ -2,7 +2,7 @@
 use ckb_types::core::{BlockNumber, EpochNumberWithFraction};
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
-use ckb_types::{packed, BlockNumberAndHash, U256};
+use ckb_types::{BlockNumberAndHash, U256, packed};
 
 pub mod header_map;
 

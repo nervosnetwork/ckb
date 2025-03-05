@@ -1,8 +1,8 @@
 use crate::{CellOutput, JsonBytes};
 use ckb_types::{
+    H256,
     core::cell::{CellMeta, CellStatus},
     prelude::Unpack,
-    H256,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

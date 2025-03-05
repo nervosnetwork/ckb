@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 
 use http_body_util::Full;
 use hyper::{
-    body::Bytes, header::CONTENT_TYPE, service::service_fn, Error as HyperError, Method, Request,
-    Response,
+    Error as HyperError, Method, Request, Response, body::Bytes, header::CONTENT_TYPE,
+    service::service_fn,
 };
 use hyper_util::{
     rt::TokioExecutor,
@@ -17,7 +17,7 @@ use tokio::net::TcpListener;
 use ckb_async_runtime::Handle;
 use ckb_logger::info;
 use ckb_metrics_config::{Config, Exporter, Target};
-use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_util::strings;
 
 /// Ensures the metrics service can shutdown gracefully.

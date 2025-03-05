@@ -4,15 +4,15 @@ mod remove;
 pub(crate) use insert::*;
 pub(crate) use remove::*;
 
-use crate::{service::SUBSCRIBER_NAME, store::SQLXPool, RichIndexerHandle};
+use crate::{RichIndexerHandle, service::SUBSCRIBER_NAME, store::SQLXPool};
 
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
 use ckb_types::{
+    H256,
     core::{BlockNumber, BlockView, TransactionView},
     packed::Byte32,
     prelude::*,
-    H256,
 };
 use sqlx::{Any, Transaction};
 

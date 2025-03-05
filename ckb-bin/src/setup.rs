@@ -1,14 +1,14 @@
 #[cfg(not(target_os = "windows"))]
 use ckb_app_config::DaemonArgs;
 use ckb_app_config::{
-    generate_random_key, read_secret_key, write_secret_to_file, AppConfig, CustomizeSpec, ExitCode,
-    ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs,
-    ResetDataArgs, RunArgs, StatsArgs,
+    AppConfig, CustomizeSpec, ExitCode, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs,
+    PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs, StatsArgs, generate_random_key,
+    read_secret_key, write_secret_to_file,
 };
-use ckb_chain_spec::{consensus::Consensus, ChainSpec};
+use ckb_chain_spec::{ChainSpec, consensus::Consensus};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::{error, info};
-use ckb_types::{u256, H256, U256};
+use ckb_types::{H256, U256, u256};
 use clap::ArgMatches;
 use std::{path::PathBuf, str::FromStr};
 
@@ -469,7 +469,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     }
 
     /// Generates the network secret key.
-    pub fn gen(matches: &ArgMatches) -> Result<(), ExitCode> {
+    pub fn generate(matches: &ArgMatches) -> Result<(), ExitCode> {
         let path = matches
             .get_one::<String>(cli::ARG_SECRET_PATH)
             .expect("required on command line");

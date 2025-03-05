@@ -11,8 +11,8 @@ use ckb_types::core::{BlockNumber, BlockView};
 use ckb_types::packed;
 use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Pack, Reader};
 use std::cmp;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 pub(crate) struct InitLoadUnverified {
     shared: Shared,

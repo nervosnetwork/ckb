@@ -1,7 +1,7 @@
-use super::error::Error;
-use super::signature::Signature;
 use super::Message;
 use super::SECP256K1;
+use super::error::Error;
+use super::signature::Signature;
 use ckb_fixed_hash::H512;
 use secp256k1::Message as SecpMessage;
 use secp256k1::PublicKey;

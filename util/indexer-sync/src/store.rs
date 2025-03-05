@@ -3,8 +3,8 @@ use crate::error::Error;
 use ckb_db_schema::Col;
 use ckb_store::{ChainStore, Freezer, StoreCache};
 use rocksdb::{
-    ops::OpenCF, prelude::*, ColumnFamilyDescriptor, DBIterator, DBPinnableSlice, IteratorMode,
-    SecondaryDB as SecondaryRocksDB, SecondaryOpenDescriptor,
+    ColumnFamilyDescriptor, DBIterator, DBPinnableSlice, IteratorMode,
+    SecondaryDB as SecondaryRocksDB, SecondaryOpenDescriptor, ops::OpenCF, prelude::*,
 };
 use std::path::Path;
 use std::sync::Arc;

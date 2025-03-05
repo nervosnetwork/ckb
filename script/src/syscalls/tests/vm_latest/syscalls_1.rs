@@ -2,20 +2,20 @@ use crate::types::VmContext;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use ckb_hash::blake2b_256;
 use ckb_types::{
+    H256,
     bytes::Bytes,
     core::{
-        cell::{CellMeta, ResolvedTransaction},
         Capacity, EpochNumberWithFraction, HeaderBuilder, ScriptHashType, TransactionBuilder,
         TransactionInfo,
+        cell::{CellMeta, ResolvedTransaction},
     },
     packed::{CellInput, CellOutput, OutPoint, Script, ScriptBuilder},
     prelude::*,
-    H256,
 };
 use ckb_vm::{
+    CoreMachine, Error as VMError, Memory, RISCV_PAGESIZE, Syscalls,
     memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
     registers::{A0, A1, A2, A3, A4, A5, A7},
-    CoreMachine, Error as VMError, Memory, Syscalls, RISCV_PAGESIZE,
 };
 use proptest::{collection::size_range, prelude::*};
 use std::collections::HashMap;
@@ -36,10 +36,12 @@ fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
     machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(data.len() as u64))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(data.len() as u64))
+            .is_ok()
+    );
 
     let output_cell_data = Bytes::from(data.to_owned());
     let output = build_cell_meta(100, output_cell_data);
@@ -103,10 +105,12 @@ fn _test_load_cell_all(data: &[u8]) -> Result<(), TestCaseError> {
     let output_correct_data = output.cell_output.as_slice();
 
     // test input
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(input_correct_data.len() as u64))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(input_correct_data.len() as u64))
+            .is_ok()
+    );
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -130,10 +134,12 @@ fn _test_load_cell_all(data: &[u8]) -> Result<(), TestCaseError> {
     machine.set_register(A0, addr); // addr
     machine.set_register(A1, size_addr); // size_addr
     machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Output))); //source: 2 output
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(output_correct_data.len() as u64 + 10))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(output_correct_data.len() as u64 + 10))
+            .is_ok()
+    );
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -193,10 +199,12 @@ fn _test_load_cell_from_group(data: &[u8], source: SourceEntry) -> Result<(), Te
 
     if source == SourceEntry::Input {
         // test input
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(input_correct_data.len() as u64))
-            .is_ok());
+        prop_assert!(
+            machine
+                .memory_mut()
+                .store64(&size_addr, &(input_correct_data.len() as u64))
+                .is_ok()
+        );
 
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -213,10 +221,12 @@ fn _test_load_cell_from_group(data: &[u8], source: SourceEntry) -> Result<(), Te
             );
         }
     } else {
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(output_correct_data.len() as u64 + 10))
-            .is_ok());
+        prop_assert!(
+            machine
+                .memory_mut()
+                .store64(&size_addr, &(output_correct_data.len() as u64 + 10))
+                .is_ok()
+        );
 
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -384,10 +394,12 @@ fn _test_load_cell_partial(data: &[u8], offset: u64) -> Result<(), TestCaseError
 
     let input_correct_data = input_cell.cell_output.as_slice();
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(input_correct_data.len() as u64))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(input_correct_data.len() as u64))
+            .is_ok()
+    );
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -680,10 +692,12 @@ fn _test_load_header(
 
     let mut load_header = LoadHeader::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(header_correct_data.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(header_correct_data.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_header.ecall(&mut machine).is_ok());
 
@@ -797,10 +811,12 @@ fn _test_load_header_by_field(data: &[u8], field: HeaderField) -> Result<(), Tes
 
     let mut load_header = LoadHeader::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(correct_data.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(correct_data.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_header.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -849,10 +865,12 @@ fn _test_load_tx_hash(data: &[u8]) -> Result<(), TestCaseError> {
 
     let mut load_tx = LoadTx::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(hash_len + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(hash_len + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_tx.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -902,10 +920,12 @@ fn _test_load_tx(data: &[u8]) -> Result<(), TestCaseError> {
 
     let mut load_tx = LoadTx::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(tx_len + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(tx_len + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_tx.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1097,10 +1117,12 @@ fn _test_load_input_lock_script(data: &[u8]) -> Result<(), TestCaseError> {
 
     let mut load_cell = LoadCell::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(lock.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(lock.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1162,10 +1184,12 @@ fn _test_load_input_type_script(data: &[u8]) -> Result<(), TestCaseError> {
 
     let mut load_cell = LoadCell::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(type_.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(type_.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1229,10 +1253,12 @@ fn _test_load_input_type_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
 
     let mut load_cell = LoadCell::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(hash.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(hash.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_cell.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1285,10 +1311,12 @@ fn _test_load_witness(data: &[u8], source: SourceEntry) -> Result<(), TestCaseEr
 
     let mut load_witness = LoadWitness::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(witness_correct_data.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(witness_correct_data.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_witness.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1350,10 +1378,12 @@ fn _test_load_group_witness(data: &[u8], source: SourceEntry) -> Result<(), Test
 
     let mut load_witness = LoadWitness::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(witness_correct_data.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(witness_correct_data.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_witness.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1411,10 +1441,12 @@ fn _test_load_script(data: &[u8]) -> Result<(), TestCaseError> {
 
     let mut load_script = LoadScript::new(&sg_data);
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(script_correct_data.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(script_correct_data.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_script.ecall(&mut machine).is_ok());
     prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1659,14 +1691,18 @@ fn _test_load_cell_data_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseErr
     let addr_size = 4096;
     let size_addr = 100;
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(data.len() as u64))
-        .is_ok());
-    prop_assert!(machine
-        .memory_mut()
-        .init_pages(addr, addr_size, FLAG_EXECUTABLE | FLAG_FREEZED, None, 0)
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(data.len() as u64))
+            .is_ok()
+    );
+    prop_assert!(
+        machine
+            .memory_mut()
+            .init_pages(addr, addr_size, FLAG_EXECUTABLE | FLAG_FREEZED, None, 0)
+            .is_ok()
+    );
 
     machine.set_register(A0, addr); // addr
     machine.set_register(A1, size_addr); // size
@@ -1704,10 +1740,12 @@ fn _test_load_cell_data_as_code_on_freezed_memory(data: &[u8]) -> Result<(), Tes
     let addr = 8192;
     let addr_size = 4096;
 
-    prop_assert!(machine
-        .memory_mut()
-        .init_pages(addr, addr_size, FLAG_EXECUTABLE | FLAG_FREEZED, None, 0)
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .init_pages(addr, addr_size, FLAG_EXECUTABLE | FLAG_FREEZED, None, 0)
+            .is_ok()
+    );
 
     machine.set_register(A0, addr); // addr
     machine.set_register(A1, addr_size); // size
@@ -1946,10 +1984,12 @@ fn _test_load_input(
         input.as_slice()
     };
 
-    prop_assert!(machine
-        .memory_mut()
-        .store64(&size_addr, &(expect.len() as u64 + 20))
-        .is_ok());
+    prop_assert!(
+        machine
+            .memory_mut()
+            .store64(&size_addr, &(expect.len() as u64 + 20))
+            .is_ok()
+    );
 
     prop_assert!(load_input.ecall(&mut machine).is_ok());
 

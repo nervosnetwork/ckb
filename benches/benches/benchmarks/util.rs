@@ -1,4 +1,4 @@
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
@@ -8,12 +8,12 @@ use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
+    H160, H256, U256,
     bytes::Bytes,
     core::{
-        capacity_bytes,
-        cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        TransactionBuilder, TransactionView, capacity_bytes,
+        cell::{OverlayCellProvider, TransactionsProvider, resolve_transaction},
     },
     h160, h256,
     packed::{
@@ -21,7 +21,6 @@ use ckb_types::{
     },
     prelude::*,
     utilities::difficulty_to_compact,
-    H160, H256, U256,
 };
 use rand::random;
 use std::collections::HashSet;
@@ -86,7 +85,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
 }
 
 pub fn create_always_success_tx() -> TransactionView {
-    let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
+    let (always_success_cell, always_success_cell_data, script) = always_success_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
@@ -239,8 +238,8 @@ pub fn secp_data_cell() -> &'static (CellOutput, Bytes) {
 }
 
 pub fn create_secp_tx() -> TransactionView {
-    let (ref secp_data_cell, ref secp_data_cell_data) = secp_data_cell();
-    let (ref secp_cell, ref secp_cell_data, ref script) = secp_cell();
+    let (secp_data_cell, secp_data_cell_data) = secp_data_cell();
+    let (secp_cell, secp_cell_data, script) = secp_cell();
     let outputs = vec![secp_data_cell.clone(), secp_cell.clone()];
     let outputs_data = vec![secp_data_cell_data.pack(), secp_cell_data.pack()];
     TransactionBuilder::default()

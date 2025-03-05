@@ -1,4 +1,4 @@
-use crate::{attempt, Status, StatusCode};
+use crate::{Status, StatusCode, attempt};
 use ckb_types::{packed, prelude::*};
 use std::collections::HashSet;
 

@@ -7,19 +7,18 @@ use ckb_jsonrpc_types::{
 };
 use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
-use ckb_shared::{shared::Shared, Snapshot};
+use ckb_shared::{Snapshot, shared::Shared};
 use ckb_store::ChainStore;
 use ckb_types::{
+    H256,
     core::{
-        self,
+        self, BlockView,
         cell::{
-            resolve_transaction, OverlayCellProvider, ResolvedTransaction, TransactionsProvider,
+            OverlayCellProvider, ResolvedTransaction, TransactionsProvider, resolve_transaction,
         },
-        BlockView,
     },
     packed,
     prelude::*,
-    H256,
 };
 use ckb_verification_traits::Switch;
 use jsonrpc_core::Result;
@@ -784,7 +783,9 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
                 format!(
                     "The transaction is rejected by OutputsValidator set in params[1]: {}. \
                     Please check the related information in https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator",
-                    outputs_validator.unwrap_or(OutputsValidator::WellKnownScriptsOnly).json_display()
+                    outputs_validator
+                        .unwrap_or(OutputsValidator::WellKnownScriptsOnly)
+                        .json_display()
                 ),
                 e,
             ));

@@ -1,6 +1,6 @@
 // #[allow(clippy::unreadable_literal, clippy::cognitive_complexity)]
 
-use numext_fixed_uint::{u256, U256};
+use numext_fixed_uint::{U256, u256};
 use proptest::prelude::*;
 
 use crate::utilities::{

@@ -19,7 +19,7 @@ use ckb_resource::Resource;
 use super::configs::*;
 #[cfg(feature = "with_sentry")]
 use super::sentry_config::SentryConfig;
-use super::{cli, legacy, ExitCode};
+use super::{ExitCode, cli, legacy};
 
 /// The parsed config file.
 ///

@@ -5,27 +5,26 @@ use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_store::{
-    data_loader_wrapper::{AsDataLoader, DataLoaderWrapper},
     ChainDB,
+    data_loader_wrapper::{AsDataLoader, DataLoaderWrapper},
 };
 use ckb_test_chain_utils::{
     ckb_testnet_consensus, secp256k1_blake160_sighash_cell, secp256k1_data_cell,
     type_lock_script_code_hash,
 };
 use ckb_types::{
+    H256,
     core::{
-        capacity_bytes,
-        cell::{CellMeta, CellMetaBuilder},
-        hardfork::{HardForks, CKB2021, CKB2023},
         Capacity, Cycle, DepType, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionInfo,
+        TransactionBuilder, TransactionInfo, capacity_bytes,
+        cell::{CellMeta, CellMetaBuilder},
+        hardfork::{CKB2021, CKB2023, HardForks},
     },
     h256,
     packed::{
         Byte32, CellDep, CellInput, CellOutput, OutPoint, Script, TransactionInfoBuilder,
         TransactionKeyBuilder, WitnessArgs,
     },
-    H256,
 };
 use faster_hex::hex_encode;
 use std::sync::Arc;

@@ -1,21 +1,21 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
-        utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
-        LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
+        CellField, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER,
+        LOAD_CELL_SYSCALL_NUMBER, SUCCESS, Source, SourceEntry, utils::store_data,
     },
     types::{SgData, TxInfo},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_traits::CellDataProvider;
 use ckb_types::{
-    core::{cell::CellMeta, Capacity},
+    core::{Capacity, cell::CellMeta},
     packed::CellOutput,
     prelude::*,
 };
 use ckb_vm::{
-    registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A3, A4, A5, A7},
 };
 
 pub struct LoadCell<DL> {

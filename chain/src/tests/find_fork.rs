@@ -1,6 +1,6 @@
 use crate::utils::forkchanges::ForkChanges;
 use crate::verify::ConsumeUnverifiedBlockProcessor;
-use crate::{start_chain_services, UnverifiedBlock};
+use crate::{UnverifiedBlock, start_chain_services};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::SharedBuilder;
@@ -8,10 +8,10 @@ use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::{MockChain, MockStore};
 use ckb_types::{
+    U256,
     core::{BlockBuilder, BlockExt, BlockView},
     packed,
     prelude::Pack,
-    U256,
 };
 use ckb_verification_traits::Switch;
 use dashmap::DashSet;

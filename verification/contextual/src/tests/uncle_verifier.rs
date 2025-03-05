@@ -2,7 +2,7 @@
 
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
 use ckb_shared::{Shared, SharedBuilder};

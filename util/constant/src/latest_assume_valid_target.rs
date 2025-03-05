@@ -1,7 +1,6 @@
-/// The mod mainnet and mod testnet's codes are generated
-/// by script: ./devtools/release/update_default_valid_target.sh
-/// Please don't modify them manually.
-///
+//! The mod mainnet and mod testnet's codes are generated
+//! by script: ./devtools/release/update_default_valid_target.sh
+//! Please don't modify them manually.
 
 /// sync config related to mainnet
 pub mod mainnet {

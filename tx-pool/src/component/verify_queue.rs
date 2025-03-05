@@ -6,7 +6,7 @@ use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
-    core::{tx_pool::Reject, Cycle, TransactionView},
+    core::{Cycle, TransactionView, tx_pool::Reject},
     packed::ProposalShortId,
 };
 use ckb_util::shrink_to_fit;

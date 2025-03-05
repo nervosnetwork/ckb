@@ -1,7 +1,7 @@
 //! TODO(doc): @quake
+use ckb_channel::Receiver;
 use ckb_channel::select;
 use ckb_channel::unbounded;
-use ckb_channel::Receiver;
 use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};

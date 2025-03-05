@@ -67,7 +67,7 @@ impl Import {
                     .blocking_process_block(block)
                     .expect("import occur malformation data");
             }
-            progress_bar.inc(s.as_bytes().len() as u64);
+            progress_bar.inc(s.len() as u64);
         }
         progress_bar.finish_with_message("done!");
         Ok(())

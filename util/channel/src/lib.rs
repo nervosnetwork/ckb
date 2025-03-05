@@ -1,7 +1,7 @@
 //! Reexports `crossbeam_channel` to uniform the dependency version.
 pub use crossbeam_channel::{
-    after, bounded, select, tick, unbounded, Receiver, RecvError, RecvTimeoutError, Select,
-    SendError, Sender, TrySendError,
+    Receiver, RecvError, RecvTimeoutError, Select, SendError, Sender, TrySendError, after, bounded,
+    select, tick, unbounded,
 };
 
 pub mod oneshot {

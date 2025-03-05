@@ -18,7 +18,7 @@
 //! assert_eq!(ONE1, ONE2);
 //! ```
 
-pub use ckb_fixed_hash_core::{error, H160, H256, H512, H520};
+pub use ckb_fixed_hash_core::{H160, H256, H512, H520, error};
 
 #[doc(hidden)]
 pub use ckb_fixed_hash_macros as internal;

@@ -45,7 +45,8 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
 
             if migrate.require_expensive(&db, args.include_background) && !args.force {
                 if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-                    let input = prompt("\
+                    let input = prompt(
+                        "\
                     \n\
                     Doing migration will take quite a long time before CKB could work again.\n\
                     \n\

@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 #![allow(missing_docs)]
 
-use crate::mock_utils::{create_cellbase, dao_data};
 use crate::MockStore;
+use crate::mock_utils::{create_cellbase, dao_data};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockBuilder, BlockView, HeaderView, TransactionView};
 use ckb_types::prelude::Pack;
 use ckb_types::utilities::difficulty_to_compact;
-use ckb_types::{packed, U256};
+use ckb_types::{U256, packed};
 
 #[derive(Clone)]
 pub struct MockChain<'a> {

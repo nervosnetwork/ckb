@@ -10,8 +10,8 @@ use ckb_jsonrpc_types::{
 use ckb_jsonrpc_types::{IndexerScriptType, IndexerSearchMode};
 use ckb_types::packed::{CellOutputBuilder, OutPointBuilder, ScriptBuilder};
 use ckb_types::prelude::*;
-use sql_builder::{name, name::SqlName, SqlBuilder};
-use sqlx::{any::AnyRow, Row};
+use sql_builder::{SqlBuilder, name, name::SqlName};
+use sqlx::{Row, any::AnyRow};
 
 impl AsyncRichIndexerHandle {
     /// Get cells

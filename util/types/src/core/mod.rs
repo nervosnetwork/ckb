@@ -43,7 +43,7 @@ pub use views::{
 
 pub use ckb_gen_types::core::*;
 pub use ckb_occupied_capacity::{
-    capacity_bytes, Capacity, Error as CapacityError, Ratio, Result as CapacityResult,
+    Capacity, Error as CapacityError, Ratio, Result as CapacityResult, capacity_bytes,
 };
 pub use ckb_rational::RationalU256;
 

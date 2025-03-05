@@ -5,18 +5,18 @@ use ckb_async_runtime::Handle;
 use ckb_channel::Sender;
 use ckb_jsonrpc_types::{Block as JsonBlock, BlockTemplate};
 use ckb_logger::{debug, error, info};
-use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_types::{
-    packed::{Block, Byte32},
     H256,
+    packed::{Block, Byte32},
 };
 use futures::prelude::*;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
-    body::{Buf, Bytes},
-    header::{HeaderValue, CONTENT_TYPE},
-    service::service_fn,
     Error as HyperError, Request, Response, Uri,
+    body::{Buf, Bytes},
+    header::{CONTENT_TYPE, HeaderValue},
+    service::service_fn,
 };
 use hyper_util::{
     client::legacy::{Client as HttpClient, Error as ClientError},
@@ -28,10 +28,10 @@ use jsonrpc_core::{
     request::MethodCall, response::Output, version::Version,
 };
 use serde_json::error::Error as JsonError;
-use serde_json::{self, json, Value};
+use serde_json::{self, Value, json};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{convert::Into, time};
 use tokio::{
     net::TcpListener,
@@ -107,7 +107,7 @@ impl Rpc {
     }
 
     pub fn request(
-        &self,
+        self,
         method: String,
         params: Vec<Value>,
     ) -> impl Future<Output = Result<Output, RpcError>> {
@@ -121,7 +121,7 @@ impl Rpc {
         };
 
         let req = (tx, call);
-        let sender = self.sender.clone();
+        let sender = self.sender;
         async move {
             sender
                 .clone()
@@ -346,6 +346,7 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
         let params = vec![];
 
         self.rpc
+            .clone()
             .request(method, params)
             .and_then(parse_response)
             .await

@@ -1,5 +1,5 @@
 use crate::types::{ScriptGroup, ScriptGroupType};
-use ckb_error::{prelude::*, Error, ErrorKind, InternalErrorKind};
+use ckb_error::{Error, ErrorKind, InternalErrorKind, prelude::*};
 use ckb_types::core::{Cycle, ScriptHashType};
 use ckb_types::packed::{Byte32, Script};
 use ckb_vm::Error as VMInternalError;
@@ -25,7 +25,9 @@ pub enum ScriptError {
     MultipleMatches,
 
     /// Non-zero exit code returns by script
-    #[error("ValidationFailure: see error code {1} on page https://nervosnetwork.github.io/ckb-script-error-codes/{0}.html#{1}")]
+    #[error(
+        "ValidationFailure: see error code {1} on page https://nervosnetwork.github.io/ckb-script-error-codes/{0}.html#{1}"
+    )]
     ValidationFailure(String, i8),
 
     /// Known bugs are detected in transaction script outputs

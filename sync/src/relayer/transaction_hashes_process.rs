@@ -1,4 +1,4 @@
-use crate::relayer::{Relayer, MAX_RELAY_TXS_NUM_PER_BATCH};
+use crate::relayer::{MAX_RELAY_TXS_NUM_PER_BATCH, Relayer};
 use crate::{Status, StatusCode};
 use ckb_network::PeerIndex;
 use ckb_types::{packed, prelude::*};

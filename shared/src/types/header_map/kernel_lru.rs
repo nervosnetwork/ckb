@@ -1,6 +1,6 @@
 use std::path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(feature = "stats")]
 use ckb_logger::info;

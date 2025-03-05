@@ -1,4 +1,4 @@
-use crate::{genesis_verifier::GenesisVerifier, NumberError, UnknownParentError};
+use crate::{NumberError, UnknownParentError, genesis_verifier::GenesisVerifier};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_types::{core::EpochNumberWithFraction, prelude::*};
@@ -54,7 +54,7 @@ pub fn test_default_genesis() {
 #[test]
 pub fn test_chain_specs() {
     use ckb_chain_spec::ChainSpec;
-    use ckb_resource::{Resource, AVAILABLE_SPECS};
+    use ckb_resource::{AVAILABLE_SPECS, Resource};
     fn load_spec_by_name(name: &str) -> ChainSpec {
         let res = Resource::bundled(format!("specs/{name}.toml"));
         ChainSpec::load_from(&res).expect("load spec by name")

@@ -1,5 +1,5 @@
 use super::PowEngine;
-use ckb_types::{packed::Header, prelude::*, utilities::compact_to_target, U256};
+use ckb_types::{U256, packed::Header, prelude::*, utilities::compact_to_target};
 use eaglesong::eaglesong;
 use log::Level::Debug;
 use log::{debug, log_enabled};

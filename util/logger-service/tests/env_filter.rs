@@ -1,3 +1,5 @@
+//! Test the `filter` field in the configuration file.
+
 use ckb_logger::Level;
 
 mod utils;

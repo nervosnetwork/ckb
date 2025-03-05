@@ -1,9 +1,9 @@
 use ckb_network::SupportProtocols;
 
 use crate::{
+    Net, Node, Spec,
     util::{check, transaction::relay_tx},
     utils::wait_until,
-    Net, Node, Spec,
 };
 
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;

@@ -102,11 +102,12 @@ impl Spec for SendTxChain {
             .rpc_client()
             .send_transaction_result(txs.last().unwrap().data().into());
         assert!(ret.is_err());
-        assert!(ret
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("Transaction exceeded maximum ancestors count limit"));
+        assert!(
+            ret.err()
+                .unwrap()
+                .to_string()
+                .contains("Transaction exceeded maximum ancestors count limit")
+        );
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

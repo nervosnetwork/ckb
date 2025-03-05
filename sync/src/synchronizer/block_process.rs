@@ -1,6 +1,6 @@
+use crate::StatusCode;
 use crate::synchronizer::Synchronizer;
 use crate::types::post_sync_process;
-use crate::StatusCode;
 use ckb_chain::RemoteBlock;
 use ckb_error::is_internal_db_error;
 use ckb_logger::debug;

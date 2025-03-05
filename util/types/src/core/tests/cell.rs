@@ -4,14 +4,13 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     bytes::Bytes,
     core::{
-        capacity_bytes,
+        BlockBuilder, BlockView, Capacity, DepType, EpochNumberWithFraction, TransactionBuilder,
+        TransactionInfo, TransactionView, capacity_bytes,
         cell::{
-            resolve_transaction, BlockCellProvider, CellMeta, CellProvider, CellStatus,
-            HeaderChecker,
+            BlockCellProvider, CellMeta, CellProvider, CellStatus, HeaderChecker,
+            resolve_transaction,
         },
         error::OutPointError,
-        BlockBuilder, BlockView, Capacity, DepType, EpochNumberWithFraction, TransactionBuilder,
-        TransactionInfo, TransactionView,
     },
     h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},

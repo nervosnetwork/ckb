@@ -2,11 +2,11 @@
 extern crate rustc_hash;
 extern crate slab;
 use super::links::TxLinks;
+use crate::TxEntry;
 use crate::component::edges::Edges;
 use crate::component::links::{Relation, TxLinksMap};
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
-use crate::TxEntry;
 use ckb_logger::{debug, error, trace};
 use ckb_types::core::error::OutPointError;
 use ckb_types::core::{Cycle, FeeRate};

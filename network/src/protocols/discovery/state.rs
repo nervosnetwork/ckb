@@ -2,18 +2,18 @@ use ckb_systemtime::{Duration, Instant};
 
 use ckb_logger::debug;
 use p2p::{
+    SessionId,
     context::{ProtocolContext, ProtocolContextMutRef},
     multiaddr::{Multiaddr, Protocol},
     utils::multiaddr_to_socketaddr,
-    SessionId,
 };
 
 use crate::Flags;
 
 use super::{
-    addr::AddrKnown,
-    protocol::{encode, DiscoveryMessage, Node, Nodes},
     AddressManager, MAX_ADDR_TO_SEND,
+    addr::AddrKnown,
+    protocol::{DiscoveryMessage, Node, Nodes, encode},
 };
 
 // FIXME: should be a more high level version number
@@ -140,7 +140,7 @@ pub(crate) enum RemoteAddress {
 impl RemoteAddress {
     pub(crate) fn to_inner(&self) -> &Multiaddr {
         match self {
-            RemoteAddress::Init(ref addr) | RemoteAddress::Listen(ref addr) => addr,
+            RemoteAddress::Init(addr) | RemoteAddress::Listen(addr) => addr,
         }
     }
 
@@ -151,7 +151,7 @@ impl RemoteAddress {
     }
 
     pub(crate) fn update_port(&mut self, port: u16) {
-        if let RemoteAddress::Init(ref addr) = self {
+        if let RemoteAddress::Init(addr) = self {
             let addr = addr
                 .into_iter()
                 .map(|proto| {

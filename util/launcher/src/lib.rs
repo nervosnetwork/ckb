@@ -15,8 +15,8 @@ use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
 use ckb_logger::internal::warn;
 use ckb_network::{
-    network::TransportType, observe_listen_port_occupancy, CKBProtocol, Flags, NetworkController,
-    NetworkService, NetworkState, SupportProtocols,
+    CKBProtocol, Flags, NetworkController, NetworkService, NetworkState, SupportProtocols,
+    network::TransportType, observe_listen_port_occupancy,
 };
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_resource::Resource;
@@ -165,7 +165,8 @@ impl Launcher {
                 "chain_spec_hash mismatch: Config({}), storage({}). \
                     If the two chains are compatible, pass command line argument --skip-spec-check; \
                     otherwise, pass --overwrite-spec to enforce overriding the stored chain spec with the configured one.",
-                self.args.chain_spec_hash, stored_spec_hash.expect("checked")
+                self.args.chain_spec_hash,
+                stored_spec_hash.expect("checked")
             );
             return Err(ExitCode::Config);
         }

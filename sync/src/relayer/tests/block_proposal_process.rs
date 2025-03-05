@@ -1,6 +1,6 @@
+use crate::Status;
 use crate::relayer::block_proposal_process::BlockProposalProcess;
 use crate::relayer::tests::helper::{build_chain, new_transaction};
-use crate::Status;
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
 

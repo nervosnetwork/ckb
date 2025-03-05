@@ -2,7 +2,7 @@ use ckb_dao_utils::DaoError;
 use ckb_error::Error as CKBError;
 use ckb_tx_pool::error::Reject;
 use ckb_types::{
-    core::{error::OutPointError, FeeRate},
+    core::{FeeRate, error::OutPointError},
     packed::Byte32,
 };
 
@@ -22,15 +22,15 @@ fn test_submit_transaction_error() {
     let min_fee_rate = FeeRate::from_u64(500);
     let reject = Reject::LowFeeRate(min_fee_rate, 100, 50);
     assert_eq!(
-            "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KW, requiring a transaction fee of at least 100 shannons, but the fee provided is only 50",
-            RPCError::from_submit_transaction_reject(&reject).message
-        );
+        "PoolRejectedTransactionByMinFeeRate: The min fee rate is 500 shannons/KW, requiring a transaction fee of at least 100 shannons, but the fee provided is only 50",
+        RPCError::from_submit_transaction_reject(&reject).message
+    );
 
     let reject = Reject::ExceededMaximumAncestorsCount;
     assert_eq!(
-            "PoolRejectedTransactionByMaxAncestorsCountLimit: Transaction exceeded maximum ancestors count limit; try later",
-            RPCError::from_submit_transaction_reject(&reject).message
-        );
+        "PoolRejectedTransactionByMaxAncestorsCountLimit: Transaction exceeded maximum ancestors count limit; try later",
+        RPCError::from_submit_transaction_reject(&reject).message
+    );
 
     let reject = Reject::Full(format!(
         "the fee_rate for this transaction is: {}",
@@ -43,9 +43,9 @@ fn test_submit_transaction_error() {
 
     let reject = Reject::Duplicated(Byte32::new([0; 32]));
     assert_eq!(
-            "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)) already exists in transaction_pool",
-            RPCError::from_submit_transaction_reject(&reject).message
-        );
+        "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)) already exists in transaction_pool",
+        RPCError::from_submit_transaction_reject(&reject).message
+    );
 
     let reject = Reject::Malformed("cellbase like".to_owned(), "".to_owned());
     assert_eq!(
@@ -64,7 +64,7 @@ fn test_submit_transaction_error() {
 fn test_out_point_error_from_ckb_error() {
     let err: CKBError = OutPointError::InvalidHeader(Byte32::new([0; 32])).into();
     assert_eq!(
-            "TransactionFailedToResolve: OutPoint(InvalidHeader(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)))",
-            RPCError::from_ckb_error(err).message
-        );
+        "TransactionFailedToResolve: OutPoint(InvalidHeader(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)))",
+        RPCError::from_ckb_error(err).message
+    );
 }

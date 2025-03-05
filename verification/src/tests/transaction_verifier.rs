@@ -5,22 +5,20 @@ use super::super::transaction_verifier::{
 use crate::error::TransactionErrorSource;
 use crate::{TransactionError, TxVerifyEnv};
 use ckb_chain_spec::{
-    build_genesis_type_id_script,
+    OUTPUT_INDEX_DAO, build_genesis_type_id_script,
     consensus::{Consensus, ConsensusBuilder},
-    OUTPUT_INDEX_DAO,
 };
-use ckb_error::{assert_error_eq, Error};
-use ckb_test_chain_utils::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
+use ckb_error::{Error, assert_error_eq};
+use ckb_test_chain_utils::{MOCK_MEDIAN_TIME_COUNT, MockMedianTime};
 use ckb_traits::CellDataProvider;
 use ckb_types::{
     bytes::Bytes,
     constants::TX_VERSION,
     core::{
-        capacity_bytes,
+        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
+        TransactionBuilder, TransactionInfo, TransactionView, capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
         hardfork::HardForks,
-        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionInfo, TransactionView,
     },
     h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
@@ -94,13 +92,15 @@ pub fn test_capacity_outofbound() {
     let rtx = Arc::new(ResolvedTransaction {
         transaction,
         resolved_cell_deps: Vec::new(),
-        resolved_inputs: vec![CellMetaBuilder::from_cell_output(
-            CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).pack())
-                .build(),
-            Bytes::new(),
-        )
-        .build()],
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(
+                CellOutput::new_builder()
+                    .capacity(capacity_bytes!(50).pack())
+                    .build(),
+                Bytes::new(),
+            )
+            .build(),
+        ],
         resolved_dep_groups: vec![],
     });
     let dao_type_hash = build_genesis_type_id_script(OUTPUT_INDEX_DAO).calc_script_hash();
@@ -155,9 +155,11 @@ pub fn test_inputs_cellbase_maturity() {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
-        resolved_inputs: vec![CellMetaBuilder::from_cell_output(output, Bytes::new())
-            .transaction_info(mock_transaction_info(30, base_epoch, 0))
-            .build()],
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(output, Bytes::new())
+                .transaction_info(mock_transaction_info(30, base_epoch, 0))
+                .build(),
+        ],
     });
 
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
@@ -206,9 +208,11 @@ fn test_ignore_genesis_cellbase_maturity() {
         transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
-        resolved_inputs: vec![CellMetaBuilder::from_cell_output(output, Bytes::new())
-            .transaction_info(mock_transaction_info(0, base_epoch, 0))
-            .build()],
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(output, Bytes::new())
+                .transaction_info(mock_transaction_info(0, base_epoch, 0))
+                .build(),
+        ],
     });
 
     let mut current_epoch = EpochNumberWithFraction::new(0, 0, 10);
@@ -442,14 +446,16 @@ fn create_resolve_tx_with_transaction_info(
     Arc::new(ResolvedTransaction {
         transaction: tx.clone(),
         resolved_cell_deps: Vec::new(),
-        resolved_inputs: vec![CellMetaBuilder::from_cell_output(
-            CellOutput::new_builder()
-                .capacity(capacity_bytes!(50).pack())
-                .build(),
-            Bytes::new(),
-        )
-        .transaction_info(transaction_info)
-        .build()],
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(
+                CellOutput::new_builder()
+                    .capacity(capacity_bytes!(50).pack())
+                    .build(),
+                Bytes::new(),
+            )
+            .transaction_info(transaction_info)
+            .build(),
+        ],
         resolved_dep_groups: vec![],
     })
 }

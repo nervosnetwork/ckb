@@ -254,8 +254,13 @@ impl RPCError {
             format!(
                 "This RPC method is in the module `{module}`. \
                  Please modify `rpc.modules`{miner_info} in ckb.toml and restart the ckb node to enable it.",
-                 module = module, miner_info = if module == "Miner" {" and `block_assembler`"} else {""}
-            )
+                module = module,
+                miner_info = if module == "Miner" {
+                    " and `block_assembler`"
+                } else {
+                    ""
+                }
+            ),
         )
     }
 

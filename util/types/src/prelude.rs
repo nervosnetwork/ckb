@@ -5,11 +5,12 @@
 
 pub use crate::utilities::merkle_mountain_range::ProverMessageBuilder;
 use crate::{
+    U256,
     core::{
         BlockBuilder, BlockView, ExtraHashView, HeaderBuilder, HeaderView, TransactionBuilder,
         TransactionView, UncleBlockView,
     },
-    packed, U256,
+    packed,
 };
 
 pub use ckb_gen_types::prelude::*;

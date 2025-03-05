@@ -1,8 +1,8 @@
 use crate::syscalls::PROCESS_ID;
 use crate::types::VmId;
 use ckb_vm::{
-    registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A7},
 };
 
 #[derive(Debug, Default)]

@@ -25,12 +25,12 @@ use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
+        BlockView, Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView, Version,
         cell::{CellProvider, CellStatus, OverlayCellProvider},
         tx_pool::{
-            EntryCompleted, PoolTxDetailInfo, Reject, TransactionWithStatus, TxPoolEntryInfo,
-            TxPoolIds, TxPoolInfo, TxStatus, TRANSACTION_SIZE_LIMIT,
+            EntryCompleted, PoolTxDetailInfo, Reject, TRANSACTION_SIZE_LIMIT,
+            TransactionWithStatus, TxPoolEntryInfo, TxPoolIds, TxPoolInfo, TxStatus,
         },
-        BlockView, Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView, Version,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
@@ -38,12 +38,12 @@ use ckb_util::{LinkedHashMap, LinkedHashSet};
 use ckb_verification::cache::TxVerificationCache;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
 use tokio::sync::watch;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tokio::task::block_in_place;
 use tokio_util::sync::CancellationToken;
 

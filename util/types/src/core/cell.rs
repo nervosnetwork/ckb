@@ -8,7 +8,7 @@ use crate::{
 };
 use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::OnceLock;

@@ -3,13 +3,13 @@
 
 use crate::orphan_broker::OrphanBroker;
 use crate::{LonelyBlock, ProcessBlockRequest};
-use ckb_channel::{select, Receiver};
+use ckb_channel::{Receiver, select};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, warn};
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::new_crossbeam_exit_rx;
-use ckb_types::core::{service::Request, BlockView};
+use ckb_types::core::{BlockView, service::Request};
 use ckb_verification::{BlockVerifier, NonContextualBlockTxsVerifier};
 use ckb_verification_traits::Verifier;
 

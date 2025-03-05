@@ -1,8 +1,8 @@
 //! this is a tool to generate rpc doc
-mod gen;
+mod r#gen;
 mod syn;
 mod utils;
-use crate::gen::RpcDocGenerator;
+use crate::r#gen::RpcDocGenerator;
 use crate::utils::*;
 use serde_json::json;
 use std::{fs, path::PathBuf};

@@ -6,7 +6,7 @@ use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
     traits::ServiceProtocol,
 };
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{Arc, atomic::Ordering};
 
 /// Feeler
 /// Currently do nothing, CKBProtocol auto refresh peer_store after connected.

@@ -1,8 +1,8 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
-        utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
-        LOAD_BLOCK_EXTENSION, SUCCESS,
+        INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_BLOCK_EXTENSION, SUCCESS, Source, SourceEntry,
+        utils::store_data,
     },
     types::SgData,
 };
@@ -12,8 +12,8 @@ use ckb_types::{
     packed::{self, Byte32Vec},
 };
 use ckb_vm::{
-    registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A3, A4, A7},
 };
 
 #[derive(Debug)]

@@ -1,4 +1,4 @@
-use ckb_fixed_hash::{h256, H256};
+use ckb_fixed_hash::{H256, h256};
 
 use crate::LinkedHashSet;
 

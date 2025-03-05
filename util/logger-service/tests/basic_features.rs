@@ -1,3 +1,4 @@
+//! This file contains tests for basic features of the logger.
 mod utils;
 
 #[test]

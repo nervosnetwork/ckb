@@ -23,9 +23,9 @@ use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     bytes,
     core::{
-        cell::{OverlayCellChecker, TransactionsChecker},
         BlockNumber, Capacity, Cycle, EpochExt, EpochNumberWithFraction, ScriptHashType,
         TransactionBuilder, TransactionView, UncleBlockView, Version,
+        cell::{OverlayCellChecker, TransactionsChecker},
     },
     packed::{
         self, Byte32, Bytes, CellInput, CellOutput, CellbaseWitness, ProposalShortId, Script,
@@ -35,11 +35,11 @@ use ckb_types::{
 };
 use http_body_util::Full;
 use hyper::{Method, Request};
-use hyper_util::client::legacy::{connect::HttpConnector, Client};
+use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use std::collections::HashSet;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 use std::time::Duration;
 use std::{cmp, iter};

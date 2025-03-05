@@ -3,7 +3,7 @@ use ckb_types::{
     packed::{Bytes, CellOutput},
 };
 use numext_fixed_uint::U256;
-use rhai::{Engine, EvalAltResult, Scope, AST};
+use rhai::{AST, Engine, EvalAltResult, Scope};
 
 /// Custom filters
 ///

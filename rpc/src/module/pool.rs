@@ -8,7 +8,7 @@ use ckb_jsonrpc_types::{
 use ckb_logger::error;
 use ckb_shared::shared::Shared;
 use ckb_types::core::TransactionView;
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{H256, core, packed, prelude::*};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
@@ -515,7 +515,9 @@ impl PoolRpcImpl {
                 format!(
                     "The transaction is rejected by OutputsValidator set in params[1]: {}. \
                     Please check the related information in https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator",
-                    outputs_validator.unwrap_or(OutputsValidator::WellKnownScriptsOnly).json_display()
+                    outputs_validator
+                        .unwrap_or(OutputsValidator::WellKnownScriptsOnly)
+                        .json_display()
                 ),
                 e,
             ));

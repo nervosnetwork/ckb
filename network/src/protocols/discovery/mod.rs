@@ -3,12 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use ckb_logger::{debug, error, trace, warn};
 use ckb_systemtime::{Duration, Instant};
 use p2p::{
-    async_trait, bytes,
+    SessionId, async_trait, bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::Multiaddr,
     traits::ServiceProtocol,
     utils::{is_reachable, multiaddr_to_socketaddr},
-    SessionId,
 };
 use rand::seq::SliceRandom;
 
