@@ -1,6 +1,6 @@
 [package]
 name = "ckb-metrics-service"
-version = "0.200.0-pre"
+version = "0.201.0-pre"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2024"
@@ -9,14 +9,14 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-metrics-config = { path = "../metrics-config", version = "= 0.200.0-pre" }
-ckb-metrics = { path = "../metrics", version = "= 0.200.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.200.0-pre" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.200.0-pre" }
-ckb-util = { path = "..", version = "= 0.200.0-pre" }
+ckb-metrics-config = { path = "../metrics-config", version = "= 0.201.0-pre" }
+ckb-metrics = { path = "../metrics", version = "= 0.201.0-pre" }
+ckb-logger = { path = "../logger", version = "= 0.201.0-pre" }
+ckb-async-runtime = { path = "../runtime", version = "= 0.201.0-pre" }
+ckb-util = { path = "..", version = "= 0.201.0-pre" }
 prometheus = "0.13.3"
 hyper = { version = "1", features = ["http1", "http2", "server"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["server-auto", "server-graceful"] }
-ckb-stop-handler = { path = "../stop-handler", version = "= 0.200.0-pre" }
+ckb-stop-handler = { path = "../stop-handler", version = "= 0.201.0-pre" }
 tokio = { version = "1", features = ["sync", "macros"] }
