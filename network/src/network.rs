@@ -1538,6 +1538,7 @@ pub enum TransportType {
     Wss,
 }
 
+#[allow(dead_code)]
 pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
     let mut iter = addr.iter();
 
