@@ -1,4 +1,4 @@
-/// Get default assume valid targets
+//! Get default assume valid targets
 
 /// mainnet
 pub mod mainnet {
