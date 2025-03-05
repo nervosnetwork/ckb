@@ -196,7 +196,10 @@ impl PeerStore {
     }
 
     #[cfg(target_family = "wasm")]
-    pub fn dump_to_idb<P: AsRef<Path>>(&self, path: P) -> impl std::future::Future<Output = ()> {
+    pub fn dump_to_idb<P: AsRef<Path>>(
+        &self,
+        path: P,
+    ) -> impl std::future::Future<Output = ()> + use<P> {
         use crate::peer_store::browser::get_db;
         let ban_list = self.ban_list().dump_data();
         let addr_manager = self.addr_manager().dump_data();
