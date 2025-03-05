@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## [v0.200.0](https://github.com/nervosnetwork/ckb/compare/v0.121.0...v0.200.0) (2025-03-05)
+
+### Features
+
+- #4807: Activate CKB Edition Meepo (2024) on the Mainnet (@zhangsoledad)
+
+    This is a breaking change of consensus once activated.
+
+- #4800: Implement nodes filter with P2P transport service types (@driftluo)
+- #4793: Mark DNS address connected time on peer store (@driftluo)
+
+### Improvements
+
+- #4795: `NetRpcImpl::get_peers` return `Remoteaddress.addresses` without duplicates (@eval-exec)
+
+    This is a breaking change of RPC.
+
+- #4801: Upgrade openssl from 0.10.68 to 0.10.70, fix [RUSTSEC-2025-0004](https://rustsec.org/advisories/RUSTSEC-2025-0004) (@eval-exec)
+- #4785: Improving spawn and exec syscalls (@mohanson)
+
 ## [v0.121.0](https://github.com/nervosnetwork/ckb/compare/v0.120.0...v0.121.0) (2025-01-22)
 
 ### Improvements
