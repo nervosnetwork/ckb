@@ -28,8 +28,10 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
-use tower_http::cors::CorsLayer;
-use tower_http::timeout::TimeoutLayer;
+use tower_http::{
+    compression::CompressionLayer, cors::CorsLayer, decompression::RequestDecompressionLayer,
+    timeout::TimeoutLayer,
+};
 
 static JSONRPC_BATCH_LIMIT: OnceLock<usize> = OnceLock::new();
 
@@ -118,10 +120,12 @@ impl RpcServer {
 
         let app = Router::new()
             .route("/", method_router.clone())
-            .route("/*path", method_router)
+            .route("/{*path}", method_router)
             .route("/ping", get(ping_handler))
             .layer(Extension(Arc::clone(rpc)))
             .layer(CorsLayer::permissive())
+            .layer(CompressionLayer::new())
+            .layer(RequestDecompressionLayer::new())
             .layer(TimeoutLayer::new(Duration::from_secs(30)))
             .layer(Extension(stream_config));
 

@@ -24,7 +24,7 @@ ckb-app-config = { path = "../util/app-config", version = "= 0.201.0-pre" }
 ckb-constant = { path = "../util/constant", version = "= 0.201.0-pre" }
 jsonrpc-core = "18.0"
 serde_json = "1.0"
-jsonrpc-utils = { version = "0.3", features = ["server", "macros", "axum"] }
+jsonrpc-utils = { version = "0.4", features = ["server", "macros", "axum"] }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.201.0-pre" }
 ckb-verification = { path = "../verification", version = "= 0.201.0-pre" }
 ckb-verification-traits = { path = "../verification/traits", version = "= 0.201.0-pre" }
@@ -44,10 +44,10 @@ ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.201.0-pre" }
 itertools.workspace = true
 tokio = "1"
 async-trait = "0.1"
-axum = "0.7"
+axum = "0.8"
 tokio-util = { version = "0.7.3", features = ["codec"] }
 futures-util = { version = "0.3.21" }
-tower-http = { version = "0.6", features = ["timeout", "cors"] }
+tower-http = { version = "0.6", features = ["full"] }
 async-stream = "0.3.3"
 ckb-async-runtime = { path = "../util/runtime", version = "= 0.201.0-pre" }
 schemars.workspace = true
