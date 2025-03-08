@@ -9,17 +9,17 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { workspace = true }
-ckb-db = { workspace = true }
-ckb-chain-spec = { workspace = true }
-lru = { workspace = true }
-ckb-traits = { workspace = true }
-ckb-util = { workspace = true }
-ckb-error = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-db-schema = { workspace = true }
-ckb-freezer = { workspace = true }
-ckb-merkle-mountain-range = { workspace = true }
+ckb-types.workspace = true
+ckb-db.workspace = true
+ckb-chain-spec.workspace = true
+lru.workspace = true
+ckb-traits.workspace = true
+ckb-util.workspace = true
+ckb-error.workspace = true
+ckb-app-config.workspace = true
+ckb-db-schema.workspace = true
+ckb-freezer.workspace = true
+ckb-merkle-mountain-range.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

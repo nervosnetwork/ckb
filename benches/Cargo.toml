@@ -12,25 +12,25 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 
 [dev-dependencies]
-criterion = { workspace = true }
-ckb-chain = { workspace = true }
-ckb-types = { workspace = true }
-ckb-shared = { workspace = true }
-ckb-store = { workspace = true }
-ckb-chain-spec = { workspace = true }
-rand = { workspace = true }
-ckb-hash = { workspace = true }
-ckb-test-chain-utils = { workspace = true }
-ckb-dao-utils = { workspace = true }
-ckb-dao = { workspace = true }
-ckb-system-scripts = { workspace = true }
-ckb-crypto = { workspace = true }
-ckb-jsonrpc-types = { workspace = true }
-ckb-verification = { workspace = true }
-ckb-verification-traits = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-resource = { workspace = true }
-ckb-network = { workspace = true }
+criterion.workspace = true
+ckb-chain.workspace = true
+ckb-types.workspace = true
+ckb-shared.workspace = true
+ckb-store.workspace = true
+ckb-chain-spec.workspace = true
+rand.workspace = true
+ckb-hash.workspace = true
+ckb-test-chain-utils.workspace = true
+ckb-dao-utils.workspace = true
+ckb-dao.workspace = true
+ckb-system-scripts.workspace = true
+ckb-crypto.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-verification.workspace = true
+ckb-verification-traits.workspace = true
+ckb-app-config.workspace = true
+ckb-resource.workspace = true
+ckb-network.workspace = true
 tempfile.workspace = true
 
 [[bench]]

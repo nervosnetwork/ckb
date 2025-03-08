@@ -9,6 +9,6 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-byteorder = { workspace = true }
-ckb-types = { workspace = true }
-ckb-error = { workspace = true }
+byteorder.workspace = true
+ckb-types.workspace = true
+ckb-error.workspace = true

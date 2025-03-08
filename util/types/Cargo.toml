@@ -9,26 +9,26 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-molecule = { workspace = true }
-ckb-fixed-hash = { workspace = true }
+molecule.workspace = true
+ckb-fixed-hash.workspace = true
 numext-fixed-uint = { workspace = true, features = ["support_rand", "support_heapsize", "support_serde"] }
 bytes = { workspace = true, features = ["serde"] }
-merkle-cbt = { workspace = true }
-ckb-occupied-capacity = { workspace = true }
-ckb-hash = { workspace = true }
-ckb-channel = { workspace = true }
-ckb-constant = { workspace = true }
-ckb-gen-types = { workspace = true }
-bit-vec = { workspace = true }
-ckb-error = { workspace = true }
-ckb-rational = { workspace = true }
+merkle-cbt.workspace = true
+ckb-occupied-capacity.workspace = true
+ckb-hash.workspace = true
+ckb-channel.workspace = true
+ckb-constant.workspace = true
+ckb-gen-types.workspace = true
+bit-vec.workspace = true
+ckb-error.workspace = true
+ckb-rational.workspace = true
 derive_more = { workspace = true, features = ["display"] }
-ckb-merkle-mountain-range = { workspace = true }
-golomb-coded-set = { workspace = true }
-paste = { workspace = true }
+ckb-merkle-mountain-range.workspace = true
+golomb-coded-set.workspace = true
+paste.workspace = true
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = ["bytes"]

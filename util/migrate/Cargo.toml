@@ -11,18 +11,18 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-migration-template = { workspace = true }
-ckb-db = { workspace = true }
-ckb-error = { workspace = true }
-ckb-db-schema = { workspace = true }
-ckb-db-migration = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-types = { workspace = true }
-ckb-store = { workspace = true }
-ckb-chain-spec = { workspace = true }
-ckb-hash = { workspace = true }
+ckb-migration-template.workspace = true
+ckb-db.workspace = true
+ckb-error.workspace = true
+ckb-db-schema.workspace = true
+ckb-db-migration.workspace = true
+ckb-app-config.workspace = true
+ckb-types.workspace = true
+ckb-store.workspace = true
+ckb-chain-spec.workspace = true
+ckb-hash.workspace = true
 tempfile.workspace = true
-num_cpus = { workspace = true }
+num_cpus.workspace = true
 
 [dev-dependencies]
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }

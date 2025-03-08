@@ -9,54 +9,54 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-chain-spec = { workspace = true }
-ckb-types = { workspace = true }
-ckb-network = { workspace = true }
-ckb-notify = { workspace = true }
-ckb-shared = { workspace = true }
-ckb-store = { workspace = true }
-ckb-sync = { workspace = true }
-ckb-chain = { workspace = true }
-ckb-logger = { workspace = true }
-ckb-logger-service = { workspace = true }
-ckb-network-alert = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-constant = { workspace = true }
-jsonrpc-core = { workspace = true }
+ckb-chain-spec.workspace = true
+ckb-types.workspace = true
+ckb-network.workspace = true
+ckb-notify.workspace = true
+ckb-shared.workspace = true
+ckb-store.workspace = true
+ckb-sync.workspace = true
+ckb-chain.workspace = true
+ckb-logger.workspace = true
+ckb-logger-service.workspace = true
+ckb-network-alert.workspace = true
+ckb-app-config.workspace = true
+ckb-constant.workspace = true
+jsonrpc-core.workspace = true
 serde_json = "1.0"
 jsonrpc-utils = { workspace = true, features = ["server", "macros", "axum"] }
-ckb-jsonrpc-types = { workspace = true }
-ckb-verification = { workspace = true }
-ckb-verification-traits = { workspace = true }
-ckb-traits = { workspace = true }
-ckb-util = { workspace = true }
-ckb-systemtime = { workspace = true }
-ckb-dao = { workspace = true }
-ckb-error = { workspace = true }
-ckb-reward-calculator = { workspace = true }
-ckb-tx-pool = { workspace = true }
-ckb-memory-tracker = { workspace = true }
-ckb-pow = { workspace = true }
-ckb-indexer = { workspace = true }
-ckb-indexer-sync = { workspace = true }
-ckb-rich-indexer = { workspace = true }
-ckb-stop-handler = { workspace = true }
+ckb-jsonrpc-types.workspace = true
+ckb-verification.workspace = true
+ckb-verification-traits.workspace = true
+ckb-traits.workspace = true
+ckb-util.workspace = true
+ckb-systemtime.workspace = true
+ckb-dao.workspace = true
+ckb-error.workspace = true
+ckb-reward-calculator.workspace = true
+ckb-tx-pool.workspace = true
+ckb-memory-tracker.workspace = true
+ckb-pow.workspace = true
+ckb-indexer.workspace = true
+ckb-indexer-sync.workspace = true
+ckb-rich-indexer.workspace = true
+ckb-stop-handler.workspace = true
 itertools.workspace = true
-tokio = { workspace = true }
-async-trait = { workspace = true }
-axum = { workspace = true }
+tokio.workspace = true
+async-trait.workspace = true
+axum.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
-futures-util = { workspace = true }
+futures-util.workspace = true
 tower-http = { workspace = true, features = ["timeout", "cors"] }
-async-stream = { workspace = true }
-ckb-async-runtime = { workspace = true }
+async-stream.workspace = true
+ckb-async-runtime.workspace = true
 schemars.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking", "json"] }
 serde = { workspace = true, features = ["derive"] }
-ckb-shared = { workspace = true }
-ckb-test-chain-utils = { workspace = true }
+ckb-shared.workspace = true
+ckb-test-chain-utils.workspace = true
 tempfile.workspace = true
-pretty_assertions = { workspace = true }
-ckb-dao-utils = { workspace = true }
+pretty_assertions.workspace = true
+ckb-dao-utils.workspace = true

@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-thiserror = { workspace = true }
+thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
-faster-hex = { workspace = true }
+faster-hex.workspace = true
 schemars.workspace = true
 
 

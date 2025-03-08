@@ -18,33 +18,33 @@ logging = ["ckb-logger"]
 flatmemory = []
 
 [dependencies]
-ckb-traits = { workspace = true }
-byteorder = { workspace = true }
-ckb-types = { workspace = true }
-ckb-hash = { workspace = true }
-ckb-vm = { workspace = true }
-faster-hex = { workspace = true }
+ckb-traits.workspace = true
+byteorder.workspace = true
+ckb-types.workspace = true
+ckb-hash.workspace = true
+ckb-vm.workspace = true
+faster-hex.workspace = true
 ckb-logger = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
-ckb-error = { workspace = true }
-ckb-chain-spec = { workspace = true }
+ckb-error.workspace = true
+ckb-chain-spec.workspace = true
 tokio = { workspace = true, features = ["sync", "macros"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1.35.0", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
-proptest = { workspace = true }
-ckb-db = { workspace = true }
-ckb-store = { workspace = true }
-ckb-test-chain-utils = { workspace = true }
+proptest.workspace = true
+ckb-db.workspace = true
+ckb-store.workspace = true
+ckb-test-chain-utils.workspace = true
 tiny-keccak = { workspace = true, features = ["sha3"] }
-ckb-crypto = { workspace = true }
-ckb-db-schema = { workspace = true }
+ckb-crypto.workspace = true
+ckb-db-schema.workspace = true
 tempfile.workspace = true
-rand = { workspace = true }
-daggy = { workspace = true }
-molecule = { workspace = true }
+rand.workspace = true
+daggy.workspace = true
+molecule.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(has_asm)'] }

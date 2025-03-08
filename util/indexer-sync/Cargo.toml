@@ -11,17 +11,17 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-app-config = { workspace = true }
-ckb-async-runtime = { workspace = true }
-ckb-db-schema = { workspace = true }
-ckb-jsonrpc-types = { workspace = true }
-ckb-logger = { workspace = true }
-ckb-notify = { workspace = true }
-ckb-stop-handler = { workspace = true }
-ckb-store = { workspace = true }
-ckb-types = { workspace = true }
-numext-fixed-uint = { workspace = true }
+ckb-app-config.workspace = true
+ckb-async-runtime.workspace = true
+ckb-db-schema.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-logger.workspace = true
+ckb-notify.workspace = true
+ckb-stop-handler.workspace = true
+ckb-store.workspace = true
+ckb-types.workspace = true
+numext-fixed-uint.workspace = true
 rhai = { workspace = true, features = ["no_function", "no_float", "no_module", "sync"] }
 rocksdb = { package = "ckb-rocksdb", version ="=0.21.1", features = ["snappy"], default-features = false }
 serde_json = "1.0"
-thiserror = { workspace = true }
+thiserror.workspace = true

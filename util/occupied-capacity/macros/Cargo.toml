@@ -12,6 +12,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 proc-macro = true
 
 [dependencies]
-quote = { workspace = true }
+quote.workspace = true
 syn = "1.0"
-ckb-occupied-capacity-core = { workspace = true }
+ckb-occupied-capacity-core.workspace = true

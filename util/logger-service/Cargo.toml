@@ -9,19 +9,19 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-util = { workspace = true }
-ckb-logger-config = { workspace = true }
-ckb-channel = { workspace = true }
-yansi = { workspace = true }
-log = { workspace = true }
-env_logger = { workspace = true }
-regex = { workspace = true }
-backtrace = { workspace = true }
+ckb-util.workspace = true
+ckb-logger-config.workspace = true
+ckb-channel.workspace = true
+yansi.workspace = true
+log.workspace = true
+env_logger.workspace = true
+regex.workspace = true
+backtrace.workspace = true
 sentry = { workspace = true, features = ["log"], optional = true }
 time = { workspace = true, features = ["formatting"] }
 
 [dev-dependencies]
-ckb-logger = { workspace = true }
+ckb-logger.workspace = true
 tempfile.workspace = true
 
 [features]

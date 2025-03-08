@@ -15,4 +15,4 @@ numext-fixed-uint = { workspace = true, features = ["support_rand", "support_hea
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest.workspace = true

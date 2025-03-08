@@ -12,5 +12,5 @@ repository = "https://github.com/nervosnetwork/ckb"
 proc-macro = true
 
 [dependencies]
-quote = { workspace = true }
+quote.workspace = true
 syn = { version = "1.0", features = ["full", "printing"] }

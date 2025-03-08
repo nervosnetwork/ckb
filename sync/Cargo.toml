@@ -9,46 +9,46 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-chain = { workspace = true }
-ckb-shared = { workspace = true }
-ckb-store = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-types = { workspace = true }
-ckb-network = { workspace = true }
-ckb-logger = { workspace = true }
-ckb-metrics = { workspace = true }
-ckb-util = { workspace = true }
-ckb-verification = { workspace = true }
-ckb-verification-traits = { workspace = true }
-ckb-chain-spec = { workspace = true }
-ckb-channel = { workspace = true }
-ckb-traits = { workspace = true }
-ckb-error = { workspace = true }
-ckb-tx-pool = { workspace = true }
+ckb-chain.workspace = true
+ckb-shared.workspace = true
+ckb-store.workspace = true
+ckb-app-config.workspace = true
+ckb-types.workspace = true
+ckb-network.workspace = true
+ckb-logger.workspace = true
+ckb-metrics.workspace = true
+ckb-util.workspace = true
+ckb-verification.workspace = true
+ckb-verification-traits.workspace = true
+ckb-chain-spec.workspace = true
+ckb-channel.workspace = true
+ckb-traits.workspace = true
+ckb-error.workspace = true
+ckb-tx-pool.workspace = true
 sentry = { workspace = true, optional = true }
-ckb-constant = { workspace = true }
-ckb-stop-handler = { workspace = true }
+ckb-constant.workspace = true
+ckb-stop-handler.workspace = true
 tokio = { workspace = true, features = ["sync"] }
-lru = { workspace = true }
-futures = { workspace = true }
-governor = { workspace = true }
+lru.workspace = true
+futures.workspace = true
+governor.workspace = true
 tempfile.workspace = true
-ckb-systemtime = { workspace = true }
-dashmap = { workspace = true }
-keyed_priority_queue = { workspace = true }
+ckb-systemtime.workspace = true
+dashmap.workspace = true
+keyed_priority_queue.workspace = true
 itertools.workspace = true
 
 [dev-dependencies]
-ckb-test-chain-utils = { workspace = true }
-rand = { workspace = true }
-ckb-dao = { workspace = true }
-ckb-dao-utils = { workspace = true }
-ckb-reward-calculator = { workspace = true }
+ckb-test-chain-utils.workspace = true
+rand.workspace = true
+ckb-dao.workspace = true
+ckb-dao-utils.workspace = true
+ckb-reward-calculator.workspace = true
 ckb-chain = { workspace = true, features = ["mock"] }
-faux = { workspace = true }
+faux.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
-ckb-proposal-table = { workspace = true }
-ckb-logger-service = { workspace = true }
+ckb-proposal-table.workspace = true
+ckb-logger-service.workspace = true
 
 [features]
 default = []

@@ -9,22 +9,22 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-network = { workspace = true }
-ckb-shared = { workspace = true }
-ckb-logger = { workspace = true }
-ckb-types = { workspace = true }
-ckb-store = { workspace = true }
-ckb-merkle-mountain-range = { workspace = true }
-ckb-systemtime = { workspace = true }
+ckb-network.workspace = true
+ckb-shared.workspace = true
+ckb-logger.workspace = true
+ckb-types.workspace = true
+ckb-store.workspace = true
+ckb-merkle-mountain-range.workspace = true
+ckb-systemtime.workspace = true
 
 [dev-dependencies]
-ckb-chain = { workspace = true }
-ckb-chain-spec = { workspace = true }
-ckb-tx-pool = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-jsonrpc-types = { workspace = true }
-ckb-dao-utils = { workspace = true }
-ckb-test-chain-utils = { workspace = true }
+ckb-chain.workspace = true
+ckb-chain-spec.workspace = true
+ckb-tx-pool.workspace = true
+ckb-app-config.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-dao-utils.workspace = true
+ckb-test-chain-utils.workspace = true
 tempfile.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
-tokio = { workspace = true }
+tokio.workspace = true

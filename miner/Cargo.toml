@@ -9,28 +9,28 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-types = { workspace = true }
-ckb-channel = { workspace = true }
-ckb-hash = { workspace = true }
-ckb-pow = { workspace = true }
-rand = { workspace = true }
-rand_distr = { workspace = true }
+ckb-logger.workspace = true
+ckb-app-config.workspace = true
+ckb-types.workspace = true
+ckb-channel.workspace = true
+ckb-hash.workspace = true
+ckb-pow.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
-ckb-jsonrpc-types = { workspace = true }
+ckb-jsonrpc-types.workspace = true
 hyper = { workspace = true, features = ["client", "http2", "http1", "server"] }
 hyper-util = { workspace = true, features = ["server-auto", "server-graceful", "client-legacy"] }
-http-body-util = { workspace = true }
-hyper-tls = { workspace = true }
-futures = { workspace = true }
-lru = { workspace = true }
-ckb-stop-handler = { workspace = true }
-ckb-async-runtime = { workspace = true }
-indicatif = { workspace = true }
-console = { workspace = true }
-eaglesong = { workspace = true }
-base64 = { workspace = true }
-jsonrpc-core = { workspace = true }
+http-body-util.workspace = true
+hyper-tls.workspace = true
+futures.workspace = true
+lru.workspace = true
+ckb-stop-handler.workspace = true
+ckb-async-runtime.workspace = true
+indicatif.workspace = true
+console.workspace = true
+eaglesong.workspace = true
+base64.workspace = true
+jsonrpc-core.workspace = true
 tokio = { workspace = true, features = ["sync"] }

@@ -10,30 +10,30 @@ repository = "https://github.com/nervosnetwork/ckb"
 exclude = ["fuzz"]
 
 [dependencies]
-rand = { workspace = true }
+rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
-ckb-util = { workspace = true }
-ckb-stop-handler = { workspace = true }
-ckb-logger = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-metrics = { workspace = true }
+ckb-util.workspace = true
+ckb-stop-handler.workspace = true
+ckb-logger.workspace = true
+ckb-app-config.workspace = true
+ckb-metrics.workspace = true
 tokio = { workspace = true, features = ["sync", "macros"] }
 tokio-util = { workspace = true, features = ["codec"] }
-futures = { workspace = true }
-ckb-systemtime = { workspace = true }
+futures.workspace = true
+ckb-systemtime.workspace = true
 bs58 = { workspace = true, optional = true }
 sentry = { workspace = true, optional = true }
 faster-hex = { workspace = true, optional = true }
-ckb-hash = { workspace = true }
+ckb-hash.workspace = true
 secp256k1 = { workspace = true, features = ["recovery"], optional = true }
 hickory-resolver = { workspace = true, optional = true }
-snap = { workspace = true }
-ckb-types = { workspace = true }
-ipnetwork = { workspace = true }
+snap.workspace = true
+ckb-types.workspace = true
+ipnetwork.workspace = true
 serde_json = "1.0"
-bloom-filters = { workspace = true }
-ckb-spawn = { workspace = true }
-bitflags = { workspace = true }
+bloom-filters.workspace = true
+ckb-spawn.workspace = true
+bitflags.workspace = true
 p2p = { version = "0.6.2", package = "tentacle", default-features = false }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -62,9 +62,9 @@ fuzz = []
 
 [dev-dependencies]
 tempfile.workspace = true
-criterion = { workspace = true }
-proptest = { workspace = true }
-num_cpus = { workspace = true }
+criterion.workspace = true
+proptest.workspace = true
+num_cpus.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 
 [[bench]]

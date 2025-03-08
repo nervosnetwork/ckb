@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-thiserror = { workspace = true }
-anyhow = { workspace = true }
-ckb-occupied-capacity = { workspace = true }
+thiserror.workspace = true
+anyhow.workspace = true
+ckb-occupied-capacity.workspace = true
 derive_more = { workspace = true, features = ["display"] }

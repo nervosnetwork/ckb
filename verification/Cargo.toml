@@ -9,22 +9,22 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { workspace = true }
-ckb-script = { workspace = true }
-ckb-pow = { workspace = true }
-ckb-systemtime = { workspace = true }
-lru = { workspace = true }
-ckb-traits = { workspace = true }
-ckb-chain-spec = { workspace = true }
-ckb-dao = { workspace = true }
-ckb-dao-utils = { workspace = true }
-ckb-error = { workspace = true }
+ckb-types.workspace = true
+ckb-script.workspace = true
+ckb-pow.workspace = true
+ckb-systemtime.workspace = true
+lru.workspace = true
+ckb-traits.workspace = true
+ckb-chain-spec.workspace = true
+ckb-dao.workspace = true
+ckb-dao-utils.workspace = true
+ckb-error.workspace = true
 derive_more = { workspace = true, features = ["display"] }
-ckb-verification-traits = { workspace = true }
+ckb-verification-traits.workspace = true
 tokio = { workspace = true, features = ["sync", "macros"] }
 
 
 [dev-dependencies]
-ckb-test-chain-utils = { workspace = true }
-ckb-resource = { workspace = true }
+ckb-test-chain-utils.workspace = true
+ckb-resource.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }

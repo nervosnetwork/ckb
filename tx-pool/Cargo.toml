@@ -11,45 +11,45 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { workspace = true }
-ckb-logger = { workspace = true }
-ckb-verification = { workspace = true }
-ckb-systemtime = { workspace = true }
-lru = { workspace = true }
-num_cpus = { workspace = true }
+ckb-types.workspace = true
+ckb-logger.workspace = true
+ckb-verification.workspace = true
+ckb-systemtime.workspace = true
+lru.workspace = true
+num_cpus.workspace = true
 
-ckb-dao = { workspace = true }
-ckb-reward-calculator = { workspace = true }
-ckb-store = { workspace = true }
-ckb-util = { workspace = true }
-ckb-jsonrpc-types = { workspace = true }
-ckb-chain-spec = { workspace = true }
-ckb-snapshot = { workspace = true }
-ckb-metrics = { workspace = true }
-ckb-error = { workspace = true }
+ckb-dao.workspace = true
+ckb-reward-calculator.workspace = true
+ckb-store.workspace = true
+ckb-util.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-chain-spec.workspace = true
+ckb-snapshot.workspace = true
+ckb-metrics.workspace = true
+ckb-error.workspace = true
 tokio = { workspace = true, features = ["sync", "process"] }
-ckb-async-runtime = { workspace = true }
-ckb-stop-handler = { workspace = true }
-ckb-app-config = { workspace = true }
-ckb-network = { workspace = true }
-ckb-channel = { workspace = true }
-ckb-db = { workspace = true }
-ckb-script = { workspace = true }
+ckb-async-runtime.workspace = true
+ckb-stop-handler.workspace = true
+ckb-app-config.workspace = true
+ckb-network.workspace = true
+ckb-channel.workspace = true
+ckb-db.workspace = true
+ckb-script.workspace = true
 sentry = { workspace = true, optional = true }
 serde_json = "1.0"
-rand = { workspace = true }
+rand.workspace = true
 hyper = { workspace = true, features = ["http1", "http2", "client"] }
 hyper-util = { workspace = true, features = ["client-legacy", "http1", "http2"] }
-http-body-util = { workspace = true }
-multi_index_map = { workspace = true }
-slab = { workspace = true }
-rustc-hash = { workspace = true }
-tokio-util = { workspace = true }
-ckb-fee-estimator = { workspace = true }
+http-body-util.workspace = true
+multi_index_map.workspace = true
+slab.workspace = true
+rustc-hash.workspace = true
+tokio-util.workspace = true
+ckb-fee-estimator.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-ckb-hash = { workspace = true }
+ckb-hash.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 
 [features]

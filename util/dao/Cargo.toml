@@ -9,14 +9,14 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-byteorder = { workspace = true }
-ckb-types = { workspace = true }
-ckb-chain-spec = { workspace = true }
-ckb-dao-utils = { workspace = true }
-ckb-traits = { workspace = true }
+byteorder.workspace = true
+ckb-types.workspace = true
+ckb-chain-spec.workspace = true
+ckb-dao-utils.workspace = true
+ckb-traits.workspace = true
 
 [dev-dependencies]
-ckb-db = { workspace = true }
-ckb-db-schema = { workspace = true }
-ckb-store = { workspace = true }
+ckb-db.workspace = true
+ckb-db-schema.workspace = true
+ckb-store.workspace = true
 tempfile.workspace = true

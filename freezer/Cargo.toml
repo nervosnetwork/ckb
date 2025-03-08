@@ -10,15 +10,15 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { workspace = true }
-ckb-error = { workspace = true }
-ckb-logger = { workspace = true }
-ckb-util = { workspace = true }
-ckb-metrics = { workspace = true }
-fs2 = { workspace = true }
-fail = { workspace = true }
-snap = { workspace = true }
-lru = { workspace = true }
+ckb-types.workspace = true
+ckb-error.workspace = true
+ckb-logger.workspace = true
+ckb-util.workspace = true
+ckb-metrics.workspace = true
+fs2.workspace = true
+fail.workspace = true
+snap.workspace = true
+lru.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

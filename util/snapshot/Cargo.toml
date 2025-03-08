@@ -11,16 +11,16 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { workspace = true }
-ckb-chain-spec = { workspace = true }
-ckb-store = { workspace = true }
-ckb-db = { workspace = true }
-ckb-traits = { workspace = true }
-ckb-proposal-table = { workspace = true }
-arc-swap = { workspace = true }
-ckb-db-schema = { workspace = true }
-ckb-freezer = { workspace = true }
-ckb-merkle-mountain-range = { workspace = true }
+ckb-types.workspace = true
+ckb-chain-spec.workspace = true
+ckb-store.workspace = true
+ckb-db.workspace = true
+ckb-traits.workspace = true
+ckb-proposal-table.workspace = true
+arc-swap.workspace = true
+ckb-db-schema.workspace = true
+ckb-freezer.workspace = true
+ckb-merkle-mountain-range.workspace = true
 
 [features]
 portable = ["ckb-db/portable", "ckb-store/portable"]

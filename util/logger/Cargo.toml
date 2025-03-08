@@ -9,4 +9,4 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-log = { workspace = true }
+log.workspace = true

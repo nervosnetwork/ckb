@@ -9,11 +9,11 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-fixed-hash = { workspace = true }
+ckb-fixed-hash.workspace = true
 secp256k1 = { workspace = true, features = ["recovery"], optional = true }
-thiserror = { workspace = true }
+thiserror.workspace = true
 rand = { workspace = true, features = ["small_rng"] }
-faster-hex = { workspace = true }
+faster-hex.workspace = true
 
 [features]
 default = ["secp"]

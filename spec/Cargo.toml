@@ -10,19 +10,19 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
-toml = { workspace = true }
-ckb-constant = { workspace = true }
-ckb-types = { workspace = true }
-ckb-pow = { workspace = true }
-ckb-resource = { workspace = true }
-ckb-jsonrpc-types = { workspace = true }
-ckb-dao-utils = { workspace = true }
-ckb-rational = { workspace = true }
-ckb-crypto = { workspace = true }
-ckb-hash = { workspace = true }
-ckb-error = { workspace = true }
-ckb-traits = { workspace = true }
-ckb-logger = { workspace = true }
+toml.workspace = true
+ckb-constant.workspace = true
+ckb-types.workspace = true
+ckb-pow.workspace = true
+ckb-resource.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-dao-utils.workspace = true
+ckb-rational.workspace = true
+ckb-crypto.workspace = true
+ckb-hash.workspace = true
+ckb-error.workspace = true
+ckb-traits.workspace = true
+ckb-logger.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 cacache = { version = "13.0.0", default-features = false, features = [

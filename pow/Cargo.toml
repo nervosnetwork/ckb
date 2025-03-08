@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-byteorder = { workspace = true }
-ckb-types = { workspace = true }
-ckb-hash = { workspace = true }
+byteorder.workspace = true
+ckb-types.workspace = true
+ckb-hash.workspace = true
 serde = { workspace = true, features = ["derive"] }
-eaglesong = { workspace = true }
-log = { workspace = true }
+eaglesong.workspace = true
+log.workspace = true

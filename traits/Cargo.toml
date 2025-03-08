@@ -9,4 +9,4 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { workspace = true }
+ckb-types.workspace = true

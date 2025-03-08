@@ -9,5 +9,5 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-prometheus = { workspace = true }
-prometheus-static-metric = { workspace = true }
+prometheus.workspace = true
+prometheus-static-metric.workspace = true

@@ -12,4 +12,4 @@ repository = "https://github.com/nervosnetwork/ckb"
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-toml = { workspace = true }
+toml.workspace = true
