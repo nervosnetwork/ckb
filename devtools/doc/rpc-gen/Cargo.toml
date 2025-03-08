@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc-gen"
-version = "0.201.0-pre"
+version.workspace = true
 edition = "2024"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
