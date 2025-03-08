@@ -97,6 +97,9 @@ members = [
     "ckb-bin",
 ]
 
+[workspace.package]
+version = "0.201.0-pre"
+
 [workspace.dependencies]
 tempfile = "3"
 itertools = "0.11.0"
