@@ -10,17 +10,17 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-phf = "0.8.0"
-includedir = "0.6.0"
-serde = { version = "1.0", features = ["derive"] }
-ckb-types = { path = "../util/types", version = "= 0.201.0-pre" }
-ckb-system-scripts = { version = "= 0.5.4" }
+phf = { workspace = true }
+includedir = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+ckb-types = { workspace = true }
+ckb-system-scripts = { workspace = true }
 
 [build-dependencies]
-includedir_codegen = "0.6.0"
-walkdir = "2.1.4"
-ckb-types = { path = "../util/types", version = "= 0.201.0-pre" }
-ckb-system-scripts = { version = "= 0.5.4" }
+includedir_codegen = { workspace = true }
+walkdir = { workspace = true }
+ckb-types = { workspace = true }
+ckb-system-scripts = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -9,12 +9,12 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-parking_lot = "0.12"
-linked-hash-map = { version = "0.5", features = ["serde_impl"] }
-regex = "1.1.6"
+parking_lot = { workspace = true }
+linked-hash-map = { workspace = true, features = ["serde_impl"] }
+regex = { workspace = true }
 
 [dev-dependencies]
-ckb-fixed-hash = { path = "fixed-hash", version = "= 0.201.0-pre" }
+ckb-fixed-hash = { workspace = true }
 
 [features]
 deadlock_detection = ["parking_lot/deadlock_detection"]

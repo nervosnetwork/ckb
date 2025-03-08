@@ -9,24 +9,22 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-multisig = { path = "../multisig", version = "= 0.201.0-pre" }
-ckb-types = { path = "../types", version = "= 0.201.0-pre" }
-ckb-util = { path = "..", version = "= 0.201.0-pre" }
-ckb-network = { path = "../../network", version = "= 0.201.0-pre" }
-ckb-notify = { path = "../../notify", version = "= 0.201.0-pre" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.201.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.201.0-pre" }
-ckb-app-config = { path = "../app-config", version = "= 0.201.0-pre" }
-ckb-error = { path = "../../error", version = "= 0.201.0-pre" }
-ckb-systemtime = { path = "../systemtime", version = "= 0.201.0-pre" }
-lru = "0.7.1"
-semver = "1.0"
+ckb-multisig = { workspace = true }
+ckb-types = { workspace = true }
+ckb-util = { workspace = true }
+ckb-network = { workspace = true }
+ckb-notify = { workspace = true }
+ckb-jsonrpc-types = { workspace = true }
+ckb-logger = { workspace = true }
+ckb-app-config = { workspace = true }
+ckb-error = { workspace = true }
+ckb-systemtime = { workspace = true }
+lru = { workspace = true }
+semver = { workspace = true }
 
 [dev-dependencies]
-ckb-crypto = { path = "../crypto", version = "= 0.201.0-pre" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.201.0-pre" }
-ckb-systemtime = { path = "../systemtime", version = "= 0.201.0-pre", features = [
-    "enable_faketime",
-] }
-faster-hex = "0.6"
+ckb-crypto = { workspace = true }
+ckb-async-runtime = { workspace = true }
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
+faster-hex = { workspace = true }
 serde_json = "1.0"

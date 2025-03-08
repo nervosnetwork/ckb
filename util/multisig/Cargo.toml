@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-error = { path = "../../error", version = "= 0.201.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.201.0-pre" }
-ckb-crypto = { path = "../crypto", version = "= 0.201.0-pre" }
+ckb-error = { workspace = true }
+ckb-logger = { workspace = true }
+ckb-crypto = { workspace = true }
 
 [dev-dependencies]
-rand = "0.8"
+rand = { workspace = true }

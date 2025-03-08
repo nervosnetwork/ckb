@@ -9,20 +9,18 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.201.0-pre" }
-ckb-db = { path = "../../db", version = "= 0.201.0-pre" }
-ckb-store = { path = "../../store", version = "= 0.201.0-pre" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.201.0-pre" }
-ckb-dao-utils = { path = "../dao/utils", version = "= 0.201.0-pre" }
-ckb-dao = { path = "../dao", version = "= 0.201.0-pre" }
-ckb-traits = { path = "../../traits", version = "= 0.201.0-pre" }
-ckb-systemtime = { path = "../systemtime", version = "= 0.201.0-pre" }
-ckb-resource = { path = "../../resource", version = "= 0.201.0-pre" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.201.0-pre" }
-ckb-util = { path = "..", version = "= 0.201.0-pre" }
+ckb-types = { workspace = true }
+ckb-db = { workspace = true }
+ckb-store = { workspace = true }
+ckb-chain-spec = { workspace = true }
+ckb-dao-utils = { workspace = true }
+ckb-dao = { workspace = true }
+ckb-traits = { workspace = true }
+ckb-systemtime = { workspace = true }
+ckb-resource = { workspace = true }
+ckb-db-schema = { workspace = true }
+ckb-util = { workspace = true }
 tempfile.workspace = true
 
 [dev-dependencies]
-ckb-systemtime = { path = "../systemtime", version = "= 0.201.0-pre", features = [
-    "enable_faketime",
-] }
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }

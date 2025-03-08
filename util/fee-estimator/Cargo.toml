@@ -9,8 +9,8 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger", version = "= 0.201.0-pre" }
-ckb-types = { path = "../types", version = "= 0.201.0-pre" }
-ckb-util = { path = "../../util", version = "= 0.201.0-pre" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.201.0-pre" }
-thiserror = "1.0"
+ckb-logger = { workspace = true }
+ckb-types = { workspace = true }
+ckb-util = { workspace = true }
+ckb-chain-spec = { workspace = true }
+thiserror = { workspace = true }

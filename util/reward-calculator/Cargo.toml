@@ -9,15 +9,15 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.201.0-pre" }
-ckb-store = { path = "../../store", version = "= 0.201.0-pre" }
-ckb-dao = { path = "../dao", version = "= 0.201.0-pre" }
-ckb-dao-utils = { path = "../dao/utils", version = "= 0.201.0-pre" }
-ckb-logger = { path = "../logger", version = "= 0.201.0-pre" }
-ckb-chain-spec = {path = "../../spec", version = "= 0.201.0-pre"}
+ckb-types = { workspace = true }
+ckb-store = { workspace = true }
+ckb-dao = { workspace = true }
+ckb-dao-utils = { workspace = true }
+ckb-logger = { workspace = true }
+ckb-chain-spec = { workspace = true }
 
 [dev-dependencies]
-ckb-db = { path = "../../db", version = "= 0.201.0-pre" }
-ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.201.0-pre" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.201.0-pre" }
+ckb-db = { workspace = true }
+ckb-occupied-capacity = { workspace = true }
+ckb-db-schema = { workspace = true }
 tempfile.workspace = true

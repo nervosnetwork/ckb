@@ -12,10 +12,10 @@ repository = "https://github.com/nervosnetwork/ckb"
 proc-macro = true
 
 [dependencies]
-ckb-fixed-hash-core = { path = "../core", version = "= 0.201.0-pre" }
-quote = "1.0"
+ckb-fixed-hash-core = { workspace = true }
+quote = { workspace = true }
 syn = "1.0"
-proc-macro2 = "1.0"
+proc-macro2 = { workspace = true }
 
 [package.metadata.cargo-shear]
 ignored = ["ckb-fixed-hash-core"]

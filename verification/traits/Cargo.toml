@@ -9,5 +9,5 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-bitflags = "1.0"
-ckb-error = { path = "../../error", version = "= 0.201.0-pre" }
+bitflags = { workspace = true }
+ckb-error = { workspace = true }

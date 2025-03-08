@@ -9,15 +9,15 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../logger", version = "= 0.201.0-pre" }
-tokio = { version = "1", features = ["sync"] }
-ckb-channel = { path = "../channel", version = "= 0.201.0-pre" }
-ckb-util = { path = "..", version = "= 0.201.0-pre" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.201.0-pre" }
-tokio-util = "0.7.8"
+ckb-logger = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+ckb-channel = { workspace = true }
+ckb-util = { workspace = true }
+ckb-async-runtime = { workspace = true }
+tokio-util = { workspace = true }
 
 
 [dev-dependencies]
-ctrlc = { version = "3.1", features = ["termination"] }
-libc = "0.2"
-rand = "0.8.5"
+ctrlc = { workspace = true, features = ["termination"] }
+libc = { workspace = true }
+rand = { workspace = true }

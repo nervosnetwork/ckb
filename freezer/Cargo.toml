@@ -10,15 +10,15 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.201.0-pre" }
-ckb-error = { path = "../error", version = "= 0.201.0-pre" }
-ckb-logger = { path = "../util/logger", version = "= 0.201.0-pre" }
-ckb-util = { path = "../util", version = "= 0.201.0-pre" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.201.0-pre" }
-fs2 = "0.4.3"
-fail = "0.4"
-snap = "1"
-lru = "0.7.1"
+ckb-types = { workspace = true }
+ckb-error = { workspace = true }
+ckb-logger = { workspace = true }
+ckb-util = { workspace = true }
+ckb-metrics = { workspace = true }
+fs2 = { workspace = true }
+fail = { workspace = true }
+snap = { workspace = true }
+lru = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

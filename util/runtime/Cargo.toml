@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-tokio = { version = "1", features = ["rt", "sync"] }
-ckb-logger = { path = "../logger", version = "= 0.201.0-pre" }
-ckb-spawn = { path = "../spawn", version = "= 0.201.0-pre" }
+tokio = { workspace = true, features = ["rt", "sync"] }
+ckb-logger = { workspace = true }
+ckb-spawn = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }

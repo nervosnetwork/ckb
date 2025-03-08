@@ -9,39 +9,37 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.201.0-pre" }
-ckb-chain-spec = { path = "../spec", version = "= 0.201.0-pre" }
-ckb-store = { path = "../store", version = "= 0.201.0-pre" }
-ckb-db = { path = "../db", version = "= 0.201.0-pre" }
-ckb-proposal-table = { path = "../util/proposal-table", version = "= 0.201.0-pre" }
-arc-swap = "1.3"
-ckb-error = { path = "../error", version = "= 0.201.0-pre" }
-ckb-snapshot = { path = "../util/snapshot", version = "= 0.201.0-pre" }
-ckb-tx-pool = { path = "../tx-pool", version = "= 0.201.0-pre" }
-ckb-verification = { path = "../verification", version = "= 0.201.0-pre" }
-ckb-notify = { path = "../notify", version = "= 0.201.0-pre" }
-ckb-logger = { path = "../util/logger", version = "= 0.201.0-pre" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.201.0-pre" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.201.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.201.0-pre" }
-ckb-constant = { path = "../util/constant", version = "= 0.201.0-pre" }
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.201.0-pre" }
-ckb-channel = { path = "../util/channel", version = "= 0.201.0-pre" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.201.0-pre" }
-ckb-migrate = { path = "../util/migrate", version = "= 0.201.0-pre" }
-ckb-fee-estimator = { path = "../util/fee-estimator", version = "= 0.201.0-pre"}
-ckb-util = { path = "../util", version = "= 0.201.0-pre" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.201.0-pre" }
-bitflags = "1.0"
-tokio = { version = "1", features = ["sync"] }
+ckb-types = { workspace = true }
+ckb-chain-spec = { workspace = true }
+ckb-store = { workspace = true }
+ckb-db = { workspace = true }
+ckb-proposal-table = { workspace = true }
+arc-swap = { workspace = true }
+ckb-error = { workspace = true }
+ckb-snapshot = { workspace = true }
+ckb-tx-pool = { workspace = true }
+ckb-verification = { workspace = true }
+ckb-notify = { workspace = true }
+ckb-logger = { workspace = true }
+ckb-db-schema = { workspace = true }
+ckb-async-runtime = { workspace = true }
+ckb-stop-handler = { workspace = true }
+ckb-constant = { workspace = true }
+ckb-systemtime = { workspace = true }
+ckb-channel = { workspace = true }
+ckb-app-config = { workspace = true }
+ckb-migrate = { workspace = true }
+ckb-fee-estimator = { workspace = true }
+ckb-util = { workspace = true }
+ckb-metrics = { workspace = true }
+bitflags = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 tempfile.workspace = true
-sled = "0.34.7"
-dashmap = "4.0"
+sled = { workspace = true }
+dashmap = { workspace = true }
 
 [dev-dependencies]
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.201.0-pre", features = [
-    "enable_faketime",
-] }
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 
 [features]
 portable = [
