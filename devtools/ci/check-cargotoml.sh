@@ -43,22 +43,64 @@ function check_package_name() {
 }
 
 function check_version() {
-  local regex_to_cut_version='s/^version = "\(.*\)"$/\1/p'
-  local expected=$(${SED} -n "${regex_to_cut_version}" "${SRC_ROOT}/Cargo.toml")
-  for cargo_toml in ${CARGOS}; do
-    local tmp=$(${SED} -n "${regex_to_cut_version}" "${cargo_toml}")
-    if [ "${expected}" != "${tmp}" ]; then
-      printf "Error: Version in <%s> is not right (expect: '%s', actual: '%s')\n" \
-        "${cargo_toml}" "${expected}" "${tmp}"
-      ERRCNT=$((ERRCNT + 1))
-    fi
+    local regex_to_cut_version='s/^version = "\(.*\)"$/\1/p'
+    local ckb_version=$(cat "${SRC_ROOT}/Cargo.toml" | tomlq -r .package.version)
+    declare -A ckb_workspace_members
+    members=$(tomlq -e '.workspace.members[]' Cargo.toml -r | xargs -I{} tomlq -e '.package.name' {}/Cargo.toml -r)
+    for member in ${members}; do
+        ckb_workspace_members[${member}]=1;
+    done
+    echo ${!ckb_workspace_members[@]}
 
-    if grep -n -H '{.*path\s*=\s*' $cargo_toml | grep -F -v 'version = "= '"$expected"'"'; then
-      printf "Error: Local dependencies in <%s> must specify version \"= %s\"\n" \
-        "${cargo_toml}" "${expected}"
-      ERRCNT=$((ERRCNT + 1))
-    fi
-  done
+
+    for cargo_toml in ${CARGOS}; do
+        local package_name=$(tomlq .package.name "${cargo_toml}")
+        local space_indent='                                  '
+        printf "Checking %s %s: %s\n" "${package_name}" "${space_indent:${#package_name}}"  "${cargo_toml}"
+        if [ "${cargo_toml}" = "${SRC_ROOT}/Cargo.toml" ] || [ "${cargo_toml}" = "${SRC_ROOT}/test/Cargo.toml" ] || [ "${cargo_toml}" = "${SRC_ROOT}/network/fuzz/Cargo.toml" ] || [ "${cargo_toml}" = "${SRC_ROOT}/script/fuzz/Cargo.toml" ]; then
+            dep_version=$(cat "${SRC_ROOT}/Cargo.toml" | tomlq -r .package.version)
+
+            # check dep_version == ckb_version
+            if [ "${dep_version}" != "${ckb_version}" ]; then
+                ERRCNT=$((ERRCNT + 1))
+                printf "Error in: %s. version(%s) != ckb worksapce version(%s)" "${cargo_toml}" "${dep_version}" "${ckb_version}"
+                exit 1
+            fi
+
+        else
+            tomlq -e '.package.version.workspace == true' "${cargo_toml}" > /dev/null
+            if [ $? -ne 0 ]; then
+                ERRCNT=$((ERRCNT + 1))
+                printf "Error %s 's version not inherit from ckb worksapce" "${cargo_toml}"
+            fi
+        fi
+
+        deps=$(cargo tree --depth 1 --manifest-path "${cargo_toml}" --prefix none)
+        if [ $? -ne 0 ]; then
+            ERRCNT=$((ERRCNT + 1))
+            printf "Error %s 's version not inherit from ckb worksapce" "${cargo_toml}"
+        fi
+
+        while IFS= read -r dep; do
+            dep_name=$(echo ${dep} | awk -F' ' '{print $1}')
+            dep_version=$(echo ${dep} | awk -F' ' '{print $2}')
+            if [[  -v ckb_workspace_members["${dep_name}"] ]]; then
+                # thes dep is a ckb's worspace member
+                # if dep_version not equal to ckb's version, then it's an error
+                if [ "${dep_version}" != "v${ckb_version}" ]; then
+                    ERRCNT=$((ERRCNT + 1))
+                    printf "Error in: %s. %s's version(%s) != ckb worksapce version(%s)" \
+                           "${cargo_toml}" "${dep_name}" \
+                           "${dep_version}" "v${ckb_version}"
+                    exit 1
+                fi
+            fi
+        done <<< "$deps"
+
+
+
+
+    done
 }
 
 function check_license() {

@@ -58,9 +58,14 @@ jobs:
     - uses: actions/checkout@v3
     - run: cargo fmt --all -- --check
     - run: rustup component add clippy
-    - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y
+    - run: pip install yq
+    - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev jq -y
     - run: |
         if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
+            echo tomlq path: $(which tomlq)
+            echo jq path: $(which jq)
+            tomlq --version
+            jq --version
             devtools/ci/ci_main.sh
         else
           echo "skip job"
