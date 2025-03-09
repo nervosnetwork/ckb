@@ -29,6 +29,3 @@ paste.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-
-[package.metadata.cargo-shear]
-ignored = ["bytes"]
