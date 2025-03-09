@@ -22,8 +22,8 @@ ckb-pow.workspace = true
 ckb-resource.workspace = true
 ckb-build-info.workspace = true
 ckb-types.workspace = true
-secio = { version = "0.6", package = "tentacle-secio" }
-multiaddr = { version = "0.3.0", package = "tentacle-multiaddr" }
+secio.workspace = true
+multiaddr.workspace = true
 rand.workspace = true
 sentry = { workspace = true, optional = true }
 ckb-systemtime.workspace = true

@@ -34,10 +34,10 @@ serde_json = "1.0"
 bloom-filters.workspace = true
 ckb-spawn.workspace = true
 bitflags.workspace = true
-p2p = { version = "0.6.2", package = "tentacle", default-features = false }
+p2p = { workspace = true, default-features = false }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-p2p = { version = "0.6.2", package = "tentacle", default-features = false, features = [
+p2p = { workspace = true, default-features = false, features = [
     "upnp",
     "parking_lot",
     "openssl-vendored",
@@ -48,7 +48,7 @@ p2p = { version = "0.6.2", package = "tentacle", default-features = false, featu
 socket2 = "0.5"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-p2p = { version = "0.6.2", package = "tentacle", default-features = false, features = [
+p2p = { workspace = true, default-features = false, features = [
     "wasm-timer",
 ] }
 idb = "0.6"
