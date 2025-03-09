@@ -260,7 +260,7 @@ rayon = "1.0"
 regex = "1.1.6"
 reqwest = "0.12"
 rhai = "1.16.0"
-rocksdb = { version = "=0.21.1", default-features = false }
+rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
 rustc-hash = "1.1"
 secio = { version = "0.6", package = "tentacle-secio" }
 secp256k1 = "0.30"

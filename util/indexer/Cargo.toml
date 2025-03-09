@@ -17,7 +17,7 @@ ckb-app-config.workspace = true
 ckb-notify.workspace = true
 ckb-async-runtime.workspace = true
 ckb-indexer-sync.workspace = true
-rocksdb = { package = "ckb-rocksdb", version ="=0.21.1", features = ["snappy"], default-features = false }
+rocksdb = { workspace = true, features = ["snappy"], default-features = false }
 memchr.workspace = true
 
 [dev-dependencies]
