@@ -17,6 +17,7 @@ pub enum Module {
     Debug,
     Indexer,
     RichIndexer,
+    IPC,
 }
 
 /// RPC config options.
@@ -68,6 +69,11 @@ impl Config {
     /// Checks whether the Chain module is enabled.
     pub fn chain_enable(&self) -> bool {
         self.modules.contains(&Module::Chain)
+    }
+
+    /// Checks whether the Ipc module is enabled.
+    pub fn ipc_enable(&self) -> bool {
+        self.modules.contains(&Module::IPC)
     }
 
     /// Checks whether the Miner module is enabled.

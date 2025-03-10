@@ -87,6 +87,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `generate_block_with_template`](#integration_test-generate_block_with_template)
         * [Method `calculate_dao_field`](#integration_test-calculate_dao_field)
         * [Method `send_test_transaction`](#integration_test-send_test_transaction)
+    * [Module Ipc](#module-ipc) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Ipc&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/ipc_rpc_doc.json)
+
+        * [Method `ipc_call`](#ipc-ipc_call)
     * [Module Miner](#module-miner) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/miner_rpc_doc.json)
 
         * [Method `get_block_template`](#miner-get_block_template)
@@ -195,6 +198,11 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `IndexerTx`](#type-indexertx)
     * [Type `IndexerTxWithCell`](#type-indexertxwithcell)
     * [Type `IndexerTxWithCells`](#type-indexertxwithcells)
+    * [Type `IpcEnv`](#type-ipcenv)
+    * [Type `IpcPayloadFormat`](#type-ipcpayloadformat)
+    * [Type `IpcRequest`](#type-ipcrequest)
+    * [Type `IpcResponse`](#type-ipcresponse)
+    * [Type `IpcScriptLocator`](#type-ipcscriptlocator)
     * [Type `JsonBytes`](#type-jsonbytes)
     * [Type `LocalNode`](#type-localnode)
     * [Type `LocalNodeProtocol`](#type-localnodeprotocol)
@@ -219,6 +227,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `ResponseFormat<TransactionView>`](#type-responseformat_for_transactionview)
     * [Type `Rfc0043`](#type-rfc0043)
     * [Type `Script`](#type-script)
+    * [Type `ScriptGroupType`](#type-scriptgrouptype)
     * [Type `ScriptHashType`](#type-scripthashtype)
     * [Type `SerializedBlock`](#type-serializedblock)
     * [Type `SerializedHeader`](#type-serializedheader)
@@ -3700,6 +3709,120 @@ Response
 }
 ```
 
+### Module `Ipc`
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Ipc&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/ipc_rpc_doc.json)
+
+
+RPC Module IPC.
+
+<a id="ipc-ipc_call"></a>
+#### Method `ipc_call`
+* `ipc_call(script_locator, req, env)`
+    * `script_locator`: [`IpcScriptLocator`](#type-ipcscriptlocator)
+    * `req`: [`IpcRequest`](#type-ipcrequest)
+    * `env`: [`IpcEnv`](#type-ipcenv) `|` `null`
+* result: [`IpcResponse`](#type-ipcresponse)
+
+Call the ipc method in the script.
+
+###### Params
+
+* script_locator - Used to locate the ipc script. You only need to provide one of the following two.
+    - out_point - Reference to the cell by transaction hash and output index.
+    - type_id_args - Reference to the cell by type id type script args.
+* req - Request.
+    - version - IPC protocol version. Default is 0.
+    - method_id - IPC protocol method id. Default is 0.
+    - payload_format - The format of payload.
+    - payload - Payload.
+* env: The transaction environment that the ipc script depends on. The script specified by script_group_type + script_hash will be executed, but the script binary will be replaced by the ipc script.
+    - tx - The transaction.
+    - script_group_type - Script group type.
+    - script_hash - Script hash.
+
+###### Returns
+
+* version - IPC protocol version. Default is 0.
+* error_code - IPC error code.
+* payload_format - The format of payload.
+* payload - Payload.
+
+###### Examples
+
+Request
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "ipc_call",
+    "params": [
+        {
+            "out_point": {
+                "tx_hash": "0x4e75e1d4dddc0efe5e028168f627e3af436f1002b61038d695b24aa8441ffaf5",
+                "index": "0x0"
+            }
+        },
+        {
+            "version": "0x0",
+            "method_id": "0x0",
+            "payload_format": "json",
+            "payload": {
+                "SyscallLoadScript": {}
+            }
+        },
+        {
+            "tx": {
+                "version": "0x0",
+                "cell_deps": [
+                    {
+                        "out_point": {
+                            "tx_hash": "0xe7db03de9c534cb63d951f5378d5a4fbf43a2ebf5e48cb626562d188a3697772",
+                            "index": "0x0"
+                        },
+                        "dep_type": "dep_group"
+                    }
+                ],
+                "header_deps": [],
+                "inputs": [
+                    {
+                        "since": "0x0",
+                        "previous_output": {
+                            "tx_hash": "0x953d1a4b95cefca9588b6d0bf7e97084bb51010ce87d1bcbe65c0ccd621781b8",
+                            "index": "0x0"
+                        }
+                    }
+                ],
+                "outputs": [],
+                "outputs_data": [],
+                "witnesses": [
+                    "0x55000000100000005500000055000000410000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+                ]
+            },
+            "script_group_type": "lock",
+            "script_hash": "0x0b1bae4beaf456349c63c3ce67491fc75a1276d7f9eedd7ea84d6a77f9f3f5f7"
+        }
+    ]
+}
+```
+
+Response
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "error_code": "0x0",
+        "payload": {
+            "SyscallLoadScript": "0x490000001000000030000000310000009bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8011400000075178f34549c5fe9cd1a0c57aebd01e7ddf9249e"
+        },
+        "payload_format": "json",
+        "version": "0x0"
+    }
+    "id": 2
+}
+```
+
 ### Module `Miner`
 - [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Miner&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/miner_rpc_doc.json)
 
@@ -6488,6 +6611,65 @@ Grouped Tx inner type
 
 * `tx_index`: [`Uint32`](#type-uint32) - the position index of the transaction committed in the block
 
+### Type `IpcEnv`
+Represents the environment for IPC operations.
+
+#### Fields
+
+`IpcEnv` is a JSON object with the following fields.
+
+* `script_group_type`: [`ScriptGroupType`](#type-scriptgrouptype) - The type of script group used in IPC operations.
+
+* `script_hash`: [`H256`](#type-h256) - The script hash used in IPC operations.
+
+* `tx`: [`Transaction`](#type-transaction) - The transaction used in IPC operations.
+
+### Type `IpcPayloadFormat`
+Enum representing different payload formats for IPC requests and responses.
+
+It's an enum value from one of:
+  - hex : Format is hexadecimal (hex).
+  - json : Format is JSON.
+
+### Type `IpcRequest`
+Represents an IPC request with metadata and payload.
+
+#### Fields
+
+`IpcRequest` is a JSON object with the following fields.
+
+* `method_id`: [`Uint64`](#type-uint64) - The method ID of the request.
+
+* `payload`:  - The actual payload data in JSON format.
+
+* `payload_format`: [`IpcPayloadFormat`](#type-ipcpayloadformat) - The format of the payload.
+
+* `version`: [`Uint64`](#type-uint64) - The version of the request.
+
+### Type `IpcResponse`
+Represents an IPC response with metadata and payload.
+
+#### Fields
+
+`IpcResponse` is a JSON object with the following fields.
+
+* `error_code`: [`Uint64`](#type-uint64) - Error code associated with the response.
+
+* `payload`:  - Actual payload data in JSON format.
+
+* `payload_format`: [`IpcPayloadFormat`](#type-ipcpayloadformat) - Format of the payload.
+
+* `version`: [`Uint64`](#type-uint64) - The version of the response.
+
+### Type `IpcScriptLocator`
+Represents a script locator for IPC requests.
+
+#### Fields
+
+`IpcScriptLocator` is a JSON object with the following fields.
+
+* `out_point`: [`OutPoint`](#type-outpoint) `|` `null` The out point of the script.
+* `type_id_args`: [`H256`](#type-h256) `|` `null` The type ID of the script.
 ### Type `JsonBytes`
 
 Variable-length binary encoded as a 0x-prefixed hex string in JSON.
@@ -6983,6 +7165,13 @@ Describes the lock script and type script for a cell.
 * `code_hash`: [`H256`](#type-h256) - The hash used to match the script code.
 
 * `hash_type`: [`ScriptHashType`](#type-scripthashtype) - Specifies how to use the `code_hash` to match the script code.
+
+### Type `ScriptGroupType`
+The script group type.
+
+It's an enum value from one of:
+  - lock : Lock script group.
+  - type : Type script group.
 
 ### Type `ScriptHashType`
 Specifies how the script `code_hash` is used to match the script code and how to run the code.
@@ -7545,3 +7734,7 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 (-1112): The transaction is rejected for ref cell consuming.
 ### ERROR `Indexer`
 (-1200): The indexer error.
+### ERROR `IPC`
+(-1300): The ipc error.
+### ERROR `IPCIndexerIsDisabled`
+(-1301): Requires the indexer module to be enabled.

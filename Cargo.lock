@@ -1056,6 +1056,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-ipc"
+version = "0.202.0-pre"
+
+[[package]]
 name = "ckb-jsonrpc-types"
 version = "0.202.0-pre"
 dependencies = [
@@ -1490,8 +1494,10 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
+ "ckb-hash",
  "ckb-indexer",
  "ckb-indexer-sync",
+ "ckb-ipc",
  "ckb-jsonrpc-types",
  "ckb-logger",
  "ckb-logger-service",
@@ -1502,6 +1508,7 @@ dependencies = [
  "ckb-pow",
  "ckb-reward-calculator",
  "ckb-rich-indexer",
+ "ckb-script",
  "ckb-shared",
  "ckb-stop-handler",
  "ckb-store",
@@ -1514,7 +1521,9 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
+ "ckb-vm",
  "ckb_schemars",
+ "faster-hex",
  "futures-util",
  "itertools 0.11.0",
  "jsonrpc-core",

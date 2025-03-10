@@ -119,6 +119,10 @@ pub enum RPCError {
     PoolRejectedInvalidated = -1112,
     /// (-1200): The indexer error.
     Indexer = -1200,
+    /// (-1300): The ipc error.
+    IPC = -1300,
+    /// (-1301): Requires the indexer module to be enabled.
+    IPCIndexerIsDisabled = -1301,
 }
 
 /// Removes the backtrace portion from an error string.

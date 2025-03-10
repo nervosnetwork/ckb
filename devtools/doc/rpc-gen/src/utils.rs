@@ -30,6 +30,7 @@ pub(crate) fn all_rpc_docs() -> Vec<(String, Value)> {
         indexer_rpc_doc,
         rich_indexer_rpc_doc,
         experiment_rpc_doc,
+        ipc_rpc_doc,
     )
     .into()
 }

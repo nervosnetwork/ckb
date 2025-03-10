@@ -11,6 +11,7 @@ mod fee_rate;
 mod fixed_bytes;
 mod indexer;
 mod info;
+mod ipc;
 mod json_schema;
 mod net;
 mod pool;
@@ -42,6 +43,9 @@ pub use self::fee_estimator::EstimateMode;
 pub use self::fee_rate::FeeRateDef;
 pub use self::fixed_bytes::Byte32;
 pub use self::info::{ChainInfo, DeploymentInfo, DeploymentPos, DeploymentState, DeploymentsInfo};
+pub use self::ipc::{
+    IpcEnv, IpcPayloadFormat, IpcRequest, IpcResponse, IpcScriptLocator, ScriptGroupType,
+};
 pub use self::net::{
     BannedAddr, LocalNode, LocalNodeProtocol, NodeAddress, PeerSyncState, RemoteNode,
     RemoteNodeProtocol, SyncState,

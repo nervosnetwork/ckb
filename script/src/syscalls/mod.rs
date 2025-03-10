@@ -94,9 +94,13 @@ pub const SPAWN: u64 = 2601;
 pub const WAIT: u64 = 2602;
 pub const PROCESS_ID: u64 = 2603;
 pub const PIPE: u64 = 2604;
+/// Syscall id of write.
 pub const WRITE: u64 = 2605;
+/// Syscall id of read.
 pub const READ: u64 = 2606;
+/// Syscall id of inherited fd.
 pub const INHERITED_FD: u64 = 2607;
+/// Syscall id of close.
 pub const CLOSE: u64 = 2608;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 #[cfg(test)]

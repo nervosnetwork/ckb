@@ -191,6 +191,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             RpcModule::Alert,
             RpcModule::Subscription,
             RpcModule::Debug,
+            RpcModule::IPC,
         ],
         reject_ill_transactions: true,
         // enable deprecated rpc in unit test
@@ -199,31 +200,33 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         extra_well_known_type_scripts: vec![],
     };
 
-    let builder = ServiceBuilder::new(&rpc_config)
-        .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), vec![], vec![])
-        .enable_miner(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-            true,
-        )
-        .enable_net(
-            network_controller.clone(),
-            sync_shared,
-            Arc::new(chain_controller.clone()),
-        )
-        .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
-        .enable_experiment(shared.clone())
-        .enable_integration_test(
-            shared.clone(),
-            network_controller.clone(),
-            chain_controller.clone(),
-            vec![],
-            vec![],
-        )
-        .enable_debug()
-        .enable_alert(alert_verifier, alert_notifier, network_controller);
+    let builder = ServiceBuilder::new(&rpc_config);
+    let builder = builder.enable_chain(shared.clone());
+    let builder = builder.enable_pool(shared.clone(), vec![], vec![]);
+    let builder = builder.enable_miner(
+        shared.clone(),
+        network_controller.clone(),
+        chain_controller.clone(),
+        true,
+    );
+    let builder = builder.enable_net(
+        network_controller.clone(),
+        sync_shared,
+        Arc::new(chain_controller.clone()),
+    );
+    let builder = builder.enable_stats(shared.clone(), Arc::clone(&alert_notifier));
+    let builder = builder.enable_experiment(shared.clone());
+    let builder = builder.enable_integration_test(
+        shared.clone(),
+        network_controller.clone(),
+        chain_controller.clone(),
+        vec![],
+        vec![],
+    );
+    let builder = builder.enable_debug();
+    let builder = builder.enable_alert(alert_verifier, alert_notifier, network_controller);
+    let indexer_rpc_impl = builder.indexer_rpc_impl.clone();
+    let builder = builder.enable_ipc(shared.clone(), indexer_rpc_impl);
 
     let io_handler = builder.build();
     let shared_clone = shared.clone();

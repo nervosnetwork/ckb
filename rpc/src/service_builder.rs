@@ -1,11 +1,11 @@
 #![allow(deprecated)]
 use crate::module::{
     AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl,
-    IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, RichIndexerRpcImpl,
+    IntegrationTestRpcImpl, IpcRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, RichIndexerRpcImpl,
     StatsRpcImpl, SubscriptionRpcImpl, add_alert_rpc_methods, add_chain_rpc_methods,
     add_debug_rpc_methods, add_experiment_rpc_methods, add_indexer_rpc_methods,
-    add_integration_test_rpc_methods, add_miner_rpc_methods, add_net_rpc_methods,
-    add_pool_rpc_methods, add_rich_indexer_rpc_methods, add_stats_rpc_methods,
+    add_integration_test_rpc_methods, add_ipc_rpc_methods, add_miner_rpc_methods,
+    add_net_rpc_methods, add_pool_rpc_methods, add_rich_indexer_rpc_methods, add_stats_rpc_methods,
     add_subscription_rpc_methods,
 };
 use crate::{IoHandler, RPCError};
@@ -31,6 +31,7 @@ const DEPRECATED_RPC_PREFIX: &str = "deprecated.";
 pub struct ServiceBuilder<'a> {
     config: &'a RpcConfig,
     io_handler: IoHandler,
+    pub indexer_rpc_impl: Option<IndexerRpcImpl>,
 }
 
 macro_rules! set_rpc_module_methods {
@@ -52,6 +53,7 @@ impl<'a> ServiceBuilder<'a> {
         Self {
             config,
             io_handler: IoHandler::with_compatibility(jsonrpc_core::Compatibility::V2),
+            indexer_rpc_impl: None,
         }
     }
 
@@ -74,6 +76,12 @@ impl<'a> ServiceBuilder<'a> {
             extra_well_known_type_scripts,
         );
         set_rpc_module_methods!(self, "Pool", pool_enable, add_pool_rpc_methods, methods)
+    }
+
+    /// Mounts methods from module IPC if it is enabled in the config.
+    pub fn enable_ipc(mut self, shared: Shared, indexer_rpc_impl: Option<IndexerRpcImpl>) -> Self {
+        let methods = IpcRpcImpl::new(shared, indexer_rpc_impl);
+        set_rpc_module_methods!(self, "IPC", ipc_enable, add_ipc_rpc_methods, methods)
     }
 
     /// Mounts methods from module Miner if `enable` is `true` and it is enabled in the config.
@@ -216,6 +224,7 @@ impl<'a> ServiceBuilder<'a> {
 
             let indexer_handle = indexer.handle();
             let methods = IndexerRpcImpl::new(indexer_handle);
+            self.indexer_rpc_impl = Some(methods.clone());
             self = set_rpc_module_methods!(
                 self,
                 "Indexer",
@@ -251,7 +260,7 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    pub fn enable_subscription(&mut self, shared: Shared) {
+    pub fn enable_subscription(mut self, shared: Shared) -> Self {
         if self.config.subscription_enable() {
             let methods = SubscriptionRpcImpl::new(
                 shared.notify_controller().clone(),
@@ -261,6 +270,7 @@ impl<'a> ServiceBuilder<'a> {
             add_subscription_rpc_methods(&mut meta_io, methods);
             self.add_methods(meta_io);
         }
+        self
     }
 
     fn add_methods<I>(&mut self, rpc_methods: I)

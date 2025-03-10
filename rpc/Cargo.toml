@@ -17,6 +17,7 @@ ckb-shared.workspace = true
 ckb-store.workspace = true
 ckb-sync.workspace = true
 ckb-chain.workspace = true
+ckb-hash.workspace = true
 ckb-logger.workspace = true
 ckb-logger-service.workspace = true
 ckb-network-alert.workspace = true
@@ -39,8 +40,11 @@ ckb-memory-tracker.workspace = true
 ckb-pow.workspace = true
 ckb-indexer.workspace = true
 ckb-indexer-sync.workspace = true
+ckb-ipc.workspace = true
 ckb-rich-indexer.workspace = true
+ckb-script.workspace = true
 ckb-stop-handler.workspace = true
+ckb-vm.workspace = true
 itertools.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
@@ -51,6 +55,7 @@ tower-http = { workspace = true, features = ["timeout", "cors"] }
 async-stream.workspace = true
 ckb-async-runtime.workspace = true
 schemars.workspace = true
+faster-hex.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking", "json"] }

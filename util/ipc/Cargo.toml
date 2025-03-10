@@ -1,0 +1,11 @@
+[package]
+name = "ckb-ipc"
+version.workspace = true
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2024"
+description = "Common utilities for CKB Script IPC."
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[dependencies]

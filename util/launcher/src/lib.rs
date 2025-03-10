@@ -391,57 +391,60 @@ impl Launcher {
         .expect("Start network service failed");
 
         let rpc_config = self.adjust_rpc_config();
-        let mut builder = ServiceBuilder::new(&rpc_config)
-            .enable_chain(shared.clone())
-            .enable_pool(
-                shared.clone(),
-                rpc_config
-                    .extra_well_known_lock_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-                rpc_config
-                    .extra_well_known_type_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-            )
-            .enable_miner(
-                shared.clone(),
-                network_controller.clone(),
-                chain_controller.clone(),
-                miner_enable,
-            )
-            .enable_net(
-                network_controller.clone(),
-                sync_shared,
-                Arc::new(chain_controller.clone()),
-            )
-            .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
-            .enable_experiment(shared.clone())
-            .enable_integration_test(
-                shared.clone(),
-                network_controller.clone(),
-                chain_controller,
-                rpc_config
-                    .extra_well_known_lock_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-                rpc_config
-                    .extra_well_known_type_scripts
-                    .iter()
-                    .map(|script| script.clone().into())
-                    .collect(),
-            )
-            .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
-            .enable_indexer(
-                shared.clone(),
-                &self.args.config.db,
-                &self.args.config.indexer,
-            )
-            .enable_debug();
-        builder.enable_subscription(shared.clone());
+        let builder = ServiceBuilder::new(&rpc_config);
+        let builder = builder.enable_chain(shared.clone());
+        let builder = builder.enable_pool(
+            shared.clone(),
+            rpc_config
+                .extra_well_known_lock_scripts
+                .iter()
+                .map(|script| script.clone().into())
+                .collect(),
+            rpc_config
+                .extra_well_known_type_scripts
+                .iter()
+                .map(|script| script.clone().into())
+                .collect(),
+        );
+        let builder = builder.enable_miner(
+            shared.clone(),
+            network_controller.clone(),
+            chain_controller.clone(),
+            miner_enable,
+        );
+        let builder = builder.enable_net(
+            network_controller.clone(),
+            sync_shared,
+            Arc::new(chain_controller.clone()),
+        );
+        let builder = builder.enable_stats(shared.clone(), Arc::clone(&alert_notifier));
+        let builder = builder.enable_experiment(shared.clone());
+        let builder = builder.enable_integration_test(
+            shared.clone(),
+            network_controller.clone(),
+            chain_controller,
+            rpc_config
+                .extra_well_known_lock_scripts
+                .iter()
+                .map(|script| script.clone().into())
+                .collect(),
+            rpc_config
+                .extra_well_known_type_scripts
+                .iter()
+                .map(|script| script.clone().into())
+                .collect(),
+        );
+        let builder =
+            builder.enable_alert(alert_verifier, alert_notifier, network_controller.clone());
+        let builder = builder.enable_indexer(
+            shared.clone(),
+            &self.args.config.db,
+            &self.args.config.indexer,
+        );
+        let builder = builder.enable_debug();
+        let indexer_rpc_impl = builder.indexer_rpc_impl.clone();
+        let builder = builder.enable_ipc(shared.clone(), indexer_rpc_impl);
+        let builder = builder.enable_subscription(shared.clone());
         let io_handler = builder.build();
 
         let _rpc = RpcServer::new(rpc_config, io_handler, self.rpc_handle.clone());

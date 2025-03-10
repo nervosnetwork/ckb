@@ -884,7 +884,7 @@ pub trait IndexerRpc {
 }
 
 #[derive(Clone)]
-pub(crate) struct IndexerRpcImpl {
+pub struct IndexerRpcImpl {
     pub(crate) handle: IndexerHandle,
 }
 
