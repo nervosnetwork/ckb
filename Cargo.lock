@@ -858,7 +858,7 @@ dependencies = [
  "faster-hex",
  "rand 0.8.5",
  "secp256k1",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -925,7 +925,7 @@ dependencies = [
  "anyhow",
  "ckb-occupied-capacity",
  "derive_more 1.0.0",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -936,7 +936,7 @@ dependencies = [
  "ckb-logger",
  "ckb-types",
  "ckb-util",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -955,7 +955,7 @@ dependencies = [
  "faster-hex",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -1039,7 +1039,7 @@ dependencies = [
  "numext-fixed-uint",
  "rhai",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
