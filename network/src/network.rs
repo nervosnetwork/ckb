@@ -107,8 +107,13 @@ impl NetworkState {
             .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
                 Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
                 _ => {
-                    if extract_peer_id(&addr).is_none() {
-                        addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
+                    match extract_peer_id(&addr) {
+                        Some(peer_id) if peer_id != local_peer_id => {
+                            error!("Don't add no self address to public addresses: {:?}", addr);
+                            std::process::exit(1);
+                        }
+                        Some(_) => (),
+                        None => addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes()))),
                     }
                     Some(addr)
                 }
