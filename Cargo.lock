@@ -659,7 +659,7 @@ dependencies = [
  "ckb-systemtime",
  "ckb-types",
  "path-clean",
- "rand 0.8.5",
+ "rand 0.9.0",
  "sentry",
  "serde",
  "serde_json",
@@ -703,7 +703,7 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "criterion",
- "rand 0.8.5",
+ "rand 0.9.0",
  "tempfile",
 ]
 
@@ -856,7 +856,7 @@ version = "0.201.0-pre"
 dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
- "rand 0.8.5",
+ "rand 0.9.0",
  "secp256k1",
  "thiserror 1.0.69",
 ]
@@ -1018,7 +1018,7 @@ dependencies = [
  "ckb-types",
  "faster-hex",
  "memchr",
- "rand 0.8.5",
+ "rand 0.9.0",
  "tempfile",
 ]
 
@@ -1267,7 +1267,7 @@ dependencies = [
  "indicatif",
  "jsonrpc-core",
  "lru",
- "rand 0.8.5",
+ "rand 0.9.0",
  "rand_distr",
  "serde",
  "serde_json",
@@ -1281,7 +1281,7 @@ dependencies = [
  "ckb-crypto",
  "ckb-error",
  "ckb-logger",
- "rand 0.8.5",
+ "rand 0.9.0",
 ]
 
 [[package]]
@@ -1308,7 +1308,7 @@ dependencies = [
  "ipnetwork",
  "num_cpus",
  "proptest",
- "rand 0.8.5",
+ "rand 0.9.0",
  "secp256k1",
  "sentry",
  "serde",
@@ -1456,7 +1456,7 @@ dependencies = [
  "include_dir",
  "log",
  "num-bigint",
- "rand 0.8.5",
+ "rand 0.9.0",
  "serde_json",
  "sql-builder",
  "sqlx",
@@ -1563,7 +1563,7 @@ dependencies = [
  "faster-hex",
  "molecule",
  "proptest",
- "rand 0.8.5",
+ "rand 0.9.0",
  "serde",
  "tempfile",
  "tiny-keccak",
@@ -1634,7 +1634,7 @@ dependencies = [
  "ckb-util",
  "ctrlc",
  "libc",
- "rand 0.8.5",
+ "rand 0.9.0",
  "tokio",
  "tokio-util",
 ]
@@ -1693,7 +1693,7 @@ dependencies = [
  "itertools 0.11.0",
  "keyed_priority_queue",
  "lru",
- "rand 0.8.5",
+ "rand 0.9.0",
  "sentry",
  "tempfile",
  "tokio",
@@ -1776,7 +1776,7 @@ dependencies = [
  "lru",
  "multi_index_map",
  "num_cpus",
- "rand 0.8.5",
+ "rand 0.9.0",
  "rustc-hash",
  "sentry",
  "serde_json",
@@ -1862,7 +1862,7 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "rand 0.8.5",
+ "rand 0.9.0",
  "rayon",
  "tokio",
 ]
