@@ -11,8 +11,8 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 ckb-rpc ={ workspace = true }
 schemars.workspace = true
-serde_json = "~1.0"
+serde_json.workspace = true
 tera.workspace = true
-syn = { version = "2.0.39", features = ["extra-traits", "full", "parsing", "visit"] }
+syn = { workspace = true, features = ["extra-traits", "full", "parsing", "visit"] }
 walkdir.workspace = true
 proc-macro2.workspace = true

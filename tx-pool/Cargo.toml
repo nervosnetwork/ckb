@@ -36,7 +36,7 @@ ckb-channel.workspace = true
 ckb-db.workspace = true
 ckb-script.workspace = true
 sentry = { workspace = true, optional = true }
-serde_json = "1.0"
+serde_json.workspace = true
 rand.workspace = true
 hyper = { workspace = true, features = ["http1", "http2", "client"] }
 hyper-util = { workspace = true, features = ["client-legacy", "http1", "http2"] }

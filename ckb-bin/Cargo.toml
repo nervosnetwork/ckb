@@ -11,7 +11,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 clap = { workspace = true, features = ["string", "wrap_help"] }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { version = "1.0" }
+serde_json.workspace = true
 serde_plain.workspace = true
 toml.workspace = true
 ckb-app-config.workspace = true
