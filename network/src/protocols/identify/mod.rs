@@ -625,6 +625,7 @@ impl Identify {
 
 bitflags::bitflags! {
     /// Node Function Identification
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
     pub struct Flags: u64 {
         /// Compatibility reserved
         const COMPATIBILITY = 0b1;
