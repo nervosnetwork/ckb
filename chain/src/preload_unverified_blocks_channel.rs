@@ -1,6 +1,6 @@
 use crate::{LonelyBlockHash, UnverifiedBlock};
 use ckb_channel::{Receiver, Sender};
-use ckb_logger::{debug, error, info};
+use ckb_logger::{debug, info};
 use ckb_shared::Shared;
 use ckb_store::ChainStore;
 use crossbeam::select;
@@ -37,8 +37,8 @@ impl PreloadUnverifiedBlocksChannel {
                     Ok(preload_unverified_block_task) =>{
                         self.preload_unverified_channel(preload_unverified_block_task);
                     },
-                    Err(err) =>{
-                        error!("recv preload_task_rx failed, err: {:?}", err);
+                    Err(_err) =>{
+                        info!("recv preload_task_rx failed");
                         break;
                     }
                 },
