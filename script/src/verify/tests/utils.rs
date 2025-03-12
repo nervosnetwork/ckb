@@ -26,12 +26,16 @@ use ckb_types::{
         TransactionKeyBuilder, WitnessArgs,
     },
 };
+use ckb_vm::Syscalls;
 use faster_hex::hex_encode;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::{fs::File, path::Path};
 use tempfile::TempDir;
 
-use crate::verify::*;
+use crate::{syscalls::*, types::*, verify::*};
 
 pub(crate) const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 pub(crate) const CYCLE_BOUND: Cycle = 250_000;
@@ -118,6 +122,27 @@ pub(crate) fn default_transaction_info() -> TransactionInfo {
         .unpack()
 }
 
+#[derive(Clone)]
+pub(crate) struct DebugContext {
+    pub debug_printer: DebugPrinter,
+    pub skip_pause: Arc<std::sync::atomic::AtomicBool>,
+}
+
+pub(crate) fn generate_syscalls_with_skip_pause<DL>(
+    vm_id: &VmId,
+    sg_data: &SgData<DL>,
+    vm_context: &VmContext<DL>,
+    debug_context: &DebugContext,
+) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+{
+    let mut syscalls =
+        generate_ckb_syscalls(vm_id, sg_data, vm_context, &debug_context.debug_printer);
+    syscalls.push(Box::new(Pause::new(Arc::clone(&debug_context.skip_pause))));
+    syscalls
+}
+
 pub(crate) struct TransactionScriptsVerifierWithEnv {
     // The fields of a struct are dropped in declaration order.
     // So, put `ChainDB` (`RocksDB`) before `TempDir`.
@@ -128,6 +153,7 @@ pub(crate) struct TransactionScriptsVerifierWithEnv {
     version_1_enabled_at: EpochNumber,
     version_2_enabled_at: EpochNumber,
     _tmp_dir: TempDir,
+    skip_pause: Arc<AtomicBool>,
 }
 
 impl TransactionScriptsVerifierWithEnv {
@@ -161,7 +187,16 @@ impl TransactionScriptsVerifierWithEnv {
             version_2_enabled_at,
             consensus,
             _tmp_dir: tmp_dir,
+            skip_pause: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub(crate) fn set_skip_pause(&self, skip_pause: bool) {
+        self.skip_pause.store(skip_pause, Ordering::SeqCst);
+    }
+
+    fn clear_pause(&self) {
+        self.set_skip_pause(false);
     }
 
     pub(crate) fn verify_without_limit(
@@ -172,11 +207,13 @@ impl TransactionScriptsVerifierWithEnv {
         self.verify(version, rtx, u64::MAX)
     }
 
-    pub(crate) async fn verify_without_limit_async(
+    fn build_verifier(
         &self,
         version: ScriptVersion,
         rtx: &ResolvedTransaction,
-    ) -> Result<Cycle, Error> {
+    ) -> TransactionScriptsVerifier<DataLoaderWrapper<ChainDB>, DebugContext> {
+        self.clear_pause();
+
         let data_loader = self.store.as_data_loader();
         let epoch = match version {
             ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
@@ -187,12 +224,31 @@ impl TransactionScriptsVerifierWithEnv {
             .epoch(epoch.pack())
             .build();
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
-        let verifier = TransactionScriptsVerifier::new(
+        let debug_context = DebugContext {
+            debug_printer: Arc::new(|_hash: &Byte32, message: &str| {
+                print!("{}", message);
+                if !message.ends_with('\n') {
+                    println!();
+                }
+            }),
+            skip_pause: Arc::clone(&self.skip_pause),
+        };
+        TransactionScriptsVerifier::new_with_generator(
             Arc::new(rtx.clone()),
             data_loader,
             Arc::clone(&self.consensus),
             tx_env,
-        );
+            generate_syscalls_with_skip_pause,
+            debug_context,
+        )
+    }
+
+    pub(crate) async fn verify_without_limit_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+    ) -> Result<Cycle, Error> {
+        let verifier = self.build_verifier(version, rtx);
 
         let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
         verifier
@@ -218,7 +274,7 @@ impl TransactionScriptsVerifierWithEnv {
         max_cycles: Cycle,
     ) -> Result<Cycle, Error> {
         self.verify_map(version, rtx, |verifier| {
-            verifier.set_skip_pause(true);
+            self.set_skip_pause(true);
             verifier.verify(max_cycles)
         })
     }
@@ -268,25 +324,10 @@ impl TransactionScriptsVerifierWithEnv {
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
         skip_debug_pause: bool,
     ) -> Result<Cycle, Error> {
-        let data_loader = self.store.as_data_loader();
-        let epoch = match version {
-            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
-            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
-            ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
-        };
-        let header = HeaderView::new_advanced_builder()
-            .epoch(epoch.pack())
-            .build();
-        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
-        let verifier = TransactionScriptsVerifier::new(
-            Arc::new(rtx.clone()),
-            data_loader,
-            Arc::clone(&self.consensus),
-            tx_env,
-        );
+        let verifier = self.build_verifier(version, rtx);
 
         if skip_debug_pause {
-            verifier.set_skip_pause(true);
+            self.set_skip_pause(true);
         }
         verifier
             .resumable_verify_with_signal(Cycle::MAX, command_rx)
@@ -300,30 +341,9 @@ impl TransactionScriptsVerifierWithEnv {
         mut verify_func: F,
     ) -> R
     where
-        F: FnMut(TransactionScriptsVerifier<DataLoaderWrapper<ChainDB>>) -> R,
+        F: FnMut(TransactionScriptsVerifier<DataLoaderWrapper<ChainDB>, DebugContext>) -> R,
     {
-        let data_loader = self.store.as_data_loader();
-        let epoch = match version {
-            ScriptVersion::V0 => EpochNumberWithFraction::new(0, 0, 1),
-            ScriptVersion::V1 => EpochNumberWithFraction::new(self.version_1_enabled_at, 0, 1),
-            ScriptVersion::V2 => EpochNumberWithFraction::new(self.version_2_enabled_at, 0, 1),
-        };
-        let header = HeaderView::new_advanced_builder()
-            .epoch(epoch.pack())
-            .build();
-        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
-        let mut verifier = TransactionScriptsVerifier::new(
-            Arc::new(rtx.clone()),
-            data_loader,
-            Arc::clone(&self.consensus),
-            tx_env,
-        );
-        verifier.set_debug_printer(Box::new(move |_hash: &Byte32, message: &str| {
-            print!("{}", message);
-            if !message.ends_with('\n') {
-                println!();
-            }
-        }));
+        let verifier = self.build_verifier(version, rtx);
         verify_func(verifier)
     }
 }
