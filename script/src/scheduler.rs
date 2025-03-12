@@ -882,9 +882,6 @@ where
 
     // Create a new VM instance with syscalls attached
     fn create_dummy_vm(&self, id: &VmId) -> Result<(VmContext<DL>, Machine), Error> {
-        // The code here looks slightly weird, since I don't want to copy over all syscall
-        // impls here again. Ideally, this scheduler package should be merged with ckb-script,
-        // or simply replace ckb-script. That way, the quirks here will be eliminated.
         let version = &self.sg_data.sg_info.script_version;
         let core_machine = CoreMachineType::new(
             version.vm_isa(),
