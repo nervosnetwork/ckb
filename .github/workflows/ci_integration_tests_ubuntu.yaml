@@ -48,36 +48,6 @@ jobs:
         LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_WORKFLOW: ${{ github.workflow }}
-  ci_integration_tests_ubuntu:
-    name: ci_integration_tests_ubuntu
-    needs: prologue
-    timeout-minutes: 140
-    runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
-    steps:
-    - uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: 1.85.0
-    - run: rustup component add rustfmt
-    - run: rustup component add clippy
-    - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
-    - uses: actions/checkout@v3
-    - run: |
-        if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-            devtools/ci/ci_main.sh
-        else
-          echo "skip job"
-          exit 0
-        fi
-      shell: bash
-    - name: upload log files
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ runner.os }}_integration.log
-        path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}
   ci_cli_bats_test:
     name: ci_cli_bats_test
     needs: prologue

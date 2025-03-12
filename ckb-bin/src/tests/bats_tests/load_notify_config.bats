@@ -27,7 +27,7 @@ _run() {
 
 _log_no_error() {
   if grep -q -i error ${TMP_DIR}/ckb_notify.log; then
-    echo "error found in log"
+    echo "error found in log: " $(grep -i error ${TMP_DIR}/ckb_notify.log)
     return 1
   fi
 }
