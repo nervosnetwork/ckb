@@ -1,13 +1,13 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
     EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
-    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE, generator::generate_ckb_syscalls,
+    SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
 };
 
 use crate::types::{
     CoreMachineType, DataLocation, DataPieceId, DebugContext, FIRST_FD_SLOT, FIRST_VM_ID, Fd,
-    FdArgs, FullSuspendedState, Machine, Message, ReadState, RunMode, SgData, VmArgs, VmContext,
-    VmId, VmState, WriteState,
+    FdArgs, FullSuspendedState, Machine, Message, ReadState, RunMode, SgData, SyscallGenerator,
+    VmArgs, VmContext, VmId, VmState, WriteState,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -52,6 +52,9 @@ where
 
     /// Mutable context data used by current scheduler
     pub debug_context: DebugContext,
+
+    /// Syscall generator
+    pub syscall_generator: SyscallGenerator<DL>,
 
     /// Total cycles. When a scheduler executes, there are 3 variables
     /// that might all contain charged cycles: +total_cycles+,
@@ -111,10 +114,15 @@ where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     /// Create a new scheduler from empty state
-    pub fn new(sg_data: SgData<DL>, debug_context: DebugContext) -> Self {
+    pub fn new(
+        sg_data: SgData<DL>,
+        debug_context: DebugContext,
+        syscall_generator: SyscallGenerator<DL>,
+    ) -> Self {
         Self {
             sg_data,
             debug_context,
+            syscall_generator,
             total_cycles: Arc::new(AtomicU64::new(0)),
             iteration_cycles: 0,
             next_vm_id: FIRST_VM_ID,
@@ -150,11 +158,13 @@ where
     pub fn resume(
         sg_data: SgData<DL>,
         debug_context: DebugContext,
+        syscall_generator: SyscallGenerator<DL>,
         full: FullSuspendedState,
     ) -> Self {
         let mut scheduler = Self {
             sg_data,
             debug_context,
+            syscall_generator,
             total_cycles: Arc::new(AtomicU64::new(full.total_cycles)),
             iteration_cycles: 0,
             next_vm_id: full.next_vm_id,
@@ -898,7 +908,7 @@ where
         let machine_builder = DefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(estimate_cycles));
         let machine_builder =
-            generate_ckb_syscalls(id, &self.sg_data, &vm_context, &self.debug_context)
+            (self.syscall_generator)(id, &self.sg_data, &vm_context, &self.debug_context)
                 .into_iter()
                 .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();

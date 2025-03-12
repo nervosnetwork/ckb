@@ -9,7 +9,7 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_vm::{
-    ISA_B, ISA_IMC, ISA_MOP,
+    ISA_B, ISA_IMC, ISA_MOP, Syscalls,
     machine::{VERSION0, VERSION1, VERSION2},
 };
 use serde::{Deserialize, Serialize};
@@ -64,6 +64,16 @@ pub(crate) type Machine = AsmMachine;
 pub(crate) type Machine = TraceMachine<CoreMachine>;
 
 pub(crate) type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
+pub(crate) type SyscallGenerator<DL> = Arc<
+    dyn Fn(
+            &VmId,
+            &SgData<DL>,
+            &VmContext<DL>,
+            &DebugContext,
+        ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
+        + Send
+        + Sync,
+>;
 
 pub struct DebugContext {
     pub debug_printer: DebugPrinter,

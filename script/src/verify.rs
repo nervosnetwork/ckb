@@ -3,10 +3,12 @@ use crate::ChunkCommand;
 use crate::scheduler::Scheduler;
 use crate::{
     error::{ScriptError, TransactionScriptError},
+    syscalls::generator::generate_ckb_syscalls,
     type_id::TypeIdSystemScript,
     types::{
-        DebugContext, DebugPrinter, FullSuspendedState, RunMode, ScriptGroup, ScriptGroupType,
-        ScriptVersion, SgData, TransactionState, TxData, VerifyResult,
+        CoreMachine, DebugContext, DebugPrinter, FullSuspendedState, RunMode, ScriptGroup,
+        ScriptGroupType, ScriptVersion, SgData, SyscallGenerator, TransactionState, TxData,
+        VerifyResult, VmContext, VmId,
     },
     verify_env::TxVerifyEnv,
 };
@@ -21,9 +23,9 @@ use ckb_types::{
     packed::{Byte32, Script},
     prelude::*,
 };
-use ckb_vm::Error as VMInternalError;
 #[cfg(not(target_family = "wasm"))]
 use ckb_vm::machine::Pause as VMPause;
+use ckb_vm::{Error as VMInternalError, Syscalls};
 use std::sync::Arc;
 #[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
@@ -54,10 +56,11 @@ impl ChunkState {
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
-pub struct TransactionScriptsVerifier<DL> {
+pub struct TransactionScriptsVerifier<DL: CellDataProvider> {
     tx_data: Arc<TxData<DL>>,
 
     debug_printer: DebugPrinter,
+    syscall_generator: SyscallGenerator<DL>,
     #[cfg(test)]
     skip_pause: Arc<AtomicBool>,
 }
@@ -94,6 +97,7 @@ where
         TransactionScriptsVerifier {
             tx_data,
             debug_printer,
+            syscall_generator: Arc::new(generate_ckb_syscalls),
             #[cfg(test)]
             skip_pause,
         }
@@ -110,6 +114,22 @@ where
     /// * `message: &str`: message passed to the debug syscall.
     pub fn set_debug_printer<F: Fn(&Byte32, &str) + Sync + Send + 'static>(&mut self, func: F) {
         self.debug_printer = Arc::new(func);
+    }
+
+    /// Sets a new syscall generator for special usages
+    pub fn set_syscall_generator<F>(&mut self, func: F)
+    where
+        F: Fn(
+                &VmId,
+                &SgData<DL>,
+                &VmContext<DL>,
+                &DebugContext,
+            ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
+            + Sync
+            + Send
+            + 'static,
+    {
+        self.syscall_generator = Arc::new(func);
     }
 
     #[cfg(test)]
@@ -557,7 +577,11 @@ where
             #[cfg(test)]
             skip_pause: Arc::clone(&self.skip_pause),
         };
-        Ok(Scheduler::new(sg_data, debug_context))
+        Ok(Scheduler::new(
+            sg_data,
+            debug_context,
+            Arc::clone(&self.syscall_generator),
+        ))
     }
 
     /// Resumes a scheduler from a previous state.
@@ -572,7 +596,12 @@ where
             #[cfg(test)]
             skip_pause: Arc::clone(&self.skip_pause),
         };
-        Ok(Scheduler::resume(sg_data, debug_context, state.clone()))
+        Ok(Scheduler::resume(
+            sg_data,
+            debug_context,
+            Arc::clone(&self.syscall_generator),
+            state.clone(),
+        ))
     }
 
     /// Runs a single program, then returns the exit code together with the entire
