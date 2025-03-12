@@ -1,6 +1,6 @@
 [package]
 name = "ckb-pow"
-version = "0.201.0-pre"
+version.workspace = true
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"
@@ -9,9 +9,9 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-byteorder = "1.3.1"
-ckb-types = { path = "../util/types", version = "= 0.201.0-pre" }
-ckb-hash = { path = "../util/hash", version = "= 0.201.0-pre"}
-serde = { version = "1.0", features = ["derive"] }
-eaglesong = "0.1"
-log = "0.4"
+byteorder.workspace = true
+ckb-types.workspace = true
+ckb-hash.workspace = true
+serde = { workspace = true, features = ["derive"] }
+eaglesong.workspace = true
+log.workspace = true

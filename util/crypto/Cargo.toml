@@ -1,6 +1,6 @@
 [package]
 name = "ckb-crypto"
-version = "0.201.0-pre"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -9,11 +9,11 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.201.0-pre" }
-secp256k1 = { version = "0.30", features = ["recovery"], optional = true }
-thiserror = "1.0.22"
-rand = { version = "0.8", features = ["small_rng"] }
-faster-hex = "0.6"
+ckb-fixed-hash.workspace = true
+secp256k1 = { workspace = true, features = ["recovery"], optional = true }
+thiserror.workspace = true
+rand = { workspace = true, features = ["small_rng"] }
+faster-hex.workspace = true
 
 [features]
 default = ["secp"]

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-migration-template"
-version = "0.201.0-pre"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2024"
@@ -12,5 +12,5 @@ repository = "https://github.com/nervosnetwork/ckb"
 proc-macro = true
 
 [dependencies]
-quote = "1.0"
+quote.workspace = true
 syn = { version = "1.0", features = ["full", "printing"] }

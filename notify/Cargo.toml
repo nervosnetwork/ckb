@@ -1,6 +1,6 @@
 [package]
 name = "ckb-notify"
-version = "0.201.0-pre"
+version.workspace = true
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"
@@ -9,11 +9,11 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-logger = { path = "../util/logger", version = "= 0.201.0-pre" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.201.0-pre" }
-ckb-types = { path = "../util/types", version = "= 0.201.0-pre" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.201.0-pre" }
-ckb-async-runtime = { path = "../util/runtime", version = "= 0.201.0-pre" }
+ckb-logger.workspace = true
+ckb-app-config.workspace = true
+ckb-types.workspace = true
+ckb-stop-handler.workspace = true
+ckb-async-runtime.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 tokio = { version = "1", features = ["sync"] }

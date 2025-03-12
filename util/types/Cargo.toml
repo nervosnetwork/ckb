@@ -1,6 +1,6 @@
 [package]
 name = "ckb-types"
-version = "0.201.0-pre"
+version.workspace = true
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"
@@ -9,32 +9,23 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-molecule = "0.8"
-ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.201.0-pre" }
-numext-fixed-uint = { version = "0.1", features = [
-    "support_rand",
-    "support_heapsize",
-    "support_serde",
-] }
-bytes = { version = "1", features = ["serde"] }
-merkle-cbt = "0.3"
-ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.201.0-pre" }
-ckb-hash = { path = "../hash", version = "= 0.201.0-pre" }
-ckb-channel = { path = "../channel", version = "= 0.201.0-pre" }
-ckb-constant = { path = "../constant", version = "= 0.201.0-pre" }
-ckb-gen-types = { path = "../gen-types", version = "= 0.201.0-pre" }
-bit-vec = "0.6.3"
-ckb-error = { path = "../../error", version = "= 0.201.0-pre" }
-ckb-rational = { path = "../rational", version = "= 0.201.0-pre" }
-derive_more = { version = "1", default-features = false, features = [
-    "display",
-] }
-ckb-merkle-mountain-range = "0.5.2"
-golomb-coded-set = "0.2.0"
-paste = "1.0"
+molecule.workspace = true
+ckb-fixed-hash.workspace = true
+numext-fixed-uint = { workspace = true, features = ["support_rand", "support_heapsize", "support_serde"] }
+bytes = { workspace = true, features = ["serde"] }
+merkle-cbt.workspace = true
+ckb-occupied-capacity.workspace = true
+ckb-hash.workspace = true
+ckb-channel.workspace = true
+ckb-constant.workspace = true
+ckb-gen-types.workspace = true
+bit-vec.workspace = true
+ckb-error.workspace = true
+ckb-rational.workspace = true
+derive_more = { workspace = true, features = ["display"] }
+ckb-merkle-mountain-range.workspace = true
+golomb-coded-set.workspace = true
+paste.workspace = true
 
 [dev-dependencies]
-proptest = "1.0"
-
-[package.metadata.cargo-shear]
-ignored = ["bytes"]
+proptest.workspace = true
