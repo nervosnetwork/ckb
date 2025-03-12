@@ -1,3 +1,5 @@
+//! Common type definitions for ckb-script package.
+
 use crate::{error::ScriptError, verify_env::TxVerifyEnv};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_types::{
@@ -42,8 +44,10 @@ pub type VmIsa = u8;
 /// /// The type of CKB-VM version.
 pub type VmVersion = u32;
 
+/// The inner VM machine when ASM feature is used.
 #[cfg(has_asm)]
 pub type CoreMachineType = AsmCoreMachine;
+/// The inner VM machine when ASM feature is not used.
 #[cfg(all(not(has_asm), not(feature = "flatmemory")))]
 pub type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
 #[cfg(all(not(has_asm), feature = "flatmemory"))]
@@ -58,12 +62,16 @@ pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<
 #[cfg(all(not(has_asm), feature = "flatmemory"))]
 pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
 
+/// The outer machine type when asm feature is enabled.
 #[cfg(has_asm)]
 pub type Machine = AsmMachine;
+/// The outer machine type when asm feature is out enabled.
 #[cfg(not(has_asm))]
 pub type Machine = TraceMachine<CoreMachine>;
 
+/// Debug printer function type
 pub type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
+/// Syscall generator function type
 pub type SyscallGenerator<DL> = Arc<
     dyn Fn(
             &VmId,
@@ -75,8 +83,11 @@ pub type SyscallGenerator<DL> = Arc<
         + Sync,
 >;
 
+/// VM context used for debugging purposes
 pub struct DebugContext {
+    /// Debug printer in use.
     pub debug_printer: DebugPrinter,
+    /// A flag to control pausing, only used in tests.
     #[cfg(test)]
     pub skip_pause: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -291,27 +302,35 @@ pub enum ChunkCommand {
     Stop,
 }
 
+/// VM id type
 pub type VmId = u64;
+/// The first VM booted always have 0 as the ID
 pub const FIRST_VM_ID: VmId = 0;
 
+/// File descriptor
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Fd(pub u64);
 
+/// The first FD to be used
 pub const FIRST_FD_SLOT: u64 = 2;
 
 impl Fd {
+    /// Creates a new pipe with 2 fds, also return the next available fd slot
     pub fn create(slot: u64) -> (Fd, Fd, u64) {
         (Fd(slot), Fd(slot + 1), slot + 2)
     }
 
+    /// Finds the other file descriptor of a pipe
     pub fn other_fd(&self) -> Fd {
         Fd(self.0 ^ 0x1)
     }
 
+    /// Tests if current fd is used for reading from a pipe
     pub fn is_read(&self) -> bool {
         self.0 % 2 == 0
     }
 
+    /// Tests if current fd is used for writing to a pipe
     pub fn is_write(&self) -> bool {
         self.0 % 2 == 1
     }
@@ -320,19 +339,28 @@ impl Fd {
 /// VM is in waiting-to-read state.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ReadState {
+    /// FD to read from
     pub fd: Fd,
+    /// Length to read
     pub length: u64,
+    /// VM address to read data into
     pub buffer_addr: u64,
+    /// Length address to keep final read length
     pub length_addr: u64,
 }
 
 /// VM is in waiting-to-write state.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WriteState {
+    /// FD to write to
     pub fd: Fd,
+    /// Bytes that have already been written
     pub consumed: u64,
+    /// Length to write
     pub length: u64,
+    /// VM address to write data from
     pub buffer_addr: u64,
+    /// Length of address to keep final written length
     pub length_addr: u64,
 }
 
@@ -367,51 +395,85 @@ pub struct DataLocation {
     pub length: u64,
 }
 
+/// Arguments for exec syscall
 #[derive(Clone, Debug)]
 pub struct ExecV2Args {
+    /// Data location for the program to invoke
     pub location: DataLocation,
+    /// Argc
     pub argc: u64,
+    /// Argv
     pub argv: u64,
 }
 
+/// Arguments for spawn syscall
 #[derive(Clone, Debug)]
 pub struct SpawnArgs {
+    /// Data location for the program to spawn
     pub location: DataLocation,
+    /// Argc
     pub argc: u64,
+    /// Argv
     pub argv: u64,
+    /// File descriptors to pass to spawned child process
     pub fds: Vec<Fd>,
+    /// VM address to keep pid for spawned child process
     pub process_id_addr: u64,
 }
 
+/// Arguments for wait syscall
 #[derive(Clone, Debug)]
 pub struct WaitArgs {
+    /// VM ID to wait for termination
     pub target_id: VmId,
+    /// VM address to keep exit code for the waited process
     pub exit_code_addr: u64,
 }
 
+/// Arguments for pipe syscall
 #[derive(Clone, Debug)]
 pub struct PipeArgs {
+    /// VM address to keep the first created file descriptor
     pub fd1_addr: u64,
+    /// VM address to keep the second created file descriptor
     pub fd2_addr: u64,
 }
 
+/// Arguments shared by read, write and inherited fd syscalls
 #[derive(Clone, Debug)]
 pub struct FdArgs {
+    /// For each and write syscalls, this contains the file descriptor to use
     pub fd: Fd,
+    /// Length to read or length to write for read/write syscalls. Inherited
+    /// fd syscall will ignore this field.
     pub length: u64,
+    /// VM address to keep returned data
     pub buffer_addr: u64,
+    /// VM address for a input / output length buffer.
+    /// For read / write syscalls, this contains the actual data length.
+    /// For inherited fd syscall, this contains the number of file descriptors.
     pub length_addr: u64,
 }
 
+/// Inter-process message, this is now used for implementing syscalls, but might
+/// be expanded for more usages later.
 #[derive(Clone, Debug)]
 pub enum Message {
+    /// Exec syscall
     ExecV2(VmId, ExecV2Args),
+    /// Spawn syscall
     Spawn(VmId, SpawnArgs),
+    /// Wait syscall
     Wait(VmId, WaitArgs),
+    /// Pipe syscall
     Pipe(VmId, PipeArgs),
+    /// Read syscall
     FdRead(VmId, FdArgs),
+    /// Write syscall
     FdWrite(VmId, FdArgs),
+    /// Inherited FD syscall
     InheritedFileDescriptor(VmId, FdArgs),
+    /// Close syscall
     Close(VmId, Fd),
 }
 
@@ -463,17 +525,28 @@ impl TryFrom<(u64, u64, u64)> for DataPieceId {
 /// fully recover the running environment with the full transaction environment.
 #[derive(Clone, Debug)]
 pub struct FullSuspendedState {
+    /// Total executed cycles
     pub total_cycles: Cycle,
+    /// Next available VM ID
     pub next_vm_id: VmId,
+    /// Next available file descriptor
     pub next_fd_slot: u64,
+    /// Suspended VMs
     pub vms: Vec<(VmId, VmState, Snapshot2<DataPieceId>)>,
+    /// Opened file descriptors with owners
     pub fds: Vec<(Fd, VmId)>,
+    /// Inherited file descriptors for each spawned process
     pub inherited_fd: Vec<(VmId, Vec<Fd>)>,
+    /// Terminated VMs with exit codes
     pub terminated_vms: Vec<(VmId, i8)>,
+    /// Currently instantiated VMs. Upon resumption, those VMs will
+    /// be instantiated.
     pub instantiated_ids: Vec<VmId>,
 }
 
 impl FullSuspendedState {
+    /// Calculates the size of current suspended state, should be used
+    /// to derive cycles charged for suspending / resuming.
     pub fn size(&self) -> u64 {
         (size_of::<Cycle>()
             + size_of::<VmId>()
@@ -503,9 +576,12 @@ impl FullSuspendedState {
     }
 }
 
+/// A cell that is either loaded, or not yet loaded.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DataGuard {
+    /// Un-loaded out point
     NotLoaded(OutPoint),
+    /// Loaded data
     Loaded(Bytes),
 }
 
@@ -546,10 +622,17 @@ impl LazyData {
     }
 }
 
+/// A tri-state enum for representing binary lookup results.
 #[derive(Debug, Clone)]
 pub enum Binaries {
+    /// A unique cell is found for the requested binary.
     Unique(Byte32, usize, LazyData),
+    /// Multiple cells are found for the requested binary, but all
+    /// the cells contains the same content(hence binary lookup still
+    /// succeeds).
     Duplicate(Byte32, usize, LazyData),
+    /// Multiple cells are found for the requested binary, and they
+    /// differ so there is no way to tell which binary shall be used.
     Multiple,
 }
 
@@ -915,6 +998,7 @@ pub struct SgInfo {
 }
 
 impl<DL> SgData<DL> {
+    /// Creates a new SgData structure from TxData, and script group information
     pub fn new(tx_data: &TxData<DL>, script_group: &ScriptGroup) -> Result<Self, ScriptError> {
         let script_hash = script_group.script.calc_script_hash();
         let script_version = tx_data.select_version(&script_group.script)?;
@@ -934,18 +1018,22 @@ impl<DL> SgData<DL> {
         })
     }
 
+    /// Shortcut to data loader
     pub fn data_loader(&self) -> &DL {
         &self.tx_info.data_loader
     }
 
+    /// Shortcut to group input indices
     pub fn group_inputs(&self) -> &[usize] {
         &self.sg_info.script_group.input_indices
     }
 
+    /// Shortcut to group output indices
     pub fn group_outputs(&self) -> &[usize] {
         &self.sg_info.script_group.output_indices
     }
 
+    /// Shortcut to all outputs
     pub fn outputs(&self) -> &[CellMeta] {
         &self.tx_info.outputs
     }
@@ -1044,9 +1132,11 @@ pub struct VmContext<DL>
 where
     DL: CellDataProvider,
 {
+    /// Cycles executed before current VM starts
     pub base_cycles: Arc<AtomicU64>,
     /// A mutable reference to scheduler's message box
     pub message_box: Arc<Mutex<Vec<Message>>>,
+    /// A snapshot for COW usage
     pub snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, SgData<DL>>>>,
 }
 
@@ -1065,6 +1155,7 @@ where
         }
     }
 
+    /// Sets current base cycles
     pub fn set_base_cycles(&mut self, base_cycles: u64) {
         self.base_cycles.store(base_cycles, Ordering::Release);
     }
