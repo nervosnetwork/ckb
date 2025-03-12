@@ -4,7 +4,7 @@ mod error;
 mod scheduler;
 mod syscalls;
 mod type_id;
-mod types;
+pub mod types;
 mod verify;
 mod verify_env;
 

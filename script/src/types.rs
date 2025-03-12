@@ -43,11 +43,11 @@ pub type VmIsa = u8;
 pub type VmVersion = u32;
 
 #[cfg(has_asm)]
-pub(crate) type CoreMachineType = AsmCoreMachine;
+pub type CoreMachineType = AsmCoreMachine;
 #[cfg(all(not(has_asm), not(feature = "flatmemory")))]
-pub(crate) type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
+pub type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
 #[cfg(all(not(has_asm), feature = "flatmemory"))]
-pub(crate) type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
+pub type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
 
 /// The type of core VM machine when uses ASM.
 #[cfg(has_asm)]
@@ -59,12 +59,12 @@ pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<
 pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
 
 #[cfg(has_asm)]
-pub(crate) type Machine = AsmMachine;
+pub type Machine = AsmMachine;
 #[cfg(not(has_asm))]
-pub(crate) type Machine = TraceMachine<CoreMachine>;
+pub type Machine = TraceMachine<CoreMachine>;
 
-pub(crate) type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
-pub(crate) type SyscallGenerator<DL> = Arc<
+pub type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
+pub type SyscallGenerator<DL> = Arc<
     dyn Fn(
             &VmId,
             &SgData<DL>,
@@ -295,7 +295,7 @@ pub type VmId = u64;
 pub const FIRST_VM_ID: VmId = 0;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Fd(pub(crate) u64);
+pub struct Fd(pub u64);
 
 pub const FIRST_FD_SLOT: u64 = 2;
 
@@ -1044,10 +1044,10 @@ pub struct VmContext<DL>
 where
     DL: CellDataProvider,
 {
-    pub(crate) base_cycles: Arc<AtomicU64>,
+    pub base_cycles: Arc<AtomicU64>,
     /// A mutable reference to scheduler's message box
-    pub(crate) message_box: Arc<Mutex<Vec<Message>>>,
-    pub(crate) snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, SgData<DL>>>>,
+    pub message_box: Arc<Mutex<Vec<Message>>>,
+    pub snapshot2_context: Arc<Mutex<Snapshot2Context<DataPieceId, SgData<DL>>>>,
 }
 
 impl<DL> VmContext<DL>
