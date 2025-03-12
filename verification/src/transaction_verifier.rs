@@ -7,6 +7,7 @@ use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
 use ckb_script::ChunkCommand;
+use ckb_script::types::DebugPrinter;
 use ckb_script::{TransactionScriptsVerifier, TransactionState};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
@@ -336,7 +337,7 @@ impl<'a> SizeVerifier<'a> {
 /// See:
 /// - [ckb-vm](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0003-ckb-vm/0003-ckb-vm.md)
 /// - [vm-cycle-limits](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0014-vm-cycle-limits/0014-vm-cycle-limits.md)
-pub type ScriptVerifier<DL> = TransactionScriptsVerifier<DL>;
+pub type ScriptVerifier<DL> = TransactionScriptsVerifier<DL, DebugPrinter>;
 
 pub struct EmptyVerifier<'a> {
     transaction: &'a TransactionView,

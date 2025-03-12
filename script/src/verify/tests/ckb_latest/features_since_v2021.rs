@@ -1157,8 +1157,8 @@ fn load_code_with_snapshot() {
 
     let mut cycles = 0;
     let max_cycles = Cycle::MAX;
-    let verifier = TransactionScriptsVerifierWithEnv::new();
-    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+    let verifier_env = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier_env.verify_map(script_version, &rtx, |verifier| {
         let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
@@ -1177,7 +1177,7 @@ fn load_code_with_snapshot() {
             }
         }
 
-        verifier.set_skip_pause(true);
+        verifier_env.set_skip_pause(true);
         verifier.verify(max_cycles)
     });
 

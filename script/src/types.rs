@@ -72,25 +72,8 @@ pub type Machine = TraceMachine<CoreMachine>;
 /// Debug printer function type
 pub type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
 /// Syscall generator function type
-pub type SyscallGenerator<DL> = Arc<
-    dyn Fn(
-            &VmId,
-            &SgData<DL>,
-            &VmContext<DL>,
-            &DebugContext,
-        ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
-        + Send
-        + Sync,
->;
-
-/// VM context used for debugging purposes
-pub struct DebugContext {
-    /// Debug printer in use.
-    pub debug_printer: DebugPrinter,
-    /// A flag to control pausing, only used in tests.
-    #[cfg(test)]
-    pub skip_pause: Arc<std::sync::atomic::AtomicBool>,
-}
+pub type SyscallGenerator<DL, V> =
+    fn(&VmId, &SgData<DL>, &VmContext<DL>, &V) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>;
 
 /// The version of CKB Script Verifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

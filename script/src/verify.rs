@@ -6,9 +6,8 @@ use crate::{
     syscalls::generator::generate_ckb_syscalls,
     type_id::TypeIdSystemScript,
     types::{
-        CoreMachine, DebugContext, DebugPrinter, FullSuspendedState, RunMode, ScriptGroup,
-        ScriptGroupType, ScriptVersion, SgData, SyscallGenerator, TransactionState, TxData,
-        VerifyResult, VmContext, VmId,
+        DebugPrinter, FullSuspendedState, RunMode, ScriptGroup, ScriptGroupType, ScriptVersion,
+        SgData, SyscallGenerator, TransactionState, TxData, VerifyResult,
     },
     verify_env::TxVerifyEnv,
 };
@@ -23,18 +22,15 @@ use ckb_types::{
     packed::{Byte32, Script},
     prelude::*,
 };
+use ckb_vm::Error as VMInternalError;
 #[cfg(not(target_family = "wasm"))]
 use ckb_vm::machine::Pause as VMPause;
-use ckb_vm::{Error as VMInternalError, Syscalls};
 use std::sync::Arc;
 #[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
     oneshot,
     watch::{self, Receiver},
 };
-
-#[cfg(test)]
-use core::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(test)]
 mod tests;
@@ -56,33 +52,23 @@ impl ChunkState {
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
-pub struct TransactionScriptsVerifier<DL: CellDataProvider> {
+pub struct TransactionScriptsVerifier<DL: CellDataProvider, V> {
     tx_data: Arc<TxData<DL>>,
-
-    debug_printer: DebugPrinter,
-    syscall_generator: SyscallGenerator<DL>,
-    #[cfg(test)]
-    skip_pause: Arc<AtomicBool>,
+    syscall_generator: SyscallGenerator<DL, V>,
+    syscall_context: V,
 }
 
-impl<DL> TransactionScriptsVerifier<DL>
+impl<DL> TransactionScriptsVerifier<DL, DebugPrinter>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    /// Creates a script verifier for the transaction.
-    ///
-    /// ## Params
-    ///
-    /// * `rtx` - transaction which cell out points have been resolved.
-    /// * `data_loader` - used to load cell data.
+    /// Create a script verifier using default CKB syscalls and a default debug printer
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
         data_loader: DL,
         consensus: Arc<Consensus>,
         tx_env: Arc<TxVerifyEnv>,
-    ) -> TransactionScriptsVerifier<DL> {
-        let tx_data = Arc::new(TxData::new(rtx, data_loader, consensus, tx_env));
-
+    ) -> Self {
         let debug_printer: DebugPrinter = Arc::new(
             #[allow(unused_variables)]
             |hash: &Byte32, message: &str| {
@@ -91,50 +77,58 @@ where
             },
         );
 
-        #[cfg(test)]
-        let skip_pause = Arc::new(AtomicBool::new(false));
+        Self::new_with_debug_printer(rtx, data_loader, consensus, tx_env, debug_printer)
+    }
+
+    /// Create a script verifier using default CKB syscalls and a custom debug printer
+    pub fn new_with_debug_printer(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+        debug_printer: DebugPrinter,
+    ) -> Self {
+        Self::new_with_generator(
+            rtx,
+            data_loader,
+            consensus,
+            tx_env,
+            generate_ckb_syscalls,
+            debug_printer,
+        )
+    }
+}
+
+impl<DL, V> TransactionScriptsVerifier<DL, V>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    V: Send + Clone + 'static,
+{
+    /// Creates a script verifier for the transaction.
+    ///
+    /// ## Params
+    ///
+    /// * `rtx` - transaction which cell out points have been resolved.
+    /// * `data_loader` - used to load cell data.
+    /// * `consensus` - consensus parameters.
+    /// * `tx_env` - enviroment for verifying transaction, such as committed block, etc.
+    /// * `syscall_generator` - a syscall generator for current verifier
+    /// * `syscall_context` - context for syscall generator
+    pub fn new_with_generator(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+        syscall_generator: SyscallGenerator<DL, V>,
+        syscall_context: V,
+    ) -> TransactionScriptsVerifier<DL, V> {
+        let tx_data = Arc::new(TxData::new(rtx, data_loader, consensus, tx_env));
 
         TransactionScriptsVerifier {
             tx_data,
-            debug_printer,
-            syscall_generator: Arc::new(generate_ckb_syscalls),
-            #[cfg(test)]
-            skip_pause,
+            syscall_generator,
+            syscall_context,
         }
-    }
-
-    /// Sets a callback to handle the debug syscall.
-    ///
-    ///
-    /// Script can print a message using the [debug syscall](github.com/nervosnetwork/rfcs/blob/master/rfcs/0009-vm-syscalls/0009-vm-syscalls.md#debug).
-    ///
-    /// The callback receives two parameters:
-    ///
-    /// * `hash: &Byte32`: this is the script hash of currently running script group.
-    /// * `message: &str`: message passed to the debug syscall.
-    pub fn set_debug_printer<F: Fn(&Byte32, &str) + Sync + Send + 'static>(&mut self, func: F) {
-        self.debug_printer = Arc::new(func);
-    }
-
-    /// Sets a new syscall generator for special usages
-    pub fn set_syscall_generator<F>(&mut self, func: F)
-    where
-        F: Fn(
-                &VmId,
-                &SgData<DL>,
-                &VmContext<DL>,
-                &DebugContext,
-            ) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
-            + Sync
-            + Send
-            + 'static,
-    {
-        self.syscall_generator = Arc::new(func);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_skip_pause(&self, skip_pause: bool) {
-        self.skip_pause.store(skip_pause, Ordering::SeqCst);
     }
 
     //////////////////////////////////////////////////////////////////
@@ -570,17 +564,12 @@ where
     pub fn create_scheduler(
         &self,
         script_group: &ScriptGroup,
-    ) -> Result<Scheduler<DL>, ScriptError> {
+    ) -> Result<Scheduler<DL, V>, ScriptError> {
         let sg_data = SgData::new(&self.tx_data, script_group)?;
-        let debug_context = DebugContext {
-            debug_printer: Arc::clone(&self.debug_printer),
-            #[cfg(test)]
-            skip_pause: Arc::clone(&self.skip_pause),
-        };
         Ok(Scheduler::new(
             sg_data,
-            debug_context,
-            Arc::clone(&self.syscall_generator),
+            self.syscall_generator,
+            self.syscall_context.clone(),
         ))
     }
 
@@ -589,17 +578,12 @@ where
         &self,
         script_group: &ScriptGroup,
         state: &FullSuspendedState,
-    ) -> Result<Scheduler<DL>, ScriptError> {
+    ) -> Result<Scheduler<DL, V>, ScriptError> {
         let sg_data = SgData::new(&self.tx_data, script_group)?;
-        let debug_context = DebugContext {
-            debug_printer: Arc::clone(&self.debug_printer),
-            #[cfg(test)]
-            skip_pause: Arc::clone(&self.skip_pause),
-        };
         Ok(Scheduler::resume(
             sg_data,
-            debug_context,
-            Arc::clone(&self.syscall_generator),
+            self.syscall_generator,
+            self.syscall_context.clone(),
             state.clone(),
         ))
     }
