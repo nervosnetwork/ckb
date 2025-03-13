@@ -87,7 +87,7 @@ impl ConsumeUnverifiedBlocks {
                         let _ = self.tx_pool_controller.continue_chunk_process();
                     },
                     Err(err) => {
-                        error!("unverified_block_rx err: {}", err);
+                        info!("unverified_block_rx closed: {}", err);
                         return;
                     },
                 },
