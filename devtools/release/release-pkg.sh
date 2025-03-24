@@ -3,7 +3,7 @@
 on_push_pkg() {
   BRANCH=$(git symbolic-ref --quiet HEAD)
   BRANCH="${BRANCH#refs/heads/}"
-  VERSION="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+  VERSION="v$(sed -n '/^version = "\(.*\)"/{s//\1/p;q}' Cargo.toml)"
   echo "$BRANCH -> upstream/$BRANCH"
   echo "$BRANCH -> upstream/pkg/$VERSION"
 
@@ -11,12 +11,12 @@ on_push_pkg() {
 }
 
 on_tag() {
-  VERSION="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+  VERSION="v$(sed -n '/^version = "\(.*\)"/{s//\1/p;q}' Cargo.toml)"
   git tag -s -m "$VERSION" "$VERSION"
 }
 
 on_push_tag() {
-  VERSION="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+  VERSION="v$(sed -n '/^version = "\(.*\)"/{s//\1/p;q}' Cargo.toml)"
   git push upstream "$VERSION"
 }
 
