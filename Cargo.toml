@@ -192,7 +192,7 @@ ckb-util = { path = "util", version = "=0.201.0-rc1" }
 ckb-verification = { path = "verification", version = "=0.201.0-rc1" }
 ckb-verification-contextual = { path = "verification/contextual", version = "=0.201.0-rc1" }
 ckb-verification-traits = { path = "verification/traits", version = "=0.201.0-rc1" }
-ckb-vm = { version = "=0.24.13", default-features = false }
+ckb-vm = { version = "=0.24.14", default-features = false }
 clap = "=4.4"
 console = ">=0.9.1, <1.0.0"
 console-subscriber = "0.4.0"
