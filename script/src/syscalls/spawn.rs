@@ -105,7 +105,7 @@ where
         }
 
         // We are fetching the actual cell here for some in-place validation
-        let mut sc = self
+        let sc = self
             .snapshot2_context
             .lock()
             .map_err(|e| VMError::Unexpected(e.to_string()))?;

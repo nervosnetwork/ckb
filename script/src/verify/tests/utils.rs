@@ -26,7 +26,7 @@ use ckb_types::{
         TransactionKeyBuilder, WitnessArgs,
     },
 };
-use ckb_vm::Syscalls;
+use ckb_vm::{SupportMachine, Syscalls};
 use faster_hex::hex_encode;
 use std::sync::{
     Arc,
@@ -128,14 +128,15 @@ pub(crate) struct DebugContext {
     pub skip_pause: Arc<std::sync::atomic::AtomicBool>,
 }
 
-pub(crate) fn generate_syscalls_with_skip_pause<DL>(
+pub(crate) fn generate_syscalls_with_skip_pause<DL, M>(
     vm_id: &VmId,
     sg_data: &SgData<DL>,
     vm_context: &VmContext<DL>,
     debug_context: &DebugContext,
-) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
+) -> Vec<Box<(dyn Syscalls<M>)>>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    M: SupportMachine,
 {
     let mut syscalls =
         generate_ckb_syscalls(vm_id, sg_data, vm_context, &debug_context.debug_printer);

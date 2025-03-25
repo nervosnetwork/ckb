@@ -6,8 +6,8 @@ use crate::{
     syscalls::generator::generate_ckb_syscalls,
     type_id::TypeIdSystemScript,
     types::{
-        DebugPrinter, FullSuspendedState, RunMode, ScriptGroup, ScriptGroupType, ScriptVersion,
-        SgData, SyscallGenerator, TransactionState, TxData, VerifyResult,
+        DebugPrinter, FullSuspendedState, Machine, RunMode, ScriptGroup, ScriptGroupType,
+        ScriptVersion, SgData, SyscallGenerator, TransactionState, TxData, VerifyResult,
     },
     verify_env::TxVerifyEnv,
 };
@@ -22,9 +22,9 @@ use ckb_types::{
     packed::{Byte32, Script},
     prelude::*,
 };
-use ckb_vm::Error as VMInternalError;
 #[cfg(not(target_family = "wasm"))]
 use ckb_vm::machine::Pause as VMPause;
+use ckb_vm::{DefaultMachineRunner, Error as VMInternalError};
 use std::sync::Arc;
 #[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
@@ -52,13 +52,17 @@ impl ChunkState {
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
-pub struct TransactionScriptsVerifier<DL: CellDataProvider, V> {
+pub struct TransactionScriptsVerifier<
+    DL: CellDataProvider,
+    V = DebugPrinter,
+    M: DefaultMachineRunner = Machine,
+> {
     tx_data: Arc<TxData<DL>>,
-    syscall_generator: SyscallGenerator<DL, V>,
+    syscall_generator: SyscallGenerator<DL, V, <M as DefaultMachineRunner>::Inner>,
     syscall_context: V,
 }
 
-impl<DL> TransactionScriptsVerifier<DL, DebugPrinter>
+impl<DL> TransactionScriptsVerifier<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
@@ -99,10 +103,11 @@ where
     }
 }
 
-impl<DL, V> TransactionScriptsVerifier<DL, V>
+impl<DL, V, M> TransactionScriptsVerifier<DL, V, M>
 where
-    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
-    V: Send + Clone + 'static,
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Clone,
+    V: Clone,
+    M: DefaultMachineRunner,
 {
     /// Creates a script verifier for the transaction.
     ///
@@ -119,9 +124,9 @@ where
         data_loader: DL,
         consensus: Arc<Consensus>,
         tx_env: Arc<TxVerifyEnv>,
-        syscall_generator: SyscallGenerator<DL, V>,
+        syscall_generator: SyscallGenerator<DL, V, <M as DefaultMachineRunner>::Inner>,
         syscall_context: V,
-    ) -> TransactionScriptsVerifier<DL, V> {
+    ) -> TransactionScriptsVerifier<DL, V, M> {
         let tx_data = Arc::new(TxData::new(rtx, data_loader, consensus, tx_env));
 
         TransactionScriptsVerifier {
@@ -253,43 +258,6 @@ where
         }
 
         Ok(VerifyResult::Completed(cycles))
-    }
-
-    /// Performing a resumable verification on the transaction scripts with signal channel,
-    /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
-    /// otherwise, it will return until the verification is completed.
-    #[cfg(not(target_family = "wasm"))]
-    pub async fn resumable_verify_with_signal(
-        &self,
-        limit_cycles: Cycle,
-        command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<Cycle, Error> {
-        let mut cycles = 0;
-
-        let groups: Vec<_> = self.groups().collect();
-        for (_hash, group) in groups.iter() {
-            // vm should early return invalid cycles
-            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
-                    .source(group)
-            })?;
-
-            match self
-                .verify_group_with_signal(group, remain_cycles, command_rx)
-                .await
-            {
-                Ok(used_cycles) => {
-                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
-                }
-                Err(e) => {
-                    #[cfg(feature = "logging")]
-                    logging::on_script_error(_hash, &self.hash(), &e);
-                    return Err(e.source(group).into());
-                }
-            }
-        }
-
-        Ok(cycles)
     }
 
     /// Resuming an suspended verify from vm state
@@ -538,33 +506,11 @@ where
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
-    async fn verify_group_with_signal(
-        &self,
-        group: &ScriptGroup,
-        max_cycles: Cycle,
-        command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<Cycle, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
-            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
-        {
-            let verifier = TypeIdSystemScript {
-                rtx: &self.tx_data.rtx,
-                script_group: group,
-                max_cycles,
-            };
-            verifier.verify()
-        } else {
-            self.chunk_run_with_signal(group, max_cycles, command_rx)
-                .await
-        }
-    }
-
     /// Create a scheduler to manage virtual machine instances.
     pub fn create_scheduler(
         &self,
         script_group: &ScriptGroup,
-    ) -> Result<Scheduler<DL, V>, ScriptError> {
+    ) -> Result<Scheduler<DL, V, M>, ScriptError> {
         let sg_data = SgData::new(&self.tx_data, script_group)?;
         Ok(Scheduler::new(
             sg_data,
@@ -578,7 +524,7 @@ where
         &self,
         script_group: &ScriptGroup,
         state: &FullSuspendedState,
-    ) -> Result<Scheduler<DL, V>, ScriptError> {
+    ) -> Result<Scheduler<DL, V, M>, ScriptError> {
         let sg_data = SgData::new(&self.tx_data, script_group)?;
         Ok(Scheduler::resume(
             sg_data,
@@ -618,8 +564,72 @@ where
             _ => ScriptError::VMInternalError(error),
         }
     }
+}
 
-    #[cfg(not(target_family = "wasm"))]
+#[cfg(not(target_family = "wasm"))]
+impl<DL, V, M> TransactionScriptsVerifier<DL, V, M>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    V: Send + Clone + 'static,
+    M: DefaultMachineRunner + Send + 'static,
+{
+    /// Performing a resumable verification on the transaction scripts with signal channel,
+    /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
+    /// otherwise, it will return until the verification is completed.
+    pub async fn resumable_verify_with_signal(
+        &self,
+        limit_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, Error> {
+        let mut cycles = 0;
+
+        let groups: Vec<_> = self.groups().collect();
+        for (_hash, group) in groups.iter() {
+            // vm should early return invalid cycles
+            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
+            })?;
+
+            match self
+                .verify_group_with_signal(group, remain_cycles, command_rx)
+                .await
+            {
+                Ok(used_cycles) => {
+                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
+                }
+                Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(cycles)
+    }
+
+    async fn verify_group_with_signal(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, ScriptError> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: &self.tx_data.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            verifier.verify()
+        } else {
+            self.chunk_run_with_signal(group, max_cycles, command_rx)
+                .await
+        }
+    }
+
     async fn chunk_run_with_signal(
         &self,
         script_group: &ScriptGroup,
