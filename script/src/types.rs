@@ -1138,11 +1138,21 @@ pub enum RunMode {
     Pause(Pause),
 }
 
+/// Terminated result
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TerminatedResult {
+    /// Root VM exit code
+    pub exit_code: i8,
+    /// Total consumed cycles by all VMs in current scheduler,
+    /// up to this execution point.
+    pub consumed_cycles: Cycle,
+}
+
 /// Single iteration result
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IterationResult {
     /// VM ID that gets executed
     pub executed_vm: VmId,
-    /// Exit status
-    pub exit_status: Option<(i8, Cycle)>,
+    /// Terminated status
+    pub terminated_status: Option<TerminatedResult>,
 }

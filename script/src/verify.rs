@@ -7,7 +7,8 @@ use crate::{
     type_id::TypeIdSystemScript,
     types::{
         DebugPrinter, FullSuspendedState, Machine, RunMode, ScriptGroup, ScriptGroupType,
-        ScriptVersion, SgData, SyscallGenerator, TransactionState, TxData, VerifyResult,
+        ScriptVersion, SgData, SyscallGenerator, TerminatedResult, TransactionState, TxData,
+        VerifyResult,
     },
     verify_env::TxVerifyEnv,
 };
@@ -481,7 +482,10 @@ where
         let previous_cycles = scheduler.consumed_cycles();
         let res = scheduler.run(RunMode::LimitCycles(max_cycles));
         match res {
-            Ok((exit_code, cycles)) => {
+            Ok(TerminatedResult {
+                exit_code,
+                consumed_cycles: cycles,
+            }) => {
                 if exit_code == 0 {
                     Ok(ChunkState::Completed(
                         cycles,
@@ -540,7 +544,7 @@ where
         &self,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-    ) -> Result<(i8, Cycle), ScriptError> {
+    ) -> Result<TerminatedResult, ScriptError> {
         let mut scheduler = self.create_scheduler(script_group)?;
         scheduler
             .run(RunMode::LimitCycles(max_cycles))
@@ -548,12 +552,15 @@ where
     }
 
     fn run(&self, script_group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
-        let (code, cycles) = self.detailed_run(script_group, max_cycles)?;
+        let result = self.detailed_run(script_group, max_cycles)?;
 
-        if code == 0 {
-            Ok(cycles)
+        if result.exit_code == 0 {
+            Ok(result.consumed_cycles)
         } else {
-            Err(ScriptError::validation_failure(&script_group.script, code))
+            Err(ScriptError::validation_failure(
+                &script_group.script,
+                result.exit_code,
+            ))
         }
     }
 
@@ -639,7 +646,8 @@ where
         let mut scheduler = self.create_scheduler(script_group)?;
         let mut pause = VMPause::new();
         let child_pause = pause.clone();
-        let (finish_tx, mut finish_rx) = oneshot::channel::<Result<(i8, Cycle), ckb_vm::Error>>();
+        let (finish_tx, mut finish_rx) =
+            oneshot::channel::<Result<TerminatedResult, ckb_vm::Error>>();
 
         // send initial `Resume` command to child
         // it's maybe useful to set initial command to `signal.borrow().to_owned()`
@@ -702,10 +710,13 @@ where
                 Ok(res) = &mut finish_rx => {
                     let _ = jh.await;
                     match res {
-                        Ok((0, cycles)) => {
+                        Ok(TerminatedResult {
+                            exit_code: 0,
+                            consumed_cycles: cycles,
+                        }) => {
                             return Ok(cycles);
                         }
-                        Ok((exit_code, _cycles)) => {
+                        Ok(TerminatedResult { exit_code, .. }) => {
                             return Err(ScriptError::validation_failure(
                                 &script_group.script,
                                 exit_code

@@ -6,8 +6,8 @@ use crate::syscalls::{
 
 use crate::types::{
     DataLocation, DataPieceId, FIRST_FD_SLOT, FIRST_VM_ID, Fd, FdArgs, FullSuspendedState,
-    IterationResult, Message, ReadState, RunMode, SgData, SyscallGenerator, VmArgs, VmContext,
-    VmId, VmState, WriteState,
+    IterationResult, Message, ReadState, RunMode, SgData, SyscallGenerator, TerminatedResult,
+    VmArgs, VmContext, VmId, VmState, WriteState,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -137,11 +137,6 @@ where
             message_box: Arc::new(Mutex::new(Vec::new())),
             terminated_vms: BTreeMap::default(),
         }
-    }
-
-    /// If current scheduler is terminated
-    pub fn terminated(&self) -> bool {
-        self.states[&ROOT_VM_ID] == VmState::Terminated
     }
 
     /// Return total cycles.
@@ -278,7 +273,7 @@ where
     /// * Cycle limit reached, the returned error would be ckb_vm::Error::CyclesExceeded,
     /// * Pause trigger, the returned error would be ckb_vm::Error::Pause,
     /// * Other terminating errors
-    pub fn run(&mut self, mode: RunMode) -> Result<(i8, Cycle), Error> {
+    pub fn run(&mut self, mode: RunMode) -> Result<TerminatedResult, Error> {
         self.boot_root_vm_if_needed()?;
 
         let (pause, mut limit_cycles) = match mode {
@@ -302,12 +297,12 @@ where
         if self.terminated() {
             return Ok(IterationResult {
                 executed_vm: ROOT_VM_ID,
-                exit_status: Some(self.terminated_result()?),
+                terminated_status: Some(self.terminated_result()?),
             });
         }
 
         let (id, _) = self.iterate_outer(&Pause::new(), u64::MAX)?;
-        let exit_status = if self.terminated() {
+        let terminated_status = if self.terminated() {
             Some(self.terminated_result()?)
         } else {
             None
@@ -315,7 +310,7 @@ where
 
         Ok(IterationResult {
             executed_vm: id,
-            exit_status,
+            terminated_status,
         })
     }
 
@@ -835,14 +830,25 @@ where
         Ok(())
     }
 
-    fn terminated_result(&mut self) -> Result<(i8, Cycle), Error> {
-        assert_eq!(self.states[&ROOT_VM_ID], VmState::Terminated);
+    /// If current scheduler is terminated
+    pub fn terminated(&self) -> bool {
+        self.states
+            .get(&ROOT_VM_ID)
+            .map(|state| *state == VmState::Terminated)
+            .unwrap_or(false)
+    }
+
+    fn terminated_result(&mut self) -> Result<TerminatedResult, Error> {
+        assert!(self.terminated());
 
         let exit_code = {
             let root_vm = &self.ensure_get_instantiated(&ROOT_VM_ID)?.1;
             root_vm.machine().exit_code()
         };
-        Ok((exit_code, self.consumed_cycles()))
+        Ok(TerminatedResult {
+            exit_code,
+            consumed_cycles: self.consumed_cycles(),
+        })
     }
 
     // Ensure VMs are instantiated
