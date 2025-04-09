@@ -1137,3 +1137,12 @@ pub enum RunMode {
     /// Continues running until a Pause signal is received.
     Pause(Pause),
 }
+
+/// Single iteration result
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct IterationResult {
+    /// VM ID that gets executed
+    pub executed_vm: VmId,
+    /// Exit status
+    pub exit_status: Option<(i8, Cycle)>,
+}
