@@ -316,8 +316,6 @@ where
 
     /// Returns the machine that needs to be executed in the current iterate.
     fn iterate_prepare_machine(&mut self) -> Result<(u64, &mut M), Error> {
-        // Process all pending VM reads & writes.
-        self.process_io()?;
         // Find a runnable VM that has the largest ID.
         let vm_id_to_run = self
             .states
@@ -343,7 +341,7 @@ where
         self.process_message_box()?;
         assert!(self.message_box.lock().expect("lock").is_empty());
         // If the VM terminates, update VMs in join state, also closes its fds
-        match result {
+        let result = match result {
             Ok(code) => {
                 self.terminated_vms.insert(vm_id_to_run, code);
                 // When root VM terminates, the execution stops immediately, we will purge
@@ -391,7 +389,20 @@ where
             }
             Err(Error::Yield) => Ok(()),
             Err(e) => Err(e),
-        }
+        };
+        // Process all pending VM reads & writes. Notice ideally, this invocation
+        // can be put immediately after `self.process_message_box()` above. But in
+        // earlier versions, `self.process_io` was put at the very start of
+        // +iterate_prepare_machine+ method, to replicate exact same runtime behavior
+        // we have to call +process_io+ at last here. Terminating VMs can lead to
+        // joined VMs being instantiated, we cannot just swap `process_io` call with
+        // the above block.
+        // The only expected changes here, is that +process_io+ is now called once more
+        // after the whole scheduler terminates, and not called at the very beginning
+        // when no VM is executing. But since no VMs will be in IO states at this 2 timeslot,
+        // we should be fine here.
+        self.process_io()?;
+        result
     }
 
     // This internal function is actually a wrapper over +iterate_inner+,
