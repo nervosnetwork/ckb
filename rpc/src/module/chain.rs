@@ -1322,6 +1322,8 @@ pub trait ChainRpc {
 
     /// Return various consensus parameters.
     ///
+    /// Notes: The `secp256k1_blake160_multisig_all_type_hash` the hash created on genesis block, CKB may upgrade the multisig script: https://github.com/nervosnetwork/ckb-system-scripts
+    ///
     /// ## Returns
     ///
     /// If any hardfork feature has `epoch=null`, it means the feature will never be activated.
