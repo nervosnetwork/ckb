@@ -10,13 +10,13 @@ use std::{
 
 use ckb_types::{
     core::{
-        tx_pool::{get_transaction_weight, TxEntryInfo},
         BlockNumber, BlockView, FeeRate,
+        tx_pool::{TxEntryInfo, get_transaction_weight},
     },
     packed::Byte32,
 };
 
-use crate::{constants, Error};
+use crate::{Error, constants};
 
 /// The number of blocks that the esitmator will trace the statistics.
 const MAX_CONFIRM_BLOCKS: usize = 1000;
@@ -72,7 +72,7 @@ struct TxRecord {
 /// In inner, we group samples by predefined fee_rate buckets.
 /// To estimator fee_rate for a confirm target(how many blocks that a tx can get committed),
 /// we travel through fee_rate buckets, try to find a fee_rate X to let a tx get committed
-/// with high probilities within confirm target blocks.
+/// with high probabilities within confirm target blocks.
 ///
 #[derive(Clone)]
 pub struct Algorithm {
@@ -188,10 +188,7 @@ impl TxConfirmStat {
     // track an unconfirmed tx
     // entry_height - tip number when tx enter txpool
     fn add_unconfirmed_tx(&mut self, entry_height: u64, fee_rate: FeeRate) -> Option<usize> {
-        let bucket_index = match self.bucket_index_by_fee_rate(fee_rate) {
-            Some(index) => index,
-            None => return None,
-        };
+        let bucket_index = self.bucket_index_by_fee_rate(fee_rate)?;
         let block_index = (entry_height % (self.block_unconfirmed_txs.len() as u64)) as usize;
         self.block_unconfirmed_txs[block_index][bucket_index] += 1;
         Some(bucket_index)

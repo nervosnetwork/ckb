@@ -1,14 +1,14 @@
-use crate::utils::{find_available_port, message_name, temp_path, wait_until};
 use crate::Node;
+use crate::utils::{find_available_port, message_name, temp_path, wait_until};
 use ckb_app_config::NetworkConfig;
-use ckb_async_runtime::{new_global_runtime, Runtime};
+use ckb_async_runtime::{Runtime, new_global_runtime};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_channel::{self as channel, unbounded, Receiver, RecvTimeoutError, Sender};
+use ckb_channel::{self as channel, Receiver, RecvTimeoutError, Sender, unbounded};
 use ckb_logger::info;
 use ckb_network::{
-    async_trait, bytes::Bytes, extract_peer_id, network::TransportType, CKBProtocol,
-    CKBProtocolContext, CKBProtocolHandler, Flags, NetworkController, NetworkService, NetworkState,
-    PeerIndex, ProtocolId, SupportProtocols,
+    CKBProtocol, CKBProtocolContext, CKBProtocolHandler, Flags, NetworkController, NetworkService,
+    NetworkState, PeerIndex, ProtocolId, SupportProtocols, async_trait, bytes::Bytes,
+    extract_peer_id, network::TransportType,
 };
 use ckb_util::Mutex;
 use std::collections::HashMap;

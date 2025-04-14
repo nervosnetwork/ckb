@@ -11,13 +11,12 @@ mod tests;
 use ckb_logger::{debug, trace};
 use futures::{Future, FutureExt};
 use p2p::{
-    async_trait,
+    ProtocolId, SessionId, async_trait,
     builder::MetaBuilder,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     service::{ProtocolHandle, ProtocolMeta, ServiceAsyncControl, ServiceControl, TargetSession},
     traits::ServiceProtocol,
-    ProtocolId, SessionId,
 };
 use std::{
     pin::Pin,
@@ -33,9 +32,9 @@ pub type PeerIndex = SessionId;
 pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 
 use crate::{
+    Behaviour, Error, NetworkState, Peer, ProtocolVersion, SupportProtocols,
     compress::{compress, decompress},
     network::{async_disconnect_with_message, disconnect_with_message},
-    Behaviour, Error, NetworkState, Peer, ProtocolVersion, SupportProtocols,
 };
 
 /// Abstract protocol context
@@ -80,7 +79,7 @@ pub trait CKBProtocolContext: Send {
     async fn async_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
     /// Filter broadcast message
     async fn async_filter_broadcast(&self, target: TargetSession, data: Bytes)
-        -> Result<(), Error>;
+    -> Result<(), Error>;
     /// Disconnect session
     async fn async_disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     /// Send message through quick queue

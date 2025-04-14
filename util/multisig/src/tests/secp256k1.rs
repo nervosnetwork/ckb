@@ -1,5 +1,5 @@
 use ckb_crypto::secp::{Message, Privkey, Pubkey, Signature};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::collections::HashSet;
 
 use crate::{error::ErrorKind, secp256k1::verify_m_of_n};

@@ -1,9 +1,9 @@
 [package]
 name = "ckb-benches"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "CKB benchmarks."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
@@ -12,25 +12,25 @@ repository = "https://github.com/nervosnetwork/ckb"
 
 
 [dev-dependencies]
-criterion = "0.5"
-ckb-chain = { path = "../chain", version = "= 0.200.0" }
-ckb-types = { path = "../util/types", version = "= 0.200.0" }
-ckb-shared = { path = "../shared", version = "= 0.200.0" }
-ckb-store = { path = "../store", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../spec", version = "= 0.200.0" }
-rand = "0.8"
-ckb-hash = { path = "../util/hash", version = "= 0.200.0" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.200.0" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.200.0" }
-ckb-dao = { path = "../util/dao", version = "= 0.200.0" }
-ckb-system-scripts = { version = "= 0.5.4" }
-ckb-crypto = { path = "../util/crypto", version = "= 0.200.0" }
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types", version = "= 0.200.0" }
-ckb-verification = { path = "../verification", version = "= 0.200.0" }
-ckb-verification-traits = { path = "../verification/traits", version = "= 0.200.0" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.200.0" }
-ckb-resource = { path = "../resource", version = "= 0.200.0" }
-ckb-network = { path = "../network", version = "= 0.200.0" }
+criterion.workspace = true
+ckb-chain.workspace = true
+ckb-types.workspace = true
+ckb-shared.workspace = true
+ckb-store.workspace = true
+ckb-chain-spec.workspace = true
+rand.workspace = true
+ckb-hash.workspace = true
+ckb-test-chain-utils.workspace = true
+ckb-dao-utils.workspace = true
+ckb-dao.workspace = true
+ckb-system-scripts.workspace = true
+ckb-crypto.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-verification.workspace = true
+ckb-verification-traits.workspace = true
+ckb-app-config.workspace = true
+ckb-resource.workspace = true
+ckb-network.workspace = true
 tempfile.workspace = true
 
 [[bench]]

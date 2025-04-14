@@ -1,9 +1,9 @@
 [package]
 name = "ckb-indexer"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "The ckb indexer"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
@@ -11,16 +11,16 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.200.0" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.200.0" }
-ckb-app-config = { path = "../app-config", version = "= 0.200.0" }
-ckb-notify = { path = "../../notify", version = "= 0.200.0" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.200.0" }
-ckb-indexer-sync = { path = "../indexer-sync", version = "= 0.200.0" }
-rocksdb = { package = "ckb-rocksdb", version ="=0.21.1", features = ["snappy"], default-features = false }
-memchr = "2.7"
+ckb-types.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-app-config.workspace = true
+ckb-notify.workspace = true
+ckb-async-runtime.workspace = true
+ckb-indexer-sync.workspace = true
+rocksdb = { workspace = true, features = ["snappy"], default-features = false }
+memchr.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-rand = "0.8"
-faster-hex = "0.6"
+rand.workspace = true
+faster-hex.workspace = true

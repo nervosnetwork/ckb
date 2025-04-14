@@ -1,7 +1,7 @@
 use crate::syscalls::VM_VERSION;
 use ckb_vm::{
-    registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A7},
 };
 
 #[derive(Debug, Default)]

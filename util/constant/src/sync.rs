@@ -7,7 +7,7 @@ pub const MAX_TIP_AGE: u64 = 24 * 60 * 60 * 1000;
 /// Default max get header response length, if it is greater than this value, the message will be ignored
 pub const MAX_HEADERS_LEN: usize = 2_000;
 
-/// The default number of download blocks that can be requested at one time
+// The default number of download blocks that can be requested at one time
 /* About Download Scheduler */
 
 /// ckb2021 edition new limit

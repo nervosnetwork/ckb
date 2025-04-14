@@ -1,4 +1,4 @@
-use ckb_error::{prelude::*, Error, ErrorKind};
+use ckb_error::{Error, ErrorKind, prelude::*};
 use ckb_types::packed::Byte32;
 
 /// The error type for Spec operations

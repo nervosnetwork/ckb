@@ -20,8 +20,8 @@ pub use miner::{
     ExtraHashFunction, WorkerConfig as MinerWorkerConfig,
 };
 pub use network::{
-    default_support_all_protocols, Config as NetworkConfig, HeaderMapConfig, SupportProtocol,
-    SyncConfig,
+    Config as NetworkConfig, HeaderMapConfig, SupportProtocol, SyncConfig,
+    default_support_all_protocols,
 };
 pub use network_alert::Config as NetworkAlertConfig;
 pub use notify::Config as NotifyConfig;

@@ -6,26 +6,26 @@ use ckb_chain_spec::{
     versionbits::{DeploymentPos, ThresholdState, VersionbitsIndexer},
 };
 use ckb_db::{
-    iter::{DBIter, IteratorMode},
     DBPinnableSlice,
+    iter::{DBIter, IteratorMode},
 };
 use ckb_db_schema::Col;
 use ckb_freezer::Freezer;
 use ckb_merkle_mountain_range::{
-    leaf_index_to_mmr_size, Error as MMRError, MMRStore, Result as MMRResult,
+    Error as MMRError, MMRStore, Result as MMRResult, leaf_index_to_mmr_size,
 };
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::{HeaderFields, HeaderFieldsProvider, HeaderProvider};
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
+    U256,
     core::{
-        cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
         BlockNumber, EpochExt, HeaderView, TransactionView, Version,
+        cell::{CellChecker, CellProvider, CellStatus, HeaderChecker},
     },
     packed::{Byte32, HeaderDigest, OutPoint},
     utilities::merkle_mountain_range::ChainRootMMR,
-    U256,
 };
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;

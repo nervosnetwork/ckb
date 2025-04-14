@@ -10,7 +10,7 @@ use ckb_db_schema::{
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
     core::{
-        capacity_bytes, hardfork::HardForks, BlockBuilder, BlockExt, Capacity, TransactionBuilder,
+        BlockBuilder, BlockExt, Capacity, TransactionBuilder, capacity_bytes, hardfork::HardForks,
     },
     packed::{self, Bytes},
     prelude::*,

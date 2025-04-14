@@ -4,22 +4,23 @@ use crate::{
         LoadCellData, LoadHeader, LoadInput, LoadScript, LoadScriptHash, LoadTx, LoadWitness, Pipe,
         ProcessID, Read, Spawn, VMVersion, Wait, Write,
     },
-    types::{CoreMachine, DebugContext, ScriptVersion, SgData, VmContext, VmId},
+    types::{DebugPrinter, ScriptVersion, SgData, VmContext, VmId},
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
-use ckb_vm::Syscalls;
+use ckb_vm::{SupportMachine, Syscalls};
 
 /// Generate RISC-V syscalls in CKB environment
-pub fn generate_ckb_syscalls<DL>(
+pub fn generate_ckb_syscalls<DL, M>(
     vm_id: &VmId,
     sg_data: &SgData<DL>,
     vm_context: &VmContext<DL>,
-    debug_context: &DebugContext,
-) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>
+    debug_printer: &DebugPrinter,
+) -> Vec<Box<(dyn Syscalls<M>)>>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    M: SupportMachine,
 {
-    let mut syscalls: Vec<Box<(dyn Syscalls<CoreMachine>)>> = vec![
+    let mut syscalls: Vec<Box<(dyn Syscalls<M>)>> = vec![
         Box::new(LoadScriptHash::new(sg_data)),
         Box::new(LoadTx::new(sg_data)),
         Box::new(LoadCell::new(sg_data)),
@@ -28,7 +29,7 @@ where
         Box::new(LoadWitness::new(sg_data)),
         Box::new(LoadScript::new(sg_data)),
         Box::new(LoadCellData::new(vm_context)),
-        Box::new(Debugger::new(sg_data, debug_context)),
+        Box::new(Debugger::new(sg_data, debug_printer)),
     ];
     let script_version = &sg_data.sg_info.script_version;
     if script_version >= &ScriptVersion::V1 {
@@ -54,9 +55,5 @@ where
             Box::new(Close::new(vm_id, vm_context)),
         ]);
     }
-    #[cfg(test)]
-    syscalls.push(Box::new(crate::syscalls::Pause::new(
-        std::sync::Arc::clone(&debug_context.skip_pause),
-    )));
     syscalls
 }

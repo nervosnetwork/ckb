@@ -3,7 +3,7 @@ use crate::utils::{
     assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
     since_from_relative_block_number, since_from_relative_timestamp,
 };
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{DEFAULT_TX_PROPOSAL_WINDOW, Node, Spec};
 
 use ckb_logger::info;
 use ckb_types::core::{BlockNumber, TransactionView};

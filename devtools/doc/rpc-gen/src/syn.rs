@@ -5,7 +5,7 @@
 use proc_macro2::TokenTree;
 use std::collections::HashMap;
 use syn::visit::Visit;
-use syn::{parse2, Expr, ItemType, Meta, MetaNameValue};
+use syn::{Expr, ItemType, Meta, MetaNameValue, parse2};
 use walkdir::WalkDir;
 
 pub(crate) struct CommentFinder {

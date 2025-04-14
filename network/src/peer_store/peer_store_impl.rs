@@ -1,20 +1,20 @@
 use crate::{
+    Flags, PeerId, SessionType,
     errors::{PeerStoreError, Result},
     extract_peer_id, multiaddr_to_socketaddr,
     network_group::Group,
     peer_store::{
+        ADDR_COUNT_LIMIT, ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS, Behaviour, DIAL_INTERVAL,
+        Multiaddr, PeerScoreConfig, ReportResult, Status,
         addr_manager::AddrManager,
         ban_list::BanList,
         base_addr,
-        types::{ip_to_network, AddrInfo, BannedAddr, PeerInfo},
-        Behaviour, Multiaddr, PeerScoreConfig, ReportResult, Status, ADDR_COUNT_LIMIT,
-        ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS, DIAL_INTERVAL,
+        types::{AddrInfo, BannedAddr, PeerInfo, ip_to_network},
     },
-    Flags, PeerId, SessionType,
 };
 use ipnetwork::IpNetwork;
 use rand::prelude::IteratorRandom;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 
 /// Peer store
 ///

@@ -1,16 +1,16 @@
+use crate::StoreSnapshot;
 use crate::cache::StoreCache;
 use crate::cell::attach_block_cell;
 use crate::store::ChainStore;
 use crate::transaction::StoreTransaction;
 use crate::write_batch::StoreWriteBatch;
-use crate::StoreSnapshot;
 use ckb_app_config::StoreConfig;
 use ckb_chain_spec::{consensus::Consensus, versionbits::VersionbitsIndexer};
 use ckb_db::{
-    iter::{DBIter, DBIterator, IteratorMode},
     DBPinnableSlice, RocksDB,
+    iter::{DBIter, DBIterator, IteratorMode},
 };
-use ckb_db_schema::{Col, CHAIN_SPEC_HASH_KEY, MIGRATION_VERSION_KEY};
+use ckb_db_schema::{CHAIN_SPEC_HASH_KEY, Col, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_types::{

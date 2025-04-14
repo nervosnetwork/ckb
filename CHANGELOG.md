@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## [v0.201.0](https://github.com/nervosnetwork/ckb/compare/v0.200.0...v0.201.0) (2025-04-02)
+
+### Fixings
+
+- #4825: Fix `make wasm` build failed by `error[E0521]: borrowed data escapes outside of closure` (@eval-exec)
+
+### Improvements
+
+- #4820: Improve assume-valid-target info logs (@janx)
+- #4818: Upgrade rust-toolchain from 1.81.0 to 1.85.0, Upgrade rust edition from 2021 to 2024 (@eval-exec)
+- #4832: Centralize dependencies with `cargo autoinherit` to improve CKB workspace maintainability (@eval-exec)
+
 ## [v0.200.0](https://github.com/nervosnetwork/ckb/compare/v0.121.0...v0.200.0) (2025-03-05)
 
 ### Features

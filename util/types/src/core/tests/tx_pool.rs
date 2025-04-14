@@ -1,7 +1,7 @@
 use ckb_error::{ErrorKind, InternalErrorKind, OtherError, SilentError as DefaultError};
 
 use crate::core::{
-    error::{OutPointError, TransactionError, TransactionErrorSource, ARGV_TOO_LONG_TEXT},
+    error::{ARGV_TOO_LONG_TEXT, OutPointError, TransactionError, TransactionErrorSource},
     tx_pool::Reject,
 };
 

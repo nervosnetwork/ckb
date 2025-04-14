@@ -1,7 +1,7 @@
 use ckb_types::core::{Capacity, TransactionBuilder, TransactionView};
 use ckb_types::packed::{CellDep, CellInput, CellOutput, OutPoint, Script, ScriptOpt};
 use ckb_types::prelude::*;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::collections::HashMap;
 
 const EXPLODE_LIMIT: usize = 2000;

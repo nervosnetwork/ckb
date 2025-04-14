@@ -1,23 +1,23 @@
 [package]
 name = "ckb-db"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "The ckb data persistent implementation"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-app-config = { path = "../util/app-config", version = "= 0.200.0" }
-ckb-logger = { path = "../util/logger", version = "= 0.200.0" }
-ckb-error = { path = "../error", version = "= 0.200.0" }
-libc = "0.2"
-rocksdb = { package = "ckb-rocksdb", version = "=0.21.1", features = [
+ckb-app-config.workspace = true
+ckb-logger.workspace = true
+ckb-error.workspace = true
+libc.workspace = true
+rocksdb = { workspace = true, features = [
     "snappy",
     "lz4",
 ], default-features = false }
-ckb-db-schema = { path = "../db-schema", version = "= 0.200.0" }
+ckb-db-schema.workspace = true
 
 
 [dev-dependencies]

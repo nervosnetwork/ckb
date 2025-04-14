@@ -1,9 +1,9 @@
 [package]
 name = "ckb-script"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 build = "build.rs"
 description = "CKB component to run the type/lock scripts."
 homepage = "https://github.com/nervosnetwork/ckb"
@@ -18,33 +18,33 @@ logging = ["ckb-logger"]
 flatmemory = []
 
 [dependencies]
-ckb-traits = { path = "../traits", version = "= 0.200.0" }
-byteorder = "1.3.1"
-ckb-types = { path = "../util/types", version = "= 0.200.0" }
-ckb-hash = { path = "../util/hash", version = "= 0.200.0" }
-ckb-vm = { version = "= 0.24.13", default-features = false }
-faster-hex = "0.6"
-ckb-logger = { path = "../util/logger", version = "= 0.200.0", optional = true }
-serde = { version = "1.0", features = ["derive"] }
-ckb-error = { path = "../error", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../spec", version = "= 0.200.0" }
-tokio = { version = "1.35.0", features = ["sync", "macros"] }
+ckb-traits.workspace = true
+byteorder.workspace = true
+ckb-types.workspace = true
+ckb-hash.workspace = true
+ckb-vm.workspace = true
+faster-hex.workspace = true
+ckb-logger = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+ckb-error.workspace = true
+ckb-chain-spec.workspace = true
+tokio = { workspace = true, features = ["sync", "macros"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1.35.0", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
-proptest = "1.0"
-ckb-db = { path = "../db", version = "= 0.200.0" }
-ckb-store = { path = "../store", version = "= 0.200.0" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.200.0" }
-tiny-keccak = { version = "2.0", features = ["sha3"] }
-ckb-crypto = { path = "../util/crypto", version = "= 0.200.0" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.200.0" }
+proptest.workspace = true
+ckb-db.workspace = true
+ckb-store.workspace = true
+ckb-test-chain-utils.workspace = true
+tiny-keccak = { workspace = true, features = ["sha3"] }
+ckb-crypto.workspace = true
+ckb-db-schema.workspace = true
 tempfile.workspace = true
-rand = "0.8.4"
-daggy = "0.8.0"
-molecule = "0.8.0"
+rand.workspace = true
+daggy.workspace = true
+molecule.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(has_asm)'] }

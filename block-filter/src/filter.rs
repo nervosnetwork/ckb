@@ -1,13 +1,13 @@
 use ckb_async_runtime::tokio::{self, task::block_in_place};
 use ckb_logger::{debug, info, warn};
 use ckb_shared::Shared;
-use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::HeaderView,
     packed::{Byte32, CellOutput, OutPoint},
     prelude::*,
-    utilities::{build_filter_data, FilterDataProvider},
+    utilities::{FilterDataProvider, build_filter_data},
 };
 
 const NAME: &str = "BlockFilter";
@@ -163,6 +163,12 @@ impl BlockFilter {
             )
             .expect("insert_block_filter should be ok");
         db_transaction.commit().expect("commit should be ok");
-        debug!("Inserted filter data for block: {}, hash: {:#x}, filter data size: {}, transactions size: {}", header.number(), header.hash(), filter_data.len(), transactions_size);
+        debug!(
+            "Inserted filter data for block: {}, hash: {:#x}, filter data size: {}, transactions size: {}",
+            header.number(),
+            header.hash(),
+            filter_data.len(),
+            transactions_size
+        );
     }
 }

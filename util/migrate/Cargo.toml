@@ -1,9 +1,9 @@
 [package]
 name = "ckb-migrate"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "TODO(doc): @eval-exec crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
@@ -11,21 +11,21 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-migration-template = { path = "migration-template", version = "= 0.200.0" }
-ckb-db = { path = "../../db", version = "= 0.200.0" }
-ckb-error = { path = "../../error", version = "= 0.200.0" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.200.0" }
-ckb-db-migration = { path = "../../db-migration", version = "= 0.200.0" }
-ckb-app-config = { path = "../app-config", version = "= 0.200.0" }
-ckb-types = { path = "../types", version = "= 0.200.0" }
-ckb-store = { path = "../../store", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.200.0" }
-ckb-hash = { path = "../hash", version = "= 0.200.0" }
+ckb-migration-template.workspace = true
+ckb-db.workspace = true
+ckb-error.workspace = true
+ckb-db-schema.workspace = true
+ckb-db-migration.workspace = true
+ckb-app-config.workspace = true
+ckb-types.workspace = true
+ckb-store.workspace = true
+ckb-chain-spec.workspace = true
+ckb-hash.workspace = true
 tempfile.workspace = true
-num_cpus = "1.10"
+num_cpus.workspace = true
 
 [dev-dependencies]
-ckb-systemtime = {path = "../systemtime", version = "= 0.200.0", features = ["enable_faketime"]  }
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 
 [features]
 portable = ["ckb-db/portable", "ckb-db-migration/portable"]

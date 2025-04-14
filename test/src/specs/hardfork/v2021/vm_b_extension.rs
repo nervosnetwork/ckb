@@ -1,7 +1,7 @@
 use crate::{
+    Node, Spec,
     util::{cell::gen_spendable, check::is_transaction_committed},
     utils::assert_send_transaction_fail,
-    Node, Spec,
 };
 use ckb_logger::{debug, info};
 use ckb_types::{

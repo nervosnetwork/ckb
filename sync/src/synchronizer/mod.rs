@@ -20,14 +20,14 @@ pub(crate) use self::get_headers_process::GetHeadersProcess;
 pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
-use crate::types::{post_sync_process, HeadersSyncController, IBDState, Peers, SyncShared};
-use crate::utils::{metric_ckb_message_bytes, send_message_to, MetricDirection};
+use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared, post_sync_process};
+use crate::utils::{MetricDirection, metric_ckb_message_bytes, send_message_to};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
 
 use ckb_chain::{ChainController, RemoteBlock};
 use ckb_channel as channel;
-use ckb_channel::{select, Receiver};
+use ckb_channel::{Receiver, select};
 use ckb_constant::sync::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_TIP_AGE,
@@ -35,8 +35,8 @@ use ckb_constant::sync::{
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_metrics::HistogramTimer;
 use ckb_network::{
-    async_trait, bytes::Bytes, tokio, CKBProtocolContext, CKBProtocolHandler, PeerIndex,
-    ServiceControl, SupportProtocols,
+    CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceControl, SupportProtocols,
+    async_trait, bytes::Bytes, tokio,
 };
 use ckb_shared::types::HeaderIndexView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
@@ -51,7 +51,7 @@ use ckb_types::{
 };
 use std::{
     collections::HashSet,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
 
@@ -125,12 +125,12 @@ impl BlockFetchCMD {
                 if number != self.number && (number - self.number) % 10000 == 0 {
                     self.number = number;
                     info!(
-                            "The current best known header number: {}, total difficulty: {:#x}. \
+                        "The current best known header number: {}, total difficulty: {:#x}. \
                                  Block download minimum requirements: header number: 500_000, total difficulty: {:#x}.",
-                            number,
-                            best_known.total_difficulty(),
-                            self.sync_shared.state().min_chain_work()
-                        );
+                        number,
+                        best_known.total_difficulty(),
+                        self.sync_shared.state().min_chain_work()
+                    );
                 }
             }
             CanStart::AssumeValidNotFound => {
@@ -262,12 +262,17 @@ impl BlockFetchCMD {
                             // BlockFetchCMD has set the fetch target, no need to set it again
                         } else {
                             *flag = CanStart::FetchToTarget(header.number());
-                            info!("assume valid target found in header_map; CKB will start fetch blocks to {:?} now", header.number_and_hash());
+                            info!(
+                                "assume valid target found in header_map; CKB will start fetch blocks to {:?} now",
+                                header.number_and_hash()
+                            );
                         }
                         // Blocks that are no longer in the scope of ibd must be forced to verify
                         if unix_time_as_millis().saturating_sub(header.timestamp()) < MAX_TIP_AGE {
                             assume_valid_targets.take();
-                            warn!("the duration gap between 'assume valid target' and 'now' is less than 24h; CKB will ignore the specified assume valid target and do full verification from now on");
+                            warn!(
+                                "the duration gap between 'assume valid target' and 'now' is less than 24h; CKB will ignore the specified assume valid target and do full verification from now on"
+                            );
                         }
                     }
                     None => {
@@ -276,7 +281,9 @@ impl BlockFetchCMD {
                             .saturating_sub(state.shared_best_header_ref().timestamp())
                             < MAX_TIP_AGE
                         {
-                            warn!("the duration gap between 'shared_best_header' and 'now' is less than 24h, but CKB haven't found the assume valid target in header_map; CKB will ignore the specified assume valid target and do full verification from now on");
+                            warn!(
+                                "the duration gap between 'shared_best_header' and 'now' is less than 24h, but CKB haven't found the assume valid target in header_map; CKB will ignore the specified assume valid target and do full verification from now on"
+                            );
                             *flag = CanStart::Ready;
                             assume_valid_targets.take();
                         }
@@ -450,6 +457,7 @@ impl Synchronizer {
         }
     }
 
+    /// Process new block in blocking way
     #[cfg(test)]
     pub fn blocking_process_new_block(
         &self,
@@ -638,11 +646,7 @@ impl Synchronizer {
                 .state()
                 .n_sync_started()
                 .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                    if ibd && x != 0 {
-                        None
-                    } else {
-                        Some(x + 1)
-                    }
+                    if ibd && x != 0 { None } else { Some(x + 1) }
                 })
                 .is_err()
             {

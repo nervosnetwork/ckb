@@ -8,8 +8,8 @@ use ckb_jsonrpc_types::{
     IndexerTxWithCells,
 };
 use ckb_jsonrpc_types::{IndexerOrder, IndexerPagination, IndexerSearchKey, JsonBytes, Uint32};
-use sql_builder::{name, name::SqlName, SqlBuilder};
-use sqlx::{any::Any, Row, Transaction};
+use sql_builder::{SqlBuilder, name, name::SqlName};
+use sqlx::{Row, Transaction, any::Any};
 
 impl AsyncRichIndexerHandle {
     /// Get transactions

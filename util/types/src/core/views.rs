@@ -6,12 +6,12 @@ use ckb_hash::new_blake2b;
 use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
+    U256,
     bytes::Bytes,
     core::{BlockNumber, Capacity, EpochNumberWithFraction, Version},
     packed,
     prelude::*,
     utilities::merkle_root,
-    U256,
 };
 
 /*
@@ -457,14 +457,14 @@ impl ExtraHashView {
     pub fn extension_hash(&self) -> Option<packed::Byte32> {
         self.extension_hash_and_extra_hash
             .as_ref()
-            .map(|(ref extension_hash, _)| extension_hash.clone())
+            .map(|(extension_hash, _)| extension_hash.clone())
     }
 
     /// Gets `extra_hash`.
     pub fn extra_hash(&self) -> packed::Byte32 {
         self.extension_hash_and_extra_hash
             .as_ref()
-            .map(|(_, ref extra_hash)| extra_hash.clone())
+            .map(|(_, extra_hash)| extra_hash.clone())
             .unwrap_or_else(|| self.uncles_hash.clone())
     }
 }

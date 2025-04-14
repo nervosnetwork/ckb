@@ -1,23 +1,22 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{Arc, atomic::Ordering};
 
 use ckb_logger::{debug, error, trace, warn};
 use ckb_systemtime::{Duration, Instant};
 use p2p::{
-    async_trait,
+    SessionId, async_trait,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::{Multiaddr, Protocol},
     service::{SessionType, TargetProtocol},
     traits::ServiceProtocol,
     utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
-    SessionId,
 };
 
 mod protocol;
 
-use crate::{peer_store::required_flags_filter, NetworkState, PeerIdentifyInfo, SupportProtocols};
+use crate::{NetworkState, PeerIdentifyInfo, SupportProtocols, peer_store::required_flags_filter};
 use ckb_types::{packed, prelude::*};
 
 use protocol::IdentifyMessage;
@@ -488,7 +487,9 @@ impl Callback for IdentifyCallback {
                             .await;
                     } else {
                         // The remote end cannot support all local protocols.
-                        warn!("Session closed from IdentifyProtocol due to peer's flag not meeting the requirements");
+                        warn!(
+                            "Session closed from IdentifyProtocol due to peer's flag not meeting the requirements"
+                        );
                         return MisbehaveResult::Disconnect;
                     }
                 }
@@ -505,8 +506,7 @@ impl Callback for IdentifyCallback {
     fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>) {
         trace!(
             "IdentifyProtocol add remote listening addresses, session: {:?}, addresses : {:?}",
-            session,
-            addrs,
+            session, addrs,
         );
         let flags = self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(session.id) {

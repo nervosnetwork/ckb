@@ -136,17 +136,17 @@ pub(crate) use self::stats::StatsRpcImpl;
 pub(crate) use self::subscription::SubscriptionRpcImpl;
 pub(crate) use self::test::IntegrationTestRpcImpl;
 
-pub use self::alert::{add_alert_rpc_methods, alert_rpc_doc, AlertRpc};
-pub use self::chain::{add_chain_rpc_methods, chain_rpc_doc, ChainRpc};
-pub use self::debug::{add_debug_rpc_methods, debug_rpc_doc, DebugRpc};
-pub use self::experiment::{add_experiment_rpc_methods, experiment_rpc_doc, ExperimentRpc};
-pub use self::indexer::{add_indexer_rpc_methods, indexer_rpc_doc, IndexerRpc};
-pub use self::miner::{add_miner_rpc_methods, miner_rpc_doc, MinerRpc};
-pub use self::net::{add_net_rpc_methods, net_rpc_doc, NetRpc};
-pub use self::pool::{add_pool_rpc_methods, pool_rpc_doc, PoolRpc};
-pub use self::rich_indexer::{add_rich_indexer_rpc_methods, rich_indexer_rpc_doc, RichIndexerRpc};
-pub use self::stats::{add_stats_rpc_methods, stats_rpc_doc, StatsRpc};
-pub use self::subscription::{add_subscription_rpc_methods, subscription_rpc_doc, SubscriptionRpc};
+pub use self::alert::{AlertRpc, add_alert_rpc_methods, alert_rpc_doc};
+pub use self::chain::{ChainRpc, add_chain_rpc_methods, chain_rpc_doc};
+pub use self::debug::{DebugRpc, add_debug_rpc_methods, debug_rpc_doc};
+pub use self::experiment::{ExperimentRpc, add_experiment_rpc_methods, experiment_rpc_doc};
+pub use self::indexer::{IndexerRpc, add_indexer_rpc_methods, indexer_rpc_doc};
+pub use self::miner::{MinerRpc, add_miner_rpc_methods, miner_rpc_doc};
+pub use self::net::{NetRpc, add_net_rpc_methods, net_rpc_doc};
+pub use self::pool::{PoolRpc, add_pool_rpc_methods, pool_rpc_doc};
+pub use self::rich_indexer::{RichIndexerRpc, add_rich_indexer_rpc_methods, rich_indexer_rpc_doc};
+pub use self::stats::{StatsRpc, add_stats_rpc_methods, stats_rpc_doc};
+pub use self::subscription::{SubscriptionRpc, add_subscription_rpc_methods, subscription_rpc_doc};
 pub use self::test::{
-    add_integration_test_rpc_methods, integration_test_rpc_doc, IntegrationTestRpc,
+    IntegrationTestRpc, add_integration_test_rpc_methods, integration_test_rpc_doc,
 };

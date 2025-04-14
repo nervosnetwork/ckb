@@ -1,13 +1,13 @@
 use crate::{Relayer, SyncShared};
 use ckb_app_config::NetworkConfig;
 use ckb_chain::start_chain_services;
-use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
+use ckb_chain_spec::consensus::{ConsensusBuilder, build_genesis_epoch_ext};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_network::{
-    async_trait, bytes::Bytes as P2pBytes, network::TransportType, Behaviour, CKBProtocolContext,
-    Error, Flags, NetworkController, NetworkService, NetworkState, Peer, PeerIndex, ProtocolId,
-    SupportProtocols, TargetSession,
+    Behaviour, CKBProtocolContext, Error, Flags, NetworkController, NetworkService, NetworkState,
+    Peer, PeerIndex, ProtocolId, SupportProtocols, TargetSession, async_trait,
+    bytes::Bytes as P2pBytes, network::TransportType,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
@@ -15,10 +15,11 @@ use ckb_store::ChainStore;
 use ckb_systemtime::{self, unix_time_as_millis};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_types::core::cell::resolve_transaction;
-use ckb_types::core::{capacity_bytes, BlockView, UncleBlockView};
+use ckb_types::core::{BlockView, UncleBlockView, capacity_bytes};
 use ckb_types::packed::Script;
 use ckb_types::prelude::*;
 use ckb_types::{
+    U256,
     bytes::Bytes,
     core::{
         BlockBuilder, BlockNumber, Capacity, EpochNumberWithFraction, HeaderBuilder, HeaderView,
@@ -28,7 +29,6 @@ use ckb_types::{
         CellDep, CellInput, CellOutputBuilder, IndexTransaction, IndexTransactionBuilder, OutPoint,
     },
     utilities::difficulty_to_compact,
-    U256,
 };
 use ckb_verification_traits::Switch;
 use std::collections::HashSet;

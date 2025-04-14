@@ -1,6 +1,6 @@
 use crate::{
-    BlockVersionError, EpochError, NumberError, PowError, TimestampError, UnknownParentError,
-    ALLOWED_FUTURE_BLOCKTIME,
+    ALLOWED_FUTURE_BLOCKTIME, BlockVersionError, EpochError, NumberError, PowError, TimestampError,
+    UnknownParentError,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;

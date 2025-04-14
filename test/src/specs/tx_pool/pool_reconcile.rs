@@ -5,7 +5,7 @@ use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::ProposalShortId;
 use ckb_logger::info;
-use ckb_types::core::{capacity_bytes, Capacity, FeeRate};
+use ckb_types::core::{Capacity, FeeRate, capacity_bytes};
 use ckb_types::packed::CellOutputBuilder;
 use ckb_types::{
     packed::{self, CellInput, OutPoint},
@@ -31,12 +31,14 @@ impl Spec for PoolReconcile {
         node0.mine_until_transaction_confirm(&hash);
 
         info!("Pool should be empty");
-        assert!(node0
-            .rpc_client()
-            .get_transaction(hash.clone())
-            .tx_status
-            .block_hash
-            .is_some());
+        assert!(
+            node0
+                .rpc_client()
+                .get_transaction(hash.clone())
+                .tx_status
+                .block_hash
+                .is_some()
+        );
 
         info!("Generate 5 blocks on node1");
         node1.mine(20);
@@ -47,12 +49,14 @@ impl Spec for PoolReconcile {
         waiting_for_sync(nodes);
 
         info!("Tx should be re-added to node0's pool");
-        assert!(node0
-            .rpc_client()
-            .get_transaction(hash)
-            .tx_status
-            .block_hash
-            .is_none());
+        assert!(
+            node0
+                .rpc_client()
+                .get_transaction(hash)
+                .tx_status
+                .block_hash
+                .is_none()
+        );
     }
 }
 
@@ -126,12 +130,14 @@ impl Spec for PoolResolveConflictAfterReorg {
         }
 
         info!("Tx1 mined by node1");
-        assert!(node0
-            .rpc_client()
-            .get_transaction(tx1.hash())
-            .tx_status
-            .block_hash
-            .is_some());
+        assert!(
+            node0
+                .rpc_client()
+                .get_transaction(tx1.hash())
+                .tx_status
+                .block_hash
+                .is_some()
+        );
 
         let tip_number0 = node0.get_tip_block_number();
         info!("Mine until node1 > node0");
@@ -160,9 +166,11 @@ impl Spec for PoolResolveConflictAfterReorg {
                     .previous_output(OutPoint::new(tx1.hash(), 0))
                     .build()
             }])
-            .set_outputs(vec![CellOutputBuilder::default()
-                .capacity(capacity_bytes!(99).pack())
-                .build()])
+            .set_outputs(vec![
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(99).pack())
+                    .build(),
+            ])
             .build();
 
         let ret = node0

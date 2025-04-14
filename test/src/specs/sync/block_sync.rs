@@ -6,7 +6,7 @@ use crate::utils::{
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::ChainInfo;
 use ckb_logger::info;
-use ckb_network::{bytes::Bytes, extract_peer_id, SupportProtocols};
+use ckb_network::{SupportProtocols, bytes::Bytes, extract_peer_id};
 use ckb_types::{
     core::BlockView,
     packed::{self, Byte32, SendHeaders, SyncMessage},

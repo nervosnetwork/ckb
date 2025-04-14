@@ -9,10 +9,9 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes,
-        hardfork::{HardForks, CKB2021, CKB2023},
         BlockBuilder, Capacity, EpochNumberWithFraction, ScriptHashType, TransactionBuilder,
-        TransactionView,
+        TransactionView, capacity_bytes,
+        hardfork::{CKB2021, CKB2023, HardForks},
     },
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
     utilities::DIFF_TWO,
@@ -21,8 +20,8 @@ use ckb_types::{
 const TX_FEE: Capacity = capacity_bytes!(10);
 
 pub(crate) fn create_load_is_even_script_tx() -> TransactionView {
-    let (ref load_is_even_cell, ref load_is_even_data, ref load_is_even_script) = load_is_even();
-    let (ref is_even_lib_cell, ref is_even_lib_data, _) = is_even_lib();
+    let (load_is_even_cell, load_is_even_data, load_is_even_script) = load_is_even();
+    let (is_even_lib_cell, is_even_lib_data, _) = is_even_lib();
     TransactionBuilder::default()
         .witness(load_is_even_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))

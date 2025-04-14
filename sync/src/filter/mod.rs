@@ -2,16 +2,16 @@ mod get_block_filter_check_points_process;
 mod get_block_filter_hashes_process;
 mod get_block_filters_process;
 
-use crate::{types::SyncShared, Status};
+use crate::{Status, types::SyncShared};
 use get_block_filter_check_points_process::GetBlockFilterCheckPointsProcess;
 use get_block_filter_hashes_process::GetBlockFilterHashesProcess;
 use get_block_filters_process::GetBlockFiltersProcess;
 
-use crate::utils::{metric_ckb_message_bytes, MetricDirection};
+use crate::utils::{MetricDirection, metric_ckb_message_bytes};
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug_target, error_target, info_target, warn_target};
 use ckb_network::{
-    async_trait, bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols,
+    CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols, async_trait, bytes::Bytes,
 };
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{Resource, TemplateContext, CKB_CONFIG_FILE_NAME};
+use crate::{CKB_CONFIG_FILE_NAME, Resource, TemplateContext};
 
 fn mkdir() -> tempfile::TempDir {
     tempfile::Builder::new()

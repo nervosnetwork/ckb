@@ -1,3 +1,5 @@
+//! Tests for the fixed hash types.
+
 use ckb_fixed_hash::{h160, h256, h512, h520};
 use std::str::FromStr;
 

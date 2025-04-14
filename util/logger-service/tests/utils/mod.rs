@@ -65,7 +65,9 @@ pub fn do_tests_with_env<F>(env_filter: &str, config: Config, func: F)
 where
     F: Fn(),
 {
-    std::env::set_var(DEFAULT_LOG_ENV, env_filter);
+    unsafe {
+        std::env::set_var(DEFAULT_LOG_ENV, env_filter);
+    }
     let guard = ckb_logger_service::init(Some(DEFAULT_LOG_ENV), config).unwrap();
     func();
     drop(guard);

@@ -12,9 +12,9 @@ use ckb_types::{
 };
 use sql_builder::SqlBuilder;
 use sqlx::{
+    Row, Transaction,
     any::{Any, AnyArguments, AnyRow},
     query::Query,
-    Row, Transaction,
 };
 
 use std::collections::HashSet;
@@ -291,7 +291,7 @@ pub(crate) async fn bulk_insert_output_table(
             tx_id.into(),
             row.0.into(),
             row.1.into(),
-            query_script_id(&row.2 .0, row.2 .1, &row.2 .2, tx)
+            query_script_id(&row.2.0, row.2.1, &row.2.2, tx)
                 .await?
                 .map_or(FieldValue::NoneBigInt, FieldValue::BigInt),
             type_script_id.map_or(FieldValue::NoneBigInt, FieldValue::BigInt),
@@ -595,10 +595,7 @@ pub(crate) fn build_input_rows(
 }
 
 fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
-    let row = match row {
-        Some(row) => row,
-        None => return None,
-    };
+    let row = row?;
     let id: i64 = row.get("id");
     let capacity: i64 = row.get("capacity");
     let data: Vec<u8> = row.get("data");

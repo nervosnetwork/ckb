@@ -2,10 +2,10 @@
 use ckb_app_config::NotifyConfig;
 use ckb_async_runtime::Handle;
 use ckb_logger::{debug, error, info, trace};
-use ckb_stop_handler::{new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_types::packed::Byte32;
 use ckb_types::{
-    core::{tx_pool::Reject, BlockView},
+    core::{BlockView, tx_pool::Reject},
     packed::Alert,
 };
 use std::{collections::HashMap, time::Duration};

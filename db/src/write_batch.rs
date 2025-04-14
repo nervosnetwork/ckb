@@ -1,6 +1,6 @@
 //! RocksDB write batch wrapper
 use crate::db::cf_handle;
-use crate::{internal_error, Result};
+use crate::{Result, internal_error};
 use ckb_db_schema::Col;
 use rocksdb::{OptimisticTransactionDB, WriteBatch};
 use std::sync::Arc;

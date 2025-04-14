@@ -3,8 +3,8 @@ use crate::rpc::RpcClient;
 use crate::utils::{find_available_port, temp_path, wait_until};
 use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::{AppConfig, CKBAppConfig, ExitCode};
-use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{BlockFilter, BlockTemplate, TxPoolInfo};
 use ckb_jsonrpc_types::{PoolTxDetailInfo, TxStatus};
@@ -16,8 +16,8 @@ use ckb_store::ChainDB;
 use ckb_types::{
     bytes,
     core::{
-        self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView,
-        ScriptHashType, TransactionView,
+        self, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderView, ScriptHashType,
+        TransactionView, capacity_bytes,
     },
     packed::{Block, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,

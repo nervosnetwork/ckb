@@ -1,28 +1,28 @@
 use crate::benchmarks::util::{create_2out_transaction, create_secp_tx, secp_cell};
 use ckb_app_config::NetworkConfig;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_network::{network::TransportType, Flags, NetworkController, NetworkService, NetworkState};
+use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
 use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_types::{
+    U256,
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, FeeRate,
-        ScriptHashType, TransactionBuilder, TransactionView,
+        BlockBuilder, BlockView, Capacity, EpochNumberWithFraction, FeeRate, ScriptHashType,
+        TransactionBuilder, TransactionView, capacity_bytes,
     },
     packed::{Block, CellDep, CellInput, CellOutput, Header, OutPoint},
     prelude::*,
     utilities::difficulty_to_compact,
-    U256,
 };
 use ckb_verification::HeaderVerifier;
 use ckb_verification_traits::Switch;
 use ckb_verification_traits::Verifier;
-use criterion::{criterion_group, BatchSize, BenchmarkId, Criterion};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group};
 use rand::random;
 use std::sync::Arc;
 

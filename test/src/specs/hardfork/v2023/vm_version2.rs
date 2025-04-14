@@ -1,10 +1,10 @@
 use crate::{
+    Node, Spec,
     util::{
         cell::gen_spendable,
         check::{assert_epoch_should_less_than, is_transaction_committed},
     },
     utils::{assert_send_transaction_fail, wait_until},
-    Node, Spec,
 };
 use ckb_jsonrpc_types as rpc;
 use ckb_jsonrpc_types::Either;

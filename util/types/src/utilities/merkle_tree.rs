@@ -1,5 +1,5 @@
 use ckb_hash::new_blake2b;
-use merkle_cbt::{merkle_tree::Merge, MerkleProof as ExMerkleProof, CBMT as ExCBMT};
+use merkle_cbt::{CBMT as ExCBMT, MerkleProof as ExMerkleProof, merkle_tree::Merge};
 
 use crate::{packed::Byte32, prelude::*};
 

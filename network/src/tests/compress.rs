@@ -1,6 +1,6 @@
 use p2p::bytes::{Bytes, BytesMut};
 
-use crate::compress::{compress, decompress, Message, COMPRESSION_SIZE_THRESHOLD};
+use crate::compress::{COMPRESSION_SIZE_THRESHOLD, Message, compress, decompress};
 
 #[test]
 fn test_no_need_compress() {

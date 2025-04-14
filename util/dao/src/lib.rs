@@ -2,13 +2,13 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
+use ckb_dao_utils::{DaoError, extract_dao_data, pack_dao_data};
 use ckb_traits::{CellDataProvider, EpochProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{CellMeta, ResolvedTransaction},
         Capacity, CapacityResult, EpochExt, HeaderView, ScriptHashType,
+        cell::{CellMeta, ResolvedTransaction},
     },
     packed::{Byte32, CellOutput, Script, WitnessArgs},
     prelude::*,
@@ -103,7 +103,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
         )?;
         let current_g = current_block_epoch
             .block_reward(current_block_number)
-            .and_then(|c| c.safe_add(current_g2).map_err(Into::into))?;
+            .and_then(|c| c.safe_add(current_g2))?;
 
         let miner_issuance128 = u128::from(current_g2.as_u64()) * u128::from(parent_u.as_u64())
             / u128::from(parent_c.as_u64());
@@ -182,7 +182,6 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
                 let current_capacity = modified_occupied_capacity(cell_meta, self.consensus);
                 current_capacity.and_then(|c| capacities.safe_add(c))
             })
-            .map_err(Into::into)
     }
 
     fn withdrawed_interests(

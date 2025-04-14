@@ -1,4 +1,4 @@
-use crate::{error::FromStrError, H160, H256, H512, H520};
+use crate::{H160, H256, H512, H520, error::FromStrError};
 use std::str::FromStr;
 
 macro_rules! test_from_trimmed_str_one_byte {

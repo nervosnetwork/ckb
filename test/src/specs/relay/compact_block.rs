@@ -8,7 +8,7 @@ use crate::utils::{
     build_header, build_headers, wait_until,
 };
 use crate::{Net, Node, Spec};
-use ckb_network::{bytes::Bytes, SupportProtocols};
+use ckb_network::{SupportProtocols, bytes::Bytes};
 use ckb_types::{
     core::{HeaderBuilder, HeaderView},
     h256,
@@ -668,7 +668,8 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
             build_compact_block(&new_block),
         );
         assert!(
-            wait_until(20, move || node0.get_tip_block().header().number() == old_tip + 1),
+            wait_until(20, move || node0.get_tip_block().header().number()
+                == old_tip + 1),
             "node0 should process the new block, even its difficulty is less than best_shared_known",
         );
     }

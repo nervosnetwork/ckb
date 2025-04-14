@@ -7,8 +7,10 @@ use crate::Score;
 /// Currently this feature is disabled, maybe someday we will add it back or totally remove it.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Behaviour {
+    /// Good behaviour
     #[cfg(test)]
     TestGood,
+    /// Bad behaviour
     #[cfg(test)]
     TestBad,
 }

@@ -1,7 +1,7 @@
 use crate::{Node, Spec};
 
 use ckb_logger::info;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
 pub struct RandomlyKill;
 

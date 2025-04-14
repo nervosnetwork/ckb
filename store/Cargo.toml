@@ -1,25 +1,25 @@
 [package]
 name = "ckb-store"
-version = "0.200.0"
+version.workspace = true
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "ckb chain related persistent implementation"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.200.0" }
-ckb-db = { path = "../db", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../spec", version = "= 0.200.0" }
-lru = "0.7.1"
-ckb-traits = { path = "../traits", version = "= 0.200.0" }
-ckb-util = { path = "../util", version = "= 0.200.0" }
-ckb-error = { path = "../error", version = "= 0.200.0" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.200.0" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.200.0" }
-ckb-freezer = { path = "../freezer", version = "= 0.200.0" }
-ckb-merkle-mountain-range = "0.5.2"
+ckb-types.workspace = true
+ckb-db.workspace = true
+ckb-chain-spec.workspace = true
+lru.workspace = true
+ckb-traits.workspace = true
+ckb-util.workspace = true
+ckb-error.workspace = true
+ckb-app-config.workspace = true
+ckb-db-schema.workspace = true
+ckb-freezer.workspace = true
+ckb-merkle-mountain-range.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

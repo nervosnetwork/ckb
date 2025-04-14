@@ -1,5 +1,5 @@
 use crate::utils::assert_send_transaction_fail;
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{DEFAULT_TX_PROPOSAL_WINDOW, Node, Spec};
 
 use ckb_logger::info;
 use ckb_types::core::BlockNumber;

@@ -1,26 +1,27 @@
-use crate::tests::util::start_chain;
 use crate::ChainController;
+use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{
-    create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
-    create_transaction, create_transaction_with_out_point, dao_data, MockChain, MockStore,
+    MockChain, MockStore, create_always_success_tx, create_cellbase,
+    create_multi_outputs_transaction, create_transaction, create_transaction_with_out_point,
+    dao_data,
 };
 use ckb_types::core::error::OutPointError;
 use ckb_types::prelude::*;
 use ckb_types::{
+    U256,
     bytes::Bytes,
     core::{
+        BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionInfo,
         capacity_bytes,
         cell::{CellMeta, CellProvider, CellStatus},
-        BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
     utilities::{compact_to_difficulty, difficulty_to_compact},
-    U256,
 };
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -33,9 +34,11 @@ fn repeat_process_block() {
     chain.gen_empty_block_with_nonce(100u128, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
-    assert!(chain_controller
-        .blocking_process_block_with_switch(Arc::clone(&block), Switch::DISABLE_EXTENSION)
-        .expect("process block ok"));
+    assert!(
+        chain_controller
+            .blocking_process_block_with_switch(Arc::clone(&block), Switch::DISABLE_EXTENSION)
+            .expect("process block ok")
+    );
     assert_eq!(
         shared
             .store()
@@ -45,9 +48,11 @@ fn repeat_process_block() {
         Some(true)
     );
 
-    assert!(!chain_controller
-        .blocking_process_block_with_switch(Arc::clone(&block), Switch::DISABLE_EXTENSION)
-        .expect("process block ok"));
+    assert!(
+        !chain_controller
+            .blocking_process_block_with_switch(Arc::clone(&block), Switch::DISABLE_EXTENSION)
+            .expect("process block ok")
+    );
     assert_eq!(
         shared
             .store()
@@ -160,9 +165,11 @@ fn test_genesis_transaction_spend() {
     }
 
     for block in &chain.blocks()[0..10] {
-        assert!(chain_controller
-            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
-            .is_ok());
+        assert!(
+            chain_controller
+                .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
+                .is_ok()
+        );
     }
 
     assert_eq!(

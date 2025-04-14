@@ -1,6 +1,6 @@
-use crate::relayer::get_block_proposal_process::GetBlockProposalProcess;
-use crate::relayer::tests::helper::{build_chain, new_transaction, MockProtocolContext};
 use crate::StatusCode;
+use crate::relayer::get_block_proposal_process::GetBlockProposalProcess;
+use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_types::packed;
 use ckb_types::prelude::*;

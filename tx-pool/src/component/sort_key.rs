@@ -1,5 +1,5 @@
 use ckb_types::core::{
-    tx_pool::AncestorsScoreSortKey as CoreAncestorsScoreSortKey, Capacity, FeeRate,
+    Capacity, FeeRate, tx_pool::AncestorsScoreSortKey as CoreAncestorsScoreSortKey,
 };
 use std::cmp::Ordering;
 

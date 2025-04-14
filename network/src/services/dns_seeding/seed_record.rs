@@ -12,8 +12,8 @@ use p2p::{
     utils::{is_reachable, socketaddr_to_multiaddr},
 };
 use secp256k1::{
-    ecdsa::{RecoverableSignature, RecoveryId},
     Message, PublicKey,
+    ecdsa::{RecoverableSignature, RecoveryId},
 };
 
 pub(crate) static SECP256K1: std::sync::LazyLock<secp256k1::Secp256k1<secp256k1::All>> =

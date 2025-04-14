@@ -1,26 +1,26 @@
-use crate::{delete_unverified_block, UnverifiedBlock};
-use crate::{utils::forkchanges::ForkChanges, GlobalIndex, TruncateRequest, VerifyResult};
-use ckb_channel::{select, Receiver};
-use ckb_error::{is_internal_db_error, Error, InternalErrorKind};
-use ckb_logger::internal::{log_enabled, trace};
+use crate::{GlobalIndex, TruncateRequest, VerifyResult, utils::forkchanges::ForkChanges};
+use crate::{UnverifiedBlock, delete_unverified_block};
+use ckb_channel::{Receiver, select};
+use ckb_error::{Error, InternalErrorKind, is_internal_db_error};
 use ckb_logger::Level::Trace;
+use ckb_logger::internal::{log_enabled, trace};
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_proposal_table::ProposalTable;
-use ckb_shared::block_status::BlockStatus;
 use ckb_shared::Shared;
-use ckb_store::{attach_block_cell, detach_block_cell, ChainStore, StoreTransaction};
+use ckb_shared::block_status::BlockStatus;
+use ckb_store::{ChainStore, StoreTransaction, attach_block_cell, detach_block_cell};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::TxPoolController;
+use ckb_types::H256;
 use ckb_types::core::cell::{
-    resolve_transaction, BlockCellProvider, HeaderChecker, OverlayCellProvider, ResolvedTransaction,
+    BlockCellProvider, HeaderChecker, OverlayCellProvider, ResolvedTransaction, resolve_transaction,
 };
-use ckb_types::core::{service::Request, BlockExt, BlockNumber, BlockView, Cycle, HeaderView};
+use ckb_types::core::{BlockExt, BlockNumber, BlockView, Cycle, HeaderView, service::Request};
 use ckb_types::packed::Byte32;
 use ckb_types::utilities::merkle_mountain_range::ChainRootMMR;
-use ckb_types::H256;
-use ckb_verification::cache::Completed;
 use ckb_verification::InvalidParentError;
+use ckb_verification::cache::Completed;
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::Switch;
 use dashmap::DashSet;

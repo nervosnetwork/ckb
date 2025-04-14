@@ -1,9 +1,9 @@
 //! Type used on peer store
 use crate::{
-    peer_store::{
-        base_addr, Score, SessionType, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS,
-    },
     Flags,
+    peer_store::{
+        ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS, Score, SessionType, base_addr,
+    },
 };
 use ipnetwork::IpNetwork;
 use p2p::multiaddr::{Multiaddr, Protocol};

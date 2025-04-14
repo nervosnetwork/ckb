@@ -1,8 +1,8 @@
 [package]
 name = "ckb-network-fuzz"
-version = "0.200.0"
+version = "0.201.0"
 publish = false
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "ckb network fuzz testing"
 homepage = "https://github.com/nervosnetwork/ckb"

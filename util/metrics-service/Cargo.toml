@@ -1,22 +1,22 @@
 [package]
 name = "ckb-metrics-service"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "The service which handle the metrics data in CKB."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-metrics-config = { path = "../metrics-config", version = "= 0.200.0" }
-ckb-metrics = { path = "../metrics", version = "= 0.200.0" }
-ckb-logger = { path = "../logger", version = "= 0.200.0" }
-ckb-async-runtime = { path = "../runtime", version = "= 0.200.0" }
-ckb-util = { path = "..", version = "= 0.200.0" }
-prometheus = "0.13.3"
-hyper = { version = "1", features = ["http1", "http2", "server"] }
-http-body-util = "0.1"
-hyper-util = { version = "0.1", features = ["server-auto", "server-graceful"] }
-ckb-stop-handler = { path = "../stop-handler", version = "= 0.200.0" }
-tokio = { version = "1", features = ["sync", "macros"] }
+ckb-metrics-config.workspace = true
+ckb-metrics.workspace = true
+ckb-logger.workspace = true
+ckb-async-runtime.workspace = true
+ckb-util.workspace = true
+prometheus.workspace = true
+hyper = { workspace = true, features = ["http1", "http2", "server"] }
+http-body-util.workspace = true
+hyper-util = { workspace = true, features = ["server-auto", "server-graceful"] }
+ckb-stop-handler.workspace = true
+tokio = { workspace = true, features = ["sync", "macros"] }

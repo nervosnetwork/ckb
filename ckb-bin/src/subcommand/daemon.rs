@@ -1,6 +1,6 @@
 use ckb_app_config::{DaemonArgs, ExitCode};
 use colored::*;
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use std::io::Write;
 use std::path::PathBuf;

@@ -1,11 +1,11 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
+use ckb_types::H256;
 use ckb_types::core::service::PoolTransactionEntry as CorePoolTransactionEntry;
 use ckb_types::core::tx_pool::{
     AncestorsScoreSortKey as CoreAncestorsScoreSortKey, PoolTxDetailInfo as CorePoolTxDetailInfo,
     Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds, TxPoolInfo as CoreTxPoolInfo,
 };
 use ckb_types::prelude::Unpack;
-use ckb_types::H256;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

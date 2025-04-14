@@ -1,7 +1,7 @@
 use std::io::{Cursor, Write};
 
 use ckb_hash::blake2b_256;
-use golomb_coded_set::{GCSFilterWriter, SipHasher24Builder, M, P};
+use golomb_coded_set::{GCSFilterWriter, M, P, SipHasher24Builder};
 
 use crate::{core::TransactionView, packed, prelude::*};
 

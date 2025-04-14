@@ -1,8 +1,8 @@
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
-        utils::store_data, InputField, Source, SourceEntry, INDEX_OUT_OF_BOUND,
-        LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER, SUCCESS,
+        INDEX_OUT_OF_BOUND, InputField, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER,
+        LOAD_INPUT_SYSCALL_NUMBER, SUCCESS, Source, SourceEntry, utils::store_data,
     },
     types::SgData,
 };
@@ -12,8 +12,8 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_vm::{
-    registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A3, A4, A5, A7},
 };
 
 #[derive(Debug)]

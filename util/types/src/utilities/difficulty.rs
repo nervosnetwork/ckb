@@ -1,5 +1,5 @@
 use numext_fixed_uint::prelude::UintConvert;
-use numext_fixed_uint::{u512, U256, U512};
+use numext_fixed_uint::{U256, U512, u512};
 
 /// The minimal difficulty that can be represented in the compact format.
 pub const DIFF_TWO: u32 = 0x2080_0000;

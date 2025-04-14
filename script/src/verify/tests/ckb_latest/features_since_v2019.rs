@@ -5,7 +5,7 @@ use ckb_error::assert_error_eq;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
-    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
+    core::{Capacity, ScriptHashType, TransactionBuilder, capacity_bytes, cell::CellMetaBuilder},
     h256,
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
 };

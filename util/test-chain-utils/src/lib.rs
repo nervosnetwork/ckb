@@ -10,7 +10,7 @@ pub use chain::{
     is_even_lib, load_input_data_hash_cell, load_input_one_byte_cell, load_is_even,
     secp256k1_blake160_sighash_cell, secp256k1_data_cell, type_lock_script_code_hash,
 };
-pub use median_time::{MockMedianTime, MOCK_MEDIAN_TIME_COUNT};
+pub use median_time::{MOCK_MEDIAN_TIME_COUNT, MockMedianTime};
 pub use mock_chain::MockChain;
 pub use mock_store::MockStore;
 pub use mock_utils::{

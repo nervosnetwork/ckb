@@ -11,11 +11,11 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::core::{EpochNumberWithFraction, TransactionBuilder};
 use ckb_types::packed::{CellInput, CellOutput, OutPoint};
 use ckb_types::{
+    H160,
     bytes::Bytes,
     core::{Capacity, Ratio},
     h160,
     prelude::*,
-    H160,
 };
 
 const SATOSHI_CELL_CAPACITY: Capacity = Capacity::shannons(10_000_000_000_000_000);

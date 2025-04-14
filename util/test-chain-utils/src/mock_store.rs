@@ -5,8 +5,8 @@ use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
-        cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker},
         BlockExt, BlockView, EpochExt, HeaderView,
+        cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker},
     },
     packed::{Byte32, OutPoint},
     prelude::*,

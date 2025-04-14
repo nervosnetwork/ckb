@@ -52,8 +52,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: |
-          brew install grep gnu-sed
+          brew unlink yq
+          brew install grep gnu-sed bash python-yq
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
+              echo bash version:
+              bash --version
               devtools/ci/ci_main.sh
           else
             echo "skip job"

@@ -5,15 +5,14 @@
 //! - [CKB RFC 0044](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0044-ckb-light-client/0044-ckb-light-client.md)
 
 use ckb_hash::new_blake2b;
-use ckb_merkle_mountain_range::{Error as MMRError, Merge, MerkleProof, Result as MMRResult, MMR};
+use ckb_merkle_mountain_range::{Error as MMRError, MMR, Merge, MerkleProof, Result as MMRResult};
 
 use crate::{
-    core,
+    U256, core,
     core::{BlockNumber, EpochNumber, EpochNumberWithFraction, ExtraHashView, HeaderView},
     packed,
     prelude::*,
     utilities::compact_to_difficulty,
-    U256,
 };
 
 /// A struct to implement MMR `Merge` trait

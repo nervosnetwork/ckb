@@ -1,6 +1,6 @@
 use crate::filter::BlockFilter;
 use crate::utils::send_message_to;
-use crate::{attempt, Status};
+use crate::{Status, attempt};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::core::BlockNumber;
 use ckb_types::{packed, prelude::*};

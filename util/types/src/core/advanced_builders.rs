@@ -3,7 +3,7 @@
 use crate::{
     constants, core, packed,
     prelude::*,
-    utilities::{merkle_root, DIFF_TWO},
+    utilities::{DIFF_TWO, merkle_root},
 };
 
 /*

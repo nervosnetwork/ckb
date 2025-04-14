@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use ckb_types::{
     core::{
-        tx_pool::{TxEntryInfo, TxPoolEntryInfo},
         BlockNumber, BlockView, EstimateMode, FeeRate,
+        tx_pool::{TxEntryInfo, TxPoolEntryInfo},
     },
     packed::Byte32,
 };
 use ckb_util::RwLock;
 
-use crate::{constants, Error};
+use crate::{Error, constants};
 
 mod confirmation_fraction;
 mod weight_units_flow;

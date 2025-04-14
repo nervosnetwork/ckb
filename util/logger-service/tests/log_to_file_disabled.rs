@@ -1,3 +1,4 @@
+//! # log_to_file_disabled
 mod utils;
 
 #[test]

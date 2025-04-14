@@ -6,7 +6,7 @@ use ckb_jsonrpc_types::{
     Capacity, DaoWithdrawingCalculationKind, EstimateCycles, EstimateMode, OutPoint, Transaction,
     Uint64,
 };
-use ckb_shared::{shared::Shared, Snapshot};
+use ckb_shared::{Snapshot, shared::Shared};
 use ckb_store::ChainStore;
 use ckb_types::{core, packed, prelude::*};
 use jsonrpc_core::Result;

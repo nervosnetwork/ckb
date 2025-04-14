@@ -18,11 +18,11 @@ use ckb_systemtime::{self, unix_time_as_millis};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
 use ckb_types::{
+    U256,
     bytes::Bytes,
-    core::{cell::resolve_transaction, BlockBuilder, EpochNumberWithFraction, TransactionBuilder},
+    core::{BlockBuilder, EpochNumberWithFraction, TransactionBuilder, cell::resolve_transaction},
     packed::{self, CellInput, CellOutputBuilder, OutPoint},
     utilities::difficulty_to_compact,
-    U256,
 };
 use ckb_util::RwLock;
 use ckb_verification_traits::Switch;

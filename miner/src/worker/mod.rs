@@ -3,14 +3,14 @@ mod eaglesong_simple;
 
 use crate::Work;
 use ckb_app_config::MinerWorkerConfig;
-use ckb_channel::{unbounded, Sender};
+use ckb_channel::{Sender, unbounded};
 use ckb_logger::error;
 use ckb_pow::{DummyPowEngine, EaglesongBlake2bPowEngine, EaglesongPowEngine, PowEngine};
-use ckb_types::{packed::Byte32, U256};
+use ckb_types::{U256, packed::Byte32};
 use dummy::Dummy;
 use eaglesong_simple::EaglesongSimple;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use rand::{random, Rng};
+use rand::{Rng, random};
 use std::ops::Range;
 use std::sync::Arc;
 use std::thread;

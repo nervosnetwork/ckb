@@ -4,7 +4,7 @@ use ckb_jsonrpc_types::{RawTxPool, TxPoolEntries};
 use ckb_network::SupportProtocols;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::CellMeta, TransactionBuilder, TransactionView},
+    core::{TransactionBuilder, TransactionView, cell::CellMeta},
     packed,
     prelude::*,
 };

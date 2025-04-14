@@ -8,7 +8,7 @@ use ckb_types::{
     utilities::DIFF_TWO,
 };
 
-use crate::tests::{setup, RpcTestRequest, RpcTestSuite};
+use crate::tests::{RpcTestRequest, RpcTestSuite, setup};
 
 const GENESIS_EPOCH_LENGTH: u64 = 30;
 

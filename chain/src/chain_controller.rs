@@ -1,5 +1,6 @@
 //! CKB chain controller.
 #![allow(missing_docs)]
+#![allow(elided_named_lifetimes)]
 
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{LonelyBlock, ProcessBlockRequest, RemoteBlock, TruncateRequest, VerifyResult};
@@ -8,12 +9,12 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, error};
 use ckb_store::ChainDB;
 use ckb_types::{
-    core::{service::Request, BlockView},
+    core::{BlockView, service::Request},
     packed::Byte32,
 };
 use ckb_verification_traits::Switch;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Controller to the chain service.
 ///

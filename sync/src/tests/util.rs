@@ -1,5 +1,5 @@
 use crate::SyncShared;
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
@@ -7,7 +7,7 @@ use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_types::prelude::*;
 use ckb_types::{
-    core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
+    core::{BlockBuilder, BlockNumber, TransactionView, cell::resolve_transaction},
     packed::Byte32,
 };
 use ckb_verification_traits::Switch;

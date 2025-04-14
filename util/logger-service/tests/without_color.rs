@@ -1,3 +1,4 @@
+//! Test if the log file is created and the content is correct when the `filter` is not set in the config file.
 use ckb_logger::Level;
 
 mod utils;

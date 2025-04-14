@@ -6,8 +6,8 @@ use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::io::{Read, Write};
 use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_FILE_SIZE: u64 = 2 * 1_000 * 1_000 * 1_000; // 2G
 const OPEN_FILES_LIMIT: usize = 256;

@@ -1,30 +1,30 @@
 [package]
 name = "ckb-light-client-protocol-server"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "Server-side implementation for CKB light client protocol."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-network = { path = "../../network", version = "= 0.200.0" }
-ckb-shared = { path = "../../shared", version = "= 0.200.0" }
-ckb-logger = { path = "../logger", version = "= 0.200.0" }
-ckb-types = { path = "../types", version = "= 0.200.0" }
-ckb-store = { path = "../../store", version = "= 0.200.0" }
-ckb-merkle-mountain-range = "0.5.2"
-ckb-systemtime = {path = "../systemtime", version = "= 0.200.0"}
+ckb-network.workspace = true
+ckb-shared.workspace = true
+ckb-logger.workspace = true
+ckb-types.workspace = true
+ckb-store.workspace = true
+ckb-merkle-mountain-range.workspace = true
+ckb-systemtime.workspace = true
 
 [dev-dependencies]
-ckb-chain = { path = "../../chain", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.200.0" }
-ckb-tx-pool = { path = "../../tx-pool", version = "= 0.200.0" }
-ckb-app-config = { path = "../app-config", version = "= 0.200.0" }
-ckb-jsonrpc-types = { path = "../jsonrpc-types", version = "= 0.200.0" }
-ckb-dao-utils = { path = "../dao/utils", version = "= 0.200.0" }
-ckb-test-chain-utils = { path = "../test-chain-utils", version = "= 0.200.0" }
+ckb-chain.workspace = true
+ckb-chain-spec.workspace = true
+ckb-tx-pool.workspace = true
+ckb-app-config.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-dao-utils.workspace = true
+ckb-test-chain-utils.workspace = true
 tempfile.workspace = true
-ckb-systemtime = {path = "../systemtime", version = "= 0.200.0", features = ["enable_faketime"]}
-tokio = "1.20"
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
+tokio.workspace = true

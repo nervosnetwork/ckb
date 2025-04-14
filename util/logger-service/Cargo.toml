@@ -1,27 +1,27 @@
 [package]
 name = "ckb-logger-service"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "CKB logger and logging service."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-util = { path = "..", version = "= 0.200.0" }
-ckb-logger-config = { path = "../logger-config", version = "= 0.200.0" }
-ckb-channel = { path = "../channel", version = "= 0.200.0" }
-yansi = "0.5"
-log = "0.4"
-env_logger = "0.10"
-regex = "1.1.6"
-backtrace = "0.3"
-sentry = { version = "0.34.0", optional = true, features = ["log"] }
-time = { version = "0.3.36", features = ["formatting"] }
+ckb-util.workspace = true
+ckb-logger-config.workspace = true
+ckb-channel.workspace = true
+yansi.workspace = true
+log.workspace = true
+env_logger.workspace = true
+regex.workspace = true
+backtrace.workspace = true
+sentry = { workspace = true, features = ["log"], optional = true }
+time = { workspace = true, features = ["formatting"] }
 
 [dev-dependencies]
-ckb-logger = { path = "../logger", version = "= 0.200.0" }
+ckb-logger.workspace = true
 tempfile.workspace = true
 
 [features]

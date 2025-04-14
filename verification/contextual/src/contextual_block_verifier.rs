@@ -10,13 +10,13 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::error_target;
 use ckb_merkle_mountain_range::MMRStore;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_store::{data_loader_wrapper::AsDataLoader, ChainStore};
+use ckb_store::{ChainStore, data_loader_wrapper::AsDataLoader};
 use ckb_traits::HeaderProvider;
 use ckb_types::{
     core::error::OutPointError,
     core::{
-        cell::{HeaderChecker, ResolvedTransaction},
         BlockReward, BlockView, Capacity, Cycle, EpochExt, HeaderView, TransactionView,
+        cell::{HeaderChecker, ResolvedTransaction},
     },
     packed::{Byte32, CellOutput, HeaderDigest, Script},
     prelude::*,
@@ -34,7 +34,7 @@ use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::{RwLock, oneshot};
 
 /// Context for context-dependent block verification
 pub struct VerifyContext<CS> {

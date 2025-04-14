@@ -8,8 +8,8 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, TransactionBuilder,
-        TransactionView,
+        BlockBuilder, Capacity, EpochNumberWithFraction, TransactionBuilder, TransactionView,
+        capacity_bytes,
     },
     packed::{Block, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
     utilities::DIFF_TWO,

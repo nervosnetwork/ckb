@@ -22,15 +22,15 @@ use ckb_snapshot::Snapshot;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
-        cell::ResolvedTransaction, BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView,
-        TransactionView,
+        BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView, TransactionView,
+        cell::ResolvedTransaction,
     },
     packed::{Byte32, ProposalShortId},
 };
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
-    cache::{CacheEntry, Completed},
     TxVerifyEnv,
+    cache::{CacheEntry, Completed},
 };
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
@@ -673,7 +673,7 @@ impl TxPoolService {
         const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
         #[cfg(feature = "with_sentry")]
-        use sentry::{capture_message, with_scope, Level};
+        use sentry::{Level, capture_message, with_scope};
 
         #[cfg(feature = "with_sentry")]
         with_scope(

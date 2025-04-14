@@ -1,11 +1,11 @@
 use crate::{
     cost_model::transferred_byte_cycles,
-    syscalls::{utils::store_data, LOAD_SCRIPT_HASH_SYSCALL_NUMBER, SUCCESS},
+    syscalls::{LOAD_SCRIPT_HASH_SYSCALL_NUMBER, SUCCESS, utils::store_data},
     types::{SgData, SgInfo},
 };
 use ckb_vm::{
-    registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A7},
 };
 use std::sync::Arc;
 

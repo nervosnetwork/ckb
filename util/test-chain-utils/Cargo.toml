@@ -1,28 +1,26 @@
 [package]
 name = "ckb-test-chain-utils"
-version = "0.200.0"
+version.workspace = true
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "Provide several functions used for testing."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../types", version = "= 0.200.0" }
-ckb-db = { path = "../../db", version = "= 0.200.0" }
-ckb-store = { path = "../../store", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.200.0" }
-ckb-dao-utils = { path = "../dao/utils", version = "= 0.200.0" }
-ckb-dao = { path = "../dao", version = "= 0.200.0" }
-ckb-traits = { path = "../../traits", version = "= 0.200.0" }
-ckb-systemtime = { path = "../systemtime", version = "= 0.200.0" }
-ckb-resource = { path = "../../resource", version = "= 0.200.0" }
-ckb-db-schema = { path = "../../db-schema", version = "= 0.200.0" }
-ckb-util = { path = "..", version = "= 0.200.0" }
+ckb-types.workspace = true
+ckb-db.workspace = true
+ckb-store.workspace = true
+ckb-chain-spec.workspace = true
+ckb-dao-utils.workspace = true
+ckb-dao.workspace = true
+ckb-traits.workspace = true
+ckb-systemtime.workspace = true
+ckb-resource.workspace = true
+ckb-db-schema.workspace = true
+ckb-util.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
-ckb-systemtime = { path = "../systemtime", version = "= 0.200.0", features = [
-    "enable_faketime",
-] }
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }

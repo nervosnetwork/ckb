@@ -2,8 +2,8 @@ use crate::syscalls::{CLOSE, SPAWN_YIELD_CYCLES_BASE};
 use crate::types::{Fd, Message, VmContext, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
-    registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A7},
 };
 use std::sync::{Arc, Mutex};
 

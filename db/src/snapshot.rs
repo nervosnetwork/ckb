@@ -1,12 +1,12 @@
 //! RocksDB snapshot wrapper
 use crate::db::cf_handle;
-use crate::{internal_error, Result};
+use crate::{Result, internal_error};
 use ckb_db_schema::Col;
 use libc::{self, c_char, size_t};
 use rocksdb::ops::{GetPinnedCF, Iterate, IterateCF, Read};
 use rocksdb::{
-    ffi, ffi_util, ColumnFamily, ConstHandle, DBPinnableSlice, DBRawIterator, Error, Handle,
-    OptimisticTransactionDB, ReadOptions,
+    ColumnFamily, ConstHandle, DBPinnableSlice, DBRawIterator, Error, Handle,
+    OptimisticTransactionDB, ReadOptions, ffi, ffi_util,
 };
 use std::sync::Arc;
 

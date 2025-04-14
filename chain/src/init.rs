@@ -7,7 +7,7 @@ use crate::orphan_broker::OrphanBroker;
 use crate::preload_unverified_blocks_channel::PreloadUnverifiedBlocksChannel;
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::verify::ConsumeUnverifiedBlocks;
-use crate::{chain_controller::ChainController, LonelyBlockHash, UnverifiedBlock};
+use crate::{LonelyBlockHash, UnverifiedBlock, chain_controller::ChainController};
 use ckb_channel::{self as channel, SendError};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_logger::warn;
@@ -15,8 +15,8 @@ use ckb_shared::ChainServicesBuilder;
 use ckb_stop_handler::register_thread;
 use ckb_types::packed::Byte32;
 use dashmap::DashSet;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread;
 
 const ORPHAN_BLOCK_SIZE: usize = BLOCK_DOWNLOAD_WINDOW as usize;

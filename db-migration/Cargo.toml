@@ -1,9 +1,9 @@
 [package]
 name = "ckb-db-migration"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "TODO(doc): @quake crate description"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
@@ -11,18 +11,18 @@ repository = "https://github.com/nervosnetwork/ckb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ckb-db = { path = "../db", version = "= 0.200.0" }
-ckb-logger = { path = "../util/logger", version = "= 0.200.0" }
-ckb-error = { path = "../error", version = "= 0.200.0" }
-ckb-db-schema = { path = "../db-schema", version = "= 0.200.0" }
-ckb-channel = { path = "../util/channel", version = "= 0.200.0" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.200.0" }
-indicatif = "0.16"
-console = ">=0.9.1, <1.0.0"
+ckb-db.workspace = true
+ckb-logger.workspace = true
+ckb-error.workspace = true
+ckb-db-schema.workspace = true
+ckb-channel.workspace = true
+ckb-stop-handler.workspace = true
+indicatif.workspace = true
+console.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-ckb-app-config = { path = "../util/app-config", version = "= 0.200.0" }
+ckb-app-config.workspace = true
 
 [features]
 portable = ["ckb-db/portable"]

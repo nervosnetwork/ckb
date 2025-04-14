@@ -1,3 +1,5 @@
+//! Test extra loggers.
+
 use ckb_logger::Level;
 use ckb_logger_service::Logger;
 

@@ -1,34 +1,30 @@
 [package]
 name = "ckb-verification"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "The CKB verification"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../util/types", version = "= 0.200.0" }
-ckb-script = { path = "../script", version = "= 0.200.0" }
-ckb-pow = { path = "../pow", version = "= 0.200.0" }
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.200.0" }
-lru = "0.7.1"
-ckb-traits = { path = "../traits", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../spec", version = "= 0.200.0" }
-ckb-dao = { path = "../util/dao", version = "= 0.200.0" }
-ckb-dao-utils = { path = "../util/dao/utils", version = "= 0.200.0" }
-ckb-error = { path = "../error", version = "= 0.200.0" }
-derive_more = { version = "1", default-features = false, features = [
-    "display",
-] }
-ckb-verification-traits = { path = "./traits", version = "= 0.200.0" }
-tokio = { version = "1", features = ["sync", "macros"] }
+ckb-types.workspace = true
+ckb-script.workspace = true
+ckb-pow.workspace = true
+ckb-systemtime.workspace = true
+lru.workspace = true
+ckb-traits.workspace = true
+ckb-chain-spec.workspace = true
+ckb-dao.workspace = true
+ckb-dao-utils.workspace = true
+ckb-error.workspace = true
+derive_more = { workspace = true, features = ["display"] }
+ckb-verification-traits.workspace = true
+tokio = { workspace = true, features = ["sync", "macros"] }
 
 
 [dev-dependencies]
-ckb-test-chain-utils = { path = "../util/test-chain-utils", version = "= 0.200.0" }
-ckb-resource = { path = "../resource", version = "= 0.200.0" }
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.200.0", features = [
-    "enable_faketime",
-] }
+ckb-test-chain-utils.workspace = true
+ckb-resource.workspace = true
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }

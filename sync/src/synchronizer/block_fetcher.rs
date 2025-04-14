@@ -1,5 +1,5 @@
-use crate::types::{ActiveChain, IBDState};
 use crate::SyncShared;
+use crate::types::{ActiveChain, IBDState};
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_WINDOW, CHECK_POINT_WINDOW, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
 };
@@ -9,9 +9,9 @@ use ckb_network::PeerIndex;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::types::{HeaderIndex, HeaderIndexView};
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::BlockNumberAndHash;
 use ckb_types::core::BlockNumber;
 use ckb_types::packed;
-use ckb_types::BlockNumberAndHash;
 use std::cmp::min;
 use std::sync::Arc;
 
@@ -171,11 +171,12 @@ impl BlockFetcher {
         if matches!(self.ibd, IBDState::In)
             && best_known.number() <= self.active_chain.unverified_tip_number()
         {
-            debug!("In IBD mode, Peer {}'s best_known: {} is less or equal than unverified_tip : {}, won't request block from this peer",
-                        self.peer,
-                        best_known.number(),
-                        self.active_chain.unverified_tip_number()
-                    );
+            debug!(
+                "In IBD mode, Peer {}'s best_known: {} is less or equal than unverified_tip : {}, won't request block from this peer",
+                self.peer,
+                best_known.number(),
+                self.active_chain.unverified_tip_number()
+            );
             return None;
         };
 
@@ -276,7 +277,7 @@ impl BlockFetcher {
 
         let tip = self.active_chain.tip_number();
         let unverified_tip = self.active_chain.unverified_tip_number();
-        let should_mark = fetch.last().map_or(false, |header| {
+        let should_mark = fetch.last().is_some_and(|header| {
             header.number().saturating_sub(CHECK_POINT_WINDOW) > unverified_tip
         });
         if should_mark {
@@ -322,8 +323,12 @@ impl BlockFetcher {
                 self.sync_shared.shared().get_unverified_tip().number(),
                 inflight_peer_count,
                 inflight_total_count,
-                fetch.iter().map(|h| h.number().to_string()).collect::<Vec<_>>().join(","),
-                );
+                fetch
+                    .iter()
+                    .map(|h| h.number().to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
         }
 
         Some(

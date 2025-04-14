@@ -1,4 +1,4 @@
-use crate::{Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{DEFAULT_TX_PROPOSAL_WINDOW, Node, Spec};
 use ckb_types::prelude::*;
 
 pub struct RpcTransactionProof;

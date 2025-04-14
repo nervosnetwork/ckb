@@ -4,11 +4,11 @@ use std::{
 };
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
-use ckb_chain::{start_chain_services, ChainController};
-use ckb_chain_spec::consensus::{build_genesis_epoch_ext, ConsensusBuilder};
+use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain_spec::consensus::{ConsensusBuilder, build_genesis_epoch_ext};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_network::{network::TransportType, Flags, NetworkController, NetworkService, NetworkState};
+use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
 use ckb_shared::{Shared, SharedBuilder};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::always_success_cell;
@@ -20,7 +20,7 @@ use ckb_types::{
     utilities::DIFF_TWO,
 };
 
-use crate::{tests::prelude::*, LightClientProtocol};
+use crate::{LightClientProtocol, tests::prelude::*};
 
 pub(crate) struct MockChain {
     chain_controller: ChainController,

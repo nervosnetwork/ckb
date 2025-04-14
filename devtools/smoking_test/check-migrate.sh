@@ -11,7 +11,7 @@ if [ ${EXIT_CODE} == 0 ]; then
   EXIT_CODE="${PIPESTATUS[0]}"
   echo "migrate exit code is "${EXIT_CODE}
   if [ ${EXIT_CODE} != 0 ]; then
-    echo "migrate faile,please try again"
+    echo "migrate failed,please try again"
     exit ${EXIT_CODE}
   else
     echo "DB migrate done"

@@ -1,4 +1,4 @@
-use crate::{error::FromSliceError, H160, H256, H512, H520};
+use crate::{H160, H256, H512, H520, error::FromSliceError};
 
 macro_rules! add_tests {
     ($test_name:ident, $type:ident, $bytes_size:literal) => {

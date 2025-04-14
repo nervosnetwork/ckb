@@ -5,7 +5,7 @@ use ckb_channel::{Receiver, Sender};
 use ckb_hash::blake2b_256;
 use ckb_logger::{debug, error};
 use ckb_pow::pow_message;
-use ckb_types::{packed::Byte32, U256};
+use ckb_types::{U256, packed::Byte32};
 use eaglesong::eaglesong;
 use indicatif::ProgressBar;
 use std::thread;

@@ -1,4 +1,5 @@
 use crate::{
+    Node, Spec,
     rpc::RpcClient,
     util::{
         cell::gen_spendable,
@@ -7,12 +8,11 @@ use crate::{
         },
     },
     utils::wait_until,
-    Node, Spec,
 };
 use ckb_jsonrpc_types::Status;
 use ckb_logger::info;
 use ckb_types::{
-    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, DepType, TransactionView},
+    core::{Capacity, DepType, TransactionView, capacity_bytes, cell::CellMetaBuilder},
     packed::{Byte32, CellDep, CellDepBuilder, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
@@ -312,11 +312,12 @@ impl Spec for RbfTooManyDescendants {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("Tx conflict with too many txs"));
+        assert!(
+            res.err()
+                .unwrap()
+                .to_string()
+                .contains("Tx conflict with too many txs")
+        );
 
         // local submit tx RBF check failed, will not in conflicts pool
         assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
@@ -387,11 +388,12 @@ impl Spec for RbfContainNewTx {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("new Tx contains unconfirmed inputs"));
+        assert!(
+            res.err()
+                .unwrap()
+                .to_string()
+                .contains("new Tx contains unconfirmed inputs")
+        );
 
         // local submit tx RBF check failed, will be in conflicts pool
         assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
@@ -462,11 +464,12 @@ impl Spec for RbfContainInvalidInput {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("new Tx contains inputs in descendants of to be replaced Tx"));
+        assert!(
+            res.err()
+                .unwrap()
+                .to_string()
+                .contains("new Tx contains inputs in descendants of to be replaced Tx")
+        );
 
         // local submit tx RBF check failed, will not in conflicts pool
         assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
@@ -733,11 +736,12 @@ impl Spec for RbfRejectReplaceProposed {
         assert!(res.is_err(), "tx2 should be rejected");
 
         // resolve tx2 failed with `unknown` when resolve inputs used by tx1
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("TransactionFailedToResolve: Resolve failed Unknown"));
+        assert!(
+            res.err()
+                .unwrap()
+                .to_string()
+                .contains("TransactionFailedToResolve: Resolve failed Unknown")
+        );
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -1000,11 +1004,12 @@ impl Spec for RbfCellDepsCheck {
             .build();
 
         let res = node0.submit_transaction_with_result(&new_tx);
-        assert!(res
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("new Tx contains cell deps from conflicts"));
+        assert!(
+            res.err()
+                .unwrap()
+                .to_string()
+                .contains("new Tx contains cell deps from conflicts")
+        );
         assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().unpack()]);
     }
 

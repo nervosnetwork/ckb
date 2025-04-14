@@ -1,43 +1,43 @@
 [package]
 name = "ckb-network"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "ckb network implementation"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 exclude = ["fuzz"]
 
 [dependencies]
-rand = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-ckb-util = { path = "../util", version = "= 0.200.0" }
-ckb-stop-handler = { path = "../util/stop-handler", version = "= 0.200.0" }
-ckb-logger = { path = "../util/logger", version = "= 0.200.0" }
-ckb-app-config = { path = "../util/app-config", version = "= 0.200.0" }
-ckb-metrics = { path = "../util/metrics", version = "= 0.200.0" }
-tokio = { version = "1", features = ["sync", "macros"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-futures = "0.3"
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.200.0" }
-bs58 = { version = "0.5.0", optional = true }
-sentry = { version = "0.34.0", optional = true }
-faster-hex = { version = "0.6", optional = true }
-ckb-hash = { path = "../util/hash", version = "= 0.200.0" }
-secp256k1 = { version = "0.30", features = ["recovery"], optional = true }
-hickory-resolver = { version = "0.24.2", optional = true }
-snap = "1"
-ckb-types = { path = "../util/types", version = "= 0.200.0" }
-ipnetwork = "0.20"
+rand.workspace = true
+serde = { workspace = true, features = ["derive"] }
+ckb-util.workspace = true
+ckb-stop-handler.workspace = true
+ckb-logger.workspace = true
+ckb-app-config.workspace = true
+ckb-metrics.workspace = true
+tokio = { workspace = true, features = ["sync", "macros"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures.workspace = true
+ckb-systemtime.workspace = true
+bs58 = { workspace = true, optional = true }
+sentry = { workspace = true, optional = true }
+faster-hex = { workspace = true, optional = true }
+ckb-hash.workspace = true
+secp256k1 = { workspace = true, features = ["recovery"], optional = true }
+hickory-resolver = { workspace = true, optional = true }
+snap.workspace = true
+ckb-types.workspace = true
+ipnetwork.workspace = true
 serde_json = "1.0"
-bloom-filters = "0.1"
-ckb-spawn = { path = "../util/spawn", version = "= 0.200.0" }
-bitflags = "1.0"
-p2p = { version = "0.6.2", package = "tentacle", default-features = false }
+bloom-filters.workspace = true
+ckb-spawn.workspace = true
+bitflags.workspace = true
+p2p = { workspace = true, default-features = false }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-p2p = { version = "0.6.2", package = "tentacle", default-features = false, features = [
+p2p = { workspace = true, default-features = false, features = [
     "upnp",
     "parking_lot",
     "openssl-vendored",
@@ -48,7 +48,7 @@ p2p = { version = "0.6.2", package = "tentacle", default-features = false, featu
 socket2 = "0.5"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-p2p = { version = "0.6.2", package = "tentacle", default-features = false, features = [
+p2p = { workspace = true, default-features = false, features = [
     "wasm-timer",
 ] }
 idb = "0.6"
@@ -62,12 +62,10 @@ fuzz = []
 
 [dev-dependencies]
 tempfile.workspace = true
-criterion = "0.5"
-proptest = "1.0"
-num_cpus = "1.10"
-ckb-systemtime = { path = "../util/systemtime", version = "= 0.200.0", features = [
-    "enable_faketime",
-] }
+criterion.workspace = true
+proptest.workspace = true
+num_cpus.workspace = true
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 
 [[bench]]
 name = "peer_store"

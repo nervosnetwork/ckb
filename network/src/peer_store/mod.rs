@@ -18,8 +18,8 @@ pub mod types;
 pub(crate) use crate::Behaviour;
 pub use crate::SessionType;
 use p2p::multiaddr::{Multiaddr, Protocol};
-pub(crate) use peer_store_impl::required_flags_filter;
 pub use peer_store_impl::PeerStore;
+pub(crate) use peer_store_impl::required_flags_filter;
 
 /// peer store evict peers after reach this limitation
 pub(crate) const ADDR_COUNT_LIMIT: usize = 16384;

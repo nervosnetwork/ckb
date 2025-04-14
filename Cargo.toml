@@ -1,22 +1,22 @@
 [package]
 name = "ckb"
-version = "0.200.0"
+version = "0.201.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 build = "build.rs"
 description = "CKB is the layer 1 of Nervos Network, a public/permissionless blockchain."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-rust-version = "1.81.0"
+rust-version = "1.85.0"
 
 [build-dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.200.0" }
+ckb-build-info.workspace = true
 
 [dependencies]
-ckb-build-info = { path = "util/build-info", version = "= 0.200.0" }
-ckb-bin = { path = "ckb-bin", version = "= 0.200.0" }
-console-subscriber = { version = "0.4.0", optional = true }
+ckb-build-info.workspace = true
+ckb-bin.workspace = true
+console-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
 
@@ -97,9 +97,193 @@ members = [
     "ckb-bin",
 ]
 
+[workspace.package]
+version = "0.201.0"
+
 [workspace.dependencies]
 tempfile = "3"
 itertools = "0.11.0"
+# issue tracking: https://github.com/GREsau/schemars/pull/251
+schemars = { package = "ckb_schemars", version="0.8.22" }
+anyhow = "1.0.34"
+arc-swap = "1.3"
+async-stream = "0.3.3"
+async-trait = "0.1"
+axum = "0.7"
+backtrace = "0.3"
+base64 = "0.21.0"
+bit-vec = "0.6.3"
+bitflags = "1.0"
+blake2b-ref = "0.3"
+bloom-filters = "0.1"
+bs58 = "0.5.0"
+byteorder = "1.3.1"
+bytes = "1"
+cfg-if = "1.0"
+ckb-app-config = { path = "util/app-config", version = "=0.201.0" }
+ckb-async-runtime = { path = "util/runtime", version = "=0.201.0" }
+ckb-bin = { path = "ckb-bin", version = "=0.201.0" }
+ckb-block-filter = { path = "block-filter", version = "=0.201.0" }
+ckb-build-info = { path = "util/build-info", version = "=0.201.0" }
+ckb-chain = { path = "chain", version = "=0.201.0" }
+ckb-chain-iter = { path = "util/chain-iter", version = "=0.201.0" }
+ckb-chain-spec = { path = "spec", version = "=0.201.0" }
+ckb-channel = { path = "util/channel", version = "=0.201.0" }
+ckb-constant = { path = "util/constant", version = "=0.201.0" }
+ckb-crypto = { path = "util/crypto", version = "=0.201.0" }
+ckb-dao = { path = "util/dao", version = "=0.201.0" }
+ckb-dao-utils = { path = "util/dao/utils", version = "=0.201.0" }
+ckb-db = { path = "db", version = "=0.201.0" }
+ckb-db-migration = { path = "db-migration", version = "=0.201.0" }
+ckb-db-schema = { path = "db-schema", version = "=0.201.0" }
+ckb-error = { path = "error", version = "=0.201.0" }
+ckb-fee-estimator = { path = "util/fee-estimator", version = "=0.201.0" }
+ckb-fixed-hash = { path = "util/fixed-hash", version = "=0.201.0" }
+ckb-fixed-hash-core = { path = "util/fixed-hash/core", version = "=0.201.0" }
+ckb-fixed-hash-macros = { path = "util/fixed-hash/macros", version = "=0.201.0" }
+ckb-freezer = { path = "freezer", version = "=0.201.0" }
+ckb-gen-types = { path = "util/gen-types", version = "=0.201.0" }
+ckb-hash = { path = "util/hash", default-features = false, version = "=0.201.0" }
+ckb-indexer = { path = "util/indexer", version = "=0.201.0" }
+ckb-indexer-sync = { path = "util/indexer-sync", version = "=0.201.0" }
+ckb-instrument = { path = "util/instrument", version = "=0.201.0" }
+ckb-jsonrpc-types = { path = "util/jsonrpc-types", version = "=0.201.0" }
+ckb-launcher = { path = "util/launcher", version = "=0.201.0" }
+ckb-light-client-protocol-server = { path = "util/light-client-protocol-server", version = "=0.201.0" }
+ckb-logger = { path = "util/logger", version = "=0.201.0" }
+ckb-logger-config = { path = "util/logger-config", version = "=0.201.0" }
+ckb-logger-service = { path = "util/logger-service", version = "=0.201.0" }
+ckb-memory-tracker = { path = "util/memory-tracker", version = "=0.201.0" }
+ckb-merkle-mountain-range = "0.5.2"
+ckb-metrics = { path = "util/metrics", version = "=0.201.0" }
+ckb-metrics-config = { path = "util/metrics-config", version = "=0.201.0" }
+ckb-metrics-service = { path = "util/metrics-service", version = "=0.201.0" }
+ckb-migrate = { path = "util/migrate", version = "=0.201.0" }
+ckb-migration-template = { path = "util/migrate/migration-template", version = "=0.201.0" }
+ckb-miner = { path = "miner", version = "=0.201.0" }
+ckb-multisig = { path = "util/multisig", version = "=0.201.0" }
+ckb-network = { path = "network", version = "=0.201.0" }
+ckb-network-alert = { path = "util/network-alert", version = "=0.201.0" }
+ckb-notify = { path = "notify", version = "=0.201.0" }
+ckb-occupied-capacity = { path = "util/occupied-capacity", version = "=0.201.0" }
+ckb-occupied-capacity-core = { path = "util/occupied-capacity/core", version = "=0.201.0" }
+ckb-occupied-capacity-macros = { path = "util/occupied-capacity/macros", version = "=0.201.0" }
+ckb-pow = { path = "pow", version = "=0.201.0" }
+ckb-proposal-table = { path = "util/proposal-table", version = "=0.201.0" }
+ckb-rational = { path = "util/rational", version = "=0.201.0" }
+ckb-resource = { path = "resource", version = "=0.201.0" }
+ckb-reward-calculator = { path = "util/reward-calculator", version = "=0.201.0" }
+ckb-rich-indexer = { path = "util/rich-indexer", version = "=0.201.0" }
+ckb-rpc = { path = "rpc", version = "=0.201.0" }
+ckb-script = { path = "script", version = "=0.201.0" }
+ckb-shared = { path = "shared", version = "=0.201.0" }
+ckb-snapshot = { path = "util/snapshot", version = "=0.201.0" }
+ckb-spawn = { path = "util/spawn", version = "=0.201.0" }
+ckb-stop-handler = { path = "util/stop-handler", version = "=0.201.0" }
+ckb-store = { path = "store", version = "=0.201.0" }
+ckb-sync = { path = "sync", version = "=0.201.0" }
+ckb-system-scripts = "=0.5.4"
+ckb-systemtime = { path = "util/systemtime", version = "=0.201.0" }
+ckb-test-chain-utils = { path = "util/test-chain-utils", version = "=0.201.0" }
+ckb-traits = { path = "traits", version = "=0.201.0" }
+ckb-tx-pool = { path = "tx-pool", version = "=0.201.0" }
+ckb-types = { path = "util/types", version = "=0.201.0" }
+ckb-util = { path = "util", version = "=0.201.0" }
+ckb-verification = { path = "verification", version = "=0.201.0" }
+ckb-verification-contextual = { path = "verification/contextual", version = "=0.201.0" }
+ckb-verification-traits = { path = "verification/traits", version = "=0.201.0" }
+ckb-vm = { version = "=0.24.14", default-features = false }
+clap = "=4.4"
+console = ">=0.9.1, <1.0.0"
+console-subscriber = "0.4.0"
+criterion = "0.5"
+crossbeam = "0.8.2"
+crossbeam-channel = "0.5.1"
+ctrlc = "3.1"
+daggy = "0.8.0"
+dashmap = "4.0"
+derive_more = { version = "1", default-features = false }
+eaglesong = "0.1"
+env_logger = "0.10"
+fail = "0.4"
+faster-hex = "0.6"
+faux = "0.1"
+fdlimit = "0.2.1"
+fs2 = "0.4.3"
+futures = "0.3"
+futures-util = "0.3.21"
+golomb-coded-set = "0.2.0"
+governor = "0.3.1"
+hex = "0.4"
+hickory-resolver = "0.24.2"
+http-body-util = "0.1"
+hyper = "1"
+hyper-tls = "0.6"
+hyper-util = "0.1"
+include_dir = "0.7"
+includedir = "0.6.0"
+includedir_codegen = "0.6.0"
+indicatif = "0.16"
+ipnetwork = "0.20"
+is-terminal = "0.4.7"
+is_sorted = "0.1.1"
+jsonrpc-core = "18.0"
+jsonrpc-utils = "0.3"
+keyed_priority_queue = "0.3"
+libc = "0.2"
+linked-hash-map = "0.5"
+log = "0.4"
+lru = "0.7.1"
+memchr = "2.7"
+merkle-cbt = "0.3"
+minstant = "0.1.4"
+molecule = { version = "0.8.0", default-features = false }
+multi_index_map = "0.6.0"
+multiaddr = { version = "0.3.0", package = "tentacle-multiaddr" }
+num-bigint = "0.4"
+num_cpus = "1.16.0"
+numext-fixed-uint = "0.1"
+p2p = { version = "0.6.2", package = "tentacle", default-features = false }
+parking_lot = "0.12"
+paste = "1.0"
+path-clean = "0.1.0"
+pretty_assertions = "1.3.0"
+proc-macro2 = "1.0"
+prometheus = "0.13.3"
+prometheus-static-metric = "0.5.1"
+proptest = "1.0"
+quote = "1.0"
+rand = "0.8.5"
+rand_distr = "0.4"
+rayon = "1.0"
+regex = "1.1.6"
+reqwest = "0.12"
+rhai = "1.16.0"
+rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
+rustc-hash = "1.1"
+secio = { version = "0.6", package = "tentacle-secio" }
+secp256k1 = "0.30"
+semver = "1.0"
+sentry = "0.34.0"
+serde = "1.0"
+serde_plain = "0.3.0"
+slab = "0.4"
+sled = "0.34.7"
+snap = "1"
+sql-builder = "3.1"
+sqlx = "0.8.2"
+tera = "1"
+thiserror = "1.0.22"
+time = "0.3.36"
+tiny-keccak = "2.0"
+tokio = "1.35.0"
+tokio-util = "0.7.8"
+toml = "0.5"
+tower-http = "0.6"
+ubyte = "0.10"
+url = "2.2.2"
+walkdir = "2.1.4"
+yansi = "0.5"
 
 [profile.release]
 overflow-checks = true

@@ -1,16 +1,16 @@
 use crate::{
     errors::{Error, PeerStoreError},
     peer_store::{
+        PeerStore,
         addr_manager::AddrManager,
         ban_list::BanList,
         types::{AddrInfo, BannedAddr},
-        PeerStore,
     },
 };
 use ckb_logger::{debug, error};
 use std::path::Path;
 use std::{
-    fs::{copy, create_dir_all, remove_file, rename, File, OpenOptions},
+    fs::{File, OpenOptions, copy, create_dir_all, remove_file, rename},
     io::{Read, Write},
 };
 
@@ -196,7 +196,10 @@ impl PeerStore {
     }
 
     #[cfg(target_family = "wasm")]
-    pub fn dump_to_idb<P: AsRef<Path>>(&self, path: P) -> impl std::future::Future<Output = ()> {
+    pub fn dump_to_idb<P: AsRef<Path>>(
+        &self,
+        path: P,
+    ) -> impl std::future::Future<Output = ()> + use<P> {
         use crate::peer_store::browser::get_db;
         let ban_list = self.ban_list().dump_data();
         let addr_manager = self.addr_manager().dump_data();

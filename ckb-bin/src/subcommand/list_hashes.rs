@@ -1,7 +1,7 @@
 use ckb_app_config::{CKBAppConfig, ExitCode};
 use ckb_chain_spec::ChainSpec;
-use ckb_resource::{Resource, AVAILABLE_SPECS};
-use ckb_types::{packed::CellOutput, prelude::*, H256};
+use ckb_resource::{AVAILABLE_SPECS, Resource};
+use ckb_types::{H256, packed::CellOutput, prelude::*};
 use ckb_util::LinkedHashMap;
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};

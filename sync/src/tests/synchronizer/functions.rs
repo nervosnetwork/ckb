@@ -1,11 +1,11 @@
-use ckb_chain::{start_chain_services, ChainController};
+use ckb_chain::{ChainController, start_chain_services};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
 use ckb_dao::DaoCalculator;
 use ckb_error::InternalErrorKind;
 use ckb_network::{
-    async_trait, bytes::Bytes, Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId,
-    SessionType, TargetSession,
+    Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType, TargetSession,
+    async_trait, bytes::Bytes,
 };
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::types::HeaderIndex;
@@ -13,16 +13,16 @@ use ckb_shared::{Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
+    U256,
     core::{
-        cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView,
-        TransactionBuilder, TransactionView,
+        BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
+        TransactionView, cell::resolve_transaction,
     },
     packed::{
         self, Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
     },
     prelude::*,
     utilities::difficulty_to_compact,
-    U256,
 };
 use ckb_util::Mutex;
 use ckb_verification_traits::Switch;
@@ -31,14 +31,14 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
     pin::Pin,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
 use crate::{
+    Status, StatusCode, SyncShared,
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
     types::{HeadersSyncController, IBDState, PeerState},
-    Status, StatusCode, SyncShared,
 };
 
 fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchronizer) {
@@ -718,10 +718,12 @@ fn test_header_sync_timeout() {
     let network_context = mock_network_context(5);
 
     _faketime_guard.set_faketime(MAX_TIP_AGE * 2);
-    assert!(synchronizer
-        .shared
-        .active_chain()
-        .is_initial_block_download());
+    assert!(
+        synchronizer
+            .shared
+            .active_chain()
+            .is_initial_block_download()
+    );
     let peers = synchronizer.peers();
     // protect should not effect headers_timeout
     {
@@ -841,11 +843,13 @@ fn test_chain_sync_timeout() {
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 still in sync state
-        assert!(peers
-            .state
-            .get(&sync_protected_peer)
-            .unwrap()
-            .sync_started(),);
+        assert!(
+            peers
+                .state
+                .get(&sync_protected_peer)
+                .unwrap()
+                .sync_started(),
+        );
         assert_eq!(
             synchronizer
                 .shared()
@@ -858,13 +862,15 @@ fn test_chain_sync_timeout() {
         assert!({ network_context.disconnected.lock().is_empty() });
         // start sync with protected peer
         //protect peer is protected from disconnection
-        assert!(peers
-            .state
-            .get(&2.into())
-            .unwrap()
-            .chain_sync
-            .work_header
-            .is_none());
+        assert!(
+            peers
+                .state
+                .get(&2.into())
+                .unwrap()
+                .chain_sync
+                .work_header
+                .is_none()
+        );
         // Our best block known by this peer is behind our tip, and we're either noticing
         // that for the first time, OR this peer was able to catch up to some earlier point
         // where we checked against our tip.
@@ -933,11 +939,13 @@ fn test_chain_sync_timeout() {
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 chain_sync timeout
-        assert!(!peers
-            .state
-            .get(&sync_protected_peer)
-            .unwrap()
-            .sync_started(),);
+        assert!(
+            !peers
+                .state
+                .get(&sync_protected_peer)
+                .unwrap()
+                .sync_started(),
+        );
         assert_eq!(
             synchronizer
                 .shared()
@@ -1023,11 +1031,13 @@ fn test_n_sync_started() {
     synchronizer.eviction(&network_context);
     {
         // Protected peer 0 chain_sync timeout
-        assert!(!peers
-            .state
-            .get(&sync_protected_peer)
-            .unwrap()
-            .sync_started(),);
+        assert!(
+            !peers
+                .state
+                .get(&sync_protected_peer)
+                .unwrap()
+                .sync_started(),
+        );
         assert_eq!(
             synchronizer
                 .shared()

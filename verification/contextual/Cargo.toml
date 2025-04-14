@@ -1,36 +1,34 @@
 [package]
 name = "ckb-verification-contextual"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "The CKB verification contextual"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-ckb-types = { path = "../../util/types", version = "= 0.200.0" }
-ckb-store = { path = "../../store", version = "= 0.200.0" }
-ckb-systemtime = { path = "../../util/systemtime", version = "= 0.200.0" }
-rayon = "1.0"
-ckb-traits = { path = "../../traits", version = "= 0.200.0" }
-ckb-chain-spec = { path = "../../spec", version = "= 0.200.0" }
-ckb-dao = { path = "../../util/dao", version = "= 0.200.0" }
-ckb-dao-utils = { path = "../../util/dao/utils", version = "= 0.200.0" }
-ckb-logger = { path = "../../util/logger", version = "= 0.200.0" }
-ckb-reward-calculator = { path = "../../util/reward-calculator", version = "= 0.200.0" }
-ckb-error = { path = "../../error", version = "= 0.200.0" }
-tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
-ckb-async-runtime = { path = "../../util/runtime", version = "= 0.200.0" }
-ckb-verification-traits = { path = "../traits", version = "= 0.200.0" }
-ckb-verification = { path = "..", version = "= 0.200.0" }
-ckb-merkle-mountain-range = "0.5.2"
+ckb-types.workspace = true
+ckb-store.workspace = true
+ckb-systemtime.workspace = true
+rayon.workspace = true
+ckb-traits.workspace = true
+ckb-chain-spec.workspace = true
+ckb-dao.workspace = true
+ckb-dao-utils.workspace = true
+ckb-logger.workspace = true
+ckb-reward-calculator.workspace = true
+ckb-error.workspace = true
+tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
+ckb-async-runtime.workspace = true
+ckb-verification-traits.workspace = true
+ckb-verification.workspace = true
+ckb-merkle-mountain-range.workspace = true
 
 [dev-dependencies]
-ckb-chain = { path = "../../chain", version = "= 0.200.0" }
-ckb-shared = { path = "../../shared", version = "= 0.200.0" }
-ckb-test-chain-utils = { path = "../../util/test-chain-utils", version = "= 0.200.0" }
-ckb-systemtime = { path = "../../util/systemtime", version = "= 0.200.0", features = [
-    "enable_faketime",
-] }
-rand = "0.8"
+ckb-chain.workspace = true
+ckb-shared.workspace = true
+ckb-test-chain-utils.workspace = true
+ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
+rand.workspace = true

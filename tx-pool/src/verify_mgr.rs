@@ -5,7 +5,7 @@ use ckb_logger::{debug, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::{RwLock, watch};
 use tokio::task::JoinHandle;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -98,8 +98,8 @@ impl Worker {
                             tasks.re_notify();
                             debug!(
                                 "Worker (role: {:?}) didn't got tx after pop_front, but tasks is not empty, notify other Workers now",
-                            self.role
-                        );
+                                self.role
+                            );
                         }
                         return;
                     }

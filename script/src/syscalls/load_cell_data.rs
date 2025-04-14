@@ -2,17 +2,16 @@ use crate::types::{DataPieceId, SgData, VmContext};
 use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
-        Source, INDEX_OUT_OF_BOUND, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER,
-        LOAD_CELL_DATA_SYSCALL_NUMBER, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG,
-        SUCCESS,
+        INDEX_OUT_OF_BOUND, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER, LOAD_CELL_DATA_SYSCALL_NUMBER,
+        SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SUCCESS, Source,
     },
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
-    memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
+    Bytes, Error as VMError, Register, SupportMachine, Syscalls,
+    memory::{FLAG_EXECUTABLE, FLAG_FREEZED, Memory},
     registers::{A0, A1, A2, A3, A4, A5, A7},
     snapshot2::Snapshot2Context,
-    Bytes, Error as VMError, Register, SupportMachine, Syscalls,
 };
 use std::sync::{Arc, Mutex};
 

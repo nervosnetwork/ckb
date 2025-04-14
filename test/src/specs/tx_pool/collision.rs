@@ -4,7 +4,7 @@ use crate::util::check::{
 use crate::utils::{assert_send_transaction_fail, blank, commit, propose};
 use crate::{Node, Spec};
 use ckb_types::bytes::Bytes;
-use ckb_types::core::{capacity_bytes, Capacity, TransactionView};
+use ckb_types::core::{Capacity, TransactionView, capacity_bytes};
 use ckb_types::prelude::*;
 
 // Convention:
@@ -27,11 +27,13 @@ impl Spec for TransactionHashCollisionDifferentWitnessHashes {
         node.submit_transaction(&tx1);
         let result = node.rpc_client().send_transaction_result(tx2.data().into());
 
-        assert!(result
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("PoolRejectedDuplicatedTransaction"));
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("PoolRejectedDuplicatedTransaction")
+        );
     }
 }
 
@@ -49,11 +51,13 @@ impl Spec for DuplicatedTransaction {
         node.submit_transaction(&tx1);
         let result = node.rpc_client().send_transaction_result(tx1.data().into());
 
-        assert!(result
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("PoolRejectedDuplicatedTransaction"));
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("PoolRejectedDuplicatedTransaction")
+        );
     }
 }
 

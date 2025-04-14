@@ -1,12 +1,13 @@
-use crate::scheduler::Scheduler;
 #[cfg(not(target_family = "wasm"))]
 use crate::ChunkCommand;
+use crate::scheduler::Scheduler;
 use crate::{
     error::{ScriptError, TransactionScriptError},
+    syscalls::generator::generate_ckb_syscalls,
     type_id::TypeIdSystemScript,
     types::{
-        DebugContext, DebugPrinter, FullSuspendedState, RunMode, ScriptGroup, ScriptGroupType,
-        ScriptVersion, SgData, TransactionState, TxData, VerifyResult,
+        DebugPrinter, FullSuspendedState, Machine, RunMode, ScriptGroup, ScriptGroupType,
+        ScriptVersion, SgData, SyscallGenerator, TransactionState, TxData, VerifyResult,
     },
     verify_env::TxVerifyEnv,
 };
@@ -17,22 +18,19 @@ use ckb_logger::{debug, info};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::ResolvedTransaction, Cycle, ScriptHashType},
+    core::{Cycle, ScriptHashType, cell::ResolvedTransaction},
     packed::{Byte32, Script},
     prelude::*,
 };
 #[cfg(not(target_family = "wasm"))]
 use ckb_vm::machine::Pause as VMPause;
-use ckb_vm::Error as VMInternalError;
+use ckb_vm::{DefaultMachineRunner, Error as VMInternalError};
 use std::sync::Arc;
 #[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
     oneshot,
     watch::{self, Receiver},
 };
-
-#[cfg(test)]
-use core::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(test)]
 mod tests;
@@ -54,32 +52,27 @@ impl ChunkState {
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
-pub struct TransactionScriptsVerifier<DL> {
+pub struct TransactionScriptsVerifier<
+    DL: CellDataProvider,
+    V = DebugPrinter,
+    M: DefaultMachineRunner = Machine,
+> {
     tx_data: Arc<TxData<DL>>,
-
-    debug_printer: DebugPrinter,
-    #[cfg(test)]
-    skip_pause: Arc<AtomicBool>,
+    syscall_generator: SyscallGenerator<DL, V, <M as DefaultMachineRunner>::Inner>,
+    syscall_context: V,
 }
 
 impl<DL> TransactionScriptsVerifier<DL>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
-    /// Creates a script verifier for the transaction.
-    ///
-    /// ## Params
-    ///
-    /// * `rtx` - transaction which cell out points have been resolved.
-    /// * `data_loader` - used to load cell data.
+    /// Create a script verifier using default CKB syscalls and a default debug printer
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
         data_loader: DL,
         consensus: Arc<Consensus>,
         tx_env: Arc<TxVerifyEnv>,
-    ) -> TransactionScriptsVerifier<DL> {
-        let tx_data = Arc::new(TxData::new(rtx, data_loader, consensus, tx_env));
-
+    ) -> Self {
         let debug_printer: DebugPrinter = Arc::new(
             #[allow(unused_variables)]
             |hash: &Byte32, message: &str| {
@@ -88,33 +81,59 @@ where
             },
         );
 
-        #[cfg(test)]
-        let skip_pause = Arc::new(AtomicBool::new(false));
+        Self::new_with_debug_printer(rtx, data_loader, consensus, tx_env, debug_printer)
+    }
+
+    /// Create a script verifier using default CKB syscalls and a custom debug printer
+    pub fn new_with_debug_printer(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+        debug_printer: DebugPrinter,
+    ) -> Self {
+        Self::new_with_generator(
+            rtx,
+            data_loader,
+            consensus,
+            tx_env,
+            generate_ckb_syscalls,
+            debug_printer,
+        )
+    }
+}
+
+impl<DL, V, M> TransactionScriptsVerifier<DL, V, M>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Clone,
+    V: Clone,
+    M: DefaultMachineRunner,
+{
+    /// Creates a script verifier for the transaction.
+    ///
+    /// ## Params
+    ///
+    /// * `rtx` - transaction which cell out points have been resolved.
+    /// * `data_loader` - used to load cell data.
+    /// * `consensus` - consensus parameters.
+    /// * `tx_env` - enviroment for verifying transaction, such as committed block, etc.
+    /// * `syscall_generator` - a syscall generator for current verifier
+    /// * `syscall_context` - context for syscall generator
+    pub fn new_with_generator(
+        rtx: Arc<ResolvedTransaction>,
+        data_loader: DL,
+        consensus: Arc<Consensus>,
+        tx_env: Arc<TxVerifyEnv>,
+        syscall_generator: SyscallGenerator<DL, V, <M as DefaultMachineRunner>::Inner>,
+        syscall_context: V,
+    ) -> TransactionScriptsVerifier<DL, V, M> {
+        let tx_data = Arc::new(TxData::new(rtx, data_loader, consensus, tx_env));
 
         TransactionScriptsVerifier {
             tx_data,
-            debug_printer,
-            #[cfg(test)]
-            skip_pause,
+            syscall_generator,
+            syscall_context,
         }
-    }
-
-    /// Sets a callback to handle the debug syscall.
-    ///
-    ///
-    /// Script can print a message using the [debug syscall](github.com/nervosnetwork/rfcs/blob/master/rfcs/0009-vm-syscalls/0009-vm-syscalls.md#debug).
-    ///
-    /// The callback receives two parameters:
-    ///
-    /// * `hash: &Byte32`: this is the script hash of currently running script group.
-    /// * `message: &str`: message passed to the debug syscall.
-    pub fn set_debug_printer<F: Fn(&Byte32, &str) + Sync + Send + 'static>(&mut self, func: F) {
-        self.debug_printer = Arc::new(func);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_skip_pause(&self, skip_pause: bool) {
-        self.skip_pause.store(skip_pause, Ordering::SeqCst);
     }
 
     //////////////////////////////////////////////////////////////////
@@ -239,43 +258,6 @@ where
         }
 
         Ok(VerifyResult::Completed(cycles))
-    }
-
-    /// Performing a resumable verification on the transaction scripts with signal channel,
-    /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
-    /// otherwise, it will return until the verification is completed.
-    #[cfg(not(target_family = "wasm"))]
-    pub async fn resumable_verify_with_signal(
-        &self,
-        limit_cycles: Cycle,
-        command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<Cycle, Error> {
-        let mut cycles = 0;
-
-        let groups: Vec<_> = self.groups().collect();
-        for (_hash, group) in groups.iter() {
-            // vm should early return invalid cycles
-            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
-                    .source(group)
-            })?;
-
-            match self
-                .verify_group_with_signal(group, remain_cycles, command_rx)
-                .await
-            {
-                Ok(used_cycles) => {
-                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
-                }
-                Err(e) => {
-                    #[cfg(feature = "logging")]
-                    logging::on_script_error(_hash, &self.hash(), &e);
-                    return Err(e.source(group).into());
-                }
-            }
-        }
-
-        Ok(cycles)
     }
 
     /// Resuming an suspended verify from vm state
@@ -524,40 +506,17 @@ where
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
-    async fn verify_group_with_signal(
-        &self,
-        group: &ScriptGroup,
-        max_cycles: Cycle,
-        command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<Cycle, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
-            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
-        {
-            let verifier = TypeIdSystemScript {
-                rtx: &self.tx_data.rtx,
-                script_group: group,
-                max_cycles,
-            };
-            verifier.verify()
-        } else {
-            self.chunk_run_with_signal(group, max_cycles, command_rx)
-                .await
-        }
-    }
-
     /// Create a scheduler to manage virtual machine instances.
     pub fn create_scheduler(
         &self,
         script_group: &ScriptGroup,
-    ) -> Result<Scheduler<DL>, ScriptError> {
+    ) -> Result<Scheduler<DL, V, M>, ScriptError> {
         let sg_data = SgData::new(&self.tx_data, script_group)?;
-        let debug_context = DebugContext {
-            debug_printer: Arc::clone(&self.debug_printer),
-            #[cfg(test)]
-            skip_pause: Arc::clone(&self.skip_pause),
-        };
-        Ok(Scheduler::new(sg_data, debug_context))
+        Ok(Scheduler::new(
+            sg_data,
+            self.syscall_generator,
+            self.syscall_context.clone(),
+        ))
     }
 
     /// Resumes a scheduler from a previous state.
@@ -565,14 +524,14 @@ where
         &self,
         script_group: &ScriptGroup,
         state: &FullSuspendedState,
-    ) -> Result<Scheduler<DL>, ScriptError> {
+    ) -> Result<Scheduler<DL, V, M>, ScriptError> {
         let sg_data = SgData::new(&self.tx_data, script_group)?;
-        let debug_context = DebugContext {
-            debug_printer: Arc::clone(&self.debug_printer),
-            #[cfg(test)]
-            skip_pause: Arc::clone(&self.skip_pause),
-        };
-        Ok(Scheduler::resume(sg_data, debug_context, state.clone()))
+        Ok(Scheduler::resume(
+            sg_data,
+            self.syscall_generator,
+            self.syscall_context.clone(),
+            state.clone(),
+        ))
     }
 
     /// Runs a single program, then returns the exit code together with the entire
@@ -605,8 +564,72 @@ where
             _ => ScriptError::VMInternalError(error),
         }
     }
+}
 
-    #[cfg(not(target_family = "wasm"))]
+#[cfg(not(target_family = "wasm"))]
+impl<DL, V, M> TransactionScriptsVerifier<DL, V, M>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+    V: Send + Clone + 'static,
+    M: DefaultMachineRunner + Send + 'static,
+{
+    /// Performing a resumable verification on the transaction scripts with signal channel,
+    /// if `Suspend` comes from `command_rx`, the process will be hang up until `Resume` comes,
+    /// otherwise, it will return until the verification is completed.
+    pub async fn resumable_verify_with_signal(
+        &self,
+        limit_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, Error> {
+        let mut cycles = 0;
+
+        let groups: Vec<_> = self.groups().collect();
+        for (_hash, group) in groups.iter() {
+            // vm should early return invalid cycles
+            let remain_cycles = limit_cycles.checked_sub(cycles).ok_or_else(|| {
+                ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
+                    .source(group)
+            })?;
+
+            match self
+                .verify_group_with_signal(group, remain_cycles, command_rx)
+                .await
+            {
+                Ok(used_cycles) => {
+                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
+                }
+                Err(e) => {
+                    #[cfg(feature = "logging")]
+                    logging::on_script_error(_hash, &self.hash(), &e);
+                    return Err(e.source(group).into());
+                }
+            }
+        }
+
+        Ok(cycles)
+    }
+
+    async fn verify_group_with_signal(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+    ) -> Result<Cycle, ScriptError> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: &self.tx_data.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            verifier.verify()
+        } else {
+            self.chunk_run_with_signal(group, max_cycles, command_rx)
+                .await
+        }
+    }
+
     async fn chunk_run_with_signal(
         &self,
         script_group: &ScriptGroup,
@@ -710,7 +733,7 @@ fn wrapping_cycles_add(
 
 #[cfg(feature = "logging")]
 mod logging {
-    use super::{info, Byte32, ScriptError};
+    use super::{Byte32, ScriptError, info};
 
     pub fn on_script_error(group: &Byte32, tx: &Byte32, error: &ScriptError) {
         info!(

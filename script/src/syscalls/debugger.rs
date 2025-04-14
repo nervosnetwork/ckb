@@ -1,10 +1,10 @@
 use crate::types::{
-    DebugContext, DebugPrinter, {SgData, SgInfo},
+    DebugPrinter, {SgData, SgInfo},
 };
 use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
 use ckb_vm::{
-    registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
+    registers::{A0, A7},
 };
 use std::sync::Arc;
 
@@ -14,10 +14,10 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new<DL>(sg_data: &SgData<DL>, debug_context: &DebugContext) -> Debugger {
+    pub fn new<DL>(sg_data: &SgData<DL>, debug_printer: &DebugPrinter) -> Debugger {
         Debugger {
             sg_info: Arc::clone(&sg_data.sg_info),
-            printer: Arc::clone(&debug_context.debug_printer),
+            printer: Arc::clone(debug_printer),
         }
     }
 }

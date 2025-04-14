@@ -2,7 +2,7 @@ use crate::utils::send_message_to;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, warn};
 use ckb_network::async_trait;
-use ckb_network::{bytes::Bytes, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, bytes::Bytes};
 use ckb_types::{packed, prelude::*};
 use ckb_util::RwLock;
 use std::collections::VecDeque;
@@ -158,7 +158,10 @@ impl CKBProtocolHandler for NetTimeProtocol {
         debug!("New net time offset sample {}ms", offset);
         net_time_checker.add_sample(offset);
         if let Err(offset) = net_time_checker.check() {
-            warn!("Please check your computer's local clock ({}ms offset from network peers). Incorrect time setting may cause unexpected errors.", offset);
+            warn!(
+                "Please check your computer's local clock ({}ms offset from network peers). Incorrect time setting may cause unexpected errors.",
+                offset
+            );
         }
     }
 }

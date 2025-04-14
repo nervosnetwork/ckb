@@ -2,12 +2,12 @@
 
 use super::random_addr;
 use crate::{
+    PeerId, SessionType,
     errors::{Error, PeerError},
     extract_peer_id,
     multiaddr::Multiaddr,
-    peer_registry::{PeerRegistry, EVICTION_PROTECT_PEERS},
+    peer_registry::{EVICTION_PROTECT_PEERS, PeerRegistry},
     peer_store::PeerStore,
-    PeerId, SessionType,
 };
 use std::time::{Duration, Instant};
 
@@ -77,15 +77,17 @@ fn test_accept_inbound_peer_until_full() {
     );
 
     // test evict a peer
-    assert!(peers
-        .accept_peer(
-            random_addr(),
-            4.into(),
-            SessionType::Inbound,
-            &mut peer_store,
-        )
-        .expect("Accept peer should ok")
-        .is_some());
+    assert!(
+        peers
+            .accept_peer(
+                random_addr(),
+                4.into(),
+                SessionType::Inbound,
+                &mut peer_store,
+            )
+            .expect("Accept peer should ok")
+            .is_some()
+    );
     // should still accept whitelist peer
     peers
         .accept_peer(
@@ -137,14 +139,16 @@ fn test_accept_inbound_peer_eviction() {
     );
     // prepare all peers
     for session_id in 0..protected_peers_count {
-        assert!(peers_registry
-            .accept_peer(
-                random_addr(),
-                session_id.into(),
-                SessionType::Inbound,
-                &mut peer_store,
-            )
-            .is_ok());
+        assert!(
+            peers_registry
+                .accept_peer(
+                    random_addr(),
+                    session_id.into(),
+                    SessionType::Inbound,
+                    &mut peer_store,
+                )
+                .is_ok()
+        );
     }
     let peers: Vec<_> = {
         peers_registry

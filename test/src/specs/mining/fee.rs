@@ -3,18 +3,18 @@ use crate::generic::{GetCommitTxIds, GetProposalTxIds};
 use crate::util::cell::{as_input, gen_spendable};
 use crate::util::check::is_transaction_committed;
 use crate::util::transaction::always_success_transaction;
-use crate::{Node, Spec};
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, FINALIZATION_DELAY_LENGTH};
+use crate::{Node, Spec};
 use ckb_types::core::TransactionBuilder;
 use ckb_types::packed::CellInput;
 use ckb_types::packed::CellOutput;
 use ckb_types::packed::OutPoint;
 use ckb_types::prelude::*;
 use ckb_types::{
-    core::{capacity_bytes, Capacity},
+    core::{Capacity, capacity_bytes},
     packed::CellOutputBuilder,
 };
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
 pub struct FeeOfTransaction;
 

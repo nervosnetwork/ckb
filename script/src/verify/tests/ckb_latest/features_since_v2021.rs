@@ -2,22 +2,22 @@ use ckb_chain_spec::consensus::{TWO_IN_TWO_OUT_CYCLES, TYPE_ID_CODE_HASH};
 use ckb_error::assert_error_eq;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
-    core::{capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder},
+    core::{Capacity, ScriptHashType, TransactionBuilder, capacity_bytes, cell::CellMetaBuilder},
     h256,
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
 };
 use ckb_vm::Error as VmError;
 use proptest::{prelude::*, prop_assert_eq, proptest};
 use rand::distributions::Uniform;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::{collections::VecDeque, io::Read};
 
 use super::SCRIPT_VERSION;
 use crate::syscalls::SOURCE_GROUP_FLAG;
 use crate::{
+    ScriptError,
     type_id::TYPE_ID_CYCLES,
     verify::{tests::utils::*, *},
-    ScriptError,
 };
 
 #[test]
@@ -496,10 +496,12 @@ fn check_exec_big_offset_length() {
             assert!(result.unwrap_err().to_string().contains("error code 3"));
         }
         _ => {
-            assert!(result
-                .unwrap_err()
-                .to_string()
-                .contains("VM Internal Error: ElfParseError"));
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("VM Internal Error: ElfParseError")
+            );
         }
     }
 }
@@ -1155,8 +1157,8 @@ fn load_code_with_snapshot() {
 
     let mut cycles = 0;
     let max_cycles = Cycle::MAX;
-    let verifier = TransactionScriptsVerifierWithEnv::new();
-    let result = verifier.verify_map(script_version, &rtx, |verifier| {
+    let verifier_env = TransactionScriptsVerifierWithEnv::new();
+    let result = verifier_env.verify_map(script_version, &rtx, |verifier| {
         let mut init_snap: Option<TransactionState> = None;
 
         if let VerifyResult::Suspended(state) = verifier.resumable_verify(max_cycles).unwrap() {
@@ -1175,7 +1177,7 @@ fn load_code_with_snapshot() {
             }
         }
 
-        verifier.set_skip_pause(true);
+        verifier_env.set_skip_pause(true);
         verifier.verify(max_cycles)
     });
 

@@ -23,7 +23,7 @@ mod tests;
 
 pub use self::template::Template;
 pub use self::template::{
-    TemplateContext, AVAILABLE_SPECS, DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC,
+    AVAILABLE_SPECS, DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC, TemplateContext,
 };
 pub use std::io::{Error, Result};
 
@@ -185,7 +185,7 @@ impl Resource {
     ///
     /// If the path is relative, expand the path relative to the directory `base`.
     pub fn absolutize<P: AsRef<Path>>(&mut self, base: P) {
-        if let Resource::FileSystem { file: ref mut path } = self {
+        if let Resource::FileSystem { file: path } = self {
             if path.is_relative() {
                 *path = base.as_ref().join(&path)
             }

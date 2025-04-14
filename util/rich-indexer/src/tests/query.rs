@@ -3,13 +3,13 @@ use super::*;
 use ckb_indexer_sync::{CustomFilters, Pool};
 use ckb_jsonrpc_types::{IndexerRange, IndexerSearchKeyFilter, IndexerTx};
 use ckb_types::{
+    H256,
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
-        ScriptHashType, TransactionBuilder,
+        BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder, ScriptHashType,
+        TransactionBuilder, capacity_bytes,
     },
     packed::{self, CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
-    H256,
 };
 
 use std::sync::{Arc, RwLock};
@@ -882,7 +882,11 @@ async fn rpc() {
         .await
         .unwrap();
 
-    assert_eq!(total_blocks as usize * 3 - 1, txs_page_1.objects.len() + txs_page_2.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
+    assert_eq!(
+        total_blocks as usize * 3 - 1,
+        txs_page_1.objects.len() + txs_page_2.objects.len(),
+        "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)"
+    );
 
     let desc_txs_page_1 = rpc
         .get_transactions(
@@ -909,7 +913,11 @@ async fn rpc() {
         .await
         .unwrap();
 
-    assert_eq!(total_blocks as usize * 3 - 1, desc_txs_page_1.objects.len() + desc_txs_page_2.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
+    assert_eq!(
+        total_blocks as usize * 3 - 1,
+        desc_txs_page_1.objects.len() + desc_txs_page_2.objects.len(),
+        "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)"
+    );
     assert_eq!(
         desc_txs_page_1.objects.first().unwrap().tx_hash(),
         txs_page_2.objects.last().unwrap().tx_hash()
@@ -1312,10 +1320,10 @@ async fn script_search_mode_rpc() {
         .unwrap();
 
     assert_eq!(
-            total_blocks as usize + 2,
-            cells.objects.len(),
-            "total size should be cellbase cells count + 2 (last block live cell: lock_script1 and lock_script11)"
-        );
+        total_blocks as usize + 2,
+        cells.objects.len(),
+        "total size should be cellbase cells count + 2 (last block live cell: lock_script1 and lock_script11)"
+    );
 
     // test get_cells rpc with exact search mode
     let cells = rpc
@@ -1353,7 +1361,11 @@ async fn script_search_mode_rpc() {
         .await
         .unwrap();
 
-    assert_eq!(total_blocks as usize * 3 - 1, txs.objects.len(), "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)");
+    assert_eq!(
+        total_blocks as usize * 3 - 1,
+        txs.objects.len(),
+        "total size should be cellbase tx count + total_block * 2 - 1 (genesis block only has one tx)"
+    );
 
     // test get_transactions rpc group by tx hash with exact search mode
     let txs = rpc

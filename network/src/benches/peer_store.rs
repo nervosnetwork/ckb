@@ -4,7 +4,7 @@ extern crate criterion;
 extern crate ckb_network;
 extern crate ckb_util;
 
-use ckb_network::{multiaddr::Multiaddr, peer_store::PeerStore, Flags, PeerId};
+use ckb_network::{Flags, PeerId, multiaddr::Multiaddr, peer_store::PeerStore};
 use criterion::{BatchSize, BenchmarkId, Criterion};
 
 const SIZES: &[usize] = &[10_000, 20_000];

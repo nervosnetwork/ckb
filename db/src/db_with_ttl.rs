@@ -1,6 +1,6 @@
 //! DB with ttl support wrapper
 
-use crate::{internal_error, Result};
+use crate::{Result, internal_error};
 use rocksdb::ops::{DropCF, GetColumnFamilys, GetPinnedCF, GetPropertyCF, OpenCF, PutCF};
 use rocksdb::{
     ColumnFamilyDescriptor, DBPinnableSlice, DBWithTTL as RawDBWithTTL, Options, TTLOpenDescriptor,

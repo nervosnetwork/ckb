@@ -1,18 +1,18 @@
 [package]
 name = "ckb-fixed-hash-core"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "Provide several fixed-length binary data, aka fixed-sized hashes."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-thiserror = "1.0.22"
-serde = { version = "1.0", features = ["derive"] }
-faster-hex = "0.6"
-schemars = { version = "0.8.19", package = "ckb_schemars" }
+thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+faster-hex.workspace = true
+schemars.workspace = true
 
 
 [dev-dependencies]

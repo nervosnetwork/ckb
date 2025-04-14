@@ -1,6 +1,6 @@
 [package]
 name = "ckb-gen-types"
-version = "0.200.0"
+version.workspace = true
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
@@ -9,7 +9,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dev-dependencies]
-ckb-hash = { path = "../hash", version = "= 0.200.0" }
+ckb-hash.workspace = true
 
 [features]
 default = ["std"]
@@ -30,14 +30,10 @@ std = [
 ]
 
 [dependencies]
-cfg-if = "1.0"
-molecule = { version = "0.8", default-features = false }
-ckb-hash = { path = "../hash", version = "= 0.200.0", default-features = false, optional = true }
-ckb-fixed-hash = { path = "../fixed-hash", version = "= 0.200.0", optional = true }
-ckb-error = { path = "../../error", version = "= 0.200.0", optional = true }
-ckb-occupied-capacity = { path = "../occupied-capacity", version = "= 0.200.0", optional = true }
-numext-fixed-uint = { version = "0.1", features = [
-    "support_rand",
-    "support_heapsize",
-    "support_serde",
-], optional = true }
+cfg-if.workspace = true
+molecule.workspace = true
+ckb-hash = { workspace = true, optional = true }
+ckb-fixed-hash = { workspace = true, optional = true }
+ckb-error = { workspace = true, optional = true }
+ckb-occupied-capacity = { workspace = true, optional = true }
+numext-fixed-uint = { workspace = true, features = ["support_rand", "support_heapsize", "support_serde"], optional = true }

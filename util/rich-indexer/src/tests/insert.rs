@@ -1,13 +1,13 @@
 use super::*;
 
 use ckb_types::{
+    H256,
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder,
-        ScriptHashType, TransactionBuilder,
+        BlockBuilder, Capacity, EpochNumberWithFraction, HeaderBuilder, ScriptHashType,
+        TransactionBuilder, capacity_bytes,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
-    H256,
 };
 use tokio::test;
 

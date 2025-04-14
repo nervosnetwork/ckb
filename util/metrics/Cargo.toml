@@ -1,13 +1,13 @@
 [package]
 name = "ckb-metrics"
-version = "0.200.0"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
-edition = "2021"
+edition = "2024"
 description = "A lightweight metrics facade used in CKB."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-prometheus = "0.13.3"
-prometheus-static-metric = "0.5.1"
+prometheus.workspace = true
+prometheus-static-metric.workspace = true

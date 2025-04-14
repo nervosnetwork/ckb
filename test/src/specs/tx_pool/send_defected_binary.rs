@@ -5,11 +5,11 @@ use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_logger::info;
 use ckb_types::{
+    H256,
     bytes::Bytes,
-    core::{capacity_bytes, Capacity, DepType, ScriptHashType, TransactionBuilder},
+    core::{Capacity, DepType, ScriptHashType, TransactionBuilder, capacity_bytes},
     packed::{CellDep, CellInput, CellOutput, OutPoint, WitnessArgs},
     prelude::*,
-    H256,
 };
 
 pub struct SendDefectedBinary {

@@ -12,8 +12,8 @@ pub use crate::store::SecondaryDB;
 
 use ckb_app_config::{DBConfig, IndexerSyncConfig};
 use ckb_async_runtime::{
-    tokio::{self, time},
     Handle,
+    tokio::{self, time},
 };
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
@@ -21,13 +21,13 @@ use ckb_db_schema::{
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
-use ckb_stop_handler::{has_received_stop_signal, new_tokio_exit_rx, CancellationToken};
+use ckb_stop_handler::{CancellationToken, has_received_stop_signal, new_tokio_exit_rx};
 use ckb_store::ChainStore;
 use ckb_types::{
+    H256,
     core::{self, BlockNumber, BlockView},
     packed::Byte32,
     prelude::*,
-    H256,
 };
 use rocksdb::prelude::*;
 
@@ -270,24 +270,26 @@ impl IndexerSyncService {
         I: IndexerSync + Clone + Send + 'static,
     {
         let secondary_db = self.secondary_db.clone();
-        let check_index_tx_pool_ready = self.async_handle.spawn_blocking(move || loop {
-            if has_received_stop_signal() {
-                info!("check_index_tx_pool_ready received exit signal, exit now");
-                break;
-            }
-
-            if let Err(e) = secondary_db.try_catch_up_with_primary() {
-                error!("secondary_db try_catch_up_with_primary error {}", e);
-            }
-            if let (Some(header), Ok(Some((indexer_tip, _)))) =
-                (secondary_db.get_tip_header(), indexer_service.tip())
-            {
-                let node_tip = header.number();
-                if node_tip - indexer_tip <= INDEXER_NODE_TIP_GAP {
+        let check_index_tx_pool_ready = self.async_handle.spawn_blocking(move || {
+            loop {
+                if has_received_stop_signal() {
+                    info!("check_index_tx_pool_ready received exit signal, exit now");
                     break;
                 }
+
+                if let Err(e) = secondary_db.try_catch_up_with_primary() {
+                    error!("secondary_db try_catch_up_with_primary error {}", e);
+                }
+                if let (Some(header), Ok(Some((indexer_tip, _)))) =
+                    (secondary_db.get_tip_header(), indexer_service.tip())
+                {
+                    let node_tip = header.number();
+                    if node_tip - indexer_tip <= INDEXER_NODE_TIP_GAP {
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_secs(1));
             }
-            std::thread::sleep(Duration::from_secs(1));
         });
 
         self.pool_service

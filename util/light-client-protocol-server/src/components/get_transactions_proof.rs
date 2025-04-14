@@ -5,7 +5,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*, utilities::CBMT};
 
-use crate::{constant, LightClientProtocol, Status, StatusCode};
+use crate::{LightClientProtocol, Status, StatusCode, constant};
 
 pub(crate) struct GetTransactionsProofProcess<'a> {
     message: packed::GetTransactionsProofReader<'a>,

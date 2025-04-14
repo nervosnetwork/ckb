@@ -1,4 +1,4 @@
-use crate::{error::FromSliceError, H160, H256, H512, H520};
+use crate::{H160, H256, H512, H520, error::FromSliceError};
 
 macro_rules! impl_methods {
     ($name:ident, $bytes_size:expr) => {

@@ -1,5 +1,5 @@
 use crate::utils::since_from_absolute_epoch_number;
-use crate::{Node, TXOSet, TXO};
+use crate::{Node, TXO, TXOSet};
 use ckb_chain_spec::OUTPUT_INDEX_DAO;
 use ckb_types::core::{EpochNumberWithFraction, HeaderView};
 use ckb_types::packed::WitnessArgs;

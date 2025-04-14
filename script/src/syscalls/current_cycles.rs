@@ -1,12 +1,12 @@
 use crate::{syscalls::CURRENT_CYCLES, types::VmContext};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
-    registers::{A0, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
+    registers::{A0, A7},
 };
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 #[derive(Debug, Default)]

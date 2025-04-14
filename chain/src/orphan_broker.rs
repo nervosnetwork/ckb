@@ -1,15 +1,15 @@
 #![allow(missing_docs)]
 
 use crate::utils::orphan_block_pool::{OrphanBlockPool, ParentHash};
-use crate::{delete_unverified_block, LonelyBlockHash, VerifyResult};
+use crate::{LonelyBlockHash, VerifyResult, delete_unverified_block};
 use ckb_channel::Sender;
 use ckb_error::InternalErrorKind;
 use ckb_logger::internal::trace;
 use ckb_logger::{debug, error, info};
-use ckb_shared::block_status::BlockStatus;
 use ckb_shared::Shared;
+use ckb_shared::block_status::BlockStatus;
 use ckb_store::ChainStore;
-use ckb_types::{packed::Byte32, U256};
+use ckb_types::{U256, packed::Byte32};
 use dashmap::DashSet;
 use std::sync::Arc;
 
@@ -53,9 +53,7 @@ impl OrphanBroker {
         if !leader_is_pending_verify && !leader_status.contains(BlockStatus::BLOCK_STORED) {
             trace!(
                 "orphan leader: {} not stored {:?} and not in is_pending_verify: {}",
-                leader_hash,
-                leader_status,
-                leader_is_pending_verify
+                leader_hash, leader_status, leader_is_pending_verify
             );
             return;
         }
@@ -115,11 +113,7 @@ impl OrphanBroker {
         if parent_is_pending_verify || parent_status.contains(BlockStatus::BLOCK_STORED) {
             debug!(
                 "parent {} has stored: {:?} or is_pending_verify: {}, processing descendant directly {}-{}",
-                parent_hash,
-                parent_status,
-                parent_is_pending_verify,
-                block_number,
-                block_hash,
+                parent_hash, parent_status, parent_is_pending_verify, block_number, block_hash,
             );
             self.process_descendant(lonely_block);
         } else if parent_status.eq(&BlockStatus::BLOCK_INVALID) {

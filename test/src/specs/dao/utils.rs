@@ -1,5 +1,5 @@
-use crate::util::check::is_transaction_committed;
 use crate::Node;
+use crate::util::check::is_transaction_committed;
 use ckb_types::core::EpochNumberWithFraction;
 use ckb_types::{core::TransactionView, packed::OutPoint};
 

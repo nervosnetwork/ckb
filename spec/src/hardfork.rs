@@ -2,8 +2,8 @@
 
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_types::core::{
-    hardfork::{CKB2021Builder, CKB2023Builder, HardForks, CKB2021, CKB2023},
     EpochNumber,
+    hardfork::{CKB2021, CKB2021Builder, CKB2023, CKB2023Builder, HardForks},
 };
 use serde::{Deserialize, Serialize};
 

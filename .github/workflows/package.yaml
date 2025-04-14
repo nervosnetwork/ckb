@@ -16,7 +16,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v1.12.0
+  CKB_CLI_VERSION: v1.13.0
 
 jobs:
   create-release:
@@ -82,7 +82,7 @@ jobs:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.81.0
+      BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.85.0
       REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-linux-aarch64:
@@ -166,7 +166,7 @@ jobs:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
-      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.81.0
+      BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.85.0
       REL_PKG: ${{ matrix.rel_pkg }}
 
   package-for-mac:

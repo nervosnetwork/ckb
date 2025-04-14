@@ -1,17 +1,18 @@
 #![allow(deprecated)]
 use crate::module::{
-    add_alert_rpc_methods, add_chain_rpc_methods, add_debug_rpc_methods,
-    add_experiment_rpc_methods, add_indexer_rpc_methods, add_integration_test_rpc_methods,
-    add_miner_rpc_methods, add_net_rpc_methods, add_pool_rpc_methods, add_rich_indexer_rpc_methods,
-    add_stats_rpc_methods, add_subscription_rpc_methods, AlertRpcImpl, ChainRpcImpl, DebugRpcImpl,
-    ExperimentRpcImpl, IndexerRpcImpl, IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl,
-    PoolRpcImpl, RichIndexerRpcImpl, StatsRpcImpl, SubscriptionRpcImpl,
+    AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl,
+    IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, RichIndexerRpcImpl,
+    StatsRpcImpl, SubscriptionRpcImpl, add_alert_rpc_methods, add_chain_rpc_methods,
+    add_debug_rpc_methods, add_experiment_rpc_methods, add_indexer_rpc_methods,
+    add_integration_test_rpc_methods, add_miner_rpc_methods, add_net_rpc_methods,
+    add_pool_rpc_methods, add_rich_indexer_rpc_methods, add_stats_rpc_methods,
+    add_subscription_rpc_methods,
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::ChainController;
 use ckb_indexer::IndexerService;
-use ckb_indexer_sync::{new_secondary_db, PoolService};
+use ckb_indexer_sync::{PoolService, new_secondary_db};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
