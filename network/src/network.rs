@@ -30,7 +30,7 @@ use futures::{Future, channel::mpsc::Sender};
 use ipnetwork::IpNetwork;
 use p2p::{
     SessionId, async_trait,
-    builder::ServiceBuilder,
+    builder::{MetaBuilder, ServiceBuilder},
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
@@ -74,10 +74,9 @@ pub struct NetworkState {
     /// Node listened addresses
     pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
-    /// Node public addresses,
-    /// includes manually public addrs and remote peer observed addrs
-    public_addrs: RwLock<HashSet<Multiaddr>>,
-    pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
+    /// Node public addresses by config
+    public_addrs: HashSet<Multiaddr>,
+    observed_addrs: RwLock<HashMap<PeerIndex, Multiaddr>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
     pub(crate) bootnodes: Vec<Multiaddr>,
@@ -139,9 +138,9 @@ impl NetworkState {
             bootnodes,
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
-            public_addrs: RwLock::new(public_addrs),
+            public_addrs,
             listened_addrs: RwLock::new(Vec::new()),
-            pending_observed_addrs: RwLock::new(HashSet::default()),
+            observed_addrs: RwLock::new(HashMap::default()),
             local_private_key,
             local_peer_id,
             active: AtomicBool::new(true),
@@ -187,9 +186,9 @@ impl NetworkState {
             bootnodes,
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
-            public_addrs: RwLock::new(public_addrs),
+            public_addrs,
             listened_addrs: RwLock::new(Vec::new()),
-            pending_observed_addrs: RwLock::new(HashSet::default()),
+            observed_addrs: RwLock::new(HashMap::default()),
             local_private_key,
             local_peer_id,
             active: AtomicBool::new(true),
@@ -338,12 +337,14 @@ impl NetworkState {
     }
 
     pub(crate) fn public_addrs(&self, count: usize) -> Vec<Multiaddr> {
-        self.public_addrs
-            .read()
-            .iter()
-            .take(count)
-            .cloned()
-            .collect()
+        if self.public_addrs.len() <= count {
+            return self.public_addrs.iter().cloned().collect();
+        } else {
+            self.public_addrs
+                .iter()
+                .cloned()
+                .choose_multiple(&mut rand::thread_rng(), count)
+        }
     }
 
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
@@ -392,7 +393,7 @@ impl NetworkState {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.public_addrs.read().contains(addr) {
+        if self.public_addrs.contains(addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id, addr
@@ -500,40 +501,28 @@ impl NetworkState {
         }
     }
 
-    /// this method is intent to check observed addr by dial to self
-    pub(crate) fn try_dial_observed_addrs(&self, p2p_control: &ServiceControl) {
-        let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        if pending_observed_addrs.is_empty() {
-            let addrs = self.public_addrs.read();
-            if addrs.is_empty() {
-                return;
-            }
-            // random get addr
-            if let Some(addr) = addrs.iter().choose(&mut rand::thread_rng()) {
-                if let Err(err) = p2p_control.dial(
-                    addr.clone(),
-                    TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
-                ) {
-                    trace!("try_dial_observed_addrs {err} failed in public address")
-                }
-            }
-        } else {
-            for addr in pending_observed_addrs.drain() {
-                trace!("try dial observed addr: {:?}", addr);
-                if let Err(err) = p2p_control.dial(
-                    addr,
-                    TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
-                ) {
-                    trace!("try_dial_observed_addrs {err} failed in pending observed addresses")
-                }
-            }
-        }
+    /// add observed address for identify protocol
+    pub(crate) fn add_observed_addr(&self, session_id: SessionId, addr: Multiaddr) {
+        let mut pending_observed_addrs = self.observed_addrs.write();
+        pending_observed_addrs.insert(session_id, addr);
     }
 
-    /// add observed address for identify protocol
-    pub(crate) fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
-        let mut pending_observed_addrs = self.pending_observed_addrs.write();
-        pending_observed_addrs.extend(iter)
+    // randomly select count addresses from observed_addrs
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn observed_addrs(&self, count: usize) -> Vec<Multiaddr> {
+        let observed_addrs = self
+            .observed_addrs
+            .read()
+            .values()
+            .cloned()
+            .collect::<HashSet<_>>();
+        if observed_addrs.len() <= count {
+            return observed_addrs.into_iter().collect();
+        } else {
+            observed_addrs
+                .into_iter()
+                .choose_multiple(&mut rand::thread_rng(), count)
+        }
     }
 
     /// Network message processing controller, default is true, if false, discard any received messages
@@ -613,19 +602,11 @@ impl ServiceHandle for EventHandler {
     async fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
             ServiceError::DialerError { address, error } => {
-                let mut public_addrs = self.network_state.public_addrs.write();
-
                 match error {
                     DialerErrorKind::HandshakeError(HandshakeErrorKind::SecioError(
                         SecioError::ConnectSelf,
                     )) => {
                         debug!("dial observed address success: {:?}", address);
-                        if let Some(ip) = multiaddr_to_socketaddr(&address) {
-                            if is_reachable(ip.ip()) {
-                                public_addrs.insert(address);
-                            }
-                        }
-                        return;
                     }
                     DialerErrorKind::IoError(e)
                         if e.kind() == std::io::ErrorKind::AddrNotAvailable =>
@@ -635,12 +616,6 @@ impl ServiceHandle for EventHandler {
                     _ => {
                         debug!("DialerError({}) {}", address, error);
                     }
-                }
-                if public_addrs.remove(&address) {
-                    info!(
-                        "Dial {} failed, remove it from network_state.public_addrs",
-                        address
-                    );
                 }
                 self.network_state.dial_failed(&address);
             }
@@ -815,6 +790,10 @@ impl ServiceHandle for EventHandler {
                         peer_store.remove_disconnected_peer(&session_context.address);
                     });
                 }
+                self.network_state
+                    .observed_addrs
+                    .write()
+                    .remove(&session_context.id);
             }
             _ => {
                 info!("p2p service event: {:?}", event);
@@ -935,6 +914,26 @@ impl NetworkService {
                     )))
                 });
             protocol_metas.push(disconnect_message_meta);
+        }
+
+        // HolePunching protocol
+        #[cfg(not(target_family = "wasm"))]
+        if config
+            .support_protocols
+            .contains(&SupportProtocol::HolePunching)
+        {
+            let hole_punching_state = Arc::clone(&network_state);
+            let hole_punching_meta_builder: MetaBuilder = SupportProtocols::HolePunching.into();
+            let hole_punching_meta = hole_punching_meta_builder
+                .before_send(crate::compress::compress)
+                .before_receive(|| Some(Box::new(crate::compress::decompress)))
+                .service_handle(move || {
+                    ProtocolHandle::Callback(Box::new(
+                        crate::protocols::hole_punching::HolePunching::new(hole_punching_state),
+                    ))
+                })
+                .build();
+            protocol_metas.push(hole_punching_meta);
         }
 
         let mut service_builder = ServiceBuilder::default();

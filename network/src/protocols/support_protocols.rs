@@ -56,6 +56,8 @@ pub enum SupportProtocols {
     LightClient,
     /// Filter: A protocol used for client side block data filtering.
     Filter,
+    /// HolePunching: A protocol used to connect peers behind firewalls or NAT routers.
+    HolePunching,
 }
 
 impl SupportProtocols {
@@ -74,6 +76,7 @@ impl SupportProtocols {
             SupportProtocols::Alert => 110,
             SupportProtocols::LightClient => 120,
             SupportProtocols::Filter => 121,
+            SupportProtocols::HolePunching => 130,
         }
         .into()
     }
@@ -93,6 +96,7 @@ impl SupportProtocols {
             SupportProtocols::Alert => "/ckb/alt",
             SupportProtocols::LightClient => "/ckb/lightclient",
             SupportProtocols::Filter => "/ckb/filter",
+            SupportProtocols::HolePunching => "/ckb/HolePunching",
         }
         .to_owned()
     }
@@ -117,6 +121,7 @@ impl SupportProtocols {
             SupportProtocols::RelayV3 => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
             SupportProtocols::LightClient => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
             SupportProtocols::Filter => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
+            SupportProtocols::HolePunching => vec!["2".to_owned(), LASTEST_VERSION.to_owned()],
         }
     }
 
@@ -134,6 +139,7 @@ impl SupportProtocols {
             SupportProtocols::Alert => 128 * 1024,       // 128 KB
             SupportProtocols::LightClient => 2 * 1024 * 1024, // 2 MB
             SupportProtocols::Filter => 2 * 1024 * 1024, // 2   MB
+            SupportProtocols::HolePunching => 512 * 1024, // 512 KB
         }
     }
 

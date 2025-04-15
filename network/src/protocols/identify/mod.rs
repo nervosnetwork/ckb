@@ -9,7 +9,7 @@ use p2p::{
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::{Multiaddr, Protocol},
-    service::{SessionType, TargetProtocol},
+    service::TargetProtocol,
     traits::ServiceProtocol,
     utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
 };
@@ -77,7 +77,7 @@ pub trait Callback: Clone + Send {
     /// Add remote peer's listen addresses
     fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>);
     /// Add our address observed by remote peer
-    fn add_observed_addr(&mut self, addr: Multiaddr, ty: SessionType) -> MisbehaveResult;
+    fn add_observed_addr(&mut self, addr: Multiaddr, sessioin_id: SessionId) -> MisbehaveResult;
     /// Report misbehavior
     fn misbehave(&mut self, session: &SessionContext, kind: Misbehavior) -> MisbehaveResult;
 }
@@ -173,7 +173,7 @@ impl<T: Callback> IdentifyProtocol<T> {
             return MisbehaveResult::Continue;
         }
 
-        self.callback.add_observed_addr(observed, info.session.ty)
+        self.callback.add_observed_addr(observed, info.session.id)
     }
 }
 
@@ -528,42 +528,14 @@ impl Callback for IdentifyCallback {
         })
     }
 
-    fn add_observed_addr(&mut self, mut addr: Multiaddr, ty: SessionType) -> MisbehaveResult {
-        if ty.is_inbound() {
-            // The address already been discovered by other peer
-            return MisbehaveResult::Continue;
-        }
-
-        // observed addr is not a reachable ip
-        if !multiaddr_to_socketaddr(&addr)
-            .map(|socket_addr| is_reachable(socket_addr.ip()))
-            .unwrap_or(false)
-        {
-            return MisbehaveResult::Continue;
-        }
-
+    fn add_observed_addr(&mut self, mut addr: Multiaddr, session_id: SessionId) -> MisbehaveResult {
         if extract_peer_id(&addr).is_none() {
             addr.push(Protocol::P2P(Cow::Borrowed(
                 self.network_state.local_peer_id().as_bytes(),
             )))
         }
 
-        let source_addr = addr.clone();
-        let observed_addrs_iter = self
-            .listen_addrs()
-            .into_iter()
-            .filter_map(|listen_addr| multiaddr_to_socketaddr(&listen_addr))
-            .map(|socket_addr| {
-                addr.iter()
-                    .map(|proto| match proto {
-                        Protocol::Tcp(_) => Protocol::Tcp(socket_addr.port()),
-                        value => value,
-                    })
-                    .collect::<Multiaddr>()
-            })
-            .chain(::std::iter::once(source_addr));
-
-        self.network_state.add_observed_addrs(observed_addrs_iter);
+        self.network_state.add_observed_addr(session_id, addr);
         // NOTE: for future usage
         MisbehaveResult::Continue
     }

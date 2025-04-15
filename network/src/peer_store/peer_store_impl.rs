@@ -217,6 +217,25 @@ impl PeerStore {
         self.addr_manager.fetch_random(count, filter)
     }
 
+    /// Return address that we never connected to, used for penetration.
+    pub fn fetch_nat_addrs(&mut self, count: usize, required_flags: Flags) -> Vec<AddrInfo> {
+        // Get info:
+        // 1. Never connected
+        // 2. Not already connected
+
+        let peers = &self.connected_peers;
+
+        let filter = |peer_addr: &AddrInfo| {
+            required_flags_filter(required_flags, Flags::from_bits_truncate(peer_addr.flags))
+                && extract_peer_id(&peer_addr.addr)
+                    .map(|peer_id| !peers.contains_key(&peer_id))
+                    .unwrap_or_default()
+                && peer_addr.connected(|t| t == 0)
+        };
+
+        self.addr_manager.fetch_random(count, filter)
+    }
+
     /// Return valid addrs that success connected, used for discovery.
     pub fn fetch_random_addrs(&mut self, count: usize, required_flags: Flags) -> Vec<AddrInfo> {
         // Get info:
