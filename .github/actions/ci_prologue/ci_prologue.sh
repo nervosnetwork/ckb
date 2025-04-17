@@ -72,7 +72,7 @@ fun_pasing_message(){
     linux_runner_label='self-hosted-ci-ubuntu-20.04'
     windows_runner_label='self-hosted-ci-windows-2019'
   else
-    linux_runner_label='ubuntu-20.04'
+    linux_runner_label='ubuntu-22.04'
     windows_runner_label='windows-2019'
   fi
   echo "linux_runner_label is "$linux_runner_label
