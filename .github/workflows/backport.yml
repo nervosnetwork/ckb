@@ -1,10 +1,10 @@
 name: Backport
 on:
   pull_request:
-    types: [ closed ]
+    types: [closed]
 jobs:
   backport:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.body, 'Need to cherry-pick to the release branch')
     name: Backport
     steps:
@@ -43,4 +43,3 @@ jobs:
                 ]
               }'
           fi
-

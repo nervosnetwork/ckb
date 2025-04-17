@@ -29,7 +29,7 @@ jobs:
          startsWith(github.ref, 'refs/heads/rc/')
        )
       ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     outputs:
       os_skip: ${{ steps.prologue.outputs.os_skip }}
       job_skip: ${{ steps.prologue.outputs.job_skip }}
