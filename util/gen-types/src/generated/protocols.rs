@@ -5062,7 +5062,7 @@ impl HolePunchingMessage {
         0, 0, 0, 0, 41, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 33, 0, 0, 0, 37, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
     ];
-    pub const ITEMS_COUNT: usize = 2;
+    pub const ITEMS_COUNT: usize = 3;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -5071,6 +5071,7 @@ impl HolePunchingMessage {
         match self.item_id() {
             0 => ConnectionRequest::new_unchecked(inner).into(),
             1 => ConnectionRequestDelivered::new_unchecked(inner).into(),
+            2 => ConnectionSync::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -5127,7 +5128,7 @@ impl<'r> ::core::fmt::Display for HolePunchingMessageReader<'r> {
     }
 }
 impl<'r> HolePunchingMessageReader<'r> {
-    pub const ITEMS_COUNT: usize = 2;
+    pub const ITEMS_COUNT: usize = 3;
     pub fn item_id(&self) -> molecule::Number {
         molecule::unpack_number(self.as_slice())
     }
@@ -5136,6 +5137,7 @@ impl<'r> HolePunchingMessageReader<'r> {
         match self.item_id() {
             0 => ConnectionRequestReader::new_unchecked(inner).into(),
             1 => ConnectionRequestDeliveredReader::new_unchecked(inner).into(),
+            2 => ConnectionSyncReader::new_unchecked(inner).into(),
             _ => panic!("{}: invalid data", Self::NAME),
         }
     }
@@ -5163,6 +5165,7 @@ impl<'r> molecule::prelude::Reader<'r> for HolePunchingMessageReader<'r> {
         match item_id {
             0 => ConnectionRequestReader::verify(inner_slice, compatible),
             1 => ConnectionRequestDeliveredReader::verify(inner_slice, compatible),
+            2 => ConnectionSyncReader::verify(inner_slice, compatible),
             _ => ve!(Self, UnknownItem, Self::ITEMS_COUNT, item_id),
         }?;
         Ok(())
@@ -5171,7 +5174,7 @@ impl<'r> molecule::prelude::Reader<'r> for HolePunchingMessageReader<'r> {
 #[derive(Debug, Default)]
 pub struct HolePunchingMessageBuilder(pub(crate) HolePunchingMessageUnion);
 impl HolePunchingMessageBuilder {
-    pub const ITEMS_COUNT: usize = 2;
+    pub const ITEMS_COUNT: usize = 3;
     pub fn set<I>(mut self, v: I) -> Self
     where
         I: ::core::convert::Into<HolePunchingMessageUnion>,
@@ -5201,11 +5204,13 @@ impl molecule::prelude::Builder for HolePunchingMessageBuilder {
 pub enum HolePunchingMessageUnion {
     ConnectionRequest(ConnectionRequest),
     ConnectionRequestDelivered(ConnectionRequestDelivered),
+    ConnectionSync(ConnectionSync),
 }
 #[derive(Debug, Clone, Copy)]
 pub enum HolePunchingMessageUnionReader<'r> {
     ConnectionRequest(ConnectionRequestReader<'r>),
     ConnectionRequestDelivered(ConnectionRequestDeliveredReader<'r>),
+    ConnectionSync(ConnectionSyncReader<'r>),
 }
 impl ::core::default::Default for HolePunchingMessageUnion {
     fn default() -> Self {
@@ -5227,6 +5232,9 @@ impl ::core::fmt::Display for HolePunchingMessageUnion {
                     item
                 )
             }
+            HolePunchingMessageUnion::ConnectionSync(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, ConnectionSync::NAME, item)
+            }
         }
     }
 }
@@ -5245,6 +5253,9 @@ impl<'r> ::core::fmt::Display for HolePunchingMessageUnionReader<'r> {
                     item
                 )
             }
+            HolePunchingMessageUnionReader::ConnectionSync(ref item) => {
+                write!(f, "{}::{}({})", Self::NAME, ConnectionSync::NAME, item)
+            }
         }
     }
 }
@@ -5253,6 +5264,7 @@ impl HolePunchingMessageUnion {
         match self {
             HolePunchingMessageUnion::ConnectionRequest(ref item) => write!(f, "{}", item),
             HolePunchingMessageUnion::ConnectionRequestDelivered(ref item) => write!(f, "{}", item),
+            HolePunchingMessageUnion::ConnectionSync(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -5263,6 +5275,7 @@ impl<'r> HolePunchingMessageUnionReader<'r> {
             HolePunchingMessageUnionReader::ConnectionRequestDelivered(ref item) => {
                 write!(f, "{}", item)
             }
+            HolePunchingMessageUnionReader::ConnectionSync(ref item) => write!(f, "{}", item),
         }
     }
 }
@@ -5274,6 +5287,11 @@ impl ::core::convert::From<ConnectionRequest> for HolePunchingMessageUnion {
 impl ::core::convert::From<ConnectionRequestDelivered> for HolePunchingMessageUnion {
     fn from(item: ConnectionRequestDelivered) -> Self {
         HolePunchingMessageUnion::ConnectionRequestDelivered(item)
+    }
+}
+impl ::core::convert::From<ConnectionSync> for HolePunchingMessageUnion {
+    fn from(item: ConnectionSync) -> Self {
+        HolePunchingMessageUnion::ConnectionSync(item)
     }
 }
 impl<'r> ::core::convert::From<ConnectionRequestReader<'r>> for HolePunchingMessageUnionReader<'r> {
@@ -5288,36 +5306,46 @@ impl<'r> ::core::convert::From<ConnectionRequestDeliveredReader<'r>>
         HolePunchingMessageUnionReader::ConnectionRequestDelivered(item)
     }
 }
+impl<'r> ::core::convert::From<ConnectionSyncReader<'r>> for HolePunchingMessageUnionReader<'r> {
+    fn from(item: ConnectionSyncReader<'r>) -> Self {
+        HolePunchingMessageUnionReader::ConnectionSync(item)
+    }
+}
 impl HolePunchingMessageUnion {
     pub const NAME: &'static str = "HolePunchingMessageUnion";
     pub fn as_bytes(&self) -> molecule::bytes::Bytes {
         match self {
             HolePunchingMessageUnion::ConnectionRequest(item) => item.as_bytes(),
             HolePunchingMessageUnion::ConnectionRequestDelivered(item) => item.as_bytes(),
+            HolePunchingMessageUnion::ConnectionSync(item) => item.as_bytes(),
         }
     }
     pub fn as_slice(&self) -> &[u8] {
         match self {
             HolePunchingMessageUnion::ConnectionRequest(item) => item.as_slice(),
             HolePunchingMessageUnion::ConnectionRequestDelivered(item) => item.as_slice(),
+            HolePunchingMessageUnion::ConnectionSync(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
             HolePunchingMessageUnion::ConnectionRequest(_) => 0,
             HolePunchingMessageUnion::ConnectionRequestDelivered(_) => 1,
+            HolePunchingMessageUnion::ConnectionSync(_) => 2,
         }
     }
     pub fn item_name(&self) -> &str {
         match self {
             HolePunchingMessageUnion::ConnectionRequest(_) => "ConnectionRequest",
             HolePunchingMessageUnion::ConnectionRequestDelivered(_) => "ConnectionRequestDelivered",
+            HolePunchingMessageUnion::ConnectionSync(_) => "ConnectionSync",
         }
     }
     pub fn as_reader<'r>(&'r self) -> HolePunchingMessageUnionReader<'r> {
         match self {
             HolePunchingMessageUnion::ConnectionRequest(item) => item.as_reader().into(),
             HolePunchingMessageUnion::ConnectionRequestDelivered(item) => item.as_reader().into(),
+            HolePunchingMessageUnion::ConnectionSync(item) => item.as_reader().into(),
         }
     }
 }
@@ -5327,12 +5355,14 @@ impl<'r> HolePunchingMessageUnionReader<'r> {
         match self {
             HolePunchingMessageUnionReader::ConnectionRequest(item) => item.as_slice(),
             HolePunchingMessageUnionReader::ConnectionRequestDelivered(item) => item.as_slice(),
+            HolePunchingMessageUnionReader::ConnectionSync(item) => item.as_slice(),
         }
     }
     pub fn item_id(&self) -> molecule::Number {
         match self {
             HolePunchingMessageUnionReader::ConnectionRequest(_) => 0,
             HolePunchingMessageUnionReader::ConnectionRequestDelivered(_) => 1,
+            HolePunchingMessageUnionReader::ConnectionSync(_) => 2,
         }
     }
     pub fn item_name(&self) -> &str {
@@ -5341,6 +5371,7 @@ impl<'r> HolePunchingMessageUnionReader<'r> {
             HolePunchingMessageUnionReader::ConnectionRequestDelivered(_) => {
                 "ConnectionRequestDelivered"
             }
+            HolePunchingMessageUnionReader::ConnectionSync(_) => "ConnectionSync",
         }
     }
 }
@@ -5704,6 +5735,7 @@ impl ::core::fmt::Display for ConnectionRequestDelivered {
         write!(f, "{}: {}", "from", self.from())?;
         write!(f, ", {}: {}", "to", self.to())?;
         write!(f, ", {}: {}", "route", self.route())?;
+        write!(f, ", {}: {}", "sync_route", self.sync_route())?;
         write!(f, ", {}: {}", "listen_addrs", self.listen_addrs())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -5719,11 +5751,11 @@ impl ::core::default::Default for ConnectionRequestDelivered {
     }
 }
 impl ConnectionRequestDelivered {
-    const DEFAULT_VALUE: [u8; 36] = [
-        36, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4,
-        0, 0, 0, 4, 0, 0, 0,
+    const DEFAULT_VALUE: [u8; 44] = [
+        44, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
     ];
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 5;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -5758,11 +5790,17 @@ impl ConnectionRequestDelivered {
         let end = molecule::unpack_number(&slice[16..]) as usize;
         BytesVec::new_unchecked(self.0.slice(start..end))
     }
-    pub fn listen_addrs(&self) -> AddressVec {
+    pub fn sync_route(&self) -> BytesVec {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        BytesVec::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn listen_addrs(&self) -> AddressVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[20..]) as usize;
+            let end = molecule::unpack_number(&slice[24..]) as usize;
             AddressVec::new_unchecked(self.0.slice(start..end))
         } else {
             AddressVec::new_unchecked(self.0.slice(start..))
@@ -5799,6 +5837,7 @@ impl molecule::prelude::Entity for ConnectionRequestDelivered {
             .from(self.from())
             .to(self.to())
             .route(self.route())
+            .sync_route(self.sync_route())
             .listen_addrs(self.listen_addrs())
     }
 }
@@ -5824,6 +5863,7 @@ impl<'r> ::core::fmt::Display for ConnectionRequestDeliveredReader<'r> {
         write!(f, "{}: {}", "from", self.from())?;
         write!(f, ", {}: {}", "to", self.to())?;
         write!(f, ", {}: {}", "route", self.route())?;
+        write!(f, ", {}: {}", "sync_route", self.sync_route())?;
         write!(f, ", {}: {}", "listen_addrs", self.listen_addrs())?;
         let extra_count = self.count_extra_fields();
         if extra_count != 0 {
@@ -5833,7 +5873,7 @@ impl<'r> ::core::fmt::Display for ConnectionRequestDeliveredReader<'r> {
     }
 }
 impl<'r> ConnectionRequestDeliveredReader<'r> {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 5;
     pub fn total_size(&self) -> usize {
         molecule::unpack_number(self.as_slice()) as usize
     }
@@ -5868,11 +5908,17 @@ impl<'r> ConnectionRequestDeliveredReader<'r> {
         let end = molecule::unpack_number(&slice[16..]) as usize;
         BytesVecReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn listen_addrs(&self) -> AddressVecReader<'r> {
+    pub fn sync_route(&self) -> BytesVecReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[16..]) as usize;
+        let end = molecule::unpack_number(&slice[20..]) as usize;
+        BytesVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn listen_addrs(&self) -> AddressVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[20..]) as usize;
         if self.has_extra_fields() {
-            let end = molecule::unpack_number(&slice[20..]) as usize;
+            let end = molecule::unpack_number(&slice[24..]) as usize;
             AddressVecReader::new_unchecked(&self.as_slice()[start..end])
         } else {
             AddressVecReader::new_unchecked(&self.as_slice()[start..])
@@ -5928,7 +5974,8 @@ impl<'r> molecule::prelude::Reader<'r> for ConnectionRequestDeliveredReader<'r> 
         BytesReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         BytesReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         BytesVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
-        AddressVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        BytesVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        AddressVecReader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
         Ok(())
     }
 }
@@ -5937,10 +5984,11 @@ pub struct ConnectionRequestDeliveredBuilder {
     pub(crate) from: Bytes,
     pub(crate) to: Bytes,
     pub(crate) route: BytesVec,
+    pub(crate) sync_route: BytesVec,
     pub(crate) listen_addrs: AddressVec,
 }
 impl ConnectionRequestDeliveredBuilder {
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 5;
     pub fn from(mut self, v: Bytes) -> Self {
         self.from = v;
         self
@@ -5951,6 +5999,10 @@ impl ConnectionRequestDeliveredBuilder {
     }
     pub fn route(mut self, v: BytesVec) -> Self {
         self.route = v;
+        self
+    }
+    pub fn sync_route(mut self, v: BytesVec) -> Self {
+        self.sync_route = v;
         self
     }
     pub fn listen_addrs(mut self, v: AddressVec) -> Self {
@@ -5966,6 +6018,7 @@ impl molecule::prelude::Builder for ConnectionRequestDeliveredBuilder {
             + self.from.as_slice().len()
             + self.to.as_slice().len()
             + self.route.as_slice().len()
+            + self.sync_route.as_slice().len()
             + self.listen_addrs.as_slice().len()
     }
     fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
@@ -5978,6 +6031,8 @@ impl molecule::prelude::Builder for ConnectionRequestDeliveredBuilder {
         offsets.push(total_size);
         total_size += self.route.as_slice().len();
         offsets.push(total_size);
+        total_size += self.sync_route.as_slice().len();
+        offsets.push(total_size);
         total_size += self.listen_addrs.as_slice().len();
         writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
         for offset in offsets.into_iter() {
@@ -5986,6 +6041,7 @@ impl molecule::prelude::Builder for ConnectionRequestDeliveredBuilder {
         writer.write_all(self.from.as_slice())?;
         writer.write_all(self.to.as_slice())?;
         writer.write_all(self.route.as_slice())?;
+        writer.write_all(self.sync_route.as_slice())?;
         writer.write_all(self.listen_addrs.as_slice())?;
         Ok(())
     }
@@ -5994,5 +6050,292 @@ impl molecule::prelude::Builder for ConnectionRequestDeliveredBuilder {
         self.write(&mut inner)
             .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
         ConnectionRequestDelivered::new_unchecked(inner.into())
+    }
+}
+#[derive(Clone)]
+pub struct ConnectionSync(molecule::bytes::Bytes);
+impl ::core::fmt::LowerHex for ConnectionSync {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl ::core::fmt::Debug for ConnectionSync {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl ::core::fmt::Display for ConnectionSync {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "from", self.from())?;
+        write!(f, ", {}: {}", "to", self.to())?;
+        write!(f, ", {}: {}", "route", self.route())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl ::core::default::Default for ConnectionSync {
+    fn default() -> Self {
+        let v = molecule::bytes::Bytes::from_static(&Self::DEFAULT_VALUE);
+        ConnectionSync::new_unchecked(v)
+    }
+}
+impl ConnectionSync {
+    const DEFAULT_VALUE: [u8; 28] = [
+        28, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+    ];
+    pub const FIELD_COUNT: usize = 3;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn from(&self) -> Bytes {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        Bytes::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn to(&self) -> Bytes {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        Bytes::new_unchecked(self.0.slice(start..end))
+    }
+    pub fn route(&self) -> BytesVec {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[16..]) as usize;
+            BytesVec::new_unchecked(self.0.slice(start..end))
+        } else {
+            BytesVec::new_unchecked(self.0.slice(start..))
+        }
+    }
+    pub fn as_reader<'r>(&'r self) -> ConnectionSyncReader<'r> {
+        ConnectionSyncReader::new_unchecked(self.as_slice())
+    }
+}
+impl molecule::prelude::Entity for ConnectionSync {
+    type Builder = ConnectionSyncBuilder;
+    const NAME: &'static str = "ConnectionSync";
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        ConnectionSync(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        ConnectionSyncReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        ConnectionSyncReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::core::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder()
+            .from(self.from())
+            .to(self.to())
+            .route(self.route())
+    }
+}
+#[derive(Clone, Copy)]
+pub struct ConnectionSyncReader<'r>(&'r [u8]);
+impl<'r> ::core::fmt::LowerHex for ConnectionSyncReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        use molecule::hex_string;
+        if f.alternate() {
+            write!(f, "0x")?;
+        }
+        write!(f, "{}", hex_string(self.as_slice()))
+    }
+}
+impl<'r> ::core::fmt::Debug for ConnectionSyncReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{}({:#x})", Self::NAME, self)
+    }
+}
+impl<'r> ::core::fmt::Display for ConnectionSyncReader<'r> {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        write!(f, "{} {{ ", Self::NAME)?;
+        write!(f, "{}: {}", "from", self.from())?;
+        write!(f, ", {}: {}", "to", self.to())?;
+        write!(f, ", {}: {}", "route", self.route())?;
+        let extra_count = self.count_extra_fields();
+        if extra_count != 0 {
+            write!(f, ", .. ({} fields)", extra_count)?;
+        }
+        write!(f, " }}")
+    }
+}
+impl<'r> ConnectionSyncReader<'r> {
+    pub const FIELD_COUNT: usize = 3;
+    pub fn total_size(&self) -> usize {
+        molecule::unpack_number(self.as_slice()) as usize
+    }
+    pub fn field_count(&self) -> usize {
+        if self.total_size() == molecule::NUMBER_SIZE {
+            0
+        } else {
+            (molecule::unpack_number(&self.as_slice()[molecule::NUMBER_SIZE..]) as usize / 4) - 1
+        }
+    }
+    pub fn count_extra_fields(&self) -> usize {
+        self.field_count() - Self::FIELD_COUNT
+    }
+    pub fn has_extra_fields(&self) -> bool {
+        Self::FIELD_COUNT != self.field_count()
+    }
+    pub fn from(&self) -> BytesReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[4..]) as usize;
+        let end = molecule::unpack_number(&slice[8..]) as usize;
+        BytesReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn to(&self) -> BytesReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[8..]) as usize;
+        let end = molecule::unpack_number(&slice[12..]) as usize;
+        BytesReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn route(&self) -> BytesVecReader<'r> {
+        let slice = self.as_slice();
+        let start = molecule::unpack_number(&slice[12..]) as usize;
+        if self.has_extra_fields() {
+            let end = molecule::unpack_number(&slice[16..]) as usize;
+            BytesVecReader::new_unchecked(&self.as_slice()[start..end])
+        } else {
+            BytesVecReader::new_unchecked(&self.as_slice()[start..])
+        }
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for ConnectionSyncReader<'r> {
+    type Entity = ConnectionSync;
+    const NAME: &'static str = "ConnectionSyncReader";
+    fn to_entity(&self) -> Self::Entity {
+        Self::Entity::new_unchecked(self.as_slice().to_owned().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        ConnectionSyncReader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::verification_error as ve;
+        let slice_len = slice.len();
+        if slice_len < molecule::NUMBER_SIZE {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE, slice_len);
+        }
+        let total_size = molecule::unpack_number(slice) as usize;
+        if slice_len != total_size {
+            return ve!(Self, TotalSizeNotMatch, total_size, slice_len);
+        }
+        if slice_len < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
+        }
+        let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
+        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        if slice_len < offset_first {
+            return ve!(Self, HeaderIsBroken, offset_first, slice_len);
+        }
+        let field_count = offset_first / molecule::NUMBER_SIZE - 1;
+        if field_count < Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        } else if !compatible && field_count > Self::FIELD_COUNT {
+            return ve!(Self, FieldCountNotMatch, Self::FIELD_COUNT, field_count);
+        };
+        let mut offsets: Vec<usize> = slice[molecule::NUMBER_SIZE..offset_first]
+            .chunks_exact(molecule::NUMBER_SIZE)
+            .map(|x| molecule::unpack_number(x) as usize)
+            .collect();
+        offsets.push(total_size);
+        if offsets.windows(2).any(|i| i[0] > i[1]) {
+            return ve!(Self, OffsetsNotMatch);
+        }
+        BytesReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        BytesReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        BytesVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Ok(())
+    }
+}
+#[derive(Debug, Default)]
+pub struct ConnectionSyncBuilder {
+    pub(crate) from: Bytes,
+    pub(crate) to: Bytes,
+    pub(crate) route: BytesVec,
+}
+impl ConnectionSyncBuilder {
+    pub const FIELD_COUNT: usize = 3;
+    pub fn from(mut self, v: Bytes) -> Self {
+        self.from = v;
+        self
+    }
+    pub fn to(mut self, v: Bytes) -> Self {
+        self.to = v;
+        self
+    }
+    pub fn route(mut self, v: BytesVec) -> Self {
+        self.route = v;
+        self
+    }
+}
+impl molecule::prelude::Builder for ConnectionSyncBuilder {
+    type Entity = ConnectionSync;
+    const NAME: &'static str = "ConnectionSyncBuilder";
+    fn expected_length(&self) -> usize {
+        molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
+            + self.from.as_slice().len()
+            + self.to.as_slice().len()
+            + self.route.as_slice().len()
+    }
+    fn write<W: molecule::io::Write>(&self, writer: &mut W) -> molecule::io::Result<()> {
+        let mut total_size = molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1);
+        let mut offsets = Vec::with_capacity(Self::FIELD_COUNT);
+        offsets.push(total_size);
+        total_size += self.from.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.to.as_slice().len();
+        offsets.push(total_size);
+        total_size += self.route.as_slice().len();
+        writer.write_all(&molecule::pack_number(total_size as molecule::Number))?;
+        for offset in offsets.into_iter() {
+            writer.write_all(&molecule::pack_number(offset as molecule::Number))?;
+        }
+        writer.write_all(self.from.as_slice())?;
+        writer.write_all(self.to.as_slice())?;
+        writer.write_all(self.route.as_slice())?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner)
+            .unwrap_or_else(|_| panic!("{} build should be ok", Self::NAME));
+        ConnectionSync::new_unchecked(inner.into())
     }
 }

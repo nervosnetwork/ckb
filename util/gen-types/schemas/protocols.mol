@@ -87,6 +87,8 @@ union HolePunchingMessage {
     ConnectionRequest,
     // If a connection request is delivered, reply this response to the sender.
     ConnectionRequestDelivered,
+    // If sender received delivered message, reply this response to remote.
+    ConnectionSync,
 }
 
 table ConnectionRequest {
@@ -109,6 +111,17 @@ table ConnectionRequestDelivered {
     to: Bytes,
     // The message delivery route (type: `Vec<PeerId>`).
     route: BytesVec,
+    // The message sync route (type: `Vec<PeerId>`).
+    sync_route: BytesVec,
     // These are the addresses on which the "to" peer is listening as multi-addresses.
     listen_addrs: AddressVec,
+}
+
+table ConnectionSync {
+    // Peer Id.
+    from: Bytes,
+    // Peer Id.
+    to: Bytes,
+    // The message sync route (type: `Vec<PeerId>`).
+    route: BytesVec,
 }

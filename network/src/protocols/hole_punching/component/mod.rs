@@ -1,8 +1,10 @@
 mod connection_request;
 mod connection_request_delivered;
+mod connection_sync;
 
 pub(crate) use connection_request::ConnectionRequestProcess;
 pub(crate) use connection_request_delivered::ConnectionRequestDeliveredProcess;
+pub(crate) use connection_sync::ConnectionSyncProcess;
 
 use std::{
     net::{IpAddr, SocketAddr},

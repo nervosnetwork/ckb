@@ -1,13 +1,9 @@
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use ckb_logger::{debug, error, trace, warn};
-use ckb_systemtime::Instant;
+use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{packed, prelude::*};
+use ckb_util::RwLock;
 use p2p::{
     async_trait, bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -26,15 +22,22 @@ mod component;
 pub(crate) mod status;
 
 pub(crate) const MAX_TTL: u8 = 6;
-pub(crate) const PENETRATED_INTERVAL: Duration = Duration::from_secs(2 * 60);
+pub(crate) const PENETRATED_INTERVAL: u64 = 2 * 60 * 1000; // 2 minutes
 const CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const CHECK_TOKEN: u64 = 0;
 const ADDRS_COUNT_LIMIT: usize = 24;
+const TIMEOUT: u64 = 5 * 60 * 1000; // 5 minutes
+
+type PendingDeliveredInfo = (Vec<Multiaddr>, u64);
 
 /// Hole Punching Protocol
 pub(crate) struct HolePunching {
     network_state: Arc<NetworkState>,
     bind_addr: Option<SocketAddr>,
-    finished: Arc<RwLock<HashMap<PeerId, Instant>>>,
+    // Request timestamp recorded
+    inflight_requests: Arc<RwLock<HashMap<PeerId, u64>>>,
+    // Delivered timestamp recorded
+    pending_delivered: Arc<RwLock<HashMap<PeerId, PendingDeliveredInfo>>>,
 }
 
 #[async_trait]
@@ -42,7 +45,7 @@ impl ServiceProtocol for HolePunching {
     async fn init(&mut self, context: &mut ProtocolContext) {
         #[cfg(not(target_family = "wasm"))]
         context
-            .set_service_notify(context.proto_id, CHECK_INTERVAL, 0)
+            .set_service_notify(context.proto_id, CHECK_INTERVAL, CHECK_TOKEN)
             .await
             .expect("set discovery notify fail")
     }
@@ -88,13 +91,23 @@ impl ServiceProtocol for HolePunching {
                     self,
                     context.session.id,
                     context.control(),
-                    self.bind_addr,
                 )
                 .execute()
                 .await
             }
             packed::HolePunchingMessageUnionReader::ConnectionRequestDelivered(reader) => {
                 component::ConnectionRequestDeliveredProcess::new(
+                    reader,
+                    self,
+                    context.control(),
+                    context.session.id,
+                    self.bind_addr,
+                )
+                .execute()
+                .await
+            }
+            packed::HolePunchingMessageUnionReader::ConnectionSync(reader) => {
+                component::ConnectionSyncProcess::new(
                     reader,
                     self,
                     context.control(),
@@ -132,9 +145,12 @@ impl ServiceProtocol for HolePunching {
         let status = self.network_state.connection_status();
 
         {
-            let mut finished = self.finished.write().unwrap();
-            let now = Instant::now();
-            finished.retain(|_, t| (now - *t) < Duration::from_secs(5 * 60));
+            let mut pending_delivered = self.pending_delivered.write();
+            let mut inflight_requests = self.inflight_requests.write();
+
+            let now = unix_time_as_millis();
+            pending_delivered.retain(|_, (_, t)| (now - *t) < TIMEOUT);
+            inflight_requests.retain(|_, t| (now - *t) < TIMEOUT);
         }
 
         if status.total < 8 {
@@ -164,6 +180,10 @@ impl ServiceProtocol for HolePunching {
                     packed::AddressVec::new_builder().extend(iter).build()
                 }
             };
+            let new_route = packed::BytesVec::new_builder()
+                .push(from_peer_id.as_bytes().pack())
+                .build();
+            let mut inflight = Vec::new();
             for i in addrs {
                 if let Some(to_peer_id) = extract_peer_id(&i.addr) {
                     let conn_req = {
@@ -172,6 +192,7 @@ impl ServiceProtocol for HolePunching {
                             .to(to_peer_id.as_bytes().pack())
                             .ttl(MAX_TTL.into())
                             .listen_addrs(listen_addrs.clone())
+                            .route(new_route.clone())
                             .build();
                         packed::HolePunchingMessage::new_builder()
                             .set(content)
@@ -182,7 +203,14 @@ impl ServiceProtocol for HolePunching {
                     let _ignore = context
                         .filter_broadcast(TargetSession::All, proto_id, conn_req.as_bytes())
                         .await;
+                    inflight.push(to_peer_id);
                 }
+            }
+
+            let mut inflight_requests = self.inflight_requests.write();
+            let now = unix_time_as_millis();
+            for peer_id in inflight {
+                inflight_requests.insert(peer_id, now);
             }
         }
     }
@@ -197,15 +225,20 @@ impl HolePunching {
             bind_addr: {
                 let mut bind_addr = None;
                 for multi_addr in &network_state.config.listen_addresses {
-                    if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
-                        bind_addr = Some(addr);
-                        break;
+                    if let crate::network::TransportType::Tcp =
+                        crate::network::find_type(multi_addr)
+                    {
+                        if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
+                            bind_addr = Some(addr);
+                            break;
+                        }
                     }
                 }
                 bind_addr
             },
             network_state,
-            finished: Arc::new(RwLock::new(HashMap::new())),
+            pending_delivered: Arc::new(RwLock::new(HashMap::new())),
+            inflight_requests: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }

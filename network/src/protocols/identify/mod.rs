@@ -77,7 +77,7 @@ pub trait Callback: Clone + Send {
     /// Add remote peer's listen addresses
     fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>);
     /// Add our address observed by remote peer
-    fn add_observed_addr(&mut self, addr: Multiaddr, sessioin_id: SessionId) -> MisbehaveResult;
+    fn add_observed_addr(&mut self, addr: Multiaddr, session_id: SessionId) -> MisbehaveResult;
     /// Report misbehavior
     fn misbehave(&mut self, session: &SessionContext, kind: Misbehavior) -> MisbehaveResult;
 }
