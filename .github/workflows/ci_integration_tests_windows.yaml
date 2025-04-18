@@ -4,81 +4,81 @@ concurrency:
   cancel-in-progress: true
 on:
   pull_request:
-    types: [ opened, synchronize, reopened ]
+    types: [opened, synchronize, reopened]
   push:
     branches:
       - master
       - develop
-      - 'rc/*'
+      - "rc/*"
   merge_group: {}
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
-  LOGBAK_USER: ${{secrets.LOGBAK_USER}}  #LOCBAK_* for upload logs to server when test failed
+  LOGBAK_USER: ${{secrets.LOGBAK_USER}} #LOCBAK_* for upload logs to server when test failed
   LOGBAK_PASSWORD: ${{secrets.LOGBAK_PASSWORD}}
   LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
 jobs:
   prologue:
     name: prologue
     if: |
-       github.event_name != 'push' ||
-       ( github.event_name == 'push' &&
-        ( github.ref == 'refs/heads/master' ||
-          (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-          startsWith(github.ref, 'refs/heads/rc/')
-        )
-       ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ubuntu-20.04
+      github.event_name != 'push' ||
+      ( github.event_name == 'push' &&
+       ( github.ref == 'refs/heads/master' ||
+         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
+         startsWith(github.ref, 'refs/heads/rc/')
+       )
+      ) || (github.repository_owner != 'nervosnetwork')
+    runs-on: ubuntu-22.04
     outputs:
       os_skip: ${{ steps.prologue.outputs.os_skip }}
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       windows_runner_label: ${{ steps.prologue.outputs.windows_runner_label }}
     steps:
-    - uses: actions/checkout@v3
-    - name: prologue
-      id: prologue
-      uses: ./.github/actions/ci_prologue
-      with:
-        GITHUB_EVENT_NAME: ${{ github.event_name }}
-        COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
-        PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
-        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-        LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_WORKFLOW: ${{ github.workflow }}
+      - uses: actions/checkout@v3
+      - name: prologue
+        id: prologue
+        uses: ./.github/actions/ci_prologue
+        with:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
+          PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
   ci_integration_tests_windows:
     name: ci_integration_tests_windows
     needs: prologue
     runs-on: windows-latest
     timeout-minutes: 140
     steps:
-    - uses: actions/checkout@v3
-    - name: install required tools
-      if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2019' }}
-      run: |
-        iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
-        .\install-scoop.ps1 -RunAsAdmin
-        echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        scoop install git
-        scoop bucket add extras
-        scoop install llvm
-    - run: |
-        if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-            devtools/ci/ci_main.sh
-        else
-          echo "skip job"
-          exit 0
-        fi
-      shell: bash
-    - name: upload log files
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ runner.os }}_integration.log
-        path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
+      - uses: actions/checkout@v3
+      - name: install required tools
+        if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2019' }}
+        run: |
+          iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
+          .\install-scoop.ps1 -RunAsAdmin
+          echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          scoop install git
+          scoop bucket add extras
+          scoop install llvm
+      - run: |
+          if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
+              devtools/ci/ci_main.sh
+          else
+            echo "skip job"
+            exit 0
+          fi
+        shell: bash
+      - name: upload log files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}_integration.log
+          path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
     env:
       RUNNER_LABEL: ${{ needs.prologue.outputs.windows_runner_label }}
