@@ -734,28 +734,32 @@ impl IpcRpc for IpcRpcImpl {
             pipesctx.clone(),
         );
         let pipesfin = pipesctx.clone();
-        std::thread::spawn(move || {
-            // Ignore its return value as it is unimportant.
-            let _ = script_verifier.verify_single(
-                match env.script_group_type {
-                    ScriptGroupType::Lock => ckb_script::ScriptGroupType::Lock,
-                    ScriptGroupType::Type => ckb_script::ScriptGroupType::Type,
-                },
-                &env.script_hash.pack(),
-                // I need a maximum number of cycles so that the vm can always be stopped.
-                // Not sure if this is a sensible value.
-                snapshot.cloned_consensus().max_block_cycles,
-            );
-            // If the vm exits unexpectedly and no packet is returned, we will close all pipes.
-            // If the vm exits normally, still close it because the script could be not a valid ipc script.
-            pipesfin.close();
+        self.shared.async_handle().spawn({
+            async move {
+                // Ignore its return value as it is unimportant.
+                let _ = script_verifier.verify_single(
+                    match env.script_group_type {
+                        ScriptGroupType::Lock => ckb_script::ScriptGroupType::Lock,
+                        ScriptGroupType::Type => ckb_script::ScriptGroupType::Type,
+                    },
+                    &env.script_hash.pack(),
+                    // I need a maximum number of cycles so that the vm can always be stopped.
+                    // Not sure if this is a sensible value.
+                    snapshot.cloned_consensus().max_block_cycles,
+                );
+                // If the vm exits unexpectedly and no packet is returned, we will close all pipes.
+                // If the vm exits normally, still close it because the script could be not a valid ipc script.
+                pipesfin.close();
+            }
         });
         let pipesfin = pipesctx.clone();
         // In any case, we will close all pipes after a certain period of time.
         // This ensures that the function always completes if the ipc script is not written as expected.
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(8));
-            pipesfin.close();
+        self.shared.async_handle().spawn({
+            async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(8)).await;
+                pipesfin.close();
+            }
         });
         let req = RequestPacket::new(
             req.version.value() as u8,
