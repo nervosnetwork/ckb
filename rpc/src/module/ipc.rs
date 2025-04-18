@@ -128,6 +128,15 @@ impl Default for PipesCtx {
     }
 }
 
+impl PipesCtx {
+    fn close(&self) {
+        let _ = self.vw.lock().map(|mut e| e.close());
+        let _ = self.vr.lock().map(|mut e| e.close());
+        let _ = self.nw.lock().map(|mut e| e.close());
+        let _ = self.nr.lock().map(|mut e| e.close());
+    }
+}
+
 struct SyscallRead {
     id: VmId,
     pipectx: PipesCtx,
@@ -724,9 +733,10 @@ impl IpcRpc for IpcRpcImpl {
             overload_ckb_syscalls,
             pipesctx.clone(),
         );
+        let pipesfin = pipesctx.clone();
         std::thread::spawn(move || {
             // Ignore its return value as it is unimportant.
-            script_verifier.verify_single(
+            let _ = script_verifier.verify_single(
                 match env.script_group_type {
                     ScriptGroupType::Lock => ckb_script::ScriptGroupType::Lock,
                     ScriptGroupType::Type => ckb_script::ScriptGroupType::Type,
@@ -735,17 +745,17 @@ impl IpcRpc for IpcRpcImpl {
                 // I need a maximum number of cycles so that the vm can always be stopped.
                 // Not sure if this is a sensible value.
                 snapshot.cloned_consensus().max_block_cycles,
-            )
+            );
+            // If the vm exits unexpectedly and no packet is returned, we will close all pipes.
+            // If the vm exits normally, still close it because the script could be not a valid ipc script.
+            pipesfin.close();
         });
+        let pipesfin = pipesctx.clone();
         // In any case, we will close all pipes after a certain period of time.
         // This ensures that the function always completes if the ipc script is not written as expected.
-        let pipesfin = pipesctx.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(8));
-            let _ = pipesfin.vw.lock().map(|mut e| e.close());
-            let _ = pipesfin.vr.lock().map(|mut e| e.close());
-            let _ = pipesfin.nw.lock().map(|mut e| e.close());
-            let _ = pipesfin.nr.lock().map(|mut e| e.close());
+            pipesfin.close();
         });
         let req = RequestPacket::new(
             req.version.value() as u8,
