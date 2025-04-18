@@ -752,12 +752,13 @@ impl IpcRpc for IpcRpcImpl {
                 pipesfin.close();
             }
         });
-        let pipesfin = pipesctx.clone();
         // In any case, we will close all pipes after a certain period of time.
         // This ensures that the function always completes if the ipc script is not written as expected.
+        let pipesfin = pipesctx.clone();
+        let exit = tokio::sync::oneshot::channel();
         self.shared.async_handle().spawn({
             async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(8)).await;
+                let _ = tokio::time::timeout(tokio::time::Duration::from_secs(8), exit.1).await;
                 pipesfin.close();
             }
         });
@@ -802,6 +803,9 @@ impl IpcRpc for IpcRpcImpl {
                 .deref_mut(),
         )
         .map_err(|e| RPCError::custom_with_error(RPCError::IPC, e))?;
+        exit.0
+            .send(())
+            .map_err(|_| RPCError::custom_with_error(RPCError::IPC, "Unexpected"))?;
         Ok(IpcResponse {
             version: Uint64::from(resp.version() as u64),
             error_code: Uint64::from(resp.error_code()),
