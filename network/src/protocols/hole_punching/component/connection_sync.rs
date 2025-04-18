@@ -16,7 +16,7 @@ use crate::{
         SupportProtocols,
         hole_punching::{
             HolePunching,
-            component::try_nat_traversal,
+            component::{forward_sync, try_nat_traversal},
             status::{Status, StatusCode},
         },
     },
@@ -68,11 +68,7 @@ impl<'a> ConnectionSyncProcess<'a> {
 
                 match target_sid {
                     Some(next_peer) => {
-                        let message = self.message.to_entity();
-                        let new_route = packed::BytesVec::new_builder()
-                            .extend(message.route().into_iter().take(route.len() - 1))
-                            .build();
-                        let content = message.as_builder().route(new_route).build();
+                        let content = forward_sync(self.message);
                         let new_message = packed::HolePunchingMessage::new_builder()
                             .set(content)
                             .build()

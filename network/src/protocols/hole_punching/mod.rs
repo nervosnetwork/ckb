@@ -180,20 +180,16 @@ impl ServiceProtocol for HolePunching {
                     packed::AddressVec::new_builder().extend(iter).build()
                 }
             };
-            let new_route = packed::BytesVec::new_builder()
-                .push(from_peer_id.as_bytes().pack())
-                .build();
+
             let mut inflight = Vec::new();
             for i in addrs {
                 if let Some(to_peer_id) = extract_peer_id(&i.addr) {
                     let conn_req = {
-                        let content = packed::ConnectionRequest::new_builder()
-                            .from(from_peer_id.as_bytes().pack())
-                            .to(to_peer_id.as_bytes().pack())
-                            .ttl(MAX_TTL.into())
-                            .listen_addrs(listen_addrs.clone())
-                            .route(new_route.clone())
-                            .build();
+                        let content = component::init_request(
+                            from_peer_id,
+                            &to_peer_id,
+                            listen_addrs.clone(),
+                        );
                         packed::HolePunchingMessage::new_builder()
                             .set(content)
                             .build()

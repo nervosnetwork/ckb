@@ -17,7 +17,7 @@ use crate::{
         SupportProtocols,
         hole_punching::{
             ADDRS_COUNT_LIMIT, HolePunching,
-            component::try_nat_traversal,
+            component::{forward_delivered, init_sync, try_nat_traversal},
             status::{Status, StatusCode},
         },
     },
@@ -76,11 +76,7 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
 
                 match target_sid {
                     Some(next_peer) => {
-                        let message = self.message.to_entity();
-                        let new_route = packed::BytesVec::new_builder()
-                            .extend(message.route().into_iter().take(route.len() - 1))
-                            .build();
-                        let content = message.as_builder().route(new_route).build();
+                        let content = forward_delivered(self.message);
                         let new_message = packed::HolePunchingMessage::new_builder()
                             .set(content)
                             .build()
@@ -147,20 +143,7 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
     }
 
     async fn respond_sync(&self, from_peer_id: PeerId) -> Status {
-        let message = self.message.to_entity();
-        let new_route = packed::BytesVec::new_builder()
-            .extend(
-                message
-                    .sync_route()
-                    .into_iter()
-                    .take(self.message.sync_route().len() - 1),
-            )
-            .build();
-        let content = packed::ConnectionSync::new_builder()
-            .from(message.from())
-            .to(message.to())
-            .route(new_route)
-            .build();
+        let content = init_sync(self.message);
         let new_message = packed::HolePunchingMessage::new_builder()
             .set(content)
             .build()
@@ -232,7 +215,7 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
         }
 
         runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(ttl / 2)).await;
+            runtime::delay_for(std::time::Duration::from_millis(ttl / 2)).await;
             if let Ok(((stream, addr), _)) = select_ok(tasks).await {
                 debug!("NAT traversal success, addr: {:?}", addr);
                 let _ignore = control

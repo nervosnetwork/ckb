@@ -15,6 +15,7 @@ use crate::{
         SupportProtocols,
         hole_punching::{
             ADDRS_COUNT_LIMIT, HolePunching, MAX_TTL, PENETRATED_INTERVAL,
+            component::{forward_request, init_delivered},
             status::{Status, StatusCode},
         },
     },
@@ -92,7 +93,7 @@ impl<'a> ConnectionRequestProcess<'a> {
         } else if ttl == 0u8 {
             StatusCode::ReachedMaxTTL.into()
         } else {
-            self.forward_message(self_peer_id, ttl, &to_peer_id).await
+            self.forward_message(self_peer_id, &to_peer_id).await
         }
     }
 
@@ -125,34 +126,7 @@ impl<'a> ConnectionRequestProcess<'a> {
                 packed::AddressVec::new_builder().extend(iter).build()
             }
         };
-        let message = self.message.to_entity();
-        let new_route = packed::BytesVec::new_builder()
-            .extend(
-                message
-                    .route()
-                    .into_iter()
-                    .take(self.message.route().len() - 1),
-            )
-            .build();
-        let sync_route = packed::BytesVec::new_builder()
-            .extend(
-                message
-                    .route()
-                    .into_iter()
-                    .chain(vec![to_peer_id.as_bytes().pack()].into_iter())
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .take(self.message.route().len()),
-            )
-            .build();
-        let content = packed::ConnectionRequestDelivered::new_builder()
-            .from(message.from())
-            .to(message.to())
-            .route(new_route)
-            .sync_route(sync_route)
-            .listen_addrs(listen_addrs)
-            .build();
+        let content = init_delivered(self.message, listen_addrs);
         let new_message = packed::HolePunchingMessage::new_builder()
             .set(content)
             .build()
@@ -208,18 +182,8 @@ impl<'a> ConnectionRequestProcess<'a> {
         Status::ok()
     }
 
-    async fn forward_message(&self, self_peer_id: &PeerId, ttl: u8, to_peer_id: &PeerId) -> Status {
-        let message = self.message.to_entity();
-        let new_route = message
-            .route()
-            .as_builder()
-            .push(self_peer_id.as_bytes().pack())
-            .build();
-        let content = message
-            .as_builder()
-            .ttl((ttl - 1).into())
-            .route(new_route)
-            .build();
+    async fn forward_message(&self, self_peer_id: &PeerId, to_peer_id: &PeerId) -> Status {
+        let content = forward_request(self.message, self_peer_id);
         let new_message = packed::HolePunchingMessage::new_builder()
             .set(content)
             .build()
