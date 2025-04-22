@@ -6,12 +6,12 @@ use ckb_jsonrpc_types::{
     IndexerOrder, IndexerScriptType, IndexerSearchKey, IpcEnv, IpcPayloadFormat, IpcRequest,
     IpcResponse, IpcScriptLocator, JsonBytes, Script, ScriptGroupType, ScriptHashType, Uint64,
 };
-use ckb_script::ChunkCommand;
 use ckb_script::{
     CLOSE, INHERITED_FD, READ, TransactionScriptsVerifier, TxData, TxVerifyEnv, WRITE,
     generate_ckb_syscalls,
     types::{DebugPrinter, FIRST_FD_SLOT, FIRST_VM_ID, Machine, SgData, VmContext, VmId},
 };
+use ckb_script::{ChunkCommand, RunMode};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -760,18 +760,27 @@ impl IpcRpc for IpcRpcImpl {
             })?
             .clone();
         let pipesfin = pipesctx.clone();
-        let mut signal_machine = tokio::sync::watch::channel(ChunkCommand::Resume);
+        let signal_machine = tokio::sync::watch::channel(ChunkCommand::Resume);
         self.shared.async_handle().spawn({
             async move {
                 // Ignore its return value as it is unimportant.
                 let _ = script_verifier
-                    .chunk_run_with_signal(
-                        &script_group,
+                    .create_scheduler(&script_group)
+                    .map(|mut scheduler| {
                         // Needs a maximum number of cycles so that the vm can always be stopped.
-                        snapshot.cloned_consensus().max_block_cycles,
-                        &mut signal_machine.1,
-                    )
-                    .await;
+                        let step = 1024;
+                        let step_cycles = snapshot.cloned_consensus().max_block_cycles / step;
+                        for _ in 0..step {
+                            let result = scheduler.run(RunMode::LimitCycles(step_cycles));
+                            if let Err(ckb_vm::Error::CyclesExceeded) = result {
+                                if signal_machine.1.has_changed().unwrap_or_default() {
+                                    break;
+                                }
+                                continue;
+                            }
+                            break;
+                        }
+                    });
                 // If the vm exits unexpectedly and no packet is returned, we will close all pipes.
                 // If the vm exits normally, still close it because the script could be not a valid ipc script.
                 pipesfin.close();
