@@ -146,9 +146,6 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
 
         Ok(withdraw_capacity)
     }
-}
-
-impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a, DL> {
     /// Creates a new `DaoCalculator`.
     pub fn new(consensus: &'a Consensus, data_loader: &'a DL) -> Self {
         DaoCalculator {
@@ -156,7 +153,9 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             data_loader,
         }
     }
+}
 
+impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a, DL> {
     /// Returns the primary block reward for `target` block.
     pub fn primary_block_reward(&self, target: &HeaderView) -> Result<Capacity, DaoError> {
         let target_epoch = self
