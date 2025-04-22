@@ -198,6 +198,8 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         enable_deprecated_rpc: true,
         extra_well_known_lock_scripts: vec![],
         extra_well_known_type_scripts: vec![],
+        ipc_call_limit_cycles: Some(70000000),
+        ipc_call_limit_time: Some(3),
     };
 
     let builder = ServiceBuilder::new(&rpc_config);

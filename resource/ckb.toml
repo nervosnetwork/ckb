@@ -143,6 +143,10 @@ enable_deprecated_rpc = false # {{
 # to avoid this, you may want to add a limit for the batch request size.
 # rpc_batch_limit = 2000
 
+# Maximum cycles and allowed execution time for ipc call.
+# ipc_call_limit_cycles = 100000000
+# ipc_call_limit_time = 5
+
 [tx_pool]
 max_tx_pool_size = 180_000_000 # 180mb
 min_fee_rate = 1_000 # Here fee_rate are calculated directly using size in units of shannons/KB

@@ -80,7 +80,12 @@ impl<'a> ServiceBuilder<'a> {
 
     /// Mounts methods from module IPC if it is enabled in the config.
     pub fn enable_ipc(mut self, shared: Shared, indexer_rpc_impl: Option<IndexerRpcImpl>) -> Self {
-        let methods = IpcRpcImpl::new(shared, indexer_rpc_impl);
+        let methods = IpcRpcImpl::new(
+            shared,
+            indexer_rpc_impl,
+            self.config.ipc_call_limit_cycles.unwrap_or(100000000),
+            self.config.ipc_call_limit_time.unwrap_or(5),
+        );
         set_rpc_module_methods!(self, "IPC", ipc_enable, add_ipc_rpc_methods, methods)
     }
 

@@ -58,6 +58,12 @@ pub struct Config {
     /// Customized extra well known type scripts.
     #[serde(default)]
     pub extra_well_known_type_scripts: Vec<Script>,
+    /// Maximum cycles for ipc call.
+    #[serde(default)]
+    pub ipc_call_limit_cycles: Option<usize>,
+    /// Maximum allowed execution time for ipc call.
+    #[serde(default)]
+    pub ipc_call_limit_time: Option<usize>,
 }
 
 impl Config {

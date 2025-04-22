@@ -494,13 +494,22 @@ pub trait IpcRpc {
 pub(crate) struct IpcRpcImpl {
     shared: Shared,
     indexer_rpc_impl: Option<IndexerRpcImpl>,
+    limit_cycles: usize,
+    limit_time: usize,
 }
 
 impl IpcRpcImpl {
-    pub fn new(shared: Shared, indexer_rpc_impl: Option<IndexerRpcImpl>) -> Self {
+    pub fn new(
+        shared: Shared,
+        indexer_rpc_impl: Option<IndexerRpcImpl>,
+        limit_cycles: usize,
+        limit_time: usize,
+    ) -> Self {
         Self {
             shared,
             indexer_rpc_impl,
+            limit_cycles,
+            limit_time,
         }
     }
 
@@ -761,17 +770,18 @@ impl IpcRpc for IpcRpcImpl {
             .clone();
         let pipesfin = pipesctx.clone();
         let signal_machine = tokio::sync::watch::channel(ChunkCommand::Resume);
+        let limit_cycles = self.limit_cycles;
         self.shared.async_handle().spawn({
             async move {
                 // Ignore its return value as it is unimportant.
                 let _ = script_verifier
                     .create_scheduler(&script_group)
                     .map(|mut scheduler| {
-                        // Needs a maximum number of cycles so that the vm can always be stopped.
-                        let step = 1024;
-                        let step_cycles = snapshot.cloned_consensus().max_block_cycles / step;
+                        // Make the vm can always be stopped.
+                        let step_cycles = 1000000;
+                        let step = limit_cycles.div_ceil(step_cycles);
                         for _ in 0..step {
-                            let result = scheduler.run(RunMode::LimitCycles(step_cycles));
+                            let result = scheduler.run(RunMode::LimitCycles(step_cycles as u64));
                             if let Err(ckb_vm::Error::CyclesExceeded) = result {
                                 if signal_machine.1.has_changed().unwrap_or_default() {
                                     break;
@@ -790,10 +800,11 @@ impl IpcRpc for IpcRpcImpl {
         // This ensures that the function always completes if the ipc script is not written as expected.
         let pipesfin = pipesctx.clone();
         let mut signal_timeout = tokio::sync::watch::channel(0);
+        let limit_time = self.limit_time;
         self.shared.async_handle().spawn({
             async move {
                 let _ = tokio::time::timeout(
-                    tokio::time::Duration::from_secs(8),
+                    tokio::time::Duration::from_secs(limit_time as u64),
                     signal_timeout.1.changed(),
                 )
                 .await;
