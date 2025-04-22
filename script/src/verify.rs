@@ -630,7 +630,8 @@ where
         }
     }
 
-    async fn chunk_run_with_signal(
+    /// The Low-level chunk run function.
+    pub async fn chunk_run_with_signal(
         &self,
         script_group: &ScriptGroup,
         max_cycles: Cycle,

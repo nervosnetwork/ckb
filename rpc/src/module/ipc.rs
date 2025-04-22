@@ -6,6 +6,7 @@ use ckb_jsonrpc_types::{
     IndexerOrder, IndexerScriptType, IndexerSearchKey, IpcEnv, IpcPayloadFormat, IpcRequest,
     IpcResponse, IpcScriptLocator, JsonBytes, Script, ScriptGroupType, ScriptHashType, Uint64,
 };
+use ckb_script::ChunkCommand;
 use ckb_script::{
     CLOSE, INHERITED_FD, READ, TransactionScriptsVerifier, TxData, TxVerifyEnv, WRITE,
     generate_ckb_syscalls,
@@ -40,6 +41,16 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
 use super::IndexerRpcImpl;
+
+struct ScopeCall<F: FnMut()> {
+    c: F,
+}
+
+impl<F: FnMut()> Drop for ScopeCall<F> {
+    fn drop(&mut self) {
+        (self.c)();
+    }
+}
 
 const READER_FD: u64 = FIRST_FD_SLOT - 2;
 const WRITER_FD: u64 = FIRST_FD_SLOT - 1;
@@ -733,20 +744,34 @@ impl IpcRpc for IpcRpcImpl {
             overload_ckb_syscalls,
             pipesctx.clone(),
         );
+        let script_group = script_verifier
+            .find_script_group(
+                match env.script_group_type {
+                    ScriptGroupType::Lock => ckb_script::ScriptGroupType::Lock,
+                    ScriptGroupType::Type => ckb_script::ScriptGroupType::Type,
+                },
+                &env.script_hash.pack(),
+            )
+            .ok_or_else(|| {
+                RPCError::custom_with_error(
+                    RPCError::IPC,
+                    ckb_script::ScriptError::ScriptNotFound(env.script_hash.pack()),
+                )
+            })?
+            .clone();
         let pipesfin = pipesctx.clone();
+        let mut signal_machine = tokio::sync::watch::channel(ChunkCommand::Resume);
         self.shared.async_handle().spawn({
             async move {
                 // Ignore its return value as it is unimportant.
-                let _ = script_verifier.verify_single(
-                    match env.script_group_type {
-                        ScriptGroupType::Lock => ckb_script::ScriptGroupType::Lock,
-                        ScriptGroupType::Type => ckb_script::ScriptGroupType::Type,
-                    },
-                    &env.script_hash.pack(),
-                    // I need a maximum number of cycles so that the vm can always be stopped.
-                    // Not sure if this is a sensible value.
-                    snapshot.cloned_consensus().max_block_cycles,
-                );
+                let _ = script_verifier
+                    .chunk_run_with_signal(
+                        &script_group,
+                        // Needs a maximum number of cycles so that the vm can always be stopped.
+                        snapshot.cloned_consensus().max_block_cycles,
+                        &mut signal_machine.1,
+                    )
+                    .await;
                 // If the vm exits unexpectedly and no packet is returned, we will close all pipes.
                 // If the vm exits normally, still close it because the script could be not a valid ipc script.
                 pipesfin.close();
@@ -755,13 +780,25 @@ impl IpcRpc for IpcRpcImpl {
         // In any case, we will close all pipes after a certain period of time.
         // This ensures that the function always completes if the ipc script is not written as expected.
         let pipesfin = pipesctx.clone();
-        let exit = tokio::sync::oneshot::channel();
+        let mut signal_timeout = tokio::sync::watch::channel(0);
         self.shared.async_handle().spawn({
             async move {
-                let _ = tokio::time::timeout(tokio::time::Duration::from_secs(8), exit.1).await;
+                let _ = tokio::time::timeout(
+                    tokio::time::Duration::from_secs(8),
+                    signal_timeout.1.changed(),
+                )
+                .await;
                 pipesfin.close();
             }
         });
+        // Defer execution. We have to give ScopeCall a name so that it will be automatically dropped when it leaves
+        // the scope.
+        let _scope_call = ScopeCall {
+            c: || {
+                let _ = signal_machine.0.send(ChunkCommand::Stop);
+                let _ = signal_timeout.0.send(1);
+            },
+        };
         let req = RequestPacket::new(
             req.version.value() as u8,
             req.method_id.value(),
@@ -803,9 +840,6 @@ impl IpcRpc for IpcRpcImpl {
                 .deref_mut(),
         )
         .map_err(|e| RPCError::custom_with_error(RPCError::IPC, e))?;
-        exit.0
-            .send(())
-            .map_err(|_| RPCError::custom_with_error(RPCError::IPC, "Unexpected"))?;
         Ok(IpcResponse {
             version: Uint64::from(resp.version() as u64),
             error_code: Uint64::from(resp.error_code()),
