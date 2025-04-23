@@ -768,40 +768,7 @@ impl IpcRpc for IpcRpcImpl {
                 )
             })?
             .clone();
-        let pipesfin = pipesctx.clone();
-        let signal_machine = tokio::sync::watch::channel(0);
-        let limit_cycles = self.limit_cycles;
-        let upper_cycles = 1000000;
-        self.shared.async_handle().spawn({
-            async move {
-                // Ignore its return value as it is unimportant.
-                let _ = script_verifier
-                    .create_scheduler(&script_group)
-                    .map(|mut scheduler| {
-                        // Make the vm can always be stopped.
-                        debug_assert_eq!(scheduler.consumed_cycles(), 0);
-                        loop {
-                            let last_cycles = limit_cycles as u64 - scheduler.consumed_cycles();
-                            let step_cycles = std::cmp::min(upper_cycles, last_cycles);
-                            let result = scheduler.run(RunMode::LimitCycles(step_cycles as u64));
-                            if let Err(ckb_vm::Error::CyclesExceeded) = result {
-                                // If an error is returned, it means the channel has been closed.
-                                if signal_machine.1.has_changed().unwrap_or(true) {
-                                    break;
-                                }
-                                if step_cycles < upper_cycles {
-                                    break;
-                                }
-                                continue;
-                            }
-                            break;
-                        }
-                    });
-                // If the vm exits unexpectedly and no packet is returned, we will close all pipes.
-                // If the vm exits normally, still close it because the script could be not a valid ipc script.
-                pipesfin.close();
-            }
-        });
+
         // In any case, we will close all pipes after a certain period of time.
         // This ensures that the function always completes if the ipc script is not written as expected.
         let pipesfin = pipesctx.clone();
@@ -817,11 +784,45 @@ impl IpcRpc for IpcRpcImpl {
                 pipesfin.close();
             }
         });
+
+        let pipesfin = pipesctx.clone();
+        let limit_cycles = self.limit_cycles;
+        let upper_cycles = 1000000;
+        self.shared.async_handle().spawn({
+            async move {
+                // Ignore its return value as it is unimportant.
+                let _ = script_verifier
+                    .create_scheduler(&script_group)
+                    .map(|mut scheduler| {
+                        // Make the vm can always be stopped.
+                        debug_assert_eq!(scheduler.consumed_cycles(), 0);
+                        let tic = std::time::SystemTime::now();
+                        loop {
+                            let last_cycles = limit_cycles as u64 - scheduler.consumed_cycles();
+                            let step_cycles = std::cmp::min(upper_cycles, last_cycles);
+                            let result = scheduler.run(RunMode::LimitCycles(step_cycles as u64));
+                            if let Err(ckb_vm::Error::CyclesExceeded) = result {
+                                if step_cycles < upper_cycles {
+                                    break;
+                                }
+                                let toc = tic.elapsed().map(|e| e.as_secs()).unwrap_or(u64::MAX);
+                                if toc >= limit_time as u64 {
+                                    break;
+                                }
+                                continue;
+                            }
+                            break;
+                        }
+                    });
+                // If the vm exits unexpectedly and no packet is returned, we will close all pipes.
+                // If the vm exits normally, still close it because the script could be not a valid ipc script.
+                pipesfin.close();
+            }
+        });
         // Defer execution. We have to give ScopeCall a name so that it will be automatically dropped when it leaves
         // the scope.
         let _scope_call = ScopeCall {
             c: || {
-                let _ = signal_machine.0.send(1);
                 let _ = signal_timeout.0.send(1);
             },
         };
