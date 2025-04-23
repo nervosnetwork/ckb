@@ -771,6 +771,7 @@ impl IpcRpc for IpcRpcImpl {
         let pipesfin = pipesctx.clone();
         let signal_machine = tokio::sync::watch::channel(ChunkCommand::Resume);
         let limit_cycles = self.limit_cycles;
+        let upper_cycles = 1000000;
         self.shared.async_handle().spawn({
             async move {
                 // Ignore its return value as it is unimportant.
@@ -778,12 +779,16 @@ impl IpcRpc for IpcRpcImpl {
                     .create_scheduler(&script_group)
                     .map(|mut scheduler| {
                         // Make the vm can always be stopped.
-                        let step_cycles = 1000000;
-                        let step = limit_cycles.div_ceil(step_cycles);
-                        for _ in 0..step {
+                        debug_assert_eq!(scheduler.consumed_cycles(), 0);
+                        loop {
+                            let last_cycles = limit_cycles as u64 - scheduler.consumed_cycles();
+                            let step_cycles = std::cmp::min(upper_cycles, last_cycles);
                             let result = scheduler.run(RunMode::LimitCycles(step_cycles as u64));
                             if let Err(ckb_vm::Error::CyclesExceeded) = result {
                                 if signal_machine.1.has_changed().unwrap_or_default() {
+                                    break;
+                                }
+                                if step_cycles < upper_cycles {
                                     break;
                                 }
                                 continue;
