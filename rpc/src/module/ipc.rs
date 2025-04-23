@@ -6,12 +6,12 @@ use ckb_jsonrpc_types::{
     IndexerOrder, IndexerScriptType, IndexerSearchKey, IpcEnv, IpcPayloadFormat, IpcRequest,
     IpcResponse, IpcScriptLocator, JsonBytes, Script, ScriptGroupType, ScriptHashType, Uint64,
 };
+use ckb_script::RunMode;
 use ckb_script::{
     CLOSE, INHERITED_FD, READ, TransactionScriptsVerifier, TxData, TxVerifyEnv, WRITE,
     generate_ckb_syscalls,
     types::{DebugPrinter, FIRST_FD_SLOT, FIRST_VM_ID, Machine, SgData, VmContext, VmId},
 };
-use ckb_script::{ChunkCommand, RunMode};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -769,7 +769,7 @@ impl IpcRpc for IpcRpcImpl {
             })?
             .clone();
         let pipesfin = pipesctx.clone();
-        let signal_machine = tokio::sync::watch::channel(ChunkCommand::Resume);
+        let signal_machine = tokio::sync::watch::channel(0);
         let limit_cycles = self.limit_cycles;
         let upper_cycles = 1000000;
         self.shared.async_handle().spawn({
@@ -785,7 +785,8 @@ impl IpcRpc for IpcRpcImpl {
                             let step_cycles = std::cmp::min(upper_cycles, last_cycles);
                             let result = scheduler.run(RunMode::LimitCycles(step_cycles as u64));
                             if let Err(ckb_vm::Error::CyclesExceeded) = result {
-                                if signal_machine.1.has_changed().unwrap_or_default() {
+                                // If an error is returned, it means the channel has been closed.
+                                if signal_machine.1.has_changed().unwrap_or(true) {
                                     break;
                                 }
                                 if step_cycles < upper_cycles {
@@ -820,7 +821,7 @@ impl IpcRpc for IpcRpcImpl {
         // the scope.
         let _scope_call = ScopeCall {
             c: || {
-                let _ = signal_machine.0.send(ChunkCommand::Stop);
+                let _ = signal_machine.0.send(1);
                 let _ = signal_timeout.0.send(1);
             },
         };
