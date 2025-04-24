@@ -204,14 +204,14 @@ impl<Mac: SupportMachine> Syscalls<Mac> for SyscallRead {
 
 struct SyscallWrite {
     id: VmId,
-    pipesctx: PipesContext,
+    pipes_ctx: PipesContext,
 }
 
 impl SyscallWrite {
-    pub fn new(id: &VmId, pipesctx: &PipesContext) -> Self {
+    pub fn new(id: &VmId, pipes_ctx: &PipesContext) -> Self {
         Self {
             id: *id,
-            pipesctx: pipesctx.clone(),
+            pipes_ctx: pipes_ctx.clone(),
         }
     }
 }
@@ -247,7 +247,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for SyscallWrite {
             .memory_mut()
             .load_bytes(buffer_addr.to_u64(), length)?;
         // The pipe write can't write partial data so we don't need to check result length.
-        self.pipesctx
+        self.pipes_ctx
             .vm_writer
             .lock()
             .map_err(|e| ckb_vm::error::Error::Unexpected(e.to_string()))?
@@ -308,14 +308,14 @@ impl<Mac: SupportMachine> Syscalls<Mac> for SyscallInheritedFd {
 
 pub struct SyscallClose {
     id: VmId,
-    pipesctx: PipesContext,
+    pipes_ctx: PipesContext,
 }
 
 impl SyscallClose {
-    fn new(id: &VmId, pipesctx: &PipesContext) -> Self {
+    fn new(id: &VmId, pipes_ctx: &PipesContext) -> Self {
         Self {
             id: *id,
-            pipesctx: pipesctx.clone(),
+            pipes_ctx: pipes_ctx.clone(),
         }
     }
 }
@@ -336,7 +336,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for SyscallClose {
         let fd = machine.registers()[A0].to_u64();
         match fd {
             READER_FD => {
-                self.pipesctx
+                self.pipes_ctx
                     .vm_reader
                     .lock()
                     .map_err(|e| ckb_vm::error::Error::Unexpected(e.to_string()))?
@@ -345,7 +345,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for SyscallClose {
                 Ok(true)
             }
             WRITER_FD => {
-                self.pipesctx
+                self.pipes_ctx
                     .vm_writer
                     .lock()
                     .map_err(|e| ckb_vm::error::Error::Unexpected(e.to_string()))?
@@ -362,7 +362,7 @@ fn overload_ckb_syscalls<DL, M>(
     vm_id: &VmId,
     sg_data: &SgData<DL>,
     vm_context: &VmContext<DL>,
-    pipesctx: &PipesContext,
+    pipes_ctx: &PipesContext,
 ) -> Vec<Box<(dyn Syscalls<M>)>>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
@@ -371,10 +371,10 @@ where
     let debug_printer: DebugPrinter = Arc::new(|_: &packed::Byte32, _: &str| {});
 
     let mut raw = generate_ckb_syscalls(vm_id, sg_data, vm_context, &debug_printer);
-    raw.insert(0, Box::new(SyscallClose::new(vm_id, pipesctx)));
+    raw.insert(0, Box::new(SyscallClose::new(vm_id, pipes_ctx)));
     raw.insert(0, Box::new(SyscallInheritedFd::new(vm_id)));
-    raw.insert(0, Box::new(SyscallRead::new(vm_id, pipesctx)));
-    raw.insert(0, Box::new(SyscallWrite::new(vm_id, pipesctx)));
+    raw.insert(0, Box::new(SyscallRead::new(vm_id, pipes_ctx)));
+    raw.insert(0, Box::new(SyscallWrite::new(vm_id, pipes_ctx)));
     raw
 }
 
@@ -744,14 +744,14 @@ impl IpcRpc for IpcRpcImpl {
             }
         }
         let snapshot = self.shared.cloned_snapshot();
-        let pipesctx = PipesContext::default();
+        let pipes_ctx = PipesContext::default();
         let script_verifier = TransactionScriptsVerifier::<_, _, Machine>::new_with_generator(
             Arc::new(tx),
             dl,
             snapshot.cloned_consensus(),
             Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header())),
             overload_ckb_syscalls,
-            pipesctx.clone(),
+            pipes_ctx.clone(),
         );
         let script_group = script_verifier
             .find_script_group(
@@ -771,7 +771,7 @@ impl IpcRpc for IpcRpcImpl {
 
         // In any case, we will close all pipes after a certain period of time.
         // This ensures that the function always completes if the ipc script is not written as expected.
-        let pipes_fin = pipesctx.clone();
+        let pipes_fin = pipes_ctx.clone();
         let mut signal_timeout = tokio::sync::watch::channel(0);
         let limit_time = self.limit_time;
         self.shared.async_handle().spawn({
@@ -785,7 +785,7 @@ impl IpcRpc for IpcRpcImpl {
             }
         });
 
-        let pipes_fin = pipesctx.clone();
+        let pipes_fin = pipes_ctx.clone();
         let limit_cycles = self.limit_cycles;
         let upper_cycles = 1000000;
         self.shared.async_handle().spawn({
@@ -849,19 +849,19 @@ impl IpcRpc for IpcRpcImpl {
                     .map_err(|e| RPCError::custom_with_error(RPCError::IPC, e))?,
             },
         );
-        pipesctx
+        pipes_ctx
             .native_writer
             .lock()
             .map_err(|e| RPCError::custom_with_error(RPCError::IPC, e))?
             .write_all(&req.serialize())
             .map_err(|e| RPCError::custom_with_error(RPCError::IPC, e))?;
-        pipesctx
+        pipes_ctx
             .native_writer
             .lock()
             .map_err(|e| RPCError::custom_with_error(RPCError::IPC, e))?
             .close();
         let resp = ResponsePacket::read_from(
-            pipesctx
+            pipes_ctx
                 .native_reader
                 .lock()
                 .map_err(|e| RPCError::custom_with_error(RPCError::IPC, e))?
