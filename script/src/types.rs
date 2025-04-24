@@ -22,17 +22,11 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-#[cfg(has_asm)]
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
-
-#[cfg(not(has_asm))]
-use ckb_vm::{DefaultCoreMachine, TraceMachine, WXorXMemory};
-
 use ckb_traits::CellDataProvider;
 use ckb_vm::snapshot2::Snapshot2Context;
 
 use ckb_vm::{
-    RISCV_GENERAL_REGISTER_NUMBER,
+    DefaultMachineRunner, RISCV_GENERAL_REGISTER_NUMBER, SupportMachine,
     bytes::Bytes,
     machine::Pause,
     snapshot2::{DataSource, Snapshot2},
@@ -44,36 +38,27 @@ pub type VmIsa = u8;
 /// /// The type of CKB-VM version.
 pub type VmVersion = u32;
 
-/// The inner VM machine when ASM feature is used.
+/// The default machine type when asm feature is enabled. Note that ckb-script now functions
+/// solely based on ckb_vm::DefaultMachineRunner trait. The type provided here is only for
+/// default implementations.
 #[cfg(has_asm)]
-pub type CoreMachineType = AsmCoreMachine;
-/// The inner VM machine when ASM feature is not used.
+pub type Machine = ckb_vm::machine::asm::AsmMachine;
+/// The default machine type when neither asm feature nor flatmemory feature is not enabled
 #[cfg(all(not(has_asm), not(feature = "flatmemory")))]
-pub type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
+pub type Machine = ckb_vm::TraceMachine<
+    ckb_vm::DefaultCoreMachine<u64, ckb_vm::WXorXMemory<ckb_vm::SparseMemory<u64>>>,
+>;
+/// The default machine type when asm feature is not enabled, but flatmemory is enabled
 #[cfg(all(not(has_asm), feature = "flatmemory"))]
-pub type CoreMachineType = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
-
-/// The type of core VM machine when uses ASM.
-#[cfg(has_asm)]
-pub type CoreMachine = Box<AsmCoreMachine>;
-/// The type of core VM machine when doesn't use ASM.
-#[cfg(all(not(has_asm), not(feature = "flatmemory")))]
-pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::SparseMemory<u64>>>;
-#[cfg(all(not(has_asm), feature = "flatmemory"))]
-pub type CoreMachine = DefaultCoreMachine<u64, WXorXMemory<ckb_vm::FlatMemory<u64>>>;
-
-/// The outer machine type when asm feature is enabled.
-#[cfg(has_asm)]
-pub type Machine = AsmMachine;
-/// The outer machine type when asm feature is out enabled.
-#[cfg(not(has_asm))]
-pub type Machine = TraceMachine<CoreMachine>;
+pub type Machine = ckb_vm::TraceMachine<
+    ckb_vm::DefaultCoreMachine<u64, ckb_vm::WXorXMemory<ckb_vm::FlatMemory<u64>>>,
+>;
 
 /// Debug printer function type
 pub type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
 /// Syscall generator function type
-pub type SyscallGenerator<DL, V> =
-    fn(&VmId, &SgData<DL>, &VmContext<DL>, &V) -> Vec<Box<(dyn Syscalls<CoreMachine>)>>;
+pub type SyscallGenerator<DL, V, M> =
+    fn(&VmId, &SgData<DL>, &VmContext<DL>, &V) -> Vec<Box<(dyn Syscalls<M>)>>;
 
 /// The version of CKB Script Verifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -126,15 +111,15 @@ impl ScriptVersion {
     /// Creates a CKB VM core machine without cycles limit.
     ///
     /// In fact, there is still a limit of `max_cycles` which is set to `2^64-1`.
-    pub fn init_core_machine_without_limit(self) -> CoreMachine {
+    pub fn init_core_machine_without_limit(self) -> <Machine as DefaultMachineRunner>::Inner {
         self.init_core_machine(u64::MAX)
     }
 
     /// Creates a CKB VM core machine.
-    pub fn init_core_machine(self, max_cycles: Cycle) -> CoreMachine {
+    pub fn init_core_machine(self, max_cycles: Cycle) -> <Machine as DefaultMachineRunner>::Inner {
         let isa = self.vm_isa();
         let version = self.vm_version();
-        CoreMachineType::new(isa, version, max_cycles)
+        <<Machine as DefaultMachineRunner>::Inner as SupportMachine>::new(isa, version, max_cycles)
     }
 }
 

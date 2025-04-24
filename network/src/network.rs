@@ -109,7 +109,7 @@ impl NetworkState {
                 _ => {
                     match extract_peer_id(&addr) {
                         Some(peer_id) if peer_id != local_peer_id => {
-                            error!("Don't add no self address to public addresses: {:?}", addr);
+                            error!("Don't include addresses that not associated with this node in the public_addresses list: {:?}", addr);
                             std::process::exit(1);
                         }
                         Some(_) => (),
@@ -1010,7 +1010,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, _ctxt| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,
@@ -1035,7 +1035,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, _ctxt| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,

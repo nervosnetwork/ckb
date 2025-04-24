@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
@@ -646,7 +646,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-app-config"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
@@ -673,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-async-runtime"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-logger",
  "ckb-spawn",
@@ -683,7 +683,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-benches"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-bin"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-block-filter"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
@@ -768,11 +768,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-build-info"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 
 [[package]]
 name = "ckb-chain"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -811,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-iter"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-store",
  "ckb-types",
@@ -819,7 +819,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "cacache",
  "ckb-constant",
@@ -841,18 +841,18 @@ dependencies = [
 
 [[package]]
 name = "ckb-channel"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "crossbeam-channel",
 ]
 
 [[package]]
 name = "ckb-constant"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 
 [[package]]
 name = "ckb-crypto"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -878,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao-utils"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "byteorder",
  "ckb-error",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-db"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-db-schema",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-migration"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-channel",
@@ -916,11 +916,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-schema"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 
 [[package]]
 name = "ckb-error"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "anyhow",
  "ckb-occupied-capacity",
@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fee-estimator"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-fixed-hash-core",
  "ckb-fixed-hash-macros",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb_schemars",
  "faster-hex",
@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-macros"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro2",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-freezer"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-error",
  "ckb-logger",
@@ -986,7 +986,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-gen-types"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "cfg-if",
  "ckb-error",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-hash"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "blake2b-ref",
  "blake2b-rs",
@@ -1007,7 +1007,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1024,7 +1024,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer-sync"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1044,7 +1044,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-instrument"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-chain",
  "ckb-chain-iter",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-types",
  "ckb_schemars",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-launcher"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-light-client-protocol-server"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1132,14 +1132,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "ckb-logger-config"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "serde",
  "toml",
@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger-service"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "backtrace",
  "ckb-channel",
@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-memory-tracker"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-db",
  "ckb-logger",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "prometheus",
  "prometheus-static-metric",
@@ -1194,14 +1194,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics-config"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-metrics-service"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-migrate"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -1237,7 +1237,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-migration-template"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-miner"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-multisig"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-crypto",
  "ckb-error",
@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-network"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "bitflags 1.3.2",
  "bloom-filters",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-network-alert"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-notify"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1358,7 +1358,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-occupied-capacity-core",
  "ckb-occupied-capacity-macros",
@@ -1366,14 +1366,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity-core"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-occupied-capacity-macros"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-occupied-capacity-core",
  "quote",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-pow"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "byteorder",
  "ckb-hash",
@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-proposal-table"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rational"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "numext-fixed-uint",
  "proptest",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-system-scripts",
  "ckb-types",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-reward-calculator"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rich-indexer"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "anyhow",
  "ckb-app-config",
@@ -1477,7 +1477,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc-gen"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-rpc",
  "ckb_schemars",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-shared"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "arc-swap",
  "bitflags 1.3.2",
@@ -1606,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-snapshot"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "arc-swap",
  "ckb-chain-spec",
@@ -1622,11 +1622,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-spawn"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 
 [[package]]
 name = "ckb-stop-handler"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-async-runtime",
  "ckb-channel",
@@ -1641,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-store"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -1659,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1714,14 +1714,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-systemtime"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "web-time",
 ]
 
 [[package]]
 name = "ckb-test-chain-utils"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1739,14 +1739,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-traits"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-types",
 ]
 
 [[package]]
 name = "ckb-tx-pool"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1788,7 +1788,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-types"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "bit-vec 0.6.3",
  "bytes",
@@ -1812,7 +1812,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-util"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
@@ -1822,7 +1822,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1843,7 +1843,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-contextual"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "ckb-async-runtime",
  "ckb-chain",
@@ -1869,7 +1869,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-traits"
-version = "0.201.0-pre"
+version = "0.202.0-pre"
 dependencies = [
  "bitflags 1.3.2",
  "ckb-error",
@@ -1877,9 +1877,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.24.13"
+version = "0.24.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49dc9651f4fe97dc45fcbc9d5b35f1e2d66accbab6d78f847d3000336aec4dbf"
+checksum = "ad137e2f1c9a363ce19a883a2113b1dfcc00a936945e34b62e3726c49e7171fb"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1895,9 +1895,9 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.24.13"
+version = "0.24.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95db407ba457416941e70dbaa28fb546d94a4f55be623316d24fb750320b1f45"
+checksum = "0b436017fd6676bea413d54e07a5a9cc1d7c4b5c02e4ab07d3527225a5de6677"
 dependencies = [
  "paste",
 ]
@@ -2183,9 +2183,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.14"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ba6d68e24814cb8de6bb986db8222d3a027d15872cabc0d18817bc3c0e4471"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -2584,6 +2584,20 @@ dependencies = [
  "lazy_static",
  "log",
  "rand 0.7.3",
+]
+
+[[package]]
+name = "fast-socks5"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d09fe4a491909a716088083eeb5bcc25427330fdbcd4ecd3dfa5469b3da795df"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "log",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -3854,7 +3868,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -4302,9 +4316,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openssl"
-version = "0.10.71"
+version = "0.10.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e14130c6a98cd258fdcb0fb6d744152343ff729cbfcb28c656a9d12b999fbcd"
+checksum = "fedfea7d58a1f73118430a55da6a286e7b044961736ce96a16a17068ea25e5da"
 dependencies = [
  "bitflags 2.9.0",
  "cfg-if",
@@ -4343,9 +4357,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.106"
+version = "0.9.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bb61ea9811cc39e3c2069f40b8b8e2e70d8569b361f879786cc7ed48b777cdd"
+checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
 dependencies = [
  "cc",
  "libc",
@@ -6168,12 +6182,13 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.6.7"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a3374cb0b9cf25499dcb2e9ecf199af2f778b8d40dd01c413536de5b1574a2b"
+checksum = "47aff14515ffd53f333b93053e4f3476eccc801f4d1f34f7dfe392d967fc6985"
 dependencies = [
  "async-trait",
  "bytes",
+ "fast-socks5",
  "futures",
  "futures-timer",
  "httparse",
@@ -6193,6 +6208,7 @@ dependencies = [
  "tokio-tungstenite 0.26.2",
  "tokio-util",
  "tokio-yamux",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "winapi",
@@ -6200,9 +6216,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-multiaddr"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35d1c1fa03d7fbdde1314f89e740cf5dbb5484ccc2b13fff9b82d4ddd0d51cef"
+checksum = "11d2d1d3511bbe6d6a662ee13616a31268d0558c73d25dfe6b5a5dcb376719c7"
 dependencies = [
  "arrayref",
  "bs58",
@@ -6216,9 +6232,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01d1c8be16ed68e4d69b60e445d453c392d07e613fe9fab0688d46910f6dd013"
+checksum = "60516aaca2ce3d00ef741d1bb01216921a062371bb63dd2ef53775b42afb9865"
 dependencies = [
  "bs58",
  "bytes",
@@ -6456,9 +6472,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.43.0"
+version = "1.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d61fa4ffa3de412bfea335c6ecff681de2b609ba3c77ef3e00e521813a9ed9e"
+checksum = "e6b88822cbe49de4185e3a4cbf8321dd487cf5fe0c5c65695fef6346371e9c48"
 dependencies = [
  "backtrace",
  "bytes",
@@ -6553,9 +6569,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-yamux"
-version = "0.3.12"
+version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1142259036fa9b1eb7aa5ac810af10cab472a9c0556715cc31627beb50fca012"
+checksum = "e448cb88b75c217ab89014b0c66221260aef0c53f1c021f60a7dca26a299f7cf"
 dependencies = [
  "bytes",
  "futures",

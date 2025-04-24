@@ -16,12 +16,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v1.12.0
+  CKB_CLI_VERSION: v1.13.0
 
 jobs:
   create-release:
     name: Create release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     outputs:
       upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
@@ -43,7 +43,7 @@ jobs:
 
   package-for-linux:
     name: package-for-linux
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
@@ -87,7 +87,7 @@ jobs:
 
   package-for-linux-aarch64:
     name: package-for-linux-aarch64
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
       - name: Set Env
@@ -129,7 +129,7 @@ jobs:
 
   package-for-centos:
     name: package-for-centos
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
@@ -330,7 +330,7 @@ jobs:
 
   Upload_File:
     name: Upload_Zip_File
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
@@ -387,7 +387,7 @@ jobs:
 
   Trigger_smoking_test:
     name: Trigger_smoking_test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs:
       - Upload_File
     steps:
