@@ -3,34 +3,33 @@ name: Benchmark
 on:
   # Submit your review with a comment body containing "#benchmark"
   pull_request_review:
-    types: [ submitted ]
+    types: [submitted]
   push:
     branches:
-      - 'pkg/*'
+      - "pkg/*"
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
   # Manurally trigger
   workflow_dispatch:
 
 jobs:
-
   benchmark:
     name: Benchmark
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     if: |
-          (
-            github.event_name == 'pull_request_review' &&
-            contains(github.event.review.body, '#benchmark')
-          ) || (
-            github.event_name == 'schedule' &&
-            github.repository_owner == 'nervosnetwork'
-          ) || (
-            github.event_name == 'workflow_dispatch'
-          )
+      (
+        github.event_name == 'pull_request_review' &&
+        contains(github.event.review.body, '#benchmark')
+      ) || (
+        github.event_name == 'schedule' &&
+        github.repository_owner == 'nervosnetwork'
+      ) || (
+        github.event_name == 'workflow_dispatch'
+      )
     env:
       AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
       AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
-      AWS_EC2_TYPE:  "c5.xlarge"
+      AWS_EC2_TYPE: "c5.xlarge"
       GITHUB_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
       GITHUB_REF_NAME: ${{ github.ref_name }}
       GITHUB_REPO: ${{ github.repository }}

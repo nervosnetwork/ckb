@@ -1010,7 +1010,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, _ctxt| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,
@@ -1035,7 +1035,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, _ctxt| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,

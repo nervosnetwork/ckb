@@ -51,7 +51,7 @@ pub type Machine = ckb_vm::TraceMachine<
 /// The default machine type when asm feature is not enabled, but flatmemory is enabled
 #[cfg(all(not(has_asm), feature = "flatmemory"))]
 pub type Machine = ckb_vm::TraceMachine<
-    ckb_vm::DefaultCoreMachine<u64, ckb_vm::XorXMemory<ckb_vm::FlatMemory<u64>>>,
+    ckb_vm::DefaultCoreMachine<u64, ckb_vm::WXorXMemory<ckb_vm::FlatMemory<u64>>>,
 >;
 
 /// Debug printer function type
