@@ -143,7 +143,7 @@ enable_deprecated_rpc = false # {{
 # to avoid this, you may want to add a limit for the batch request size.
 # rpc_batch_limit = 2000
 
-# Maximum cycles and allowed execution time for ipc call.
+# Maximum cycles and allowed execution time in seconds for ipc call.
 # ipc_call_limit_cycles = 100000000
 # ipc_call_limit_time = 5
 
