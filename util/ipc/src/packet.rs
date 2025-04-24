@@ -2,6 +2,8 @@ use crate::error::IpcError;
 use crate::vlq::{vlq_decode_reader, vlq_encode};
 use std::io::Read;
 
+const PAYLOAD_LENGTH_LIMIT: u64 = 4 * 1024 * 1024;
+
 /// The `Packet` trait defines the interface for handling packets in an IPC context.
 /// Types implementing this trait can be used to represent and manipulate packets.
 ///
@@ -45,6 +47,9 @@ impl Packet for RequestPacket {
         let version = vlq_decode_reader(reader)? as u8;
         let method_id = vlq_decode_reader(reader)?;
         let payload_length = vlq_decode_reader(reader)?;
+        if payload_length > PAYLOAD_LENGTH_LIMIT {
+            return Err(IpcError::PayloadExceedsLimit);
+        }
         let mut payload = vec![0u8; payload_length as usize];
         reader
             .read_exact(&mut payload[..])
@@ -102,6 +107,9 @@ impl Packet for ResponsePacket {
         let version = vlq_decode_reader(reader)? as u8;
         let error_code = vlq_decode_reader(reader)?;
         let payload_length = vlq_decode_reader(reader)?;
+        if payload_length > PAYLOAD_LENGTH_LIMIT {
+            return Err(IpcError::PayloadExceedsLimit);
+        }
         let mut payload = vec![0u8; payload_length as usize];
         reader
             .read_exact(&mut payload[..])

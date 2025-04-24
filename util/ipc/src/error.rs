@@ -12,6 +12,8 @@ pub enum IpcError {
     ReadVlqError,
     /// Read exact error.
     ReadExactError,
+    /// Payload exceeds the upper limit
+    PayloadExceedsLimit,
 }
 
 impl Display for IpcError {
