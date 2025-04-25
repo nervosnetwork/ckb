@@ -44,7 +44,6 @@ use ckb_types::{
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
-use ckb_util::Mutex;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -60,7 +59,7 @@ pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
 
 type RateLimiter<T> = governor::RateLimiter<
     T,
-    governor::state::keyed::DefaultKeyedStateStore<T>,
+    governor::state::keyed::HashMapStateStore<T>,
     governor::clock::DefaultClock,
 >;
 
@@ -76,7 +75,7 @@ pub enum ReconstructionResult {
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
-    rate_limiter: Arc<Mutex<RateLimiter<(PeerIndex, u32)>>>,
+    rate_limiter: RateLimiter<(PeerIndex, u32)>,
     v3: bool,
 }
 
@@ -88,7 +87,7 @@ impl Relayer {
         // setup a rate limiter keyed by peer and message type that lets through 30 requests per second
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
-        let rate_limiter = Arc::new(Mutex::new(RateLimiter::keyed(quota)));
+        let rate_limiter = RateLimiter::hashmap(quota);
 
         Relayer {
             chain,
@@ -122,7 +121,6 @@ impl Relayer {
         if should_check_rate
             && self
                 .rate_limiter
-                .lock()
                 .check_key(&(peer, message.item_id()))
                 .is_err()
         {
@@ -961,7 +959,7 @@ impl CKBProtocolHandler for Relayer {
             peer_index
         );
         // Retains all keys in the rate limiter that were used recently enough.
-        self.rate_limiter.lock().retain_recent();
+        self.rate_limiter.retain_recent();
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

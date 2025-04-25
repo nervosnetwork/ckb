@@ -17,6 +17,9 @@ pub enum StatusCode {
     /// OK
     OK = 200,
 
+    /// Generic rate limit error
+    TooManyRequests = 110,
+
     /// The max TTL is larger than the limit.
     InvalidMaxTTL = 410,
     /// The peer id of `from` peer is invalid.

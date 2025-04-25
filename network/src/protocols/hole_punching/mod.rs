@@ -14,7 +14,7 @@ use p2p::{
 };
 
 use crate::{
-    PeerId, SupportProtocols, network::NetworkState,
+    PeerId, PeerIndex, SupportProtocols, network::NetworkState,
     protocols::hole_punching::status::BAD_MESSAGE_BAN_TIME,
 };
 
@@ -29,15 +29,21 @@ const ADDRS_COUNT_LIMIT: usize = 24;
 const TIMEOUT: u64 = 5 * 60 * 1000; // 5 minutes
 
 type PendingDeliveredInfo = (Vec<Multiaddr>, u64);
+type RateLimiter<T> = governor::RateLimiter<
+    T,
+    governor::state::keyed::HashMapStateStore<T>,
+    governor::clock::DefaultClock,
+>;
 
 /// Hole Punching Protocol
 pub(crate) struct HolePunching {
     network_state: Arc<NetworkState>,
     bind_addr: Option<SocketAddr>,
     // Request timestamp recorded
-    inflight_requests: Arc<RwLock<HashMap<PeerId, u64>>>,
+    inflight_requests: RwLock<HashMap<PeerId, u64>>,
     // Delivered timestamp recorded
-    pending_delivered: Arc<RwLock<HashMap<PeerId, PendingDeliveredInfo>>>,
+    pending_delivered: RwLock<HashMap<PeerId, PendingDeliveredInfo>>,
+    rate_limiter: RateLimiter<(PeerIndex, u32)>,
 }
 
 #[async_trait]
@@ -59,6 +65,7 @@ impl ServiceProtocol for HolePunching {
     }
 
     async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
+        self.rate_limiter.retain_recent();
         debug!("HolePunching.disconnected session={}", context.session.id);
     }
 
@@ -84,6 +91,21 @@ impl ServiceProtocol for HolePunching {
         };
 
         let item_name = msg.item_name();
+
+        if self
+            .rate_limiter
+            .check_key(&(session_id, msg.item_id()))
+            .is_err()
+        {
+            debug!(
+                "process {} from {}; result is {}",
+                item_name,
+                session_id,
+                status::StatusCode::TooManyRequests.with_context(msg.item_name())
+            );
+            return;
+        }
+
         let status = match msg {
             packed::HolePunchingMessageUnionReader::ConnectionRequest(reader) => {
                 component::ConnectionRequestProcess::new(
@@ -214,6 +236,11 @@ impl ServiceProtocol for HolePunching {
 
 impl HolePunching {
     pub(crate) fn new(network_state: Arc<NetworkState>) -> Self {
+        // setup a rate limiter keyed by peer and message type that lets through 30 requests per second
+        // current max rps is 10 (CHECK_TOKEN), 30 is a flexible hard cap with buffer
+        let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
+        let rate_limiter = RateLimiter::hashmap(quota);
+
         Self {
             #[cfg(not(target_os = "linux"))]
             bind_addr: None,
@@ -233,8 +260,9 @@ impl HolePunching {
                 bind_addr
             },
             network_state,
-            pending_delivered: Arc::new(RwLock::new(HashMap::new())),
-            inflight_requests: Arc::new(RwLock::new(HashMap::new())),
+            pending_delivered: RwLock::new(HashMap::new()),
+            inflight_requests: RwLock::new(HashMap::new()),
+            rate_limiter,
         }
     }
 }

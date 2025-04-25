@@ -30,7 +30,7 @@ use futures::{Future, channel::mpsc::Sender};
 use ipnetwork::IpNetwork;
 use p2p::{
     SessionId, async_trait,
-    builder::{MetaBuilder, ServiceBuilder},
+    builder::ServiceBuilder,
     bytes::Bytes,
     context::{ServiceContext, SessionContext},
     error::{DialerErrorKind, HandshakeErrorKind, ProtocolHandleErrorKind, SendErrorKind},
@@ -923,16 +923,12 @@ impl NetworkService {
             .contains(&SupportProtocol::HolePunching)
         {
             let hole_punching_state = Arc::clone(&network_state);
-            let hole_punching_meta_builder: MetaBuilder = SupportProtocols::HolePunching.into();
-            let hole_punching_meta = hole_punching_meta_builder
-                .before_send(crate::compress::compress)
-                .before_receive(|| Some(Box::new(crate::compress::decompress)))
-                .service_handle(move || {
+            let hole_punching_meta =
+                SupportProtocols::HolePunching.build_meta_with_service_handle(move || {
                     ProtocolHandle::Callback(Box::new(
                         crate::protocols::hole_punching::HolePunching::new(hole_punching_state),
                     ))
-                })
-                .build();
+                });
             protocol_metas.push(hole_punching_meta);
         }
 
