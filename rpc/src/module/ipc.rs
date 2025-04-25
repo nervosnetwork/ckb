@@ -801,7 +801,7 @@ impl IpcRpc for IpcRpcImpl {
                             let last_cycles =
                                 (limit_cycles as u64).saturating_sub(scheduler.consumed_cycles());
                             let step_cycles = min(upper_cycles, last_cycles);
-                            let result = scheduler.run(RunMode::LimitCycles(step_cycles as u64));
+                            let result = scheduler.run(RunMode::LimitCycles(step_cycles));
                             if let Err(ckb_vm::Error::CyclesExceeded) = result {
                                 if step_cycles == last_cycles {
                                     break;
