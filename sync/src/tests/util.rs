@@ -1,8 +1,8 @@
 use crate::SyncShared;
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::{ChainController, build_chain_services};
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{ChainServicesBuilder, Shared, SharedBuilder, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_types::prelude::*;
@@ -13,16 +13,43 @@ use ckb_types::{
 use ckb_verification_traits::Switch;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 
-pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
+pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainServiceScope) {
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
-    generate_blocks(&shared, &chain_controller, tip);
+    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
+    generate_blocks(&shared, chain_scope.chain_controller(), tip);
     let sync_shared = SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver());
-    (sync_shared, chain_controller)
+    (sync_shared, chain_scope)
+}
+
+// This structure restricts the scope of chain service, and forces chain
+// service threads to terminate before dropping the structure.
+// The content of this struct will always be present, the reason we
+// wrap them in an option, is that we will need to consume them in
+// Drop trait impl of this struct.
+pub struct ChainServiceScope(Option<(ChainController, JoinHandle<()>)>);
+
+impl ChainServiceScope {
+    pub fn new(builder: ChainServicesBuilder) -> Self {
+        let (controller, join_handle) = build_chain_services(builder);
+        Self(Some((controller, join_handle)))
+    }
+
+    pub fn chain_controller(&self) -> &ChainController {
+        &self.0.as_ref().unwrap().0
+    }
+}
+
+impl Drop for ChainServiceScope {
+    fn drop(&mut self) {
+        let (controller, join_handle) = self.0.take().unwrap();
+        drop(controller);
+        let _ = join_handle.join();
+    }
 }
 
 pub fn generate_blocks(

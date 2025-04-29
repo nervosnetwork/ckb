@@ -1,4 +1,4 @@
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::ChainController;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
 use ckb_dao::DaoCalculator;
@@ -38,10 +38,11 @@ use std::{
 use crate::{
     Status, StatusCode, SyncShared,
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
+    tests::util::ChainServiceScope,
     types::{HeadersSyncController, IBDState, PeerState},
 };
 
-fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchronizer) {
+fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared, Synchronizer) {
     let mut builder = SharedBuilder::with_temp_db();
 
     let consensus = consensus.unwrap_or_default();
@@ -49,9 +50,12 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchr
 
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
-    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+    while chain
+        .chain_controller()
+        .is_verifying_unverified_blocks_on_startup()
+    {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
@@ -60,9 +64,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Synchr
         Default::default(),
         pack.take_relay_tx_receiver(),
     ));
-    let synchronizer = Synchronizer::new(chain_controller.clone(), sync_shared);
+    let synchronizer = Synchronizer::new(chain.chain_controller().clone(), sync_shared);
 
-    (chain_controller, shared, synchronizer)
+    (chain, shared, synchronizer)
 }
 
 fn create_cellbase(
@@ -154,7 +158,7 @@ fn insert_block(
 
 #[test]
 fn test_locator() {
-    let (chain_controller, shared, synchronizer) = start_chain(None);
+    let (chain, shared, synchronizer) = start_chain(None);
 
     let num = 200;
     let index = [
@@ -162,7 +166,7 @@ fn test_locator() {
     ];
 
     for i in 1..num {
-        insert_block(&chain_controller, &shared, u128::from(i), i);
+        insert_block(chain.chain_controller(), &shared, u128::from(i), i);
     }
 
     let locator = synchronizer
@@ -185,16 +189,16 @@ fn test_locator() {
 fn test_locate_latest_common_block() {
     let _log_guard = ckb_logger_service::init_for_test("debug").expect("init log");
     let consensus = Consensus::default();
-    let (chain_controller1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
-    let (chain_controller2, shared2, synchronizer2) = start_chain(Some(consensus.clone()));
+    let (chain1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
+    let (chain2, shared2, synchronizer2) = start_chain(Some(consensus.clone()));
     let num = 200;
 
     for i in 1..num {
-        insert_block(&chain_controller1, &shared1, u128::from(i), i);
+        insert_block(chain1.chain_controller(), &shared1, u128::from(i), i);
     }
 
     for i in 1..num {
-        insert_block(&chain_controller2, &shared2, u128::from(i + 1), i);
+        insert_block(chain2.chain_controller(), &shared2, u128::from(i + 1), i);
     }
 
     let locator1 = synchronizer1
@@ -209,11 +213,11 @@ fn test_locate_latest_common_block() {
 
     assert_eq!(latest_common, Some(0));
 
-    let (chain_controller3, shared3, synchronizer3) = start_chain(Some(consensus));
+    let (chain3, shared3, synchronizer3) = start_chain(Some(consensus));
 
     for i in 1..num {
         let j = if i > 192 { i + 1 } else { i };
-        insert_block(&chain_controller3, &shared3, u128::from(j), i);
+        insert_block(chain3.chain_controller(), &shared3, u128::from(j), i);
     }
 
     let latest_common3 = synchronizer3
@@ -226,8 +230,8 @@ fn test_locate_latest_common_block() {
 #[test]
 fn test_locate_latest_common_block2() {
     let consensus = Consensus::default();
-    let (chain_controller1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
-    let (chain_controller2, shared2, synchronizer2) = start_chain(Some(consensus.clone()));
+    let (chain1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
+    let (chain2, shared2, synchronizer2) = start_chain(Some(consensus.clone()));
     let block_number = 200;
 
     let mut blocks: Vec<BlockView> = Vec::new();
@@ -243,10 +247,12 @@ fn test_locate_latest_common_block2() {
         let new_block = gen_block(&shared1, &parent, &epoch, i);
         blocks.push(new_block.clone());
 
-        chain_controller1
+        chain1
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
-        chain_controller2
+        chain2
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
@@ -263,7 +269,8 @@ fn test_locate_latest_common_block2() {
             .epoch();
         let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
-        chain_controller2
+        chain2
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
@@ -297,11 +304,11 @@ fn test_locate_latest_common_block2() {
 #[test]
 fn test_get_ancestor() {
     let consensus = Consensus::default();
-    let (chain_controller, shared, synchronizer) = start_chain(Some(consensus));
+    let (chain, shared, synchronizer) = start_chain(Some(consensus));
     let num = 200;
 
     for i in 1..num {
-        insert_block(&chain_controller, &shared, u128::from(i), i);
+        insert_block(chain.chain_controller(), &shared, u128::from(i), i);
     }
 
     let header = synchronizer
@@ -333,8 +340,8 @@ fn test_get_ancestor() {
 #[test]
 fn test_process_new_block() {
     let consensus = Consensus::default();
-    let (chain_controller1, shared1, _) = start_chain(Some(consensus.clone()));
-    let (_, shared2, synchronizer) = start_chain(Some(consensus));
+    let (chain1, shared1, _) = start_chain(Some(consensus.clone()));
+    let (_chain2, shared2, synchronizer) = start_chain(Some(consensus));
     let block_number = 2000;
 
     let mut blocks: Vec<BlockView> = Vec::new();
@@ -351,7 +358,8 @@ fn test_process_new_block() {
             .epoch();
         let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
-        chain_controller1
+        chain1
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
@@ -370,7 +378,7 @@ fn test_process_new_block() {
 #[test]
 fn test_get_locator_response() {
     let consensus = Consensus::default();
-    let (chain_controller, shared, synchronizer) = start_chain(Some(consensus));
+    let (chain, shared, synchronizer) = start_chain(Some(consensus));
     let block_number = 200;
 
     let mut blocks: Vec<BlockView> = Vec::new();
@@ -388,7 +396,8 @@ fn test_get_locator_response() {
         let new_block = gen_block(&shared, &parent, &epoch, i + 100);
         blocks.push(new_block.clone());
 
-        chain_controller
+        chain
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         parent = new_block.header().to_owned();
@@ -591,12 +600,12 @@ fn mock_network_context(peer_num: usize) -> DummyNetworkContext {
 #[test]
 fn test_sync_process() {
     let consensus = Consensus::default();
-    let (chain_controller1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
-    let (chain_controller2, shared2, synchronizer2) = start_chain(Some(consensus));
+    let (chain1, shared1, synchronizer1) = start_chain(Some(consensus.clone()));
+    let (chain2, shared2, synchronizer2) = start_chain(Some(consensus));
     let num = 200;
 
     for i in 1..num {
-        insert_block(&chain_controller1, &shared1, u128::from(i), i);
+        insert_block(chain1.chain_controller(), &shared1, u128::from(i), i);
     }
 
     let locator1 = synchronizer1
@@ -606,7 +615,7 @@ fn test_sync_process() {
 
     for i in 1..=num {
         let j = if i > 192 { i + 1 } else { i };
-        insert_block(&chain_controller2, &shared2, u128::from(j), i);
+        insert_block(chain2.chain_controller(), &shared2, u128::from(j), i);
     }
 
     let latest_common = synchronizer2
@@ -713,7 +722,7 @@ fn test_header_sync_timeout() {
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(0);
 
-    let (_, _, synchronizer) = start_chain(None);
+    let (_chain, _, synchronizer) = start_chain(None);
 
     let network_context = mock_network_context(5);
 
@@ -773,7 +782,7 @@ fn test_chain_sync_timeout() {
         .build();
     let consensus = ConsensusBuilder::default().genesis_block(block).build();
 
-    let (_, shared, synchronizer) = start_chain(Some(consensus));
+    let (_chain, shared, synchronizer) = start_chain(Some(consensus));
 
     assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
 
@@ -976,7 +985,7 @@ fn test_n_sync_started() {
         .build();
     let consensus = ConsensusBuilder::default().genesis_block(block).build();
 
-    let (_, shared, synchronizer) = start_chain(Some(consensus));
+    let (_chain, shared, synchronizer) = start_chain(Some(consensus));
 
     assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
 
@@ -1073,7 +1082,12 @@ fn test_fix_last_common_header() {
     {
         let (chain, shared, _) = start_chain(Some(Consensus::default()));
         for number in 1..=main_tip_number {
-            insert_block(&chain, &shared, u128::from(number), number);
+            insert_block(
+                chain.chain_controller(),
+                &shared,
+                u128::from(number),
+                number,
+            );
         }
         for number in 0..=main_tip_number {
             let block_hash = shared.snapshot().get_block_hash(number).unwrap();
@@ -1088,7 +1102,7 @@ fn test_fix_last_common_header() {
         let (chain, shared, _) = start_chain(Some(Consensus::default()));
         for number in 1..=fork_tip_number {
             insert_block(
-                &chain,
+                chain.chain_controller(),
                 &shared,
                 u128::from(number % (fork_point + 1)),
                 number,
@@ -1104,7 +1118,7 @@ fn test_fix_last_common_header() {
     }
 
     // Local has stored M as main-chain, and memoried the headers of F in `SyncState.header_map`
-    let (_, _, synchronizer) = start_chain(Some(Consensus::default()));
+    let (_chain, _, synchronizer) = start_chain(Some(Consensus::default()));
     for number in 1..=main_tip_number {
         let key = m_(number);
         let block = graph.get(&key).cloned().unwrap();
@@ -1188,11 +1202,11 @@ fn test_fix_last_common_header() {
 #[test]
 fn get_blocks_process() {
     let consensus = Consensus::default();
-    let (chain_controller, shared, synchronizer) = start_chain(Some(consensus));
+    let (chain, shared, synchronizer) = start_chain(Some(consensus));
 
     let num = 2;
     for i in 1..num {
-        insert_block(&chain_controller, &shared, u128::from(i), i);
+        insert_block(chain.chain_controller(), &shared, u128::from(i), i);
     }
 
     let genesis_hash = shared.consensus().genesis_hash();
