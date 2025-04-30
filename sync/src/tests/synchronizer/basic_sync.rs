@@ -3,8 +3,8 @@ use crate::synchronizer::{
     TIMEOUT_EVICTION_TOKEN,
 };
 use crate::tests::TestNode;
-use crate::tests::util::ChainServiceScope;
 use crate::{SyncShared, Synchronizer};
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;

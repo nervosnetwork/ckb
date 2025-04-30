@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_duplicate() {
-    let (relayer, always_success_out_point) = build_chain(5);
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
 
     let tx = new_transaction(&relayer, 1, &always_success_out_point);
     let tx_hash = tx.hash();

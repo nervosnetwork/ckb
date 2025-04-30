@@ -4,9 +4,9 @@
 use crate::relayer::CompactBlockProcess;
 use crate::relayer::tests::helper::MockProtocolContext;
 use crate::synchronizer::HeadersProcess;
-use crate::tests::util::{ChainServiceScope, build_chain, inherit_block};
+use crate::tests::util::{build_chain, inherit_block};
 use crate::{Relayer, Status, SyncShared, Synchronizer};
-use ckb_chain::{RemoteBlock, VerifyResult};
+use ckb_chain::{ChainServiceScope, RemoteBlock, VerifyResult};
 use ckb_logger::info;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::{Shared, SharedBuilder};

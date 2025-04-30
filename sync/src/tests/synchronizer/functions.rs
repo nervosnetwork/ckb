@@ -1,4 +1,4 @@
-use ckb_chain::ChainController;
+use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
 use ckb_dao::DaoCalculator;
@@ -38,7 +38,6 @@ use std::{
 use crate::{
     Status, StatusCode, SyncShared,
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
-    tests::util::ChainServiceScope,
     types::{HeadersSyncController, IBDState, PeerState},
 };
 

@@ -150,3 +150,31 @@ pub fn build_chain_services(
 
     (chain_controller, chain_service_thread)
 }
+
+/// This structure restricts the scope of chain service, and forces chain
+/// service threads to terminate before dropping the structure.
+/// The content of this struct will always be present, the reason we
+/// wrap them in an option, is that we will need to consume them in
+/// Drop trait impl of this struct.
+pub struct ChainServiceScope(Option<(ChainController, thread::JoinHandle<()>)>);
+
+impl ChainServiceScope {
+    /// Creates a new ChainServiceScope structure
+    pub fn new(builder: ChainServicesBuilder) -> Self {
+        let (controller, join_handle) = build_chain_services(builder);
+        Self(Some((controller, join_handle)))
+    }
+
+    /// Returns a reference to chain controller
+    pub fn chain_controller(&self) -> &ChainController {
+        &self.0.as_ref().unwrap().0
+    }
+}
+
+impl Drop for ChainServiceScope {
+    fn drop(&mut self) {
+        let (controller, join_handle) = self.0.take().unwrap();
+        drop(controller);
+        let _ = join_handle.join();
+    }
+}

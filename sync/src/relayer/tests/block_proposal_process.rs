@@ -6,7 +6,7 @@ use ckb_types::prelude::*;
 
 #[test]
 fn test_no_unknown() {
-    let (relayer, always_success_out_point) = build_chain(5);
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
 
     let transactions = vec![transaction.clone()];
@@ -25,7 +25,7 @@ fn test_no_unknown() {
 
 #[test]
 fn test_no_asked() {
-    let (relayer, always_success_out_point) = build_chain(5);
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
 
     let transactions = vec![transaction.clone()];
@@ -43,7 +43,7 @@ fn test_no_asked() {
 
 #[test]
 fn test_ok() {
-    let (relayer, always_success_out_point) = build_chain(5);
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
     let transactions = vec![transaction.clone()];
     let proposals: Vec<ProposalShortId> = transactions
@@ -73,7 +73,7 @@ fn test_ok() {
 #[test]
 fn test_clear_expired_inflight_proposals() {
     // mark the inflight proposals as block number 2, the default farthest proposal window is 10, it will be expired and ignored
-    let (relayer, always_success_out_point) = build_chain(13);
+    let (_chain, relayer, always_success_out_point) = build_chain(13);
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
     let transactions = vec![transaction];
     let proposals: Vec<ProposalShortId> = transactions

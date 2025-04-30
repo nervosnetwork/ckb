@@ -1,6 +1,6 @@
 use crate::{Relayer, SyncShared};
 use ckb_app_config::NetworkConfig;
-use ckb_chain::start_chain_services;
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::{ConsensusBuilder, build_genesis_epoch_ext};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -133,7 +133,7 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
     .expect("Start network service failed")
 }
 
-pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
+pub(crate) fn build_chain(tip: BlockNumber) -> (ChainServiceScope, Relayer, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let always_success_tx = TransactionBuilder::default()
@@ -172,9 +172,12 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
-    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+    while chain
+        .chain_controller()
+        .is_verifying_unverified_blocks_on_startup()
+    {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
@@ -213,7 +216,8 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .dao(dao)
             .transaction(cellbase)
             .build();
-        chain_controller
+        chain
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .expect("processing block should be ok");
     }
@@ -223,10 +227,8 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         Default::default(),
         pack.take_relay_tx_receiver(),
     ));
-    (
-        Relayer::new(chain_controller, sync_shared),
-        always_success_out_point,
-    )
+    let relayer = Relayer::new(chain.chain_controller().clone(), sync_shared);
+    (chain, relayer, always_success_out_point)
 }
 
 pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> TransactionView {
