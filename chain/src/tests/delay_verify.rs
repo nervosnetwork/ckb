@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 #[test]
 fn test_dead_cell_in_same_block() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain, shared, parent) = start_chain(None);
+    let chain_controller = chain.chain_controller();
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -75,7 +76,8 @@ fn test_dead_cell_in_same_block() {
 
 #[test]
 fn test_dead_cell_in_different_block() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain, shared, parent) = start_chain(None);
+    let chain_controller = chain.chain_controller();
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -136,7 +138,8 @@ fn test_dead_cell_in_different_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_same_block() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain, shared, parent) = start_chain(None);
+    let chain_controller = chain.chain_controller();
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -198,7 +201,8 @@ fn test_invalid_out_point_index_in_same_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_different_blocks() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain, shared, parent) = start_chain(None);
+    let chain_controller = chain.chain_controller();
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -261,7 +265,8 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
 #[test]
 fn test_full_dead_transaction() {
-    let (chain_controller, shared, mut parent) = start_chain(None);
+    let (chain, shared, mut parent) = start_chain(None);
+    let chain_controller = chain.chain_controller();
     let final_number = 20;
     let switch_fork_number = 10;
     let proposal_number = 3;

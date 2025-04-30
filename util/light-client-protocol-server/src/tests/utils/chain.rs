@@ -4,7 +4,7 @@ use std::{
 };
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_chain_spec::consensus::{ConsensusBuilder, build_genesis_epoch_ext};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
@@ -23,7 +23,7 @@ use ckb_types::{
 use crate::{LightClientProtocol, tests::prelude::*};
 
 pub(crate) struct MockChain {
-    chain_controller: ChainController,
+    chain: ChainServiceScope,
     shared: Shared,
     always_success_cell_dep: packed::CellDep,
 }
@@ -87,17 +87,17 @@ impl MockChain {
         let network = dummy_network(&shared);
         pack.take_tx_pool_builder().start(network);
 
-        let chain_controller = start_chain_services(pack.take_chain_services_builder());
+        let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
         Self {
-            chain_controller,
+            chain,
             shared,
             always_success_cell_dep,
         }
     }
 
     pub(crate) fn controller(&self) -> &ChainController {
-        &self.chain_controller
+        self.chain.chain_controller()
     }
 
     pub(crate) fn shared(&self) -> &Shared {

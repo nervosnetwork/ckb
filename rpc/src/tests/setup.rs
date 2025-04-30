@@ -88,6 +88,9 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         }))
         .build()
         .unwrap();
+    // Most of CKB will be started as part of RpcTestSuite, using ChainServiceScope
+    // to simplify chain termination actually brings more issues. We will keep this line
+    // as it is till we run into pthread issues in RPC tests for real.
     let chain_controller = start_chain_services(pack.take_chain_services_builder());
 
     // Start network services

@@ -1,4 +1,4 @@
-use crate::ChainController;
+use crate::ChainServiceScope;
 use crate::tests::util::start_chain;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
@@ -28,7 +28,8 @@ use std::sync::Arc;
 
 #[test]
 fn repeat_process_block() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain_scope, shared, parent) = start_chain(None);
+    let chain_controller = chain_scope.chain_controller();
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent, shared.consensus());
     chain.gen_empty_block_with_nonce(100u128, &mock_store);
@@ -90,7 +91,8 @@ fn process_genesis_block() {
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
         .build();
-    let (chain_controller, shared, _parent) = start_chain(Some(consensus));
+    let (chain, shared, _parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let block = Arc::new(shared.consensus().genesis_block().clone());
 
@@ -148,7 +150,8 @@ fn test_genesis_transaction_spend() {
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
         .build();
-    let (chain_controller, shared, parent) = start_chain(Some(consensus));
+    let (chain, shared, parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let end = 21;
 
@@ -183,7 +186,8 @@ fn test_genesis_transaction_spend() {
 
 #[test]
 fn test_transaction_spend_in_same_block() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain_scope, shared, parent) = start_chain(None);
+    let chain_controller = chain_scope.chain_controller();
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent, shared.consensus());
     chain.gen_empty_block(&mock_store);
@@ -278,7 +282,8 @@ fn test_transaction_spend_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_same_block() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain_scope, shared, parent) = start_chain(None);
+    let chain_controller = chain_scope.chain_controller();
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent, shared.consensus());
     chain.gen_empty_block(&mock_store);
@@ -315,7 +320,8 @@ fn test_transaction_conflict_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_different_blocks() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain_scope, shared, parent) = start_chain(None);
+    let chain_controller = chain_scope.chain_controller();
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent, shared.consensus());
     chain.gen_empty_block(&mock_store);
@@ -355,7 +361,8 @@ fn test_transaction_conflict_in_different_blocks() {
 
 #[test]
 fn test_invalid_out_point_index_in_same_block() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain_scope, shared, parent) = start_chain(None);
+    let chain_controller = chain_scope.chain_controller();
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent, shared.consensus());
     chain.gen_empty_block(&mock_store);
@@ -392,7 +399,8 @@ fn test_invalid_out_point_index_in_same_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_different_blocks() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain_scope, shared, parent) = start_chain(None);
+    let chain_controller = chain_scope.chain_controller();
     let mock_store = MockStore::new(&parent, shared.store());
     let mut chain = MockChain::new(parent, shared.consensus());
     chain.gen_empty_block_with_nonce(100u128, &mock_store);
@@ -464,7 +472,8 @@ fn test_genesis_transaction_fetch() {
 
 #[test]
 fn test_chain_fork_by_total_difficulty() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain, shared, parent) = start_chain(None);
+    let chain_controller = chain.chain_controller();
     let final_number = 20;
 
     let mock_store = MockStore::new(&parent, shared.store());
@@ -503,7 +512,8 @@ fn test_chain_fork_by_total_difficulty() {
 
 #[test]
 fn test_chain_fork_by_first_received() {
-    let (chain_controller, shared, parent) = start_chain(None);
+    let (chain, shared, parent) = start_chain(None);
+    let chain_controller = chain.chain_controller();
     let final_number = 20;
 
     let mock_store = MockStore::new(&parent, shared.store());
@@ -553,8 +563,9 @@ fn prepare_context_chain(
     consensus: Consensus,
     orphan_count: u64,
     timestep: u64,
-) -> (ChainController, Shared, HeaderView) {
-    let (chain_controller, shared, genesis) = start_chain(Some(consensus));
+) -> (ChainServiceScope, Shared, HeaderView) {
+    let (chain, shared, genesis) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
     let final_number = shared.consensus().genesis_epoch_ext().length();
 
     let mut chain1: Vec<BlockView> = Vec::new();
@@ -636,7 +647,7 @@ fn prepare_context_chain(
         mock_store.insert_block(&new_block, &epoch);
         parent = new_block.header().clone();
     }
-    (chain_controller, shared, genesis)
+    (chain, shared, genesis)
 }
 
 #[test]

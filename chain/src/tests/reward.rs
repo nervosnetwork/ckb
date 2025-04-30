@@ -163,7 +163,8 @@ fn finalize_reward() {
         .genesis_block(genesis_block)
         .build();
 
-    let (chain_controller, shared, mut parent) = start_chain(Some(consensus));
+    let (chain, shared, mut parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let mock_store = MockStore::new(&parent, shared.store());
 

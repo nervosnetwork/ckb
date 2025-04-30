@@ -148,7 +148,8 @@ fn non_contextual_block_txs_verify() {
         .genesis_block(genesis_block)
         .build();
 
-    let (chain_controller, shared, parent) = start_chain(Some(consensus));
+    let (chain, shared, parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
     let mock_store = MockStore::new(&parent, shared.store());
 
     let tx0 = create_transaction(&issue_tx, 0, true);

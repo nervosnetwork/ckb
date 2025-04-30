@@ -2,7 +2,7 @@
 
 use crate::contextual_block_verifier::{UncleVerifierContext, VerifyContext};
 use crate::uncles_verifier::UnclesVerifier;
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
 use ckb_shared::{Shared, SharedBuilder};
@@ -36,16 +36,16 @@ fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> Block
         .build()
 }
 
-fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
+fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
     let mut builder = SharedBuilder::with_temp_db();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
-    (chain_controller, shared)
+    (chain, shared)
 }
 
 fn create_cellbase(number: BlockNumber) -> TransactionView {
@@ -57,7 +57,7 @@ fn create_cellbase(number: BlockNumber) -> TransactionView {
         .build()
 }
 
-fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
+fn prepare() -> (ChainServiceScope, Shared, Vec<BlockView>, Vec<BlockView>) {
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(0);
 
@@ -65,7 +65,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     consensus.max_block_proposals_limit = 3;
     consensus.genesis_epoch_ext.set_length(10);
 
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain_scope, shared) = start_chain(Some(consensus));
 
     let number = 20;
     let mut chain1: Vec<BlockView> = Vec::new();
@@ -87,7 +87,8 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             .unwrap()
             .epoch();
         let new_block = gen_block(&parent, random(), &epoch);
-        chain_controller
+        chain_scope
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain1.push(new_block.clone());
@@ -109,7 +110,8 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
         } else {
             chain1[(i - 1) as usize].clone()
         };
-        chain_controller
+        chain_scope
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
             .expect("process block ok");
         chain2.push(new_block.clone());
@@ -117,7 +119,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     }
 
     // According to the first-received policy, chain1 is the main chain
-    (shared, chain1, chain2)
+    (chain_scope, shared, chain1, chain2)
 }
 
 fn dummy_context(shared: &Shared) -> VerifyContext<ChainDB> {
@@ -136,7 +138,7 @@ fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
 // Uncle is ancestor block
 #[test]
 fn test_double_inclusion() {
-    let (shared, chain1, _) = prepare();
+    let (_scope, shared, chain1, _) = prepare();
     let dummy_context = dummy_context(&shared);
 
     let block_number = 7;
@@ -161,7 +163,7 @@ fn test_double_inclusion() {
 // Uncle.compact_target != block.compact_target
 #[test]
 fn test_invalid_target() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
     let epoch = epoch(&shared, &chain1, 17);
     let invalid_target = epoch.compact_target() + 1;
@@ -185,7 +187,7 @@ fn test_invalid_target() {
 // Uncle.epoch != block.epoch
 #[test]
 fn test_invalid_epoch() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     let block_number = shared.consensus().genesis_epoch_ext().length() as usize + 2; // epoch = 1
@@ -216,7 +218,7 @@ fn test_invalid_epoch() {
 // Uncle.number >= block.number
 #[test]
 fn test_invalid_number() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     let uncle = chain2[18].as_uncle();
@@ -237,7 +239,7 @@ fn test_invalid_number() {
 // Uncle proposals_hash is invalid
 #[test]
 fn test_uncle_proposals_hash() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
     let block_number = 17;
 
@@ -263,7 +265,7 @@ fn test_uncle_proposals_hash() {
 // Uncle contains duplicated proposals
 #[test]
 fn test_uncle_duplicated_proposals() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     // All the blocks in chain2 had a proposal before: ProposalShortId::from_slice(&[1; 10]
@@ -291,7 +293,7 @@ fn test_uncle_duplicated_proposals() {
 // Duplicated uncles
 #[test]
 fn test_duplicated_uncles() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     let uncle = chain2[10].as_uncle();
@@ -315,7 +317,7 @@ fn test_duplicated_uncles() {
 // Uncles count exceeds limit
 #[test]
 fn test_uncle_over_count() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     let max_uncles_num = shared.consensus().max_uncles_num();
@@ -345,7 +347,7 @@ fn test_uncle_over_count() {
 
 #[test]
 fn test_exceeded_maximum_proposals_limit() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     let uncle = chain2[6]
@@ -373,7 +375,7 @@ fn test_exceeded_maximum_proposals_limit() {
 
 #[test]
 fn test_descendant_limit() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     {
@@ -420,7 +422,7 @@ fn test_descendant_limit() {
 
 #[test]
 fn test_descendant_continuity() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     {
@@ -445,7 +447,7 @@ fn test_descendant_continuity() {
 
 #[test]
 fn test_ok() {
-    let (shared, chain1, chain2) = prepare();
+    let (_scope, shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     {
@@ -484,12 +486,13 @@ fn test_ok() {
 
 #[test]
 fn test_uncle_with_uncle_descendant() {
-    let (_, chain1, chain2) = prepare();
+    let (_scope, _, chain1, chain2) = prepare();
 
     let mut consensus = Consensus::default();
     consensus.max_block_proposals_limit = 3;
     consensus.genesis_epoch_ext.set_length(10);
-    let (controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
+    let controller = chain.chain_controller();
 
     for block in &chain2 {
         controller

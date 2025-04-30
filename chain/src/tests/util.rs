@@ -1,4 +1,4 @@
-use crate::{ChainController, start_chain_services};
+use crate::ChainServiceScope;
 use ckb_app_config::TxPoolConfig;
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
@@ -21,14 +21,14 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, HeaderView) {
+pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared, HeaderView) {
     start_chain_with_tx_pool_config(consensus, TxPoolConfig::default())
 }
 
 pub(crate) fn start_chain_with_tx_pool_config(
     consensus: Option<Consensus>,
     tx_pool_config: TxPoolConfig,
-) -> (ChainController, Shared, HeaderView) {
+) -> (ChainServiceScope, Shared, HeaderView) {
     let builder = SharedBuilder::with_temp_db();
     let (_, _, always_success_script) = always_success_cell();
     let consensus = consensus.unwrap_or_else(|| {
@@ -85,7 +85,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
     let parent = {
         let snapshot = shared.snapshot();
         snapshot
@@ -94,7 +94,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
             .unwrap()
     };
 
-    (chain_controller, shared, parent)
+    (chain, shared, parent)
 }
 
 pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {

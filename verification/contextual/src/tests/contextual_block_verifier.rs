@@ -1,6 +1,6 @@
 use super::super::contextual_block_verifier::{EpochVerifier, TwoPhaseCommitVerifier};
 use crate::contextual_block_verifier::{RewardVerifier, VerifyContext};
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_shared::{Shared, SharedBuilder};
@@ -76,15 +76,15 @@ fn create_transaction(
         .build()
 }
 
-fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
+fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
     let mut builder = SharedBuilder::with_temp_db();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }
     let (shared, mut pack) = builder.build().unwrap();
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
-    (chain_controller, shared)
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    (chain, shared)
 }
 
 fn dummy_context(shared: &Shared) -> VerifyContext<ChainDB> {
@@ -99,7 +99,7 @@ fn create_cellbase(number: BlockNumber) -> TransactionView {
         .build()
 }
 
-fn setup_env() -> (ChainController, Shared, Byte32, Script, OutPoint) {
+fn setup_env() -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let tx = TransactionBuilder::default()
@@ -122,9 +122,9 @@ fn setup_env() -> (ChainController, Shared, Byte32, Script, OutPoint) {
     let consensus = ConsensusBuilder::default()
         .genesis_block(genesis_block)
         .build();
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
     (
-        chain_controller,
+        chain,
         shared,
         tx_hash.to_owned(),
         always_success_script.clone(),
@@ -195,13 +195,9 @@ fn test_epoch_difficulty() {
 
 #[test]
 fn test_proposal() {
-    let (
-        chain_controller,
-        shared,
-        mut prev_tx_hash,
-        always_success_script,
-        always_success_out_point,
-    ) = setup_env();
+    let (chain, shared, mut prev_tx_hash, always_success_script, always_success_out_point) =
+        setup_env();
+    let chain_controller = chain.chain_controller();
 
     let mut txs20 = Vec::new();
     for _ in 0..20 {
@@ -275,13 +271,9 @@ fn test_proposal() {
 
 #[test]
 fn test_uncle_proposal() {
-    let (
-        chain_controller,
-        shared,
-        mut prev_tx_hash,
-        always_success_script,
-        always_success_out_point,
-    ) = setup_env();
+    let (chain, shared, mut prev_tx_hash, always_success_script, always_success_out_point) =
+        setup_env();
+    let chain_controller = chain.chain_controller();
 
     let mut txs20 = Vec::new();
     for _ in 0..20 {

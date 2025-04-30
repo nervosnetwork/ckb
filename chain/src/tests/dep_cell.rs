@@ -107,7 +107,8 @@ fn test_package_txs_with_deps() {
         .genesis_block(genesis_block)
         .build();
 
-    let (chain_controller, shared, _parent) = start_chain(Some(consensus));
+    let (chain, shared, _parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let tx_pool = shared.tx_pool_controller();
 
@@ -246,7 +247,8 @@ fn test_package_txs_with_deps_unstable_sort() {
         .genesis_block(genesis_block)
         .build();
 
-    let (chain_controller, shared, _parent) = start_chain(Some(consensus));
+    let (chain, shared, _parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let tx_pool = shared.tx_pool_controller();
 
@@ -390,7 +392,8 @@ fn test_package_txs_with_deps2() {
         .genesis_block(genesis_block)
         .build();
 
-    let (chain_controller, shared, _parent) = start_chain(Some(consensus));
+    let (chain, shared, _parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let tx_pool = shared.tx_pool_controller();
 
@@ -520,7 +523,8 @@ fn test_package_txs_with_deps_priority() {
         .genesis_block(genesis_block)
         .build();
 
-    let (chain_controller, shared, _parent) = start_chain(Some(consensus));
+    let (chain, shared, _parent) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let tx_pool = shared.tx_pool_controller();
 
