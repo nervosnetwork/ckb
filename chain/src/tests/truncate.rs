@@ -1,4 +1,4 @@
-use crate::start_chain_services;
+use crate::ChainServiceScope;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -11,7 +11,8 @@ fn test_truncate() {
     let builder = SharedBuilder::with_temp_db();
 
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()

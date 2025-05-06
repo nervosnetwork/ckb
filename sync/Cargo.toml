@@ -49,6 +49,7 @@ faux.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 ckb-proposal-table.workspace = true
 ckb-logger-service.workspace = true
+ckb-tx-pool = { workspace = true, features = ["internal"] }
 
 [features]
 default = []

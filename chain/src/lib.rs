@@ -30,7 +30,7 @@ use ckb_logger::{error, info};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::prelude::{Pack, Unpack};
 use ckb_types::{BlockNumberAndHash, H256};
-pub use init::start_chain_services;
+pub use init::{ChainServiceScope, build_chain_services, start_chain_services};
 
 type ProcessBlockRequest = Request<LonelyBlock, ()>;
 type TruncateRequest = Request<Byte32, Result<(), Error>>;

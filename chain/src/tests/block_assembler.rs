@@ -1,5 +1,5 @@
+use crate::ChainServiceScope;
 use crate::tests::util::dummy_network;
-use crate::{ChainController, start_chain_services};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
@@ -21,7 +21,7 @@ use ckb_verification::{BlockVerifier, HeaderVerifier};
 use ckb_verification_traits::{Switch, Verifier};
 use std::sync::Arc;
 
-fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
+fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
     let mut builder = SharedBuilder::with_temp_db();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
@@ -47,18 +47,19 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     pack.take_tx_pool_builder().start(network);
 
     let chain_services_builder: ChainServicesBuilder = pack.take_chain_services_builder();
-    let chain_controller: ChainController = start_chain_services(chain_services_builder);
+    let chain = ChainServiceScope::new(chain_services_builder);
+    let chain_controller = chain.chain_controller();
 
     while chain_controller.is_verifying_unverified_blocks_on_startup() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    (chain_controller, shared)
+    (chain, shared)
 }
 
 #[test]
 fn test_get_block_template() {
-    let (_chain_controller, shared) = start_chain(None);
+    let (_chain, shared) = start_chain(None);
 
     let block_template = shared
         .get_block_template(None, None, None)
@@ -123,7 +124,8 @@ fn test_block_template_timestamp() {
 
     let consensus = Consensus::default();
     let epoch = consensus.genesis_epoch_ext().clone();
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()
@@ -187,7 +189,8 @@ fn test_prepare_uncles() {
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();
 
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()
@@ -279,7 +282,8 @@ fn test_candidate_uncles_retain() {
     let epoch = consensus.genesis_epoch_ext().clone();
     let mut candidate_uncles = CandidateUncles::new();
 
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()
@@ -394,7 +398,8 @@ fn test_package_basic() {
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();
 
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()
@@ -501,7 +506,8 @@ fn test_package_multi_best_scores() {
     let mut consensus = Consensus::default();
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()
@@ -619,7 +625,8 @@ fn test_package_low_fee_descendants() {
     consensus.genesis_epoch_ext.set_length(5);
     let epoch = consensus.genesis_epoch_ext().clone();
 
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain, shared) = start_chain(Some(consensus));
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()

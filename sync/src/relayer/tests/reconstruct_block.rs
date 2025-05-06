@@ -12,7 +12,7 @@ use std::collections::HashSet;
 // There are more test cases in block_transactions_process and compact_block_process.rs
 #[test]
 fn test_missing_txs() {
-    let (relayer, always_success_out_point) = build_chain(5);
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
     let prepare: Vec<TransactionView> = (0..20)
         .map(|i| new_transaction(&relayer, i, &always_success_out_point))
         .collect();
@@ -63,7 +63,7 @@ fn test_missing_txs() {
 
 #[test]
 fn test_reconstruct_transactions_and_uncles() {
-    let (relayer, always_success_out_point) = build_chain(5);
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
     let parent = new_transaction(&relayer, 0, &always_success_out_point);
 
     // create a chain of transactions as prepare
@@ -144,7 +144,7 @@ fn test_reconstruct_transactions_and_uncles() {
 
 #[test]
 fn test_reconstruct_invalid_uncles() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
 
     let uncle = BlockBuilder::default().build();
     // BLOCK_VALID

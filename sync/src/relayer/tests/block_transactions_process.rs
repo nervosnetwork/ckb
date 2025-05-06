@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_accept_block() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
     let other_peer_index: PeerIndex = 101.into();
 
@@ -99,7 +99,7 @@ fn test_accept_block() {
 
 #[test]
 fn test_unknown_request() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
 
     let tx1 = TransactionBuilder::default().build();
@@ -152,7 +152,7 @@ fn test_unknown_request() {
 
 #[test]
 fn test_invalid_transaction_root() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
 
     let tx1 = TransactionBuilder::default().build();
@@ -220,7 +220,7 @@ fn test_invalid_transaction_root() {
 
 #[test]
 fn test_collision_and_send_missing_indexes() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
 
     let active_chain = relayer.shared.active_chain();
     let last_block = relayer
@@ -365,7 +365,7 @@ fn test_missing() {
     //  3. When the relayer receives the return from tx2, tx3 is not in the transaction pool
     //  4. Relayer must make another request for tx2 and tx3
 
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
 
     let tx1 = TransactionBuilder::default().build();

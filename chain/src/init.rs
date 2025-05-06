@@ -21,7 +21,25 @@ use std::thread;
 
 const ORPHAN_BLOCK_SIZE: usize = BLOCK_DOWNLOAD_WINDOW as usize;
 
+/// Here we distinguish between build_chain_services and start_chain_services:
+/// * build_chain_services simply initializes ChainController, setting up all relavant
+///   threads, and return join handle for the main chain service thread.
+/// * start_chain_services first builds relavant data just like build_chain_services,
+///   in addition, it register the main chain service thread against CKB's handler. As
+///   a result, start_chain_services only returns ChainController, it is expected that
+///   CKB's stop handler shall be used to terminate the created chain service.
 pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
+    let (chain_service, chain_service_thread) = build_chain_services(builder);
+    register_thread("ChainService", chain_service_thread);
+
+    chain_service
+}
+
+/// Please refer to +start_chain_services+ for difference between build_chain_services
+/// and start_chain_services
+pub fn build_chain_services(
+    builder: ChainServicesBuilder,
+) -> (ChainController, thread::JoinHandle<()>) {
     let orphan_blocks_broker = Arc::new(OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE));
 
     let (truncate_block_tx, truncate_block_rx) = channel::bounded(1);
@@ -129,7 +147,34 @@ pub fn start_chain_services(builder: ChainServicesBuilder) -> ChainController {
             }
         })
         .expect("start chain_service thread should ok");
-    register_thread("ChainService", chain_service_thread);
 
-    chain_controller
+    (chain_controller, chain_service_thread)
+}
+
+/// This structure restricts the scope of chain service, and forces chain
+/// service threads to terminate before dropping the structure.
+/// The content of this struct will always be present, the reason we
+/// wrap them in an option, is that we will need to consume them in
+/// Drop trait impl of this struct.
+pub struct ChainServiceScope(Option<(ChainController, thread::JoinHandle<()>)>);
+
+impl ChainServiceScope {
+    /// Creates a new ChainServiceScope structure
+    pub fn new(builder: ChainServicesBuilder) -> Self {
+        let (controller, join_handle) = build_chain_services(builder);
+        Self(Some((controller, join_handle)))
+    }
+
+    /// Returns a reference to chain controller
+    pub fn chain_controller(&self) -> &ChainController {
+        &self.0.as_ref().unwrap().0
+    }
+}
+
+impl Drop for ChainServiceScope {
+    fn drop(&mut self) {
+        let (controller, join_handle) = self.0.take().unwrap();
+        drop(controller);
+        let _ = join_handle.join();
+    }
 }

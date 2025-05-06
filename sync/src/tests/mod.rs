@@ -195,6 +195,9 @@ impl TestNode {
         if let Some(th) = self.th.take() {
             th.join().expect("th join");
         }
+        // Dropping self is required since this structure might
+        // contain a copy of ChainController in one protocol.
+        drop(self);
     }
 }
 

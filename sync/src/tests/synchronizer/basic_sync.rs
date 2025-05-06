@@ -4,7 +4,7 @@ use crate::synchronizer::{
 };
 use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
-use ckb_chain::start_chain_services;
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_channel::bounded;
 use ckb_dao::DaoCalculator;
@@ -38,9 +38,9 @@ fn basic_sync() {
     _faketime_guard.set_faketime(0);
     let thread_name = "fake_time=0".to_string();
 
-    let (mut node1, shared1) = setup_node(1);
+    let (mut node1, shared1, _chain1) = setup_node(1);
     info!("finished setup node1");
-    let (mut node2, shared2) = setup_node(3);
+    let (mut node2, shared2, _chain2) = setup_node(3);
     info!("finished setup node2");
 
     info!("connnectiong node1 and node2");
@@ -91,7 +91,7 @@ fn basic_sync() {
     panic!("node1 and node2 should sync in 3 seconds");
 }
 
-fn setup_node(height: u64) -> (TestNode, Shared) {
+fn setup_node(height: u64) -> (TestNode, Shared, ChainServiceScope) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let always_success_tx = TransactionBuilder::default()
@@ -119,9 +119,12 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         .build()
         .unwrap();
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
-    while chain_controller.is_verifying_unverified_blocks_on_startup() {
+    while chain
+        .chain_controller()
+        .is_verifying_unverified_blocks_on_startup()
+    {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
@@ -189,7 +192,8 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .extension(Some(bytes))
             .build();
 
-        chain_controller
+        chain
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
             .expect("process block should be OK");
     }
@@ -199,7 +203,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         Default::default(),
         pack.take_relay_tx_receiver(),
     ));
-    let synchronizer = Synchronizer::new(chain_controller, sync_shared);
+    let synchronizer = Synchronizer::new(chain.chain_controller().clone(), sync_shared);
     let mut node = TestNode::new();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;
     node.add_protocol(
@@ -212,5 +216,5 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             TIMEOUT_EVICTION_TOKEN,
         ],
     );
-    (node, shared)
+    (node, shared, chain)
 }

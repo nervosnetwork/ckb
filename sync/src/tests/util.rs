@@ -1,5 +1,5 @@
 use crate::SyncShared;
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, SharedBuilder, Snapshot};
@@ -14,15 +14,15 @@ use ckb_verification_traits::Switch;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainController) {
+pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainServiceScope) {
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
-    generate_blocks(&shared, &chain_controller, tip);
+    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
+    generate_blocks(&shared, chain_scope.chain_controller(), tip);
     let sync_shared = SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver());
-    (sync_shared, chain_controller)
+    (sync_shared, chain_scope)
 }
 
 pub fn generate_blocks(

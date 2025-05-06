@@ -3,7 +3,7 @@ use crate::relayer::tests::helper::{
     MockProtocolContext, build_chain, gen_block, new_header_builder,
 };
 use crate::{Status, StatusCode};
-use ckb_chain::start_chain_services;
+use ckb_chain::ChainServiceScope;
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_shared::ChainServicesBuilder;
 use ckb_shared::block_status::BlockStatus;
@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_in_block_status_map() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let header = {
         let shared = relayer.shared.shared();
         let parent = shared
@@ -107,7 +107,7 @@ fn test_in_block_status_map() {
 // send_getheaders_to_peer when UnknownParent
 #[test]
 fn test_unknow_parent() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
 
     // UnknownParent
     let block = BlockBuilder::default()
@@ -157,7 +157,7 @@ fn test_unknow_parent() {
 
 #[test]
 fn test_accept_not_a_better_block() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let tip_header = {
         let active_chain = relayer.shared.active_chain();
         active_chain.tip_header()
@@ -219,7 +219,7 @@ fn test_accept_not_a_better_block() {
 
 #[test]
 fn test_header_invalid() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let parent = {
         let active_chain = relayer.shared.active_chain();
         active_chain.tip_header()
@@ -265,7 +265,7 @@ fn test_header_invalid() {
 
 #[test]
 fn test_send_missing_indexes() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let parent = {
         let active_chain = relayer.shared.active_chain();
         active_chain.tip_header()
@@ -355,7 +355,7 @@ fn test_send_missing_indexes() {
 fn test_accept_block() {
     let _log_guard = ckb_logger_service::init_for_test("info,ckb-chain=debug").expect("init log");
 
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let parent = {
         let active_chain = relayer.shared.active_chain();
         active_chain.tip_header()
@@ -409,9 +409,10 @@ fn test_accept_block() {
             proposal_table,
         };
 
-        let chain_controller = start_chain_services(chain_service_builder);
+        let chain = ChainServiceScope::new(chain_service_builder);
 
-        chain_controller
+        chain
+            .chain_controller()
             .blocking_process_block_with_switch(Arc::new(uncle), Switch::DISABLE_EXTENSION)
             .unwrap();
     }
@@ -447,7 +448,7 @@ fn test_accept_block() {
 
 #[test]
 fn test_ignore_a_too_old_block() {
-    let (relayer, _) = build_chain(1804);
+    let (_chain, relayer, _) = build_chain(1804);
 
     let snapshot = relayer.shared.shared().snapshot();
     let parent = snapshot.tip_header();
@@ -483,7 +484,7 @@ fn test_ignore_a_too_old_block() {
 
 #[test]
 fn test_invalid_transaction_root() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
     let parent = {
         let active_chain = relayer.shared.active_chain();
         active_chain.tip_header()
@@ -518,7 +519,7 @@ fn test_invalid_transaction_root() {
 
 #[test]
 fn test_collision() {
-    let (relayer, _) = build_chain(5);
+    let (_chain, relayer, _) = build_chain(5);
 
     let last_block = relayer
         .shared

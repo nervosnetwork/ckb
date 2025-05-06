@@ -1,6 +1,6 @@
 use crate::utils::forkchanges::ForkChanges;
 use crate::verify::ConsumeUnverifiedBlockProcessor;
-use crate::{UnverifiedBlock, start_chain_services};
+use crate::{ChainServiceScope, UnverifiedBlock};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::SharedBuilder;
@@ -389,7 +389,8 @@ fn repeatedly_switch_fork() {
     let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
     let mut fork2 = MockChain::new(genesis, shared.consensus());
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain_controller = chain.chain_controller();
 
     for _ in 0..2 {
         fork1.gen_empty_block_with_nonce(1u128, &mock_store);
@@ -525,7 +526,8 @@ fn test_fork_proposal_table() {
     };
 
     let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain_controller = chain.chain_controller();
 
     let genesis = shared
         .store()
