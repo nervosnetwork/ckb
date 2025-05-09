@@ -2,6 +2,7 @@ use crate::IoHandler;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Extension, Router};
+use axum_streams::StreamBodyAs;
 use ckb_app_config::RpcConfig;
 use ckb_async_runtime::Handle;
 use ckb_error::AnyError;
@@ -12,8 +13,7 @@ use axum::{Json, body::Bytes, http::StatusCode, response::Response};
 use jsonrpc_core::{MetaIoHandler, Metadata, Request};
 
 use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
-use futures_util::future;
-use futures_util::future::Either::{Left, Right};
+use futures_util::{StreamExt, stream};
 use jsonrpc_core::Error;
 use jsonrpc_core::types::Response as RpcResponse;
 use jsonrpc_core::types::error::ErrorCode;
@@ -118,7 +118,7 @@ impl RpcServer {
 
         let app = Router::new()
             .route("/", method_router.clone())
-            .route("/*path", method_router)
+            .route("/{*path}", method_router)
             .route("/ping", get(ping_handler))
             .layer(Extension(Arc::clone(rpc)))
             .layer(CorsLayer::permissive())
@@ -233,37 +233,64 @@ async fn handle_jsonrpc<T: Default + Metadata>(
     };
 
     let req = serde_json::from_str::<Request>(req);
-    let result = match req {
-        Err(_error) => Left(future::ready(Some(RpcResponse::from(
-            Error::new(ErrorCode::ParseError),
-            Some(jsonrpc_core::Version::V2),
-        )))),
-        Ok(request) => {
-            if let Request::Batch(ref arr) = request {
+    match req {
+        Err(_error) => {
+            let response = RpcResponse::from(
+                Error::new(ErrorCode::ParseError),
+                Some(jsonrpc_core::Version::V2),
+            );
+
+            serde_json::to_string(&response)
+                .map(|json| {
+                    (
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        json,
+                    )
+                        .into_response()
+                })
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+        Ok(request) => match request {
+            Request::Single(call) => {
+                let result = io.handle_call(call, T::default()).await;
+
+                if let Some(response) = result {
+                    serde_json::to_string(&response)
+                        .map(|json| {
+                            (
+                                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                                json,
+                            )
+                                .into_response()
+                        })
+                        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                } else {
+                    StatusCode::NO_CONTENT.into_response()
+                }
+            }
+            Request::Batch(calls) => {
                 if let Some(batch_size) = JSONRPC_BATCH_LIMIT.get() {
-                    if arr.len() > *batch_size {
+                    if calls.len() > *batch_size {
                         return make_error_response(jsonrpc_core::Error::invalid_params(format!(
                             "batch size is too large, expect it less than: {}",
                             batch_size
                         )));
                     }
                 }
-            }
-            Right(io.handle_rpc_request(request, T::default()))
-        }
-    };
 
-    if let Some(response) = result.await {
-        serde_json::to_string(&response)
-            .map(|json| {
+                let stream = stream::iter(calls)
+                    .then(move |call| {
+                        let io = Arc::clone(&io);
+                        async move { io.handle_call(call, T::default()).await }
+                    })
+                    .filter_map(|response| async move { response });
+
                 (
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
-                    json,
+                    StreamBodyAs::json_array(stream),
                 )
                     .into_response()
-            })
-            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
-    } else {
-        StatusCode::NO_CONTENT.into_response()
+            }
+        },
     }
 }
