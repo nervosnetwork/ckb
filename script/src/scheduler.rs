@@ -293,6 +293,7 @@ where
         while !self.terminated() {
             limit_cycles = self.iterate_outer(&pause, limit_cycles)?.1;
         }
+        assert_eq!(self.iteration_cycles, 0);
 
         self.terminated_result()
     }
@@ -312,6 +313,7 @@ where
 
         let (id, _) = self.iterate_outer(&Pause::new(), u64::MAX)?;
         let terminated_status = if self.terminated() {
+            assert_eq!(self.iteration_cycles, 0);
             Some(self.terminated_result()?)
         } else {
             None
