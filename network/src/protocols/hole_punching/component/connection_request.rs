@@ -44,9 +44,11 @@ impl<'a> ConnectionRequestProcess<'a> {
     }
 
     pub(crate) async fn execute(self) -> Status {
-        if self.message.listen_addrs().len() > ADDRS_COUNT_LIMIT {
+        if self.message.listen_addrs().len() > ADDRS_COUNT_LIMIT
+            || self.message.listen_addrs().is_empty()
+        {
             return StatusCode::InvalidListenAddrLen
-                .with_context("the listen address count is too large");
+                .with_context("the listen address count is too large or empty");
         }
         let ttl: u8 = self.message.ttl().into();
         if ttl > MAX_TTL {

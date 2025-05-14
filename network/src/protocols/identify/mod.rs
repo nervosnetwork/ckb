@@ -164,16 +164,8 @@ impl<T: Callback> IdentifyProtocol<T> {
             .remote_infos
             .get_mut(&session.id)
             .expect("RemoteInfo must exists");
-        let global_ip_only = self.global_ip_only;
-        if multiaddr_to_socketaddr(&observed)
-            .map(|socket_addr| socket_addr.ip())
-            .filter(|ip_addr| !global_ip_only || is_reachable(*ip_addr))
-            .is_none()
-        {
-            return MisbehaveResult::Continue;
-        }
-
-        self.callback.add_observed_addr(observed, info.session.id)
+        self.callback.add_observed_addr(observed, info.session.id);
+        MisbehaveResult::Continue
     }
 }
 
