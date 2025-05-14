@@ -84,6 +84,14 @@ where
     ///
     /// One can consider that +total_cycles+ contains the total cycles
     /// consumed in current scheduler, when the scheduler is not busy executing.
+    ///
+    /// NOTE: the above workflow describes the optimal case: `iteration_cycles`
+    /// will always be zero after each iteration. However, our initial implementation
+    /// for Meepo hardfork contains a bug: cycles charged by suspending / resuming
+    /// VMs when processing IOs, will not be reflected in `current cycles` syscalls
+    /// of the subsequent running VMs. To preserve this behavior, consumed cycles in
+    /// iteration_cycles cannot be moved at iterate boundaries. Later hardfork versions
+    /// might fix this, but for the Meepo hardfork, we will have to preserve this behavior.
     total_cycles: Arc<AtomicU64>,
     /// Iteration cycles, see +total_cycles+ on its usage
     iteration_cycles: Cycle,
@@ -200,7 +208,7 @@ where
             syscall_generator,
             syscall_context,
             total_cycles: Arc::new(AtomicU64::new(full.total_cycles)),
-            iteration_cycles: 0,
+            iteration_cycles: full.iteration_cycles,
             next_vm_id: full.next_vm_id,
             next_fd_slot: full.next_fd_slot,
             states: full
@@ -250,6 +258,7 @@ where
             // consensus. We are not charging cycles for suspending
             // a VM in the process of suspending the whole scheduler.
             total_cycles: self.total_cycles.load(Ordering::Acquire),
+            iteration_cycles: self.iteration_cycles,
             next_vm_id: self.next_vm_id,
             next_fd_slot: self.next_fd_slot,
             vms,
@@ -390,18 +399,6 @@ where
             Err(Error::Yield) => Ok(()),
             Err(e) => Err(e),
         };
-        // Process all pending VM reads & writes. Notice ideally, this invocation
-        // can be put immediately after `self.process_message_box()` above. But in
-        // earlier versions, `self.process_io` was put at the very start of
-        // +iterate_prepare_machine+ method, to replicate exact same runtime behavior
-        // we have to call +process_io+ at last here. Terminating VMs can lead to
-        // joined VMs being instantiated, we cannot just swap `process_io` call with
-        // the above block.
-        // The only expected changes here, is that +process_io+ is now called once more
-        // after the whole scheduler terminates, and not called at the very beginning
-        // when no VM is executing. But since no VMs will be in IO states at this 2 timeslot,
-        // we should be fine here.
-        self.process_io()?;
         result
     }
 
@@ -414,7 +411,6 @@ where
         pause: &Pause,
         limit_cycles: Cycle,
     ) -> Result<(VmId, Cycle), Error> {
-        assert_eq!(self.iteration_cycles, 0);
         let iterate_return = self.iterate_inner(pause.clone(), limit_cycles);
         self.consume_cycles(self.iteration_cycles)?;
         let remaining_cycles = limit_cycles
@@ -422,6 +418,31 @@ where
             .ok_or(Error::CyclesExceeded)?;
         // Clear iteration cycles intentionally after each run
         self.iteration_cycles = 0;
+        // Process all pending VM reads & writes. Notice ideally, this invocation
+        // should be put at the end of `iterate_inner` function. However, 2 things
+        // prevent this:
+        //
+        // * In earlier implementation of the Meepo hardfork version, `self.process_io`
+        // was put at the very start of +iterate_prepare_machine+ method. Meaning we used
+        // to process IO syscalls at the very start of a new iteration.
+        // * Earlier implementation contains a bug that cycles consumed by suspending / resuming
+        // VMs are not updated in the subsequent VM's `current cycles` syscalls.
+        //
+        // To make ckb-script package suitable for outside usage, we want IOs processed at
+        // the end of each iteration, not at the start of the next iteration. We also need
+        // to replicate the exact same runtime behavior of Meepo hardfork. This means the only
+        // viable change will be:
+        //
+        // * Move `self.process_io` call to the very end of `iterate_outer` method, which is
+        // exactly current location
+        // * For now we have to live with the fact that `iteration_cycles` will not always be
+        // zero at iteration boundaries, and also preserve its value in `FullSuspendedState`.
+        //
+        // One expected change is that +process_io+ is now called once more
+        // after the whole scheduler terminates, and not called at the very beginning
+        // when no VM is executing. But since no VMs will be in IO states at this 2 timeslot,
+        // we should be fine here.
+        self.process_io()?;
         let id = iterate_return?;
         Ok((id, remaining_cycles))
     }

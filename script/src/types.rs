@@ -495,6 +495,10 @@ impl TryFrom<(u64, u64, u64)> for DataPieceId {
 pub struct FullSuspendedState {
     /// Total executed cycles
     pub total_cycles: Cycle,
+    /// Iteration cycles. Due to an implementation bug in Meepo hardfork,
+    /// this value will not always be zero at visible execution boundaries.
+    /// We will have to preserve this value.
+    pub iteration_cycles: Cycle,
     /// Next available VM ID
     pub next_vm_id: VmId,
     /// Next available file descriptor
@@ -518,6 +522,7 @@ impl FullSuspendedState {
     pub fn size(&self) -> u64 {
         (size_of::<Cycle>()
             + size_of::<VmId>()
+            + size_of::<u64>()
             + size_of::<u64>()
             + self.vms.iter().fold(0, |mut acc, (_, _, snapshot)| {
                 acc += size_of::<VmId>() + size_of::<VmState>();
