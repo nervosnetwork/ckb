@@ -77,7 +77,8 @@ ALL_BINS := jalr_zero \
             spawn_huge_swap \
             spawn_cycles \
             spawn_io_cycles \
-            spawn_saturate_memory
+            spawn_saturate_memory \
+            spawn_create_17_spawn
 
 ALL_LIBS := is_even.lib \
             add1.lib sub1.lib mul2.lib div2.lib
@@ -167,3 +168,4 @@ spawn_huge_swap: spawn_huge_swap.c spawn_utils.h
 spawn_cycles: spawn_cycles.c spawn_utils.h
 spawn_io_cycles: spawn_io_cycles.c spawn_utils.h
 spawn_saturate_memory: spawn_saturate_memory.c spawn_utils.h
+spawn_create_17_spawn: spawn_create_17_spawn.c
