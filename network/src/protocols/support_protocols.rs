@@ -96,7 +96,7 @@ impl SupportProtocols {
             SupportProtocols::Alert => "/ckb/alt",
             SupportProtocols::LightClient => "/ckb/lightclient",
             SupportProtocols::Filter => "/ckb/filter",
-            SupportProtocols::HolePunching => "/ckb/HolePunching",
+            SupportProtocols::HolePunching => "/ckb/holepunching",
         }
         .to_owned()
     }

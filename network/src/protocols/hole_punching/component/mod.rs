@@ -21,6 +21,32 @@ use tokio::net::{TcpSocket, TcpStream};
 use crate::{PeerId, protocols::hole_punching::MAX_TTL};
 
 // Attempt to establish a TCP connection with NAT traversal
+//
+// Why is random jitter time added in NAT traversal?
+//
+// 1. Prevents synchronization problems
+//    - Without jitter, both parties might always send connection requests simultaneously
+//    - When requests collide rather than complement each other, connection establishment fails
+//
+// 2. Avoids NAT filtering
+//    - NAT devices often restrict or block perfectly regular connection attempts
+//    - Random intervals make connection attempts appear more natural, avoiding detection
+//    - Helps bypass NAT devices that might interpret regular patterns as scanning or attacks
+//
+// 3. Compensates for network uncertainties
+//    - Real networks have inherent variations in packet delivery times
+//    - System scheduling and network congestion create unpredictable delays
+//    - Jitter accounts for these natural timing variations
+//
+// 4. Increases connection success probability
+//    - Different system clocks and startup times can cause connection attempts to miss each other
+//    - Random jitter expands the time window when connection attempts might overlap
+//    - This "window expansion" strategy improves connection success rates
+//
+// 5. Breaks repetitive failure patterns
+//    - If a specific timing pattern causes connection failure
+//    - Using the same fixed interval would repeat the same failure
+//    - Randomness helps break out of these failure modes
 #[cfg(not(target_family = "wasm"))]
 pub(crate) async fn try_nat_traversal(
     bind_addr: Option<SocketAddr>,
@@ -33,40 +59,27 @@ pub(crate) async fn try_nat_traversal(
             return Err(std::io::ErrorKind::InvalidInput.into());
         }
     };
-    let now = Instant::now();
-    let mut count = 0;
-    loop {
-        count += 1;
-        if count / 5 > 30 && now.elapsed() > Duration::from_secs(30) {
-            debug!("NAT traversal timed out");
-            return Err(std::io::ErrorKind::TimedOut.into());
-        }
-        let socket = match bind_addr {
-            Some(listen_addr) => match (listen_addr.ip(), net_addr.ip()) {
-                (IpAddr::V4(_), IpAddr::V4(_)) => {
-                    let socket = TcpSocket::new_v4().unwrap();
-                    socket.set_reuseaddr(true).unwrap();
-                    #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-                    socket.set_reuseport(true).unwrap();
-                    socket.bind(listen_addr).unwrap();
-                    socket
-                }
-                (IpAddr::V6(_), IpAddr::V6(_)) => {
-                    let socket = TcpSocket::new_v6().unwrap();
-                    socket.set_reuseaddr(true).unwrap();
-                    #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-                    socket.set_reuseport(true).unwrap();
-                    socket.bind(listen_addr).unwrap();
-                    socket
-                }
-                (IpAddr::V4(_), IpAddr::V6(_)) => TcpSocket::new_v6().unwrap(),
-                (IpAddr::V6(_), IpAddr::V4(_)) => TcpSocket::new_v4().unwrap(),
-            },
-            None => match net_addr.ip() {
-                IpAddr::V4(_) => TcpSocket::new_v4().unwrap(),
-                IpAddr::V6(_) => TcpSocket::new_v6().unwrap(),
-            },
+
+    // Use a fixed interval but add a small amount of randomness
+    let base_retry_interval = Duration::from_millis(200);
+
+    // total time
+    let timeout_duration = Duration::from_secs(30);
+    let start_time = Instant::now();
+    let mut retry_count = 0u32;
+    while start_time.elapsed() < timeout_duration {
+        retry_count += 1;
+
+        // Add a small amount of random jitter (±25ms) to avoid conflicts
+        // caused by continuous precise synchronization
+        let jitter = Duration::from_millis(rand::random::<u64>() % 50);
+        let actual_interval = if rand::random::<bool>() {
+            base_retry_interval + jitter
+        } else {
+            base_retry_interval.saturating_sub(jitter)
         };
+
+        let socket = create_socket(bind_addr, net_addr)?;
 
         match runtime::timeout(
             std::time::Duration::from_millis(200),
@@ -74,19 +87,75 @@ pub(crate) async fn try_nat_traversal(
         )
         .await
         {
-            Ok(Ok(stream)) => break Ok((stream, addr)),
+            Ok(Ok(stream)) => {
+                // try get the stored error in the underlying socket
+                // if the socket is not connected, it will return an error
+                if let Err(err) = check_connection(&stream) {
+                    debug!("Failed to connect to NAT(base check): {}", err);
+                }
+                return Ok((stream, addr));
+            }
             Err(err) => {
-                debug!("Failed to connect to NAT: {}", err);
-                continue;
+                debug!("Failed to connect to NAT(timeout): {}", err);
             }
             Ok(Err(err)) => {
                 if err.kind() == std::io::ErrorKind::AddrNotAvailable {
-                    break Err(err);
+                    return Err(err);
                 }
-                debug!("Failed to connect to NAT: {}, {}", err.kind(), err);
-                continue;
+                debug!(
+                    "Failed to connect to NAT(other error): {}, {}",
+                    err.kind(),
+                    err
+                );
             }
         }
+        runtime::delay_for(actual_interval).await;
+    }
+
+    debug!("Failed to connect to NAT after {} retries", retry_count);
+    Err(std::io::ErrorKind::TimedOut.into())
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn create_socket(
+    bind_addr: Option<SocketAddr>,
+    target_addr: SocketAddr,
+) -> Result<TcpSocket, std::io::Error> {
+    let socket = match bind_addr {
+        Some(listen_addr) => match (listen_addr.ip(), target_addr.ip()) {
+            (IpAddr::V4(_), IpAddr::V4(_)) => {
+                let socket = TcpSocket::new_v4()?;
+                socket.set_reuseaddr(true)?;
+                #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+                socket.set_reuseport(true)?;
+                socket.bind(listen_addr)?;
+                socket
+            }
+            (IpAddr::V6(_), IpAddr::V6(_)) => {
+                let socket = TcpSocket::new_v6()?;
+                socket.set_reuseaddr(true)?;
+                #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+                socket.set_reuseport(true)?;
+                socket.bind(listen_addr)?;
+                socket
+            }
+            (IpAddr::V4(_), IpAddr::V6(_)) => TcpSocket::new_v6()?,
+            (IpAddr::V6(_), IpAddr::V4(_)) => TcpSocket::new_v4()?,
+        },
+        None => match target_addr.ip() {
+            IpAddr::V4(_) => TcpSocket::new_v4()?,
+            IpAddr::V6(_) => TcpSocket::new_v6()?,
+        },
+    };
+    Ok(socket)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn check_connection(stream: &TcpStream) -> Result<(), std::io::Error> {
+    match stream.take_error() {
+        Ok(Some(err)) => Err(err),
+        Ok(None) => Ok(()),
+        Err(err) => Err(err),
     }
 }
 

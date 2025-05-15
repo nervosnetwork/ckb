@@ -492,7 +492,17 @@ impl Callback for IdentifyCallback {
 
     /// Get local listen addresses
     fn local_listen_addrs(&mut self) -> Vec<Multiaddr> {
-        self.listen_addrs()
+        let mut listens = self.listen_addrs();
+
+        if listens.len() < MAX_RETURN_LISTEN_ADDRS {
+            let observe_addrs = self
+                .network_state
+                .observed_addrs(MAX_RETURN_LISTEN_ADDRS - listens.len());
+            listens.extend(observe_addrs);
+            listens
+        } else {
+            listens
+        }
     }
 
     fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>) {
