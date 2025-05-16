@@ -13,5 +13,5 @@ proc-macro = true
 
 [dependencies]
 quote.workspace = true
-syn = "1.0"
+syn.workspace = true
 ckb-occupied-capacity-core.workspace = true

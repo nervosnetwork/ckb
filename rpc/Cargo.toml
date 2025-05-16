@@ -23,7 +23,7 @@ ckb-network-alert.workspace = true
 ckb-app-config.workspace = true
 ckb-constant.workspace = true
 jsonrpc-core.workspace = true
-serde_json = "1.0"
+serde_json.workspace = true
 jsonrpc-utils = { workspace = true, features = ["server", "macros", "axum"] }
 axum-streams = { version = "0.21", features=["json"] }
 ckb-jsonrpc-types.workspace = true

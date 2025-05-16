@@ -13,4 +13,4 @@ proc-macro = true
 
 [dependencies]
 quote.workspace = true
-syn = { version = "1.0", features = ["full", "printing"] }
+syn = { workspace = true, features = ["full", "printing"] }
