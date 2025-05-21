@@ -757,7 +757,7 @@ dependencies = [
  "ckb-resource",
  "ckb-shared",
  "ckb-store",
- "ckb-system-scripts",
+ "ckb-system-scripts 0.5.4",
  "ckb-test-chain-utils",
  "ckb-types",
  "ckb-verification",
@@ -1474,7 +1474,8 @@ dependencies = [
 name = "ckb-resource"
 version = "0.203.0-pre"
 dependencies = [
- "ckb-system-scripts",
+ "ckb-system-scripts 0.5.4",
+ "ckb-system-scripts 0.6.0",
  "ckb-types",
  "includedir",
  "includedir_codegen",
@@ -1765,6 +1766,19 @@ name = "ckb-system-scripts"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa5c59063142de7a68cfad4449c6b3863563856219a2925dfb8c5f019ec2aa47"
+dependencies = [
+ "blake2b-rs",
+ "faster-hex",
+ "includedir",
+ "includedir_codegen",
+ "phf 0.8.0",
+]
+
+[[package]]
+name = "ckb-system-scripts"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47bf86cbf4b6c1bfcfecb2ae4d2ade984828ca0727db22b4184d4f3b2f87d783"
 dependencies = [
  "blake2b-rs",
  "faster-hex",

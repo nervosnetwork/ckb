@@ -33,7 +33,12 @@ file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
 capacity = 1_048_617_0000_0000
 [[genesis.system_cells]]
-file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+file = { version = "v0.5.4", bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+create_type_id = true
+capacity = 100_000_0000_0000
+
+[[genesis.system_cells]]
+file = { version = "v0.6.0", bundled = "specs/cells/secp256k1_blake160_multisig_all" }
 create_type_id = true
 capacity = 100_000_0000_0000
 
@@ -53,7 +58,14 @@ files = [
 name = "secp256k1_blake160_multisig_all"
 files = [
   { bundled = "specs/cells/secp256k1_data" },
-  { bundled = "specs/cells/secp256k1_blake160_multisig_all" },
+  { version = "v0.5.4", bundled = "specs/cells/secp256k1_blake160_multisig_all" },
+]
+
+[[genesis.dep_groups]]
+name = "secp256k1_blake160_multisig_all_v2"
+files = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { version = "v0.6.0", bundled = "specs/cells/secp256k1_blake160_multisig_all" },
 ]
 
 # For first 11 block

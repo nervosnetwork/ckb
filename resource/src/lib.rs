@@ -36,7 +36,11 @@ use std::fs;
 use std::io::{self, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 
-use ckb_system_scripts::BUNDLED_CELL;
+use ckb_system_scripts_v0_5_4::BUNDLED_CELL;
+/// get multisig_legacy from v_0_5_4
+use ckb_system_scripts_v0_5_4::BUNDLED_CELL as BUNDLED_CELL_v0_5_4;
+/// get multisg_v1 from v0_6_0
+use ckb_system_scripts_v0_6_0::BUNDLED_CELL as BUNDLED_CELL_v0_6_0;
 
 mod bundled {
     #![allow(missing_docs, clippy::unreadable_literal)]
@@ -56,6 +60,30 @@ pub const SPEC_DEV_FILE_NAME: &str = "specs/dev.toml";
 /// The file name of the generated RocksDB options file.
 pub const DB_OPTIONS_FILE_NAME: &str = "default.db-options";
 
+/// Represents versions of bundled system scripts.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum BundledSystemScriptVersion {
+    /// The bundled resource version is 0.5.4, used before `CKB v0.201.0`
+    #[serde(rename = "v0.5.4")]
+    V0_5_4,
+    /// The bundled resource version is 0.6.0, contains multisig v2
+    #[serde(rename = "v0.6.0")]
+    V0_6_0,
+}
+
+impl std::fmt::Display for BundledSystemScriptVersion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BundledSystemScriptVersion::V0_5_4 => write!(f, "v0.5.4"),
+            BundledSystemScriptVersion::V0_6_0 => write!(f, "v0.6.0"),
+        }
+    }
+}
+
+fn default_bundled_version() -> BundledSystemScriptVersion {
+    BundledSystemScriptVersion::V0_5_4
+}
+
 /// Represents a resource, which is either bundled in the CKB binary or resident in the local file
 /// system.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -63,6 +91,9 @@ pub const DB_OPTIONS_FILE_NAME: &str = "default.db-options";
 pub enum Resource {
     /// A resource that bundled in the CKB binary.
     Bundled {
+        /// The version of the bundled resource. default is v0.5.4
+        #[serde(default = "default_bundled_version")]
+        version: BundledSystemScriptVersion,
         /// The identifier of the bundled resource.
         bundled: String,
     },
@@ -81,7 +112,9 @@ pub enum Resource {
 impl fmt::Display for Resource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Resource::Bundled { bundled } => write!(f, "Bundled({bundled})"),
+            Resource::Bundled { bundled, version } => {
+                write!(f, "Bundled(bundled: {bundled}, version:{version}))")
+            }
             Resource::FileSystem { file } => write!(f, "FileSystem({})", file.display()),
             Resource::Raw { raw } => write!(f, "Raw({})", raw),
         }
@@ -90,8 +123,18 @@ impl fmt::Display for Resource {
 
 impl Resource {
     /// Creates a reference to the bundled resource.
+    /// This function, will use ckb_system_scripts v0.5.4 crate
     pub fn bundled(bundled: String) -> Resource {
-        Resource::Bundled { bundled }
+        Resource::Bundled {
+            version: BundledSystemScriptVersion::V0_5_4,
+            bundled,
+        }
+    }
+
+    /// Creates a reference to the bundled resource.
+    /// use specific version of ckb_system_scripts crate
+    pub fn bundled_with_version(version: BundledSystemScriptVersion, bundled: String) -> Resource {
+        Resource::Bundled { version, bundled }
     }
 
     /// Creates a reference to the resource resident in the file system.
@@ -163,9 +206,15 @@ impl Resource {
     /// The file system resource exists only when the file exists.
     pub fn exists(&self) -> bool {
         match self {
-            Resource::Bundled { bundled } => {
-                SourceFiles::new(&BUNDLED_CELL, &BUNDLED).is_available(bundled)
+            Resource::Bundled { bundled, version } => match version {
+                BundledSystemScriptVersion::V0_5_4 => {
+                    SourceFiles::new(&BUNDLED_CELL_v0_5_4, &BUNDLED)
+                }
+                BundledSystemScriptVersion::V0_6_0 => {
+                    SourceFiles::new(&BUNDLED_CELL_v0_6_0, &BUNDLED)
+                }
             }
+            .is_available(bundled),
             Resource::FileSystem { file } => file.exists(),
             Resource::Raw { .. } => true,
         }
@@ -195,7 +244,15 @@ impl Resource {
     /// Gets resource content.
     pub fn get(&self) -> Result<Cow<'static, [u8]>> {
         match self {
-            Resource::Bundled { bundled } => SourceFiles::new(&BUNDLED_CELL, &BUNDLED).get(bundled),
+            Resource::Bundled { bundled, version } => match version {
+                BundledSystemScriptVersion::V0_5_4 => {
+                    SourceFiles::new(&BUNDLED_CELL_v0_5_4, &BUNDLED)
+                }
+                BundledSystemScriptVersion::V0_6_0 => {
+                    SourceFiles::new(&BUNDLED_CELL_v0_6_0, &BUNDLED)
+                }
+            }
+            .get(bundled),
             Resource::FileSystem { file } => Ok(Cow::Owned(fs::read(file)?)),
             Resource::Raw { raw } => Ok(Cow::Owned(raw.to_owned().into_bytes())),
         }
@@ -204,9 +261,15 @@ impl Resource {
     /// Gets resource content via an input stream.
     pub fn read(&self) -> Result<Box<dyn Read>> {
         match self {
-            Resource::Bundled { bundled } => {
-                SourceFiles::new(&BUNDLED_CELL, &BUNDLED).read(bundled)
+            Resource::Bundled { bundled, version } => match version {
+                BundledSystemScriptVersion::V0_5_4 => {
+                    SourceFiles::new(&BUNDLED_CELL_v0_5_4, &BUNDLED)
+                }
+                BundledSystemScriptVersion::V0_6_0 => {
+                    SourceFiles::new(&BUNDLED_CELL_v0_6_0, &BUNDLED)
+                }
             }
+            .read(bundled),
             Resource::FileSystem { file } => Ok(Box::new(BufReader::new(fs::File::open(file)?))),
             Resource::Raw { raw } => Ok(Box::new(Cursor::new(raw.to_owned().into_bytes()))),
         }
@@ -222,7 +285,10 @@ impl Resource {
     /// See [Template](struct.Template.html).
     pub fn export<P: AsRef<Path>>(&self, context: &TemplateContext<'_>, root_dir: P) -> Result<()> {
         let key = match self {
-            Resource::Bundled { bundled } => bundled,
+            Resource::Bundled {
+                bundled,
+                version: _,
+            } => bundled,
             _ => return Ok(()),
         };
         let target = join_bundled_key(root_dir.as_ref().to_path_buf(), key);

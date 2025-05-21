@@ -6,7 +6,7 @@ use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_logger::info;
-use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL;
+use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY;
 use ckb_types::{
     H160, H256,
     bytes::Bytes,
@@ -138,7 +138,7 @@ fn type_lock_script_code_hash() -> H256 {
 
 fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> BlockAssemblerConfig {
     let code_hash = if hash_type == ScriptHashType::Data {
-        CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL.clone()
+        CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY.clone()
     } else {
         type_lock_script_code_hash()
     };
