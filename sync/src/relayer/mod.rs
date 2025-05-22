@@ -655,7 +655,7 @@ impl Relayer {
     pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
         const BUFFER_SIZE: usize = 42;
 
-        let connected_peers = nc.connected_peers();
+        let connected_peers = nc.full_relay_connected_peers();
         if connected_peers.is_empty() {
             return;
         }

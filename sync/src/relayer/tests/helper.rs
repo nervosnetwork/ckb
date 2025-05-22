@@ -451,6 +451,9 @@ impl CKBProtocolContext for MockProtocolContext {
     fn connected_peers(&self) -> Vec<PeerIndex> {
         vec![]
     }
+    fn full_relay_connected_peers(&self) -> Vec<PeerIndex> {
+        vec![]
+    }
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
         unimplemented!();
     }

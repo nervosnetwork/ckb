@@ -8,6 +8,7 @@
 //! and the address information collected on the network cannot be blindly trusted
 
 pub mod addr_manager;
+mod anchors;
 pub mod ban_list;
 #[cfg(target_family = "wasm")]
 pub(crate) mod browser;

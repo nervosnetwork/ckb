@@ -73,11 +73,13 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
             session, version
         );
 
-        self.addr_mgr
-            .register(session.id, context.proto_id, version);
-
-        self.sessions
-            .insert(session.id, SessionState::new(context, &self.addr_mgr).await);
+        if self
+            .addr_mgr
+            .register(session.id, context.proto_id, version)
+        {
+            self.sessions
+                .insert(session.id, SessionState::new(context, &self.addr_mgr).await);
+        }
     }
 
     async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
@@ -305,12 +307,18 @@ pub struct DiscoveryAddressManager {
 
 impl AddressManager for DiscoveryAddressManager {
     // Register open discovery protocol
-    fn register(&self, id: SessionId, pid: ProtocolId, version: &str) {
-        self.network_state.with_peer_registry_mut(|reg| {
-            reg.get_peer_mut(id).map(|peer| {
-                peer.protocols.insert(pid, version.to_owned());
-            })
-        });
+    fn register(&self, id: SessionId, pid: ProtocolId, version: &str) -> bool {
+        let is_anchor = self
+            .network_state
+            .with_peer_registry(|reg| reg.is_anchor(id));
+        if !is_anchor {
+            self.network_state.with_peer_registry_mut(|reg| {
+                reg.get_peer_mut(id).map(|peer| {
+                    peer.protocols.insert(pid, version.to_owned());
+                })
+            });
+        }
+        !is_anchor
     }
 
     // remove registered discovery protocol

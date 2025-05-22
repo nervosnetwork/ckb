@@ -1139,6 +1139,9 @@ impl NetworkService {
                 .into_iter()
                 .map(|paddr| paddr.addr)
                 .collect();
+            // tried to re-connect to anchors on startup
+            let anchors: Vec<_> = peer_store.mut_anchors().drain().collect();
+            addrs.extend(anchors);
             // Get bootnodes randomly
             let bootnodes = self
                 .network_state
