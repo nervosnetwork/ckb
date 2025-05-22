@@ -1487,3 +1487,43 @@ fn check_fuzz_crash_3() {
             .contains("MemWriteOnExecutablePage")
     );
 }
+
+// This test documents a bug in Meepo hardfork version: when IO processing
+// code suspends or resumes any VMs, the cycles consumed by suspending / resuming
+// VMs will not be reflected by `current cycles` syscall in the immediate
+// subsequent VM execution. Here we are asserting the exact cycles consumed
+// by a program touching this behavior, so as to prevent any future regressions.
+#[test]
+fn spawn_create_17_spawn() {
+    if SCRIPT_VERSION < ScriptVersion::V2 {
+        return;
+    }
+    let script_version = ScriptVersion::V2;
+
+    let (cell, data_hash) = load_cell_from_path("testdata/spawn_create_17_spawn");
+    let script = Script::new_builder()
+        .hash_type(script_version.data_hash_type().into())
+        .code_hash(data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100).pack())
+        .lock(script)
+        .build();
+    let input = CellInput::new(OutPoint::null(), 0);
+
+    let transaction = TransactionBuilder::default().input(input).build();
+    let dummy_cell = create_dummy_cell(output);
+
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![cell],
+        resolved_inputs: vec![dummy_cell],
+        resolved_dep_groups: vec![],
+    };
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let cycles = verifier
+        .verify_without_limit(script_version, &rtx)
+        .expect("verify");
+
+    assert_eq!(cycles, 36445673);
+}

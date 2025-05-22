@@ -14,6 +14,7 @@ pub trait Verifier {
 
 bitflags! {
     /// The bit flags for particular process block verify
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Switch: u32 {
         /// None of verifier will be disabled
         const NONE                      = 0b00000000;
@@ -43,14 +44,14 @@ bitflags! {
         const DISABLE_EXTENSION         = 0b10000000;
 
         /// Disable all verifier
-        const DISABLE_ALL               = Self::DISABLE_EPOCH.bits | Self::DISABLE_UNCLES.bits |
-                                    Self::DISABLE_TWO_PHASE_COMMIT.bits | Self::DISABLE_DAOHEADER.bits |
-                                    Self::DISABLE_REWARD.bits |
-                                    Self::DISABLE_NON_CONTEXTUAL.bits | Self::DISABLE_SCRIPT.bits |
-                                    Self::DISABLE_EXTENSION.bits;
+        const DISABLE_ALL               = Self::DISABLE_EPOCH.bits() | Self::DISABLE_UNCLES.bits() |
+                                    Self::DISABLE_TWO_PHASE_COMMIT.bits() | Self::DISABLE_DAOHEADER.bits() |
+                                    Self::DISABLE_REWARD.bits() |
+                                    Self::DISABLE_NON_CONTEXTUAL.bits() | Self::DISABLE_SCRIPT.bits() |
+                                    Self::DISABLE_EXTENSION.bits();
 
         /// Only script verification
-        const ONLY_SCRIPT               = Self::DISABLE_ALL.bits & (!Self::DISABLE_SCRIPT.bits);
+        const ONLY_SCRIPT               = Self::DISABLE_ALL.bits() & (!Self::DISABLE_SCRIPT.bits());
     }
 }
 
