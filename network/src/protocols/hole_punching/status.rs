@@ -37,8 +37,8 @@ pub enum StatusCode {
     BroadcastError = 502,
     /// Failed to broadcast a message.
     ForwardError = 503,
-    /// The max TTL is reached.
-    ReachedMaxTTL = 504,
+    /// The max hops is reached.
+    ReachedMaxHops = 504,
 }
 
 /// Process message status.

@@ -96,8 +96,8 @@ table ConnectionRequest {
     from: Bytes,
     // Peer Id.
     to: Bytes,
-    // Time to live: the max count of peers in the message delivery route.
-    ttl: byte,
+    // Limit the max count of hops: the max count of peers in the message delivery route.
+    max_hops: byte,
     // The message delivery route (type: `Vec<PeerId>`).
     route: BytesVec,
     // These are the addresses on which the "from" peer is listening as multi-addresses.

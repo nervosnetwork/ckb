@@ -217,11 +217,12 @@ impl PeerStore {
         self.addr_manager.fetch_random(count, filter)
     }
 
-    /// Return address that we never connected to, used for penetration.
+    /// Return address that we never connected to, used for hole punching.
     pub fn fetch_nat_addrs(&mut self, count: usize, required_flags: Flags) -> Vec<AddrInfo> {
         // Get info:
         // 1. Never connected
         // 2. Not already connected
+        // 3. Ip4 / Ip6 address only
 
         let peers = &self.connected_peers;
 
@@ -230,7 +231,13 @@ impl PeerStore {
                 && extract_peer_id(&peer_addr.addr)
                     .map(|peer_id| !peers.contains_key(&peer_id))
                     .unwrap_or_default()
-                && peer_addr.connected(|t| t == 0)
+                && peer_addr.addr.iter().any(|p| {
+                    matches!(
+                        p,
+                        p2p::multiaddr::Protocol::Ip4(_) | p2p::multiaddr::Protocol::Ip6(_)
+                    )
+                })
+                && peer_addr.last_connected_at_ms == 0
         };
 
         self.addr_manager.fetch_random(count, filter)

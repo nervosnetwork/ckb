@@ -508,7 +508,6 @@ impl NetworkState {
     }
 
     // randomly select count addresses from observed_addrs
-    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn observed_addrs(&self, count: usize) -> Vec<Multiaddr> {
         let observed_addrs = self
             .observed_addrs

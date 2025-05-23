@@ -21,8 +21,8 @@ use crate::{
 mod component;
 pub(crate) mod status;
 
-pub(crate) const MAX_TTL: u8 = 6;
-pub(crate) const PENETRATED_INTERVAL: u64 = 2 * 60 * 1000; // 2 minutes
+pub(crate) const MAX_HOPS: u8 = 6;
+pub(crate) const HOLE_PUNCHING_INTERVAL: u64 = 2 * 60 * 1000; // 2 minutes
 const CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const CHECK_TOKEN: u64 = 0;
 const ADDRS_COUNT_LIMIT: usize = 24;
@@ -44,12 +44,12 @@ pub(crate) struct HolePunching {
     // Delivered timestamp recorded
     pending_delivered: RwLock<HashMap<PeerId, PendingDeliveredInfo>>,
     rate_limiter: RateLimiter<(PeerIndex, u32)>,
+    forward_rate_limiter: RateLimiter<(PeerId, PeerId, u32)>,
 }
 
 #[async_trait]
 impl ServiceProtocol for HolePunching {
     async fn init(&mut self, context: &mut ProtocolContext) {
-        #[cfg(not(target_family = "wasm"))]
         context
             .set_service_notify(context.proto_id, CHECK_INTERVAL, CHECK_TOKEN)
             .await
@@ -66,6 +66,7 @@ impl ServiceProtocol for HolePunching {
 
     async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
         self.rate_limiter.retain_recent();
+        self.forward_rate_limiter.retain_recent();
         debug!("HolePunching.disconnected session={}", context.session.id);
     }
 
@@ -113,6 +114,7 @@ impl ServiceProtocol for HolePunching {
                     self,
                     context.session.id,
                     context.control(),
+                    msg.item_id(),
                 )
                 .execute()
                 .await
@@ -124,6 +126,7 @@ impl ServiceProtocol for HolePunching {
                     context.control(),
                     context.session.id,
                     self.bind_addr,
+                    msg.item_id(),
                 )
                 .execute()
                 .await
@@ -134,6 +137,7 @@ impl ServiceProtocol for HolePunching {
                     self,
                     context.control(),
                     self.bind_addr,
+                    msg.item_id(),
                 )
                 .execute()
                 .await
@@ -175,11 +179,14 @@ impl ServiceProtocol for HolePunching {
             inflight_requests.retain(|_, t| (now - *t) < TIMEOUT);
         }
 
-        if status.total < 8 {
+        if status.non_whitelist_outbound < status.max_outbound && status.total > 0 {
             let target = &self.network_state.required_flags;
-            let addrs = self
-                .network_state
-                .with_peer_store_mut(|p| p.fetch_nat_addrs(10, *target));
+            let addrs = self.network_state.with_peer_store_mut(|p| {
+                p.fetch_nat_addrs(
+                    (status.max_outbound - status.non_whitelist_outbound) as usize,
+                    *target,
+                )
+            });
 
             let from_peer_id = self.network_state.local_peer_id();
             let listen_addrs = {
@@ -218,8 +225,17 @@ impl ServiceProtocol for HolePunching {
                     };
                     let proto_id = SupportProtocols::HolePunching.protocol_id();
 
+                    // Broadcast to a number of nodes equal to the square root of the total connection count using gossip.
+                    let mut total = status.total.isqrt();
                     let _ignore = context
-                        .filter_broadcast(TargetSession::All, proto_id, conn_req.as_bytes())
+                        .filter_broadcast(
+                            TargetSession::Filter(Box::new(move |_| {
+                                total = total.saturating_sub(1);
+                                total != 0
+                            })),
+                            proto_id,
+                            conn_req.as_bytes(),
+                        )
                         .await;
                     inflight.push(to_peer_id);
                 }
@@ -241,28 +257,37 @@ impl HolePunching {
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
         let rate_limiter = RateLimiter::hashmap(quota);
 
+        // In the request forwarding process, the same group of from/to should not be received by the same
+        // node more than 1 times within one second.
+        let quota = governor::Quota::per_second(std::num::NonZeroU32::new(1).unwrap());
+        let forward_rate_limiter = RateLimiter::hashmap(quota);
+
         Self {
             #[cfg(not(target_os = "linux"))]
             bind_addr: None,
             #[cfg(target_os = "linux")]
             bind_addr: {
                 let mut bind_addr = None;
-                for multi_addr in &network_state.config.listen_addresses {
-                    if let crate::network::TransportType::Tcp =
-                        crate::network::find_type(multi_addr)
-                    {
-                        if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
-                            bind_addr = Some(addr);
-                            break;
+                if network_state.config.reuse_port_on_linux {
+                    for multi_addr in &network_state.config.listen_addresses {
+                        if let crate::network::TransportType::Tcp =
+                            crate::network::find_type(multi_addr)
+                        {
+                            if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
+                                bind_addr = Some(addr);
+                                break;
+                            }
                         }
                     }
                 }
+
                 bind_addr
             },
             network_state,
             pending_delivered: RwLock::new(HashMap::new()),
             inflight_requests: RwLock::new(HashMap::new()),
             rate_limiter,
+            forward_rate_limiter,
         }
     }
 }

@@ -16,12 +16,78 @@ use crate::{
     protocols::{
         SupportProtocols,
         hole_punching::{
-            ADDRS_COUNT_LIMIT, HolePunching,
+            ADDRS_COUNT_LIMIT, HolePunching, MAX_HOPS,
             component::{forward_delivered, init_sync, try_nat_traversal},
             status::{Status, StatusCode},
         },
     },
 };
+
+struct DeliverdContent {
+    from: PeerId,
+    to: PeerId,
+    route: Vec<PeerId>,
+    listen_addrs: Vec<Multiaddr>,
+    sync_route: Vec<PeerId>,
+}
+
+impl TryFrom<&packed::ConnectionRequestDeliveredReader<'_>> for DeliverdContent {
+    type Error = Status;
+
+    fn try_from(value: &packed::ConnectionRequestDeliveredReader<'_>) -> Result<Self, Self::Error> {
+        let from = PeerId::from_bytes(value.from().raw_data().to_vec()).map_err(|_| {
+            StatusCode::InvalidFromPeerId.with_context("the from peer id is invalid")
+        })?;
+        let to = PeerId::from_bytes(value.to().raw_data().to_vec())
+            .map_err(|_| StatusCode::InvalidToPeerId.with_context("the to peer id is invalid"))?;
+        let route = value
+            .route()
+            .iter()
+            .map(|peer_id| {
+                PeerId::from_bytes(peer_id.raw_data().to_vec())
+                    .map_err(|_| StatusCode::InvalidRoute)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let listen_addrs = value
+            .listen_addrs()
+            .iter()
+            .map(
+                |raw| match Multiaddr::try_from(raw.bytes().raw_data().to_vec()) {
+                    Ok(mut addr) => {
+                        if let Some(peer_id) = extract_peer_id(&addr) {
+                            if peer_id != to {
+                                return Err(StatusCode::InvalidListenAddrLen
+                                    .with_context("peer id in listen address is invalid"));
+                            }
+                        } else {
+                            addr.push(Protocol::P2P(Cow::Borrowed(to.as_bytes())));
+                        }
+                        Ok(addr)
+                    }
+                    Err(_) => Err(StatusCode::InvalidListenAddrLen
+                        .with_context("the listen address is invalid")),
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let sync_route = value
+            .sync_route()
+            .iter()
+            .map(|peer_id| {
+                PeerId::from_bytes(peer_id.raw_data().to_vec())
+                    .map_err(|_| StatusCode::InvalidRoute)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(DeliverdContent {
+            from,
+            to,
+            route,
+            listen_addrs,
+            sync_route,
+        })
+    }
+}
 
 pub struct ConnectionRequestDeliveredProcess<'a> {
     message: packed::ConnectionRequestDeliveredReader<'a>,
@@ -29,6 +95,7 @@ pub struct ConnectionRequestDeliveredProcess<'a> {
     p2p_control: &'a ServiceAsyncControl,
     peer: PeerIndex,
     bind_addr: Option<SocketAddr>,
+    msg_item_id: u32,
 }
 
 impl<'a> ConnectionRequestDeliveredProcess<'a> {
@@ -38,6 +105,7 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
         p2p_control: &'a ServiceAsyncControl,
         peer: PeerIndex,
         bind_addr: Option<SocketAddr>,
+        msg_item_id: u32,
     ) -> Self {
         Self {
             message,
@@ -45,102 +113,98 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
             p2p_control,
             bind_addr,
             peer,
+            msg_item_id,
         }
     }
 
     pub(crate) async fn execute(self) -> Status {
-        if self.message.listen_addrs().len() > ADDRS_COUNT_LIMIT
-            || self.message.listen_addrs().is_empty()
-        {
+        let content = match DeliverdContent::try_from(&self.message) {
+            Ok(content) => content,
+            Err(status) => return status,
+        };
+        if content.listen_addrs.len() > ADDRS_COUNT_LIMIT || content.listen_addrs.is_empty() {
             return StatusCode::InvalidListenAddrLen
                 .with_context("the listen address count is too large or empty");
         }
-        let route = self.message.route();
-        if route.len() > 8 || self.message.sync_route().len() > 8 {
+
+        if content.route.len() > MAX_HOPS as usize || content.sync_route.len() > MAX_HOPS as usize {
             return StatusCode::InvalidRoute.with_context("the route length is too long");
         }
-        match route.iter().last() {
-            Some(next_peer_id_data) => {
-                let next_peer_id = match PeerId::from_bytes(next_peer_id_data.raw_data().to_vec()) {
-                    Ok(peer_id) => peer_id,
-                    Err(_) => {
-                        return StatusCode::InvalidRoute
-                            .with_context("the last peer id is invalid");
-                    }
-                };
 
-                let target_sid = self
-                    .protocol
-                    .network_state
-                    .peer_registry
-                    .read()
-                    .get_key_by_peer_id(&next_peer_id);
+        if self
+            .protocol
+            .forward_rate_limiter
+            .check_key(&(content.from.clone(), content.to.clone(), self.msg_item_id))
+            .is_err()
+        {
+            debug!(
+                "from: {}, to {}, item_name: {}, rate limit is reached",
+                content.from, content.to, "ConnectionRequestDelivered",
+            );
+            return StatusCode::TooManyRequests.with_context("ConnectionRequestDelivered");
+        }
 
-                match target_sid {
-                    Some(next_peer) => {
-                        let content = forward_delivered(self.message);
-                        let new_message = packed::HolePunchingMessage::new_builder()
-                            .set(content)
-                            .build()
-                            .as_bytes();
-                        let proto_id = SupportProtocols::HolePunching.protocol_id();
-                        debug!(
-                            "forward the delivery to next peer {} (id: {})",
-                            next_peer, next_peer_id
-                        );
-                        if let Err(error) = self
-                            .p2p_control
-                            .send_message_to(next_peer, proto_id, new_message)
-                            .await
-                        {
-                            StatusCode::ForwardError.with_context(error)
-                        } else {
+        match content.route.last() {
+            Some(next_peer_id) => self.forward_delivered(next_peer_id).await,
+            None => {
+                let self_peer_id = self.protocol.network_state.local_peer_id();
+                if self_peer_id != &content.from {
+                    // forward the message to the `from` peer
+                    self.forward_delivered(&content.from).await
+                } else {
+                    // the current peer is the target peer, respond the sync back
+                    let request_start = self.protocol.inflight_requests.write().remove(&content.to);
+
+                    match request_start {
+                        Some(start) => {
+                            let res = self.respond_sync(content.from).await;
+                            if !res.is_ok() {
+                                return res;
+                            }
+                            let now = unix_time_as_millis();
+                            let ttl = now - start;
+
+                            self.try_nat_traversal(ttl, content.listen_addrs);
+
                             Status::ok()
                         }
-                    }
-                    None => {
-                        return StatusCode::Ignore
-                            .with_context("the next peer in the route is disconnected");
+                        None => StatusCode::Ignore.with_context("the request is not in flight"),
                     }
                 }
             }
-            None => {
-                // Current node should be the `from` target.
-                let from_peer_id = match PeerId::from_bytes(self.message.from().raw_data().to_vec())
+        }
+    }
+
+    async fn forward_delivered(&self, peer_id: &PeerId) -> Status {
+        let target_sid = self
+            .protocol
+            .network_state
+            .peer_registry
+            .read()
+            .get_key_by_peer_id(peer_id);
+        match target_sid {
+            Some(next_peer) => {
+                let content = forward_delivered(self.message);
+                let new_message = packed::HolePunchingMessage::new_builder()
+                    .set(content)
+                    .build()
+                    .as_bytes();
+                let proto_id = SupportProtocols::HolePunching.protocol_id();
+                debug!(
+                    "forward the delivery to next peer {} (id: {})",
+                    next_peer, peer_id
+                );
+                if let Err(error) = self
+                    .p2p_control
+                    .send_message_to(next_peer, proto_id, new_message)
+                    .await
                 {
-                    Ok(peer_id) => peer_id,
-                    Err(_) => return StatusCode::InvalidFromPeerId.into(),
-                };
-
-                let self_peer_id = self.protocol.network_state.local_peer_id();
-                if self_peer_id != &from_peer_id {
-                    return StatusCode::Ignore.with_context("the destination of route is not self");
-                }
-
-                let to_peer_id = match PeerId::from_bytes(self.message.to().raw_data().to_vec()) {
-                    Ok(peer_id) => peer_id,
-                    Err(_) => return StatusCode::InvalidToPeerId.into(),
-                };
-
-                let request_start = self.protocol.inflight_requests.write().remove(&to_peer_id);
-
-                match request_start {
-                    Some(start) => {
-                        let now = unix_time_as_millis();
-                        let ttl = now - start;
-
-                        let res = self.respond_sync(from_peer_id).await;
-                        if !res.is_ok() {
-                            return res;
-                        }
-
-                        self.try_nat_traversal(to_peer_id, ttl);
-
-                        Status::ok()
-                    }
-                    None => StatusCode::Ignore.with_context("the request is not in flight"),
+                    StatusCode::ForwardError.with_context(error)
+                } else {
+                    Status::ok()
                 }
             }
+            None => StatusCode::Ignore.with_context("the next peer in the route is disconnected"),
         }
     }
 
@@ -166,55 +230,35 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
         }
     }
 
-    fn try_nat_traversal(&self, to_peer_id: PeerId, ttl: u64) {
-        let mut tasks = Vec::new();
-        let control: ServiceAsyncControl = self.p2p_control.clone();
-        for listen_addr in self.message.listen_addrs().iter() {
-            match Multiaddr::try_from(listen_addr.bytes().raw_data().to_vec()) {
-                Ok(mut addr) => {
-                    if let Some(peer_id) = extract_peer_id(&addr) {
-                        if peer_id != to_peer_id {
-                            continue;
-                        }
+    fn try_nat_traversal(&self, ttl: u64, remote_addrs: Vec<Multiaddr>) {
+        let tasks = remote_addrs
+            .into_iter()
+            .filter_map(|listen_addr| match find_type(&listen_addr) {
+                TransportType::Tcp => {
+                    if listen_addr
+                        .iter()
+                        .any(|p| matches!(p, Protocol::Ip4(_) | Protocol::Ip6(_)))
+                    {
+                        Some(Box::pin(try_nat_traversal(self.bind_addr, listen_addr)))
                     } else {
-                        addr.push(Protocol::P2P(Cow::Borrowed(to_peer_id.as_bytes())));
-                    }
-                    match find_type(&addr) {
-                        TransportType::Memory
-                        | TransportType::Onion
-                        | TransportType::Ws
-                        | TransportType::Wss
-                        | TransportType::Tls => continue,
-                        TransportType::Tcp => {
-                            if addr
-                                .iter()
-                                .any(|p| matches!(p, Protocol::Dns4(_) | Protocol::Dns6(_)))
-                            {
-                                let control = control.clone();
-                                // If the address contains DNS4 or DNS6, we just dial it directly
-                                // without NAT traversal
-                                runtime::spawn(async move {
-                                    let _ignore = control
-                                        .dial(
-                                            addr,
-                                            TargetProtocol::Single(
-                                                SupportProtocols::Identify.protocol_id(),
-                                            ),
-                                        )
-                                        .await;
-                                });
-                            } else {
-                                let task = try_nat_traversal(self.bind_addr, addr);
-                                tasks.push(Box::pin(task));
-                            }
-                        }
+                        None
                     }
                 }
-                Err(_) => {
-                    continue;
-                }
-            }
+                TransportType::Memory
+                | TransportType::Onion
+                | TransportType::Ws
+                | TransportType::Wss
+                | TransportType::Tls => None,
+            })
+            .collect::<Vec<_>>();
+
+        if tasks.is_empty() {
+            return;
         }
+
+        debug!("start NAT traversal");
+
+        let control = self.p2p_control.clone();
 
         runtime::spawn(async move {
             runtime::delay_for(std::time::Duration::from_millis(ttl / 2)).await;

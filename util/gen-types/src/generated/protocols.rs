@@ -5396,7 +5396,7 @@ impl ::core::fmt::Display for ConnectionRequest {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "from", self.from())?;
         write!(f, ", {}: {}", "to", self.to())?;
-        write!(f, ", {}: {}", "ttl", self.ttl())?;
+        write!(f, ", {}: {}", "max_hops", self.max_hops())?;
         write!(f, ", {}: {}", "route", self.route())?;
         write!(f, ", {}: {}", "listen_addrs", self.listen_addrs())?;
         let extra_count = self.count_extra_fields();
@@ -5446,7 +5446,7 @@ impl ConnectionRequest {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         Bytes::new_unchecked(self.0.slice(start..end))
     }
-    pub fn ttl(&self) -> Byte {
+    pub fn max_hops(&self) -> Byte {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
@@ -5497,7 +5497,7 @@ impl molecule::prelude::Entity for ConnectionRequest {
         Self::new_builder()
             .from(self.from())
             .to(self.to())
-            .ttl(self.ttl())
+            .max_hops(self.max_hops())
             .route(self.route())
             .listen_addrs(self.listen_addrs())
     }
@@ -5523,7 +5523,7 @@ impl<'r> ::core::fmt::Display for ConnectionRequestReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "from", self.from())?;
         write!(f, ", {}: {}", "to", self.to())?;
-        write!(f, ", {}: {}", "ttl", self.ttl())?;
+        write!(f, ", {}: {}", "max_hops", self.max_hops())?;
         write!(f, ", {}: {}", "route", self.route())?;
         write!(f, ", {}: {}", "listen_addrs", self.listen_addrs())?;
         let extra_count = self.count_extra_fields();
@@ -5563,7 +5563,7 @@ impl<'r> ConnectionRequestReader<'r> {
         let end = molecule::unpack_number(&slice[12..]) as usize;
         BytesReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn ttl(&self) -> ByteReader<'r> {
+    pub fn max_hops(&self) -> ByteReader<'r> {
         let slice = self.as_slice();
         let start = molecule::unpack_number(&slice[12..]) as usize;
         let end = molecule::unpack_number(&slice[16..]) as usize;
@@ -5644,7 +5644,7 @@ impl<'r> molecule::prelude::Reader<'r> for ConnectionRequestReader<'r> {
 pub struct ConnectionRequestBuilder {
     pub(crate) from: Bytes,
     pub(crate) to: Bytes,
-    pub(crate) ttl: Byte,
+    pub(crate) max_hops: Byte,
     pub(crate) route: BytesVec,
     pub(crate) listen_addrs: AddressVec,
 }
@@ -5658,8 +5658,8 @@ impl ConnectionRequestBuilder {
         self.to = v;
         self
     }
-    pub fn ttl(mut self, v: Byte) -> Self {
-        self.ttl = v;
+    pub fn max_hops(mut self, v: Byte) -> Self {
+        self.max_hops = v;
         self
     }
     pub fn route(mut self, v: BytesVec) -> Self {
@@ -5678,7 +5678,7 @@ impl molecule::prelude::Builder for ConnectionRequestBuilder {
         molecule::NUMBER_SIZE * (Self::FIELD_COUNT + 1)
             + self.from.as_slice().len()
             + self.to.as_slice().len()
-            + self.ttl.as_slice().len()
+            + self.max_hops.as_slice().len()
             + self.route.as_slice().len()
             + self.listen_addrs.as_slice().len()
     }
@@ -5690,7 +5690,7 @@ impl molecule::prelude::Builder for ConnectionRequestBuilder {
         offsets.push(total_size);
         total_size += self.to.as_slice().len();
         offsets.push(total_size);
-        total_size += self.ttl.as_slice().len();
+        total_size += self.max_hops.as_slice().len();
         offsets.push(total_size);
         total_size += self.route.as_slice().len();
         offsets.push(total_size);
@@ -5701,7 +5701,7 @@ impl molecule::prelude::Builder for ConnectionRequestBuilder {
         }
         writer.write_all(self.from.as_slice())?;
         writer.write_all(self.to.as_slice())?;
-        writer.write_all(self.ttl.as_slice())?;
+        writer.write_all(self.max_hops.as_slice())?;
         writer.write_all(self.route.as_slice())?;
         writer.write_all(self.listen_addrs.as_slice())?;
         Ok(())
