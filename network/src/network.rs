@@ -1010,7 +1010,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket, _ctxt| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, ctxt: p2p::service::TransformerContext| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,
@@ -1019,10 +1019,17 @@ impl NetworkService {
                                     ))]
                                     socket_ref.set_reuse_port(true)?;
                                     socket_ref.set_reuse_address(true)?;
-                                    if socket_ref.domain()? == domain {
-                                        socket_ref.bind(&addr.into())?;
+                                    match ctxt.state {
+                                        p2p::service::SocketState::Listen => {
+                                            Ok(socket)
+                                        }
+                                        p2p::service::SocketState::Dial => {
+                                            if socket_ref.domain()? == domain {
+                                                socket_ref.bind(&addr.into())?;
+                                            }
+                                            Ok(socket)
+                                        }
                                     }
-                                    Ok(socket)
                                 };
                                 init.transform(TransportType::Tcp);
                                 service_builder = service_builder.tcp_config(bind_fn);
@@ -1035,7 +1042,7 @@ impl NetworkService {
                             }
                             if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
                                 let domain = socket2::Domain::for_address(addr);
-                                let bind_fn = move |socket: p2p::service::TcpSocket, _ctxt| {
+                                let bind_fn = move |socket: p2p::service::TcpSocket, ctxt: p2p::service::TransformerContext| {
                                     let socket_ref = socket2::SockRef::from(&socket);
                                     #[cfg(all(
                                         unix,
@@ -1044,10 +1051,17 @@ impl NetworkService {
                                     ))]
                                     socket_ref.set_reuse_port(true)?;
                                     socket_ref.set_reuse_address(true)?;
-                                    if socket_ref.domain()? == domain {
-                                        socket_ref.bind(&addr.into())?;
+                                    match ctxt.state {
+                                        p2p::service::SocketState::Listen => {
+                                            Ok(socket)
+                                        }
+                                        p2p::service::SocketState::Dial => {
+                                            if socket_ref.domain()? == domain {
+                                                socket_ref.bind(&addr.into())?;
+                                            }
+                                            Ok(socket)
+                                        }
                                     }
-                                    Ok(socket)
                                 };
                                 init.transform(TransportType::Ws);
                                 service_builder = service_builder.tcp_config_on_ws(bind_fn);
