@@ -495,6 +495,10 @@ impl TryFrom<(u64, u64, u64)> for DataPieceId {
 pub struct FullSuspendedState {
     /// Total executed cycles
     pub total_cycles: Cycle,
+    /// Iteration cycles. Due to an implementation bug in Meepo hardfork,
+    /// this value will not always be zero at visible execution boundaries.
+    /// We will have to preserve this value.
+    pub iteration_cycles: Cycle,
     /// Next available VM ID
     pub next_vm_id: VmId,
     /// Next available file descriptor
@@ -518,6 +522,7 @@ impl FullSuspendedState {
     pub fn size(&self) -> u64 {
         (size_of::<Cycle>()
             + size_of::<VmId>()
+            + size_of::<u64>()
             + size_of::<u64>()
             + self.vms.iter().fold(0, |mut acc, (_, _, snapshot)| {
                 acc += size_of::<VmId>() + size_of::<VmState>();
@@ -1136,4 +1141,23 @@ pub enum RunMode {
     LimitCycles(Cycle),
     /// Continues running until a Pause signal is received.
     Pause(Pause),
+}
+
+/// Terminated result
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TerminatedResult {
+    /// Root VM exit code
+    pub exit_code: i8,
+    /// Total consumed cycles by all VMs in current scheduler,
+    /// up to this execution point.
+    pub consumed_cycles: Cycle,
+}
+
+/// Single iteration result
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct IterationResult {
+    /// VM ID that gets executed
+    pub executed_vm: VmId,
+    /// Terminated status
+    pub terminated_status: Option<TerminatedResult>,
 }
