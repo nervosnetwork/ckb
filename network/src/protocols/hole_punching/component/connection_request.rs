@@ -84,7 +84,7 @@ impl TryFrom<&packed::ConnectionRequestReader<'_>> for RequestContent {
 
 pub(crate) struct ConnectionRequestProcess<'a> {
     message: packed::ConnectionRequestReader<'a>,
-    protocol: &'a HolePunching,
+    protocol: &'a mut HolePunching,
     peer: PeerIndex,
     p2p_control: &'a ServiceAsyncControl,
     msg_item_id: u32,
@@ -93,7 +93,7 @@ pub(crate) struct ConnectionRequestProcess<'a> {
 impl<'a> ConnectionRequestProcess<'a> {
     pub(crate) fn new(
         message: packed::ConnectionRequestReader<'a>,
-        protocol: &'a HolePunching,
+        protocol: &'a mut HolePunching,
         peer: PeerIndex,
         p2p_control: &'a ServiceAsyncControl,
         msg_item_id: u32,
@@ -107,7 +107,7 @@ impl<'a> ConnectionRequestProcess<'a> {
         }
     }
 
-    pub(crate) async fn execute(self) -> Status {
+    pub(crate) async fn execute(mut self) -> Status {
         let content = match RequestContent::try_from(&self.message) {
             Ok(content) => content,
             Err(status) => return status,
@@ -153,12 +153,12 @@ impl<'a> ConnectionRequestProcess<'a> {
     }
 
     async fn respond_delivered(
-        &self,
+        &mut self,
         from_peer_id: PeerId,
         to_peer_id: &PeerId,
         remote_listens: Vec<Multiaddr>,
     ) -> Status {
-        if let Some((_, t)) = self.protocol.pending_delivered.read().get(&from_peer_id) {
+        if let Some((_, t)) = self.protocol.pending_delivered.get(&from_peer_id) {
             let now = unix_time_as_millis();
             if now - t < HOLE_PUNCHING_INTERVAL {
                 return StatusCode::Ignore
@@ -231,9 +231,10 @@ impl<'a> ConnectionRequestProcess<'a> {
             return StatusCode::ForwardError.with_context(error);
         }
 
-        let mut pending_delivered = self.protocol.pending_delivered.write();
         let now = unix_time_as_millis();
-        pending_delivered.insert(from_peer_id, (remote_listens, now));
+        self.protocol
+            .pending_delivered
+            .insert(from_peer_id, (remote_listens, now));
 
         Status::ok()
     }

@@ -91,7 +91,7 @@ impl TryFrom<&packed::ConnectionRequestDeliveredReader<'_>> for DeliverdContent 
 
 pub struct ConnectionRequestDeliveredProcess<'a> {
     message: packed::ConnectionRequestDeliveredReader<'a>,
-    protocol: &'a HolePunching,
+    protocol: &'a mut HolePunching,
     p2p_control: &'a ServiceAsyncControl,
     peer: PeerIndex,
     bind_addr: Option<SocketAddr>,
@@ -101,7 +101,7 @@ pub struct ConnectionRequestDeliveredProcess<'a> {
 impl<'a> ConnectionRequestDeliveredProcess<'a> {
     pub(crate) fn new(
         message: packed::ConnectionRequestDeliveredReader<'a>,
-        protocol: &'a HolePunching,
+        protocol: &'a mut HolePunching,
         p2p_control: &'a ServiceAsyncControl,
         peer: PeerIndex,
         bind_addr: Option<SocketAddr>,
@@ -153,7 +153,7 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
                     self.forward_delivered(&content.from).await
                 } else {
                     // the current peer is the target peer, respond the sync back
-                    let request_start = self.protocol.inflight_requests.write().remove(&content.to);
+                    let request_start = self.protocol.inflight_requests.remove(&content.to);
 
                     match request_start {
                         Some(start) => {

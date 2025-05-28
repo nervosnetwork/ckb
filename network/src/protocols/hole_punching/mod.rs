@@ -3,7 +3,6 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 use ckb_logger::{debug, error, trace, warn};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{packed, prelude::*};
-use ckb_util::RwLock;
 use p2p::{
     async_trait, bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
@@ -40,9 +39,9 @@ pub(crate) struct HolePunching {
     network_state: Arc<NetworkState>,
     bind_addr: Option<SocketAddr>,
     // Request timestamp recorded
-    inflight_requests: RwLock<HashMap<PeerId, u64>>,
+    inflight_requests: HashMap<PeerId, u64>,
     // Delivered timestamp recorded
-    pending_delivered: RwLock<HashMap<PeerId, PendingDeliveredInfo>>,
+    pending_delivered: HashMap<PeerId, PendingDeliveredInfo>,
     rate_limiter: RateLimiter<(PeerIndex, u32)>,
     forward_rate_limiter: RateLimiter<(PeerId, PeerId, u32)>,
 }
@@ -170,14 +169,10 @@ impl ServiceProtocol for HolePunching {
     async fn notify(&mut self, context: &mut ProtocolContext, _token: u64) {
         let status = self.network_state.connection_status();
 
-        {
-            let mut pending_delivered = self.pending_delivered.write();
-            let mut inflight_requests = self.inflight_requests.write();
-
-            let now = unix_time_as_millis();
-            pending_delivered.retain(|_, (_, t)| (now - *t) < TIMEOUT);
-            inflight_requests.retain(|_, t| (now - *t) < TIMEOUT);
-        }
+        let now = unix_time_as_millis();
+        self.pending_delivered
+            .retain(|_, (_, t)| (now - *t) < TIMEOUT);
+        self.inflight_requests.retain(|_, t| (now - *t) < TIMEOUT);
 
         if status.non_whitelist_outbound < status.max_outbound && status.total > 0 {
             let target = &self.network_state.required_flags;
@@ -241,10 +236,9 @@ impl ServiceProtocol for HolePunching {
                 }
             }
 
-            let mut inflight_requests = self.inflight_requests.write();
             let now = unix_time_as_millis();
             for peer_id in inflight {
-                inflight_requests.insert(peer_id, now);
+                self.inflight_requests.insert(peer_id, now);
             }
         }
     }
@@ -280,12 +274,11 @@ impl HolePunching {
                         }
                     }
                 }
-
                 bind_addr
             },
             network_state,
-            pending_delivered: RwLock::new(HashMap::new()),
-            inflight_requests: RwLock::new(HashMap::new()),
+            pending_delivered: HashMap::new(),
+            inflight_requests: HashMap::new(),
             rate_limiter,
             forward_rate_limiter,
         }

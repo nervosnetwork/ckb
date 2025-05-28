@@ -107,7 +107,6 @@ impl<'a> ConnectionSyncProcess<'a> {
                     let listens_info = self
                         .protocol
                         .pending_delivered
-                        .read()
                         .get(&content.from)
                         .map(|info| info.0.clone());
 
