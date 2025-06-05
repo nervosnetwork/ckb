@@ -20,7 +20,7 @@ use self::{
     protocol::{decode, encode},
     state::RemoteAddress,
 };
-use crate::{Flags, NetworkState, ProtocolId};
+use crate::{Flags, NetworkState, ProtocolId, SupportProtocols};
 
 mod addr;
 pub(crate) mod protocol;
@@ -79,6 +79,17 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
         {
             self.sessions
                 .insert(session.id, SessionState::new(context, &self.addr_mgr).await);
+        } else if let Err(e) = context
+            .close_protocol(
+                context.session.id,
+                SupportProtocols::Discovery.protocol_id(),
+            )
+            .await
+        {
+            error!(
+                "Block-Relay-Only Session close DiscoveryProtocol failed, session: {:?} {}",
+                context.session, e
+            );
         }
     }
 

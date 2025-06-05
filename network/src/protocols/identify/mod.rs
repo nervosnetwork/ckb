@@ -231,6 +231,14 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 .quick_send_message(data)
                 .await
                 .map_err(|err| error!("IdentifyProtocol quick_send_message, error: {:?}", err));
+        } else if let Err(e) = context
+            .close_protocol(context.session.id, SupportProtocols::Identify.protocol_id())
+            .await
+        {
+            error!(
+                "Block-Relay-Only Session close IdentifyProtocol failed, session: {:?} {}",
+                context.session, e
+            );
         }
     }
 

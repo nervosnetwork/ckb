@@ -118,7 +118,7 @@ pub trait CKBProtocolContext: Send {
     fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>);
     /// Get all session id
     fn connected_peers(&self) -> Vec<PeerIndex>;
-    /// Get all session id
+    /// Get all full_relay (exclude block-relay-only) id
     fn full_relay_connected_peers(&self) -> Vec<PeerIndex>;
     /// Report peer behavior
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);

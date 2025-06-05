@@ -31,7 +31,11 @@ pub struct PeerStore {
 }
 
 impl PeerStore {
-    /// New with address list and ban list
+    /// New with address , ban and anchors list
+    ///
+    ///  Anchor IP address database,
+    ///  created on shutdown and deleted at startup.
+    /// Anchors are last known outgoing block-relay-only peers that are tried to re-connect to on startup
     pub fn new(addr_manager: AddrManager, ban_list: BanList, anchors: Anchors) -> Self {
         PeerStore {
             addr_manager,

@@ -29,6 +29,8 @@ pub enum SessionType {
     BlockRelayOnly,
 }
 
+/// RawSessionType only covers Inbound and Outbound,
+/// and that BlockRelayOnly is explicitly set during peer registration.
 impl From<RawSessionType> for SessionType {
     #[inline]
     fn from(ty: RawSessionType) -> Self {
@@ -41,17 +43,17 @@ impl From<RawSessionType> for SessionType {
 
 impl SessionType {
     /// is outbound
-    pub fn is_outbound(self) -> bool {
+    pub fn is_outbound(&self) -> bool {
         matches!(self, SessionType::Outbound)
     }
 
     /// is inbound
-    pub fn is_inbound(self) -> bool {
+    pub fn is_inbound(&self) -> bool {
         matches!(self, SessionType::Inbound)
     }
 
     /// is block_relay_only
-    pub fn is_block_relay_only(self) -> bool {
+    pub fn is_block_relay_only(&self) -> bool {
         matches!(self, SessionType::BlockRelayOnly)
     }
 }
