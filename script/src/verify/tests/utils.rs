@@ -324,6 +324,7 @@ impl TransactionScriptsVerifierWithEnv {
         rtx: &ResolvedTransaction,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
         skip_debug_pause: bool,
+        max_cycles: Option<Cycle>,
     ) -> Result<Cycle, Error> {
         let verifier = self.build_verifier(version, rtx);
 
@@ -331,7 +332,7 @@ impl TransactionScriptsVerifierWithEnv {
             self.set_skip_pause(true);
         }
         verifier
-            .resumable_verify_with_signal(Cycle::MAX, command_rx)
+            .resumable_verify_with_signal(max_cycles.unwrap_or(Cycle::MAX), command_rx)
             .await
     }
 

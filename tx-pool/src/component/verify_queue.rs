@@ -130,6 +130,24 @@ impl VerifyQueue {
         }
     }
 
+    /// Remove multiple txs from the queue from a specified peer
+    pub fn remove_txs_by_peer(&mut self, peer: &PeerIndex) {
+        let ids: Vec<_> = self
+            .inner
+            .iter()
+            .filter_map(|(_cycle, entry)| {
+                (entry
+                    .inner
+                    .remote
+                    .as_ref()
+                    .map_or(false, |(_, p)| p == peer))
+                .then(|| entry.id.clone())
+            })
+            .collect();
+
+        self.remove_txs(ids.into_iter());
+    }
+
     /// Returns the first entry in the queue and remove it
     pub fn pop_front(&mut self, only_small_cycle: bool) -> Option<Entry> {
         if let Some(short_id) = self.peek(only_small_cycle) {

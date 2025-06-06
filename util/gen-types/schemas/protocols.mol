@@ -81,3 +81,47 @@ table IdentifyMessage {
     // Custom message to indicate self ability, such as list protocols supported
     identify: Bytes,
 }
+
+union HolePunchingMessage {
+    // A node is to attempt to connect to another node through a side channel.
+    ConnectionRequest,
+    // If a connection request is delivered, reply this response to the sender.
+    ConnectionRequestDelivered,
+    // If sender received delivered message, reply this response to remote.
+    ConnectionSync,
+}
+
+table ConnectionRequest {
+    // Peer Id.
+    from: Bytes,
+    // Peer Id.
+    to: Bytes,
+    // Limit the max count of hops: the max count of peers in the message delivery route.
+    max_hops: byte,
+    // The message delivery route (type: `Vec<PeerId>`).
+    route: BytesVec,
+    // These are the addresses on which the "from" peer is listening as multi-addresses.
+    listen_addrs: AddressVec,
+}
+
+table ConnectionRequestDelivered {
+    // Peer Id.
+    from: Bytes,
+    // Peer Id.
+    to: Bytes,
+    // The message delivery route (type: `Vec<PeerId>`).
+    route: BytesVec,
+    // The message sync route (type: `Vec<PeerId>`).
+    sync_route: BytesVec,
+    // These are the addresses on which the "to" peer is listening as multi-addresses.
+    listen_addrs: AddressVec,
+}
+
+table ConnectionSync {
+    // Peer Id.
+    from: Bytes,
+    // Peer Id.
+    to: Bytes,
+    // The message sync route (type: `Vec<PeerId>`).
+    route: BytesVec,
+}

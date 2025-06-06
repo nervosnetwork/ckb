@@ -149,3 +149,77 @@ async fn test_verify_different_cycles() {
     assert_eq!(counts, 4);
     assert_eq!(queue.total_tx_size(), 0);
 }
+
+#[tokio::test]
+async fn verify_queue_remove() {
+    let entry1 = Entry {
+        tx: TransactionBuilder::default()
+            .set_outputs_data(vec![Default::default()])
+            .build(),
+        remote: Some((1, SessionId::new(1))),
+    };
+    let entry1_id = entry1.tx.proposal_short_id();
+    eprintln!("entry1_id: {:?}", entry1_id);
+    let entry2 = Entry {
+        tx: TransactionBuilder::default()
+            .set_cell_deps(vec![Default::default(), Default::default()])
+            .build(),
+        remote: Some((2, SessionId::new(2))),
+    };
+    let entry2_id = entry2.tx.proposal_short_id();
+    eprintln!("entry2_id: {:?}", entry2_id);
+    let entry3 = Entry {
+        tx: TransactionBuilder::default().build(),
+        remote: None,
+    };
+    let entry3_id = entry3.tx.proposal_short_id();
+    eprintln!("entry3_id: {:?}", entry3_id);
+
+    let entry4 = Entry {
+        tx: TransactionBuilder::default()
+            .set_cell_deps(vec![
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            ])
+            .build(),
+        remote: Some((4, SessionId::new(1))),
+    };
+    let entry4_id = entry4.tx.proposal_short_id();
+
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+
+    assert!(
+        queue
+            .add_tx(entry1.tx.clone(), entry1.remote.clone())
+            .unwrap()
+    );
+    assert!(
+        queue
+            .add_tx(entry2.tx.clone(), entry2.remote.clone())
+            .unwrap()
+    );
+    assert!(
+        queue
+            .add_tx(entry3.tx.clone(), entry3.remote.clone())
+            .unwrap()
+    );
+    assert!(
+        queue
+            .add_tx(entry4.tx.clone(), entry4.remote.clone())
+            .unwrap()
+    );
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    assert!(queue.contains_key(&entry1_id));
+    assert!(queue.contains_key(&entry2_id));
+    assert!(queue.contains_key(&entry3_id));
+    assert!(queue.contains_key(&entry4_id));
+
+    queue.remove_txs_by_peer(&SessionId::new(1));
+
+    assert!(!queue.contains_key(&entry1_id));
+    assert!(!queue.contains_key(&entry4_id));
+    assert!(queue.contains_key(&entry2_id));
+    assert!(queue.contains_key(&entry3_id));
+}

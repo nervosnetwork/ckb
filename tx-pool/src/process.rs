@@ -330,7 +330,7 @@ impl TxPoolService {
         (ret, snapshot)
     }
 
-    pub(crate) fn non_contextual_verify(
+    pub(crate) async fn non_contextual_verify(
         &self,
         tx: &TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
@@ -338,7 +338,8 @@ impl TxPoolService {
         if let Err(reject) = non_contextual_verify(&self.consensus, tx) {
             if reject.is_malformed_tx() {
                 if let Some(remote) = remote {
-                    self.ban_malformed(remote.1, format!("reject {reject}"));
+                    self.ban_malformed(remote.1, format!("reject {reject}"))
+                        .await;
                 }
             }
             return Err(reject);
@@ -352,7 +353,7 @@ impl TxPoolService {
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         // non contextual verify first
-        self.non_contextual_verify(&tx, remote)?;
+        self.non_contextual_verify(&tx, remote).await?;
 
         if self.orphan_contains(&tx).await {
             debug!("reject tx {} already in orphan pool", tx.hash());
@@ -367,7 +368,7 @@ impl TxPoolService {
 
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
         // non contextual verify first
-        self.non_contextual_verify(&tx, None)?;
+        self.non_contextual_verify(&tx, None).await?;
 
         if self.verify_queue_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
@@ -386,7 +387,7 @@ impl TxPoolService {
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<Completed, Reject> {
         // non contextual verify first
-        self.non_contextual_verify(&tx, remote)?;
+        self.non_contextual_verify(&tx, remote).await?;
 
         if self.verify_queue_contains(&tx).await || self.orphan_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
@@ -509,7 +510,7 @@ impl TxPoolService {
                         self.add_orphan(tx, peer, declared_cycle).await;
                     } else {
                         if reject.is_malformed_tx() {
-                            self.ban_malformed(peer, format!("reject {reject}"));
+                            self.ban_malformed(peer, format!("reject {reject}")).await;
                         }
                         if reject.is_allowed_relay() {
                             self.send_result_to_relayer(TxVerificationResult::Reject {
@@ -645,7 +646,8 @@ impl TxPoolService {
                             if !is_missing_input(&reject) {
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                                 if reject.is_malformed_tx() {
-                                    self.ban_malformed(orphan.peer, format!("reject {reject}"));
+                                    self.ban_malformed(orphan.peer, format!("reject {reject}"))
+                                        .await;
                                 }
                                 if reject.is_allowed_relay() {
                                     self.send_result_to_relayer(TxVerificationResult::Reject {
@@ -669,7 +671,7 @@ impl TxPoolService {
         }
     }
 
-    fn ban_malformed(&self, peer: PeerIndex, reason: String) {
+    async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
         const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
         #[cfg(feature = "with_sentry")]
@@ -692,6 +694,7 @@ impl TxPoolService {
             },
         );
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
+        self.verify_queue.write().await.remove_txs_by_peer(&peer);
     }
 
     pub(crate) async fn _process_tx(

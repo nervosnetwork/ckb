@@ -201,7 +201,7 @@ crossbeam = "0.8.2"
 crossbeam-channel = "0.5.1"
 ctrlc = "3.1"
 daggy = "0.8.0"
-dashmap = "4.0"
+dashmap = "6.0"
 derive_more = { version = "1", default-features = false }
 eaglesong = "0.1"
 env_logger = "0.10"
@@ -213,7 +213,11 @@ fs2 = "0.4.3"
 futures = "0.3"
 futures-util = "0.3.21"
 golomb-coded-set = "0.2.0"
-governor = "0.3.1"
+governor = { version = "0.10", default-features = false, features = [
+    "std",
+    "jitter",
+    "quanta",
+] }
 hex = "0.4"
 hickory-resolver = "0.24.2"
 http-body-util = "0.1"

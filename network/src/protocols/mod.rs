@@ -5,6 +5,9 @@ pub(crate) mod identify;
 pub(crate) mod ping;
 pub(crate) mod support_protocols;
 
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod hole_punching;
+
 #[cfg(test)]
 mod tests;
 

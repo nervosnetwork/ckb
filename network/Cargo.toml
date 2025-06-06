@@ -46,11 +46,10 @@ p2p = { workspace = true, default-features = false, features = [
     "ws",
 ] }
 socket2 = "0.5"
+governor.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-p2p = { workspace = true, default-features = false, features = [
-    "wasm-timer",
-] }
+p2p = { workspace = true, default-features = false, features = ["wasm-timer"] }
 idb = "0.6"
 serde-wasm-bindgen = "0.6.5"
 

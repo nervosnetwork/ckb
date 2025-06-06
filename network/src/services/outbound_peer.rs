@@ -196,11 +196,6 @@ impl OutboundPeerService {
         }
     }
 
-    fn try_dial_observed(&self) {
-        self.network_state
-            .try_dial_observed_addrs(&self.p2p_control);
-    }
-
     fn update_outbound_connected_ms(&mut self) {
         if self.update_outbound_connected_count > 10 {
             let connected_outbounds: Vec<p2p::multiaddr::Multiaddr> =
@@ -256,8 +251,6 @@ impl Future for OutboundPeerService {
             self.dial_feeler();
             // keep outbound peer is enough
             self.try_dial_peers();
-            // try dial observed addrs
-            self.try_dial_observed();
             // Keep connected nodes up to date in the peer store
             self.update_outbound_connected_ms();
         }
