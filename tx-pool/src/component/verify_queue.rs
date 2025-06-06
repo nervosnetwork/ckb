@@ -135,14 +135,8 @@ impl VerifyQueue {
         let ids: Vec<_> = self
             .inner
             .iter()
-            .filter_map(|(_cycle, entry)| {
-                (entry
-                    .inner
-                    .remote
-                    .as_ref()
-                    .map_or(false, |(_, p)| p == peer))
-                .then(|| entry.id.clone())
-            })
+            .filter(|&(_cycle, entry)| entry.inner.remote.as_ref().is_some_and(|(_, p)| p == peer))
+            .map(|(_cycle, entry)| entry.id.clone())
             .collect();
 
         self.remove_txs(ids.into_iter());

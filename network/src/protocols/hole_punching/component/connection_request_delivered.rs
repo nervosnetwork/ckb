@@ -153,6 +153,10 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
                     self.forward_delivered(&content.from).await
                 } else {
                     // the current peer is the target peer, respond the sync back
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics.ckb_hole_punching_active_count.inc();
+                    }
+
                     let request_start = self.protocol.inflight_requests.remove(&content.to);
 
                     match request_start {
@@ -264,6 +268,9 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
             runtime::delay_for(std::time::Duration::from_millis(ttl / 2)).await;
             if let Ok(((stream, addr), _)) = select_ok(tasks).await {
                 debug!("NAT traversal success, addr: {:?}", addr);
+                if let Some(metrics) = ckb_metrics::handle() {
+                    metrics.ckb_hole_punching_active_success_count.inc();
+                }
                 let _ignore = control
                     .raw_session(
                         stream,

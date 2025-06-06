@@ -126,6 +126,10 @@ pub struct Metrics {
     pub ckb_network_ban_peer: IntCounter,
     pub ckb_inflight_blocks_count: IntGauge,
     pub ckb_inflight_timeout_count: IntCounter,
+    pub ckb_hole_punching_active_count: IntCounter,
+    pub ckb_hole_punching_active_success_count: IntCounter,
+    pub ckb_hole_punching_passive_count: IntCounter,
+    pub ckb_hole_punching_passive_success_count: IntCounter,
 }
 
 static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
@@ -312,6 +316,26 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
             "ckb_inflight_timeout_count",
             "The CKB inflight timeout count"
     ).unwrap(),
+    ckb_hole_punching_active_count: register_int_counter!(
+        "ckb_hole_punching_active_count",
+        "The CKB hole punching active count"
+    )
+            .unwrap(),
+    ckb_hole_punching_active_success_count: register_int_counter!(
+        "ckb_hole_punching_active_success_count",
+        "The CKB hole punching active success count"
+    )
+            .unwrap(),
+    ckb_hole_punching_passive_count: register_int_counter!(
+        "ckb_hole_punching_passive_count",
+        "The CKB hole punching passive reception count"
+    )
+            .unwrap(),
+    ckb_hole_punching_passive_success_count: register_int_counter!(
+        "ckb_hole_punching_passive_success_count",
+        "The CKB hole punching passive success count"
+    )
+            .unwrap(),
     }
 });
 

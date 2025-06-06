@@ -104,6 +104,10 @@ impl<'a> ConnectionSyncProcess<'a> {
                     self.forward_sync(&content.to).await
                 } else {
                     // Current node should be the `to` target.
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics.ckb_hole_punching_passive_count.inc();
+                    }
+
                     let listens_info = self
                         .protocol
                         .pending_delivered
@@ -141,6 +145,12 @@ impl<'a> ConnectionSyncProcess<'a> {
                                     runtime::spawn(async move {
                                         if let Ok(((stream, addr), _)) = select_ok(tasks).await {
                                             debug!("NAT traversal success, addr: {:?}", addr);
+                                            if let Some(metrics) = ckb_metrics::handle() {
+                                                metrics
+                                                    .ckb_hole_punching_passive_success_count
+                                                    .inc();
+                                            }
+
                                             let _ignore = control
                                                 .raw_session(
                                                     stream,
