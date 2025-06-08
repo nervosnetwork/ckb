@@ -191,22 +191,22 @@ async fn verify_queue_remove() {
 
     assert!(
         queue
-            .add_tx(entry1.tx.clone(), entry1.remote.clone())
+            .add_tx(entry1.tx.clone(), entry1.remote)
             .unwrap()
     );
     assert!(
         queue
-            .add_tx(entry2.tx.clone(), entry2.remote.clone())
+            .add_tx(entry2.tx.clone(), entry2.remote)
             .unwrap()
     );
     assert!(
         queue
-            .add_tx(entry3.tx.clone(), entry3.remote.clone())
+            .add_tx(entry3.tx.clone(), entry3.remote)
             .unwrap()
     );
     assert!(
         queue
-            .add_tx(entry4.tx.clone(), entry4.remote.clone())
+            .add_tx(entry4.tx.clone(), entry4.remote)
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
