@@ -189,26 +189,10 @@ async fn verify_queue_remove() {
 
     let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
 
-    assert!(
-        queue
-            .add_tx(entry1.tx.clone(), entry1.remote)
-            .unwrap()
-    );
-    assert!(
-        queue
-            .add_tx(entry2.tx.clone(), entry2.remote)
-            .unwrap()
-    );
-    assert!(
-        queue
-            .add_tx(entry3.tx.clone(), entry3.remote)
-            .unwrap()
-    );
-    assert!(
-        queue
-            .add_tx(entry4.tx.clone(), entry4.remote)
-            .unwrap()
-    );
+    assert!(queue.add_tx(entry1.tx.clone(), entry1.remote).unwrap());
+    assert!(queue.add_tx(entry2.tx.clone(), entry2.remote).unwrap());
+    assert!(queue.add_tx(entry3.tx.clone(), entry3.remote).unwrap());
+    assert!(queue.add_tx(entry4.tx.clone(), entry4.remote).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert!(queue.contains_key(&entry1_id));
