@@ -218,7 +218,10 @@ block_uncles_cache_size    = 30
 # # Customize cell filtering rules to index only retained cells
 # cell_filter = "let script = output.type;script!=() && script.code_hash == \"0x00000000000000000000000000000000000000000000000000545950455f4944\""
 # # The initial tip can be set higher than the current indexer tip as the starting height for indexing.
-# init_tip_hash = "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
+# init_tip_hash = "" # {{
+# mainnet => init_tip_hash = "0x92b197aa1fba0f63633922c61c92375c9c074a93e85963554f5499fe1450d0e5"
+# testnet => init_tip_hash = "0x10639e0895502b5688a6be8cf69460d76541bfa4821629d86d62ba0aae3f9606"
+# }}
 # By default, there is no limitation on the size of indexer request
 # However, because serde json serialization consumes too much memory(10x),
 # it may cause the physical machine to become unresponsive.

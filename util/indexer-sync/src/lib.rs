@@ -19,7 +19,7 @@ use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_INDEX, COLUMN_META,
 };
-use ckb_logger::{error, info};
+use ckb_logger::{error, info, warn};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{CancellationToken, has_received_stop_signal, new_tokio_exit_rx};
 use ckb_store::ChainStore;
@@ -111,11 +111,16 @@ impl IndexerSyncService {
             let indexer_tip = indexer_service
                 .tip()
                 .expect("indexer_service tip should be OK");
-            if let Some((indexer_tip, _)) = indexer_tip {
+            if let Some((indexer_tip_number, indexer_tip_hash)) = indexer_tip {
                 if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.pack()) {
-                    if indexer_tip >= init_tip.number() {
+                    if indexer_tip_number >= init_tip.number() {
                         return;
                     }
+                } else {
+                    info!(
+                        "[indexer_v2].init_tip_hash: {} is higher than indexer's tip: {}-{}",
+                        init_tip_hash, indexer_tip_number, indexer_tip_hash
+                    );
                 }
             }
             loop {
