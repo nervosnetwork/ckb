@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## [v0.202.0](https://github.com/nervosnetwork/ckb/compare/v0.201.0...v0.202.0) (2025-06-11)
+
+### Features
+
+- #4883: Use json array stream to handle jsonrpc batch request (@quake)
+- #4878: Update `DaoCalculator` so it can be used in light client (@Officeyutong)
+- #4873: Add a hole punching protocol try use on nat traversal (@driftluo)
+
 ## [v0.201.0](https://github.com/nervosnetwork/ckb/compare/v0.200.0...v0.201.0) (2025-04-02)
 
 ### Fixings
