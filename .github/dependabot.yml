@@ -8,14 +8,6 @@ updates:
     timezone: Asia/Shanghai
   open-pull-requests-limit: 10
   versioning-strategy: lockfile-only
-  ignore:
-  - dependency-name: ctrlc
-    versions:
-    - 3.1.9
-  - dependency-name: futures
-    versions:
-    - 0.3.12
-  - dependency-name: hyper
-    versions:
-    - 0.13.10
-  rebase-strategy: disabled
+  groups:
+    all-dependencies:
+      patterns: ["*"]
