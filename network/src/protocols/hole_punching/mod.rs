@@ -194,13 +194,13 @@ impl ServiceProtocol for HolePunching {
                         .iter()
                         .chain(observed_addrs.iter())
                         .map(Multiaddr::to_vec)
-                        .map(|v| packed::Address::new_builder().bytes(v.pack()).build());
+                        .map(|v| packed::Address::new_builder().bytes(v).build());
                     packed::AddressVec::new_builder().extend(iter).build()
                 } else {
                     let iter = public_addr
                         .iter()
                         .map(Multiaddr::to_vec)
-                        .map(|v| packed::Address::new_builder().bytes(v.pack()).build());
+                        .map(|v| packed::Address::new_builder().bytes(v).build());
                     packed::AddressVec::new_builder().extend(iter).build()
                 }
             };

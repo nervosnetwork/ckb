@@ -55,7 +55,7 @@ pub fn build_block_transactions(block: &BlockView) -> Bytes {
                 .into_iter()
                 .map(|view| view.data())
                 .skip(1)
-                .pack(),
+                .collect::<Vec<_>>(),
         )
         .build();
 
@@ -71,13 +71,7 @@ pub fn build_header(header: &HeaderView) -> Bytes {
 
 pub fn build_headers(headers: &[HeaderView]) -> Bytes {
     let send_headers = SendHeaders::new_builder()
-        .headers(
-            headers
-                .iter()
-                .map(|view| view.data())
-                .collect::<Vec<_>>()
-                .pack(),
-        )
+        .headers(headers.iter().map(|view| view.data()).collect::<Vec<_>>())
         .build();
 
     SyncMessage::new_builder()
@@ -95,7 +89,7 @@ pub fn build_block(block: &BlockView) -> Bytes {
 
 pub fn build_get_blocks(hashes: &[Byte32]) -> Bytes {
     let get_blocks = GetBlocks::new_builder()
-        .block_hashes(hashes.iter().map(ToOwned::to_owned).pack())
+        .block_hashes(hashes.iter().map(ToOwned::to_owned).collect::<Vec<_>>())
         .build();
 
     SyncMessage::new_builder()
@@ -105,14 +99,17 @@ pub fn build_get_blocks(hashes: &[Byte32]) -> Bytes {
 }
 
 pub fn build_relay_txs(transactions: &[(TransactionView, u64)]) -> Bytes {
-    let transactions = transactions.iter().map(|(tx, cycles)| {
-        RelayTransaction::new_builder()
-            .cycles(cycles.pack())
-            .transaction(tx.data())
-            .build()
-    });
+    let transactions = transactions
+        .iter()
+        .map(|(tx, cycles)| {
+            RelayTransaction::new_builder()
+                .cycles(cycles)
+                .transaction(tx.data())
+                .build()
+        })
+        .collect::<Vec<_>>();
     let txs = RelayTransactions::new_builder()
-        .transactions(transactions.pack())
+        .transactions(transactions)
         .build();
 
     RelayMessage::new_builder().set(txs).build().as_bytes()
@@ -120,7 +117,7 @@ pub fn build_relay_txs(transactions: &[(TransactionView, u64)]) -> Bytes {
 
 pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
     let content = RelayTransactionHashes::new_builder()
-        .tx_hashes(hashes.iter().map(ToOwned::to_owned).pack())
+        .tx_hashes(hashes.iter().map(ToOwned::to_owned).collect::<Vec<_>>())
         .build();
 
     RelayMessage::new_builder().set(content).build().as_bytes()

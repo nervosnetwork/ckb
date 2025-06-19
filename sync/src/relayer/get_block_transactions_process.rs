@@ -79,8 +79,18 @@ impl<'a> GetBlockTransactionsProcess<'a> {
 
             let content = packed::BlockTransactions::new_builder()
                 .block_hash(block_hash)
-                .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
-                .uncles(uncles.into_iter().map(|uncle| uncle.data()).pack())
+                .transactions(
+                    transactions
+                        .into_iter()
+                        .map(|tx| tx.data())
+                        .collect::<Vec<_>>(),
+                )
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(|uncle| uncle.data())
+                        .collect::<Vec<_>>(),
+                )
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
 

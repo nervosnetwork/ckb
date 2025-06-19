@@ -71,14 +71,14 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .chain_root_mmr(parent_number)
         .get_root()
         .expect("chain root_mmr");
-    let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
+    let bytes = chain_root.calc_mmr_hash().as_bytes().into();
 
     BlockBuilder::default()
         .parent_hash(parent_hash.to_owned())
-        .number((parent.header().number() + 1).pack())
-        .timestamp((parent.header().timestamp() + 1).pack())
-        .epoch(epoch.number_with_fraction(parent_number + 1).pack())
-        .compact_target(epoch.compact_target().pack())
+        .number(parent.header().number() + 1)
+        .timestamp(parent.header().timestamp() + 1)
+        .epoch(epoch.number_with_fraction(parent_number + 1))
+        .compact_target(epoch.compact_target())
         .dao(dao)
         .transaction(cellbase)
         .extension(Some(bytes))

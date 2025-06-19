@@ -577,9 +577,9 @@ impl Identify {
     fn new(name: String, flags: Flags, client_version: String) -> Self {
         Identify {
             encode_data: packed::Identify::new_builder()
-                .name(name.as_str().pack())
-                .flag(flags.bits().pack())
-                .client_version(client_version.as_str().pack())
+                .name(name.as_str())
+                .flag(flags.bits())
+                .client_version(client_version.as_str())
                 .build()
                 .as_bytes(),
             name,
@@ -602,7 +602,7 @@ impl Identify {
             return None;
         }
 
-        let flag: u64 = reader.flag().unpack();
+        let flag: u64 = reader.flag().into();
         if flag == 0 {
             return None;
         }

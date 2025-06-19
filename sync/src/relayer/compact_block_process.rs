@@ -359,8 +359,8 @@ fn missing_or_collided_post_process(
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block_hash)
-        .indexes(missing_transactions.pack())
-        .uncle_indexes(missing_uncles.pack())
+        .indexes(missing_transactions.as_slice())
+        .uncle_indexes(missing_uncles.as_slice())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let sending = send_message_to(nc.as_ref(), peer, &message);

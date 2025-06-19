@@ -15,18 +15,19 @@ fn test_veirifer() {
             .collect(),
     };
     let verifier = Verifier::new(config);
-    let raw_alert = packed::RawAlert::new_builder().id(1u32.pack()).build();
+    let raw_alert = packed::RawAlert::new_builder().id(1u32).build();
     let hash = raw_alert.calc_alert_hash();
     let signatures = keypairs
         .iter()
-        .map(|(privkey, _)| privkey.sign_recoverable(&hash.unpack()))
+        .map(|(privkey, _)| privkey.sign_recoverable(&(&hash).into()))
         .collect::<Result<Vec<_>, _>>()
         .expect("sign alert")
         .iter()
-        .map(|sig| sig.serialize().pack())
-        .fold(packed::BytesVec::new_builder(), |builder, item| {
-            builder.push(item)
-        })
+        .map(|sig| sig.serialize().into())
+        .fold(
+            packed::BytesVec::new_builder(),
+            |builder, item: packed::Bytes| builder.push(item),
+        )
         .build();
     let alert = packed::Alert::new_builder()
         .raw(raw_alert)

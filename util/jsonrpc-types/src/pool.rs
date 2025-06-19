@@ -5,7 +5,6 @@ use ckb_types::core::tx_pool::{
     AncestorsScoreSortKey as CoreAncestorsScoreSortKey, PoolTxDetailInfo as CorePoolTxDetailInfo,
     Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds, TxPoolInfo as CoreTxPoolInfo,
 };
-use ckb_types::prelude::Unpack;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -67,7 +66,7 @@ pub struct TxPoolInfo {
 impl From<CoreTxPoolInfo> for TxPoolInfo {
     fn from(tx_pool_info: CoreTxPoolInfo) -> Self {
         TxPoolInfo {
-            tip_hash: tx_pool_info.tip_hash.unpack(),
+            tip_hash: tx_pool_info.tip_hash.into(),
             tip_number: tx_pool_info.tip_number.into(),
             pending: (tx_pool_info.pending_size as u64).into(),
             proposed: (tx_pool_info.proposed_size as u64).into(),
@@ -142,8 +141,8 @@ impl From<CoreTxPoolIds> for TxPoolIds {
     fn from(ids: CoreTxPoolIds) -> Self {
         let CoreTxPoolIds { pending, proposed } = ids;
         TxPoolIds {
-            pending: pending.iter().map(Unpack::unpack).collect(),
-            proposed: proposed.iter().map(Unpack::unpack).collect(),
+            pending: pending.iter().map(Into::into).collect(),
+            proposed: proposed.iter().map(Into::into).collect(),
         }
     }
 }
@@ -203,13 +202,13 @@ impl From<TxPoolEntryInfo> for TxPoolEntries {
         TxPoolEntries {
             pending: pending
                 .into_iter()
-                .map(|(hash, entry)| (hash.unpack(), entry.into()))
+                .map(|(hash, entry)| (hash.into(), entry.into()))
                 .collect(),
             proposed: proposed
                 .into_iter()
-                .map(|(hash, entry)| (hash.unpack(), entry.into()))
+                .map(|(hash, entry)| (hash.into(), entry.into()))
                 .collect(),
-            conflicted: conflicted.iter().map(Unpack::unpack).collect(),
+            conflicted: conflicted.iter().map(Into::into).collect(),
         }
     }
 }

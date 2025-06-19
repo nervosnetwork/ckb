@@ -116,7 +116,7 @@ impl Spec for PoolResolveConflictAfterReorg {
                 !(template
                     .transactions
                     .iter()
-                    .any(|tx| tx.hash == tx1.hash().unpack()))
+                    .any(|tx| tx.hash == tx1.hash().into()))
             })
             .set_proposals(txs.iter().map(|tx| tx.proposal_short_id()).collect())
             .build();
@@ -168,7 +168,7 @@ impl Spec for PoolResolveConflictAfterReorg {
             }])
             .set_outputs(vec![
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(99).pack())
+                    .capacity(capacity_bytes!(99))
                     .build(),
             ])
             .build();

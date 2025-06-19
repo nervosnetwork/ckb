@@ -203,8 +203,7 @@ impl ConsumeUnverifiedBlockProcessor {
             match *assume_valid_targets {
                 Some(ref mut targets) => {
                     //
-                    let block_hash: H256 =
-                        ckb_types::prelude::Unpack::<H256>::unpack(&BlockView::hash(block));
+                    let block_hash: H256 = Into::<H256>::into(BlockView::hash(block));
                     if targets.first().eq(&Some(&block_hash)) {
                         targets.remove(0);
                         info!("CKB reached one assume_valid_target: 0x{}", block_hash);

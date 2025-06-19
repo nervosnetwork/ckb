@@ -25,25 +25,25 @@ fn test_signing_alert_using_dummy_keypair() {
     let verifier = Verifier::new(config);
     let raw_alert = packed::RawAlert::new_builder()
         // 3 months later
-        .notice_until(1681574400000u64.pack())
-        .id(20230001u32.pack())
-        .cancel(0u32.pack())
-        .priority(20u32.pack())
-        .message("CKB v0.105.* have bugs. Please upgrade to the latest version.".pack())
-        .min_version(Some("0.105.0-pre").pack())
-        .max_version(Some("0.105.1").pack())
+        .notice_until(1681574400000u64)
+        .id(20230001u32)
+        .cancel(0u32)
+        .priority(20u32)
+        .message("CKB v0.105.* have bugs. Please upgrade to the latest version.")
+        .min_version(Some("0.105.0-pre"))
+        .max_version(Some("0.105.1"))
         .build();
 
     let hash = raw_alert.calc_alert_hash();
     let privkey = DUMMY_PRIVKEY.parse::<Privkey>().unwrap();
-    let signature = privkey
-        .sign_recoverable(&hash.unpack())
+    let signature: packed::Bytes = privkey
+        .sign_recoverable(&(&hash).into())
         .unwrap()
         .serialize()
-        .pack();
+        .into();
     let alert = packed::Alert::new_builder()
         .raw(raw_alert)
-        .signatures(vec![signature.clone()].pack())
+        .signatures(vec![signature.clone()])
         .build();
     let alert_json = Alert::from(alert.clone());
     println!(
@@ -61,13 +61,13 @@ fn test_alert_20230001() {
     let verifier = Verifier::new(config);
     let raw_alert = packed::RawAlert::new_builder()
         // 3 months later
-        .notice_until(1681574400000u64.pack())
-        .id(20230001u32.pack())
-        .cancel(0u32.pack())
-        .priority(20u32.pack())
-        .message("CKB v0.105.* have bugs. Please upgrade to the latest version.".pack())
-        .min_version(Some("0.105.0-pre").pack())
-        .max_version(Some("0.105.1").pack())
+        .notice_until(1681574400000u64)
+        .id(20230001u32)
+        .cancel(0u32)
+        .priority(20u32)
+        .message("CKB v0.105.* have bugs. Please upgrade to the latest version.")
+        .min_version(Some("0.105.0-pre"))
+        .max_version(Some("0.105.1"))
         .build();
 
     let signatures = [
@@ -76,8 +76,8 @@ fn test_alert_20230001() {
     ].iter().map(|hex| {
         let mut buf = vec![0u8; hex.len() / 2];
         hex_decode(hex.as_bytes(), &mut buf).expect("valid hex");
-        buf.pack()
-    }).fold(packed::BytesVec::new_builder(), |builder, item| {
+        buf.into()
+    }).fold(packed::BytesVec::new_builder(), |builder, item: packed::Bytes| {
         builder.push(item)
     }).build();
     let alert = packed::Alert::new_builder()

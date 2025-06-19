@@ -25,7 +25,6 @@ use ckb_tx_pool::{
 };
 use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
-use ckb_types::prelude::Pack;
 use ckb_types::{
     core::EpochExt, core::HeaderView, core::service::PoolTransactionEntry, core::tx_pool::Reject,
 };
@@ -435,7 +434,7 @@ impl SharedBuilder {
                     targets
                         .iter()
                         .filter(|&target_hash| {
-                            let exists = snapshot.block_exists(&target_hash.pack());
+                            let exists = snapshot.block_exists(&target_hash.into());
                             if exists {
                                 info!("assume-valid target 0x{} exists in local db", target_hash);
                             }

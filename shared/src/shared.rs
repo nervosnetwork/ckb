@@ -222,7 +222,7 @@ impl Shared {
                     e
                 })?;
 
-                let pack_number: packed::Uint64 = number.pack();
+                let pack_number: packed::Uint64 = number.into();
                 let prefix = pack_number.as_slice();
                 for (key, value) in snapshot
                     .get_iter(
@@ -235,7 +235,7 @@ impl Shared {
                     let block_hash = reader.block_hash().to_entity();
                     if &block_hash != hash {
                         let txs =
-                            packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).unpack();
+                            packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).into();
                         side.insert(block_hash, (reader.number().to_entity(), txs));
                     }
                 }
@@ -256,12 +256,10 @@ impl Shared {
         if !side.is_empty() {
             // Wipe out side chain
             for (hash, (number, txs)) in &side {
-                batch
-                    .delete_block(number.unpack(), hash, *txs)
-                    .map_err(|e| {
-                        ckb_logger::error!("Freezer delete_block_body failed {}", e);
-                        e
-                    })?;
+                batch.delete_block(number.into(), hash, *txs).map_err(|e| {
+                    ckb_logger::error!("Freezer delete_block_body failed {}", e);
+                    e
+                })?;
             }
 
             self.store.write(&batch).map_err(|e| {
@@ -281,12 +279,12 @@ impl Shared {
     fn compact_block_body(&self, start: &packed::Byte32, end: &packed::Byte32) {
         let start_t = packed::TransactionKey::new_builder()
             .block_hash(start.clone())
-            .index(0u32.pack())
+            .index(0u32)
             .build();
 
         let end_t = packed::TransactionKey::new_builder()
             .block_hash(end.clone())
-            .index(TX_INDEX_UPPER_BOUND.pack())
+            .index(TX_INDEX_UPPER_BOUND)
             .build();
 
         if let Err(e) = self.store.compact_range(

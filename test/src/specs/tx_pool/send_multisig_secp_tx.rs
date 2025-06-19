@@ -50,10 +50,10 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
 
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
-            .dep_type(DepType::DepGroup.into())
+            .dep_type(DepType::DepGroup)
             .build();
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100))
             .lock(node.always_success_script())
             .build();
         let input = CellInput::new(OutPoint::new(cellbase_hash, 0), 0);
@@ -61,7 +61,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             .cell_dep(cell_dep.clone())
             .input(input.clone())
             .output(output.clone())
-            .output_data(Default::default())
+            .output_data(Bytes::default())
             .build();
         let multi_sign_script = gen_multi_sign_script(&self.keys, self.keys.len() as u8, 0);
         let tx_hash = tx.hash();
@@ -69,7 +69,7 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             let mut lock = multi_sign_script.to_vec();
             lock.extend(vec![0u8; 65 * self.keys.len()]);
             WitnessArgs::new_builder()
-                .lock(Some(Bytes::from(lock)).pack())
+                .lock(Some(Bytes::from(lock)))
                 .build()
         };
         let witness_len = witness.as_slice().len() as u64;
@@ -88,16 +88,13 @@ impl Spec for SendMultiSigSecpTxUseDepGroup {
             let sig = key.sign_recoverable(&message).expect("sign");
             lock.extend_from_slice(&sig.serialize());
         });
-        let witness = witness
-            .as_builder()
-            .lock(Some(Bytes::from(lock)).pack())
-            .build();
+        let witness = witness.as_builder().lock(Some(Bytes::from(lock))).build();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
             .output(output)
-            .output_data(Default::default())
-            .witness(witness.as_bytes().pack())
+            .output_data(Bytes::default())
+            .witness(witness.as_bytes())
             .build();
         info!("Send 1 multisig tx use dep group");
 
@@ -136,7 +133,7 @@ fn gen_multi_sign_script(keys: &[Privkey], threshold: u8, require_first_n: u8) -
 fn type_lock_script_code_hash() -> H256 {
     build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL)
         .calc_script_hash()
-        .unpack()
+        .into()
 }
 
 fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> BlockAssemblerConfig {

@@ -136,7 +136,7 @@ fn build_tx_chain(
 
     let script = node0.always_success_script();
     let new_output1 = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(200).pack())
+        .capacity(capacity_bytes!(200))
         .lock(script.clone())
         .build();
     let new_output2 = new_output1.clone();
@@ -158,7 +158,7 @@ fn build_tx_chain(
 
     let cell_dep = node0.always_success_cell_dep();
     let final_output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(80).pack())
+        .capacity(capacity_bytes!(80))
         .lock(script)
         .build();
     let final_tx = TransactionBuilder::default()
@@ -374,7 +374,7 @@ impl Spec for TxPoolOrphanDoubleSpend {
 
         let script = node0.always_success_script();
         let new_output1 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(200).pack())
+            .capacity(capacity_bytes!(200))
             .lock(script)
             .build();
         let new_output2 = new_output1.clone();

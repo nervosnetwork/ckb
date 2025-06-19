@@ -21,7 +21,6 @@ use ckb_types::{
     bytes::Bytes,
     core::{Cycle, ScriptHashType, cell::ResolvedTransaction},
     packed::{Byte32, Script},
-    prelude::*,
 };
 #[cfg(not(target_family = "wasm"))]
 use ckb_vm::machine::Pause as VMPause;
@@ -430,7 +429,7 @@ where
         group: &ScriptGroup,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
             let verifier = TypeIdSystemScript {
@@ -450,7 +449,7 @@ where
         max_cycles: Cycle,
         state: &Option<FullSuspendedState>,
     ) -> Result<ChunkState, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
             let verifier = TypeIdSystemScript {
@@ -622,7 +621,7 @@ where
         max_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<Cycle, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
             let verifier = TypeIdSystemScript {

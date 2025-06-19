@@ -11,7 +11,6 @@ use ckb_types::{
     U256,
     core::{BlockBuilder, BlockExt, BlockView},
     packed,
-    prelude::Pack,
 };
 use ckb_verification_traits::Switch;
 use dashmap::DashSet;
@@ -432,10 +431,10 @@ fn repeatedly_switch_fork() {
         .epoch();
     let new_block1 = BlockBuilder::default()
         .parent_hash(parent.hash())
-        .number((parent.number() + 1).pack())
-        .compact_target(parent.compact_target().pack())
-        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
-        .nonce(1u128.pack())
+        .number(parent.number() + 1)
+        .compact_target(parent.compact_target())
+        .epoch(epoch.number_with_fraction(parent.number() + 1))
+        .nonce(1u128)
         .uncle(uncle)
         .build();
     chain_controller
@@ -451,10 +450,10 @@ fn repeatedly_switch_fork() {
         .epoch();
     let new_block2 = BlockBuilder::default()
         .parent_hash(parent.hash())
-        .number((parent.number() + 1).pack())
-        .compact_target(parent.compact_target().pack())
-        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
-        .nonce(2u128.pack())
+        .number(parent.number() + 1)
+        .compact_target(parent.compact_target())
+        .epoch(epoch.number_with_fraction(parent.number() + 1))
+        .nonce(2u128)
         .build();
     parent = new_block2.clone();
     chain_controller
@@ -467,10 +466,10 @@ fn repeatedly_switch_fork() {
         .epoch();
     let new_block3 = BlockBuilder::default()
         .parent_hash(parent.hash())
-        .number((parent.number() + 1).pack())
-        .compact_target(parent.compact_target().pack())
-        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
-        .nonce(2u128.pack())
+        .number(parent.number() + 1)
+        .compact_target(parent.compact_target())
+        .epoch(epoch.number_with_fraction(parent.number() + 1))
+        .nonce(2u128)
         .build();
     chain_controller
         .blocking_process_block_with_switch(Arc::new(new_block3), Switch::DISABLE_ALL)
@@ -485,10 +484,10 @@ fn repeatedly_switch_fork() {
         .epoch();
     let new_block4 = BlockBuilder::default()
         .parent_hash(parent.hash())
-        .number((parent.number() + 1).pack())
-        .compact_target(parent.compact_target().pack())
-        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
-        .nonce(1u128.pack())
+        .number(parent.number() + 1)
+        .compact_target(parent.compact_target())
+        .epoch(epoch.number_with_fraction(parent.number() + 1))
+        .nonce(1u128)
         .build();
     chain_controller
         .blocking_process_block_with_switch(Arc::new(new_block4.clone()), Switch::DISABLE_ALL)
@@ -502,10 +501,10 @@ fn repeatedly_switch_fork() {
         .epoch();
     let new_block5 = BlockBuilder::default()
         .parent_hash(parent.hash())
-        .number((parent.number() + 1).pack())
-        .compact_target(parent.compact_target().pack())
-        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
-        .nonce(1u128.pack())
+        .number(parent.number() + 1)
+        .compact_target(parent.compact_target())
+        .epoch(epoch.number_with_fraction(parent.number() + 1))
+        .nonce(1u128)
         .build();
     chain_controller
         .blocking_process_block_with_switch(Arc::new(new_block5), Switch::DISABLE_ALL)

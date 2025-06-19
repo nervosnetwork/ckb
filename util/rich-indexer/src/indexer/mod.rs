@@ -12,7 +12,6 @@ use ckb_types::{
     H256,
     core::{BlockNumber, BlockView, TransactionView},
     packed::Byte32,
-    prelude::*,
 };
 use sqlx::{Any, Transaction};
 
@@ -68,7 +67,7 @@ impl IndexerSync for RichIndexer {
         );
         indexer_handle
             .get_indexer_tip()
-            .map(|tip| tip.map(|tip| (tip.block_number.value(), tip.block_hash.0.pack())))
+            .map(|tip| tip.map(|tip| (tip.block_number.value(), tip.block_hash.0.into())))
             .map_err(|err| Error::DB(err.to_string()))
     }
 
@@ -190,7 +189,7 @@ impl AsyncRichIndexer {
         for (output_index, (cell, data)) in tx_view.outputs_with_data_iter().enumerate() {
             if self
                 .custom_filters
-                .is_cell_filter_match(&cell, &data.pack())
+                .is_cell_filter_match(&cell, &(&data).into())
             {
                 build_output_cell_rows(&cell, output_index, &data, &mut output_cell_rows);
                 build_script_set(&cell, &mut script_set).await;
@@ -210,7 +209,7 @@ impl AsyncRichIndexer {
                     {
                         if self
                             .custom_filters
-                            .is_cell_filter_match(&output, &output_data.pack())
+                            .is_cell_filter_match(&output, &output_data.into())
                         {
                             build_input_rows(output_id, &input, input_index, &mut input_rows);
                             is_tx_matched = true;

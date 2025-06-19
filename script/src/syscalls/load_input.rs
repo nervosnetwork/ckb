@@ -80,7 +80,7 @@ impl<DL: Clone> LoadInput<DL> {
             }
             InputField::Since => {
                 let mut buffer = vec![];
-                buffer.write_u64::<LittleEndian>(input.since().unpack())?;
+                buffer.write_u64::<LittleEndian>(input.since().into())?;
                 store_data(machine, &buffer)
             }
         }

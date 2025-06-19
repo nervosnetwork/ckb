@@ -255,7 +255,7 @@ impl BlockFetchCMD {
                 let first_target = targets
                     .first()
                     .expect("has checked targets is not empty, assume valid target must exist");
-                match shared.header_map().get(&first_target.pack()) {
+                match shared.header_map().get(&first_target.into()) {
                     Some(header) => {
                         if matches!(*flag, CanStart::FetchToTarget(fetch_target) if fetch_target == header.number())
                         {
@@ -316,7 +316,7 @@ impl BlockFetchCMD {
 
     fn send_getblocks(v_fetch: Vec<packed::Byte32>, nc: &ServiceControl, peer: PeerIndex) {
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
+            .block_hashes(v_fetch.clone())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
 
@@ -822,7 +822,7 @@ impl Synchronizer {
         peer: PeerIndex,
     ) {
         let content = packed::GetBlocks::new_builder()
-            .block_hashes(v_fetch.clone().pack())
+            .block_hashes(v_fetch.clone())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
 

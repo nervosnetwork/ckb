@@ -105,9 +105,9 @@ impl From<Script> for packed::Script {
         } = json;
         let hash_type: core::ScriptHashType = hash_type.into();
         packed::Script::new_builder()
-            .args(args.into_bytes().pack())
-            .code_hash(code_hash.pack())
-            .hash_type(hash_type.into())
+            .args(args.into_bytes())
+            .code_hash(code_hash)
+            .hash_type(hash_type)
             .build()
     }
 }
@@ -115,8 +115,8 @@ impl From<Script> for packed::Script {
 impl From<packed::Script> for Script {
     fn from(input: packed::Script) -> Script {
         Script {
-            code_hash: input.code_hash().unpack(),
-            args: JsonBytes::from_vec(input.args().unpack()),
+            code_hash: input.code_hash().into(),
+            args: JsonBytes::from_vec(input.args().into()),
             hash_type: core::ScriptHashType::try_from(input.hash_type())
                 .expect("checked data")
                 .into(),
@@ -161,7 +161,7 @@ pub struct CellOutput {
 impl From<packed::CellOutput> for CellOutput {
     fn from(input: packed::CellOutput) -> CellOutput {
         CellOutput {
-            capacity: input.capacity().unpack(),
+            capacity: input.capacity().into(),
             lock: input.lock().into(),
             type_: input.type_().to_opt().map(Into::into),
         }
@@ -182,8 +182,8 @@ impl From<CellOutput> for packed::CellOutput {
         }
         .build();
         packed::CellOutput::new_builder()
-            .capacity(capacity.pack())
-            .lock(lock.into())
+            .capacity(capacity)
+            .lock(lock)
             .type_(type_)
             .build()
     }
@@ -212,9 +212,9 @@ pub struct OutPoint {
 
 impl From<packed::OutPoint> for OutPoint {
     fn from(input: packed::OutPoint) -> OutPoint {
-        let index: u32 = input.index().unpack();
+        let index: u32 = input.index().into();
         OutPoint {
-            tx_hash: input.tx_hash().unpack(),
+            tx_hash: input.tx_hash().into(),
             index: index.into(),
         }
     }
@@ -225,8 +225,8 @@ impl From<OutPoint> for packed::OutPoint {
         let OutPoint { tx_hash, index } = json;
         let index = index.value();
         packed::OutPoint::new_builder()
-            .tx_hash(tx_hash.pack())
-            .index(index.pack())
+            .tx_hash(tx_hash)
+            .index(index)
             .build()
     }
 }
@@ -261,7 +261,7 @@ impl From<packed::CellInput> for CellInput {
     fn from(input: packed::CellInput) -> CellInput {
         CellInput {
             previous_output: input.previous_output().into(),
-            since: input.since().unpack(),
+            since: input.since().into(),
         }
     }
 }
@@ -273,8 +273,8 @@ impl From<CellInput> for packed::CellInput {
             since,
         } = json;
         packed::CellInput::new_builder()
-            .previous_output(previous_output.into())
-            .since(since.pack())
+            .previous_output(previous_output)
+            .since(since)
             .build()
     }
 }
@@ -359,8 +359,8 @@ impl From<CellDep> for packed::CellDep {
         } = json;
         let dep_type: core::DepType = dep_type.into();
         packed::CellDep::new_builder()
-            .out_point(out_point.into())
-            .dep_type(dep_type.into())
+            .out_point(out_point)
+            .dep_type(dep_type)
             .build()
     }
 }
@@ -470,12 +470,12 @@ impl From<packed::Transaction> for Transaction {
     fn from(input: packed::Transaction) -> Self {
         let raw = input.raw();
         Self {
-            version: raw.version().unpack(),
+            version: raw.version().into(),
             cell_deps: raw.cell_deps().into_iter().map(Into::into).collect(),
             header_deps: raw
                 .header_deps()
                 .into_iter()
-                .map(|d| Unpack::<H256>::unpack(&d))
+                .map(|d| Into::<H256>::into(&d))
                 .collect(),
             inputs: raw.inputs().into_iter().map(Into::into).collect(),
             outputs: raw.outputs().into_iter().map(Into::into).collect(),
@@ -489,7 +489,7 @@ impl From<core::TransactionView> for TransactionView {
     fn from(input: core::TransactionView) -> Self {
         Self {
             inner: input.data().into(),
-            hash: input.hash().unpack(),
+            hash: input.hash().into(),
         }
     }
 }
@@ -506,16 +506,46 @@ impl From<Transaction> for packed::Transaction {
             outputs_data,
         } = json;
         let raw = packed::RawTransaction::new_builder()
-            .version(version.pack())
-            .cell_deps(cell_deps.into_iter().map(Into::into).pack())
-            .header_deps(header_deps.iter().map(Pack::pack).pack())
-            .inputs(inputs.into_iter().map(Into::into).pack())
-            .outputs(outputs.into_iter().map(Into::into).pack())
-            .outputs_data(outputs_data.into_iter().map(Into::into).pack())
+            .version(version)
+            .cell_deps(
+                cell_deps
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<packed::CellDep>>(),
+            )
+            .header_deps(
+                header_deps
+                    .iter()
+                    .map(Into::into)
+                    .collect::<Vec<packed::Byte32>>(),
+            )
+            .inputs(
+                inputs
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<packed::CellInput>>(),
+            )
+            .outputs(
+                outputs
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<packed::CellOutput>>(),
+            )
+            .outputs_data(
+                outputs_data
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<packed::Bytes>>(),
+            )
             .build();
         packed::Transaction::new_builder()
             .raw(raw)
-            .witnesses(witnesses.into_iter().map(Into::into).pack())
+            .witnesses(
+                witnesses
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<packed::Bytes>>(),
+            )
             .build()
     }
 }
@@ -784,17 +814,17 @@ impl From<packed::Header> for Header {
     fn from(input: packed::Header) -> Self {
         let raw = input.raw();
         Self {
-            version: raw.version().unpack(),
-            parent_hash: raw.parent_hash().unpack(),
-            timestamp: raw.timestamp().unpack(),
-            number: raw.number().unpack(),
-            epoch: raw.epoch().unpack(),
-            transactions_root: raw.transactions_root().unpack(),
-            proposals_hash: raw.proposals_hash().unpack(),
-            compact_target: raw.compact_target().unpack(),
-            extra_hash: raw.extra_hash().unpack(),
+            version: raw.version().into(),
+            parent_hash: raw.parent_hash().into(),
+            timestamp: raw.timestamp().into(),
+            number: raw.number().into(),
+            epoch: raw.epoch().into(),
+            transactions_root: raw.transactions_root().into(),
+            proposals_hash: raw.proposals_hash().into(),
+            compact_target: raw.compact_target().into(),
+            extra_hash: raw.extra_hash().into(),
             dao: raw.dao().into(),
-            nonce: input.nonce().unpack(),
+            nonce: input.nonce().into(),
         }
     }
 }
@@ -803,7 +833,7 @@ impl From<core::HeaderView> for HeaderView {
     fn from(input: core::HeaderView) -> Self {
         Self {
             inner: input.data().into(),
-            hash: input.hash().unpack(),
+            hash: input.hash().into(),
         }
     }
 }
@@ -831,21 +861,18 @@ impl From<Header> for packed::Header {
             nonce,
         } = json;
         let raw = packed::RawHeader::new_builder()
-            .version(version.pack())
-            .parent_hash(parent_hash.pack())
-            .timestamp(timestamp.pack())
-            .number(number.pack())
-            .epoch(epoch.pack())
-            .transactions_root(transactions_root.pack())
-            .proposals_hash(proposals_hash.pack())
-            .compact_target(compact_target.pack())
-            .extra_hash(extra_hash.pack())
-            .dao(dao.into())
+            .version(version)
+            .parent_hash(parent_hash)
+            .timestamp(timestamp)
+            .number(number)
+            .epoch(epoch)
+            .transactions_root(transactions_root)
+            .proposals_hash(proposals_hash)
+            .compact_target(compact_target)
+            .extra_hash(extra_hash)
+            .dao(dao)
             .build();
-        packed::Header::new_builder()
-            .raw(raw)
-            .nonce(nonce.pack())
-            .build()
+        packed::Header::new_builder().raw(raw).nonce(nonce).build()
     }
 }
 
@@ -903,7 +930,7 @@ impl From<core::UncleBlockView> for UncleBlockView {
     fn from(input: core::UncleBlockView) -> Self {
         let header = HeaderView {
             inner: input.data().header().into(),
-            hash: input.hash().unpack(),
+            hash: input.hash().into(),
         };
         Self {
             header,
@@ -921,8 +948,13 @@ impl From<UncleBlock> for packed::UncleBlock {
     fn from(json: UncleBlock) -> Self {
         let UncleBlock { header, proposals } = json;
         packed::UncleBlock::new_builder()
-            .header(header.into())
-            .proposals(proposals.into_iter().map(Into::into).pack())
+            .header(header)
+            .proposals(
+                proposals
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<packed::ProposalShortId>>(),
+            )
             .build()
     }
 }
@@ -1029,7 +1061,7 @@ impl From<core::BlockView> for BlockView {
         let block = input.data();
         let header = HeaderView {
             inner: block.header().into(),
-            hash: input.hash().unpack(),
+            hash: input.hash().into(),
         };
         let uncles = block
             .uncles()
@@ -1038,7 +1070,7 @@ impl From<core::BlockView> for BlockView {
             .map(|(uncle, hash)| {
                 let header = HeaderView {
                     inner: uncle.header().into(),
-                    hash: hash.unpack(),
+                    hash: hash.into(),
                 };
                 UncleBlockView {
                     header,
@@ -1052,7 +1084,7 @@ impl From<core::BlockView> for BlockView {
             .zip(input.tx_hashes().iter())
             .map(|(tx, hash)| TransactionView {
                 inner: tx.into(),
-                hash: hash.unpack(),
+                hash: hash.into(),
             })
             .collect();
         Self {
@@ -1077,19 +1109,49 @@ impl From<Block> for packed::Block {
         if let Some(extension) = extension {
             let extension: packed::Bytes = extension.into();
             packed::BlockV1::new_builder()
-                .header(header.into())
-                .uncles(uncles.into_iter().map(Into::into).pack())
-                .transactions(transactions.into_iter().map(Into::into).pack())
-                .proposals(proposals.into_iter().map(Into::into).pack())
+                .header(header)
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<packed::UncleBlock>>(),
+                )
+                .transactions(
+                    transactions
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<packed::Transaction>>(),
+                )
+                .proposals(
+                    proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<packed::ProposalShortId>>(),
+                )
                 .extension(extension)
                 .build()
                 .as_v0()
         } else {
             packed::Block::new_builder()
-                .header(header.into())
-                .uncles(uncles.into_iter().map(Into::into).pack())
-                .transactions(transactions.into_iter().map(Into::into).pack())
-                .proposals(proposals.into_iter().map(Into::into).pack())
+                .header(header)
+                .uncles(
+                    uncles
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<packed::UncleBlock>>(),
+                )
+                .transactions(
+                    transactions
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<packed::Transaction>>(),
+                )
+                .proposals(
+                    proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<packed::ProposalShortId>>(),
+                )
                 .build()
         }
     }
@@ -1160,10 +1222,10 @@ impl EpochView {
     /// Creates the view from the stored ext.
     pub fn from_ext(ext: packed::EpochExt) -> EpochView {
         EpochView {
-            number: ext.number().unpack(),
-            start_number: ext.start_number().unpack(),
-            length: ext.length().unpack(),
-            compact_target: ext.compact_target().unpack(),
+            number: ext.number().into(),
+            start_number: ext.start_number().into(),
+            length: ext.length().into(),
+            compact_target: ext.compact_target().into(),
         }
     }
 }
@@ -1257,7 +1319,7 @@ impl From<core::BlockEconomicState> for BlockEconomicState {
             issuance: core.issuance.into(),
             miner_reward: core.miner_reward.into(),
             txs_fee: core.txs_fee.into(),
-            finalized_at: core.finalized_at.unpack(),
+            finalized_at: core.finalized_at.into(),
         }
     }
 }
@@ -1268,7 +1330,7 @@ impl From<BlockEconomicState> for core::BlockEconomicState {
             issuance: json.issuance.into(),
             miner_reward: json.miner_reward.into(),
             txs_fee: json.txs_fee.into(),
-            finalized_at: json.finalized_at.pack(),
+            finalized_at: json.finalized_at.into(),
         }
     }
 }

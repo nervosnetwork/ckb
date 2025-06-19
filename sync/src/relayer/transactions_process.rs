@@ -45,12 +45,7 @@ impl<'a> TransactionsProcess<'a> {
             self.message
                 .transactions()
                 .iter()
-                .map(|tx| {
-                    (
-                        tx.transaction().to_entity().into_view(),
-                        tx.cycles().unpack(),
-                    )
-                })
+                .map(|tx| (tx.transaction().to_entity().into_view(), tx.cycles().into()))
                 .filter(|(tx, _)| {
                     !tx_filter.contains(&tx.hash())
                         && unknown_tx_hashes

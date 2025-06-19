@@ -4,7 +4,7 @@ use crate::{Node, Spec};
 
 use ckb_types::{
     core::{Capacity, capacity_bytes},
-    packed::CellOutput,
+    packed::{self, CellOutput},
     prelude::*,
 };
 use std::convert::Into;
@@ -46,8 +46,8 @@ impl Spec for InsufficientReward {
 
         // build a block with insufficient reward
         let output = CellOutput::new_builder()
-            .capacity(capacity_bytes!(1).pack())
-            .lock(Default::default())
+            .capacity(capacity_bytes!(1))
+            .lock(packed::Script::default())
             .build();
         let cellbase = new_block_builder.clone().build().transactions()[0]
             .as_advanced_builder()

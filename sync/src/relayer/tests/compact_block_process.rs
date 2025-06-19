@@ -113,9 +113,9 @@ fn test_unknow_parent() {
     let block = BlockBuilder::default()
         .header(
             HeaderBuilder::default()
-                .number(5.pack())
-                .epoch(EpochNumberWithFraction::new(1, 5, 1000).pack())
-                .timestamp(unix_time_as_millis().pack())
+                .number(5)
+                .epoch(EpochNumberWithFraction::new(1, 5, 1000))
+                .timestamp(unix_time_as_millis())
                 .build(),
         )
         .transaction(TransactionBuilder::default().build())
@@ -145,7 +145,7 @@ fn test_unknow_parent() {
     let locator_hash = active_chain.get_locator((&header).into());
 
     let content = packed::GetHeaders::new_builder()
-        .block_locator_hashes(locator_hash.pack())
+        .block_locator_hashes(locator_hash)
         .hash_stop(packed::Byte32::zero())
         .build();
     let message = packed::SyncMessage::new_builder().set(content).build();
@@ -227,7 +227,7 @@ fn test_header_invalid() {
 
     // Better block but block number is invalid
     let header = new_header_builder(relayer.shared.shared(), &parent)
-        .number(4.pack())
+        .number(4)
         .build();
 
     let block = BlockBuilder::default()
@@ -285,10 +285,10 @@ fn test_send_missing_indexes() {
             TransactionBuilder::default()
                 .output(
                     CellOutputBuilder::default()
-                        .capacity(Capacity::bytes(1).unwrap().pack())
+                        .capacity(Capacity::bytes(1).unwrap())
                         .build(),
                 )
-                .output_data(Bytes::new().pack())
+                .output_data(Bytes::new())
                 .build(),
         )
         .uncle(uncle.as_uncle())
@@ -323,8 +323,8 @@ fn test_send_missing_indexes() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes([1u32].pack())
-        .uncle_indexes([0u32].pack())
+        .indexes([1u32])
+        .uncle_indexes([0u32])
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
@@ -342,7 +342,7 @@ fn test_send_missing_indexes() {
 
     let content = packed::GetBlockProposal::new_builder()
         .block_hash(block.header().hash())
-        .proposals(vec![proposal_id].into_iter().pack())
+        .proposals(vec![proposal_id])
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
@@ -372,12 +372,12 @@ fn test_accept_block() {
     );
 
     let mock_block_1 = BlockBuilder::default()
-        .number(4.pack())
-        .epoch(EpochNumberWithFraction::new(1, 4, 1000).pack())
+        .number(4)
+        .epoch(EpochNumberWithFraction::new(1, 4, 1000))
         .build();
     let mock_compact_block_1 = CompactBlock::build_from_block(&mock_block_1, &Default::default());
 
-    let mock_block_2 = block.as_advanced_builder().number(7.pack()).build();
+    let mock_block_2 = block.as_advanced_builder().number(7).build();
     let mock_compact_block_2 = CompactBlock::build_from_block(&mock_block_2, &Default::default());
     {
         let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
@@ -531,20 +531,20 @@ fn test_collision() {
     let missing_tx = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1000).unwrap().pack())
+                .capacity(Capacity::bytes(1000).unwrap())
                 .build(),
         )
         .input(CellInput::new(OutPoint::new(last_cellbase.hash(), 0), 0))
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .build();
 
     let fake_hash = missing_tx
         .hash()
         .as_builder()
-        .nth31(0u8.into())
-        .nth30(0u8.into())
-        .nth29(0u8.into())
-        .nth28(0u8.into())
+        .nth31(0u8)
+        .nth30(0u8)
+        .nth29(0u8)
+        .nth28(0u8)
         .build();
     // Fake tx with the same ProposalShortId but different hash with missing_tx
     let fake_tx = missing_tx.clone().fake_hash(fake_hash);
@@ -600,7 +600,7 @@ fn test_collision() {
 
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
-        .indexes([1u32].pack())
+        .indexes([1u32])
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();

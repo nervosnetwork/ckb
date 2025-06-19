@@ -1,7 +1,6 @@
 use ckb_types::{
-    bytes::Bytes,
     core::{Capacity, Cycle, TransactionBuilder, TransactionView},
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
+    packed::{self, Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
 
@@ -19,10 +18,10 @@ pub(crate) fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> Trans
         )
         .outputs((0..outputs_len).map(|i| {
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap().pack())
+                .capacity(Capacity::bytes(i + 1).unwrap())
                 .build()
         }))
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
+        .outputs_data((0..outputs_len).map(|_| packed::Bytes::default()))
         .build()
 }
 
@@ -44,10 +43,10 @@ pub(crate) fn build_tx_with_dep(
         }))
         .outputs((0..outputs_len).map(|i| {
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap().pack())
+                .capacity(Capacity::bytes(i + 1).unwrap())
                 .build()
         }))
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
+        .outputs_data((0..outputs_len).map(|_| packed::Bytes::default()))
         .build()
 }
 
@@ -65,9 +64,9 @@ pub(crate) fn build_tx_with_header_dep(
         .set_header_deps(header_deps)
         .outputs((0..outputs_len).map(|i| {
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap().pack())
+                .capacity(Capacity::bytes(i + 1).unwrap())
                 .build()
         }))
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
+        .outputs_data((0..outputs_len).map(|_| packed::Bytes::default()))
         .build()
 }

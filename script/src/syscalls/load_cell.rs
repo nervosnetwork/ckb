@@ -103,7 +103,7 @@ impl<DL: CellDataProvider + Clone> LoadCell<DL> {
 
         let result = match field {
             CellField::Capacity => {
-                let capacity: Capacity = output.capacity().unpack();
+                let capacity: Capacity = output.capacity().into();
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(capacity.as_u64())?;
                 (SUCCESS, store_data(machine, &buffer)?)
