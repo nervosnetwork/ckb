@@ -53,11 +53,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Console",
 ] }
 
-[profile.release.build-override]
-opt-level = 3
+# [profile.release.build-override]
+# opt-level = 3
 
-[profile.bench.build-override]
-opt-level = 3
+# [profile.bench.build-override]
+# opt-level = 3
 
 [features]
 default = []

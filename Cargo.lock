@@ -699,6 +699,7 @@ version = "0.203.0-pre"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
+ "ckb-test",
  "console-subscriber",
  "tikv-jemallocator",
 ]
@@ -1778,6 +1779,46 @@ name = "ckb-systemtime"
 version = "0.203.0-pre"
 dependencies = [
  "web-time",
+]
+
+[[package]]
+name = "ckb-test"
+version = "0.203.0-pre"
+dependencies = [
+ "byteorder",
+ "ckb-app-config",
+ "ckb-async-runtime",
+ "ckb-chain-spec",
+ "ckb-channel",
+ "ckb-constant",
+ "ckb-crypto",
+ "ckb-dao-utils",
+ "ckb-db",
+ "ckb-error",
+ "ckb-hash",
+ "ckb-jsonrpc-types",
+ "ckb-logger",
+ "ckb-logger-config",
+ "ckb-logger-service",
+ "ckb-network",
+ "ckb-resource",
+ "ckb-shared",
+ "ckb-store",
+ "ckb-systemtime",
+ "ckb-test-chain-utils",
+ "ckb-types",
+ "ckb-util",
+ "clap",
+ "ctrlc",
+ "jsonrpc-core",
+ "log",
+ "nix",
+ "rand 0.8.5",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
