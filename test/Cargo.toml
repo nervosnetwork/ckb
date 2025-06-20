@@ -1,6 +1,6 @@
 [package]
 name = "ckb-test"
-version = "0.203.0-pre"
+version.workspace = true
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -9,38 +9,38 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-clap = { version = "4" }
-toml = "0.5.0"
-ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
-ckb-app-config = { path = "../util/app-config" }
-ckb-network = { path = "../network" }
-ckb-channel = { path = "../util/channel" }
-ckb-types = { path = "../util/types" }
-ckb-hash = { path = "../util/hash" }
-ckb-util = { path = "../util" }
-ckb-chain-spec = { path = "../spec" }
-ckb-crypto = { path = "../util/crypto" }
-ckb-dao-utils = { path = "../util/dao/utils" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils" }
-ckb-resource = { path = "../resource" }
-ckb-async-runtime = { path = "../util/runtime" }
-ckb-logger = { path = "../util/logger" }
-ckb-logger-config = { path = "../util/logger-config" }
-ckb-logger-service = { path = "../util/logger-service" }
-ckb-error = { path = "../error" }
-ckb-constant = { path = "../util/constant" }
-ckb-db = { path = "../db" }
-ckb-store = { path = "../store" }
-ckb-shared = { path = "../shared" }
-tempfile = "3"
-reqwest = { version = "0.12", features = ["blocking", "json"] }
-rand = "0.8"
-ckb-systemtime = { path = "../util/systemtime" }
-serde_json = "1.0"
-byteorder = "1.3.1"
-jsonrpc-core = "18.0"
-ctrlc = { version = "3.1", features = ["termination"] }
-log = "0.4"
+clap.workspace = true
+toml.workspace = true
+ckb-jsonrpc-types.workspace = true
+ckb-app-config.workspace = true
+ckb-network.workspace = true
+ckb-channel.workspace = true
+ckb-types.workspace = true
+ckb-hash.workspace = true
+ckb-util.workspace = true
+ckb-chain-spec.workspace = true
+ckb-crypto.workspace = true
+ckb-dao-utils.workspace = true
+ckb-test-chain-utils.workspace = true
+ckb-resource.workspace = true
+ckb-async-runtime.workspace = true
+ckb-logger.workspace = true
+ckb-logger-config.workspace = true
+ckb-logger-service.workspace = true
+ckb-error.workspace = true
+ckb-constant.workspace = true
+ckb-db.workspace = true
+ckb-store.workspace = true
+ckb-shared.workspace = true
+tempfile.workspace = true
+reqwest.workspace = true
+rand.workspace = true
+ckb-systemtime.workspace = true
+serde_json.workspace = true
+byteorder.workspace = true
+jsonrpc-core.workspace = true
+ctrlc.workspace = true
+log.workspace = true
 
 [target.'cfg(not(target_os="windows"))'.dependencies]
 nix = { version = "0.29.0", default-features = false, features = ["signal"] }
@@ -52,10 +52,6 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_System_Console",
 ] }
-
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
 
 [profile.release.build-override]
 opt-level = 3

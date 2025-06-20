@@ -10,6 +10,15 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.85.0"
 
+[[bin]]
+name = "ckb"
+path = "src/main.rs"
+
+
+[[bin]]
+name = "ckb-test"
+path = "test/src/main.rs"
+
 [build-dependencies]
 ckb-build-info.workspace = true
 
@@ -89,6 +98,7 @@ members = [
     "block-filter",
     "chain",
     "sync",
+    "test",
     "util/instrument",
     "rpc",
     "util/light-client-protocol-server",
