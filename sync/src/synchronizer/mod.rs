@@ -44,11 +44,13 @@ use ckb_systemtime::unix_time_as_millis;
 
 #[cfg(test)]
 use ckb_types::core;
+use ckb_types::core::HeaderView;
 use ckb_types::{
     core::BlockNumber,
     packed::{self, Byte32},
     prelude::*,
 };
+use dashmap::DashMap;
 use std::{
     collections::HashSet,
     sync::{Arc, atomic::Ordering},
@@ -336,6 +338,9 @@ pub struct Synchronizer {
     pub(crate) chain: ChainController,
     /// Sync shared state
     pub shared: Arc<SyncShared>,
+
+    // First Headers's parent_hash -> Headers
+    pub(crate) header_cache: DashMap<Byte32, Vec<HeaderView>>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
 }
 
@@ -344,10 +349,12 @@ impl Synchronizer {
     ///
     /// This is a runtime sync protocol shared state, and any Sync protocol messages will be processed and forwarded by it
     pub fn new(chain: ChainController, shared: Arc<SyncShared>) -> Synchronizer {
+        let header_cache = DashMap::new();
         Synchronizer {
             chain,
             shared,
             fetch_channel: None,
+            header_cache,
         }
     }
 
