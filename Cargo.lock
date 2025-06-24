@@ -1793,7 +1793,6 @@ dependencies = [
  "ckb-constant",
  "ckb-crypto",
  "ckb-dao-utils",
- "ckb-db",
  "ckb-error",
  "ckb-hash",
  "ckb-jsonrpc-types",
@@ -1818,7 +1817,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml",
- "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -29,7 +29,6 @@ ckb-logger-config.workspace = true
 ckb-logger-service.workspace = true
 ckb-error.workspace = true
 ckb-constant.workspace = true
-ckb-db.workspace = true
 ckb-store.workspace = true
 ckb-shared.workspace = true
 tempfile.workspace = true
@@ -44,20 +43,6 @@ log.workspace = true
 
 [target.'cfg(not(target_os="windows"))'.dependencies]
 nix = { version = "0.29.0", default-features = false, features = ["signal"] }
-
-[target.'cfg(target_os="windows")'.dependencies]
-windows-sys = { version = "0.59", features = [
-    "Win32_Foundation",
-    "Win32_System_Threading",
-    "Win32_Security",
-    "Win32_System_Console",
-] }
-
-# [profile.release.build-override]
-# opt-level = 3
-
-# [profile.bench.build-override]
-# opt-level = 3
 
 [features]
 default = []
