@@ -117,7 +117,7 @@ where
     /// * `rtx` - transaction which cell out points have been resolved.
     /// * `data_loader` - used to load cell data.
     /// * `consensus` - consensus parameters.
-    /// * `tx_env` - enviroment for verifying transaction, such as committed block, etc.
+    /// * `tx_env` - environment for verifying transaction, such as committed block, etc.
     /// * `syscall_generator` - a syscall generator for current verifier
     /// * `syscall_context` - context for syscall generator
     pub fn new_with_generator(

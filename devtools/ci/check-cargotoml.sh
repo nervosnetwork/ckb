@@ -85,7 +85,7 @@ function check_version() {
             dep_name=$(echo ${dep} | awk -F' ' '{print $1}')
             dep_version=$(echo ${dep} | awk -F' ' '{print $2}')
             if [[  -v ckb_workspace_members["${dep_name}"] ]]; then
-                # thes dep is a ckb's worspace member
+                # thes dep is a ckb's workspace member
                 # if dep_version not equal to ckb's version, then it's an error
                 if [ "${dep_version}" != "v${ckb_version}" ]; then
                     ERRCNT=$((ERRCNT + 1))
