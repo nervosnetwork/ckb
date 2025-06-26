@@ -20,7 +20,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
     let session_id = 1.into();
 
     // whitelist_only mode: only accept whitelist_peer
-    let mut peers = PeerRegistry::new(3, 3, true, vec![whitelist_addr.clone()]);
+    let mut peers = PeerRegistry::new(3, 3, true, vec![whitelist_addr.clone()], true);
     let err = peers
         .accept_peer(
             random_addr(),
@@ -51,7 +51,7 @@ fn test_accept_inbound_peer_until_full() {
         .parse::<Multiaddr>()
         .unwrap();
     // accept node until inbound connections is full
-    let mut peers = PeerRegistry::new(3, 3, false, vec![whitelist_addr.clone()]);
+    let mut peers = PeerRegistry::new(3, 3, false, vec![whitelist_addr.clone()], true);
     for session_id in 1..=3 {
         peers
             .accept_peer(
@@ -136,6 +136,7 @@ fn test_accept_inbound_peer_eviction() {
         3,
         false,
         vec![whitelist_addr],
+        true,
     );
     // prepare all peers
     for session_id in 0..protected_peers_count {

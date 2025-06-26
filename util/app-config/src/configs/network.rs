@@ -86,15 +86,17 @@ pub struct Config {
     /// Allow ckb to upgrade tcp listening to tcp + ws listening
     #[serde(default = "default_reuse_tcp_with_ws")]
     pub reuse_tcp_with_ws: bool,
-    /// Chain synchronization config options.
+    /// Disable block_relay_only connection, only use for testing.
     #[serde(default)]
-    pub sync: SyncConfig,
+    pub disable_block_relay_only_connection: bool,
     /// Tentacle inner channel_size.
     pub channel_size: Option<usize>,
-
     #[cfg(target_family = "wasm")]
     #[serde(skip)]
     pub secret_key: [u8; 32],
+    /// Chain synchronization config options.
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
 
 /// Chain synchronization config options.

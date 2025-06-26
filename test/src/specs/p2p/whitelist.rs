@@ -16,6 +16,7 @@ impl Spec for WhitelistOnSessionLimit {
         config.network.discovery_local_address = true;
         config.network.max_peers = 2;
         config.network.max_outbound_peers = 1;
+        config.network.disable_block_relay_only_connection = true;
     }
 
     fn run(&self, nodes: &mut Vec<Node>) {

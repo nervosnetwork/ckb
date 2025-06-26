@@ -32,6 +32,7 @@ pub struct PeerRegistry {
     whitelist_only: bool,
     whitelist_peers: HashSet<PeerId>,
     feeler_peers: HashMap<PeerId, Flags>,
+    disable_block_relay_only_connection: bool,
 }
 
 /// Global network connection status
@@ -68,6 +69,7 @@ impl PeerRegistry {
         max_outbound: u32,
         whitelist_only: bool,
         whitelist_peers: Vec<Multiaddr>,
+        disable_block_relay_only_connection: bool,
     ) -> Self {
         PeerRegistry {
             peers: HashMap::with_capacity_and_hasher(20, Default::default()),
@@ -77,6 +79,7 @@ impl PeerRegistry {
             max_outbound,
             max_outbound_block_relay: MAX_OUTBOUND_BLOCK_RELAY,
             whitelist_only,
+            disable_block_relay_only_connection,
         }
     }
 
@@ -118,8 +121,9 @@ impl PeerRegistry {
                     }
                 }
             } else if connection_status.non_whitelist_outbound >= self.max_outbound {
-                if connection_status.block_relay_only_outbound_count
-                    >= self.max_outbound_block_relay
+                if self.disable_block_relay_only_connection
+                    || connection_status.block_relay_only_outbound_count
+                        >= self.max_outbound_block_relay
                 {
                     return Err(PeerError::ReachMaxOutboundLimit.into());
                 } else {

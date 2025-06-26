@@ -130,6 +130,7 @@ impl NetworkState {
             config.max_outbound_peers(),
             config.whitelist_only,
             config.whitelist_peers(),
+            config.disable_block_relay_only_connection,
         );
 
         Ok(NetworkState {
@@ -179,6 +180,7 @@ impl NetworkState {
             config.max_outbound_peers(),
             config.whitelist_only,
             config.whitelist_peers(),
+            config.disable_block_relay_only_connection,
         );
         Ok(NetworkState {
             peer_store,
