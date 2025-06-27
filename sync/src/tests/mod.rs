@@ -393,6 +393,9 @@ impl CKBProtocolContext for TestNetworkContext {
             })
             .collect::<Vec<_>>()
     }
+    fn full_relay_connected_peers(&self) -> Vec<PeerIndex> {
+        vec![]
+    }
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {}
     fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration, _reason: String) {}
     // Other methods

@@ -61,7 +61,7 @@ impl MisbehaveResult {
 #[async_trait]
 pub trait Callback: Clone + Send {
     // Register open protocol
-    fn register(&self, context: &ProtocolContextMutRef, version: &str);
+    fn register(&self, context: &ProtocolContextMutRef, version: &str) -> bool;
     // remove registered identify protocol
     fn unregister(&self, context: &ProtocolContextMutRef);
     /// Received custom message
@@ -206,31 +206,40 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
     async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
         let session = context.session;
         debug!("IdentifyProtocol connected, session: {:?}", session);
+        if self.callback.register(&context, version) {
+            let remote_info =
+                RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
+            self.remote_infos.insert(session.id, remote_info);
 
-        self.callback.register(&context, version);
+            let listen_addrs: Vec<Multiaddr> = self
+                .callback
+                .local_listen_addrs()
+                .iter()
+                .filter(|addr| {
+                    multiaddr_to_socketaddr(addr)
+                        .map(|socket_addr| !self.global_ip_only || is_reachable(socket_addr.ip()))
+                        .unwrap_or(false)
+                })
+                .take(MAX_ADDRS)
+                .cloned()
+                .collect();
 
-        let remote_info = RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
-        self.remote_infos.insert(session.id, remote_info);
-
-        let listen_addrs: Vec<Multiaddr> = self
-            .callback
-            .local_listen_addrs()
-            .iter()
-            .filter(|addr| {
-                multiaddr_to_socketaddr(addr)
-                    .map(|socket_addr| !self.global_ip_only || is_reachable(socket_addr.ip()))
-                    .unwrap_or(false)
-            })
-            .take(MAX_ADDRS)
-            .cloned()
-            .collect();
-
-        let identify = self.callback.identify();
-        let data = IdentifyMessage::new(listen_addrs, session.address.clone(), identify).encode();
-        let _ = context
-            .quick_send_message(data)
+            let identify = self.callback.identify();
+            let data =
+                IdentifyMessage::new(listen_addrs, session.address.clone(), identify).encode();
+            let _ = context
+                .quick_send_message(data)
+                .await
+                .map_err(|err| error!("IdentifyProtocol quick_send_message, error: {:?}", err));
+        } else if let Err(e) = context
+            .close_protocol(context.session.id, SupportProtocols::Identify.protocol_id())
             .await
-            .map_err(|err| error!("IdentifyProtocol quick_send_message, error: {:?}", err));
+        {
+            error!(
+                "Block-Relay-Only Session close IdentifyProtocol failed, session: {:?} {}",
+                context.session, e
+            );
+        }
     }
 
     async fn disconnected(&mut self, context: ProtocolContextMutRef<'_>) {
@@ -352,12 +361,19 @@ impl IdentifyCallback {
 
 #[async_trait]
 impl Callback for IdentifyCallback {
-    fn register(&self, context: &ProtocolContextMutRef, version: &str) {
-        self.network_state.with_peer_registry_mut(|reg| {
-            reg.get_peer_mut(context.session.id).map(|peer| {
-                peer.protocols.insert(context.proto_id, version.to_owned());
-            })
-        });
+    fn register(&self, context: &ProtocolContextMutRef, version: &str) -> bool {
+        let session_id = context.session.id;
+        let is_anchor = self
+            .network_state
+            .with_peer_registry(|reg| reg.is_anchor(session_id));
+        if !is_anchor {
+            self.network_state.with_peer_registry_mut(|reg| {
+                reg.get_peer_mut(session_id).map(|peer| {
+                    peer.protocols.insert(context.proto_id, version.to_owned());
+                })
+            });
+        }
+        !is_anchor
     }
 
     fn unregister(&self, context: &ProtocolContextMutRef) {

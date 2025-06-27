@@ -1,6 +1,6 @@
 use crate::network_group::Group;
 use crate::{
-    ProtocolId, ProtocolVersion, SessionType, multiaddr::Multiaddr, protocols::identify::Flags,
+    ProtocolId, ProtocolVersion, RawSessionType, multiaddr::Multiaddr, protocols::identify::Flags,
 };
 use ckb_systemtime::{Duration, Instant};
 use p2p::SessionId;
@@ -13,6 +13,49 @@ pub struct PeerIdentifyInfo {
     pub client_version: String,
     /// Node flags
     pub flags: Flags,
+}
+
+/// Indicates the session type
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum SessionType {
+    /// Representing yourself as the active party means that you are the client side
+    Outbound,
+    /// Representing yourself as a passive recipient means that you are the server side
+    Inbound,
+    /// We use block-relay-only connections to help prevent against partition
+    /// attacks. By not relaying transactions or addresses, these connections
+    /// are harder to detect by a third party, thus helping obfuscate the
+    /// network topology.
+    BlockRelayOnly,
+}
+
+/// RawSessionType only covers Inbound and Outbound,
+/// and that BlockRelayOnly is explicitly set during peer registration.
+impl From<RawSessionType> for SessionType {
+    #[inline]
+    fn from(ty: RawSessionType) -> Self {
+        match ty {
+            RawSessionType::Outbound => SessionType::Outbound,
+            RawSessionType::Inbound => SessionType::Inbound,
+        }
+    }
+}
+
+impl SessionType {
+    /// is outbound
+    pub fn is_outbound(&self) -> bool {
+        matches!(self, SessionType::Outbound)
+    }
+
+    /// is inbound
+    pub fn is_inbound(&self) -> bool {
+        matches!(self, SessionType::Inbound)
+    }
+
+    /// is block_relay_only
+    pub fn is_block_relay_only(&self) -> bool {
+        matches!(self, SessionType::BlockRelayOnly)
+    }
 }
 
 /// Peer info
@@ -76,6 +119,11 @@ impl Peer {
     /// Whether inbound session
     pub fn is_inbound(&self) -> bool {
         self.session_type.is_inbound()
+    }
+
+    /// Whether block_re session
+    pub fn is_block_relay_only(&self) -> bool {
+        self.session_type.is_block_relay_only()
     }
 
     /// Get net group

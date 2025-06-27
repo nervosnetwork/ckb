@@ -28,7 +28,7 @@ pub use crate::{
         DefaultExitHandler, EventHandler, ExitHandler, NetworkController, NetworkService,
         NetworkState,
     },
-    peer::{Peer, PeerIdentifyInfo},
+    peer::{Peer, PeerIdentifyInfo, SessionType},
     peer_registry::PeerRegistry,
     peer_store::Score,
     protocols::{
@@ -41,7 +41,7 @@ pub use p2p::{
     builder::ServiceBuilder,
     bytes, multiaddr, runtime,
     secio::{self, PeerId, PublicKey},
-    service::{ServiceControl, SessionType, TargetProtocol, TargetSession},
+    service::{ServiceControl, SessionType as RawSessionType, TargetProtocol, TargetSession},
     traits::ServiceProtocol,
     utils::{extract_peer_id, multiaddr_to_socketaddr},
 };

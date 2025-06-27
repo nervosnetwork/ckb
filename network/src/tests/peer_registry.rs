@@ -2,7 +2,7 @@
 
 use super::random_addr;
 use crate::{
-    PeerId, SessionType,
+    PeerId, RawSessionType,
     errors::{Error, PeerError},
     extract_peer_id,
     multiaddr::Multiaddr,
@@ -20,12 +20,12 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
     let session_id = 1.into();
 
     // whitelist_only mode: only accept whitelist_peer
-    let mut peers = PeerRegistry::new(3, 3, true, vec![whitelist_addr.clone()]);
+    let mut peers = PeerRegistry::new(3, 3, true, vec![whitelist_addr.clone()], true);
     let err = peers
         .accept_peer(
             random_addr(),
             session_id,
-            SessionType::Inbound,
+            RawSessionType::Inbound,
             &mut peer_store,
         )
         .unwrap_err();
@@ -38,7 +38,7 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
         .accept_peer(
             whitelist_addr,
             session_id,
-            SessionType::Inbound,
+            RawSessionType::Inbound,
             &mut peer_store,
         )
         .expect("accept");
@@ -51,13 +51,13 @@ fn test_accept_inbound_peer_until_full() {
         .parse::<Multiaddr>()
         .unwrap();
     // accept node until inbound connections is full
-    let mut peers = PeerRegistry::new(3, 3, false, vec![whitelist_addr.clone()]);
+    let mut peers = PeerRegistry::new(3, 3, false, vec![whitelist_addr.clone()], true);
     for session_id in 1..=3 {
         peers
             .accept_peer(
                 random_addr(),
                 session_id.into(),
-                SessionType::Inbound,
+                RawSessionType::Inbound,
                 &mut peer_store,
             )
             .expect("accept");
@@ -67,7 +67,7 @@ fn test_accept_inbound_peer_until_full() {
         .accept_peer(
             random_addr(),
             3.into(),
-            SessionType::Outbound,
+            RawSessionType::Outbound,
             &mut peer_store,
         )
         .unwrap_err();
@@ -82,7 +82,7 @@ fn test_accept_inbound_peer_until_full() {
             .accept_peer(
                 random_addr(),
                 4.into(),
-                SessionType::Inbound,
+                RawSessionType::Inbound,
                 &mut peer_store,
             )
             .expect("Accept peer should ok")
@@ -93,7 +93,7 @@ fn test_accept_inbound_peer_until_full() {
         .accept_peer(
             whitelist_addr.clone(),
             5.into(),
-            SessionType::Inbound,
+            RawSessionType::Inbound,
             &mut peer_store,
         )
         .expect("accept");
@@ -101,7 +101,7 @@ fn test_accept_inbound_peer_until_full() {
         .accept_peer(
             whitelist_addr.clone(),
             6.into(),
-            SessionType::Inbound,
+            RawSessionType::Inbound,
             &mut peer_store,
         )
         .unwrap_err();
@@ -136,6 +136,7 @@ fn test_accept_inbound_peer_eviction() {
         3,
         false,
         vec![whitelist_addr],
+        true,
     );
     // prepare all peers
     for session_id in 0..protected_peers_count {
@@ -144,7 +145,7 @@ fn test_accept_inbound_peer_eviction() {
                 .accept_peer(
                     random_addr(),
                     session_id.into(),
-                    SessionType::Inbound,
+                    RawSessionType::Inbound,
                     &mut peer_store,
                 )
                 .is_ok()
@@ -212,7 +213,7 @@ fn test_accept_inbound_peer_eviction() {
         .accept_peer(
             random_addr(),
             2000.into(),
-            SessionType::Inbound,
+            RawSessionType::Inbound,
             &mut peer_store,
         )
         .expect("accept");
