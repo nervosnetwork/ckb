@@ -50,14 +50,12 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: 1.85.0
-      - run: rustup component add rustfmt
+          components: rustfmt, clippy
       - uses: actions/checkout@v4
       - run: cargo fmt --all -- --check
-      - run: rustup component add clippy
       - run: pip install yq
       - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev jq -y
       - run: |

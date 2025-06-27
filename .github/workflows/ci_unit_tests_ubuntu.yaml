@@ -50,9 +50,8 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: 1.85.0
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
       - name: Install nextest
