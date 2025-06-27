@@ -68,27 +68,24 @@ cov: cov-install-tools ## Run code coverage.
 	GRCOV_OUTPUT=lcov-unit-test.info make cov-collect-data
 
 
-.PHONY: setup-ckb-test
-setup-ckb-test:
-	cp -f Cargo.lock test/Cargo.lock
 
 .PHONY: submodule-init
 submodule-init:
 	git submodule update --init
 
 .PHONY: integration
-integration: submodule-init setup-ckb-test ## Run integration tests in "test" dir.
-	cargo build --release --features ${CKB_FEATURES}
+integration: submodule-init ## Run integration tests in "test" dir.
+	cargo build --bin ckb --release --features ${CKB_FEATURES}
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
-integration-release: submodule-init setup-ckb-test build
+integration-release: submodule-init build
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/release/ckb ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
-integration-cov: cov-install-tools submodule-init setup-ckb-test ## Run integration tests and generate coverage report.
+integration-cov: cov-install-tools submodule-init ## Run integration tests and generate coverage report.
 	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
-	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 build --features deadlock_detection
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 build --bin ckb --features deadlock_detection
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin ${CARGO_TARGET_DIR}/debug/ckb ${CKB_TEST_ARGS}
 	GRCOV_OUTPUT=lcov-integration-test.info make cov-collect-data
 
@@ -113,21 +110,20 @@ update-openrpc-doc:
 
 .PHONY: gen-hashes
 gen-hashes: ## Generate docs/hashes.toml
-	cargo run list-hashes -b > docs/hashes.toml
+	cargo run --bin ckb list-hashes -b > docs/hashes.toml
 
 ##@ Building
 .PHONY: check
-check: setup-ckb-test ## Runs all of the compiler's checks.
+check: ## Runs all of the compiler's checks.
 	cargo check ${VERBOSE} --all --all-targets --features ${ALL_FEATURES}
-	cd test && cargo check ${VERBOSE} --all --all-targets --all-features
 
 .PHONY: build
 build: ## Build binary with release profile.
-	cargo build ${VERBOSE} --release
+	cargo build --bin ckb ${VERBOSE} --release
 
 .PHONY: profiling
 profiling: ## Build binary with for profiling without debug symbols.
-	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,profiling"
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build --bin ckb ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,profiling"
 
 .PHONY: profiling-with-debug-symbols
 build-for-profiling: ## Build binary with for profiling.
@@ -135,19 +131,19 @@ build-for-profiling: ## Build binary with for profiling.
 
 .PHONY: prod
 prod: ## Build binary for production release.
-	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	cargo build --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: trace-tokio
 trace-tokio: ## Build binary for production release and with tokio trace feature.
-	RUSTFLAGS="--cfg tokio_unstable" cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "tokio-trace,with_sentry,with_dns_seeding"
+	RUSTFLAGS="--cfg tokio_unstable" cargo build --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "tokio-trace,with_sentry,with_dns_seeding"
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	cargo build ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
+	cargo build --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
 
 .PHONY: prod-docker
 prod-docker:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg docker" cargo build --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg docker" cargo build --bin ckb --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod-test
 prod-test:
@@ -159,12 +155,12 @@ prod-with-debug:
 
 .PHONY: docker
 docker: ## Build docker image
-	docker build -f docker/hub/Dockerfile -t nervos/ckb:x64-$$(git describe) .
+	docker build --bin ckb -f docker/hub/Dockerfile -t nervos/ckb:x64-$$(git describe) .
 	docker run --rm -it nervos/ckb:x64-$$(git describe) --version
 
 .PHONY: docker-aarch64
 docker-aarch64:
-	docker build -f docker/hub/Dockerfile-aarch64 -t nervos/ckb:aarch64-$$(git describe) .
+	docker build --bin ckb -f docker/hub/Dockerfile-aarch64 -t nervos/ckb:aarch64-$$(git describe) .
 	docker run --rm -it nervos/ckb:aarch64-$$(git describe) --version
 
 .PHONY: docker-publish
@@ -182,22 +178,18 @@ docker-publish-rc:
 	docker manifest push nervos/ckb:$$(git describe)
 
 ##@ Code Quality
-.PHONY: fmt
-fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
+.PHONY: t
+fmt: ## Check Rust source code format to keep to the same style.
 	cargo fmt ${VERBOSE} --all -- --check
-	cd test && cargo fmt ${VERBOSE} --all -- --check
 
 .PHONY: clippy
-clippy: setup-ckb-test ## Run linter to examine Rust source codes.
+clippy: ## Run linter to examine Rust source codes.
 	cargo clippy ${VERBOSE} --all --all-targets --features ${ALL_FEATURES} -- ${CLIPPY_OPTS} -D missing_docs
-	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 .PHONY: bless
-bless: setup-ckb-test
+bless:
 	cargo clippy --fix --allow-dirty ${VERBOSE} --all --all-targets --features ${ALL_FEATURES} -- ${CLIPPY_OPTS} -D missing_docs
-	cd test && cargo clippy --fix --allow-dirty ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 	cargo fmt ${VERBOSE} --all
-	cd test && cargo fmt ${VERBOSE} --all
 
 .PHONY: security-audit
 security-audit: ## Use cargo-deny to audit Cargo.lock for crates with security vulnerabilities.
