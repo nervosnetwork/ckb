@@ -33,7 +33,7 @@ jobs:
       job_skip: ${{ steps.prologue.outputs.job_skip }}
       linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: prologue
         id: prologue
         uses: ./.github/actions/ci_prologue
@@ -55,7 +55,7 @@ jobs:
           profile: minimal
           toolchain: 1.85.0
       - run: rustup component add rustfmt
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: cargo fmt --all -- --check
       - run: rustup component add clippy
       - run: pip install yq
