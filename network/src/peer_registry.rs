@@ -9,12 +9,14 @@ use crate::{
 };
 use ckb_logger::debug;
 use ckb_systemtime::Instant;
-use p2p::{SessionId, multiaddr::Multiaddr};
+use p2p::{SessionId, multiaddr::Multiaddr, service::SessionType as RawSessionType};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
+
+pub(crate) const MAX_OUTBOUND_BLOCK_RELAY: u32 = 2;
 
 /// Memory records of opened session information
 pub struct PeerRegistry {
@@ -23,10 +25,14 @@ pub struct PeerRegistry {
     max_inbound: u32,
     // max outbound limitation
     max_outbound: u32,
+    // max block-relay only outbound limitation
+    // We do not relay tx or addr messages with these peers
+    max_outbound_block_relay: u32,
     // Only whitelist peers or allow all peers.
     whitelist_only: bool,
     whitelist_peers: HashSet<PeerId>,
     feeler_peers: HashMap<PeerId, Flags>,
+    disable_block_relay_only_connection: bool,
 }
 
 /// Global network connection status
@@ -38,6 +44,8 @@ pub struct ConnectionStatus {
     pub non_whitelist_inbound: u32,
     /// Not whitelist outbound number
     pub non_whitelist_outbound: u32,
+    ///BLOCK relay only outbound number
+    pub block_relay_only_outbound_count: u32,
     /// Maximum number of inbound session
     pub max_inbound: u32,
     /// Maximum number of outbound session
@@ -61,6 +69,7 @@ impl PeerRegistry {
         max_outbound: u32,
         whitelist_only: bool,
         whitelist_peers: Vec<Multiaddr>,
+        disable_block_relay_only_connection: bool,
     ) -> Self {
         PeerRegistry {
             peers: HashMap::with_capacity_and_hasher(20, Default::default()),
@@ -68,7 +77,9 @@ impl PeerRegistry {
             feeler_peers: HashMap::default(),
             max_inbound,
             max_outbound,
+            max_outbound_block_relay: MAX_OUTBOUND_BLOCK_RELAY,
             whitelist_only,
+            disable_block_relay_only_connection,
         }
     }
 
@@ -76,7 +87,7 @@ impl PeerRegistry {
         &mut self,
         remote_addr: Multiaddr,
         session_id: SessionId,
-        session_type: SessionType,
+        raw_session_type: RawSessionType,
         peer_store: &mut PeerStore,
     ) -> Result<Option<Peer>, Error> {
         if self.peers.contains_key(&session_id) {
@@ -90,6 +101,7 @@ impl PeerRegistry {
         let is_whitelist = self.whitelist_peers.contains(&peer_id);
         let mut evicted_peer: Option<Peer> = None;
 
+        let mut session_type: SessionType = raw_session_type.into();
         if !is_whitelist {
             if self.whitelist_only {
                 return Err(PeerError::NonReserved.into());
@@ -109,7 +121,15 @@ impl PeerRegistry {
                     }
                 }
             } else if connection_status.non_whitelist_outbound >= self.max_outbound {
-                return Err(PeerError::ReachMaxOutboundLimit.into());
+                if self.disable_block_relay_only_connection
+                    || connection_status.block_relay_only_outbound_count
+                        >= self.max_outbound_block_relay
+                {
+                    return Err(PeerError::ReachMaxOutboundLimit.into());
+                } else {
+                    peer_store.add_anchors(remote_addr.clone());
+                    session_type = SessionType::BlockRelayOnly;
+                }
             }
         }
         peer_store.add_connected_peer(remote_addr.clone(), session_type);
@@ -227,6 +247,13 @@ impl PeerRegistry {
             .unwrap_or_default()
     }
 
+    /// Whether this session is anchor
+    pub fn is_anchor(&self, session_id: SessionId) -> bool {
+        self.get_peer(session_id)
+            .map(|peer| peer.is_block_relay_only())
+            .unwrap_or(false)
+    }
+
     /// Get peer info
     pub fn get_peer(&self, session_id: SessionId) -> Option<&Peer> {
         self.peers.get(&session_id)
@@ -268,9 +295,12 @@ impl PeerRegistry {
         let total = self.peers.len() as u32;
         let mut non_whitelist_inbound: u32 = 0;
         let mut non_whitelist_outbound: u32 = 0;
+        let mut block_relay_only_outbound_count: u32 = 0;
         for peer in self.peers.values().filter(|peer| !peer.is_whitelist) {
             if peer.is_outbound() {
                 non_whitelist_outbound += 1;
+            } else if peer.is_block_relay_only() {
+                block_relay_only_outbound_count += 1;
             } else {
                 non_whitelist_inbound += 1;
             }
@@ -279,6 +309,7 @@ impl PeerRegistry {
             total,
             non_whitelist_inbound,
             non_whitelist_outbound,
+            block_relay_only_outbound_count,
             max_inbound: self.max_inbound,
             max_outbound: self.max_outbound,
         }

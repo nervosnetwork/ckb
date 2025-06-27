@@ -7,7 +7,7 @@
 # Executables
 *.exe
 
-# intermedia file directory
+# intermediate file directory
 target/
 target-cache/
 */target/

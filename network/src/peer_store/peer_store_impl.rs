@@ -7,6 +7,7 @@ use crate::{
         ADDR_COUNT_LIMIT, ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS, Behaviour, DIAL_INTERVAL,
         Multiaddr, PeerScoreConfig, ReportResult, Status,
         addr_manager::AddrManager,
+        anchors::Anchors,
         ban_list::BanList,
         base_addr,
         types::{AddrInfo, BannedAddr, PeerInfo, ip_to_network},
@@ -24,16 +25,22 @@ use std::collections::{HashMap, hash_map::Entry};
 pub struct PeerStore {
     addr_manager: AddrManager,
     ban_list: BanList,
+    anchors: Anchors,
     connected_peers: HashMap<PeerId, PeerInfo>,
     score_config: PeerScoreConfig,
 }
 
 impl PeerStore {
-    /// New with address list and ban list
-    pub fn new(addr_manager: AddrManager, ban_list: BanList) -> Self {
+    /// New with address , ban and anchors list
+    ///
+    ///  Anchor IP address database,
+    ///  created on shutdown and deleted at startup.
+    /// Anchors are last known outgoing block-relay-only peers that are tried to re-connect to on startup
+    pub fn new(addr_manager: AddrManager, ban_list: BanList, anchors: Anchors) -> Self {
         PeerStore {
             addr_manager,
             ban_list,
+            anchors,
             connected_peers: Default::default(),
             score_config: Default::default(),
         }
@@ -106,6 +113,11 @@ impl PeerStore {
         ));
     }
 
+    /// Add anchors address
+    pub fn add_anchors(&mut self, addr: Multiaddr) {
+        self.anchors.add(addr);
+    }
+
     /// Update outbound peer last connected ms
     pub fn update_outbound_addr_last_connected_ms(&mut self, addr: Multiaddr) {
         if self.ban_list.is_addr_banned(&addr) {
@@ -120,6 +132,16 @@ impl PeerStore {
     /// Get address manager
     pub fn addr_manager(&self) -> &AddrManager {
         &self.addr_manager
+    }
+
+    /// Get anchors
+    pub fn anchors(&self) -> &Anchors {
+        &self.anchors
+    }
+
+    /// Get mut anchors
+    pub fn mut_anchors(&mut self) -> &mut Anchors {
+        &mut self.anchors
     }
 
     /// Get mut address manager

@@ -118,6 +118,8 @@ pub trait CKBProtocolContext: Send {
     fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>);
     /// Get all session id
     fn connected_peers(&self) -> Vec<PeerIndex>;
+    /// Get all full_relay (exclude block-relay-only) id
+    fn full_relay_connected_peers(&self) -> Vec<PeerIndex>;
     /// Report peer behavior
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
     /// Ban peer
@@ -616,6 +618,23 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
                 .collect()
         })
     }
+
+    fn full_relay_connected_peers(&self) -> Vec<PeerIndex> {
+        self.network_state.with_peer_registry(|reg| {
+            reg.peers()
+                .iter()
+                .filter_map(|(peer_index, peer)| {
+                    if peer.protocols.contains_key(&self.proto_id) && !peer.is_block_relay_only() {
+                        Some(peer_index)
+                    } else {
+                        None
+                    }
+                })
+                .cloned()
+                .collect()
+        })
+    }
+
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour) {
         self.network_state
             .report_session(&self.p2p_control, peer_index, behaviour);

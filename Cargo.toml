@@ -10,13 +10,28 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.85.0"
 
+[[bin]]
+name = "ckb"
+path = "src/main.rs"
+
+
+[[bin]]
+name = "ckb-test"
+path = "test/src/main.rs"
+
 [build-dependencies]
 ckb-build-info.workspace = true
 
 [dependencies]
 ckb-build-info.workspace = true
 ckb-bin.workspace = true
+ckb-test.workspace = true
 console-subscriber = { workspace = true, optional = true }
+
+[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
+tikv-jemallocator = { version = "0.5.0", features = [
+    "unprefixed_malloc_on_supported_platforms",
+] }
 
 [dev-dependencies]
 
@@ -95,6 +110,7 @@ members = [
     "util/launcher",
     "devtools/doc/rpc-gen",
     "ckb-bin",
+    "test",
 ]
 
 [workspace.package]
@@ -185,6 +201,7 @@ ckb-sync = { path = "sync", version = "=0.203.0-pre" }
 ckb-system-scripts = "=0.5.4"
 ckb-systemtime = { path = "util/systemtime", version = "=0.203.0-pre" }
 ckb-test-chain-utils = { path = "util/test-chain-utils", version = "=0.203.0-pre" }
+ckb-test = { path = "test", version = "=0.203.0-pre" }
 ckb-traits = { path = "traits", version = "=0.203.0-pre" }
 ckb-tx-pool = { path = "tx-pool", version = "=0.203.0-pre" }
 ckb-types = { path = "util/types", version = "=0.203.0-pre" }
@@ -261,7 +278,7 @@ rand = "0.8.5"
 rand_distr = "0.4"
 rayon = "1.0"
 regex = "1.1.6"
-reqwest = "0.12"
+reqwest = { version = "0.12" ,features = ["blocking", "json"]}
 rhai = "1.16.0"
 rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
 rustc-hash = "1.1"
@@ -304,11 +321,6 @@ opt-level = 3
 inherits = "release"
 lto = true
 codegen-units = 1
-
-[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
-tikv-jemallocator = { version = "0.5.0", features = [
-    "unprefixed_malloc_on_supported_platforms",
-] }
 
 [features]
 default = []

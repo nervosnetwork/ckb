@@ -130,6 +130,7 @@ impl NetworkState {
             config.max_outbound_peers(),
             config.whitelist_only,
             config.whitelist_peers(),
+            config.disable_block_relay_only_connection,
         );
 
         Ok(NetworkState {
@@ -179,6 +180,7 @@ impl NetworkState {
             config.max_outbound_peers(),
             config.whitelist_only,
             config.whitelist_peers(),
+            config.disable_block_relay_only_connection,
         );
         Ok(NetworkState {
             peer_store,
@@ -1139,6 +1141,9 @@ impl NetworkService {
                 .into_iter()
                 .map(|paddr| paddr.addr)
                 .collect();
+            // tried to re-connect to anchors on startup
+            let anchors: Vec<_> = peer_store.mut_anchors().drain().collect();
+            addrs.extend(anchors);
             // Get bootnodes randomly
             let bootnodes = self
                 .network_state

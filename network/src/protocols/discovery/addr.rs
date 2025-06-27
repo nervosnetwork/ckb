@@ -39,7 +39,7 @@ impl MisbehaveResult {
 
 // FIXME: Should be peer store?
 pub trait AddressManager {
-    fn register(&self, id: SessionId, pid: ProtocolId, version: &str);
+    fn register(&self, id: SessionId, pid: ProtocolId, version: &str) -> bool;
     fn unregister(&self, id: SessionId, pid: ProtocolId);
     fn is_valid_addr(&self, addr: &Multiaddr) -> bool;
     fn add_new_addr(&mut self, session_id: SessionId, addr: (Multiaddr, Flags));
