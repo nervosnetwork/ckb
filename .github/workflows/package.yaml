@@ -25,7 +25,7 @@ jobs:
     outputs:
       upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set tag
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -52,7 +52,7 @@ jobs:
           - rel_pkg: "x86_64-unknown-linux-gnu-portable.tar.gz"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -89,7 +89,7 @@ jobs:
     name: package-for-linux-aarch64
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -138,7 +138,7 @@ jobs:
           - rel_pkg: "x86_64-unknown-centos-gnu-portable.tar.gz"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -180,7 +180,7 @@ jobs:
           - rel_pkg: "x86_64-apple-darwin-portable.zip"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -228,7 +228,7 @@ jobs:
           echo /opt/homebrew/bin >> $GITHUB_PATH
           echo /opt/homebrew/sbin >> $GITHUB_PATH
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -282,7 +282,7 @@ jobs:
           echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "LIBCLANG_PATH=$env:USERPROFILE\scoop\apps\llvm\current\bin" >> $env:GITHUB_ENV
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Build
         run: |
           devtools/windows/make prod
@@ -353,7 +353,7 @@ jobs:
       - package-for-windows
       - package-for-centos
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set tag
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -391,7 +391,7 @@ jobs:
     needs:
       - Upload_File
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set tag
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
