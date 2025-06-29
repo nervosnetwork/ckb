@@ -42,6 +42,7 @@ jobs:
     needs: prologue
     runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
     steps:
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
