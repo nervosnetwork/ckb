@@ -774,20 +774,34 @@ impl NetRpc for NetRpcImpl {
     }
 
     fn add_node(&self, peer_id: String, address: String) -> Result<()> {
-        if let Ok(multiaddr) = address.parse::<Multiaddr>() {
-            if extract_peer_id(&multiaddr).is_some() {
-                self.network_controller.add_node(multiaddr)
-            } else if let Ok(addr) = format!("{address}/p2p/{peer_id}").parse() {
-                self.network_controller.add_node(addr)
-            }
-        }
+        let multiaddr = address.parse::<Multiaddr>().map_err(|e| {
+            RPCError::invalid_params(format!("Error parsing address '{}': {}", address, e))
+        })?;
+
+        // Check if the parsed multiaddr already contains a peer ID
+        let multiaddr_with_peer_id = if extract_peer_id(&multiaddr).is_some() {
+            multiaddr
+        } else {
+            // Add the peer ID to the address
+            format!("{}/p2p/{}", address, peer_id)
+                .parse()
+                .map_err(|e| {
+                    RPCError::invalid_params(format!(
+                        "Error adding peer ID to address: {}, err: {}",
+                        address, e
+                    ))
+                })?
+        };
+
+        self.network_controller.add_node(multiaddr_with_peer_id);
         Ok(())
     }
 
     fn remove_node(&self, peer_id: String) -> Result<()> {
-        if let Ok(id) = peer_id.parse() {
-            self.network_controller.remove_node(&id)
-        }
+        let id = peer_id.parse().map_err(|e| {
+            RPCError::invalid_params(format!("Error parsing peer_id: {}, err: {}", peer_id, e))
+        })?;
+        self.network_controller.remove_node(&id);
         Ok(())
     }
 
