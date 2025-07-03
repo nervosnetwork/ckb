@@ -37,3 +37,5 @@ ckb-fixed-hash = { workspace = true, optional = true }
 ckb-error = { workspace = true, optional = true }
 ckb-occupied-capacity = { workspace = true, optional = true }
 numext-fixed-uint = { workspace = true, features = ["support_rand", "support_heapsize", "support_serde"], optional = true }
+seq-macro.workspace = true
+strum.workspace = true

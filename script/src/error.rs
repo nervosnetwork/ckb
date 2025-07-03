@@ -140,6 +140,12 @@ impl ScriptError {
             ScriptHashType::Type => {
                 format!("by-type-hash/{:x}", script.code_hash())
             }
+            hash_type => {
+                return ScriptError::Other(format!(
+                    "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",
+                    hash_type
+                ));
+            }
         };
 
         ScriptError::ValidationFailure(url_path, exit_code)
