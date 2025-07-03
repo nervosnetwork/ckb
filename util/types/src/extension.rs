@@ -11,7 +11,7 @@ use crate::{
 impl Difficulty for packed::RawHeader {
     /// Calculates the difficulty from compact target.
     fn difficulty(&self) -> U256 {
-        compact_to_difficulty(self.compact_target().unpack())
+        compact_to_difficulty(self.compact_target().into())
     }
 }
 
@@ -86,7 +86,7 @@ impl BuildCompactBlock for packed::CompactBlock {
                 || transaction.is_cellbase()
             {
                 let prefilled_tx = packed::IndexTransaction::new_builder()
-                    .index((transaction_index as u32).pack())
+                    .index(transaction_index)
                     .transaction(transaction.data())
                     .build();
                 prefilled_transactions.push(prefilled_tx);
@@ -98,8 +98,8 @@ impl BuildCompactBlock for packed::CompactBlock {
         if let Some(extension) = block.data().extension() {
             packed::CompactBlockV1::new_builder()
                 .header(block.data().header())
-                .short_ids(short_ids.pack())
-                .prefilled_transactions(prefilled_transactions.pack())
+                .short_ids(short_ids)
+                .prefilled_transactions(prefilled_transactions)
                 .uncles(block.uncle_hashes.clone())
                 .proposals(block.data().proposals())
                 .extension(extension)
@@ -108,8 +108,8 @@ impl BuildCompactBlock for packed::CompactBlock {
         } else {
             packed::CompactBlock::new_builder()
                 .header(block.data().header())
-                .short_ids(short_ids.pack())
-                .prefilled_transactions(prefilled_transactions.pack())
+                .short_ids(short_ids)
+                .prefilled_transactions(prefilled_transactions)
                 .uncles(block.uncle_hashes.clone())
                 .proposals(block.data().proposals())
                 .build()
@@ -123,7 +123,7 @@ impl BuildCompactBlock for packed::CompactBlock {
         let prefilled_indexes = self
             .prefilled_transactions()
             .into_iter()
-            .map(|tx_index| tx_index.index().unpack())
+            .map(|tx_index| tx_index.index().into())
             .collect::<HashSet<usize>>();
 
         let mut index = 0;
@@ -143,7 +143,7 @@ impl BuildCompactBlock for packed::CompactBlock {
         let prefilled_indexes_iter = self
             .prefilled_transactions()
             .into_iter()
-            .map(|i| i.index().unpack());
+            .map(|i| i.index().into());
 
         let prefilled_indexes: HashSet<usize> = prefilled_indexes_iter.collect();
 
@@ -180,6 +180,6 @@ mod test {
     fn empty_extra_hash() {
         let block = packed::Block::new_builder().build();
         let expect = h256!("0x0");
-        assert_eq!(block.calc_extra_hash().extra_hash(), expect.pack());
+        assert_eq!(block.calc_extra_hash().extra_hash(), expect.into());
     }
 }

@@ -5,10 +5,13 @@
 #![allow(missing_docs)]
 
 #[allow(clippy::all)]
+#[allow(clippy::fallible_impl_from)]
 mod blockchain;
 #[allow(clippy::all)]
+#[allow(clippy::fallible_impl_from)]
 mod extensions;
 #[allow(clippy::all)]
+#[allow(clippy::fallible_impl_from)]
 mod protocols;
 
 pub mod packed {

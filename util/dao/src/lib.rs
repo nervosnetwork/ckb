@@ -78,10 +78,8 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
                                     &witness_data,
                                 ))
                                 .map_err(|_| DaoError::InvalidDaoFormat)?;
-                                let header_deps_index_data: Option<Bytes> = witness
-                                    .input_type()
-                                    .to_opt()
-                                    .map(|witness| witness.unpack());
+                                let header_deps_index_data: Option<Bytes> =
+                                    witness.input_type().to_opt().map(|witness| witness.into());
                                 if header_deps_index_data.is_none()
                                     || header_deps_index_data.clone().map(|data| data.len())
                                         != Some(8)
@@ -104,7 +102,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
                             withdrawing_header_hash,
                         )
                     } else {
-                        Ok(output.capacity().unpack())
+                        Ok(output.capacity().into())
                     }
                 };
                 capacity.and_then(|c| c.safe_add(capacities).map_err(Into::into))
@@ -136,7 +134,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
         let (withdrawing_ar, _, _, _) = extract_dao_data(withdrawing_header.dao());
 
         let occupied_capacity = output.occupied_capacity(output_data_capacity)?;
-        let output_capacity: Capacity = output.capacity().unpack();
+        let output_capacity: Capacity = output.capacity().into();
         let counted_capacity = output_capacity.safe_sub(occupied_capacity)?;
         let withdraw_counted_capacity = u128::from(counted_capacity.as_u64())
             * u128::from(withdrawing_ar)
@@ -309,7 +307,7 @@ impl<'a, DL: CellDataProvider + EpochProvider + HeaderProvider> DaoCalculator<'a
             let tx_input_capacities = rtx.resolved_inputs.iter().try_fold(
                 Capacity::zero(),
                 |tx_capacities, cell_meta| {
-                    let output_capacity: Capacity = cell_meta.cell_output.capacity().unpack();
+                    let output_capacity: Capacity = cell_meta.cell_output.capacity().into();
                     tx_capacities.safe_add(output_capacity)
                 },
             )?;

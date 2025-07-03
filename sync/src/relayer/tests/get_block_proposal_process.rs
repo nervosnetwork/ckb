@@ -17,7 +17,7 @@ fn test_duplicate() {
 
     let content = packed::GetBlockProposal::new_builder()
         .block_hash(hash)
-        .proposals(vec![id.clone(), id].into_iter().pack())
+        .proposals(vec![id.clone(), id])
         .build();
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
     let nc = Arc::new(mock_protocol_context);

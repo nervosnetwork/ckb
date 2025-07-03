@@ -198,7 +198,7 @@ fn conflict_transactions_with_capacity(
         .unwrap();
     let txb = txa
         .as_advanced_builder()
-        .set_outputs_data(vec![output_data.pack()])
+        .set_outputs_data(vec![output_data.into()])
         .set_outputs(vec![output])
         .build();
     assert_ne!(txa.hash(), txb.hash());
@@ -215,10 +215,7 @@ fn cousin_txs_with_same_hash_different_witness_hash(
     node: &Node,
 ) -> (TransactionView, TransactionView) {
     let tx1 = node.new_transaction_spend_tip_cellbase();
-    let tx2 = tx1
-        .as_advanced_builder()
-        .witness(Default::default())
-        .build();
+    let tx2 = tx1.as_advanced_builder().witness(Bytes::default()).build();
     assert_eq!(tx1.hash(), tx2.hash());
     assert_eq!(tx1.proposal_short_id(), tx2.proposal_short_id());
     assert_ne!(tx1.witness_hash(), tx2.witness_hash());

@@ -28,7 +28,7 @@ impl Spec for RbfEnable {
         let tx1 = node0.new_transaction(tx_hash_0);
 
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
@@ -59,7 +59,7 @@ impl Spec for RbfBasic {
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0);
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(99).pack())
+            .capacity(capacity_bytes!(99))
             .build();
 
         let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
@@ -76,7 +76,7 @@ impl Spec for RbfBasic {
 
         // Set tx2 fee to a higher value, tx1 capacity is 99, set tx2 capacity to 95 for +4 fee.
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(95).pack())
+            .capacity(capacity_bytes!(95))
             .build();
 
         let tx2 = tx2_temp
@@ -88,7 +88,7 @@ impl Spec for RbfBasic {
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_ok(), "tx2 should replace with old tx");
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx1.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx1.hash().into()]);
 
         let ret = node0
             .rpc_client()
@@ -141,7 +141,7 @@ impl Spec for RbfBasic {
         assert!(ret.transaction.is_none());
         assert!(matches!(ret.tx_status.status, Status::Rejected));
         assert!(ret.tx_status.reason.unwrap().contains("RBFRejected"));
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx1.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx1.hash().into()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -230,14 +230,14 @@ impl Spec for RbfSameInputwithLessFee {
         let tx2_temp = node0.new_transaction(tx_hash_0);
 
         let output1 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80).pack())
+            .capacity(capacity_bytes!(80))
             .build();
 
         let tx1 = tx1.as_advanced_builder().set_outputs(vec![output1]).build();
 
         // Set tx2 fee to a lower value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(90).pack())
+            .capacity(capacity_bytes!(90))
             .build();
 
         let tx2 = tx2_temp
@@ -256,7 +256,7 @@ impl Spec for RbfSameInputwithLessFee {
         ));
 
         // local submit tx RBF check failed, will be added into conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -300,7 +300,7 @@ impl Spec for RbfTooManyDescendants {
 
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx2 = tx0_temp
@@ -320,7 +320,7 @@ impl Spec for RbfTooManyDescendants {
         );
 
         // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -364,7 +364,7 @@ impl Spec for RbfContainNewTx {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx2 = clone_tx
@@ -396,7 +396,7 @@ impl Spec for RbfContainNewTx {
         );
 
         // local submit tx RBF check failed, will be in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -440,7 +440,7 @@ impl Spec for RbfContainInvalidInput {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx2 = clone_tx
@@ -472,7 +472,7 @@ impl Spec for RbfContainInvalidInput {
         );
 
         // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -495,7 +495,7 @@ impl Spec for RbfChildPayForParent {
         let max_count = 5;
 
         let output5 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(50).pack())
+            .capacity(capacity_bytes!(50))
             .build();
 
         while txs.len() <= max_count {
@@ -527,7 +527,7 @@ impl Spec for RbfChildPayForParent {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value, but not enough to pay for tx4
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let new_tx = clone_tx
@@ -551,11 +551,11 @@ impl Spec for RbfChildPayForParent {
             .contains("RBF rejected: Tx's current fee is 3000000000, expect it to >= 5000000363 to replace old txs"));
 
         // local submit tx RBF check failed, will be in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().into()]);
 
         // let's try a new transaction with new higher fee
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(45).pack())
+            .capacity(capacity_bytes!(45))
             .build();
         let new_tx_ok = clone_tx
             .as_advanced_builder()
@@ -575,9 +575,9 @@ impl Spec for RbfChildPayForParent {
         // tx2 tx3 tx4 is replaced
         let mut expected: Vec<ckb_types::H256> = txs[2..=max_count - 1]
             .iter()
-            .map(|tx| tx.hash().unpack())
+            .map(|tx| tx.hash().into())
             .collect::<Vec<_>>();
-        expected.push(new_tx.hash().unpack());
+        expected.push(new_tx.hash().into());
         expected.sort_unstable();
         let conflicts = get_tx_pool_conflicts(node0);
         assert_eq!(conflicts, expected);
@@ -612,7 +612,7 @@ impl Spec for RbfContainInvalidCells {
 
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
         let tx2 = clone_tx
             .as_advanced_builder()
@@ -691,7 +691,7 @@ impl Spec for RbfRejectReplaceProposed {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx1_hash = txs[2].hash();
@@ -802,7 +802,7 @@ impl Spec for RbfReplaceProposedSuccess {
         let clone_tx = txs[2].clone();
         // Set tx2 fee to a higher value
         let output2 = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(70).pack())
+            .capacity(capacity_bytes!(70))
             .build();
 
         let tx1_hash = txs[2].hash();
@@ -847,9 +847,9 @@ impl Spec for RbfReplaceProposedSuccess {
         assert_eq!(tx1_status.status, Status::Rejected);
 
         let mut expected = [
-            txs[2].hash().unpack(),
-            txs[3].hash().unpack(),
-            txs[4].hash().unpack(),
+            txs[2].hash().into(),
+            txs[3].hash().into(),
+            txs[4].hash().into(),
         ];
         expected.sort_unstable();
         assert_eq!(get_tx_pool_conflicts(node0), expected);
@@ -897,7 +897,7 @@ impl Spec for RbfConcurrency {
         ];
         for fee in fees.iter() {
             let tx2_temp = node0.new_transaction(tx_hash_0.clone());
-            let output = CellOutputBuilder::default().capacity(fee.pack()).build();
+            let output = CellOutputBuilder::default().capacity(fee).build();
 
             let tx2 = tx2_temp
                 .as_advanced_builder()
@@ -935,11 +935,8 @@ impl Spec for RbfConcurrency {
             assert_eq!(*s, Status::Rejected);
         }
 
-        let mut expected: Vec<ckb_types::H256> = conflicts
-            .iter()
-            .take(4)
-            .map(|x| x.hash().unpack())
-            .collect();
+        let mut expected: Vec<ckb_types::H256> =
+            conflicts.iter().take(4).map(|x| x.hash().into()).collect();
         expected.sort_unstable();
         assert_eq!(get_tx_pool_conflicts(node0), expected);
     }
@@ -981,7 +978,7 @@ impl Spec for RbfCellDepsCheck {
         // Create a child transaction with celldep
         let tx = always_success_transaction(node0, input_c);
         let cell_dep_to_last = CellDepBuilder::default()
-            .dep_type(DepType::Code.into())
+            .dep_type(DepType::Code)
             .out_point(OutPoint::new(prev.hash(), 0))
             .build();
         let tx_c = tx
@@ -995,7 +992,7 @@ impl Spec for RbfCellDepsCheck {
 
         // Create a new transaction for cell dep with high fee
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(80).pack())
+            .capacity(capacity_bytes!(80))
             .build();
         let new_tx = tx_a
             .as_advanced_builder()
@@ -1010,7 +1007,7 @@ impl Spec for RbfCellDepsCheck {
                 .to_string()
                 .contains("new Tx contains cell deps from conflicts")
         );
-        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().unpack()]);
+        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().into()]);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -1092,7 +1089,7 @@ impl Spec for RbfCyclingAttack {
             .build();
 
         let tx_b2_output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(200).pack())
+            .capacity(capacity_bytes!(200))
             .build();
         let tx_b2 = tx_a1
             .as_advanced_builder()
@@ -1124,7 +1121,7 @@ impl Spec for RbfCyclingAttack {
             .previous_output(OutPoint::new(tx_a1.hash(), 0))
             .build();
         let tx_a3_output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100))
             .build();
         let tx_a3 = tx_a1
             .as_advanced_builder()
@@ -1168,7 +1165,7 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     let tx1 = node0.new_transaction(tx_hash_0.clone());
 
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(90).pack())
+        .capacity(capacity_bytes!(90))
         .build();
 
     let tx1 = tx1.as_advanced_builder().set_outputs(vec![output]).build();
@@ -1194,7 +1191,7 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     // node0 will accept it and node1 will reject it and put it in conflicts pool
     let tx2_temp = node0.new_transaction(tx_hash_0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(95).pack())
+        .capacity(capacity_bytes!(95))
         .build();
 
     let tx2 = tx2_temp
@@ -1216,7 +1213,7 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     assert_eq!(res.status, Status::Rejected);
     let res = node1.get_transaction(tx1.hash());
     assert_eq!(res.status, Status::Pending);
-    assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().unpack()]);
+    assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().into()]);
 }
 
 pub struct SendConflictTxToRelay;

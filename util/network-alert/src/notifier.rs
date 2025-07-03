@@ -1,7 +1,7 @@
 //! notifier module
 use ckb_logger::{debug, error};
 use ckb_notify::NotifyController;
-use ckb_types::{packed::Alert, prelude::*};
+use ckb_types::packed::Alert;
 use lru::LruCache;
 use semver::Version;
 use std::collections::HashMap;
@@ -91,8 +91,8 @@ impl Notifier {
 
     /// Add an alert
     pub fn add(&mut self, alert: &Alert) {
-        let alert_id = alert.raw().id().unpack();
-        let alert_cancel = alert.raw().cancel().unpack();
+        let alert_id = alert.raw().id().into();
+        let alert_cancel = alert.raw().cancel().into();
         if self.has_received(alert_id) {
             return;
         }
@@ -116,7 +116,7 @@ impl Notifier {
         self.noticed_alerts.push(alert.clone());
         // sort by priority
         self.noticed_alerts.sort_by_key(|a| {
-            let priority: u32 = a.raw().priority().unpack();
+            let priority: u32 = a.raw().priority().into();
             u32::MAX - priority
         });
     }
@@ -126,7 +126,7 @@ impl Notifier {
         self.cancel_filter.put(cancel_id, ());
         self.received_alerts.remove(&cancel_id);
         self.noticed_alerts.retain(|a| {
-            let id: u32 = a.raw().id().unpack();
+            let id: u32 = a.raw().id().into();
             id != cancel_id
         });
     }
@@ -134,11 +134,11 @@ impl Notifier {
     /// Clear all expired alerts
     pub fn clear_expired_alerts(&mut self, now: u64) {
         self.received_alerts.retain(|_id, alert| {
-            let notice_until: u64 = alert.raw().notice_until().unpack();
+            let notice_until: u64 = alert.raw().notice_until().into();
             notice_until > now
         });
         self.noticed_alerts.retain(|a| {
-            let notice_until: u64 = a.raw().notice_until().unpack();
+            let notice_until: u64 = a.raw().notice_until().into();
             notice_until > now
         });
     }

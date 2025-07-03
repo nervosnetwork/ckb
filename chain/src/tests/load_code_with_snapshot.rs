@@ -26,9 +26,9 @@ pub(crate) fn create_load_is_even_script_tx() -> TransactionView {
         .witness(load_is_even_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(load_is_even_cell.clone())
-        .output_data(load_is_even_data.pack())
+        .output_data(load_is_even_data)
         .output(is_even_lib_cell.clone())
-        .output_data(is_even_lib_data.pack())
+        .output_data(is_even_lib_data)
         .build()
 }
 
@@ -40,15 +40,15 @@ pub(crate) fn create_call_load_is_even_tx(parent: &TransactionView, index: u32) 
         .get(0)
         .expect("get output index 0")
         .capacity()
-        .unpack();
+        .into();
 
     TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(input_cap.safe_sub(TX_FEE).unwrap().pack())
+                .capacity(input_cap.safe_sub(TX_FEE).unwrap())
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .input(CellInput::new(OutPoint::new(parent.hash(), index), 0))
         .cell_dep(CellDep::new_builder().out_point(is_even_lib).build())
         .cell_dep(CellDep::new_builder().out_point(load_is_even).build())
@@ -68,11 +68,11 @@ fn test_load_code() {
         let mut vec = Vec::with_capacity(40);
         vec.extend_from_slice(&number.to_le_bytes());
         vec.extend_from_slice(&data_hash);
-        vec.pack()
+        vec.into()
     };
 
     let lock_script = Script::new_builder()
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data)
         .code_hash(load_is_even_script.code_hash())
         .args(args)
         .build();
@@ -81,11 +81,11 @@ fn test_load_code() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000))
                 .lock(lock_script)
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .build();
 
     let dao = genesis_dao_data(vec![&load_is_even_script_tx, &issue_tx]).unwrap();
@@ -93,7 +93,7 @@ fn test_load_code() {
     let genesis_block = BlockBuilder::default()
         .transaction(load_is_even_script_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.pack())
+        .compact_target(DIFF_TWO)
         .dao(dao)
         .build();
 
@@ -129,11 +129,11 @@ fn test_load_code_with_snapshot() {
         let mut vec = Vec::with_capacity(40);
         vec.extend_from_slice(&number.to_le_bytes());
         vec.extend_from_slice(&data_hash);
-        vec.pack()
+        vec.into()
     };
 
     let lock_script = Script::new_builder()
-        .hash_type(ScriptHashType::Data.into())
+        .hash_type(ScriptHashType::Data)
         .code_hash(load_is_even_script.code_hash())
         .args(args)
         .build();
@@ -142,11 +142,11 @@ fn test_load_code_with_snapshot() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000))
                 .lock(lock_script)
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .build();
 
     let dao = genesis_dao_data(vec![&load_is_even_script_tx, &issue_tx]).unwrap();
@@ -154,7 +154,7 @@ fn test_load_code_with_snapshot() {
     let genesis_block = BlockBuilder::default()
         .transaction(load_is_even_script_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.pack())
+        .compact_target(DIFF_TWO)
         .dao(dao)
         .build();
 
@@ -208,11 +208,11 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         let mut vec = Vec::with_capacity(40);
         vec.extend_from_slice(&number.to_le_bytes());
         vec.extend_from_slice(&data_hash);
-        vec.pack()
+        vec.into()
     };
 
     let lock_script = Script::new_builder()
-        .hash_type(script_type.into())
+        .hash_type(script_type)
         .code_hash(load_is_even_script.code_hash())
         .args(args)
         .build();
@@ -221,11 +221,11 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000).pack())
+                .capacity(capacity_bytes!(5_000))
                 .lock(lock_script)
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .build();
 
     let dao = genesis_dao_data(vec![&load_is_even_script_tx, &issue_tx]).unwrap();
@@ -233,7 +233,7 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
     let genesis_block = BlockBuilder::default()
         .transaction(load_is_even_script_tx)
         .transaction(issue_tx.clone())
-        .compact_target(DIFF_TWO.pack())
+        .compact_target(DIFF_TWO)
         .dao(dao)
         .build();
 

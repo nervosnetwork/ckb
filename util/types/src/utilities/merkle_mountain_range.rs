@@ -44,7 +44,7 @@ impl core::HeaderView {
         let raw = self.data().raw();
         packed::HeaderDigest::new_builder()
             .children_hash(self.hash())
-            .total_difficulty(self.difficulty().pack())
+            .total_difficulty(self.difficulty())
             .start_number(raw.number())
             .end_number(raw.number())
             .start_epoch(raw.epoch())
@@ -67,8 +67,8 @@ impl HeaderDigest for packed::HeaderDigest {
     /// Verify the MMR header digest
     fn verify(&self) -> Result<(), String> {
         // 1. Check block numbers.
-        let start_number: BlockNumber = self.start_number().unpack();
-        let end_number: BlockNumber = self.end_number().unpack();
+        let start_number: BlockNumber = self.start_number().into();
+        let end_number: BlockNumber = self.end_number().into();
         if start_number > end_number {
             let errmsg = format!(
                 "failed since the start block number is bigger than the end ([{start_number},{end_number}])"
@@ -77,8 +77,8 @@ impl HeaderDigest for packed::HeaderDigest {
         }
 
         // 2. Check epochs.
-        let start_epoch: EpochNumberWithFraction = self.start_epoch().unpack();
-        let end_epoch: EpochNumberWithFraction = self.end_epoch().unpack();
+        let start_epoch: EpochNumberWithFraction = self.start_epoch().into();
+        let end_epoch: EpochNumberWithFraction = self.end_epoch().into();
         let start_epoch_number = start_epoch.number();
         let end_epoch_number = end_epoch.number();
         if start_epoch != end_epoch
@@ -93,9 +93,9 @@ impl HeaderDigest for packed::HeaderDigest {
         }
 
         // 3. Check difficulties when in the same epoch.
-        let start_compact_target: u32 = self.start_compact_target().unpack();
-        let end_compact_target: u32 = self.end_compact_target().unpack();
-        let total_difficulty: U256 = self.total_difficulty().unpack();
+        let start_compact_target: u32 = self.start_compact_target().into();
+        let end_compact_target: u32 = self.end_compact_target().into();
+        let total_difficulty: U256 = self.total_difficulty().into();
         if start_epoch_number == end_epoch_number {
             if start_compact_target != end_compact_target {
                 // In the same epoch, all compact targets should be same.
@@ -136,14 +136,14 @@ impl Merge for MergeHeaderDigest {
         };
 
         let total_difficulty = {
-            let l: U256 = lhs.total_difficulty().unpack();
-            let r: U256 = rhs.total_difficulty().unpack();
+            let l: U256 = lhs.total_difficulty().into();
+            let r: U256 = rhs.total_difficulty().into();
             l + r
         };
 
         // 1. Check block numbers.
-        let lhs_end_number: BlockNumber = lhs.end_number().unpack();
-        let rhs_start_number: BlockNumber = rhs.start_number().unpack();
+        let lhs_end_number: BlockNumber = lhs.end_number().into();
+        let rhs_start_number: BlockNumber = rhs.start_number().into();
         if lhs_end_number + 1 != rhs_start_number {
             let errmsg = format!(
                 "failed since the blocks isn't continuous ([-,{lhs_end_number}], [{rhs_start_number},-])"
@@ -152,8 +152,8 @@ impl Merge for MergeHeaderDigest {
         }
 
         // 2. Check epochs.
-        let lhs_end_epoch: EpochNumberWithFraction = lhs.end_epoch().unpack();
-        let rhs_start_epoch: EpochNumberWithFraction = rhs.start_epoch().unpack();
+        let lhs_end_epoch: EpochNumberWithFraction = lhs.end_epoch().into();
+        let rhs_start_epoch: EpochNumberWithFraction = rhs.start_epoch().into();
         if !rhs_start_epoch.is_successor_of(lhs_end_epoch) && !lhs_end_epoch.is_genesis() {
             let errmsg = format!(
                 "failed since the epochs isn't continuous ([-,{lhs_end_epoch:#}], [{rhs_start_epoch:#},-])",
@@ -162,8 +162,8 @@ impl Merge for MergeHeaderDigest {
         }
 
         Ok(Self::Item::new_builder()
-            .children_hash(children_hash.pack())
-            .total_difficulty(total_difficulty.pack())
+            .children_hash(children_hash)
+            .total_difficulty(total_difficulty)
             .start_number(lhs.start_number())
             .start_epoch(lhs.start_epoch())
             .start_timestamp(lhs.start_timestamp())
@@ -262,7 +262,7 @@ impl VerifiableHeader {
 
     /// Returns the total difficulty.
     pub fn total_difficulty(&self) -> U256 {
-        let parent_total_difficulty: U256 = self.parent_chain_root.total_difficulty().unpack();
+        let parent_total_difficulty: U256 = self.parent_chain_root.total_difficulty().into();
         let block_difficulty = compact_to_difficulty(self.header.compact_target());
         parent_total_difficulty + block_difficulty
     }

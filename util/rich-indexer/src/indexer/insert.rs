@@ -405,7 +405,7 @@ pub(crate) async fn spend_cell(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<bool, Error> {
     let output_tx_hash = out_point.tx_hash().raw_data().to_vec();
-    let output_index: u32 = out_point.index().unpack();
+    let output_index: u32 = out_point.index().into();
 
     let updated_rows = sqlx::query(
         r#"
@@ -431,7 +431,7 @@ pub(crate) async fn query_output_cell(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Option<(i64, CellOutput, Bytes)>, Error> {
     let output_tx_hash = out_point.tx_hash().raw_data().to_vec();
-    let output_index: u32 = out_point.index().unpack();
+    let output_index: u32 = out_point.index().into();
 
     let row = sqlx::query(
         r#"
@@ -470,7 +470,7 @@ pub(crate) async fn query_output_id(
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Option<i64>, Error> {
     let output_tx_hash = out_point.tx_hash().raw_data().to_vec();
-    let output_index: u32 = out_point.index().unpack();
+    let output_index: u32 = out_point.index().into();
 
     sqlx::query(
         r#"
@@ -540,7 +540,7 @@ pub(crate) fn build_output_cell_rows(
     data: &Bytes,
     output_cell_rows: &mut Vec<OutputCellRow>,
 ) {
-    let cell_capacity: u64 = cell.capacity().unpack();
+    let cell_capacity: u64 = cell.capacity().into();
     let cell_row = (
         output_index as i32,
         cell_capacity as i64,
@@ -589,7 +589,7 @@ pub(crate) fn build_input_rows(
     input_index: usize,
     input_rows: &mut Vec<(i64, Vec<u8>, i32)>,
 ) {
-    let since: u64 = input.since().unpack();
+    let since: u64 = input.since().into();
     let input_row = (output_id, since.to_be_bytes().to_vec(), input_index as i32);
     input_rows.push(input_row);
 }
@@ -608,10 +608,10 @@ fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
 
     let mut lock_builder = ScriptBuilder::default();
     if let Some(lock_code_hash) = lock_code_hash {
-        lock_builder = lock_builder.code_hash(to_fixed_array::<32>(&lock_code_hash[0..32]).pack());
+        lock_builder = lock_builder.code_hash(to_fixed_array::<32>(&lock_code_hash[0..32]));
     }
     if let Some(lock_args) = lock_args {
-        lock_builder = lock_builder.args(lock_args.pack());
+        lock_builder = lock_builder.args(lock_args);
     }
     if let Some(lock_hash_type) = lock_hash_type {
         lock_builder = lock_builder.hash_type(Byte::new(lock_hash_type as u8));
@@ -620,10 +620,10 @@ fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
 
     let mut type_builder = ScriptBuilder::default();
     if let Some(type_code_hash) = type_code_hash {
-        type_builder = type_builder.code_hash(to_fixed_array::<32>(&type_code_hash[0..32]).pack());
+        type_builder = type_builder.code_hash(to_fixed_array::<32>(&type_code_hash[0..32]));
     }
     if let Some(type_args) = type_args {
-        type_builder = type_builder.args(type_args.pack());
+        type_builder = type_builder.args(type_args);
     }
     if let Some(type_hash_type) = type_hash_type {
         type_builder = type_builder.hash_type(Byte::new(type_hash_type as u8));
@@ -631,9 +631,9 @@ fn build_cell_output(row: Option<AnyRow>) -> Option<(i64, CellOutput, Bytes)> {
     let type_script = type_builder.build();
 
     let cell_output = CellOutput::new_builder()
-        .capacity((capacity as u64).pack())
+        .capacity(capacity as u64)
         .lock(lock_script)
-        .type_(Some(type_script).pack())
+        .type_(Some(type_script))
         .build();
 
     Some((id, cell_output, data.into()))

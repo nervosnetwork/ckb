@@ -24,10 +24,10 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
         .input(CellInput::new_cellbase_input(number))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .witness(Script::default().into_witness())
         .build()
 }
@@ -35,12 +35,8 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> TransactionView {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
-        .output(
-            CellOutputBuilder::default()
-                .capacity(capacity.pack())
-                .build(),
-        )
-        .output_data(Bytes::new().pack())
+        .output(CellOutputBuilder::default().capacity(capacity).build())
+        .output_data(Bytes::new())
         .witness(Script::default().into_witness())
         .build()
 }
@@ -50,10 +46,10 @@ fn create_cellbase_transaction_with_non_empty_output_data() -> TransactionView {
         .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
-        .output_data(Bytes::from("123").pack())
+        .output_data(Bytes::from("123"))
         .witness(Script::default().into_witness())
         .build()
 }
@@ -63,15 +59,15 @@ fn create_cellbase_transaction_with_two_output() -> TransactionView {
         .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .witness(Script::default().into_witness())
         .build()
 }
@@ -81,11 +77,11 @@ fn create_cellbase_transaction_with_two_output_data() -> TransactionView {
         .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
-        .output_data(Bytes::new().pack())
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
+        .output_data(Bytes::new())
         .witness(Script::default().into_witness())
         .build()
 }
@@ -99,14 +95,14 @@ fn create_cellbase_transaction_with_unknown_hash_type() -> TransactionView {
         .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .witness(
             Script::default()
                 .as_builder()
-                .hash_type(3.into())
+                .hash_type(3)
                 .build()
                 .into_witness(),
         )
@@ -115,13 +111,13 @@ fn create_cellbase_transaction_with_unknown_hash_type() -> TransactionView {
 
 fn create_normal_transaction() -> TransactionView {
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new(h256!("0x1").pack(), 0), 0))
+        .input(CellInput::new(OutPoint::new(h256!("0x1").into(), 0), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .build()
 }
 
@@ -229,7 +225,7 @@ pub fn test_cellbase_without_output() {
     let cellbase_without_output = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
         .witness(Script::default().into_witness())
-        .output_data(Bytes::new().pack())
+        .output_data(Bytes::new())
         .build();
     let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(cellbase_without_output)
@@ -243,7 +239,7 @@ pub fn test_cellbase_without_output() {
         .witness(Script::default().into_witness())
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100).pack())
+                .capacity(capacity_bytes!(100))
                 .build(),
         )
         .build();
@@ -327,7 +323,7 @@ pub fn test_transaction_root() {
 #[test]
 pub fn test_proposals_root() {
     let header = HeaderBuilder::new_with_number(MOCK_BLOCK_NUMBER)
-        .proposals_hash(h256!("0x1").pack())
+        .proposals_hash(h256!("0x1"))
         .build();
     let block = BlockBuilder::default()
         .header(header)

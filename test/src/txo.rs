@@ -1,5 +1,5 @@
 use ckb_types::core::{Capacity, TransactionBuilder, TransactionView};
-use ckb_types::packed::{CellDep, CellInput, CellOutput, OutPoint, Script, ScriptOpt};
+use ckb_types::packed::{self, CellDep, CellInput, CellOutput, OutPoint, Script, ScriptOpt};
 use ckb_types::prelude::*;
 use rand::{Rng, thread_rng};
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ impl TXO {
     }
 
     pub fn capacity(&self) -> u64 {
-        self.output.capacity().unpack()
+        self.output.capacity().into()
     }
 
     pub fn lock(&self) -> Script {
@@ -52,7 +52,7 @@ impl TXO {
     pub fn to_equivalent_output(&self) -> CellOutput {
         CellOutput::new_builder()
             .lock(self.lock())
-            .capacity(self.capacity().pack())
+            .capacity(self.capacity())
             .build()
     }
 
@@ -145,7 +145,7 @@ impl TXOSet {
                     .cell_deps(cell_deps.clone())
                     .input(txo.to_input())
                     .output(txo.to_equivalent_output())
-                    .output_data(Default::default())
+                    .output_data(packed::Bytes::default())
                     .build()
             })
             .collect()
@@ -161,18 +161,18 @@ impl TXOSet {
         self.iter()
             .map(|txo| {
                 let maximal_capacity = txo.capacity();
-                let minimal_capacity: u64 = txo.to_minimal_output().capacity().unpack();
+                let minimal_capacity: u64 = txo.to_minimal_output().capacity().into();
                 let actual_capacity = rng.gen_range(minimal_capacity..=maximal_capacity);
                 let output = txo
                     .to_equivalent_output()
                     .as_builder()
-                    .capacity(actual_capacity.pack())
+                    .capacity(actual_capacity)
                     .build();
                 TransactionBuilder::default()
                     .cell_deps(cell_deps.clone())
                     .input(txo.to_input())
                     .output(output)
-                    .output_data(Default::default())
+                    .output_data(packed::Bytes::default())
                     .build()
             })
             .collect()
@@ -181,11 +181,11 @@ impl TXOSet {
     fn boom_to_minimals(&self) -> Vec<CellOutput> {
         let mut input_capacity = self.total_capacity();
         let minimal = self.iter().next().unwrap().to_minimal_output();
-        let minimal_capacity: u64 = minimal.capacity().unpack();
+        let minimal_capacity: u64 = minimal.capacity().into();
         let mut outputs = Vec::new();
         while outputs.len() < EXPLODE_LIMIT {
             if input_capacity < 2 * minimal_capacity || outputs.len() == EXPLODE_LIMIT {
-                outputs.push(minimal.as_builder().capacity(input_capacity.pack()).build());
+                outputs.push(minimal.as_builder().capacity(input_capacity).build());
                 break;
             } else {
                 input_capacity -= minimal_capacity;
@@ -214,7 +214,7 @@ impl From<&TransactionView> for TXOSet {
             .map(move |(i, output)| {
                 let out_point = OutPoint::new_builder()
                     .tx_hash(tx_hash.clone())
-                    .index(i.pack())
+                    .index(i)
                     .build();
                 TXO::new(out_point, output)
             });

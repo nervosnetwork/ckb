@@ -211,7 +211,7 @@ impl LightClientProtocol {
             .build();
         let content = T::new_builder()
             .set_last_header(verifiable_last_header)
-            .set_proof(proof.pack())
+            .set_proof(proof.into())
             .set_proved_items(proved_items)
             .set_missing_items(missing_items)
             .build();

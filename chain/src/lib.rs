@@ -28,7 +28,6 @@ pub mod verify;
 pub use chain_controller::ChainController;
 use ckb_logger::{error, info};
 use ckb_store::{ChainDB, ChainStore};
-use ckb_types::prelude::{Pack, Unpack};
 use ckb_types::{BlockNumberAndHash, H256};
 pub use init::{ChainServiceScope, build_chain_services, start_chain_services};
 
@@ -89,11 +88,11 @@ impl From<LonelyBlock> for LonelyBlockHash {
             switch,
             verify_callback,
         } = val;
-        let block_hash_h256: H256 = block.hash().unpack();
+        let block_hash_h256: H256 = block.hash().into();
         let block_number: BlockNumber = block.number();
-        let parent_hash_h256: H256 = block.parent_hash().unpack();
-        let block_hash = block_hash_h256.pack();
-        let parent_hash = parent_hash_h256.pack();
+        let parent_hash_h256: H256 = block.parent_hash().into();
+        let block_hash = block_hash_h256.into();
+        let parent_hash = parent_hash_h256.into();
 
         let epoch_number: EpochNumber = block.epoch().number();
 

@@ -90,18 +90,18 @@ fn gen_block(parent_header: &HeaderView, nonce: u128, epoch: &EpochExt) -> Block
     let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let header = HeaderBuilder::default()
         .parent_hash(parent_header.hash())
-        .timestamp((parent_header.timestamp() + 10).pack())
-        .number(number.pack())
-        .epoch(epoch.number_with_fraction(number).pack())
-        .compact_target(epoch.compact_target().pack())
-        .nonce(nonce.pack())
+        .timestamp(parent_header.timestamp() + 10)
+        .number(number)
+        .epoch(epoch.number_with_fraction(number))
+        .compact_target(epoch.compact_target())
+        .nonce(nonce)
         .dao(dao)
         .build();
 
     BlockBuilder::default()
         .header(header)
         .transaction(cellbase)
-        .proposal([1; 10].pack())
+        .proposal([1; 10])
         .build_unchecked()
 }
 
@@ -110,10 +110,10 @@ fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> TransactionView {
         .input(CellInput::new_cellbase_input(number))
         .output(
             CellOutput::new_builder()
-                .capacity(epoch.block_reward(number).unwrap().pack())
+                .capacity(epoch.block_reward(number).unwrap())
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(Bytes::default())
         .build()
 }
 
@@ -222,7 +222,7 @@ fn test_prepare_uncles() {
             .unwrap()
             .unwrap()
     }
-    assert_eq!(block_template.uncles[0].hash, block0_0.hash().unpack());
+    assert_eq!(block_template.uncles[0].hash, block0_0.hash().into());
 
     let epoch = shared
         .consensus()
@@ -246,7 +246,7 @@ fn test_prepare_uncles() {
             .unwrap()
     }
     // block number 4, epoch 0, uncles should retained
-    assert_eq!(block_template.uncles[0].hash, block0_0.hash().unpack());
+    assert_eq!(block_template.uncles[0].hash, block0_0.hash().into());
 
     let epoch = shared
         .consensus()
@@ -372,12 +372,12 @@ fn build_tx(parent_tx: &TransactionView, inputs: &[u32], outputs_len: usize) -> 
             (0..outputs_len)
                 .map(|_| {
                     CellOutputBuilder::default()
-                        .capacity(per_output_capacity.pack())
+                        .capacity(per_output_capacity)
                         .build()
                 })
                 .collect::<Vec<CellOutput>>(),
         )
-        .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
+        .outputs_data((0..outputs_len).map(|_| Bytes::new().into()))
         .build()
 }
 

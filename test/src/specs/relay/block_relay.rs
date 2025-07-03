@@ -3,7 +3,6 @@ use crate::util::mining::out_ibd_mode;
 use crate::utils::{now_ms, sleep, wait_until};
 use crate::{Node, Spec};
 use ckb_logger::info;
-use ckb_types::prelude::*;
 use std::time::Duration;
 
 pub struct RelayTooNewBlock;
@@ -22,7 +21,7 @@ impl Spec for RelayTooNewBlock {
         let future = Duration::from_secs(6_000).as_millis() as u64;
         let too_new_block = node0
             .new_block_builder(None, None, None)
-            .timestamp((now_ms() + future).pack())
+            .timestamp(now_ms() + future)
             .build();
 
         let _too_new_hash = node0.process_block_without_verify(&too_new_block, true);

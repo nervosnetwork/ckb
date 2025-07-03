@@ -161,9 +161,9 @@ pub(crate) fn init_request(
     listen_addrs: packed::AddressVec,
 ) -> packed::ConnectionRequest {
     packed::ConnectionRequest::new_builder()
-        .from(from.as_bytes().pack())
-        .to(to.as_bytes().pack())
-        .max_hops(MAX_HOPS.into())
+        .from(from.as_bytes())
+        .to(to.as_bytes())
+        .max_hops(MAX_HOPS)
         .listen_addrs(listen_addrs)
         .build()
 }
@@ -177,11 +177,11 @@ pub(crate) fn forward_request(
     let new_route = message
         .route()
         .as_builder()
-        .push(current_id.as_bytes().pack())
+        .push(current_id.as_bytes())
         .build();
     message
         .as_builder()
-        .max_hops((max_hops.saturating_sub(1)).into())
+        .max_hops(max_hops.saturating_sub(1))
         .route(new_route)
         .build()
 }
@@ -297,8 +297,8 @@ mod test {
 
         let init_request = init_request(&from, &to, listen_addrs.clone());
 
-        assert_eq!(init_request.from(), from.as_bytes().pack());
-        assert_eq!(init_request.to(), to.as_bytes().pack());
+        assert_eq!(init_request.from(), from.as_bytes().into());
+        assert_eq!(init_request.to(), to.as_bytes().into());
         assert_eq!(init_request.max_hops(), MAX_HOPS.into());
         // from is not in the route
         assert_eq!(
@@ -308,42 +308,42 @@ mod test {
 
         // in forward_a
         let forward_request_a = forward_request(init_request.as_reader(), &forward_a);
-        assert_eq!(forward_request_a.from(), from.as_bytes().pack());
-        assert_eq!(forward_request_a.to(), to.as_bytes().pack());
+        assert_eq!(forward_request_a.from(), from.as_bytes().into());
+        assert_eq!(forward_request_a.to(), to.as_bytes().into());
         assert_eq!(forward_request_a.max_hops(), (MAX_HOPS - 1).into());
         // forward_a is in the route
         assert_eq!(
             forward_request_a.route().as_bytes(),
             packed::BytesVec::new_builder()
-                .push(forward_a.as_bytes().pack())
+                .push(forward_a.as_bytes())
                 .build()
                 .as_bytes()
         );
 
         // in forward_b
         let forward_request_b = forward_request(forward_request_a.as_reader(), &forward_b);
-        assert_eq!(forward_request_b.from(), from.as_bytes().pack());
-        assert_eq!(forward_request_b.to(), to.as_bytes().pack());
+        assert_eq!(forward_request_b.from(), from.as_bytes().into());
+        assert_eq!(forward_request_b.to(), to.as_bytes().into());
         assert_eq!(forward_request_b.max_hops(), (MAX_HOPS - 2).into());
         // forward_b is in the route
         assert_eq!(
             forward_request_b.route().as_bytes(),
             packed::BytesVec::new_builder()
-                .push(forward_a.as_bytes().pack())
-                .push(forward_b.as_bytes().pack())
+                .push(forward_a.as_bytes())
+                .push(forward_b.as_bytes())
                 .build()
                 .as_bytes()
         );
 
         // in to
         let init_delivered = init_delivered(forward_request_b.as_reader(), listen_addrs);
-        assert_eq!(init_delivered.from(), from.as_bytes().pack());
-        assert_eq!(init_delivered.to(), to.as_bytes().pack());
+        assert_eq!(init_delivered.from(), from.as_bytes().into());
+        assert_eq!(init_delivered.to(), to.as_bytes().into());
         // forward_b is not in the route
         assert_eq!(
             init_delivered.route().as_bytes(),
             packed::BytesVec::new_builder()
-                .push(forward_a.as_bytes().pack())
+                .push(forward_a.as_bytes())
                 .build()
                 .as_bytes()
         );
@@ -351,8 +351,8 @@ mod test {
         assert_eq!(
             init_delivered.sync_route().as_bytes(),
             packed::BytesVec::new_builder()
-                .push(forward_b.as_bytes().pack())
-                .push(forward_a.as_bytes().pack())
+                .push(forward_b.as_bytes())
+                .push(forward_a.as_bytes())
                 .build()
                 .as_bytes()
         );
@@ -368,11 +368,11 @@ mod test {
                 .last()
                 .unwrap()
                 .as_slice(),
-            forward_a.as_bytes().pack().as_slice()
+            Into::<packed::Bytes>::into(forward_a.as_bytes()).as_slice()
         );
         let forward_delivered_b = forward_delivered(init_delivered.as_reader());
-        assert_eq!(forward_delivered_b.from(), from.as_bytes().pack());
-        assert_eq!(forward_delivered_b.to(), to.as_bytes().pack());
+        assert_eq!(forward_delivered_b.from(), from.as_bytes().into());
+        assert_eq!(forward_delivered_b.to(), to.as_bytes().into());
         assert_eq!(
             forward_delivered_b.route().as_bytes(),
             packed::BytesVec::new_builder().build().as_bytes()
@@ -392,8 +392,8 @@ mod test {
                 .is_none()
         );
         let forward_delivered_a = forward_delivered(forward_delivered_b.as_reader());
-        assert_eq!(forward_delivered_a.from(), from.as_bytes().pack());
-        assert_eq!(forward_delivered_a.to(), to.as_bytes().pack());
+        assert_eq!(forward_delivered_a.from(), from.as_bytes().into());
+        assert_eq!(forward_delivered_a.to(), to.as_bytes().into());
         assert_eq!(
             forward_delivered_a.route().as_bytes(),
             packed::BytesVec::new_builder().build().as_bytes()
@@ -413,12 +413,12 @@ mod test {
                 .is_none()
         );
         let init_sync = init_sync(forward_delivered_a.as_reader());
-        assert_eq!(init_sync.from(), from.as_bytes().pack());
-        assert_eq!(init_sync.to(), to.as_bytes().pack());
+        assert_eq!(init_sync.from(), from.as_bytes().into());
+        assert_eq!(init_sync.to(), to.as_bytes().into());
         assert_eq!(
             init_sync.route().as_bytes(),
             packed::BytesVec::new_builder()
-                .push(forward_b.as_bytes().pack())
+                .push(forward_b.as_bytes())
                 .build()
                 .as_bytes()
         );
@@ -434,11 +434,11 @@ mod test {
                 .last()
                 .unwrap()
                 .as_slice(),
-            forward_b.as_bytes().pack().as_slice()
+            Into::<packed::Bytes>::into(forward_b.as_bytes()).as_slice()
         );
         let forward_sync_a = forward_sync(init_sync.as_reader());
-        assert_eq!(forward_sync_a.from(), from.as_bytes().pack());
-        assert_eq!(forward_sync_a.to(), to.as_bytes().pack());
+        assert_eq!(forward_sync_a.from(), from.as_bytes().into());
+        assert_eq!(forward_sync_a.to(), to.as_bytes().into());
         assert_eq!(
             forward_sync_a.route().as_bytes(),
             packed::BytesVec::new_builder().build().as_bytes()
@@ -447,8 +447,8 @@ mod test {
         // in forward_b
         assert!(forward_sync_a.as_reader().route().iter().last().is_none());
         let forward_sync_b = forward_sync(forward_sync_a.as_reader());
-        assert_eq!(forward_sync_b.from(), from.as_bytes().pack());
-        assert_eq!(forward_sync_b.to(), to.as_bytes().pack());
+        assert_eq!(forward_sync_b.from(), from.as_bytes().into());
+        assert_eq!(forward_sync_b.to(), to.as_bytes().into());
         assert_eq!(
             forward_sync_b.route().as_bytes(),
             packed::BytesVec::new_builder().build().as_bytes()

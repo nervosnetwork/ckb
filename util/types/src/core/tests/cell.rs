@@ -13,7 +13,7 @@ use crate::{
         error::OutPointError,
     },
     h256,
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
+    packed::{self, Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
 
@@ -56,7 +56,7 @@ impl CellProvider for CellMemoryDb {
 
 fn generate_dummy_cell_meta_with_info(out_point: OutPoint, data: Bytes) -> CellMeta {
     let cell_output = CellOutput::new_builder()
-        .capacity(capacity_bytes!(2).pack())
+        .capacity(capacity_bytes!(2))
         .build();
     let data_hash = CellOutput::calc_data_hash(&data);
     CellMeta {
@@ -113,9 +113,9 @@ fn resolve_transaction_should_resolve_dep_group() {
     let header_checker = BlockHeadersChecker::default();
 
     let op_dep = OutPoint::new(Byte32::zero(), 72);
-    let op_1 = OutPoint::new(h256!("0x13").pack(), 1);
-    let op_2 = OutPoint::new(h256!("0x23").pack(), 2);
-    let op_3 = OutPoint::new(h256!("0x33").pack(), 3);
+    let op_1 = OutPoint::new(h256!("0x13").into(), 1);
+    let op_2 = OutPoint::new(h256!("0x23").into(), 2);
+    let op_3 = OutPoint::new(h256!("0x33").into(), 3);
 
     for op in &[&op_1, &op_2, &op_3] {
         cell_provider.cells.insert(
@@ -123,9 +123,9 @@ fn resolve_transaction_should_resolve_dep_group() {
             Some(generate_dummy_cell_meta_with_out_point((*op).clone())),
         );
     }
-    let cell_data = vec![op_1.clone(), op_2.clone(), op_3.clone()]
-        .pack()
-        .as_bytes();
+    let cell_data =
+        Into::<packed::OutPointVec>::into(vec![op_1.clone(), op_2.clone(), op_3.clone()])
+            .as_bytes();
     let dep_group_cell = generate_dummy_cell_meta_with_data(cell_data);
     cell_provider
         .cells
@@ -133,7 +133,7 @@ fn resolve_transaction_should_resolve_dep_group() {
 
     let dep = CellDep::new_builder()
         .out_point(op_dep)
-        .dep_type(DepType::DepGroup.into())
+        .dep_type(DepType::DepGroup)
         .build();
 
     let transaction = TransactionBuilder::default().cell_dep(dep).build();
@@ -166,7 +166,7 @@ fn resolve_transaction_resolve_dep_group_failed_because_invalid_data() {
 
     let dep = CellDep::new_builder()
         .out_point(op_dep.clone())
-        .dep_type(DepType::DepGroup.into())
+        .dep_type(DepType::DepGroup)
         .build();
 
     let transaction = TransactionBuilder::default().cell_dep(dep).build();
@@ -185,9 +185,9 @@ fn resolve_transaction_resolve_dep_group_failed_because_unknown_sub_cell() {
     let mut cell_provider = CellMemoryDb::default();
     let header_checker = BlockHeadersChecker::default();
 
-    let op_unknown = OutPoint::new(h256!("0x45").pack(), 5);
+    let op_unknown = OutPoint::new(h256!("0x45").into(), 5);
     let op_dep = OutPoint::new(Byte32::zero(), 72);
-    let cell_data = vec![op_unknown.clone()].pack().as_bytes();
+    let cell_data = Into::<packed::OutPointVec>::into(vec![op_unknown.clone()]).as_bytes();
     let dep_group_cell = generate_dummy_cell_meta_with_data(cell_data);
     cell_provider
         .cells
@@ -195,7 +195,7 @@ fn resolve_transaction_resolve_dep_group_failed_because_unknown_sub_cell() {
 
     let dep = CellDep::new_builder()
         .out_point(op_dep)
-        .dep_type(DepType::DepGroup.into())
+        .dep_type(DepType::DepGroup)
         .build();
 
     let transaction = TransactionBuilder::default().cell_dep(dep).build();
@@ -214,11 +214,11 @@ fn resolve_transaction_test_header_deps_all_ok() {
     let cell_provider = CellMemoryDb::default();
     let mut header_checker = BlockHeadersChecker::default();
 
-    let block_hash1 = h256!("0x1111").pack();
-    let block_hash2 = h256!("0x2222").pack();
+    let block_hash1 = h256!("0x1111");
+    let block_hash2 = h256!("0x2222");
 
-    header_checker.push_attached(block_hash1.clone());
-    header_checker.push_attached(block_hash2.clone());
+    header_checker.push_attached((&block_hash1).into());
+    header_checker.push_attached((&block_hash2).into());
 
     let transaction = TransactionBuilder::default()
         .header_dep(block_hash1)
@@ -241,8 +241,8 @@ fn resolve_transaction_should_test_have_invalid_header_dep() {
     let cell_provider = CellMemoryDb::default();
     let mut header_checker = BlockHeadersChecker::default();
 
-    let main_chain_block_hash = h256!("0xaabbcc").pack();
-    let invalid_block_hash = h256!("0x3344").pack();
+    let main_chain_block_hash: Byte32 = h256!("0xaabbcc").into();
+    let invalid_block_hash: Byte32 = h256!("0x3344").into();
 
     header_checker.push_attached(main_chain_block_hash.clone());
 
@@ -267,16 +267,16 @@ fn resolve_transaction_should_test_have_invalid_header_dep() {
 
 #[test]
 fn resolve_transaction_should_reject_incorrect_order_txs() {
-    let out_point = OutPoint::new(h256!("0x2").pack(), 3);
+    let out_point = OutPoint::new(h256!("0x2").into(), 3);
 
     let tx1 = TransactionBuilder::default()
         .input(CellInput::new(out_point, 0))
         .output(
             CellOutput::new_builder()
-                .capacity(capacity_bytes!(2).pack())
+                .capacity(capacity_bytes!(2))
                 .build(),
         )
-        .output_data(Default::default())
+        .output_data(packed::Bytes::default())
         .build();
 
     let tx2 = TransactionBuilder::default()
@@ -335,7 +335,7 @@ fn resolve_transaction_should_allow_dep_cell_in_current_tx_input() {
     let mut cell_provider = CellMemoryDb::default();
     let header_checker = BlockHeadersChecker::default();
 
-    let out_point = OutPoint::new(h256!("0x2").pack(), 3);
+    let out_point = OutPoint::new(h256!("0x2").into(), 3);
 
     let dummy_cell_meta = generate_dummy_cell_meta();
     cell_provider
@@ -359,7 +359,7 @@ fn resolve_transaction_should_reject_dep_cell_consumed_by_previous_input() {
     let mut cell_provider = CellMemoryDb::default();
     let header_checker = BlockHeadersChecker::default();
 
-    let out_point = OutPoint::new(h256!("0x2").pack(), 3);
+    let out_point = OutPoint::new(h256!("0x2").into(), 3);
 
     cell_provider
         .cells

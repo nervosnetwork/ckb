@@ -332,7 +332,7 @@ impl MinerRpc for MinerRpcImpl {
                     Ok(root) => root,
                     Err(err) => {
                         error!("Generate last state to light client failed: {:?}", err);
-                        return Ok(header.hash().unpack());
+                        return Ok(header.hash().into());
                     }
                 }
             };
@@ -367,7 +367,7 @@ impl MinerRpc for MinerRpcImpl {
             }
         }
 
-        Ok(header.hash().unpack())
+        Ok(header.hash().into())
     }
 }
 

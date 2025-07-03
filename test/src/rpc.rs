@@ -15,7 +15,7 @@ use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
     Version as CoreVersion,
 };
-use ckb_types::{H256, packed::Byte32, prelude::*};
+use ckb_types::{H256, packed::Byte32};
 
 pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
     std::sync::LazyLock::new(|| {
@@ -42,13 +42,13 @@ impl RpcClient {
 
     pub fn get_block(&self, hash: Byte32) -> Option<BlockView> {
         self.inner
-            .get_block(hash.unpack())
+            .get_block(hash.into())
             .expect("rpc call get_block")
     }
 
     pub fn get_fork_block(&self, hash: Byte32) -> Option<BlockView> {
         self.inner
-            .get_fork_block(hash.unpack())
+            .get_fork_block(hash.into())
             .expect("rpc call get_fork_block")
     }
 
@@ -60,7 +60,7 @@ impl RpcClient {
 
     pub fn get_header(&self, hash: Byte32) -> Option<HeaderView> {
         self.inner
-            .get_header(hash.unpack())
+            .get_header(hash.into())
             .expect("rpc call get_header")
     }
 
@@ -72,7 +72,7 @@ impl RpcClient {
 
     pub fn get_block_filter(&self, hash: Byte32) -> Option<BlockFilter> {
         self.inner
-            .get_block_filter(hash.unpack())
+            .get_block_filter(hash.into())
             .expect("rpc call get_block_filter")
     }
 
@@ -86,13 +86,13 @@ impl RpcClient {
         verbosity: u32,
     ) -> TransactionWithStatusResponse {
         self.inner
-            .get_transaction(hash.unpack(), Some(verbosity.into()), None)
+            .get_transaction(hash.into(), Some(verbosity.into()), None)
             .expect("rpc call get_transaction")
     }
 
     pub fn get_pool_tx_detail_info(&self, hash: Byte32) -> PoolTxDetailInfo {
         self.inner
-            .get_pool_tx_detail_info(hash.unpack())
+            .get_pool_tx_detail_info(hash.into())
             .expect("rpc call get_transaction_tx_pool_details")
     }
 
@@ -100,7 +100,7 @@ impl RpcClient {
         self.inner
             .get_block_hash(number.into())
             .expect("rpc call get_block_hash")
-            .map(|x| x.pack())
+            .map(|x| x.into())
     }
 
     pub fn get_tip_header(&self) -> HeaderView {
@@ -209,7 +209,7 @@ impl RpcClient {
     }
 
     pub fn submit_block(&self, work_id: String, block: Block) -> Result<Byte32, AnyError> {
-        self.inner.submit_block(work_id, block).map(|x| x.pack())
+        self.inner.submit_block(work_id, block).map(|x| x.into())
     }
 
     pub fn get_blockchain_info(&self) -> ChainInfo {
@@ -220,14 +220,14 @@ impl RpcClient {
 
     pub fn get_block_median_time(&self, block_hash: Byte32) -> Option<Timestamp> {
         self.inner
-            .get_block_median_time(block_hash.unpack())
+            .get_block_median_time(block_hash.into())
             .expect("rpc call get_block_median_time")
     }
 
     pub fn send_transaction(&self, tx: Transaction) -> Byte32 {
         self.send_transaction_result(tx)
             .expect("rpc call send_transaction")
-            .pack()
+            .into()
     }
 
     pub fn send_transaction_result(&self, tx: Transaction) -> Result<H256, AnyError> {
@@ -237,7 +237,7 @@ impl RpcClient {
 
     pub fn remove_transaction(&self, tx_hash: Byte32) -> bool {
         self.inner
-            .remove_transaction(tx_hash.unpack())
+            .remove_transaction(tx_hash.into())
             .expect("rpc call remove_transaction")
     }
 
@@ -277,12 +277,12 @@ impl RpcClient {
         self.inner
             .process_block_without_verify(block, broadcast)
             .expect("rpc call process_block_without verify")
-            .map(|x| x.pack())
+            .map(|x| x.into())
     }
 
     pub fn truncate(&self, target_tip_hash: Byte32) {
         self.inner()
-            .truncate(target_tip_hash.unpack())
+            .truncate(target_tip_hash.into())
             .expect("rpc call truncate")
     }
 
@@ -290,14 +290,14 @@ impl RpcClient {
         self.inner()
             .generate_block()
             .expect("rpc call generate_block")
-            .pack()
+            .into()
     }
 
     pub fn generate_block_with_template(&self, block_template: BlockTemplate) -> Byte32 {
         self.inner()
             .generate_block_with_template(block_template)
             .expect("rpc call generate_block_with_template")
-            .pack()
+            .into()
     }
 
     pub fn calculate_dao_maximum_withdraw(
@@ -306,14 +306,14 @@ impl RpcClient {
         hash: Byte32,
     ) -> CoreCapacity {
         self.inner()
-            .calculate_dao_maximum_withdraw(out_point, hash.unpack())
+            .calculate_dao_maximum_withdraw(out_point, hash.into())
             .expect("rpc call calculate_dao_maximum_withdraw")
             .into()
     }
 
     pub fn get_block_economic_state(&self, hash: Byte32) -> Option<BlockEconomicState> {
         self.inner()
-            .get_block_economic_state(hash.unpack())
+            .get_block_economic_state(hash.into())
             .expect("rpc call get_block_economic_state")
     }
 
@@ -321,7 +321,7 @@ impl RpcClient {
         self.inner()
             .notify_transaction(tx)
             .expect("rpc call send_transaction")
-            .pack()
+            .into()
     }
 
     pub fn tx_pool_ready(&self) -> bool {

@@ -465,9 +465,9 @@ impl BlockAssembler {
     ) -> CellbaseWitness {
         let hash_type: ScriptHashType = config.hash_type.clone().into();
         let cellbase_lock = Script::new_builder()
-            .args(config.args.as_bytes().pack())
-            .code_hash(config.code_hash.pack())
-            .hash_type(hash_type.into())
+            .args(config.args.as_bytes())
+            .code_hash(&config.code_hash)
+            .hash_type(hash_type)
             .build();
         let tip = snapshot.tip_header();
 
@@ -486,7 +486,7 @@ impl BlockAssembler {
 
         CellbaseWitness::new_builder()
             .lock(cellbase_lock)
-            .message(message.pack())
+            .message(message)
             .build()
     }
 
@@ -508,11 +508,11 @@ impl BlockAssembler {
             })?;
             let input = CellInput::new_cellbase_input(candidate_number);
             let output = CellOutput::new_builder()
-                .capacity(block_reward.total.pack())
+                .capacity(block_reward.total)
                 .lock(target_lock)
                 .build();
 
-            let witness = cellbase_witness.as_bytes().pack();
+            let witness = cellbase_witness.as_bytes();
             let no_finalization_target =
                 candidate_number <= snapshot.consensus().finalization_delay_length();
             let tx_builder = TransactionBuilder::default().input(input).witness(witness);
@@ -542,7 +542,7 @@ impl BlockAssembler {
                 .chain_root_mmr(tip_header.number())
                 .get_root()
                 .map_err(|e| InternalErrorKind::MMR.other(e))?;
-            let bytes = chain_root.calc_mmr_hash().as_bytes().pack();
+            let bytes = chain_root.calc_mmr_hash().as_bytes().into();
             Ok(Some(bytes))
         } else {
             Ok(None)
@@ -570,18 +570,18 @@ impl BlockAssembler {
         let block = if let Some(extension) = extension_opt {
             packed::BlockV1::new_builder()
                 .header(header)
-                .transactions(vec![cellbase].pack())
-                .uncles(uncles.iter().map(|u| u.data()).pack())
-                .proposals(proposals.cloned().collect::<Vec<_>>().pack())
+                .transactions(vec![cellbase])
+                .uncles(uncles.iter().map(|u| u.data()).collect::<Vec<_>>())
+                .proposals(proposals.cloned().collect::<Vec<_>>())
                 .extension(extension)
                 .build()
                 .as_v0()
         } else {
             packed::Block::new_builder()
                 .header(header)
-                .transactions(vec![cellbase].pack())
-                .uncles(uncles.iter().map(|u| u.data()).pack())
-                .proposals(proposals.cloned().collect::<Vec<_>>().pack())
+                .transactions(vec![cellbase])
+                .uncles(uncles.iter().map(|u| u.data()).collect::<Vec<_>>())
+                .proposals(proposals.cloned().collect::<Vec<_>>())
                 .build()
         };
         block.serialized_size_without_uncle_proposals()
@@ -734,7 +734,7 @@ impl<'a> From<&'a BlockTemplate> for JsonBlockTemplate {
             compact_target: template.compact_target.into(),
             number: template.number.into(),
             epoch: template.epoch.into(),
-            parent_hash: template.parent_hash.unpack(),
+            parent_hash: (&template.parent_hash).into(),
             cycles_limit: template.cycles_limit.into(),
             bytes_limit: template.bytes_limit.into(),
             uncles_count_limit: u64::from(template.uncles_count_limit).into(),
@@ -924,7 +924,7 @@ impl BlockTemplateBuilder {
 
 pub(crate) fn uncle_to_template(uncle: &UncleBlockView) -> UncleTemplate {
     UncleTemplate {
-        hash: uncle.hash().unpack(),
+        hash: uncle.hash().into(),
         required: false,
         proposals: uncle
             .data()
@@ -938,7 +938,7 @@ pub(crate) fn uncle_to_template(uncle: &UncleBlockView) -> UncleTemplate {
 
 pub(crate) fn tx_entry_to_template(entry: &TxEntry) -> TransactionTemplate {
     TransactionTemplate {
-        hash: entry.transaction().hash().unpack(),
+        hash: entry.transaction().hash().into(),
         required: false, // unimplemented
         cycles: Some(entry.cycles.into()),
         depends: None, // unimplemented
@@ -948,7 +948,7 @@ pub(crate) fn tx_entry_to_template(entry: &TxEntry) -> TransactionTemplate {
 
 pub(crate) fn cellbase_to_template(tx: &TransactionView) -> CellbaseTemplate {
     CellbaseTemplate {
-        hash: tx.hash().unpack(),
+        hash: tx.hash().into(),
         cycles: None,
         data: tx.data().into(),
     }

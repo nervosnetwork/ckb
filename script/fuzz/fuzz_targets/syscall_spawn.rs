@@ -7,10 +7,9 @@ use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes,
+        Capacity, HeaderView, ScriptHashType, TransactionBuilder, TransactionInfo, capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
-        hardfork::{HardForks, CKB2021, CKB2023},
-        Capacity, HeaderView, ScriptHashType, TransactionBuilder, TransactionInfo,
+        hardfork::{CKB2021, CKB2023, HardForks},
     },
     h256,
     packed::{
@@ -47,16 +46,16 @@ impl ExtensionProvider for MockDataLoader {
 
 fn mock_transaction_info() -> TransactionInfo {
     TransactionInfoBuilder::default()
-        .block_number(1u64.pack())
-        .block_epoch(0u64.pack())
+        .block_number(1u64)
+        .block_epoch(0u64)
         .key(
             TransactionKeyBuilder::default()
                 .block_hash(Byte32::zero())
-                .index(1u32.pack())
+                .index(1u32)
                 .build(),
         )
         .build()
-        .unpack()
+        .into()
 }
 
 static PROGRAM_DATA: &[u8] = include_bytes!("../../testdata/spawn_fuzzing");
@@ -69,7 +68,7 @@ fn run(data: &[u8]) {
     let split_offset = usize::min(split_offset, data.len() - 1);
     let parent_witness = Bytes::copy_from_slice(&data[0..split_offset]);
     let child_witness = Bytes::copy_from_slice(&data[split_offset..]);
-    let witnesses = vec![parent_witness.pack(), child_witness.pack()];
+    let witnesses = vec![parent_witness.into(), child_witness.into()];
 
     let transaction = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
@@ -83,17 +82,17 @@ fn run(data: &[u8]) {
         .build();
     let dep_cell = CellMetaBuilder::from_cell_output(
         CellOutput::new_builder()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
+            .capacity(Capacity::bytes(data.len()).unwrap())
             .build(),
         data,
     )
     .transaction_info(mock_transaction_info())
-    .out_point(OutPoint::new(h256!("0x0").pack(), 0))
+    .out_point(OutPoint::new(h256!("0x0").into(), 0))
     .build();
 
     let input_cell = CellMetaBuilder::from_cell_output(
         CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(100))
             .lock(script)
             .build(),
         Bytes::new(),
@@ -121,7 +120,7 @@ fn run(data: &[u8]) {
         .hardfork_switch(hardfork_switch)
         .build();
     let tx_verify_env =
-        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0.pack()).build());
+        TxVerifyEnv::new_submit(&HeaderView::new_advanced_builder().epoch(0).build());
     let verifier = TransactionScriptsVerifier::new(
         rtx.into(),
         provider,

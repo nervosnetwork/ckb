@@ -141,6 +141,28 @@ macro_rules! impl_serde_deserialize {
     };
 }
 
+macro_rules! impl_from_and_into {
+    ($packed:ident, $inner:ident) => {
+        impl From<JsonUint<$inner>> for packed::$packed {
+            fn from(value: JsonUint<$inner>) -> Self {
+                (&value).into()
+            }
+        }
+
+        impl From<&JsonUint<$inner>> for packed::$packed {
+            fn from(value: &JsonUint<$inner>) -> Self {
+                value.value().into()
+            }
+        }
+
+        impl From<packed::$packed> for JsonUint<$inner> {
+            fn from(value: packed::$packed) -> JsonUint<$inner> {
+                Into::<$inner>::into(value).into()
+            }
+        }
+    };
+}
+
 macro_rules! impl_pack_and_unpack {
     ($packed:ident, $inner:ident) => {
         impl Pack<packed::$packed> for JsonUint<$inner> {
@@ -166,6 +188,10 @@ impl_serde_deserialize!(Uint128Visitor, u128);
 impl_pack_and_unpack!(Uint32, u32);
 impl_pack_and_unpack!(Uint64, u64);
 impl_pack_and_unpack!(Uint128, u128);
+
+impl_from_and_into!(Uint32, u32);
+impl_from_and_into!(Uint64, u64);
+impl_from_and_into!(Uint128, u128);
 
 impl From<core::Capacity> for JsonUint<u64> {
     fn from(value: core::Capacity) -> Self {
@@ -258,4 +284,13 @@ mod tests {
     test_json_uint!(uint32, Uint32, u32);
     test_json_uint!(uint64, Uint64, u64);
     test_json_uint!(uint128, Uint128, u128);
+
+    use super::*;
+    #[test]
+    fn test_uint_from_into() {
+        let value: Uint32 = Uint32::from(42u32);
+        assert_eq!(value.value(), 42u32);
+        let packed_value: packed::Uint32 = value.into();
+        assert_eq!(Into::<Uint32>::into(packed_value), value);
+    }
 }

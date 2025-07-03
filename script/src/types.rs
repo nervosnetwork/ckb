@@ -682,7 +682,7 @@ where
             .map(|(index, (cell_output, data))| {
                 let out_point = OutPoint::new_builder()
                     .tx_hash(tx_hash.clone())
-                    .index(index.pack())
+                    .index(index)
                     .build();
                 let data_hash = CellOutput::calc_data_hash(&data);
                 CellMeta {
