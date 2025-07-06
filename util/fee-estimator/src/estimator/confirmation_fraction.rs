@@ -18,7 +18,7 @@ use ckb_types::{
 
 use crate::{Error, constants};
 
-/// The number of blocks that the esitmator will trace the statistics.
+/// The number of blocks that the estimator will trace the statistics.
 const MAX_CONFIRM_BLOCKS: usize = 1000;
 const DEFAULT_MIN_SAMPLES: usize = 20;
 const DEFAULT_MIN_CONFIRM_RATE: f64 = 0.85;
@@ -133,7 +133,7 @@ impl Default for TxConfirmStat {
 
 impl TxConfirmStat {
     fn new(buckets: Vec<FeeRate>, max_confirm_blocks: usize, decay_factor: f64) -> Self {
-        // max_confirm_blocsk: The number of blocks that the esitmator will trace the statistics.
+        // max_confirm_blocsk: The number of blocks that the estimator will trace the statistics.
         let min_fee_rate = buckets[0];
         let bucket_stats = vec![BucketStat::default(); buckets.len()];
         let confirm_blocks_to_confirmed_txs = vec![vec![0f64; buckets.len()]; max_confirm_blocks];

@@ -140,7 +140,7 @@ impl PoolMap {
     }
 
     fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
-        self.get_by_id(id).expect("unconsistent pool")
+        self.get_by_id(id).expect("inconsistent pool")
     }
 
     pub(crate) fn pending_size(&self) -> usize {
@@ -225,7 +225,7 @@ impl PoolMap {
                 old_status = Some(e.status);
                 e.status = status;
             })
-            .expect("unconsistent pool");
+            .expect("inconsistent pool");
         self.track_entry_statics(old_status, Some(status));
     }
 
