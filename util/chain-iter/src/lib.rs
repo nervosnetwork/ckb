@@ -16,8 +16,15 @@ pub struct ChainIterator<'a, S: ChainStore> {
 impl<'a, S: ChainStore> ChainIterator<'a, S> {
     /// Creates a new chain iterator starting from the genesis block.
     pub fn new(store: &'a S) -> Self {
-        let current = store.get_block_hash(0).and_then(|h| store.get_block(&h));
         let tip = store.get_tip_header().expect("store inited").number();
+        Self::new_with_range(store, 0, tip)
+    }
+
+    /// Create an ChainIterator by range
+    pub fn new_with_range(store: &'a S, start: u64, tip: u64) -> Self {
+        let current = store
+            .get_block_hash(start)
+            .and_then(|h| store.get_block(&h));
         ChainIterator {
             store,
             current,
