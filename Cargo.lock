@@ -1138,6 +1138,7 @@ dependencies = [
  "ckb-chain-iter",
  "ckb-jsonrpc-types",
  "ckb-shared",
+ "ckb-store",
  "ckb-types",
  "indicatif",
  "serde_json",

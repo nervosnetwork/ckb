@@ -12,6 +12,7 @@ rust-version = "1.92.0"
 [dependencies]
 ckb-types.workspace = true
 ckb-chain.workspace = true
+ckb-store.workspace = true
 ckb-chain-iter.workspace = true
 ckb-shared.workspace = true
 ckb-jsonrpc-types.workspace = true
