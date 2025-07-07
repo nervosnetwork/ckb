@@ -1,6 +1,6 @@
 use crate::{CKBAppConfig, MemoryTrackerConfig, MinerConfig};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{Either, ScriptHashType};
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::packed::Byte32;
@@ -15,6 +15,10 @@ pub struct ExportArgs {
     pub consensus: Consensus,
     /// The target directory to save the exported file.
     pub target: PathBuf,
+    /// The range start block number or block hash.
+    pub from: Option<Either<u64, String>>,
+    /// The range end block number or block hash.
+    pub to: Option<Either<u64, String>>,
 }
 
 #[derive(Debug)]
