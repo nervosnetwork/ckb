@@ -1,6 +1,11 @@
 use ckb_chain_iter::ChainIterator;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
+use ckb_jsonrpc_types::Either;
+use ckb_shared::Snapshot;
 use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
+use ckb_types::H256;
+use ckb_types::core::BlockNumber;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use std::error::Error;
@@ -8,6 +13,7 @@ use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Export block from database to specify file.
 pub struct Export {
@@ -15,17 +21,42 @@ pub struct Export {
     pub target: PathBuf,
     /// CKB shared data.
     pub shared: Shared,
+    /// the snapshot of the shared data
+    pub snapshot: Arc<Snapshot>,
+
+    /// The range start block number or block hash.
+    pub from: Option<Either<BlockNumber, H256>>,
+    /// The range end block number or block hash.
+    pub to: Option<Either<BlockNumber, H256>>,
 }
 
 impl Export {
     /// Creates the export job.
-    pub fn new(shared: Shared, target: PathBuf) -> Self {
-        Export { shared, target }
+    pub fn new(
+        shared: Shared,
+        target: PathBuf,
+        from: Option<Either<BlockNumber, H256>>,
+        to: Option<Either<BlockNumber, H256>>,
+    ) -> Self {
+        let snapshot = shared.cloned_snapshot();
+        Export {
+            shared,
+            snapshot,
+            target,
+            from,
+            to,
+        }
     }
 
     /// export file name
-    fn file_name(&self) -> String {
-        format!("{}.{}", self.shared.consensus().id, "json")
+    fn file_name(&self, from_number: u64, to_number: u64) -> Result<String, Box<dyn Error>> {
+        Ok(format!(
+            "{}-{}-{}.{}",
+            self.shared.consensus().id,
+            from_number,
+            to_number,
+            "jsonl"
+        ))
     }
 
     /// Executes the export job.
@@ -34,51 +65,60 @@ impl Export {
         self.write_to_json()
     }
 
-    #[cfg(not(feature = "progress_bar"))]
+    /// export ckb data to a jsonl file
     pub fn write_to_json(self) -> Result<(), Box<dyn Error>> {
+        let from_number = match self.from.clone() {
+            Some(Either::Left(number)) => number,
+            Some(Either::Right(hash)) => self
+                .snapshot
+                .get_block_number(&hash.clone().into())
+                .unwrap_or_else(|| panic!("must get block number for hash: {}", hash)),
+            None => 0,
+        };
+        let to_number = match self.to.clone() {
+            Some(Either::Left(number)) => number,
+            Some(Either::Right(hash)) => self
+                .snapshot
+                .get_block_number(&hash.clone().into())
+                .unwrap_or_else(|| panic!("must get block number for hash: {}", hash)),
+            None => self.snapshot.tip_number(),
+        };
+
+        let file_path = self.file_name(from_number, to_number)?;
+        println!("Writing to {}", &file_path);
         let f = fs::OpenOptions::new()
             .create_new(true)
             .read(true)
             .write(true)
-            .open(self.target.join(self.file_name()))?;
-        let mut writer = io::BufWriter::new(f);
-        let snapshot = self.shared.snapshot();
-
-        for block in ChainIterator::new(snapshot.as_ref()) {
-            let block: JsonBlock = block.into();
-            let encoded = serde_json::to_vec(&block)?;
-            writer.write_all(&encoded)?;
-            writer.write_all(b"\n")?;
-        }
-        Ok(())
-    }
-
-    /// Export the chain into JSON.
-    #[cfg(feature = "progress_bar")]
-    pub fn write_to_json(self) -> Result<(), Box<dyn Error>> {
-        let f = fs::OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(self.target.join(self.file_name()))?;
+            .open(self.target.join(file_path))?;
 
         let mut writer = io::BufWriter::new(f);
         let snapshot = self.shared.snapshot();
-        let blocks_iter = ChainIterator::new(snapshot.as_ref());
-        let progress_bar = ProgressBar::new(blocks_iter.len());
-        progress_bar.set_style(
-            ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:50.cyan/blue} {pos:>6}/{len:6} {msg}")
-                .expect("Failed to set progress bar template")
-                .progress_chars("##-"),
-        );
+        let blocks_iter = ChainIterator::new_with_range(snapshot.as_ref(), from_number, to_number);
+
+        #[cfg(feature = "progress_bar")]
+        let progress_bar = {
+            let progress_bar = ProgressBar::new(blocks_iter.len());
+            progress_bar.set_style(
+                ProgressStyle::default_bar()
+                    .template("[{elapsed_precise}] {bar:50.cyan/blue} {pos:>6}/{len:6} {msg}")
+                    .expect("Failed to set progress bar template")
+                    .progress_chars("##-"),
+            );
+            progress_bar
+        };
+
         for block in blocks_iter {
             let block: JsonBlock = block.into();
             let encoded = serde_json::to_vec(&block)?;
             writer.write_all(&encoded)?;
             writer.write_all(b"\n")?;
+
+            #[cfg(feature = "progress_bar")]
             progress_bar.inc(1);
         }
+
+        #[cfg(feature = "progress_bar")]
         progress_bar.finish_with_message("done!");
         Ok(())
     }

@@ -6,7 +6,7 @@ use ckb_app_config::{
     read_secret_key, write_secret_to_file,
 };
 use ckb_chain_spec::{ChainSpec, consensus::Consensus};
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{Either, ScriptHashType};
 use ckb_logger::{error, info};
 use ckb_types::{H256, U256, u256};
 use clap::ArgMatches;
@@ -241,7 +241,25 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
             })?
             .clone();
 
+        fn parse_either(arg: String) -> Either<u64, String> {
+            match arg.parse::<u64>() {
+                Ok(n) => Either::Left(n),
+                Err(_) => Either::Right(arg),
+            }
+        }
+
+        let from: Option<Either<u64, String>> = matches
+            .get_one::<String>(cli::ARG_FROM)
+            .cloned()
+            .map(parse_either);
+
+        let to: Option<Either<u64, String>> = matches
+            .get_one::<String>(cli::ARG_TO)
+            .cloned()
+            .map(parse_either);
         Ok(ExportArgs {
+            from,
+            to,
             config,
             consensus,
             target,

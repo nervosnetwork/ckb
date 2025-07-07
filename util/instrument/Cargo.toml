@@ -11,6 +11,7 @@ repository = "https://github.com/nervosnetwork/ckb"
 [dependencies]
 ckb-types.workspace = true
 ckb-chain.workspace = true
+ckb-store.workspace = true
 ckb-chain-iter.workspace = true
 ckb-shared.workspace = true
 ckb-jsonrpc-types.workspace = true
