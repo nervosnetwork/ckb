@@ -22,9 +22,9 @@ use std::thread;
 const ORPHAN_BLOCK_SIZE: usize = BLOCK_DOWNLOAD_WINDOW as usize;
 
 /// Here we distinguish between build_chain_services and start_chain_services:
-/// * build_chain_services simply initializes ChainController, setting up all relavant
+/// * build_chain_services simply initializes ChainController, setting up all relevant
 ///   threads, and return join handle for the main chain service thread.
-/// * start_chain_services first builds relavant data just like build_chain_services,
+/// * start_chain_services first builds relevant data just like build_chain_services,
 ///   in addition, it register the main chain service thread against CKB's handler. As
 ///   a result, start_chain_services only returns ChainController, it is expected that
 ///   CKB's stop handler shall be used to terminate the created chain service.
