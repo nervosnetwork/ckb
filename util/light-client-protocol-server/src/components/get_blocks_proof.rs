@@ -75,7 +75,6 @@ impl<'a> GetBlocksProofProcess<'a> {
         let mut block_headers = Vec::with_capacity(found.len());
         let mut uncles_hash = Vec::with_capacity(found.len());
         let mut extensions = Vec::with_capacity(found.len());
-        let ckb2023 = self.nc.ckb2023();
 
         for block_hash in found {
             let header = snapshot
@@ -83,45 +82,30 @@ impl<'a> GetBlocksProofProcess<'a> {
                 .expect("header should be in store");
             positions.push(leaf_index_to_pos(header.number()));
             block_headers.push(header.data());
-            if ckb2023 {
-                let uncles = snapshot
-                    .get_block_uncles(&block_hash)
-                    .expect("block uncles must be stored");
-                let extension = snapshot.get_block_extension(&block_hash);
 
-                uncles_hash.push(uncles.data().calc_uncles_hash());
-                extensions.push(packed::BytesOpt::new_builder().set(extension).build());
-            }
+            let uncles = snapshot
+                .get_block_uncles(&block_hash)
+                .expect("block uncles must be stored");
+            let extension = snapshot.get_block_extension(&block_hash);
+
+            uncles_hash.push(uncles.data().calc_uncles_hash());
+            extensions.push(packed::BytesOpt::new_builder().set(extension).build());
         }
 
-        if ckb2023 {
-            let proved_items = (
-                block_headers.into(),
-                uncles_hash.into(),
-                packed::BytesOptVec::new_builder().set(extensions).build(),
-            );
-            let missing_items = missing.into();
+        let proved_items = (
+            block_headers.into(),
+            uncles_hash.into(),
+            packed::BytesOptVec::new_builder().set(extensions).build(),
+        );
+        let missing_items = missing.into();
 
-            self.protocol.reply_proof::<packed::SendBlocksProofV1>(
-                self.peer,
-                self.nc,
-                &last_block,
-                positions,
-                proved_items,
-                missing_items,
-            )
-        } else {
-            let proved_items = block_headers.into();
-            let missing_items = missing.into();
-
-            self.protocol.reply_proof::<packed::SendBlocksProof>(
-                self.peer,
-                self.nc,
-                &last_block,
-                positions,
-                proved_items,
-                missing_items,
-            )
-        }
+        self.protocol.reply_proof::<packed::SendBlocksProofV1>(
+            self.peer,
+            self.nc,
+            &last_block,
+            positions,
+            proved_items,
+            missing_items,
+        )
     }
 }

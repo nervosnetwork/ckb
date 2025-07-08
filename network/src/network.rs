@@ -86,8 +86,6 @@ pub struct NetworkState {
     /// fields: ProtocolId, Protocol Name, Supported Versions
     pub(crate) protocols: RwLock<Vec<(ProtocolId, String, Vec<String>)>>,
     pub(crate) required_flags: Flags,
-
-    pub(crate) ckb2023: AtomicBool,
 }
 
 impl NetworkState {
@@ -147,7 +145,6 @@ impl NetworkState {
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
             required_flags: Flags::SYNC | Flags::DISCOVERY | Flags::RELAY,
-            ckb2023: AtomicBool::new(false),
         })
     }
 
@@ -196,14 +193,7 @@ impl NetworkState {
             active: AtomicBool::new(true),
             protocols: RwLock::new(Vec::new()),
             required_flags: Flags::SYNC | Flags::DISCOVERY | Flags::RELAY,
-            ckb2023: AtomicBool::new(false),
         })
-    }
-
-    /// fork flag
-    pub fn ckb2023(self, init: bool) -> Self {
-        self.ckb2023.store(init, Ordering::SeqCst);
-        self
     }
 
     /// use to discovery get nodes message to announce what kind of node information need from the other peer
@@ -1299,16 +1289,6 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
-    /// Set ckb2023 start
-    pub fn init_ckb2023(&self) {
-        self.network_state.ckb2023.store(true, Ordering::SeqCst);
-    }
-
-    /// Get ckb2023 flag
-    pub fn load_ckb2023(&self) -> bool {
-        self.network_state.ckb2023.load(Ordering::SeqCst)
-    }
-
     /// Node listen address list
     pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.network_state.public_urls(max_urls)

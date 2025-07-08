@@ -74,7 +74,7 @@ fn test_accept_block() {
         .uncles(vec![uncle.as_uncle().data()])
         .build();
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
     let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
@@ -138,7 +138,7 @@ fn test_unknown_request() {
         .transactions(vec![tx2.data()])
         .build();
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
     let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
@@ -203,7 +203,7 @@ fn test_invalid_transaction_root() {
         .transactions(vec![tx2.data()])
         .build();
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
     let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
@@ -299,7 +299,7 @@ fn test_collision_and_send_missing_indexes() {
         .transactions(vec![tx2.data()])
         .build();
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
     let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
@@ -321,7 +321,7 @@ fn test_collision_and_send_missing_indexes() {
     let data = message.as_bytes();
 
     // send missing indexes messages
-    assert!(nc.has_sent(SupportProtocols::RelayV2.protocol_id(), peer_index, data));
+    assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 
     // update cached missing_index
     {
@@ -342,7 +342,7 @@ fn test_collision_and_send_missing_indexes() {
         .transactions(vec![tx2.data(), tx3.data()])
         .build();
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
     let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
@@ -413,7 +413,7 @@ fn test_missing() {
         .transactions(vec![tx2.data()])
         .build();
 
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
     let nc = Arc::new(mock_protocol_context);
 
     let process = BlockTransactionsProcess::new(
@@ -435,7 +435,7 @@ fn test_missing() {
 
     // send missing indexes messages
     assert!(nc.has_sent(
-        SupportProtocols::RelayV2.protocol_id(),
+        SupportProtocols::RelayV3.protocol_id(),
         peer_index,
         message.as_bytes()
     ));

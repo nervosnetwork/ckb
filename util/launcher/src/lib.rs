@@ -279,17 +279,8 @@ impl Launcher {
             self.args.config.network.sync.clone(),
             relay_tx_receiver,
         ));
-        let fork_enable = {
-            let epoch = shared.snapshot().tip_header().epoch().number();
-            shared
-                .consensus()
-                .hardfork_switch
-                .ckb2023
-                .is_vm_version_2_and_syscalls_3_enabled(epoch)
-        };
         let network_state = Arc::new(
             NetworkState::from_config(self.args.config.network.clone())
-                .map(|t| NetworkState::ckb2023(t, fork_enable))
                 .expect("Init network state failed"),
         );
 
@@ -305,21 +296,13 @@ impl Launcher {
         let mut flags = Flags::all();
 
         if support_protocols.contains(&SupportProtocol::Relay) {
-            let relayer_v3 = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared)).v3();
+            let relayer_v3 = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
 
             protocols.push(CKBProtocol::new_with_support_protocol(
                 SupportProtocols::RelayV3,
                 Box::new(relayer_v3),
                 Arc::clone(&network_state),
             ));
-            if !fork_enable {
-                let relayer_v2 = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared));
-                protocols.push(CKBProtocol::new_with_support_protocol(
-                    SupportProtocols::RelayV2,
-                    Box::new(relayer_v2),
-                    Arc::clone(&network_state),
-                ))
-            }
         } else {
             flags.remove(Flags::RELAY);
         }

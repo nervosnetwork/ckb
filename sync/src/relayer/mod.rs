@@ -76,7 +76,6 @@ pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
     rate_limiter: RateLimiter<(PeerIndex, u32)>,
-    v3: bool,
 }
 
 impl Relayer {
@@ -93,14 +92,7 @@ impl Relayer {
             chain,
             shared,
             rate_limiter,
-            v3: false,
         }
-    }
-
-    /// Set relay to v3
-    pub fn v3(mut self) -> Self {
-        self.v3 = true;
-        self
     }
 
     /// Get shared state
@@ -132,14 +124,6 @@ impl Relayer {
                 CompactBlockProcess::new(reader, self, nc, peer).execute()
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
-                // after ckb2023, v2 doesn't work with relay tx
-                // before ckb2023, v3 doesn't work with relay tx
-                match RelaySwitch::new(&nc, self.v3) {
-                    RelaySwitch::Ckb2023RelayV2 | RelaySwitch::Ckb2021RelayV3 => {
-                        return Status::ignored();
-                    }
-                    RelaySwitch::Ckb2023RelayV3 | RelaySwitch::Ckb2021RelayV2 => (),
-                }
                 if reader.check_data() {
                     TransactionsProcess::new(reader, self, nc, peer).execute()
                 } else {
@@ -148,25 +132,9 @@ impl Relayer {
                 }
             }
             packed::RelayMessageUnionReader::RelayTransactionHashes(reader) => {
-                // after ckb2023, v2 doesn't work with relay tx
-                // before ckb2023, v3 doesn't work with relay tx
-                match RelaySwitch::new(&nc, self.v3) {
-                    RelaySwitch::Ckb2023RelayV2 | RelaySwitch::Ckb2021RelayV3 => {
-                        return Status::ignored();
-                    }
-                    RelaySwitch::Ckb2023RelayV3 | RelaySwitch::Ckb2021RelayV2 => (),
-                }
                 TransactionHashesProcess::new(reader, self, peer).execute()
             }
             packed::RelayMessageUnionReader::GetRelayTransactions(reader) => {
-                // after ckb2023, v2 doesn't work with relay tx
-                // before ckb2023, v3 doesn't work with relay tx
-                match RelaySwitch::new(&nc, self.v3) {
-                    RelaySwitch::Ckb2023RelayV2 | RelaySwitch::Ckb2021RelayV3 => {
-                        return Status::ignored();
-                    }
-                    RelaySwitch::Ckb2023RelayV3 | RelaySwitch::Ckb2021RelayV2 => (),
-                }
                 GetTransactionsProcess::new(reader, self, nc, peer).execute()
             }
             packed::RelayMessageUnionReader::GetBlockTransactions(reader) => {
@@ -201,7 +169,7 @@ impl Relayer {
 
         metric_ckb_message_bytes(
             MetricDirection::In,
-            &SupportProtocols::RelayV2.name(),
+            &SupportProtocols::RelayV3.name(),
             message.item_name(),
             Some(status.code()),
             item_bytes,
@@ -660,7 +628,6 @@ impl Relayer {
             return;
         }
 
-        let ckb2023 = nc.ckb2023();
         let tx_verify_results = self
             .shared
             .state()
@@ -671,13 +638,8 @@ impl Relayer {
                 match tx_verify_result {
                     TxVerificationResult::Ok {
                         original_peer,
-                        with_vm_2023,
                         tx_hash,
                     } => {
-                        // must all fork or all no-fork
-                        if ckb2023 != with_vm_2023 {
-                            continue;
-                        }
                         for target in &connected_peers {
                             match original_peer {
                                 Some(peer) => {
@@ -968,29 +930,6 @@ impl CKBProtocolHandler for Relayer {
             return;
         }
 
-        match RelaySwitch::new(&nc, self.v3) {
-            RelaySwitch::Ckb2021RelayV3 => return,
-            RelaySwitch::Ckb2023RelayV2 => {
-                if nc.remove_notify(TX_PROPOSAL_TOKEN).await.is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v2 relay notify fail");
-                }
-                if nc.remove_notify(ASK_FOR_TXS_TOKEN).await.is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v2 relay notify fail");
-                }
-                if nc.remove_notify(TX_HASHES_TOKEN).await.is_err() {
-                    trace_target!(crate::LOG_TARGET_RELAY, "remove v2 relay notify fail");
-                }
-                for kv_pair in self.shared().state().peers().state.iter() {
-                    let (peer, state) = kv_pair.pair();
-                    if !state.peer_flags.is_2023edition {
-                        let _ignore = nc.disconnect(*peer, "Evict low-version clients ");
-                    }
-                }
-                return;
-            }
-            RelaySwitch::Ckb2023RelayV3 | RelaySwitch::Ckb2021RelayV2 => (),
-        }
-
         let start_time = Instant::now();
         trace_target!(crate::LOG_TARGET_RELAY, "start notify token={}", token);
         match token {
@@ -1007,24 +946,5 @@ impl CKBProtocolHandler for Relayer {
             token,
             Instant::now().saturating_duration_since(start_time)
         );
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-enum RelaySwitch {
-    Ckb2021RelayV2,
-    Ckb2021RelayV3,
-    Ckb2023RelayV2,
-    Ckb2023RelayV3,
-}
-
-impl RelaySwitch {
-    fn new(nc: &Arc<dyn CKBProtocolContext + Sync>, is_relay_v3: bool) -> Self {
-        match (nc.ckb2023(), is_relay_v3) {
-            (true, true) => Self::Ckb2023RelayV3,
-            (true, false) => Self::Ckb2023RelayV2,
-            (false, true) => Self::Ckb2021RelayV3,
-            (false, false) => Self::Ckb2021RelayV2,
-        }
     }
 }

@@ -43,8 +43,6 @@ use crate::{
 /// Abstract protocol context
 #[async_trait]
 pub trait CKBProtocolContext: Send {
-    /// Get ckb2023 flag
-    fn ckb2023(&self) -> bool;
     /// Set notify to tentacle
     // Interact with underlying p2p service
     async fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error>;
@@ -287,22 +285,6 @@ impl ServiceProtocol for CKBHandler {
     }
 
     async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
-        // This judgment will be removed in the first release after 2023 hardfork
-        if self
-            .network_state
-            .ckb2023
-            .load(std::sync::atomic::Ordering::SeqCst)
-            && version != crate::protocols::support_protocols::LASTEST_VERSION
-            && context.proto_id != SupportProtocols::RelayV2.protocol_id()
-        {
-            debug!(
-                "The version of session {}, protocol {} is {}, not 3. It will be disconnected.",
-                context.session.id, context.proto_id, version
-            );
-            let id = context.session.id;
-            let _ignore = context.disconnect(id).await;
-            return;
-        }
         self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(context.session.id) {
                 peer.protocols.insert(self.proto_id, version.to_owned());
@@ -401,11 +383,6 @@ struct DefaultCKBProtocolContext {
 
 #[async_trait]
 impl CKBProtocolContext for DefaultCKBProtocolContext {
-    fn ckb2023(&self) -> bool {
-        self.network_state
-            .ckb2023
-            .load(std::sync::atomic::Ordering::SeqCst)
-    }
     async fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error> {
         self.async_p2p_control
             .set_service_notify(self.proto_id, interval, token)
