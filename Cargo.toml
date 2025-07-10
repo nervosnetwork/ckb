@@ -309,6 +309,7 @@ walkdir = "2.1.4"
 yansi = "0.5"
 seq-macro = "0.3"
 strum = { version = "0.27", features = ["derive"] }
+phf = { version = "0.12", features = ["macros"] }
 
 [profile.release]
 overflow-checks = true

@@ -2,6 +2,7 @@ use crate::{
     BlockErrorKind, CellbaseError, transaction_verifier::NonContextualTransactionVerifier,
 };
 use ckb_chain_spec::consensus::Consensus;
+use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
 use ckb_error::Error;
 use ckb_types::{
     core::{BlockView, ScriptHashType},
@@ -124,6 +125,17 @@ impl CellbaseVerifier {
             .any(|output| output.type_().is_some())
         {
             return Err((CellbaseError::InvalidTypeScript).into());
+        }
+
+        for output in cellbase_transaction.outputs() {
+            if let Ok(hash_type) = TryInto::<ScriptHashType>::try_into(output.lock().hash_type()) {
+                let val: u8 = hash_type.into();
+                if !ENABLED_SCRIPT_HASH_TYPE.contains(&val) {
+                    return Err((CellbaseError::InvalidOutputLock).into());
+                }
+            } else {
+                return Err((CellbaseError::InvalidOutputLock).into());
+            }
         }
 
         let cellbase_input = &cellbase_transaction

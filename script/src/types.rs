@@ -852,7 +852,7 @@ impl<DL> TxInfo<DL> {
                 }
             }
             hash_type => {
-                return Err(ScriptError::Other(format!(
+                return Err(ScriptError::InvalidScriptHashType(format!(
                     "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",
                     hash_type
                 )));
@@ -928,7 +928,7 @@ impl<DL> TxInfo<DL> {
                 }
             }
             hash_type => {
-                return Err(ScriptError::Other(format!(
+                return Err(ScriptError::InvalidScriptHashType(format!(
                     "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",
                     hash_type
                 )));

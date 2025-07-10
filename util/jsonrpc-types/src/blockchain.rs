@@ -27,7 +27,7 @@ seq!(N in 3..=127 {
     /// when the low 1 bit is 0, it indicates the data,
     /// and then it relies on the high 7 bits to indicate
     /// that the data actually corresponds to the version.
-    #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
+    #[derive(Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     #[repr(u8)]
     pub enum ScriptHashType {
