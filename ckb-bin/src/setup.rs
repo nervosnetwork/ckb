@@ -9,6 +9,7 @@ use ckb_chain_spec::{ChainSpec, consensus::Consensus};
 use ckb_jsonrpc_types::{Either, ScriptHashType};
 use ckb_logger::{error, info};
 use ckb_types::{H256, U256, u256};
+use ckb_verification_traits::Switch;
 use clap::ArgMatches;
 use std::{path::PathBuf, str::FromStr};
 
@@ -222,10 +223,21 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
             })?
             .clone();
 
+        let switch = {
+            if matches.get_flag(cli::ARG_SKIP_ALL_VERIFY) {
+                Switch::DISABLE_ALL
+            } else if matches.get_flag(cli::ARG_SKIP_SCRIPT_VERIFY) {
+                Switch::DISABLE_SCRIPT
+            } else {
+                Switch::NONE
+            }
+        };
+
         Ok(ImportArgs {
             config,
             consensus,
             source,
+            switch,
         })
     }
 

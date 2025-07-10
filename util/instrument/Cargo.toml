@@ -15,6 +15,7 @@ ckb-store.workspace = true
 ckb-chain-iter.workspace = true
 ckb-shared.workspace = true
 ckb-jsonrpc-types.workspace = true
+ckb-verification-traits.workspace = true
 serde_json.workspace = true
 indicatif = { workspace = true, optional = true }
 

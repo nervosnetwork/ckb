@@ -18,6 +18,7 @@ num_cpus.workspace = true
 ckb-logger.workspace = true
 ckb-logger-config.workspace = true
 ckb-metrics-config.workspace = true
+ckb-verification-traits.workspace = true
 ckb-chain-spec.workspace = true
 ckb-jsonrpc-types.workspace = true
 ckb-pow.workspace = true

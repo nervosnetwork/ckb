@@ -739,6 +739,7 @@ dependencies = [
  "ckb-resource",
  "ckb-systemtime",
  "ckb-types",
+ "ckb-verification-traits",
  "num_cpus",
  "path-clean",
  "rand 0.8.5",
@@ -1140,6 +1141,7 @@ dependencies = [
  "ckb-shared",
  "ckb-store",
  "ckb-types",
+ "ckb-verification-traits",
  "indicatif",
  "serde_json",
 ]
