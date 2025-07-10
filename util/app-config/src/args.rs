@@ -4,6 +4,7 @@ use ckb_jsonrpc_types::{Either, ScriptHashType};
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::packed::Byte32;
+use ckb_verification_traits::Switch;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -40,6 +41,8 @@ pub struct ImportArgs {
     pub consensus: Consensus,
     /// The path to the file to be imported.
     pub source: PathBuf,
+    /// The switch to control the verification behavior.
+    pub switch: Switch,
 }
 
 /// Parsed command line arguments for `ckb run`.

@@ -35,6 +35,10 @@ pub const ARG_FORMAT: &str = "format";
 pub const ARG_TARGET: &str = "target";
 /// Command line argument `--source`.
 pub const ARG_SOURCE: &str = "source";
+/// Command line flag: `--skip-script-verify`.
+pub const ARG_SKIP_SCRIPT_VERIFY: &str = "skip-script-verify";
+/// Command line flag: `--skip-all-verify`.
+pub const ARG_SKIP_ALL_VERIFY: &str = "skip-all-verify";
 /// Command line argument `--data`.
 pub const ARG_DATA: &str = "data";
 /// Command line argument `--list-chains`.
@@ -387,14 +391,30 @@ fn export() -> Command {
 }
 
 fn import() -> Command {
-    Command::new(CMD_IMPORT).about("Import CKB data").arg(
-        Arg::new(ARG_SOURCE)
-            .index(1)
-            .value_name("path")
-            .value_parser(clap::builder::PathBufValueParser::new())
-            .required(true)
-            .help("Specify the exported data path"),
-    )
+    Command::new(CMD_IMPORT)
+        .about("Import CKB data")
+        .arg(
+            Arg::new(ARG_SOURCE)
+                .index(1)
+                .value_name("path")
+                .value_parser(clap::builder::PathBufValueParser::new())
+                .required(true)
+                .help("Specify the exported data path"),
+        )
+        .arg(
+            //
+            Arg::new(ARG_SKIP_SCRIPT_VERIFY)
+                .required(false)
+                .action(clap::ArgAction::SetTrue)
+                .help("Skip script verification during import"),
+        )
+        .arg(
+            //
+            Arg::new(ARG_SKIP_ALL_VERIFY)
+                .action(clap::ArgAction::SetTrue)
+                .required(false)
+                .help("Skip all verifications during import"),
+        )
 }
 
 fn migrate() -> Command {

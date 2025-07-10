@@ -1,6 +1,7 @@
 use ckb_chain::ChainController;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_types::core;
+use ckb_verification_traits::Switch;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use std::error::Error;
@@ -15,12 +16,17 @@ pub struct Import {
     /// source file contains block data
     source: PathBuf,
     chain: ChainController,
+    switch: Switch,
 }
 
 impl Import {
     /// Creates a new import job.
-    pub fn new(chain: ChainController, source: PathBuf) -> Self {
-        Import { chain, source }
+    pub fn new(chain: ChainController, source: PathBuf, switch: Switch) -> Self {
+        Import {
+            chain,
+            source,
+            switch,
+        }
     }
 
     /// Executes the import job.
@@ -65,7 +71,7 @@ impl Import {
             let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
-                    .blocking_process_block(block)
+                    .blocking_process_block_with_switch(block, self.switch)
                     .expect("import occur malformation data");
             }
             progress_bar.inc(s.len() as u64);
