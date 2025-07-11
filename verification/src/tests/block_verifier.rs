@@ -7,8 +7,8 @@ use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, Capacity, HeaderBuilder, TransactionBuilder, TransactionView,
-        capacity_bytes,
+        BlockBuilder, BlockNumber, Capacity, HeaderBuilder, ScriptHashType, TransactionBuilder,
+        TransactionView, capacity_bytes,
     },
     h256,
     packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
@@ -109,6 +109,58 @@ fn create_cellbase_transaction_with_unknown_hash_type() -> TransactionView {
         .build()
 }
 
+fn create_cellbase_transaction_with_data3_witness() -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100))
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .witness(
+            Script::default()
+                .as_builder()
+                .hash_type(ScriptHashType::Data3)
+                .build()
+                .into_witness(),
+        )
+        .build()
+}
+
+fn create_cellbase_transaction_with_data3_lock() -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100))
+                .lock(
+                    Script::default()
+                        .as_builder()
+                        .hash_type(ScriptHashType::Data3)
+                        .build(),
+                )
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .witness(Script::default().into_witness())
+        .build()
+}
+
+fn create_cellbase_transaction_with_unknown_hash_type_lock() -> TransactionView {
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100))
+                .lock(Script::default().as_builder().hash_type(3).build())
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .witness(Script::default().into_witness())
+        .build()
+}
+
 fn create_normal_transaction() -> TransactionView {
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new(h256!("0x1").into(), 0), 0))
@@ -193,6 +245,39 @@ pub fn test_block_with_unknown_hash_type_cellbase() {
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidWitness,
+    );
+
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(create_cellbase_transaction_with_unknown_hash_type_lock())
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq!(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidOutputLock,
+    );
+}
+
+#[test]
+pub fn test_block_with_data3_cellbase() {
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(create_cellbase_transaction_with_data3_witness())
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq!(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidWitness,
+    );
+
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(create_cellbase_transaction_with_data3_lock())
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq!(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidOutputLock,
     );
 }
 

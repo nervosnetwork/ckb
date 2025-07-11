@@ -3,6 +3,7 @@ use super::super::transaction_verifier::{
     MaturityVerifier, OutputsDataVerifier, Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
 use crate::error::TransactionErrorSource;
+use crate::transaction_verifier::ScriptHashTypeVerifier;
 use crate::{TransactionError, TxVerifyEnv};
 use ckb_chain_spec::{
     OUTPUT_INDEX_DAO, build_genesis_type_id_script,
@@ -78,7 +79,50 @@ pub fn test_exceeded_maximum_block_bytes() {
 }
 
 #[test]
-pub fn test_capacity_outofbound() {
+pub fn test_unknown_hash_type_output_lock() {
+    let transaction = TransactionBuilder::default()
+        .output(
+            CellOutput::new_builder()
+                .lock(Script::default().as_builder().hash_type(3).build())
+                .build(),
+        )
+        .build();
+    let verifier = ScriptHashTypeVerifier::new(&transaction);
+
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::InvalidScriptHashType {
+            hash_type: 3.into(),
+        },
+    );
+}
+
+#[test]
+pub fn test_not_enabled_hash_type_output_lock() {
+    let transaction = TransactionBuilder::default()
+        .output(
+            CellOutput::new_builder()
+                .lock(
+                    Script::default()
+                        .as_builder()
+                        .hash_type(ScriptHashType::Data3)
+                        .build(),
+                )
+                .build(),
+        )
+        .build();
+    let verifier = ScriptHashTypeVerifier::new(&transaction);
+
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::ScriptHashTypeNotPermitted {
+            hash_type: ScriptHashType::Data3.into(),
+        },
+    );
+}
+
+#[test]
+pub fn test_capacity_out_of_bound() {
     let data = Bytes::from(vec![1; 51]);
     let transaction = TransactionBuilder::default()
         .output(

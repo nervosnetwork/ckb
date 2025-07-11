@@ -202,10 +202,17 @@ pub enum TransactionError {
         "The lock script hash type {} is not permitted by the current consensus rules.",
         hash_type
     )]
-    ScriptHashTypeNotPermitted { hash_type: u8 },
+    ScriptHashTypeNotPermitted {
+        /// The hash type value
+        hash_type: u8,
+    },
 
+    /// The lock Script hash_type field is invalid.
     #[error("InvalidScriptHashType: the lock Script hash_type field is invalid")]
-    InvalidScriptHashType { hash_type: Byte },
+    InvalidScriptHashType {
+        /// The hash type value
+        hash_type: Byte,
+    },
 
     /// The internal error.
     #[error(

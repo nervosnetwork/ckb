@@ -75,6 +75,7 @@ pub struct NonContextualTransactionVerifier<'a> {
     pub(crate) empty: EmptyVerifier<'a>,
     pub(crate) duplicate_deps: DuplicateDepsVerifier<'a>,
     pub(crate) outputs_data_verifier: OutputsDataVerifier<'a>,
+    pub(crate) script_hash_type: ScriptHashTypeVerifier<'a>,
 }
 
 impl<'a> NonContextualTransactionVerifier<'a> {
@@ -86,6 +87,7 @@ impl<'a> NonContextualTransactionVerifier<'a> {
             empty: EmptyVerifier::new(tx),
             duplicate_deps: DuplicateDepsVerifier::new(tx),
             outputs_data_verifier: OutputsDataVerifier::new(tx),
+            script_hash_type: ScriptHashTypeVerifier::new(tx),
         }
     }
 
@@ -96,6 +98,7 @@ impl<'a> NonContextualTransactionVerifier<'a> {
         self.empty.verify()?;
         self.duplicate_deps.verify()?;
         self.outputs_data_verifier.verify()?;
+        self.script_hash_type.verify()?;
         Ok(())
     }
 }
@@ -103,7 +106,6 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
-/// [`ScriptHashTypeVerifier`](./struct.ScriptHashTypeVerifier.html)
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
@@ -112,7 +114,6 @@ pub struct ContextualTransactionVerifier<DL>
 where
     DL: Send + Sync + Clone + CellDataProvider + HeaderProvider + ExtensionProvider + 'static,
 {
-    pub(crate) script_hash_type: ScriptHashTypeVerifier,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
     pub(crate) script: ScriptVerifier<DL>,
@@ -139,7 +140,6 @@ where
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         ContextualTransactionVerifier {
-            script_hash_type: ScriptHashTypeVerifier::new(Arc::clone(&rtx)),
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
                 Arc::clone(&consensus),
@@ -161,7 +161,6 @@ where
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
-        self.script_hash_type.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -181,7 +180,6 @@ where
         max_cycles: Cycle,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
     ) -> Result<Completed, Error> {
-        self.script_hash_type.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
@@ -201,7 +199,6 @@ where
         skip_script_verify: bool,
         state: &TransactionState,
     ) -> Result<Completed, Error> {
-        self.script_hash_type.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -782,17 +779,17 @@ impl<'a> OutputsDataVerifier<'a> {
 
 // Verify that the ScriptHashType of transaction outputs
 // is within the range permitted by the current consensus rules.
-pub struct ScriptHashTypeVerifier {
-    rtx: Arc<ResolvedTransaction>,
+pub struct ScriptHashTypeVerifier<'a> {
+    transaction: &'a TransactionView,
 }
 
-impl ScriptHashTypeVerifier {
-    pub fn new(rtx: Arc<ResolvedTransaction>) -> Self {
-        Self { rtx }
+impl<'a> ScriptHashTypeVerifier<'a> {
+    pub fn new(transaction: &'a TransactionView) -> Self {
+        Self { transaction }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        for output in self.rtx.transaction.outputs() {
+        for output in self.transaction.outputs() {
             if let Ok(hash_type) = TryInto::<ScriptHashType>::try_into(output.lock().hash_type()) {
                 let val: u8 = hash_type.into();
                 if !ENABLED_SCRIPT_HASH_TYPE.contains(&val) {

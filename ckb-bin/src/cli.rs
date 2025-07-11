@@ -115,6 +115,8 @@ pub const ARG_MIGRATE_CHECK: &str = "check";
 pub const ARG_DAEMON_CHECK: &str = "check";
 /// Command line argument `daemon --stop`
 pub const ARG_DAEMON_STOP: &str = "stop";
+/// hash type possible values
+pub const HASH_TYPE_POSSIBLE_VALUES: [&str; 4] = ["data", "type", "data1", "data2"];
 
 /// Command line arguments group `ba` for block assembler.
 const GROUP_BA: &str = "ba";
@@ -553,7 +555,7 @@ fn init() -> Command {
                 .long(ARG_BA_HASH_TYPE)
                 .value_name("hash_type")
                 .action(clap::ArgAction::Set)
-                .value_parser(["data", "type", "data1"])
+                .value_parser(HASH_TYPE_POSSIBLE_VALUES)
                 .default_value("type")
                 .help("Set hash type in [block_assembler]"),
         )

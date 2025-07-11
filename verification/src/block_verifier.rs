@@ -110,7 +110,12 @@ impl CellbaseVerifier {
                 CellbaseWitness::from_slice(&witness.raw_data())
                     .ok()
                     .and_then(|cellbase_witness| {
-                        ScriptHashType::try_from(cellbase_witness.lock().hash_type()).ok()
+                        ScriptHashType::try_from(cellbase_witness.lock().hash_type())
+                            .ok()
+                            .and_then(|hash_type| {
+                                let val: u8 = hash_type.into();
+                                ENABLED_SCRIPT_HASH_TYPE.contains(&val).then_some(())
+                            })
                     })
             })
             .is_none()
