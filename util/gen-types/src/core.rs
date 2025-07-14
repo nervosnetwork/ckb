@@ -36,7 +36,7 @@ impl ScriptHashType {
     /// when the low 1 bit is 1, it indicates the type
     /// when the low 1 bit is 0, it indicates the data
     #[inline]
-    pub(crate) fn verify_value(v: u8) -> bool {
+    pub fn verify_value(v: u8) -> bool {
         v % 2 == 0 || v == 1
     }
 }
