@@ -34,31 +34,15 @@ impl Import {
         self.read_from_json()
     }
 
-    #[cfg(not(feature = "progress_bar"))]
-    pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
-        let f = fs::File::open(&self.source)?;
-        let reader = io::BufReader::new(f);
-
-        for line in reader.lines() {
-            let s = line?;
-            let block: JsonBlock = serde_json::from_str(&s)?;
-            let block: Arc<core::BlockView> = Arc::new(block.into());
-            if !block.is_genesis() {
-                self.chain
-                    .blocking_process_block(block)
-                    .expect("import occur malformation data");
-            }
-        }
-        Ok(())
-    }
-
     /// Imports the chain from the JSON file.
     #[cfg(feature = "progress_bar")]
     pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
-        let metadata = fs::metadata(&self.source)?;
         let f = fs::File::open(&self.source)?;
         let reader = io::BufReader::new(f);
-        let progress_bar = ProgressBar::new(metadata.len());
+
+        #[cfg(feature = "progress_bar")]
+        let progress_bar = ProgressBar::new(fs::metadata(&self.source)?.len());
+        #[cfg(feature = "progress_bar")]
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>6}/{total_bytes:6} {msg}")
@@ -74,8 +58,11 @@ impl Import {
                     .blocking_process_block_with_switch(block, self.switch)
                     .expect("import occur malformation data");
             }
+
+            #[cfg(feature = "progress_bar")]
             progress_bar.inc(s.len() as u64);
         }
+        #[cfg(feature = "progress_bar")]
         progress_bar.finish_with_message("done!");
         Ok(())
     }
