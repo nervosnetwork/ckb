@@ -84,13 +84,18 @@ impl Export {
             None => self.snapshot.tip_number(),
         };
 
-        let file_path = self.file_name(from_number, to_number)?;
-        println!("Writing to {}", &file_path);
+        if to_number < from_number {
+            return Err(format!("Invalid range: from {} to {}", from_number, to_number).into());
+        }
+
+        let file_name = self.file_name(from_number, to_number)?;
+        let file_path = self.target.join(file_name);
+        println!("Writing to {}", file_path.display());
         let f = fs::OpenOptions::new()
             .create_new(true)
             .read(true)
             .write(true)
-            .open(self.target.join(file_path))?;
+            .open(file_path)?;
 
         let mut writer = io::BufWriter::new(f);
         let snapshot = self.shared.snapshot();

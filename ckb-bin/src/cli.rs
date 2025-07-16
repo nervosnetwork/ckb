@@ -379,15 +379,31 @@ fn replay() -> Command {
 }
 
 fn export() -> Command {
-    Command::new(CMD_EXPORT).about("Export CKB data").arg(
-        Arg::new(ARG_TARGET)
-            .short('t')
-            .long(ARG_TARGET)
-            .value_name("path")
-            .value_parser(clap::builder::PathBufValueParser::new())
-            .required(true)
-            .help("Specify the export target path"),
-    )
+    Command::new(CMD_EXPORT)
+        .about("Export CKB data")
+        .arg(
+            Arg::new(ARG_TARGET)
+                .short('t')
+                .long(ARG_TARGET)
+                .value_name("path")
+                .value_parser(clap::builder::PathBufValueParser::new())
+                .required(true)
+                .help("Specify the export target path"),
+        )
+        .arg(
+            Arg::new(ARG_FROM)
+                .long(ARG_FROM)
+                .value_name("from")
+                .required(false)
+                .help("Specify the from block number/hash for export"),
+        )
+        .arg(
+            Arg::new(ARG_TO)
+                .long(ARG_TO)
+                .value_name("to")
+                .required(false)
+                .help("Specify the to block number/hash for export"),
+        )
 }
 
 fn import() -> Command {
