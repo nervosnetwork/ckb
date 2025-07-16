@@ -53,7 +53,10 @@ impl<'a, S: ChainStore> Iterator for ChainIterator<'a, S> {
 
         self.current = match current {
             Some(ref b) => {
-                if let Some(block_hash) = self.store.get_block_hash(b.header().number() + 1) {
+                if b.header().number() >= self.tip {
+                    None // Reached the tip, no more blocks to iterate
+                } else if let Some(block_hash) = self.store.get_block_hash(b.header().number() + 1)
+                {
                     self.store.get_block(&block_hash)
                 } else {
                     None
