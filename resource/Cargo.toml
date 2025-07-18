@@ -10,7 +10,7 @@ homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
-phf = "0.8.0" # ckb-resource's build script need this, and cargo shear think ckb don't need this
+phf = "= 0.8.0" # ckb-resource's build script need this, and cargo shear think ckb don't need this
 includedir.workspace = true
 serde = { workspace = true, features = ["derive"] }
 ckb-types.workspace = true

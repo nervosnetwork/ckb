@@ -30,6 +30,7 @@ ckb-channel.workspace = true
 ckb-tx-pool.workspace = true
 ckb-light-client-protocol-server.workspace = true
 ckb-block-filter.workspace = true
+ckb-constant.workspace = true
 
 [features]
 with_sentry = [

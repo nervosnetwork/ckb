@@ -2,6 +2,7 @@ use crate::{
     BlockErrorKind, CellbaseError, transaction_verifier::NonContextualTransactionVerifier,
 };
 use ckb_chain_spec::consensus::Consensus;
+use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
 use ckb_error::Error;
 use ckb_types::{
     core::{BlockView, ScriptHashType},
@@ -109,7 +110,12 @@ impl CellbaseVerifier {
                 CellbaseWitness::from_slice(&witness.raw_data())
                     .ok()
                     .and_then(|cellbase_witness| {
-                        ScriptHashType::try_from(cellbase_witness.lock().hash_type()).ok()
+                        ScriptHashType::try_from(cellbase_witness.lock().hash_type())
+                            .ok()
+                            .and_then(|hash_type| {
+                                let val: u8 = hash_type.into();
+                                ENABLED_SCRIPT_HASH_TYPE.contains(&val).then_some(())
+                            })
                     })
             })
             .is_none()
@@ -124,6 +130,17 @@ impl CellbaseVerifier {
             .any(|output| output.type_().is_some())
         {
             return Err((CellbaseError::InvalidTypeScript).into());
+        }
+
+        for output in cellbase_transaction.outputs() {
+            if let Ok(hash_type) = TryInto::<ScriptHashType>::try_into(output.lock().hash_type()) {
+                let val: u8 = hash_type.into();
+                if !ENABLED_SCRIPT_HASH_TYPE.contains(&val) {
+                    return Err((CellbaseError::InvalidOutputLock).into());
+                }
+            } else {
+                return Err((CellbaseError::InvalidOutputLock).into());
+            }
         }
 
         let cellbase_input = &cellbase_transaction

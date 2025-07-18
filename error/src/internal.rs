@@ -11,7 +11,7 @@ use thiserror::Error;
 pub struct SilentError;
 
 /// An error with only a string as the reason.
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("{0}")]
 pub struct OtherError(String);
 

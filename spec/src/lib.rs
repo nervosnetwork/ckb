@@ -729,6 +729,14 @@ impl ChainSpec {
                         .into());
                     }
                 }
+                hash_type => {
+                    return Err(format!(
+                        "Invalid lock script: code_hash={}, hash_type={:?}",
+                        lock_script.code_hash(),
+                        hash_type
+                    )
+                    .into());
+                }
             }
         }
 

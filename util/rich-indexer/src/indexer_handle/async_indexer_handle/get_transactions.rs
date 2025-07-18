@@ -193,7 +193,7 @@ pub async fn get_tx_with_cell(
     for _ in 0..2 {
         query = query
             .bind(search_key.script.code_hash.as_bytes())
-            .bind(search_key.script.hash_type.clone() as i16);
+            .bind(search_key.script.hash_type as i16);
         match &search_key.script_search_mode {
             Some(IndexerSearchMode::Prefix) | None => {
                 query = query
@@ -217,7 +217,7 @@ pub async fn get_tx_with_cell(
             if let Some(script) = filter.script.as_ref() {
                 query = query
                     .bind(script.code_hash.as_bytes())
-                    .bind(script.hash_type.clone() as i16);
+                    .bind(script.hash_type as i16);
                 // Default prefix search
                 query = query
                     .bind(script.args.as_bytes())
@@ -343,7 +343,7 @@ pub async fn get_tx_with_cells(
     for _ in 0..2 {
         query = query
             .bind(search_key.script.code_hash.as_bytes())
-            .bind(search_key.script.hash_type.clone() as i16);
+            .bind(search_key.script.hash_type as i16);
         match &search_key.script_search_mode {
             Some(IndexerSearchMode::Prefix) | None => {
                 query = query
@@ -367,7 +367,7 @@ pub async fn get_tx_with_cells(
             if let Some(script) = filter.script.as_ref() {
                 query = query
                     .bind(script.code_hash.as_bytes())
-                    .bind(script.hash_type.clone() as i16);
+                    .bind(script.hash_type as i16);
                 // Default prefix search
                 query = query
                     .bind(script.args.as_bytes())
