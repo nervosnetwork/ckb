@@ -15,7 +15,7 @@ pub(crate) struct SledBackend {
 }
 
 impl SledBackend {
-    pub fn shared_best_header(&self) -> Option<Byte32> {
+    pub fn load_best_header(&self) -> Option<Byte32> {
         self.db
             .get(b"shared_best_header")
             .ok()
@@ -23,7 +23,7 @@ impl SledBackend {
             .map(|bytes| Byte32::from_slice(&bytes).ok())?
     }
 
-    pub fn insert_shared_best_header(&self, header_hash: &Byte32) -> sled::Result<()> {
+    pub fn save_best_header(&self, header_hash: &Byte32) -> sled::Result<()> {
         self.db
             .insert(b"shared_best_header", header_hash.as_slice())
             .map(|_| ())
