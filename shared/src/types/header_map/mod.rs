@@ -2,6 +2,7 @@ use ckb_async_runtime::Handle;
 use ckb_logger::info;
 use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_types::packed::Byte32;
+use ckb_util::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -24,6 +25,8 @@ use super::HeaderIndexView;
 
 pub struct HeaderMap {
     inner: Arc<HeaderMapKernel<SledBackend>>,
+
+    shared_best_header: Arc<RwLock<HeaderIndexView>>,
 }
 
 const INTERVAL: Duration = Duration::from_millis(5000);

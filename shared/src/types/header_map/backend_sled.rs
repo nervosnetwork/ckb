@@ -14,6 +14,22 @@ pub(crate) struct SledBackend {
     // _tmpdir: TempDir,
 }
 
+impl SledBackend {
+    pub fn shared_best_header(&self) -> Option<Byte32> {
+        self.db
+            .get(b"shared_best_header")
+            .ok()
+            .flatten()
+            .map(|bytes| Byte32::from_slice(&bytes).ok())?
+    }
+
+    pub fn insert_shared_best_header(&self, header_hash: &Byte32) -> sled::Result<()> {
+        self.db
+            .insert(b"shared_best_header", header_hash.as_slice())
+            .map(|_| ())
+    }
+}
+
 impl KeyValueBackend for SledBackend {
     fn new<P>(tmp_path: Option<P>) -> Self
     where
