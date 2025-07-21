@@ -3,6 +3,7 @@ use crate::types::HeaderIndexView;
 use ckb_types::{packed::Byte32, prelude::*};
 use sled::{Config, Db, Mode};
 use std::path;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use tempfile::TempDir;
@@ -10,7 +11,7 @@ use tempfile::TempDir;
 pub(crate) struct SledBackend {
     count: AtomicUsize,
     db: Db,
-    _tmpdir: TempDir,
+    // _tmpdir: TempDir,
 }
 
 impl KeyValueBackend for SledBackend {
@@ -18,27 +19,29 @@ impl KeyValueBackend for SledBackend {
     where
         P: AsRef<path::Path>,
     {
-        let mut builder = tempfile::Builder::new();
-        builder.prefix("ckb-tmp-");
-        let tmpdir = if let Some(ref path) = tmp_path {
-            builder.tempdir_in(path)
+        let tmpdir: PathBuf = if let Some(ref path) = tmp_path {
+            path.as_ref().to_path_buf().join("ckb-header-map")
         } else {
-            builder.tempdir()
-        }
-        .expect("failed to create a tempdir to save header map into disk");
+            let mut builder = tempfile::Builder::new();
+            builder.prefix("ckb-tmp-");
+            builder
+                .tempdir()
+                .expect("failed to create a tempdir to save header map into disk")
+                .into_path()
+        };
 
         // use a smaller system page cache here since we are using sled as a temporary storage,
         // most of the time we will only read header from memory.
         let db: Db = Config::new()
             .mode(Mode::HighThroughput)
             .cache_capacity(64 * 1024 * 1024)
-            .path(tmpdir.path())
+            .path(tmpdir)
             .open()
             .expect("failed to open a key-value database to save header map into disk");
 
         Self {
             db,
-            _tmpdir: tmpdir,
+            // _tmpdir: tmpdir,
             count: AtomicUsize::new(0),
         }
     }

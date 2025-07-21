@@ -2,6 +2,7 @@ use std::path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use ckb_logger::info;
 #[cfg(feature = "stats")]
 use ckb_logger::info;
 use ckb_metrics::HistogramTimer;
@@ -42,6 +43,29 @@ struct HeaderMapKernelStats {
 
     backend_contain: usize,
     backend_delete: usize,
+}
+
+impl<Backend> Drop for HeaderMapKernel<Backend>
+where
+    Backend: KeyValueBackend,
+{
+    fn drop(&mut self) {
+        let mut total_move_count = 0;
+        while let Some(headers) = self.memory.front_n(10000) {
+            total_move_count += headers.len();
+            info!(
+                "HeaderMapKernel: Moving {} headers from memory to sled backend",
+                headers.len()
+            );
+            self.memory
+                .remove_batch(headers.iter().map(|header| header.hash()), true);
+            self.backend.insert_batch(&headers);
+        }
+        info!(
+            "HeaderMapKernel: Moved {} headers from memory to sled backend",
+            total_move_count
+        );
+    }
 }
 
 impl<Backend> HeaderMapKernel<Backend>
