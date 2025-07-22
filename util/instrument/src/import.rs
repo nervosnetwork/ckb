@@ -38,7 +38,11 @@ impl Import {
         {
             let snapshot = self.shared.snapshot();
             let tip = snapshot.tip_header();
-            println!("Before import, current tip is {}-{}", tip.number(), tip.hash());
+            println!(
+                "Before import, current tip is {}-{}",
+                tip.number(),
+                tip.hash()
+            );
         }
 
         self.read_from_json()?;
@@ -46,7 +50,11 @@ impl Import {
         {
             let snapshot = self.shared.snapshot();
             let tip = snapshot.tip_header();
-            println!("After import, Current tip is {}-{}", tip.number(), tip.hash());
+            println!(
+                "After import, Current tip is {}-{}",
+                tip.number(),
+                tip.hash()
+            );
         }
         Ok(())
     }
