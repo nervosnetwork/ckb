@@ -420,15 +420,17 @@ fn import() -> Command {
         .arg(
             //
             Arg::new(ARG_SKIP_SCRIPT_VERIFY)
-                .required(false)
+                .long(ARG_SKIP_SCRIPT_VERIFY)
                 .action(clap::ArgAction::SetTrue)
+                .conflicts_with(ARG_SKIP_ALL_VERIFY)
                 .help("Skip script verification during import"),
         )
         .arg(
             //
             Arg::new(ARG_SKIP_ALL_VERIFY)
+                .long(ARG_SKIP_ALL_VERIFY)
+                .conflicts_with(ARG_SKIP_SCRIPT_VERIFY)
                 .action(clap::ArgAction::SetTrue)
-                .required(false)
                 .help("Skip all verifications during import"),
         )
 }

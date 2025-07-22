@@ -1137,6 +1137,7 @@ version = "1.0.1"
 dependencies = [
  "ckb-chain",
  "ckb-chain-iter",
+ "ckb-channel",
  "ckb-jsonrpc-types",
  "ckb-shared",
  "ckb-store",

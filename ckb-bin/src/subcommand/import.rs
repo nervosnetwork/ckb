@@ -12,7 +12,7 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
         async_handle,
         args.consensus,
     )?;
-    let (_shared, mut pack) = builder.build()?;
+    let (shared, mut pack) = builder.build()?;
 
     let chain_controller = ckb_chain::start_chain_services(pack.take_chain_services_builder());
 
@@ -20,7 +20,7 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     pack.take_tx_pool_builder();
     pack.take_relay_tx_receiver();
 
-    Import::new(chain_controller, args.source, args.switch)
+    Import::new(chain_controller, shared, args.source, args.switch)
         .execute()
         .map_err(|err| {
             eprintln!("Import error: {err:?}");
