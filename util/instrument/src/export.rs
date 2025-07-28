@@ -6,7 +6,9 @@ use ckb_store::ChainStore;
 use ckb_types::H256;
 use ckb_types::core::BlockNumber;
 #[cfg(feature = "progress_bar")]
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
+use itertools::Itertools;
+use rayon::prelude::*;
 use std::error::Error;
 use std::fs;
 use std::io;
@@ -111,49 +113,71 @@ impl Export {
             progress_bar
         };
 
-        let (blocks_tx, blocks_rx) = ckb_channel::bounded(1024);
+        const BLOCKS_COUNT_PER_CHUNK: usize = 1024;
+        let (blocks_tx, blocks_rx) = ckb_channel::bounded(BLOCKS_COUNT_PER_CHUNK);
 
         std::thread::scope({
-            #[cfg(feature = "progress_bar")]
-            let progress_bar = progress_bar.clone();
-
             |s| {
-                s.spawn(move || -> Result<(), String> {
-                    (from_number..=to_number).try_for_each(
-                        |block_number| -> Result<(), String> {
-                            let block_hash =
-                                snapshot.get_block_hash(block_number).ok_or_else(|| {
-                                    format!("not found block hash for {}", block_number)
-                                })?;
-                            let block = snapshot
-                                .get_block(&block_hash)
-                                .ok_or_else(|| format!("not found block for {}", block_number))?;
-                            let block: JsonBlock = block.into();
-                            let encoded = serde_json::to_vec(&block)
-                                .map_err(|err| format!("serializing block failed: {:?}", err))?;
-                            blocks_tx
-                                .send(encoded)
-                                .map_err(|err| format!("sending block failed: {:?}", err))?;
+                #[cfg(feature = "progress_bar")]
+                let progress_bar_clone = progress_bar.clone();
+                let producer_jh = s.spawn(move || -> Result<(), String> {
+                    (from_number..=to_number)
+                        .chunks(BLOCKS_COUNT_PER_CHUNK)
+                        .into_iter()
+                        .try_for_each(|chunk| -> Result<(), String> {
+                            chunk
+                                .collect::<Vec<_>>()
+                                .into_par_iter()
+                                .progress_with(progress_bar_clone.clone())
+                                .try_for_each(|block_number| -> Result<(), String> {
+                                    let block_hash =
+                                        snapshot.get_block_hash(block_number).ok_or_else(|| {
+                                            format!("not found block hash for {}", block_number)
+                                        })?;
+                                    let block =
+                                        snapshot.get_block(&block_hash).ok_or_else(|| {
+                                            format!("not found block for {}", block_number)
+                                        })?;
+                                    let block: JsonBlock = block.into();
+                                    let encoded = serde_json::to_vec(&block).map_err(|err| {
+                                        format!("serializing block failed: {:?}", err)
+                                    })?;
+                                    blocks_tx
+                                        .send((block_number, encoded))
+                                        .map_err(|err| format!("sending block failed: {:?}", err))
+                                })
+                        })?;
 
-                            #[cfg(feature = "progress_bar")]
-                            progress_bar.inc(1);
-
-                            Ok(())
-                        },
-                    )?;
                     drop(blocks_tx);
                     Ok(())
                 });
+                let mut expected = from_number;
+
+                let mut buffer = std::collections::BTreeMap::new();
+                for (idx, res) in blocks_rx {
+                    buffer.insert(idx, res);
+                    while buffer.contains_key(&expected) {
+                        let encoded = buffer.remove(&expected).unwrap();
+                        if let Err(err) = writer.write_all(&encoded) {
+                            eprintln!("writing block failed: {:?}", err);
+                        }
+                        if let Err(err) = writer.write_all(b"\n") {
+                            eprintln!("writing newline failed: {:?}", err);
+                        }
+                        expected += 1;
+                    }
+                }
+
+                let result = producer_jh.join();
+                if let Err(err) = result {
+                    eprintln!("Error during export: {:?}", err);
+                    return;
+                }
+
+                #[cfg(feature = "progress_bar")]
+                progress_bar.finish_with_message("done!");
             }
         });
-
-        for encoded in blocks_rx {
-            writer.write_all(&encoded)?;
-            writer.write_all(b"\n")?;
-        }
-
-        #[cfg(feature = "progress_bar")]
-        progress_bar.finish_with_message("done!");
         Ok(())
     }
 }
