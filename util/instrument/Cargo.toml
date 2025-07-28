@@ -19,6 +19,10 @@ ckb-jsonrpc-types.workspace = true
 ckb-verification-traits.workspace = true
 serde_json.workspace = true
 indicatif = { workspace = true, optional = true }
+rayon.workspace = true
+rayon-progress-bar.workspace = true
+itertools.workspace = true
+
 
 [features]
 progress_bar = ["indicatif"]
