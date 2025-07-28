@@ -1,4 +1,3 @@
-use ckb_chain_iter::ChainIterator;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_jsonrpc_types::Either;
 use ckb_shared::Snapshot;
@@ -99,11 +98,10 @@ impl Export {
 
         let mut writer = io::BufWriter::new(f);
         let snapshot = self.shared.snapshot();
-        let blocks_iter = ChainIterator::new_with_range(snapshot.as_ref(), from_number, to_number);
 
         #[cfg(feature = "progress_bar")]
         let progress_bar = {
-            let progress_bar = ProgressBar::new(blocks_iter.len());
+            let progress_bar = ProgressBar::new(to_number - from_number + 1);
             progress_bar.set_style(
                 ProgressStyle::default_bar()
                     .template("[{elapsed_precise}] {bar:50.cyan/blue} {pos:>6}/{len:6} {msg}")
@@ -113,14 +111,45 @@ impl Export {
             progress_bar
         };
 
-        for block in blocks_iter {
-            let block: JsonBlock = block.into();
-            let encoded = serde_json::to_vec(&block)?;
+        let (blocks_tx, blocks_rx) = ckb_channel::bounded(1024);
+
+        std::thread::scope({
+            #[cfg(feature = "progress_bar")]
+            let progress_bar = progress_bar.clone();
+
+            |s| {
+                s.spawn(move || -> Result<(), String> {
+                    (from_number..=to_number).try_for_each(
+                        |block_number| -> Result<(), String> {
+                            let block_hash =
+                                snapshot.get_block_hash(block_number).ok_or_else(|| {
+                                    format!("not found block hash for {}", block_number)
+                                })?;
+                            let block = snapshot
+                                .get_block(&block_hash)
+                                .ok_or_else(|| format!("not found block for {}", block_number))?;
+                            let block: JsonBlock = block.into();
+                            let encoded = serde_json::to_vec(&block)
+                                .map_err(|err| format!("serializing block failed: {:?}", err))?;
+                            blocks_tx
+                                .send(encoded)
+                                .map_err(|err| format!("sending block failed: {:?}", err))?;
+
+                            #[cfg(feature = "progress_bar")]
+                            progress_bar.inc(1);
+
+                            Ok(())
+                        },
+                    )?;
+                    drop(blocks_tx);
+                    Ok(())
+                });
+            }
+        });
+
+        for encoded in blocks_rx {
             writer.write_all(&encoded)?;
             writer.write_all(b"\n")?;
-
-            #[cfg(feature = "progress_bar")]
-            progress_bar.inc(1);
         }
 
         #[cfg(feature = "progress_bar")]
