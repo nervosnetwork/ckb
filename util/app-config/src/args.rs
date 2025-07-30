@@ -8,6 +8,11 @@ use ckb_verification_traits::Switch;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub enum ExportTarget {
+    Path(PathBuf),
+    Stdout,
+}
+
 /// Parsed command line arguments for `ckb export`.
 pub struct ExportArgs {
     /// Parsed `ckb.toml`.
@@ -15,7 +20,7 @@ pub struct ExportArgs {
     /// Loaded consensus.
     pub consensus: Consensus,
     /// The target directory to save the exported file.
-    pub target: PathBuf,
+    pub target: ExportTarget,
     /// The range start block number or block hash.
     pub from: Option<Either<u64, String>>,
     /// The range end block number or block hash.

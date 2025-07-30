@@ -31,7 +31,6 @@ pub fn export(args: ExportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     let from = args.from.map(parse_from_to_arg).transpose()?;
 
     let to = args.to.map(parse_from_to_arg).transpose()?;
-
     Export::new(shared, args.target, from, to)
         .execute()
         .map_err(|err| {
