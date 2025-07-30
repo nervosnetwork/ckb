@@ -1135,6 +1135,7 @@ dependencies = [
 name = "ckb-instrument"
 version = "1.0.1"
 dependencies = [
+ "ckb-app-config",
  "ckb-chain",
  "ckb-chain-iter",
  "ckb-channel",

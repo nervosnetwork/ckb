@@ -386,9 +386,9 @@ fn export() -> Command {
                 .short('t')
                 .long(ARG_TARGET)
                 .value_name("path")
-                .value_parser(clap::builder::PathBufValueParser::new())
+                .value_parser(clap::value_parser!(String))
                 .required(true)
-                .help("Specify the export target path"),
+                .help("Specify the export target path (use '-' for stdout)"),
         )
         .arg(
             Arg::new(ARG_FROM)

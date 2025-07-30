@@ -22,6 +22,7 @@ indicatif = { workspace = true, optional = true }
 rayon.workspace = true
 rayon-progress-bar.workspace = true
 itertools.workspace = true
+ckb-app-config.workspace = true
 
 
 [features]

@@ -1,3 +1,4 @@
+use ckb_app_config::ExportTarget;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_jsonrpc_types::Either;
 use ckb_shared::Snapshot;
@@ -13,13 +14,12 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::io::Write;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Export block from database to specify file.
 pub struct Export {
     /// export target path
-    pub target: PathBuf,
+    pub target: ExportTarget,
     /// CKB shared data.
     pub shared: Shared,
     /// the snapshot of the shared data
@@ -35,7 +35,7 @@ impl Export {
     /// Creates the export job.
     pub fn new(
         shared: Shared,
-        target: PathBuf,
+        target: ExportTarget,
         from: Option<Either<BlockNumber, H256>>,
         to: Option<Either<BlockNumber, H256>>,
     ) -> Self {
@@ -52,17 +52,18 @@ impl Export {
     /// export file name
     fn file_name(&self, from_number: u64, to_number: u64) -> Result<String, Box<dyn Error>> {
         Ok(format!(
-            "{}-{}-{}.{}",
+            "{}-{}-{}.jsonl",
             self.shared.consensus().id,
             from_number,
-            to_number,
-            "jsonl"
+            to_number
         ))
     }
 
     /// Executes the export job.
     pub fn execute(self) -> Result<(), Box<dyn Error>> {
-        fs::create_dir_all(&self.target)?;
+        if let ExportTarget::Path(ref path) = self.target {
+            fs::create_dir_all(path)?;
+        }
         self.write_to_json()
     }
 
@@ -89,16 +90,24 @@ impl Export {
             return Err(format!("Invalid range: from {} to {}", from_number, to_number).into());
         }
 
-        let file_name = self.file_name(from_number, to_number)?;
-        let file_path = self.target.join(file_name);
-        println!("Writing to {}", file_path.display());
-        let f = fs::OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(file_path)?;
+        let mut writer: Box<dyn Write> = {
+            match self.target {
+                ExportTarget::Path(ref path_buf) => {
+                    let file_name = self.file_name(from_number, to_number)?;
+                    let file_path = path_buf.join(file_name);
+                    println!("Writing to {}", file_path.display());
+                    let f = fs::OpenOptions::new()
+                        .create_new(true)
+                        .read(true)
+                        .write(true)
+                        .open(file_path)?;
 
-        let mut writer = io::BufWriter::new(f);
+                    Box::new(io::BufWriter::new(f))
+                }
+                ExportTarget::Stdout => Box::new(std::io::stdout()),
+            }
+        };
+
         let snapshot = self.shared.snapshot();
 
         #[cfg(feature = "progress_bar")]
