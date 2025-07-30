@@ -1,0 +1,157 @@
+name: Build and Push CKB Docker Images
+
+on:
+  push:
+    tags:
+      - 'v*' 
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version format and tag existence
+        id: validate
+        run: |
+          VERSION=${{ github.ref_name }}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]]; then
+            echo "Valid version format: $VERSION"
+          else
+            echo "Invalid version format: $VERSION. Must be like vX.Y.Z or vX.Y.Z-rcN."
+            exit 1
+          fi
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Git tag $VERSION exists"
+          else
+            echo "Error: Git tag $VERSION does not exist"
+            exit 1
+          fi
+
+  build-x86_64:
+    runs-on: ubuntu-22.04
+    needs: validate-version
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout specific tag
+        run: |
+          git checkout tags/${{ needs.validate-version.outputs.version }}
+      - name: Set up Docker
+        run: |
+          docker version
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push x86_64 image
+        run: |
+          docker build --progress=plain --no-cache -f docker/hub/Dockerfile -t nervos/ckb:x64-${{ needs.validate-version.outputs.version }} .
+          docker run --rm nervos/ckb:x64-${{ needs.validate-version.outputs.version }} --version
+          docker push nervos/ckb:x64-${{ needs.validate-version.outputs.version }}
+
+  build-aarch64:
+    runs-on: ubuntu-22.04-arm
+    needs: validate-version
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Checkout specific tag
+        run: |
+          git checkout tags/${{ needs.validate-version.outputs.version }}
+      - name: Set up Docker
+        run: |
+          docker version
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push aarch64 image
+        run: |
+          docker build --progress=plain --no-cache -f docker/hub/Dockerfile-aarch64 -t nervos/ckb:aarch64-${{ needs.validate-version.outputs.version }} .
+          docker run --rm nervos/ckb:aarch64-${{ needs.validate-version.outputs.version }} --version
+          docker push nervos/ckb:aarch64-${{ needs.validate-version.outputs.version }}
+
+  create-manifest:
+    runs-on: ubuntu-22.04
+    needs: [build-x86_64, build-aarch64]
+    environment: docker-build
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate version (for output)
+        id: validate
+        run: |
+          VERSION=${{ github.ref_name }}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Create and push version manifest
+        run: |
+          docker manifest create nervos/ckb:${{ steps.validate.outputs.version }} \
+            --amend nervos/ckb:x64-${{ steps.validate.outputs.version }} \
+            --amend nervos/ckb:aarch64-${{ steps.validate.outputs.version }}
+          docker manifest push nervos/ckb:${{ steps.validate.outputs.version }}
+      - name: Create and push latest manifest (formal release)
+        if: contains(steps.validate.outputs.version, '-rc') == false
+        run: |
+          docker manifest create nervos/ckb:latest \
+            --amend nervos/ckb:x64-${{ steps.validate.outputs.version }} \
+            --amend nervos/ckb:aarch64-${{ steps.validate.outputs.version }}
+          docker manifest push nervos/ckb:latest
+
+  notify-discord:
+    runs-on: ubuntu-22.04
+    needs: create-manifest
+    if: always()
+    steps:
+      - name: Notify Discord on success
+        if: needs.create-manifest.result == 'success'
+        continue-on-error: true
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "CKB Docker Build Succeeded"
+          description: "Successfully built and pushed CKB Docker images for tag ${{ needs.create-manifest.outputs.version }} to nervos/ckb. Triggered by ${{ github.actor }}."
+          color: 0x00ff00
+      - name: Notify Discord on failure
+        if: needs.create-manifest.result != 'success'
+        continue-on-error: true
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "CKB Docker Build Failed"
+          description: "Failed to build or push CKB Docker images for tag ${{ needs.create-manifest.outputs.version }}. Check run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+          color: 0xff0000
