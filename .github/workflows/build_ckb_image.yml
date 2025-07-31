@@ -3,7 +3,7 @@ name: Build and Push CKB Docker Images
 on:
   push:
     tags:
-      - 'v*' 
+      - 'v*'
 
 permissions:
   contents: read
