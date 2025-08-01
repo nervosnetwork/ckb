@@ -15,7 +15,7 @@ fn test_duplicate() {
     let content = packed::GetRelayTransactions::new_builder()
         .tx_hashes(vec![tx_hash.clone(), tx_hash])
         .build();
-    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV2);
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
     let nc = Arc::new(mock_protocol_context);
     let peer_index: PeerIndex = 1.into();
     let process = GetTransactionsProcess::new(content.as_reader(), &relayer, nc, peer_index);

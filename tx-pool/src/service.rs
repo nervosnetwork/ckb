@@ -714,8 +714,6 @@ pub enum TxVerificationResult {
     Ok {
         /// original peer
         original_peer: Option<PeerIndex>,
-        /// verified by ckb vm version
-        with_vm_2023: bool,
         /// transaction hash
         tx_hash: Byte32,
     },

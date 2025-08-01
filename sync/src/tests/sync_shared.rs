@@ -335,7 +335,7 @@ fn test_sync_relay_collaboration() {
         let relay = Relayer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
 
         let mock_relay_protocol_context =
-            MockProtocolContext::new(ckb_network::SupportProtocols::RelayV2);
+            MockProtocolContext::new(ckb_network::SupportProtocols::RelayV3);
         let mock_sync_protocol_context =
             MockProtocolContext::new(ckb_network::SupportProtocols::Sync);
 
@@ -415,7 +415,7 @@ fn test_sync_relay_collaboration2() {
         let relay = Relayer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
 
         let mock_relay_protocol_context =
-            MockProtocolContext::new(ckb_network::SupportProtocols::RelayV2);
+            MockProtocolContext::new(ckb_network::SupportProtocols::RelayV3);
         let mock_sync_protocol_context =
             MockProtocolContext::new(ckb_network::SupportProtocols::Sync);
 
