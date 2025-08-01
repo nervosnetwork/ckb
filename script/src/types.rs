@@ -851,6 +851,12 @@ impl<DL> TxInfo<DL> {
                     Err(ScriptError::ScriptNotFound(script.code_hash()))
                 }
             }
+            hash_type => {
+                return Err(ScriptError::InvalidScriptHashType(format!(
+                    "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",
+                    hash_type
+                )));
+            }
         }
     }
 
@@ -920,6 +926,12 @@ impl<DL> TxInfo<DL> {
                 } else {
                     Ok(ScriptVersion::V0)
                 }
+            }
+            hash_type => {
+                return Err(ScriptError::InvalidScriptHashType(format!(
+                    "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",
+                    hash_type
+                )));
             }
         }
     }

@@ -202,6 +202,8 @@ pub enum CellbaseError {
     InvalidPosition,
     /// The cellbase output-data is not empty.
     InvalidOutputData,
+    /// The cellbase output lock is Invalid.
+    InvalidOutputLock,
 }
 
 /// Errors due to the fact that the uncle rule is not respected.

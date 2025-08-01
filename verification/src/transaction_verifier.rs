@@ -2,6 +2,7 @@ use crate::cache::Completed;
 use crate::error::TransactionErrorSource;
 use crate::{TransactionError, TxVerifyEnv};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
@@ -67,12 +68,14 @@ impl<DL: HeaderFieldsProvider> TimeRelativeTransactionVerifier<DL> {
 /// - Check inputs and output empty
 /// - Check for duplicate deps
 /// - Check for whether outputs match data
+/// - Check whether output lock hash type within enabled range
 pub struct NonContextualTransactionVerifier<'a> {
     pub(crate) version: VersionVerifier<'a>,
     pub(crate) size: SizeVerifier<'a>,
     pub(crate) empty: EmptyVerifier<'a>,
     pub(crate) duplicate_deps: DuplicateDepsVerifier<'a>,
     pub(crate) outputs_data_verifier: OutputsDataVerifier<'a>,
+    pub(crate) script_hash_type: ScriptHashTypeVerifier<'a>,
 }
 
 impl<'a> NonContextualTransactionVerifier<'a> {
@@ -84,6 +87,7 @@ impl<'a> NonContextualTransactionVerifier<'a> {
             empty: EmptyVerifier::new(tx),
             duplicate_deps: DuplicateDepsVerifier::new(tx),
             outputs_data_verifier: OutputsDataVerifier::new(tx),
+            script_hash_type: ScriptHashTypeVerifier::new(tx),
         }
     }
 
@@ -94,6 +98,7 @@ impl<'a> NonContextualTransactionVerifier<'a> {
         self.empty.verify()?;
         self.duplicate_deps.verify()?;
         self.outputs_data_verifier.verify()?;
+        self.script_hash_type.verify()?;
         Ok(())
     }
 }
@@ -101,7 +106,6 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
-/// [`CompatibleVerifier`](./struct.CompatibleVerifier.html)
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
@@ -110,7 +114,6 @@ pub struct ContextualTransactionVerifier<DL>
 where
     DL: Send + Sync + Clone + CellDataProvider + HeaderProvider + ExtensionProvider + 'static,
 {
-    pub(crate) compatible: CompatibleVerifier,
     pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
     pub(crate) script: ScriptVerifier<DL>,
@@ -137,11 +140,6 @@ where
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         ContextualTransactionVerifier {
-            compatible: CompatibleVerifier::new(
-                Arc::clone(&rtx),
-                Arc::clone(&consensus),
-                Arc::clone(&tx_env),
-            ),
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
                 Arc::clone(&consensus),
@@ -163,7 +161,6 @@ where
     ///
     /// skip script verify will result in the return value cycle always is zero
     pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
-        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -183,7 +180,6 @@ where
         max_cycles: Cycle,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
     ) -> Result<Completed, Error> {
-        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let fee = self.fee_calculator.transaction_fee()?;
@@ -203,7 +199,6 @@ where
         skip_script_verify: bool,
         state: &TransactionState,
     ) -> Result<Completed, Error> {
-        self.compatible.verify()?;
         self.time_relative.verify()?;
         self.capacity.verify()?;
         let cycles = if skip_script_verify {
@@ -782,64 +777,34 @@ impl<'a> OutputsDataVerifier<'a> {
     }
 }
 
-/// Check compatible between different versions CKB clients.
-///
-/// When a new client with hardfork features released, before the hardfork started, the old CKB
-/// clients will still be able to work.
-/// So, the new CKB client have to add several necessary checks to avoid fork attacks.
-///
-/// After hardfork, the old clients will be no longer available. Then we can delete all code in
-/// this verifier until next hardfork.
-pub struct CompatibleVerifier {
-    rtx: Arc<ResolvedTransaction>,
-    consensus: Arc<Consensus>,
-    tx_env: Arc<TxVerifyEnv>,
+// Verify that the ScriptHashType of transaction outputs
+// is within the range permitted by the current consensus rules.
+pub struct ScriptHashTypeVerifier<'a> {
+    transaction: &'a TransactionView,
 }
 
-impl CompatibleVerifier {
-    pub fn new(
-        rtx: Arc<ResolvedTransaction>,
-        consensus: Arc<Consensus>,
-        tx_env: Arc<TxVerifyEnv>,
-    ) -> Self {
-        Self {
-            rtx,
-            consensus,
-            tx_env,
-        }
+impl<'a> ScriptHashTypeVerifier<'a> {
+    pub fn new(transaction: &'a TransactionView) -> Self {
+        Self { transaction }
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let proposal_window = self.consensus.tx_proposal_window();
-        let epoch_number = self.tx_env.epoch_number(proposal_window);
-        if !self
-            .consensus
-            .hardfork_switch()
-            .ckb2023
-            .is_vm_version_2_and_syscalls_3_enabled(epoch_number)
-        {
-            for ht in self
-                .rtx
-                .transaction
-                .outputs()
-                .into_iter()
-                .map(|output| output.lock().hash_type())
-            {
-                let hash_type: ScriptHashType = ht.try_into().map_err(|_| {
-                    let val: u8 = ht.into();
-                    // This couldn't happen, because we already check it.
-                    TransactionError::Internal {
-                        description: format!("unknown hash type {:02x}", val),
-                    }
-                })?;
-                if hash_type == ScriptHashType::Data2 {
-                    return Err(TransactionError::Compatible {
-                        feature: "VM Version 2",
-                    }
-                    .into());
+        for output in self.transaction.outputs() {
+            if let Ok(hash_type) = TryInto::<ScriptHashType>::try_into(output.lock().hash_type()) {
+                let val: u8 = hash_type.into();
+                if !ENABLED_SCRIPT_HASH_TYPE.contains(&val) {
+                    return Err(
+                        TransactionError::ScriptHashTypeNotPermitted { hash_type: val }.into(),
+                    );
                 }
+            } else {
+                return Err((TransactionError::InvalidScriptHashType {
+                    hash_type: output.lock().hash_type(),
+                })
+                .into());
             }
         }
+
         Ok(())
     }
 }

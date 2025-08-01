@@ -5,6 +5,7 @@ use crate::helper::prompt;
 use base64::Engine;
 use ckb_app_config::{AppConfig, ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
+use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
     AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DB_OPTIONS_FILE_NAME, MINER_CONFIG_FILE_NAME, Resource,
@@ -61,7 +62,14 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
         args.block_assembler_hash_type =
             match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
-                Some(hash_type) => hash_type,
+                Some(hash_type) => {
+                    let val = hash_type as u8;
+                    if !ENABLED_SCRIPT_HASH_TYPE.contains(&val) {
+                        eprintln!("Invalid block assembler hash type");
+                        return Err(ExitCode::Failure);
+                    }
+                    hash_type
+                }
                 None => {
                     eprintln!("Invalid block assembler hash type");
                     return Err(ExitCode::Failure);

@@ -456,14 +456,14 @@ fn gen_type(ty: &Value) -> String {
                     .collect::<Vec<_>>()
                     .join(" `|` ")
             } else if let Some(arr) = map.get("oneOf") {
-                let res = arr
+                let mut res = arr
                     .as_array()
                     .unwrap()
                     .iter()
                     .map(gen_type)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                format!("\nIt's an enum value from one of:\n{}\n", res)
+                    .collect::<Vec<_>>();
+                res.retain(|value| value != "`string`");
+                format!("\nIt's an enum value from one of:\n{}\n", res.join("\n"))
             } else if let Some(link) = map.get("$ref") {
                 let link = link.as_str().unwrap().split('/').last().unwrap();
                 format!("[`{}`](#type-{})", fix_type_name(link), link.to_lowercase())

@@ -1,9 +1,6 @@
 use crate::{
     Node, Spec,
-    util::{
-        cell::gen_spendable,
-        check::{assert_epoch_should_less_than, is_transaction_committed},
-    },
+    util::{cell::gen_spendable, check::is_transaction_committed},
     utils::{assert_send_transaction_fail, wait_until},
 };
 use ckb_jsonrpc_types as rpc;
@@ -20,7 +17,6 @@ const RPC_MAX_VM_VERSION: u8 = 2;
 const MAX_VM_VERSION: u8 = 2;
 
 const GENESIS_EPOCH_LENGTH: u64 = 10;
-const CKB2023_START_EPOCH: u64 = 10;
 
 const TEST_CASES_COUNT: usize = (RPC_MAX_VM_VERSION as usize + 1 + 1) * 2;
 const INITIAL_INPUTS_COUNT: usize = 1 + TEST_CASES_COUNT * 2;
@@ -50,9 +46,6 @@ impl Spec for CheckVmVersion2 {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        let epoch_length = GENESIS_EPOCH_LENGTH;
-        let ckb2021_last_epoch = CKB2023_START_EPOCH - 1;
-
         let node = &nodes[0];
         let node1 = &nodes[1];
 
@@ -65,12 +58,6 @@ impl Spec for CheckVmVersion2 {
                 .map(|input| packed::CellInput::new(input.out_point, 0));
             let script = NewScript::new_with_id(node, 0, &mut inputs);
             let runner = CheckVmVersionTestRunner::new(node);
-
-            info!("CKB v2021:");
-            runner.run_all_tests(&mut inputs, &script, 1);
-
-            assert_epoch_should_less_than(node, ckb2021_last_epoch, epoch_length - 4, epoch_length);
-            node.mine_until_epoch(ckb2021_last_epoch, epoch_length - 4, epoch_length);
 
             info!("CKB v2023:");
             runner.run_all_tests(&mut inputs, &script, 2);
@@ -100,9 +87,6 @@ impl Spec for CheckVmVersion2 {
         spec.params.epoch_duration_target = Some(8 * GENESIS_EPOCH_LENGTH);
         if spec.params.hardfork.is_none() {
             spec.params.hardfork = Some(Default::default());
-        }
-        if let Some(switch) = spec.params.hardfork.as_mut() {
-            switch.ckb2023 = Some(CKB2023_START_EPOCH);
         }
     }
 }

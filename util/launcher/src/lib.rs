@@ -10,6 +10,7 @@ use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
 use ckb_chain::ChainController;
 use ckb_channel::Receiver;
+use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
 use ckb_logger::info;
@@ -88,8 +89,11 @@ impl Launcher {
                     }))
             };
 
-            if block_assembler.hash_type == ScriptHashType::Data2 {
-                warn!("Miner is disabled because block assembler uses a non-support lock format.");
+            let hash_type_val = block_assembler.hash_type as u8;
+            if !ENABLED_SCRIPT_HASH_TYPE.contains(&hash_type_val) {
+                warn!(
+                    "Miner is disabled because block assembler uses a non-support lock hash type."
+                );
 
                 None
             } else if self.args.block_assembler_advanced

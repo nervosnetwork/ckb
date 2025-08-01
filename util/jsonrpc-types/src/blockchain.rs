@@ -8,67 +8,84 @@ use ckb_types::core::tx_pool;
 use ckb_types::utilities::MerkleProof as RawMerkleProof;
 use ckb_types::{H256, core, packed, prelude::*};
 use schemars::JsonSchema;
+use seq_macro::seq;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
-/// Specifies how the script `code_hash` is used to match the script code and how to run the code.
-///
-/// Allowed kinds: "data", "type", "data1" and "data2"
-///
-/// Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
-/// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
-/// in the RFC *CKB Transaction Structure*.
-///
-/// The hash type is split into the high 7 bits and the low 1 bit,
-/// when the low 1 bit is 1, it indicates the type,
-/// when the low 1 bit is 0, it indicates the data,
-/// and then it relies on the high 7 bits to indicate
-/// that the data actually corresponds to the version.
-#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ScriptHashType {
-    /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
-    #[default]
-    Data = 0,
-    /// Type "type" matches script code via cell type script hash.
-    Type = 1,
-    /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
-    Data1 = 2,
-    /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
-    Data2 = 4,
-}
+seq!(N in 3..=127 {
+    /// Specifies how the script `code_hash` is used to match the script code and how to run the code.
+    ///
+    /// Allowed kinds: "data", "type", "data1" and "data2"
+    ///
+    /// Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
+    /// and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
+    /// in the RFC *CKB Transaction Structure*.
+    ///
+    /// The hash type is split into the high 7 bits and the low 1 bit,
+    /// when the low 1 bit is 1, it indicates the type,
+    /// when the low 1 bit is 0, it indicates the data,
+    /// and then it relies on the high 7 bits to indicate
+    /// that the data actually corresponds to the version.
+    #[derive(Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
+    #[serde(rename_all = "snake_case")]
+    #[repr(u8)]
+    pub enum ScriptHashType {
+        /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+        #[default]
+        Data = 0,
+        /// Type "type" matches script code via cell type script hash.
+        Type = 1,
+        /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
+        Data1 = 2,
+        /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+        Data2 = 4,
+        #(
+            #[doc = concat!("Type \"data", stringify!(N), "\" matches script code via cell data hash, and runs the script code in v", stringify!(N), " CKB VM.")]
+            Data~N = N << 1,
+        )*
+    }
+});
 
 impl From<ScriptHashType> for core::ScriptHashType {
     fn from(json: ScriptHashType) -> Self {
-        match json {
-            ScriptHashType::Data => core::ScriptHashType::Data,
-            ScriptHashType::Type => core::ScriptHashType::Type,
-            ScriptHashType::Data1 => core::ScriptHashType::Data1,
-            ScriptHashType::Data2 => core::ScriptHashType::Data2,
-        }
+        seq!(N in 1..=127 {
+            match json {
+                ScriptHashType::Data => core::ScriptHashType::Data,
+                ScriptHashType::Type => core::ScriptHashType::Type,
+                #(
+                    ScriptHashType::Data~N => core::ScriptHashType::Data~N,
+                )*
+            }
+        })
     }
 }
 
 impl From<core::ScriptHashType> for ScriptHashType {
     fn from(core: core::ScriptHashType) -> ScriptHashType {
-        match core {
-            core::ScriptHashType::Data => ScriptHashType::Data,
-            core::ScriptHashType::Type => ScriptHashType::Type,
-            core::ScriptHashType::Data1 => ScriptHashType::Data1,
-            core::ScriptHashType::Data2 => ScriptHashType::Data2,
-        }
+        seq!(N in 1..=127 {
+            match core {
+                core::ScriptHashType::Data => ScriptHashType::Data,
+                core::ScriptHashType::Type => ScriptHashType::Type,
+                #(
+                    core::ScriptHashType::Data~N => ScriptHashType::Data~N,
+                )*
+            }
+        })
     }
 }
 
 impl fmt::Display for ScriptHashType {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            Self::Data => write!(f, "data"),
-            Self::Type => write!(f, "type"),
-            Self::Data1 => write!(f, "data1"),
-            Self::Data2 => write!(f, "data2"),
-        }
+        seq!(N in 1..=127 {
+            match self {
+                Self::Data => write!(f, "data"),
+                Self::Type => write!(f, "type"),
+                #(
+                    Self::Data~N => write!(f, "data{}", N),
+                )*
+            }
+        })
     }
 }
 

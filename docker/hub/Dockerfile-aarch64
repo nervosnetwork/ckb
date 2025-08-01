@@ -5,7 +5,7 @@ COPY ./ .
 
 RUN make prod-docker
 
-FROM arm64v8/ubuntu
+FROM arm64v8/ubuntu:22.04
 LABEL description="Nervos CKB is a public permissionless blockchain, the common knowledge layer of Nervos network."
 LABEL maintainer="Nervos Core Dev <dev@nervos.org>"
 

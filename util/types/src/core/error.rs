@@ -2,7 +2,7 @@
 
 use crate::{
     core::{Capacity, Version},
-    packed::{Byte32, OutPoint},
+    packed::{Byte, Byte32, OutPoint},
 };
 use ckb_error::{Error, ErrorKind, impl_error_conversion_with_kind, prelude::*};
 use derive_more::Display;
@@ -197,6 +197,23 @@ pub enum TransactionError {
         index: usize,
     },
 
+    /// The lock script hash type is not permitted by the current consensus rules.
+    #[error(
+        "The lock script hash type {} is not permitted by the current consensus rules.",
+        hash_type
+    )]
+    ScriptHashTypeNotPermitted {
+        /// The hash type value
+        hash_type: u8,
+    },
+
+    /// The lock Script hash_type field is invalid.
+    #[error("InvalidScriptHashType: the lock Script hash_type field is invalid")]
+    InvalidScriptHashType {
+        /// The hash type value
+        hash_type: Byte,
+    },
+
     /// The internal error.
     #[error(
         "Internal: {description}, this error shouldn't happen; please report this bug to developers."
@@ -220,6 +237,8 @@ impl TransactionError {
             | TransactionError::InsufficientCellCapacity { .. }
             | TransactionError::InvalidSince { .. }
             | TransactionError::ExceededMaximumBlockBytes { .. }
+            | TransactionError::InvalidScriptHashType { .. }
+            | TransactionError::ScriptHashTypeNotPermitted { .. }
             | TransactionError::OutputsDataLengthMismatch { .. } => true,
 
             TransactionError::Immature { .. }
