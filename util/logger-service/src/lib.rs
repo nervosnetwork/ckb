@@ -423,9 +423,10 @@ impl Log for Logger {
             if let Ok(dt) = utc.format(&fmt) {
                 let with_color = {
                     let thread_name = format!("{}", Paint::blue(thread_name).bold());
+                    let date = format!("{}", Paint::rgb(47, 79, 79, dt).bold()); // darkslategrey
                     format!(
                         "{} {} {} {}  {}",
-                        Paint::black(dt).bold(),
+                        date,
                         thread_name,
                         record.level(),
                         record.target(),
