@@ -58,7 +58,7 @@ function Disable-DebugSymbols {
 
 function run-prod {
   Set-Env RUSTFLAGS ""
-  cargo build @Verbose --release
+  cargo build --locked @Verbose --release
 }
 
 function run-prod-with-debug {
@@ -94,7 +94,7 @@ function run-integration-release {
 
 function run-integration {
   run-submodule-init
-  cargo build --features deadlock_detection
+  cargo build --locked --features deadlock_detection
   run-setup-ckb-test
   run-integration-directly
 }
@@ -143,7 +143,7 @@ function run-integration-directly {
 
 function run-gen-rpc-doc {
   pushd devtools/doc/rpc-gen/
-  cargo build
+  cargo build --locked
   popd
   ./target/debug/rpc-gen rpc/README.md
 }
