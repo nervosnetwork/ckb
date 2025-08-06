@@ -50,7 +50,7 @@ function tip_header_number() {
 
 function block_kill() {
   kill $1
-  while kill -0 $1; do
+  while kill -0 $1 &>/dev/null; do
       echo "waiting for $1 to exit"
       sleep 1
   done
