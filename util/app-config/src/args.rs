@@ -38,6 +38,11 @@ pub struct DaemonArgs {
     pub pid_file: PathBuf,
 }
 
+pub enum ImportSource {
+    Path(PathBuf),
+    Stdin,
+}
+
 /// Parsed command line arguments for `ckb import`.
 pub struct ImportArgs {
     /// Parsed `ckb.toml`.
@@ -45,7 +50,7 @@ pub struct ImportArgs {
     /// Loaded consensus.
     pub consensus: Consensus,
     /// The path to the file to be imported.
-    pub source: PathBuf,
+    pub source: ImportSource,
     /// The switch to control the verification behavior.
     pub switch: Switch,
 }
