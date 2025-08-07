@@ -215,9 +215,13 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 .local_listen_addrs()
                 .iter()
                 .filter(|addr| {
-                    multiaddr_to_socketaddr(addr)
-                        .map(|socket_addr| !self.global_ip_only || is_reachable(socket_addr.ip()))
-                        .unwrap_or(false)
+                    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+                        !self.global_ip_only || is_reachable(socket_addr.ip())
+                    } else {
+                        // allow /onion3 address
+                        addr.iter()
+                            .any(|protocol| matches!(protocol, Protocol::Onion3(_)))
+                    }
                 })
                 .take(MAX_ADDRS)
                 .cloned()
@@ -472,7 +476,7 @@ impl Callback for IdentifyCallback {
         );
         let flags = self.network_state.with_peer_registry_mut(|reg| {
             if let Some(peer) = reg.get_peer_mut(session.id) {
-                peer.listened_addrs = addrs.clone();
+                peer.listened_addrs = addrs.clone().into();
                 peer.identify_info
                     .as_ref()
                     .map(|a| a.flags)
