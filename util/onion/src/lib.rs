@@ -21,7 +21,7 @@ pub struct OnionServiceConfig {
     pub onion_server: String,
     /// path to store onion private key, default is ./data/network/onion/onion_private_key
     pub onion_private_key_path: String,
-    /// tor controller url, example: 127.0.0.1:9050
+    /// tor controller url, example: 127.0.0.1:9051
     pub tor_controller: String,
     /// tor controller hashed password
     pub tor_password: Option<String>,

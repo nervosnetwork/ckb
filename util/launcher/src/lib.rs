@@ -292,14 +292,14 @@ impl Launcher {
                     onion_server
                 }
                 (None, Some(proxy_url)) => {
-                    let proxy_url = Url::parse(&proxy_url)
+                    let parsed_proxy_url = Url::parse(&proxy_url)
                         .map_err(|err| Error::Config(format!("parse proxy_url failed: {}", err)))?;
-                    match (proxy_url.host_str(), proxy_url.port()) {
+                    match (parsed_proxy_url.host_str(), parsed_proxy_url.port()) {
                         (Some(host), Some(port)) => format!("{}:{}", host, port),
                         _ => {
                             error!(
                                 "CKB tried to use the proxy url: {} as onion server, but failed to parse it",
-                                proxy_url.clone()
+                                proxy_url,
                             );
                             return Err(Error::Config(format!(
                                 "Failed to parse proxy url: {}",
@@ -319,9 +319,10 @@ impl Launcher {
         let p2p_listen_address: SocketAddr = {
             match onion_config.p2p_listen_address {
                 Some(p2p_listen_address) => {
-                    let p2p_listen_address = p2p_listen_address.parse().map_err(|err| {
-                        Error::Config(format!("Failed to parse p2p_listen_address: {}", err))
-                    })?;
+                    let p2p_listen_address: SocketAddr =
+                        p2p_listen_address.parse().map_err(|err| {
+                            Error::Config(format!("Failed to parse p2p_listen_address: {}", err))
+                        })?;
                     // p2p_listen_address's port shouldn't be 0
                     if p2p_listen_address.port() == 0 {
                         return Err(Error::Config(

@@ -134,7 +134,7 @@ pub struct OnionConfig {
     // If the CKB's peer-to-peer listen address is not set to the default 127.0.0.1
     // with the port specified in `[network].listen_addresses` for IPv4, you should configure this field.
     pub p2p_listen_address: Option<String>,
-    // path to store onion private key, default is ./data/network/onion/onion_private_key
+    // path to store onion private key, default is ./data/network/onion_private_key
     pub onion_private_key_path: Option<String>,
     // tor controller url, example: 127.0.0.1:9050
     #[serde(default = "default_tor_controller")]

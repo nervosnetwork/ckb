@@ -116,8 +116,6 @@ allow = [
   "BSD-2-Clause",
   "ISC",
   "CC0-1.0",
-  "Unicode-DFS-2016",
-  "OpenSSL",
   "Unicode-3.0",
   "Zlib",
   "CDLA-Permissive-2.0",

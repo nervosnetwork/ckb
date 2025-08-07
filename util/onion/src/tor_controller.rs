@@ -25,10 +25,10 @@ pub struct TorController {
 
 impl TorController {
     /// Create a new TorController instance.
+    /// event_handler is an optional function that will be called when a Tor event occurs.
     pub async fn new(
         tor_controller_url: String,
         tor_password: Option<String>,
-
         event_handler: Option<TorEventHandlerFn>,
     ) -> Result<Self, Error> {
         let s = TcpStream::connect(tor_controller_url.clone())
@@ -42,7 +42,7 @@ impl TorController {
 
         let mut utc: UnauthenticatedConn<TcpStream> = UnauthenticatedConn::new(s);
 
-        crate::tor_controller::authenticate(tor_password, &mut utc).await?;
+        authenticate(tor_password, &mut utc).await?;
 
         let mut ac = utc.into_authenticated().await;
 
@@ -103,7 +103,7 @@ impl TorController {
             if bootstrap_done {
                 break;
             }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Use tokio::time::sleep for async
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
         info!("Tor server bootstrap done!");
         Ok(())
@@ -178,7 +178,7 @@ pub async fn authenticate(
         utc.authenticate(&tor_auth_data).await.map_err(|err| {
             InternalErrorKind::Other.other(format!("Failed to authenticate with cookie: {:?}", err))
         })?;
-        Ok(())
+        return Ok(());
     }
     Err(InternalErrorKind::Other
         .other(format!(

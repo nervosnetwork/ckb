@@ -1059,10 +1059,9 @@ impl NetworkService {
                             p2p::service::SocketState::Dial => {
                                 let domain = socket2::Domain::for_address(addr);
                                 if socket_ref.domain()? == domain {
-                                    socket_ref.bind(&addr.into())?;
-                                    if !(proxy_config_enable
-                                        && matches!(ctxt.state, p2p::service::SocketState::Dial))
-                                    {
+                                    let should_bind_socket = !(proxy_config_enable
+                                        && matches!(ctxt.state, p2p::service::SocketState::Dial));
+                                    if should_bind_socket {
                                         socket_ref.bind(&addr.into())?;
                                     } else {
                                         // skip bind if proxy enabled

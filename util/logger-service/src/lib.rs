@@ -481,7 +481,9 @@ fn modify_logger_filter(filter: String) -> String {
 pub fn init(env_opt: Option<&str>, config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     setup_panic_logger();
     let mut config = config;
-    config.filter = modify_logger_filter(config.filter);
+    if let Some(filter) = config.filter {
+        config.filter = Some(modify_logger_filter(filter));
+    };
 
     let logger = Logger::new(env_opt, config);
     let filter = logger.filter();

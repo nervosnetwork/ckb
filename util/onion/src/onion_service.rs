@@ -190,6 +190,6 @@ fn load_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV3,
             .into());
     }
     let mut buf = [0u8; TOR_SECRET_KEY_LENGTH];
-    buf.clone_from_slice(raw);
+    buf.copy_from_slice(raw);
     Ok(TorSecretKeyV3::from(buf))
 }

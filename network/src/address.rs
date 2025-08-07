@@ -29,6 +29,11 @@ impl NetworkAddresses {
     pub fn len(&self) -> usize {
         self.regular_addresses.len() + self.onion_addresses.len()
     }
+
+    // is_empty
+    pub fn is_empty(&self) -> bool {
+        self.regular_addresses.is_empty() && self.onion_addresses.is_empty()
+    }
 }
 
 // implement iter() for NetworkAddresses, don't take ownership

@@ -80,7 +80,10 @@ impl AddrManager {
                         {
                             addr_infos.push(addr_info);
                         } else {
-                            // addr_info is not connectable or not onion address
+                            debug!(
+                                "addr {:?} is not connectable or not onion address",
+                                addr_info.addr
+                            );
                         }
                     }
                 }

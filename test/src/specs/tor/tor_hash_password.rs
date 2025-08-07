@@ -19,10 +19,13 @@ pub fn random_alphanumeric_with_len(len: usize) -> String {
         .take(len)
         .collect()
 }
+const TOR_PASSWORD_LENGTH: usize = 63;
 
 impl Default for TorHashPasswordConnect {
     fn default() -> Self {
-        let tor_server = Mutex::new(TorServer::new(Some(random_alphanumeric_with_len(63))));
+        let tor_server = Mutex::new(TorServer::new(Some(random_alphanumeric_with_len(
+            TOR_PASSWORD_LENGTH,
+        ))));
         TorHashPasswordConnect { tor_server }
     }
 }
