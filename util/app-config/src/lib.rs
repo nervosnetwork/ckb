@@ -15,8 +15,8 @@ pub use app_config::{
     AppConfig, CKBAppConfig, ChainConfig, LogConfig, MetricsConfig, MinerAppConfig,
 };
 pub use args::{
-    CustomizeSpec, DaemonArgs, ExportArgs, ExportTarget, ImportArgs, InitArgs, MigrateArgs,
-    MinerArgs, PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs, StatsArgs,
+    CustomizeSpec, DaemonArgs, ExportArgs, ExportTarget, ImportArgs, ImportSource, InitArgs,
+    MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs, StatsArgs,
 };
 
 pub use configs::*;

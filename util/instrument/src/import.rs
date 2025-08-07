@@ -1,3 +1,4 @@
+use ckb_app_config::ImportSource;
 use ckb_chain::ChainController;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_shared::Shared;
@@ -11,13 +12,12 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::io::BufRead;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Export block date from file to database.
 pub struct Import {
     /// source file contains block data
-    source: PathBuf,
+    source: ImportSource,
     shared: Shared,
     chain: ChainController,
     switch: Switch,
@@ -25,7 +25,12 @@ pub struct Import {
 
 impl Import {
     /// Creates a new import job.
-    pub fn new(chain: ChainController, shared: Shared, source: PathBuf, switch: Switch) -> Self {
+    pub fn new(
+        chain: ChainController,
+        shared: Shared,
+        source: ImportSource,
+        switch: Switch,
+    ) -> Self {
         Import {
             chain,
             shared,
@@ -63,6 +68,8 @@ impl Import {
     /// Imports the chain from the JSON file.
     #[cfg(feature = "progress_bar")]
     pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
+        use std::io::Read;
+
         use ckb_chain::VerifyResult;
         use ckb_types::core::BlockView;
 
@@ -70,7 +77,14 @@ impl Import {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        let f = fs::File::open(&self.source)?;
+        let f: Box<dyn Read + Send> = match &self.source {
+            ImportSource::Path(source) => Box::new(fs::File::open(&source)?),
+            ImportSource::Stdin => {
+                // read from stdin
+                Box::new(std::io::stdin())
+            }
+        };
+
         let reader = io::BufReader::new(f);
         let mut lines = reader.lines().peekable();
         let first_block = if let Some(Ok(first_line)) = lines.peek() {
@@ -100,9 +114,14 @@ impl Import {
                     .get_tip_header()
                     .expect("must get tip header");
 
+                let source_display = match self.source {
+                    ImportSource::Path(ref path) => path.display().to_string(),
+                    ImportSource::Stdin => "stdin".to_string(),
+                };
+
                 return Err(Box::new(io::Error::other(format!(
                     "In {}, the first block is {}-{}, and its parent (hash: {}) was not found in the database. The current tip is {}-{}.",
-                    self.source.display(),
+                    source_display,
                     first_block.number(),
                     first_block.hash(),
                     first_block_parent,
@@ -113,14 +132,18 @@ impl Import {
         }
 
         #[cfg(feature = "progress_bar")]
-        let progress_bar = ProgressBar::new(fs::metadata(&self.source)?.len());
-        #[cfg(feature = "progress_bar")]
-        progress_bar.set_style(
-            ProgressStyle::default_bar()
+        let progress_bar = {
+            let bar = match &self.source {
+                ImportSource::Path(source) => ProgressBar::new(fs::metadata(&source)?.len()),
+                ImportSource::Stdin => ProgressBar::new_spinner(),
+            };
+            let style = ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>6}/{total_bytes:6} {msg}")
                 .expect("Failed to set progress bar template")
-                .progress_chars("##-"),
-        );
+                .progress_chars("##-");
+            bar.set_style(style);
+            bar
+        };
 
         let mut largest_block_number = 0;
         const BLOCKS_COUNT_PER_CHUNK: usize = 1024 * 6;

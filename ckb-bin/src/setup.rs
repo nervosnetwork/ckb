@@ -1,8 +1,8 @@
 #[cfg(not(target_os = "windows"))]
 use ckb_app_config::DaemonArgs;
 use ckb_app_config::{
-    AppConfig, CustomizeSpec, ExitCode, ExportArgs, ExportTarget, ImportArgs, InitArgs,
-    MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs, StatsArgs,
+    AppConfig, CustomizeSpec, ExitCode, ExportArgs, ExportTarget, ImportArgs, ImportSource,
+    InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs, StatsArgs,
     generate_random_key, read_secret_key, write_secret_to_file,
 };
 use ckb_chain_spec::{ChainSpec, consensus::Consensus};
@@ -215,13 +215,27 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     pub fn import(self, matches: &ArgMatches) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let source = matches
-            .get_one::<PathBuf>(cli::ARG_SOURCE)
-            .ok_or_else(|| {
-                eprintln!("Args Error: {:?} no found", cli::ARG_SOURCE);
-                ExitCode::Cli
-            })?
-            .clone();
+        let source = {
+            let source = matches
+                .get_one::<String>(cli::ARG_SOURCE)
+                .ok_or_else(|| {
+                    eprintln!("Args Error: {:?} no found", cli::ARG_SOURCE);
+                    ExitCode::Cli
+                })?
+                .clone();
+            if source.eq("-") {
+                ImportSource::Stdin
+            } else {
+                let source_path = PathBuf::from_str(&source).map_err(|err| {
+                    eprintln!(
+                        "Args Error: failed to convert {} to PathBuf: {}",
+                        source, err
+                    );
+                    ExitCode::Cli
+                })?;
+                ImportSource::Path(source_path)
+            }
+        };
 
         let switch = {
             if matches.get_flag(cli::ARG_SKIP_ALL_VERIFY) {

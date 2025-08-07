@@ -387,6 +387,7 @@ fn export() -> Command {
                 .long(ARG_TARGET)
                 .value_name("path")
                 .value_parser(clap::value_parser!(String))
+                .allow_hyphen_values(true)
                 .required(true)
                 .help("Specify the export target path (use '-' for stdout)"),
         )
@@ -413,9 +414,10 @@ fn import() -> Command {
             Arg::new(ARG_SOURCE)
                 .index(1)
                 .value_name("path")
-                .value_parser(clap::builder::PathBufValueParser::new())
+                .value_parser(clap::value_parser!(String))
+                .allow_hyphen_values(true)
                 .required(true)
-                .help("Specify the exported data path"),
+                .help("Specify the exported data path, import JSONL-formatted blocks. If path is '-', read JSONL blocks from STDIN."),
         )
         .arg(
             //
