@@ -6,6 +6,7 @@
 //! And implemented several basic protocols: identify, discovery, ping, feeler, disconnect_message
 //!
 
+mod address;
 mod behaviour;
 /// compress module
 pub mod compress;
@@ -16,6 +17,9 @@ mod peer;
 pub mod peer_registry;
 pub mod peer_store;
 mod protocols;
+
+#[cfg(not(target_family = "wasm"))]
+mod proxy;
 mod services;
 
 #[cfg(test)]
