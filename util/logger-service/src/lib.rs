@@ -467,6 +467,18 @@ impl Drop for LoggerInitGuard {
 /// Initializes the [Logger](struct.Logger.html) and run the logging service.
 pub fn init(env_opt: Option<&str>, config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
     setup_panic_logger();
+    let mut config = config;
+    config.filter = config.filter.map(|filter| {
+        if !filter.contains("fast-socks5") {
+            if filter.is_empty() {
+                "fast-socks5=info".to_string()
+            } else {
+                filter + ",fast-socks5=info"
+            }
+        } else {
+            filter
+        }
+    });
 
     let logger = Logger::new(env_opt, config);
     let filter = logger.filter();
