@@ -1,6 +1,9 @@
 //! Address manager
 use crate::peer_store::{base_addr, types::AddrInfo};
-use p2p::{multiaddr::Multiaddr, utils::multiaddr_to_socketaddr};
+use p2p::{
+    multiaddr::{Multiaddr, Protocol},
+    utils::multiaddr_to_socketaddr,
+};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
@@ -68,8 +71,17 @@ impl AddrManager {
                     }
                 }
                 None => {
-                    if addr_info.is_connectable(now_ms) && filter(&addr_info) {
-                        addr_infos.push(addr_info);
+                    if filter(&addr_info) {
+                        if addr_info.is_connectable(now_ms)
+                            || addr_info
+                                .addr
+                                .iter()
+                                .any(|p| matches!(p, Protocol::Onion3(_)))
+                        {
+                            addr_infos.push(addr_info);
+                        } else {
+                            // addr_info is not connectable or not onion address
+                        }
                     }
                 }
             }
