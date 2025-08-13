@@ -75,7 +75,7 @@ submodule-init:
 
 .PHONY: integration
 integration: submodule-init ## Run integration tests in "test" dir.
-	cargo build --bin ckb --release --features ${CKB_FEATURES}
+	cargo build --locked --bin ckb --release --features ${CKB_FEATURES}
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} test/run.sh -- --bin "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" ${CKB_TEST_ARGS}
 
 .PHONY: integration-release
@@ -100,12 +100,12 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 
 .PHONY: gen-rpc-doc
 gen-rpc-doc: submodule-init ## Generate rpc documentation
-	cd devtools/doc/rpc-gen && cargo build
+	cd devtools/doc/rpc-gen && cargo build --locked
 	./target/debug/ckb-rpc-gen rpc/README.md
 
 .PHONY: update-openrpc-doc
 update-openrpc-doc:
-	cd devtools/doc/rpc-gen && cargo build
+	cd devtools/doc/rpc-gen && cargo build --locked
 	./target/debug/ckb-rpc-gen --json
 
 .PHONY: gen-hashes
@@ -119,11 +119,11 @@ check: ## Runs all of the compiler's checks.
 
 .PHONY: build
 build: ## Build binary with release profile.
-	cargo build --bin ckb ${VERBOSE} --release
+	cargo build --locked --bin ckb ${VERBOSE} --release
 
 .PHONY: profiling
 profiling: ## Build binary with for profiling without debug symbols.
-	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build --bin ckb ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,profiling"
+	JEMALLOC_SYS_WITH_MALLOC_CONF="prof:true" cargo build --locked --bin ckb ${VERBOSE} --profile prod --features "with_sentry,with_dns_seeding,profiling"
 
 .PHONY: profiling-with-debug-symbols
 build-for-profiling: ## Build binary with for profiling.
@@ -131,19 +131,19 @@ build-for-profiling: ## Build binary with for profiling.
 
 .PHONY: prod
 prod: ## Build binary for production release.
-	cargo build --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	cargo build --locked --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: trace-tokio
 trace-tokio: ## Build binary for production release and with tokio trace feature.
-	RUSTFLAGS="--cfg tokio_unstable" cargo build --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "tokio-trace,with_sentry,with_dns_seeding"
+	RUSTFLAGS="--cfg tokio_unstable" cargo build --locked --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "tokio-trace,with_sentry,with_dns_seeding"
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	cargo build --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
+	cargo build --locked --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
 
 .PHONY: prod-docker
 prod-docker:
-	RUSTFLAGS="$${RUSTFLAGS} --cfg docker" cargo build --bin ckb --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
+	RUSTFLAGS="$${RUSTFLAGS} --cfg docker" cargo build --locked --bin ckb --verbose ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding"
 
 .PHONY: prod-test
 prod-test:
