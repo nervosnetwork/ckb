@@ -10,7 +10,6 @@ use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info};
 use ckb_stop_handler::register_thread;
-use console::Term;
 pub use indicatif::{HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -77,7 +76,7 @@ impl MigrationWorker {
                             idx += 1;
                             let pb = move |count: u64| -> ProgressBar {
                                 let pb = mpbc.add(ProgressBar::new(count));
-                                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), 20));
+                                pb.set_draw_target(ProgressDrawTarget::stderr());
                                 pb.set_prefix(format!("[{}/{}]", idx, migrations_count));
                                 pb
                             };
@@ -230,7 +229,7 @@ impl Migrations {
             let mpbc = Arc::clone(&mpb);
             let pb = move |count: u64| -> ProgressBar {
                 let pb = mpbc.add(ProgressBar::new(count));
-                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), 20));
+                pb.set_draw_target(ProgressDrawTarget::stderr());
                 pb.set_prefix(format!("[{}/{}]", idx + 1, migrations_count));
                 pb
             };

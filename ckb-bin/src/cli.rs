@@ -35,6 +35,8 @@ pub const ARG_FORMAT: &str = "format";
 pub const ARG_TARGET: &str = "target";
 /// Command line argument `--source`.
 pub const ARG_SOURCE: &str = "source";
+/// Command line argument `--num-threads`.
+pub const ARG_NUM_THREADS: &str = "num-threads";
 /// Command line flag: `--skip-script-verify`.
 pub const ARG_SKIP_SCRIPT_VERIFY: &str = "skip-script-verify";
 /// Command line flag: `--skip-all-verify`.
@@ -410,6 +412,14 @@ fn export() -> Command {
 fn import() -> Command {
     Command::new(CMD_IMPORT)
         .about("Import CKB data")
+        .arg(
+            Arg::new(ARG_NUM_THREADS)
+                .long(ARG_NUM_THREADS)
+                .value_name(ARG_NUM_THREADS)
+                .value_parser(clap::value_parser!(usize))
+                .required(false)
+                .help("Specify the number of threads to use for parallel processing. If not specified, it will use the number of logical CPUs available on the system."),
+        )
         .arg(
             Arg::new(ARG_SOURCE)
                 .index(1)
