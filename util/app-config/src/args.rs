@@ -8,8 +8,11 @@ use ckb_verification_traits::Switch;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// The target directory to save the exported file or stdout.
 pub enum ExportTarget {
+    /// The path to the file to be exported.
     Path(PathBuf),
+    /// Export to stdout.
     Stdout,
 }
 
@@ -38,8 +41,11 @@ pub struct DaemonArgs {
     pub pid_file: PathBuf,
 }
 
+/// The source of the file to be imported.
 pub enum ImportSource {
+    /// The path to the file to be imported.
     Path(PathBuf),
+    /// Import from stdin, the file content must be encoded by base64.
     Stdin,
 }
 
@@ -53,6 +59,8 @@ pub struct ImportArgs {
     pub source: ImportSource,
     /// The switch to control the verification behavior.
     pub switch: Switch,
+    /// The number of threads to use for parallel processing.
+    pub num_threads: usize,
 }
 
 /// Parsed command line arguments for `ckb run`.

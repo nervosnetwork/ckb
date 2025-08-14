@@ -12,7 +12,6 @@ repository = "https://github.com/nervosnetwork/ckb"
 ckb-types.workspace = true
 ckb-chain.workspace = true
 ckb-store.workspace = true
-ckb-chain-iter.workspace = true
 ckb-shared.workspace = true
 ckb-channel.workspace = true
 ckb-jsonrpc-types.workspace = true
@@ -20,7 +19,6 @@ ckb-verification-traits.workspace = true
 serde_json.workspace = true
 indicatif = { workspace = true, optional = true }
 rayon.workspace = true
-rayon-progress-bar.workspace = true
 itertools.workspace = true
 ckb-app-config.workspace = true
 

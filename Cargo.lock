@@ -995,8 +995,8 @@ dependencies = [
  "ckb-error",
  "ckb-logger",
  "ckb-stop-handler",
- "console 0.16.1",
- "indicatif 0.16.2",
+ "console 0.15.11",
+ "indicatif",
  "tempfile",
 ]
 
@@ -1137,17 +1137,15 @@ version = "1.0.1"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
- "ckb-chain-iter",
  "ckb-channel",
  "ckb-jsonrpc-types",
  "ckb-shared",
  "ckb-store",
  "ckb-types",
  "ckb-verification-traits",
- "indicatif 0.16.2",
+ "indicatif",
  "itertools 0.11.0",
  "rayon",
- "rayon-progress-bar",
  "serde_json",
 ]
 
@@ -1355,14 +1353,14 @@ dependencies = [
  "ckb-pow",
  "ckb-stop-handler",
  "ckb-types",
- "console 0.16.1",
+ "console 0.15.11",
  "eaglesong",
  "futures",
  "http-body-util",
  "hyper",
  "hyper-tls",
  "hyper-util",
- "indicatif 0.16.2",
+ "indicatif",
  "jsonrpc-core",
  "lru",
  "rand 0.8.5",
@@ -3876,27 +3874,14 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.16.2"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d207dc617c7a380ab07ff572a6e52fa202a2a8f355860ac9c38e23f8196be1b"
+checksum = "9375e112e4b463ec1b1c6c011953545c65a30164fbab5b581df32b3abf0dcb88"
 dependencies = [
  "console 0.16.1",
- "lazy_static",
- "number_prefix",
- "rayon",
- "regex",
-]
-
-[[package]]
-name = "indicatif"
-version = "0.17.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
-dependencies = [
- "console 0.15.11",
- "number_prefix",
  "portable-atomic",
  "unicode-width 0.2.2",
+ "unit-prefix",
  "web-time",
 ]
 
@@ -4513,12 +4498,6 @@ dependencies = [
  "hermit-abi",
  "libc",
 ]
-
-[[package]]
-name = "number_prefix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "numext-constructor"
@@ -5443,17 +5422,6 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
-]
-
-[[package]]
-name = "rayon-progress-bar"
-version = "1.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d94b68bb8fa2e55ad27b3f57e8ec32a69eee5f038183dd127019fbba8cb43c7"
-dependencies = [
- "either",
- "indicatif 0.17.11",
- "rayon-core",
 ]
 
 [[package]]
@@ -7387,6 +7355,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unit-prefix"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81e544489bf3d8ef66c953931f56617f423cd4b5494be343d9b9d3dda037b9a3"
 
 [[package]]
 name = "universal-hash"

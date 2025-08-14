@@ -215,6 +215,10 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     pub fn import(self, matches: &ArgMatches) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
+        let num_threads = matches
+            .get_one::<usize>(cli::ARG_NUM_THREADS)
+            .cloned()
+            .unwrap_or(0);
         let source = {
             let source = matches
                 .get_one::<String>(cli::ARG_SOURCE)
@@ -252,6 +256,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
             consensus,
             source,
             switch,
+            num_threads,
         })
     }
 

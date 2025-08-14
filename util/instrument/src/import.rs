@@ -21,6 +21,7 @@ pub struct Import {
     shared: Shared,
     chain: ChainController,
     switch: Switch,
+    num_threads: usize,
 }
 
 impl Import {
@@ -30,12 +31,14 @@ impl Import {
         shared: Shared,
         source: ImportSource,
         switch: Switch,
+        num_threads: usize,
     ) -> Self {
         Import {
             chain,
             shared,
             source,
             switch,
+            num_threads,
         }
     }
 
@@ -78,7 +81,7 @@ impl Import {
         }
 
         let f: Box<dyn Read + Send> = match &self.source {
-            ImportSource::Path(source) => Box::new(fs::File::open(&source)?),
+            ImportSource::Path(source) => Box::new(fs::File::open(source)?),
             ImportSource::Stdin => {
                 // read from stdin
                 Box::new(std::io::stdin())
@@ -131,10 +134,12 @@ impl Import {
             }
         }
 
-        #[cfg(feature = "progress_bar")]
         let progress_bar = {
             let bar = match &self.source {
-                ImportSource::Path(source) => ProgressBar::new(fs::metadata(&source)?.len()),
+                ImportSource::Path(source) => {
+                    let file_size = fs::metadata(source)?.len();
+                    ProgressBar::new(file_size)
+                }
                 ImportSource::Stdin => ProgressBar::new_spinner(),
             };
             let style = ProgressStyle::default_bar()
@@ -147,12 +152,13 @@ impl Import {
 
         let mut largest_block_number = 0;
         const BLOCKS_COUNT_PER_CHUNK: usize = 1024 * 6;
-        let (blocks_tx, blocks_rx) = ckb_channel::bounded::<Arc<BlockView>>(BLOCKS_COUNT_PER_CHUNK);
+        let (blocks_tx, blocks_rx) =
+            ckb_channel::bounded::<(Arc<BlockView>, usize)>(BLOCKS_COUNT_PER_CHUNK);
         std::thread::spawn({
-            #[cfg(feature = "progress_bar")]
-            let progress_bar = progress_bar.clone();
+            let num_threads = self.num_threads;
             move || {
                 let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(num_threads)
                     .build()
                     .expect("rayon thread pool must build");
                 pool.install(|| {
@@ -169,10 +175,9 @@ impl Import {
                             let block: JsonBlock =
                                 serde_json::from_str(line).expect("parse block from json");
                             let block: Arc<core::BlockView> = Arc::new(block.into());
-                            blocks_tx.send(block).expect("send block to channel");
-
-                            #[cfg(feature = "progress_bar")]
-                            progress_bar.inc(line.len() as u64);
+                            blocks_tx
+                                .send((block, line.len()))
+                                .expect("send block to channel");
                         });
                     }
                     drop(blocks_tx);
@@ -180,22 +185,25 @@ impl Import {
             }
         });
 
-        let callback = |verify_result: VerifyResult| {
-            if let Err(err) = verify_result {
-                eprintln!("Error verifying block: {:?}", err);
-            }
-        };
-
-        for block in blocks_rx {
+        for (block, block_size) in blocks_rx {
             if !block.is_genesis() {
                 use ckb_chain::LonelyBlock;
 
                 largest_block_number = largest_block_number.max(block.number());
 
+                let progress_bar = progress_bar.clone();
+                let callback = Box::new(move |verify_result: VerifyResult| {
+                    if let Err(err) = verify_result {
+                        eprintln!("Error verifying block: {:?}", err);
+                    } else {
+                        progress_bar.inc(block_size as u64);
+                    }
+                });
+
                 let lonely_block = LonelyBlock {
                     block,
                     switch: Some(self.switch),
-                    verify_callback: Some(Box::new(callback)),
+                    verify_callback: Some(callback),
                 };
                 self.chain.asynchronous_process_lonely_block(lonely_block);
             }
@@ -210,7 +218,6 @@ impl Import {
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
 
-        #[cfg(feature = "progress_bar")]
         progress_bar.finish_with_message("done!");
         Ok(())
     }
