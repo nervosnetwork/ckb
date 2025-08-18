@@ -636,6 +636,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmBExtension),
         Box::new(RandomlyKill),
         Box::new(SyncChurn),
+        // Rich-indexer chain reorganization bug reproduction test
+        Box::new(RichIndexerChainReorgBug),
     ];
     specs.shuffle(&mut thread_rng());
     specs

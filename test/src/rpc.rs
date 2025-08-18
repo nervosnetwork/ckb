@@ -7,9 +7,9 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     Alert, BannedAddr, Block, BlockEconomicState, BlockFilter, BlockNumber, BlockTemplate,
     BlockView, Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles,
-    HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, SyncState, Timestamp,
-    Transaction, TransactionProof, TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64,
-    Version,
+    HeaderView, IndexerTip, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode,
+    SyncState, Timestamp, Transaction, TransactionProof, TransactionWithStatusResponse, TxPoolInfo,
+    Uint32, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -126,6 +126,12 @@ impl RpcClient {
         self.inner
             .get_current_epoch()
             .expect("rpc call get_current_epoch")
+    }
+
+    pub fn get_indexer_tip(&self) -> Option<IndexerTip> {
+        self.inner
+            .get_indexer_tip()
+            .expect("rpc call get_indexer_tip")
     }
 
     pub fn get_epoch_by_number(&self, number: CoreEpochNumber) -> Option<EpochView> {
@@ -392,4 +398,6 @@ jsonrpc!(
     pub fn notify_transaction(&self, tx: Transaction) -> H256;
     pub fn tx_pool_ready(&self) -> bool;
     pub fn get_pool_tx_detail_info(&self, _hash: H256) -> PoolTxDetailInfo;
+
+    pub fn get_indexer_tip(&self) -> Option<IndexerTip>;
 });
