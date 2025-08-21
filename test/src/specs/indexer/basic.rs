@@ -1,8 +1,9 @@
-use crate::node::{disconnect_all, waiting_for_sync};
+use crate::node::{connect_all, disconnect_all, waiting_for_sync};
 use crate::util::mining::out_ibd_mode;
 use crate::utils::find_available_port;
 use crate::{Node, Spec};
 use ckb_logger::{info, warn};
+use ckb_types::packed;
 use postgresql_embedded::{Settings, blocking::PostgreSQL};
 use std::thread::sleep;
 use std::time::Duration;
@@ -28,7 +29,24 @@ impl Spec for RichIndexerChainReorgBug {
         settings.port = postgres_port;
         settings.username = "postgres".to_string();
         settings.password = "password".to_string();
+        // Make Postgres emit statements and durations to stderr
+        settings
+            .configuration
+            .insert("log_destination".into(), "stderr".into());
+        // Don't capture into files; send to stderr
+        settings
+            .configuration
+            .insert("logging_collector".into(), "off".into());
+        // Log every statement (alternatives: ddl | mod | none)
+        settings
+            .configuration
+            .insert("log_statement".into(), "all".into());
+        // Also log duration of every completed statement (0 ms threshold)
+        settings
+            .configuration
+            .insert("log_min_duration_statement".into(), "0".into());
 
+        info!("setitngs; {:?}", settings);
         let mut postgresql = PostgreSQL::new(settings);
         postgresql.setup().expect("Failed to setup PostgreSQL");
         postgresql.start().expect("Failed to start PostgreSQL");
@@ -83,8 +101,10 @@ impl Spec for RichIndexerChainReorgBug {
         out_ibd_mode(nodes);
 
         // Create shared history
-        node0.mine(2);
         node1.connect(node0);
+        node0.mine(1);
+        node1.mine(1);
+
         waiting_for_sync(&[node0, node1]);
         info!(
             "Both nodes synced to height {}",
@@ -92,21 +112,53 @@ impl Spec for RichIndexerChainReorgBug {
         );
 
         info!("=== Phase 2: Create competing chains ===");
-        disconnect_all(nodes);
 
-        // Node0 mines shorter chain (3 blocks)
-        node0.mine(3);
-        let node0_tip = node0.get_tip_block_number();
-        let node0_hash = node0.get_tip_block().hash();
+        let node_dbg = |height: Option<u64>| {
+            nodes.iter().enumerate().for_each(|(id, node)| {
+                if let Some(h) = height {
+                    let block = node.get_block_by_number(h);
+                    info!(
+                        "Node{} block at height {}: hash={}, parent={}",
+                        id,
+                        h,
+                        block.hash(),
+                        block.parent_hash()
+                    );
+                } else {
+                    if id == 0 {
+                        let indexer_tip = node
+                            .rpc_client()
+                            .get_indexer_tip()
+                            .expect("must get indexer tip");
+                        let indexer_tip_number: u64 = indexer_tip.block_number.into();
+                        let indexer_tip_hash: packed::Byte32 = indexer_tip.block_hash.into();
+                        info!(
+                            "Node{} indexer: {}-{}",
+                            id, indexer_tip_number, indexer_tip_hash,
+                        );
+                    }
+                    let tip = node.get_tip_block();
+                    info!("Node{} tip: height {}-{}", id, tip.number(), tip.hash(),);
+                }
+            });
+        };
 
-        // Node1 mines longer chain (5 blocks)
-        node1.mine(5);
-        let node1_tip = node1.get_tip_block_number();
-        let node1_hash = node1.get_tip_block().hash();
+        let now = std::time::Instant::now();
+        while now.elapsed().le(&Duration::from_secs(600)) {
+            info!("create forking..............................................");
+            disconnect_all(&nodes);
+            node0.mine(1);
+            node1.mine(1);
+            let base_height = node0.get_tip_block_number();
+            node_dbg(Some(base_height));
+            node1.mine(1);
+            connect_all(&nodes);
+            waiting_for_sync(nodes);
+            node_dbg(None);
+        }
 
         info!("Fork created:");
-        info!("  Node0: height {} -> {:?}", node0_tip, node0_hash);
-        info!("  Node1: height {} -> {:?}", node1_tip, node1_hash);
+        node_dbg(None);
 
         info!("=== Phase 3: Check rich-indexer before reorganization ===");
         let indexer_tip_before = node0.rpc_client().get_indexer_tip().unwrap();
@@ -116,16 +168,20 @@ impl Spec for RichIndexerChainReorgBug {
         );
 
         info!("=== Phase 4: Trigger chain reorganization ===");
-        // Connect nodes - node1's longer chain should win
-        node0.connect(node1);
         waiting_for_sync(&[node0, node1]);
 
-        let final_tip = node0.get_tip_block_number();
-        let final_hash = node0.get_tip_block().hash();
-        info!(
-            "After sync - chain tip: height {} -> {:?}",
-            final_tip, final_hash
-        );
+        info!("After sync");
+        nodes.iter().enumerate().for_each(|(id, node)| {
+            let tip = node.get_tip_block();
+            info!(
+                "Node {} tip: height {} -> {:?}",
+                id,
+                tip.number(),
+                tip.hash()
+            );
+        });
+
+        let final_tip = node0.get_tip_block().number();
 
         // Wait for rich-indexer to catch up
         // sleep(Duration::from_secs(5));

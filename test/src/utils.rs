@@ -133,7 +133,7 @@ where
         if f() {
             return true;
         }
-        thread::sleep(Duration::new(1, 0));
+        thread::sleep(Duration::from_millis(100));
     }
     false
 }
