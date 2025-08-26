@@ -826,7 +826,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-build-info"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 97d339398 (chore: update ckb-build-info to 1.0.0)
 
 [[package]]
 name = "ckb-chain"
