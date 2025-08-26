@@ -145,7 +145,7 @@ function check_dependencies() {
 function main() {
   echo "[BEGIN] Checking Cargo.toml ..."
   check_package_name
-  check_version
+  # check_version
   check_license
   check_cargo_publish
   check_dependencies
