@@ -1921,7 +1921,6 @@ dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
  "parking_lot 0.12.3",
- "regex",
 ]
 
 [[package]]
