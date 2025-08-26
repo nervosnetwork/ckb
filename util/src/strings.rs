@@ -19,7 +19,10 @@ pub fn check_if_identifier_is_valid(ident: &str) -> Result<(), String> {
     if ident.is_empty() {
         return Err("the identifier shouldn't be empty".to_owned());
     }
-    if ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if ident
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         Ok(())
     } else {
         Err(format!(
