@@ -1006,7 +1006,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 9c73487f3 (chore: update ckb-types to 1.0.0 (wip))
 dependencies = [
  "ckb-fixed-hash-core",
  "ckb-fixed-hash-macros",
@@ -1014,7 +1018,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 9c73487f3 (chore: update ckb-types to 1.0.0 (wip))
 dependencies = [
  "ckb_schemars",
  "faster-hex",
@@ -1025,7 +1033,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-macros"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 9c73487f3 (chore: update ckb-types to 1.0.0 (wip))
 dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro2",
@@ -1428,7 +1440,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 9c73487f3 (chore: update ckb-types to 1.0.0 (wip))
 dependencies = [
  "ckb-occupied-capacity-core",
  "ckb-occupied-capacity-macros",
@@ -1436,14 +1452,22 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity-core"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 9c73487f3 (chore: update ckb-types to 1.0.0 (wip))
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-occupied-capacity-macros"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 9c73487f3 (chore: update ckb-types to 1.0.0 (wip))
 dependencies = [
  "ckb-occupied-capacity-core",
  "quote",
@@ -1897,7 +1921,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-types"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 9c73487f3 (chore: update ckb-types to 1.0.0 (wip))
 dependencies = [
  "bit-vec 0.6.3",
  "bytes",
