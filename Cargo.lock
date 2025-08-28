@@ -1153,7 +1153,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> 993e4c5b8 (chore: update ckb-jsonrpc-types to 1.0.0)
 dependencies = [
  "ckb-types",
  "ckb_schemars",

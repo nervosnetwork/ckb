@@ -163,7 +163,7 @@ ckb-hash = { path = "util/hash", default-features = false, version = "1" }
 ckb-indexer = { path = "util/indexer", version = "=0.203.0-pre" }
 ckb-indexer-sync = { path = "util/indexer-sync", version = "=0.203.0-pre" }
 ckb-instrument = { path = "util/instrument", version = "=0.203.0-pre" }
-ckb-jsonrpc-types = { path = "util/jsonrpc-types", version = "=0.203.0-pre" }
+ckb-jsonrpc-types = { path = "util/jsonrpc-types", version = "1" }
 ckb-launcher = { path = "util/launcher", version = "=0.203.0-pre" }
 ckb-light-client-protocol-server = { path = "util/light-client-protocol-server", version = "=0.203.0-pre" }
 ckb-logger = { path = "util/logger", version = "=0.203.0-pre" }
