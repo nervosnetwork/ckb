@@ -7,8 +7,8 @@
 //!
 //! [`ChainService`]: chain/struct.ChainService.html
 //! [`ChainController`]: chain/struct.ChainController.html
+use ckb_channel::Request;
 use ckb_error::Error;
-use ckb_types::core::service::Request;
 use ckb_types::core::{BlockNumber, BlockView, EpochNumber, HeaderView};
 use ckb_types::packed::Byte32;
 use ckb_verification_traits::Switch;

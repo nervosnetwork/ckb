@@ -26,7 +26,9 @@ use ckb_tx_pool::{
 use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::{
-    core::EpochExt, core::HeaderView, core::service::PoolTransactionEntry, core::tx_pool::Reject,
+    core::EpochExt,
+    core::HeaderView,
+    core::tx_pool::{PoolTransactionEntry, Reject},
 };
 use ckb_util::Mutex;
 use ckb_verification::cache::init_cache;

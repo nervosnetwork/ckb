@@ -1,8 +1,8 @@
 use crate::{BlockNumber, Capacity, Cycle, Timestamp, TransactionView, Uint64};
 use ckb_types::H256;
-use ckb_types::core::service::PoolTransactionEntry as CorePoolTransactionEntry;
 use ckb_types::core::tx_pool::{
-    AncestorsScoreSortKey as CoreAncestorsScoreSortKey, PoolTxDetailInfo as CorePoolTxDetailInfo,
+    AncestorsScoreSortKey as CoreAncestorsScoreSortKey,
+    PoolTransactionEntry as CorePoolTransactionEntry, PoolTxDetailInfo as CorePoolTxDetailInfo,
     Reject, TxEntryInfo, TxPoolEntryInfo, TxPoolIds as CoreTxPoolIds, TxPoolInfo as CoreTxPoolInfo,
 };
 use schemars::JsonSchema;

@@ -16,7 +16,6 @@ bytes = { workspace = true, features = ["serde"] }
 merkle-cbt.workspace = true
 ckb-occupied-capacity.workspace = true
 ckb-hash.workspace = true
-ckb-channel.workspace = true
 ckb-constant.workspace = true
 ckb-gen-types.workspace = true
 bit-vec.workspace = true

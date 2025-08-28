@@ -1,6 +1,6 @@
 use crate::{GlobalIndex, TruncateRequest, VerifyResult, utils::forkchanges::ForkChanges};
 use crate::{UnverifiedBlock, delete_unverified_block};
-use ckb_channel::{Receiver, select};
+use ckb_channel::{Receiver, Request, select};
 use ckb_error::{Error, InternalErrorKind, is_internal_db_error};
 use ckb_logger::Level::Trace;
 use ckb_logger::internal::{log_enabled, trace};
@@ -16,7 +16,7 @@ use ckb_types::H256;
 use ckb_types::core::cell::{
     BlockCellProvider, HeaderChecker, OverlayCellProvider, ResolvedTransaction, resolve_transaction,
 };
-use ckb_types::core::{BlockExt, BlockNumber, BlockView, Cycle, HeaderView, service::Request};
+use ckb_types::core::{BlockExt, BlockNumber, BlockView, Cycle, HeaderView};
 use ckb_types::packed::Byte32;
 use ckb_types::utilities::merkle_mountain_range::ChainRootMMR;
 use ckb_verification::InvalidParentError;
