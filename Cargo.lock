@@ -947,7 +947,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao-utils"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> ce1a57b25 (chore: update ckb-traits and ckb-dao-utils to 1.0.0)
 dependencies = [
  "byteorder",
  "ckb-error",
@@ -1888,7 +1892,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-traits"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> ce1a57b25 (chore: update ckb-traits and ckb-dao-utils to 1.0.0)
 dependencies = [
  "ckb-types",
 ]
