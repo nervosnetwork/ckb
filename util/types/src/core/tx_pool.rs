@@ -2,7 +2,7 @@
 use crate::{
     H256,
     core::{
-        self, BlockNumber, Capacity, Cycle, FeeRate,
+        self, BlockNumber, Capacity, Cycle, FeeRate, TransactionView,
         error::{ARGV_TOO_LONG_TEXT, OutPointError, TransactionError},
     },
     packed::Byte32,
@@ -413,4 +413,19 @@ pub struct EntryCompleted {
     pub cycles: Cycle,
     /// Cached tx fee
     pub fee: Capacity,
+}
+
+/// Notify pool transaction entry
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PoolTransactionEntry {
+    /// Transaction view
+    pub transaction: TransactionView,
+    /// Transaction consumed cycles
+    pub cycles: Cycle,
+    /// Transaction serialized cycles
+    pub size: usize,
+    /// Transaction fee
+    pub fee: Capacity,
+    /// The unix timestamp when entering the Txpool, unit: Millisecond
+    pub timestamp: u64,
 }

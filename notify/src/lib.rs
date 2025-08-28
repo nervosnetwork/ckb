@@ -17,7 +17,7 @@ use tokio::sync::{
 };
 use tokio::time::timeout;
 
-pub use ckb_types::core::service::PoolTransactionEntry;
+pub use ckb_types::core::tx_pool::PoolTransactionEntry;
 
 /// Asynchronous request sent to the service.
 pub struct Request<A, R> {

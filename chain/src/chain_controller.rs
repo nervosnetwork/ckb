@@ -4,14 +4,11 @@
 
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{LonelyBlock, ProcessBlockRequest, RemoteBlock, TruncateRequest, VerifyResult};
-use ckb_channel::Sender;
+use ckb_channel::{Request, Sender};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, error};
 use ckb_store::ChainDB;
-use ckb_types::{
-    core::{BlockView, service::Request},
-    packed::Byte32,
-};
+use ckb_types::{core::BlockView, packed::Byte32};
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
