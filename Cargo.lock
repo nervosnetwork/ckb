@@ -910,7 +910,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-constant"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> a107e3449 (chore: update ckb-types to 1.0.0)
 dependencies = [
  "phf 0.12.1",
 ]
@@ -985,7 +989,11 @@ version = "0.204.0-pre"
 
 [[package]]
 name = "ckb-error"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> a107e3449 (chore: update ckb-types to 1.0.0)
 dependencies = [
  "anyhow",
  "ckb-occupied-capacity",
@@ -1063,7 +1071,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-gen-types"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> a107e3449 (chore: update ckb-types to 1.0.0)
 dependencies = [
  "cfg-if",
  "ckb-error",
@@ -1497,7 +1509,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-rational"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> a107e3449 (chore: update ckb-types to 1.0.0)
 dependencies = [
  "numext-fixed-uint",
  "proptest",
