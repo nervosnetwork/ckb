@@ -1,5 +1,9 @@
 use crate::node::{connect_all, disconnect_all, waiting_for_sync};
+use crate::util::cell::gen_spendable;
 use crate::util::mining::out_ibd_mode;
+use crate::util::transaction::{
+    always_success_transactions, always_success_transactions_with_rand_data,
+};
 use crate::utils::find_available_port;
 use crate::{Node, Spec};
 use ckb_logger::{info, warn};
@@ -99,11 +103,8 @@ impl Spec for RichIndexerChainReorgBug {
 
         info!("=== Phase 1: Setup independent mining ===");
         out_ibd_mode(nodes);
-
-        // Create shared history
         node1.connect(node0);
-        node0.mine(1);
-        node1.mine(1);
+        node0.mine_until_out_bootstrap_period();
 
         waiting_for_sync(&[node0, node1]);
         info!(
@@ -138,8 +139,37 @@ impl Spec for RichIndexerChainReorgBug {
                         );
                     }
                     let tip = node.get_tip_block();
-                    info!("Node{} tip: height {}-{}", id, tip.number(), tip.hash(),);
+                    info!(
+                        "Node{} tip: height {}-{}, txs: {}, block_size: {}",
+                        id,
+                        tip.number(),
+                        tip.hash(),
+                        tip.transactions().len(),
+                        tip.data().total_size()
+                    );
                 }
+            });
+        };
+
+        let gen_txs = |node: &Node| {
+            let cells = gen_spendable(node, 4000);
+            let txs = always_success_transactions(node, &cells);
+            txs.iter().for_each(|tx| {
+                let tx_hash = tx.hash();
+                let result = node.submit_transaction_with_result(&tx);
+                // match result {
+                //     Ok(tx_hash) => {
+                //         info!("Node{} submitted tx {}", node.node_id(), tx_hash);
+                //     }
+                //     Err(err) => {
+                //         warn!(
+                //             "Node{} failed to submit tx: {}, {}",
+                //             node.node_id(),
+                //             tx_hash,
+                //             err
+                //         );
+                //     }
+                // }
             });
         };
 
@@ -147,10 +177,16 @@ impl Spec for RichIndexerChainReorgBug {
         while now.elapsed().le(&Duration::from_secs(600)) {
             info!("create forking..............................................");
             disconnect_all(&nodes);
+            gen_txs(node0);
             node0.mine(1);
+
+            gen_txs(node1);
             node1.mine(1);
+
             let base_height = node0.get_tip_block_number();
             node_dbg(Some(base_height));
+
+            gen_txs(node1);
             node1.mine(1);
             connect_all(&nodes);
             waiting_for_sync(nodes);
