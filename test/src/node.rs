@@ -667,7 +667,7 @@ impl Node {
                 "--ba-advanced",
             ])
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");

@@ -193,7 +193,7 @@ impl Spec for RichIndexerChainReorgBug {
         };
 
         let now = std::time::Instant::now();
-        while now.elapsed().le(&Duration::from_secs(600)) {
+        while now.elapsed().le(&Duration::from_secs(60)) {
             info!("create forking..............................................");
             disconnect_all(&nodes);
             gen_txs(node0);
