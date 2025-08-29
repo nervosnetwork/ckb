@@ -72,6 +72,7 @@ impl Spec for RichIndexerChainReorgBug {
                     db_name: "ckb_rich_indexer_test".to_string(),
                     ..Default::default()
                 };
+                config.logger.log_to_stdout = true;
 
                 // Configure faster polling to increase chance of race conditions
                 config.indexer.poll_interval = 1;
@@ -102,6 +103,17 @@ impl Spec for RichIndexerChainReorgBug {
         let node1 = &nodes[1];
 
         info!("nodes count: {}", nodes.len());
+        // print nodes genesis block number and hash:
+        nodes.iter().enumerate().for_each(|(id, node)| {
+            let genesis = node.get_block_by_number(0);
+            info!(
+                "Node{} genesis block: number={}, hash={}",
+                id,
+                genesis.number(),
+                genesis.hash()
+            );
+        });
+
         info!("=== Phase 1: Setup independent mining ===");
         out_ibd_mode(nodes);
         node1.connect(node0);
