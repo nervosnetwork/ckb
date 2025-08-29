@@ -101,6 +101,7 @@ impl Spec for RichIndexerChainReorgBug {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
+        info!("nodes count: {}", nodes.len());
         info!("=== Phase 1: Setup independent mining ===");
         out_ibd_mode(nodes);
         node1.connect(node0);
@@ -108,9 +109,15 @@ impl Spec for RichIndexerChainReorgBug {
 
         waiting_for_sync(&[node0, node1]);
         info!(
-            "Both nodes synced to height {}",
-            node0.get_tip_block_number()
+            "Both nodes synced to height {}, {}",
+            node0.get_tip_block_number(),
+            node1.get_tip_block_number()
         );
+        {
+            let indexer_tip = node0.rpc_client().get_indexer_tip().unwrap();
+            let indexer_tip_number: u64 = indexer_tip.block_number.into();
+            info!("node0 rich-indexer tip: {}", indexer_tip_number);
+        }
 
         info!("=== Phase 2: Create competing chains ===");
 
