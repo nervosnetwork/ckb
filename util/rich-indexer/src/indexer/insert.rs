@@ -6,8 +6,8 @@ use crate::store::SQLXPool;
 use ckb_indexer_sync::Error;
 use ckb_types::{
     bytes::Bytes,
-    core::{BlockView, TransactionView},
-    packed::{Byte, CellInput, CellOutput, OutPoint, ScriptBuilder},
+    core::{BlockView, TransactionView, UncleBlockView},
+    packed::{Byte, CellInput, CellOutput, OutPoint, ProposalShortIdVec, ScriptBuilder},
     prelude::*,
 };
 use sql_builder::SqlBuilder;
@@ -98,23 +98,19 @@ pub(crate) async fn insert_uncle_blocks(
     block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Vec<i64>, Error> {
-    let uncle_blocks = block_view
+    let uncle_blocks: Vec<UncleBlockView> = block_view
         .uncles()
         .into_iter()
-        .map(|uncle| {
-            let uncle_block_header = uncle.header();
-            BlockView::new_advanced_builder()
-                .header(uncle_block_header)
-                .proposals(uncle.data().proposals())
-                .build()
-        })
+        .map(|uncle| uncle)
         .collect::<Vec<_>>();
     let uncle_block_rows: Vec<Vec<FieldValue>> = uncle_blocks
         .iter()
-        .map(block_view_to_field_values)
+        .map(uncle_view_to_field_values)
         .collect();
+    let uncle_blocks_proposals: Vec<ProposalShortIdVec> =
+        uncle_blocks.iter().map(|u| u.data().proposals()).collect();
     let uncle_id_list = bulk_insert_block_table(&uncle_block_rows, tx).await?;
-    insert_blocks_proposals(&uncle_id_list, &uncle_blocks, tx).await?;
+    insert_blocks_proposals(&uncle_id_list, &uncle_blocks_proposals, tx).await?;
     Ok(uncle_id_list)
 }
 
@@ -130,18 +126,17 @@ async fn insert_block_table(
 
 async fn insert_blocks_proposals(
     block_id_list: &[i64],
-    block_views: &[BlockView],
+    uncle_blocks_proposals: &[ProposalShortIdVec],
     tx: &mut Transaction<'_, Any>,
 ) -> Result<(), Error> {
     let block_association_proposal_rows: Vec<_> = block_id_list
         .iter()
-        .zip(block_views)
-        .flat_map(|(block_id, block_view)| {
-            block_view
-                .data()
-                .proposals()
+        .zip(uncle_blocks_proposals)
+        .flat_map(|(block_id, uncle_block_proposals)| {
+            uncle_block_proposals
+                .to_owned()
                 .into_iter()
-                .map(move |proposal_hash| {
+                .map(|proposal_hash| {
                     vec![(*block_id).into(), proposal_hash.raw_data().to_vec().into()]
                 })
         })
@@ -745,5 +740,29 @@ fn block_view_to_field_values(block_view: &BlockView) -> Vec<FieldValue> {
             Some(extension) => extension.raw_data().to_vec().into(),
             None => Vec::new().into(),
         },
+    ]
+}
+
+fn uncle_view_to_field_values(uncle_view: &UncleBlockView) -> Vec<FieldValue> {
+    vec![
+        uncle_view.hash().raw_data().to_vec().into(),
+        (uncle_view.number() as i64).into(),
+        uncle_view.compact_target().to_be_bytes().to_vec().into(),
+        uncle_view.parent_hash().raw_data().to_vec().into(),
+        uncle_view.nonce().to_be_bytes().to_vec().into(),
+        (uncle_view.timestamp() as i64).into(),
+        uncle_view.version().to_be_bytes().to_vec().into(),
+        uncle_view.transactions_root().raw_data().to_vec().into(),
+        uncle_view
+            .epoch()
+            .full_value()
+            .to_be_bytes()
+            .to_vec()
+            .into(),
+        uncle_view.dao().raw_data().to_vec().into(),
+        uncle_view.proposals_hash().raw_data().to_vec().into(),
+        uncle_view.extra_hash().raw_data().to_vec().into(),
+        // uncle block don't have extension
+        Vec::new().into(),
     ]
 }
