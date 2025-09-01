@@ -6,7 +6,8 @@ use crate::utils::find_available_port;
 use crate::{Node, Spec};
 use ckb_logger::{info, warn};
 use ckb_types::packed;
-use postgresql_embedded::{Settings, blocking::PostgreSQL};
+use postgresql_embedded::{blocking::PostgreSQL, Settings};
+use std::cell::RefCell;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -16,7 +17,11 @@ use std::time::Duration;
 /// 1. Node0 and Node1 both mine independently to create competing chains
 /// 2. Trigger chain reorganization by connecting nodes
 /// 3. Check if rich-indexer's tip updates correctly to follow the main chain
-pub struct RichIndexerChainReorgBug;
+#[derive(Default)]
+pub struct RichIndexerChainReorgBug {
+    postgresql: RefCell<Option<PostgreSQL>>,
+}
+
 
 impl Spec for RichIndexerChainReorgBug {
     fn before_run(&self) -> Vec<Node> {
@@ -69,6 +74,9 @@ impl Spec for RichIndexerChainReorgBug {
         }
         postgresql.create_database("ckb_rich_indexer_test").unwrap();
         info!("postgresql started.....................");
+        
+        // Store postgresql instance in the struct to keep it alive
+        *self.postgresql.borrow_mut() = Some(postgresql);
 
         // Enable rich-indexer only on node0
         {
