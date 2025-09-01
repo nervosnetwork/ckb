@@ -6,7 +6,7 @@ use crate::utils::find_available_port;
 use crate::{Node, Spec};
 use ckb_logger::{info, warn};
 use ckb_types::packed;
-use postgresql_embedded::{blocking::PostgreSQL, Settings};
+use postgresql_embedded::{Settings, blocking::PostgreSQL};
 use std::cell::RefCell;
 use std::thread::sleep;
 use std::time::Duration;
@@ -21,7 +21,6 @@ use std::time::Duration;
 pub struct RichIndexerChainReorgBug {
     postgresql: RefCell<Option<PostgreSQL>>,
 }
-
 
 impl Spec for RichIndexerChainReorgBug {
     fn before_run(&self) -> Vec<Node> {
@@ -74,7 +73,7 @@ impl Spec for RichIndexerChainReorgBug {
         }
         postgresql.create_database("ckb_rich_indexer_test").unwrap();
         info!("postgresql started.....................");
-        
+
         // Store postgresql instance in the struct to keep it alive
         *self.postgresql.borrow_mut() = Some(postgresql);
 
@@ -205,6 +204,7 @@ impl Spec for RichIndexerChainReorgBug {
         };
 
         let gen_txs = |node: &Node| {
+            let now = std::time::Instant::now();
             let cells = gen_spendable(node, 4000);
             let txs = always_success_transactions(node, &cells);
             txs.iter().for_each(|tx| {
@@ -224,26 +224,39 @@ impl Spec for RichIndexerChainReorgBug {
                 //     }
                 // }
             });
+            info!("gen txs cost {}s", now.elapsed().as_secs());
         };
 
-        let now = std::time::Instant::now();
-        while now.elapsed().le(&Duration::from_secs(60)) {
-            info!("create forking..............................................");
-            disconnect_all(&nodes);
-            gen_txs(node0);
-            node0.mine(1);
+        gen_txs(node0);
+        node0.mine(1);
+        waiting_for_sync(nodes);
 
+        let now = std::time::Instant::now();
+        let mut iteration = 0;
+        while now.elapsed().le(&Duration::from_secs(600)) {
+            info!(
+                "\n\n    Create forking_________________________    {}",
+                iteration
+            );
+            gen_txs(node0);
             gen_txs(node1);
-            node1.mine(1);
+
+            std::thread::scope(|s| {
+                let jh0 = s.spawn(|| node0.mine(1));
+                let jh1 = s.spawn(|| node1.mine(1));
+
+                jh0.join().unwrap();
+                jh1.join().unwrap();
+            });
 
             let base_height = node0.get_tip_block_number();
             node_dbg(Some(base_height));
 
             gen_txs(node1);
             node1.mine(1);
-            connect_all(&nodes);
             waiting_for_sync(nodes);
             node_dbg(None);
+            iteration += 1;
         }
 
         info!("Fork created:");

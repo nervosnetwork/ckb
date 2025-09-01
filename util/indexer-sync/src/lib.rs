@@ -144,7 +144,6 @@ impl IndexerSyncService {
             error!("secondary_db try_catch_up_with_primary error {}", e);
         }
         loop {
-            info!("try_loop_sync loop");
             if has_received_stop_signal() {
                 info!("try_loop_sync received exit signal, exit now");
                 break;
@@ -210,9 +209,7 @@ impl IndexerSyncService {
         let initial_service = self.clone();
         let indexer = indexer_service.clone();
         let initial_syncing = self.async_handle.spawn_blocking(move || {
-            info!("apply init_tip");
             initial_service.apply_init_tip(indexer.clone());
-            info!("try loop sync");
             initial_service.try_loop_sync(indexer)
         });
 
