@@ -311,6 +311,8 @@ yansi = "0.5"
 seq-macro = "0.3"
 strum = { version = "0.27", features = ["derive"] }
 phf = { version = "0.12", features = ["macros"] }
+tracing = { version = "0.1.41", features = ["log", "log-always"] }
+tracing-subscriber = "0.3.20"
 
 [profile.release]
 overflow-checks = true

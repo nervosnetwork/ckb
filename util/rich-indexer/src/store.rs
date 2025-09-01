@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use ckb_app_config::{DBDriver, RichIndexerConfig};
 use futures::TryStreamExt;
 use include_dir::{Dir, include_dir};
-use log::LevelFilter;
+use log::{LevelFilter, info};
 use sqlx::{
     AnyPool, ConnectOptions, IntoArguments, Row, Transaction,
     any::{Any, AnyArguments, AnyConnectOptions, AnyPoolOptions, AnyRow},
@@ -47,6 +47,9 @@ impl SQLXPool {
             .max_connections(10)
             .min_connections(0)
             .acquire_timeout(Duration::from_secs(60))
+            .acquire_time_level(LevelFilter::Trace)
+            .acquire_slow_level(LevelFilter::Trace)
+            .acquire_slow_threshold(std::time::Duration::from_secs(0))
             .max_lifetime(Duration::from_secs(1800))
             .idle_timeout(Duration::from_secs(30));
         if db_config.store == Into::<PathBuf>::into(MEMORY_DB) {
@@ -72,8 +75,9 @@ impl SQLXPool {
             DBDriver::Postgres => {
                 self.postgres_init(db_config).await?;
                 let uri = build_url_for_postgres(db_config);
-                let connection_options =
-                    AnyConnectOptions::from_str(&uri)?.log_statements(LevelFilter::Trace);
+                let connection_options = AnyConnectOptions::from_str(&uri)?
+                    .log_statements(LevelFilter::Trace)
+                    .log_slow_statements(LevelFilter::Trace, std::time::Duration::from_secs(0));
                 let pool = pool_options.connect_with(connection_options).await?;
                 log::info!("PostgreSQL is connected.");
                 self.pool
@@ -216,11 +220,16 @@ impl SQLXPool {
         let tmp_pool_options = AnyPoolOptions::new();
         let pool = tmp_pool_options.connect_with(connection_options).await?;
         // Check if database exists
+        info!(
+            "!!!!!!!!!!! !!!!!!!!!!! Checking if database '{}' exists...",
+            db_config.db_name
+        );
         let query =
             SQLXPool::new_query(r#"SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)"#)
                 .bind(db_config.db_name.as_str());
         let row = query.fetch_one(&pool).await?;
         // If database does not exist, create it
+        info!("!!!!!!!!!!!!!! checking exist done");
         if !row.get::<bool, _>(0) {
             let query = format!(r#"CREATE DATABASE "{}""#, db_config.db_name);
             SQLXPool::new_query(&query).execute(&pool).await?;

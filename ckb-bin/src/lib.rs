@@ -42,6 +42,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     unsafe {
         ::std::env::set_var("RUST_BACKTRACE", "full");
     }
+    // tracing_subscriber::fmt::init();
 
     let (bin_name, app_matches) = cli::get_bin_name_and_matches(&version);
     if let Some((cli, matches)) = app_matches.subcommand() {
@@ -133,6 +134,7 @@ fn run_app_inner(
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
     let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
 
+    info!("run app inner.............................");
     raise_fd_limit();
 
     let ret = match cmd {

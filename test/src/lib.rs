@@ -68,6 +68,8 @@ pub fn main_test() {
         env::set_var("RUST_BACKTRACE", "full");
     }
 
+    // tracing_subscriber::fmt::init();
+
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
 

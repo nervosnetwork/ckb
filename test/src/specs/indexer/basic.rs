@@ -1,9 +1,7 @@
 use crate::node::{connect_all, disconnect_all, waiting_for_sync};
 use crate::util::cell::gen_spendable;
 use crate::util::mining::out_ibd_mode;
-use crate::util::transaction::{
-    always_success_transactions, always_success_transactions_with_rand_data,
-};
+use crate::util::transaction::always_success_transactions;
 use crate::utils::find_available_port;
 use crate::{Node, Spec};
 use ckb_logger::{info, warn};
@@ -22,6 +20,17 @@ pub struct RichIndexerChainReorgBug;
 
 impl Spec for RichIndexerChainReorgBug {
     fn before_run(&self) -> Vec<Node> {
+        info!("RichIndexerChainReorgBug: before_run");
+        {
+            tracing::info!(
+                "RUST_LOG is {}",
+                std::env::var("RUST_LOG").unwrap_or_default()
+            );
+        }
+        tracing::info!("......................................");
+        tracing::info!("Tracing::info ...");
+        tracing::debug!("Tracing::debug ...");
+        tracing::info!("......................................");
         let node0 = Node::new(self.name(), "node0");
         let node1 = Node::new(self.name(), "node1");
         let mut nodes = [node0, node1];
@@ -31,47 +40,59 @@ impl Spec for RichIndexerChainReorgBug {
         let postgres_port = find_available_port();
         let mut settings = Settings::default();
         settings.port = postgres_port;
+        settings.temporary = true;
         settings.username = "postgres".to_string();
-        settings.password = "password".to_string();
+        settings.password = "postgres,,".to_string();
         // Make Postgres emit statements and durations to stderr
-        settings
-            .configuration
-            .insert("log_destination".into(), "stderr".into());
-        // Don't capture into files; send to stderr
-        settings
-            .configuration
-            .insert("logging_collector".into(), "off".into());
-        // Log every statement (alternatives: ddl | mod | none)
-        settings
-            .configuration
-            .insert("log_statement".into(), "all".into());
-        // Also log duration of every completed statement (0 ms threshold)
-        settings
-            .configuration
-            .insert("log_min_duration_statement".into(), "0".into());
+        let configs = [
+            ("log_directory", "/tmp/postgres"),
+            ("log_filename", "tmp.log"),
+            ("logging_collector", "on"),
+            ("log_statement", "all"),
+            ("auto_explain.log_min_duration", "0"),
+        ];
+
+        for (key, value) in configs {
+            settings.configuration.insert(key.into(), value.into());
+        }
 
         info!("setitngs; {:?}", settings);
-        let mut postgresql = PostgreSQL::new(settings);
+        let mut postgresql = PostgreSQL::new(settings.clone());
         postgresql.setup().expect("Failed to setup PostgreSQL");
         postgresql.start().expect("Failed to start PostgreSQL");
+        {
+            // Store postgresql instance for cleanup (in a real implementation,
+            // we'd store this properly for cleanup in a Drop impl)
+            info!("PostgreSQL started on port {}", postgres_port);
+            let status = postgresql.status();
+            info!("PostgreSQL status: {:?}", status);
+        }
+        postgresql.create_database("ckb_rich_indexer_test").unwrap();
+        info!("postgresql started.....................");
 
         // Enable rich-indexer only on node0
         {
+            info!("nodes count: {}", nodes.len());
             let node0 = &mut nodes[0];
-
             node0.modify_app_config(|config| {
                 // Configure rich-indexer to use PostgreSQL
-                config.rpc.modules.push(ckb_app_config::RpcModule::Indexer);
+                config
+                    .rpc
+                    .modules
+                    .push(ckb_app_config::RpcModule::RichIndexer);
                 info!("rpc.modules:{:?}", config.rpc.modules);
                 config.indexer.rich_indexer = ckb_app_config::RichIndexerConfig {
                     db_type: ckb_app_config::DBDriver::Postgres,
                     db_host: "127.0.0.1".to_string(),
                     db_port: postgres_port,
-                    db_user: "postgres".to_string(),
-                    db_password: "password".to_string(),
+                    db_user: settings.clone().username.clone(),
+                    db_password: settings.clone().password.clone(),
                     db_name: "ckb_rich_indexer_test".to_string(),
                     ..Default::default()
                 };
+                info!("rich_indexer: {:?}", config.indexer.rich_indexer);
+                // config.logger.filter =
+                //     Some("debug,tentacle=info,sled=info,tokio_yamux=info".to_string());
                 config.logger.log_to_stdout = true;
 
                 // Configure faster polling to increase chance of race conditions
@@ -79,14 +100,16 @@ impl Spec for RichIndexerChainReorgBug {
                 config.indexer.index_tx_pool = false;
             });
         }
+        {
+            let node1 = &mut nodes[1];
+            node1.modify_app_config(|config| {
+                config.logger.log_to_stdout = false;
+            });
+        }
 
         nodes.iter_mut().for_each(|node| {
             node.start();
         });
-
-        // Store postgresql instance for cleanup (in a real implementation,
-        // we'd store this properly for cleanup in a Drop impl)
-        info!("PostgreSQL started on port {}", postgres_port);
 
         nodes.to_vec()
     }
@@ -99,6 +122,9 @@ impl Spec for RichIndexerChainReorgBug {
     /// 3. Connect nodes to trigger chain reorganization
     /// 4. Check if rich-indexer tip updates correctly
     fn run(&self, nodes: &mut Vec<Node>) {
+        info!(
+            "RichIndexerChainReorgBug: run.........................................................."
+        );
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 

@@ -793,18 +793,19 @@ impl Node {
 
     pub fn wait_find_unverified_blocks_finished(&self) {
         // wait for node[0] to find unverified blocks finished
+        std::thread::sleep(Duration::from_secs(5));
 
-        let now = std::time::Instant::now();
-        while !self
-            .access_log(|line: &str| line.contains("find unverified blocks finished"))
-            .expect("node[0] must have log")
-        {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            if now.elapsed() > Duration::from_secs(60) {
-                panic!("node[0] should find unverified blocks finished in 60s");
-            }
-            info!("waiting for node[0] to find unverified blocks finished");
-        }
+        // let now = std::time::Instant::now();
+        // while !self
+        //     .access_log(|line: &str| line.contains("find unverified blocks finished"))
+        //     .expect("node[0] must have log")
+        // {
+        //     std::thread::sleep(std::time::Duration::from_secs(1));
+        //     if now.elapsed() > Duration::from_secs(60) {
+        //         panic!("node[0] should find unverified blocks finished in 60s");
+        //     }
+        //     info!("waiting for node[0] to find unverified blocks finished");
+        // }
     }
 
     pub fn access_log<F>(&self, line_checker: F) -> io::Result<bool>

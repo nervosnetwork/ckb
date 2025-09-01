@@ -248,6 +248,18 @@ impl Launcher {
     /// Check indexer config
     pub fn check_indexer_config(&self) -> Result<(), ExitCode> {
         // check if indexer and rich-indexer are both set
+        {
+            // read ckb.toml: self.args.config.root_dir + ckb.toml
+            let ckb_toml_file = self.args.config.root_dir.join("ckb.toml");
+            let content = std::fs::read_to_string(&ckb_toml_file).map_err(|err| {
+                eprintln!("Read ckb.toml error: {err:?}");
+                ExitCode::Config
+            })?;
+            info!(
+                "ckb.toml content: \n{},\nself, args, cofnig:{:?}",
+                content, self.args.config
+            );
+        }
         if (self.args.indexer || self.args.config.rpc.indexer_enable())
             && (self.args.rich_indexer || self.args.config.rpc.rich_indexer_enable())
         {

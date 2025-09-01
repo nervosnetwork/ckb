@@ -10,7 +10,7 @@ CKB_FEATURES ?= deadlock_detection,with_sentry
 ALL_FEATURES := deadlock_detection,with_sentry,with_dns_seeding,profiling,march-native
 CKB_BENCH_FEATURES ?= ci
 CKB_BUILD_TARGET ?=
-INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
+INTEGRATION_RUST_LOG := debug,hyper_util=info,reqwest=info
 CARGO_TARGET_DIR ?= $(shell pwd)/target
 BINARY_NAME ?= "ckb"
 COV_PROFRAW_DIR = ${CARGO_TARGET_DIR}/cov

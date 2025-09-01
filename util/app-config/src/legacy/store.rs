@@ -1,7 +1,6 @@
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct StoreConfig {
     header_cache_size: usize,
     cell_data_cache_size: usize,
