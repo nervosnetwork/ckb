@@ -139,95 +139,132 @@ impl Spec for RichIndexerUncleBlockBug {
         let initial_height = node0.get_tip_block_number();
         info!("All nodes synced to height {}", initial_height);
 
-        disconnect_all(nodes);
-
         let print_indexer_tip = |node: &Node| -> String {
             let indexer_tip = node.rpc_client().get_indexer_tip().unwrap();
             let indexer_tip_number: u64 = indexer_tip.block_number.into();
             format!("{}-{}", indexer_tip_number, indexer_tip.block_hash)
         };
 
+        //////////////////////////////////////////////////////////////////////////////////
+
         info!("\n\n\n\n------------ begin");
-        let (block, uncle) = node1.construct_uncle();
+        let block_13 = node1.new_block_builder(None, None, None).build();
+        let uncle_13 = block_13
+            .as_advanced_builder()
+            .timestamp(block_13.timestamp() + 1)
+            .build();
+
         info!(
-            "=========== constructed :\nblock:{}-{}\nuncle:{}-{}\n ",
-            block.number(),
-            block.hash(),
-            uncle.number(),
-            uncle.hash(),
+            "=========== constructed :\nblock:{}-{}\nuncle:{}-{}\n",
+            block_13.number(),
+            block_13.hash(),
+            uncle_13.number(),
+            uncle_13.hash(),
         );
+        node0.process_block_without_verify(&uncle_13, false);
+        node0.process_block_without_verify(&block_13, false);
 
+        node1.process_block_without_verify(&block_13, false);
+        node2.process_block_without_verify(&block_13, false);
+        node1.process_block_without_verify(&uncle_13, false);
+        node2.process_block_without_verify(&uncle_13, false);
+
+        info!("\n\n");
         {
-            info!("node0 tip: {}", node0.get_tip_block_number());
+            let block_14 = node1.new_block_builder(None, None, None).build();
+            let uncle_14 = block_14
+                .as_advanced_builder()
+                .timestamp(block_14.timestamp() + 1)
+                .build();
 
-            node0.process_block_without_verify(&uncle, false);
+            node1.process_block_without_verify(&uncle_14, false);
+            node0.connect(&node1);
+            waiting_for_sync(&[node0, node1]);
 
-            {
-                let tip = node0.get_tip_block();
-                info!("node0 process uncle, tip: {}-{}", tip.number(), tip.hash());
-            }
-            node0.process_block_without_verify(&block, false);
-            {
-                let tip = node0.get_tip_block();
-                info!("node0 process block, tip: {}-{}", tip.number(), tip.hash());
-            }
-            info!("node0 indexer tip: {}", print_indexer_tip(node0));
-            sleep(Duration::from_secs(1));
-            info!("node0 indexer tip: {}", print_indexer_tip(node0));
-        }
+            node2.process_block_without_verify(&block_14, false);
 
-        {
-            info!("node1 tip: {}", node1.get_tip_block_number());
-
-            node1.process_block_without_verify(&block, false);
-
-            {
-                let tip = node1.get_tip_block();
-                info!("node1 process block, tip: {}-{}", tip.number(), tip.hash());
-            }
-
-            node1.process_block_without_verify(&uncle, false);
-            {
-                let tip = node1.get_tip_block();
-                info!("node1 process uncle, tip: {}-{}", tip.number(), tip.hash());
-            }
-        }
-
-        disconnect_all(nodes);
-
-        {
-            let (block, uncle) = node1.construct_uncle();
             info!(
-                "=========== constructed :\nblock:{}-{}\nuncle:{}-{}\n ",
-                block.number(),
-                block.hash(),
-                uncle.number(),
-                uncle.hash(),
+                "node0 tip: {}-{}, parent:{}",
+                node0.get_tip_block_number(),
+                node0.get_tip_block().hash(),
+                node0.get_tip_block().parent_hash()
+            );
+            info!(
+                "node1 tip: {}-{}, parent:{}",
+                node1.get_tip_block_number(),
+                node1.get_tip_block().hash(),
+                node1.get_tip_block().parent_hash()
+            );
+            info!(
+                "node2 tip: {}-{}, parent:{}",
+                node2.get_tip_block_number(),
+                node2.get_tip_block().hash(),
+                node2.get_tip_block().parent_hash()
             );
 
-            node1.process_block_without_verify(&uncle, false);
             connect_all(nodes);
-            waiting_for_sync(nodes);
-            sleep(Duration::from_secs(15));
-            info!("node0 indexer tip: {}", print_indexer_tip(node0));
-
-            node1.process_block_without_verify(&block, false);
-
-            node2.process_block_without_verify(&block, false);
-            node2.process_block_without_verify(&uncle, false);
             node2.mine(1);
-            connect_all(nodes);
+            waiting_for_sync(nodes);
+            // node2.mine(2);
+            // waiting_for_sync(nodes);
         }
 
-        waiting_for_sync(nodes);
-        sleep(Duration::from_secs(15));
-        info!("node0 indexer tip: {}", print_indexer_tip(node0));
-        {
-            info!("checking node0's tip and indexer tip");
+        let now = std::time::Instant::now();
+        while now.elapsed().lt(&Duration::from_secs(60)) {
             let tip = node0.get_tip_block();
-            info!("node0 tip: {}-{}", tip.number(), tip.hash());
-            print_indexer_tip(node0);
+            let indexer_tip = node0.rpc_client().get_indexer_tip().unwrap();
+            let indexer_tip_number: u64 = indexer_tip.block_number.into();
+            info!(
+                "node0 tip: {}-{}, indexer-tip:{}-{}",
+                tip.number(),
+                tip.hash(),
+                indexer_tip_number,
+                indexer_tip.block_hash
+            );
+            if tip.hash() == indexer_tip.block_hash.into() {
+                break;
+            }
+            sleep(Duration::from_secs(3));
         }
+
+
+        // {
+        //     let (block, uncle) = node1.construct_uncle();
+        //     info!(
+        //         "=========== constructed :\nblock:{}-{}\nuncle:{}-{}\n ",
+        //         block.number(),
+        //         block.hash(),
+        //         uncle.number(),
+        //         uncle.hash(),
+        //     );
+
+        //     node1.process_block_without_verify(&uncle, false);
+        //     connect_all(nodes);
+        //     waiting_for_sync(nodes);
+        //     sleep(Duration::from_secs(15));
+        //     info!("node0 indexer tip: {}", print_indexer_tip(node0));
+
+        //     node1.process_block_without_verify(&block, false);
+
+        //     node2.process_block_without_verify(&block, false);
+        //     node2.process_block_without_verify(&uncle, false);
+        //     node2.mine(1);
+        //     connect_all(nodes);
+        // }
+
+        // waiting_for_sync(nodes);
+        // sleep(Duration::from_secs(15));
+        // info!("node0 indexer tip: {}", print_indexer_tip(node0));
+        // {
+        //     info!("checking node0's tip and indexer tip");
+        //     let tip = node0.get_tip_block();
+        //     info!(
+        //         "node0 tip: {}-{}, indexer-tip:{}",
+        //         tip.number(),
+        //         tip.hash(),
+        //         print_indexer_tip(node0)
+        //     );
+        // }
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

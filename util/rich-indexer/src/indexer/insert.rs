@@ -99,6 +99,12 @@ pub(crate) async fn insert_uncle_blocks(
     block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Vec<i64>, Error> {
+    info!(
+        "insert_ucnle_blocks for block:{}-{},uncles:{}",
+        block_view.number(),
+        block_view.hash(),
+        block_view.uncles().into_iter().len()
+    );
     let uncle_blocks = block_view
         .uncles()
         .into_iter()
