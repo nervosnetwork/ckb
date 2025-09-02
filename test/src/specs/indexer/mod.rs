@@ -1,3 +1,3 @@
 mod basic;
 
-pub use basic::RichIndexerChainReorgBug;
+pub use basic::RichIndexerUncleBlockBug;

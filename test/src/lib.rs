@@ -639,7 +639,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RandomlyKill),
         Box::new(SyncChurn),
         // Rich-indexer chain reorganization bug reproduction test
-        Box::new(RichIndexerChainReorgBug::default()),
+        Box::new(RichIndexerUncleBlockBug::default()),
     ];
     specs.shuffle(&mut thread_rng());
     specs

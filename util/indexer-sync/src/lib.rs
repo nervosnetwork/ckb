@@ -151,6 +151,7 @@ impl IndexerSyncService {
 
             match indexer.tip() {
                 Ok(Some((tip_number, tip_hash))) => {
+                    info!("try loop sync, indexer tip: {}, {}", tip_number, tip_hash);
                     match self.get_block_by_number(tip_number + 1) {
                         Some(block) => {
                             if block.parent_hash() == tip_hash {

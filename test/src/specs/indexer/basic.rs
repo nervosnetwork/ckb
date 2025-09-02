@@ -1,7 +1,5 @@
 use crate::node::{connect_all, disconnect_all, waiting_for_sync};
-use crate::util::cell::gen_spendable;
 use crate::util::mining::out_ibd_mode;
-use crate::util::transaction::always_success_transactions;
 use crate::utils::find_available_port;
 use crate::{Node, Spec};
 use ckb_logger::{info, warn};
@@ -11,326 +9,243 @@ use std::cell::RefCell;
 use std::thread::sleep;
 use std::time::Duration;
 
-/// Test case to reproduce the rich-indexer chain reorganization bug
+/// Test case to reproduce the rich-indexer uncle block reconstruction bug
 ///
-/// This test creates a chain fork scenario with 2 nodes:
-/// 1. Node0 and Node1 both mine independently to create competing chains
-/// 2. Trigger chain reorganization by connecting nodes
-/// 3. Check if rich-indexer's tip updates correctly to follow the main chain
+/// This test specifically triggers the scenario where:
+/// 1. Multiple competing blocks at the same height create uncle blocks
+/// 2. Rich-indexer attempts to reconstruct uncle blocks as full blocks
+/// 3. The reconstruction creates phantom blocks with corrupted data
+/// 4. This causes an infinite rollback/append loop in the synchronizer
 #[derive(Default)]
-pub struct RichIndexerChainReorgBug {
+pub struct RichIndexerUncleBlockBug {
     postgresql: RefCell<Option<PostgreSQL>>,
 }
 
-impl Spec for RichIndexerChainReorgBug {
+impl Spec for RichIndexerUncleBlockBug {
     fn before_run(&self) -> Vec<Node> {
-        info!("RichIndexerChainReorgBug: before_run");
-        {
-            tracing::info!(
-                "RUST_LOG is {}",
-                std::env::var("RUST_LOG").unwrap_or_default()
-            );
-        }
-        tracing::info!("......................................");
-        tracing::info!("Tracing::info ...");
-        tracing::debug!("Tracing::debug ...");
-        tracing::info!("......................................");
+        info!("RichIndexerUncleBlockBug: Initializing test environment");
+
+        // Create 3 nodes to maximize uncle block creation
         let node0 = Node::new(self.name(), "node0");
         let node1 = Node::new(self.name(), "node1");
-        let mut nodes = [node0, node1];
+        let node2 = Node::new(self.name(), "node1");
+        let mut nodes = [node0, node1, node2];
 
-        // Setup embedded PostgreSQL
-        info!("Setting up embedded PostgreSQL for rich-indexer");
+        // Setup embedded PostgreSQL with detailed logging
+        info!("Setting up PostgreSQL with detailed logging for rich-indexer");
         let postgres_port = find_available_port();
         let mut settings = Settings::default();
         settings.port = postgres_port;
         settings.temporary = true;
         settings.username = "postgres".to_string();
-        settings.password = "postgres,,".to_string();
-        // Make Postgres emit statements and durations to stderr
+        settings.password = "postgres".to_string();
+
+        // Enable detailed PostgreSQL logging to capture the bug
         let configs = [
-            ("log_directory", "/tmp/postgres"),
-            ("log_filename", "tmp.log"),
+            ("log_directory", "/tmp/postgres_uncle_bug"),
+            ("log_filename", "bug.log"),
             ("logging_collector", "on"),
             ("log_statement", "all"),
-            ("auto_explain.log_min_duration", "0"),
+            ("log_min_duration_statement", "0"),
+            ("shared_preload_libraries", "auto_explain"),
         ];
 
         for (key, value) in configs {
             settings.configuration.insert(key.into(), value.into());
         }
 
-        info!("setitngs; {:?}", settings);
         let mut postgresql = PostgreSQL::new(settings.clone());
         postgresql.setup().expect("Failed to setup PostgreSQL");
         postgresql.start().expect("Failed to start PostgreSQL");
-        {
-            // Store postgresql instance for cleanup (in a real implementation,
-            // we'd store this properly for cleanup in a Drop impl)
-            info!("PostgreSQL started on port {}", postgres_port);
-            let status = postgresql.status();
-            info!("PostgreSQL status: {:?}", status);
-        }
-        postgresql.create_database("ckb_rich_indexer_test").unwrap();
-        info!("postgresql started.....................");
+        postgresql
+            .create_database("ckb_rich_indexer_uncle_test")
+            .unwrap();
 
-        // Store postgresql instance in the struct to keep it alive
+        info!(
+            "PostgreSQL started on port {} with detailed logging",
+            postgres_port
+        );
         *self.postgresql.borrow_mut() = Some(postgresql);
 
-        // Enable rich-indexer only on node0
-        {
-            info!("nodes count: {}", nodes.len());
-            let node0 = &mut nodes[0];
-            node0.modify_app_config(|config| {
-                // Configure rich-indexer to use PostgreSQL
-                config
-                    .rpc
-                    .modules
-                    .push(ckb_app_config::RpcModule::RichIndexer);
-                info!("rpc.modules:{:?}", config.rpc.modules);
-                config.indexer.rich_indexer = ckb_app_config::RichIndexerConfig {
-                    db_type: ckb_app_config::DBDriver::Postgres,
-                    db_host: "127.0.0.1".to_string(),
-                    db_port: postgres_port,
-                    db_user: settings.clone().username.clone(),
-                    db_password: settings.clone().password.clone(),
-                    db_name: "ckb_rich_indexer_test".to_string(),
-                    ..Default::default()
-                };
-                info!("rich_indexer: {:?}", config.indexer.rich_indexer);
-                // config.logger.filter =
-                //     Some("debug,tentacle=info,sled=info,tokio_yamux=info".to_string());
-                config.logger.log_to_stdout = true;
+        // Configure node0 with rich-indexer and aggressive settings to trigger the bug
+        let node0 = &mut nodes[0];
+        node0.modify_app_config(|config| {
+            config
+                .rpc
+                .modules
+                .push(ckb_app_config::RpcModule::RichIndexer);
+            config.indexer.rich_indexer = ckb_app_config::RichIndexerConfig {
+                db_type: ckb_app_config::DBDriver::Postgres,
+                db_host: "127.0.0.1".to_string(),
+                db_port: postgres_port,
+                db_user: settings.username.clone(),
+                db_password: settings.password.clone(),
+                db_name: "ckb_rich_indexer_uncle_test".to_string(),
+                ..Default::default()
+            };
 
-                // Configure faster polling to increase chance of race conditions
-                config.indexer.poll_interval = 1;
-                config.indexer.index_tx_pool = false;
-            });
-        }
-        {
-            let node1 = &mut nodes[1];
-            node1.modify_app_config(|config| {
+            // Aggressive settings to increase uncle block probability
+            config.indexer.poll_interval = 1; // Poll every 100ms
+            config.indexer.index_tx_pool = false;
+            config.logger.log_to_stdout = true;
+            config.logger.filter =
+                Some("info,ckb_indexer_sync=trace,ckb_rich_indexer=trace".to_string());
+
+            // // Mining settings to create more competing blocks
+            // config.miner.workers = 1;
+        });
+
+        // Configure other nodes for competitive mining
+        for (i, node) in nodes.iter_mut().enumerate().skip(1) {
+            node.modify_app_config(|config| {
                 config.logger.log_to_stdout = false;
+                // config.miner.workers = 1;
             });
         }
 
+        // Start all nodes
         nodes.iter_mut().for_each(|node| {
+            info!("started node");
             node.start();
         });
 
         nodes.to_vec()
     }
 
-    /// Reproduces the rich-indexer chain reorganization bug
+    /// Reproduces the specific uncle block reconstruction bug
     ///
-    /// Timeline:
-    /// 1. Both nodes mine independently to create fork
-    /// 2. Node0 mines shorter chain, Node1 mines longer chain  
-    /// 3. Connect nodes to trigger chain reorganization
-    /// 4. Check if rich-indexer tip updates correctly
+    /// Attack Plan:
+    /// 1. Create initial sync between all nodes
+    /// 2. Disconnect nodes to create isolated mining environments
+    /// 3. Generate competing blocks at the same height with different transaction sets
+    /// 4. Reconnect nodes to trigger uncle block processing
+    /// 5. Monitor rich-indexer for the infinite loop bug
     fn run(&self, nodes: &mut Vec<Node>) {
-        info!(
-            "RichIndexerChainReorgBug: run.........................................................."
-        );
+        info!("=== Phase 1: Initial Setup and Sync ===");
         let node0 = &nodes[0];
         let node1 = &nodes[1];
+        let node2 = &nodes[2];
 
-        info!("nodes count: {}", nodes.len());
-        // print nodes genesis block number and hash:
-        nodes.iter().enumerate().for_each(|(id, node)| {
-            let genesis = node.get_block_by_number(0);
-            info!(
-                "Node{} genesis block: number={}, hash={}",
-                id,
-                genesis.number(),
-                genesis.hash()
-            );
-        });
-
-        info!("=== Phase 1: Setup independent mining ===");
-        out_ibd_mode(nodes);
-        node1.connect(node0);
+        // Connect all nodes and establish initial chain
+        info!("connect all nodes");
+        connect_all(nodes);
+        info!("mine until out bootstrap period");
         node0.mine_until_out_bootstrap_period();
-
-        waiting_for_sync(&[node0, node1]);
-        info!(
-            "Both nodes synced to height {}, {}",
-            node0.get_tip_block_number(),
-            node1.get_tip_block_number()
-        );
-        {
-            let indexer_tip = node0.rpc_client().get_indexer_tip().unwrap();
-            let indexer_tip_number: u64 = indexer_tip.block_number.into();
-            info!("node0 rich-indexer tip: {}", indexer_tip_number);
-        }
-
-        info!("=== Phase 2: Create competing chains ===");
-
-        let node_dbg = |height: Option<u64>| {
-            nodes.iter().enumerate().for_each(|(id, node)| {
-                if let Some(h) = height {
-                    let block = node.get_block_by_number(h);
-                    info!(
-                        "Node{} block at height {}: hash={}, parent={}",
-                        id,
-                        h,
-                        block.hash(),
-                        block.parent_hash()
-                    );
-                } else {
-                    if id == 0 {
-                        let indexer_tip = node
-                            .rpc_client()
-                            .get_indexer_tip()
-                            .expect("must get indexer tip");
-                        let indexer_tip_number: u64 = indexer_tip.block_number.into();
-                        let indexer_tip_hash: packed::Byte32 = indexer_tip.block_hash.into();
-                        info!(
-                            "Node{} indexer: {}-{}",
-                            id, indexer_tip_number, indexer_tip_hash,
-                        );
-                    }
-                    let tip = node.get_tip_block();
-                    info!(
-                        "Node{} tip: height {}-{}, txs: {}, block_size: {}",
-                        id,
-                        tip.number(),
-                        tip.hash(),
-                        tip.transactions().len(),
-                        tip.data().total_size()
-                    );
-                }
-            });
-        };
-
-        let gen_txs = |node: &Node| {
-            let now = std::time::Instant::now();
-            let cells = gen_spendable(node, 4000);
-            let txs = always_success_transactions(node, &cells);
-            txs.iter().for_each(|tx| {
-                let tx_hash = tx.hash();
-                let result = node.submit_transaction_with_result(&tx);
-                // match result {
-                //     Ok(tx_hash) => {
-                //         info!("Node{} submitted tx {}", node.node_id(), tx_hash);
-                //     }
-                //     Err(err) => {
-                //         warn!(
-                //             "Node{} failed to submit tx: {}, {}",
-                //             node.node_id(),
-                //             tx_hash,
-                //             err
-                //         );
-                //     }
-                // }
-            });
-            info!("gen txs cost {}s", now.elapsed().as_secs());
-        };
-
-        gen_txs(node0);
-        node0.mine(1);
+        info!("out ibd mode");
+        out_ibd_mode(nodes);
+        info!("writing for sync");
         waiting_for_sync(nodes);
 
-        let now = std::time::Instant::now();
-        let mut iteration = 0;
-        while now.elapsed().le(&Duration::from_secs(600)) {
-            info!(
-                "\n\n    Create forking_________________________    {}",
-                iteration
-            );
-            gen_txs(node0);
-            gen_txs(node1);
+        let initial_height = node0.get_tip_block_number();
+        info!("All nodes synced to height {}", initial_height);
 
-            std::thread::scope(|s| {
-                let jh0 = s.spawn(|| node0.mine(1));
-                let jh1 = s.spawn(|| node1.mine(1));
+        disconnect_all(nodes);
 
-                jh0.join().unwrap();
-                jh1.join().unwrap();
-            });
+        let print_indexer_tip = |node: &Node| -> String {
+            let indexer_tip = node.rpc_client().get_indexer_tip().unwrap();
+            let indexer_tip_number: u64 = indexer_tip.block_number.into();
+            format!("{}-{}", indexer_tip_number, indexer_tip.block_hash)
+        };
 
-            let base_height = node0.get_tip_block_number();
-            node_dbg(Some(base_height));
-
-            gen_txs(node1);
-            node1.mine(1);
-            waiting_for_sync(nodes);
-            node_dbg(None);
-            iteration += 1;
-        }
-
-        info!("Fork created:");
-        node_dbg(None);
-
-        info!("=== Phase 3: Check rich-indexer before reorganization ===");
-        let indexer_tip_before = node0.rpc_client().get_indexer_tip().unwrap();
+        info!("\n\n\n\n------------ begin");
+        let (block, uncle) = node1.construct_uncle();
         info!(
-            "Rich-indexer tip before reorg: {}-{}",
-            indexer_tip_before.block_number, indexer_tip_before.block_hash
+            "=========== constructed :\nblock:{}-{}\nuncle:{}-{}\n ",
+            block.number(),
+            block.hash(),
+            uncle.number(),
+            uncle.hash(),
         );
 
-        info!("=== Phase 4: Trigger chain reorganization ===");
-        waiting_for_sync(&[node0, node1]);
+        {
+            info!("node0 tip: {}", node0.get_tip_block_number());
 
-        info!("After sync");
-        nodes.iter().enumerate().for_each(|(id, node)| {
-            let tip = node.get_tip_block();
-            info!(
-                "Node {} tip: height {} -> {:?}",
-                id,
-                tip.number(),
-                tip.hash()
-            );
-        });
+            node0.process_block_without_verify(&uncle, false);
 
-        let final_tip = node0.get_tip_block().number();
+            {
+                let tip = node0.get_tip_block();
+                info!("node0 process uncle, tip: {}-{}", tip.number(), tip.hash());
+            }
+            node0.process_block_without_verify(&block, false);
+            {
+                let tip = node0.get_tip_block();
+                info!("node0 process block, tip: {}-{}", tip.number(), tip.hash());
+            }
+            info!("node0 indexer tip: {}", print_indexer_tip(node0));
+            sleep(Duration::from_secs(1));
+            info!("node0 indexer tip: {}", print_indexer_tip(node0));
+        }
 
-        // Wait for rich-indexer to catch up
-        // sleep(Duration::from_secs(5));
+        {
+            info!("node1 tip: {}", node1.get_tip_block_number());
 
-        info!("=== Phase 5: Verify rich-indexer follows chain reorganization ===");
-        let mut retry_count = 0;
-        let max_retries = 10;
+            node1.process_block_without_verify(&block, false);
 
-        loop {
-            let indexer_tip_after = node0.rpc_client().get_indexer_tip().unwrap();
-            info!(
-                "Rich-indexer tip after reorg: {}-{}",
-                indexer_tip_after.block_number, indexer_tip_after.block_hash
-            );
-
-            if indexer_tip_after.block_number == final_tip.into() {
-                info!("✅ SUCCESS: Rich-indexer tip matches chain tip");
-                info!("  Chain tip: {}", final_tip);
-                info!("  Rich-indexer tip: {}", indexer_tip_after.block_number);
-                break;
-            } else {
-                warn!(
-                    "Rich-indexer tip ({}) != chain tip ({})",
-                    indexer_tip_after.block_number, final_tip
-                );
+            {
+                let tip = node1.get_tip_block();
+                info!("node1 process block, tip: {}-{}", tip.number(), tip.hash());
             }
 
-            retry_count += 1;
-            if retry_count >= max_retries {
-                warn!(
-                    "❌ FAILED: Rich-indexer did not catch up within {} retries",
-                    max_retries
-                );
-                warn!("This indicates the rich-indexer chain reorganization bug!");
-                break;
+            node1.process_block_without_verify(&uncle, false);
+            {
+                let tip = node1.get_tip_block();
+                info!("node1 process uncle, tip: {}-{}", tip.number(), tip.hash());
             }
+        }
 
+        disconnect_all(nodes);
+
+        {
+            let (block, uncle) = node1.construct_uncle();
             info!(
-                "Waiting for rich-indexer to catch up... (retry {}/{})",
-                retry_count, max_retries
+                "=========== constructed :\nblock:{}-{}\nuncle:{}-{}\n ",
+                block.number(),
+                block.hash(),
+                uncle.number(),
+                uncle.hash(),
             );
-            sleep(Duration::from_secs(2));
+
+            node1.process_block_without_verify(&uncle, false);
+            connect_all(nodes);
+            waiting_for_sync(nodes);
+            sleep(Duration::from_secs(15));
+            info!("node0 indexer tip: {}", print_indexer_tip(node0));
+
+            node1.process_block_without_verify(&block, false);
+
+            node2.process_block_without_verify(&block, false);
+            node2.process_block_without_verify(&uncle, false);
+            node2.mine(1);
+            connect_all(nodes);
+        }
+
+        waiting_for_sync(nodes);
+        sleep(Duration::from_secs(15));
+        info!("node0 indexer tip: {}", print_indexer_tip(node0));
+        {
+            info!("checking node0's tip and indexer tip");
+            let tip = node0.get_tip_block();
+            info!("node0 tip: {}-{}", tip.number(), tip.hash());
+            print_indexer_tip(node0);
         }
     }
 
-    // Disable node discovery for controlled test environment
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        // Disable automatic peer discovery to control test environment
         config.network.connect_outbound_interval_secs = 100_000;
+        config.network.discovery_local_address = false;
+
+        // Aggressive mining settings to increase competition
+        // config.tx_pool.min_fee_rate = 0.into();
+        // config.tx_pool.max_tx_pool_size = 1000;
+    }
+}
+
+impl Drop for RichIndexerUncleBlockBug {
+    fn drop(&mut self) {
+        if let Some(mut postgresql) = self.postgresql.borrow_mut().take() {
+            info!("Shutting down PostgreSQL test instance");
+            let _ = postgresql.stop();
+        }
     }
 }
