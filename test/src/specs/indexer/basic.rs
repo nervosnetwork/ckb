@@ -33,7 +33,7 @@ impl Spec for RichIndexerUncleBlockBug {
 
         // Setup embedded PostgreSQL with detailed logging
         info!("Setting up PostgreSQL with detailed logging for rich-indexer");
-        let postgres_port = find_available_port();
+        let postgres_port = 8888;
         let mut settings = Settings::default();
         settings.port = postgres_port;
         settings.temporary = true;
@@ -55,11 +55,11 @@ impl Spec for RichIndexerUncleBlockBug {
         }
 
         let mut postgresql = PostgreSQL::new(settings.clone());
-        postgresql.setup().expect("Failed to setup PostgreSQL");
-        postgresql.start().expect("Failed to start PostgreSQL");
-        postgresql
-            .create_database("ckb_rich_indexer_uncle_test")
-            .unwrap();
+        // postgresql.setup().expect("Failed to setup PostgreSQL");
+        // postgresql.start().expect("Failed to start PostgreSQL");
+        // postgresql
+        //     .create_database("ckb_rich_indexer_uncle_test")
+        //     .unwrap();
 
         info!(
             "PostgreSQL started on port {} with detailed logging",
@@ -226,7 +226,6 @@ impl Spec for RichIndexerUncleBlockBug {
             }
             sleep(Duration::from_secs(3));
         }
-
 
         // {
         //     let (block, uncle) = node1.construct_uncle();
