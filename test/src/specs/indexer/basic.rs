@@ -33,9 +33,10 @@ impl Spec for RichIndexerUncleBlockBug {
 
         // Setup embedded PostgreSQL with detailed logging
         info!("Setting up PostgreSQL with detailed logging for rich-indexer");
-        let postgres_port = 8888;
+        let postgres_port = 8889;
         let mut settings = Settings::default();
         settings.port = postgres_port;
+        settings.host = "127.0.0.1".to_string();
         settings.temporary = true;
         settings.username = "postgres".to_string();
         settings.password = "postgres".to_string();
