@@ -205,8 +205,8 @@ impl Spec for RichIndexerUncleBlockBug {
             connect_all(nodes);
             node2.mine(1);
             waiting_for_sync(nodes);
-            // node2.mine(2);
-            // waiting_for_sync(nodes);
+            node2.mine(2);
+            waiting_for_sync(nodes);
         }
 
         let now = std::time::Instant::now();
