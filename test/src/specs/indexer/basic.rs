@@ -39,6 +39,7 @@ impl Spec for RichIndexerUncleBlockBug {
         settings.temporary = true;
         settings.username = "postgres".to_string();
         settings.password = "postgres".to_string();
+        settings.timeout = Some(Duration::from_secs(60));
 
         // Enable detailed PostgreSQL logging to capture the bug
         let configs = [
@@ -55,11 +56,11 @@ impl Spec for RichIndexerUncleBlockBug {
         }
 
         let mut postgresql = PostgreSQL::new(settings.clone());
-        // postgresql.setup().expect("Failed to setup PostgreSQL");
-        // postgresql.start().expect("Failed to start PostgreSQL");
-        // postgresql
-        //     .create_database("ckb_rich_indexer_uncle_test")
-        //     .unwrap();
+        postgresql.setup().expect("Failed to setup PostgreSQL");
+        postgresql.start().expect("Failed to start PostgreSQL");
+        postgresql
+            .create_database("ckb_rich_indexer_uncle_test")
+            .unwrap();
 
         info!(
             "PostgreSQL started on port {} with detailed logging",
