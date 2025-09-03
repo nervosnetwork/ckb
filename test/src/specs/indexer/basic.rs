@@ -278,12 +278,3 @@ impl Spec for RichIndexerUncleBlockBug {
         // config.tx_pool.max_tx_pool_size = 1000;
     }
 }
-
-impl Drop for RichIndexerUncleBlockBug {
-    fn drop(&mut self) {
-        if let Some(mut postgresql) = self.postgresql.borrow_mut().take() {
-            info!("Shutting down PostgreSQL test instance");
-            let _ = postgresql.stop();
-        }
-    }
-}
