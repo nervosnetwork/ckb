@@ -1,4 +1,3 @@
-use ckb_types::core::hardfork::HardForks;
 use ckb_types::core::{BlockExt, BlockView};
 use ckb_types::packed::ProposalShortId;
 #[cfg(debug_assertions)]
@@ -52,34 +51,5 @@ impl ForkChanges {
         }) && IsSorted::is_sorted_by_key(&mut self.detached_blocks().iter(), |blk| {
             blk.header().number()
         })
-    }
-
-    pub fn during_hardfork(&self, hardfork_switch: &HardForks) -> bool {
-        let hardfork_during_detach =
-            self.check_if_hardfork_during_blocks(hardfork_switch, &self.detached_blocks);
-        let hardfork_during_attach =
-            self.check_if_hardfork_during_blocks(hardfork_switch, &self.attached_blocks);
-
-        hardfork_during_detach || hardfork_during_attach
-    }
-
-    fn check_if_hardfork_during_blocks(
-        &self,
-        hardfork: &HardForks,
-        blocks: &VecDeque<BlockView>,
-    ) -> bool {
-        if blocks.is_empty() {
-            false
-        } else {
-            // This method assumes that the input blocks are sorted and unique.
-            let rfc_0049 = hardfork.ckb2023.rfc_0049();
-            let epoch_first = blocks.front().unwrap().epoch().number();
-            let epoch_next = blocks
-                .back()
-                .unwrap()
-                .epoch()
-                .minimum_epoch_number_after_n_blocks(1);
-            epoch_first < rfc_0049 && rfc_0049 <= epoch_next
-        }
     }
 }

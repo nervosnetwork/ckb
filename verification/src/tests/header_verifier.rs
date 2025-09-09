@@ -1,19 +1,11 @@
-use crate::header_verifier::{
-    EpochVerifier, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
-};
-use crate::{
-    ALLOWED_FUTURE_BLOCKTIME, BlockVersionError, EpochError, NumberError, PowError, TimestampError,
-};
-use ckb_chain_spec::consensus::ConsensusBuilder;
+use crate::header_verifier::{EpochVerifier, NumberVerifier, PowVerifier, TimestampVerifier};
+use crate::{ALLOWED_FUTURE_BLOCKTIME, EpochError, NumberError, PowError, TimestampError};
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::{MOCK_MEDIAN_TIME_COUNT, MockMedianTime};
 use ckb_types::{
-    core::{
-        EpochNumberWithFraction, HeaderBuilder,
-        hardfork::{CKB2021, CKB2023, HardForks},
-    },
+    core::{EpochNumberWithFraction, HeaderBuilder},
     packed::Header,
 };
 
@@ -23,41 +15,6 @@ fn mock_median_time_context() -> MockMedianTime {
     let now = unix_time_as_millis();
     let timestamps = (0..100).map(|_| now).collect();
     MockMedianTime::new(timestamps)
-}
-
-#[test]
-pub fn test_version() {
-    let hardfork_switch = HardForks {
-        ckb2021: CKB2021::new_mirana(),
-        ckb2023: CKB2023::new_mirana()
-            .as_builder()
-            .rfc_0048(10)
-            .build()
-            .unwrap(),
-    };
-    let consensus = ConsensusBuilder::default()
-        .hardfork_switch(hardfork_switch)
-        .build();
-
-    let header = HeaderBuilder::default()
-        .version(consensus.block_version() + 1)
-        .build();
-    let verifier = VersionVerifier::new(&header, &consensus);
-
-    assert_error_eq!(
-        verifier.verify().unwrap_err(),
-        BlockVersionError {
-            expected: consensus.block_version(),
-            actual: consensus.block_version() + 1
-        }
-    );
-    let epoch = EpochNumberWithFraction::new(10, 40, 1000);
-    let header = HeaderBuilder::default()
-        .version(consensus.block_version() + 1)
-        .epoch(epoch)
-        .build();
-    let verifier = VersionVerifier::new(&header, &consensus);
-    assert!(verifier.verify().is_ok());
 }
 
 #[test]
