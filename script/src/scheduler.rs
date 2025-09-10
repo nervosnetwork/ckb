@@ -111,6 +111,10 @@ where
     suspended: BTreeMap<VmId, Snapshot2<DataPieceId>>,
     /// Terminated vms.
     terminated_vms: BTreeMap<VmId, i8>,
+    /// Root vm's arguments. Provided for compatibility with surrounding tools. You should not
+    /// read it anywhere except when initializing the root vm.
+    /// Note: This field is intentionally not serialized in FullSuspendedState.
+    root_vm_args: Vec<Bytes>,
 
     /// MessageBox is expected to be empty before returning from `run`
     /// function, there is no need to persist messages.
@@ -144,6 +148,7 @@ where
             suspended: BTreeMap::default(),
             message_box: Arc::new(Mutex::new(Vec::new())),
             terminated_vms: BTreeMap::default(),
+            root_vm_args: Vec::new(),
         }
     }
 
@@ -226,6 +231,7 @@ where
                 .collect(),
             message_box: Arc::new(Mutex::new(Vec::new())),
             terminated_vms: full.terminated_vms.into_iter().collect(),
+            root_vm_args: Vec::new(),
         };
         scheduler
             .ensure_vms_instantiated(&full.instantiated_ids)
@@ -990,7 +996,7 @@ where
                         offset: 0,
                         length: u64::MAX,
                     },
-                    VmArgs::Vector(vec![]),
+                    VmArgs::Vector(self.root_vm_args.clone()),
                 )?,
                 ROOT_VM_ID
             );
@@ -1086,6 +1092,12 @@ where
                 .fold(machine_builder, |builder, syscall| builder.syscall(syscall));
         let default_machine = machine_builder.build();
         Ok((vm_context, M::new(default_machine)))
+    }
+
+    /// Provided for compatibility with surrounding tools. Normally, you should not call this
+    /// function from within the current crate.
+    pub fn set_root_vm_args(&mut self, args: Vec<Bytes>) {
+        self.root_vm_args = args;
     }
 
     fn i8_to_reg(v: i8) -> <M::Inner as CoreMachine>::REG {
