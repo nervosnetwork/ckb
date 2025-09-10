@@ -7,8 +7,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_types::core::{
-    Capacity, Cycle, EpochNumber, TransactionView, cell::ResolvedTransaction,
-    tx_pool::TRANSACTION_SIZE_LIMIT,
+    Capacity, Cycle, TransactionView, cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT,
 };
 use ckb_verification::{
     ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
@@ -166,20 +165,4 @@ macro_rules! try_or_return_with_snapshot {
             }
         }
     };
-}
-
-pub(crate) fn after_delay_window(snapshot: &Snapshot) -> bool {
-    let epoch = snapshot.tip_header().epoch();
-    let proposal_window = snapshot.consensus().tx_proposal_window();
-
-    let index = epoch.index();
-    let epoch_number = epoch.number();
-
-    let rfc_0049 = snapshot.consensus().hardfork_switch.ckb2023.rfc_0049();
-
-    if rfc_0049 == 0 && rfc_0049 == EpochNumber::MAX {
-        return true;
-    }
-
-    epoch_number > rfc_0049 || (epoch_number == rfc_0049 && index > proposal_window.farthest())
 }

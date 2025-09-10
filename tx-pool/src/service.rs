@@ -7,7 +7,6 @@ use crate::component::pool_map::{PoolEntry, Status};
 use crate::component::verify_queue::VerifyQueue;
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::TxPool;
-use crate::util::after_delay_window;
 use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_async_runtime::Handle;
@@ -34,7 +33,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use ckb_util::{LinkedHashMap, LinkedHashSet};
+use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -522,7 +521,6 @@ impl TxPoolServiceBuilder {
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(self, network: NetworkController) {
         let consensus = self.snapshot.cloned_consensus();
-        let after_delay_window = after_delay_window(&self.snapshot);
 
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
             self.tx_pool_config.max_tx_verify_cycles,
@@ -551,8 +549,6 @@ impl TxPoolServiceBuilder {
             verify_queue: Arc::clone(&verify_queue),
             network,
             consensus,
-            delay: Arc::new(RwLock::new(LinkedHashMap::new())),
-            after_delay: Arc::new(AtomicBool::new(after_delay_window)),
             fee_estimator: self.fee_estimator,
         };
 
@@ -703,8 +699,6 @@ pub(crate) struct TxPoolService {
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
-    pub(crate) delay: Arc<RwLock<LinkedHashMap<ProposalShortId, TransactionView>>>,
-    pub(crate) after_delay: Arc<AtomicBool>,
     pub(crate) fee_estimator: FeeEstimator,
 }
 
@@ -1158,13 +1152,5 @@ impl TxPoolService {
                 error!("block_assembler receiver dropped");
             }
         }
-    }
-
-    pub fn after_delay(&self) -> bool {
-        self.after_delay.load(Ordering::Acquire)
-    }
-
-    pub fn set_after_delay_true(&self) {
-        self.after_delay.store(true, Ordering::Release);
     }
 }

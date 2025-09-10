@@ -1,6 +1,5 @@
 use crate::{
-    ALLOWED_FUTURE_BLOCKTIME, BlockVersionError, EpochError, NumberError, PowError, TimestampError,
-    UnknownParentError,
+    ALLOWED_FUTURE_BLOCKTIME, EpochError, NumberError, PowError, TimestampError, UnknownParentError,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
@@ -31,7 +30,6 @@ impl<'a, DL: HeaderFieldsProvider> HeaderVerifier<'a, DL> {
 impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
     type Target = HeaderView;
     fn verify(&self, header: &Self::Target) -> Result<(), Error> {
-        VersionVerifier::new(header, self.consensus).verify()?;
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
         let parent_fields = self
@@ -48,34 +46,6 @@ impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
             self.consensus.median_time_block_count(),
         )
         .verify()?;
-        Ok(())
-    }
-}
-
-pub struct VersionVerifier<'a> {
-    header: &'a HeaderView,
-    consensus: &'a Consensus,
-}
-
-impl<'a> VersionVerifier<'a> {
-    pub fn new(header: &'a HeaderView, consensus: &'a Consensus) -> Self {
-        VersionVerifier { header, consensus }
-    }
-
-    pub fn verify(&self) -> Result<(), Error> {
-        if !self
-            .consensus
-            .hardfork_switch
-            .ckb2023
-            .is_remove_header_version_reservation_rule_enabled(self.header.epoch().number())
-            && self.header.version() != self.consensus.block_version()
-        {
-            return Err(BlockVersionError {
-                expected: self.consensus.block_version(),
-                actual: self.header.version(),
-            }
-            .into());
-        }
         Ok(())
     }
 }
