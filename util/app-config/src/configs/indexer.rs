@@ -113,9 +113,6 @@ pub struct IndexerSyncConfig {
     pub poll_interval: u64,
     /// Whether to index the pending txs in the ckb tx-pool
     pub index_tx_pool: bool,
-    /// Maximal db info log files to be kept.
-    #[serde(default)]
-    pub db_keep_log_file_num: Option<NonZeroUsize>,
 }
 
 impl From<&IndexerConfig> for IndexerSyncConfig {
@@ -124,7 +121,6 @@ impl From<&IndexerConfig> for IndexerSyncConfig {
             secondary_path: config.secondary_path.clone(),
             poll_interval: config.poll_interval,
             index_tx_pool: config.index_tx_pool,
-            db_keep_log_file_num: config.db_keep_log_file_num,
         }
     }
 }
