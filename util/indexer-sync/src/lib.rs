@@ -28,15 +28,13 @@ use ckb_types::{
     core::{self, BlockNumber, BlockView},
     packed::Byte32,
 };
-use rocksdb::prelude::*;
+use rocksdb::{LogLevel, prelude::*};
 
 use std::marker::Send;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
 
-const DEFAULT_LOG_KEEP_NUM: usize = 1;
 const INDEXER_NODE_TIP_GAP: u64 = 10;
 
 /// Trait for an indexer's synchronization interface
@@ -64,7 +62,7 @@ pub fn new_secondary_db(ckb_db_config: &DBConfig, config: &IndexerSyncConfig) ->
         COLUMN_BLOCK_PROPOSAL_IDS,
         COLUMN_BLOCK_EXTENSION,
     ];
-    let secondary_opts = indexer_secondary_options(config);
+    let secondary_opts = indexer_secondary_options();
     SecondaryDB::open_cf(
         &secondary_opts,
         &ckb_db_config.path,
@@ -301,15 +299,10 @@ impl IndexerSyncService {
     }
 }
 
-fn indexer_secondary_options(config: &IndexerSyncConfig) -> Options {
+fn indexer_secondary_options() -> Options {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
-    opts.set_keep_log_file_num(
-        config
-            .db_keep_log_file_num
-            .map(NonZeroUsize::get)
-            .unwrap_or(DEFAULT_LOG_KEEP_NUM),
-    );
+    opts.set_log_level(LogLevel::Warn);
     opts
 }

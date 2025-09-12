@@ -601,19 +601,8 @@ impl ConsumeUnverifiedBlockProcessor {
         if fork.attached_blocks().is_empty() {
             return Ok(());
         }
-
         let txs_verify_cache = self.shared.txs_verify_cache();
-
-        let consensus = self.shared.consensus();
-        let hardfork_switch = consensus.hardfork_switch();
-        let during_hardfork = fork.during_hardfork(hardfork_switch);
         let async_handle = self.shared.tx_pool_controller().handle();
-
-        if during_hardfork {
-            async_handle.block_on(async {
-                txs_verify_cache.write().await.clear();
-            });
-        }
 
         let consensus = self.shared.cloned_consensus();
         let start_block_header = fork.attached_blocks()[0].header();

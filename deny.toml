@@ -70,6 +70,10 @@ feature-depth = 1
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
 ignore = [
+  # The fxhash crate is no longer maintained, but fxhash was introduced by sled,
+  # so we need to wait for sled to update its version，
+  # for now, temporarily ignore it first.
+  "RUSTSEC-2025-0057",
   # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0370
   # proc-macro-error's maintainer seems to be unreachable, with no commits for 2 years, no releases pushed for 4 years, and no activity on the GitLab repo or response to email.
   "RUSTSEC-2024-0370",
