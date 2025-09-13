@@ -1,8 +1,8 @@
-use super::KeyValueBackend;
 use crate::types::HeaderIndexView;
 use ckb_types::{packed::Byte32, prelude::*};
 use sled::{Config, Db, Mode};
 use std::path;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use tempfile::TempDir;
@@ -10,35 +10,39 @@ use tempfile::TempDir;
 pub(crate) struct SledBackend {
     count: AtomicUsize,
     db: Db,
-    _tmpdir: TempDir,
+    _tmpdir: Option<TempDir>,
 }
 
-impl KeyValueBackend for SledBackend {
-    fn new<P>(tmp_path: Option<P>) -> Self
+impl SledBackend {
+    pub fn new<P>(header_map_base_path: Option<P>) -> Self
     where
         P: AsRef<path::Path>,
     {
-        let mut builder = tempfile::Builder::new();
-        builder.prefix("ckb-tmp-");
-        let tmpdir = if let Some(ref path) = tmp_path {
-            builder.tempdir_in(path)
-        } else {
-            builder.tempdir()
-        }
-        .expect("failed to create a tempdir to save header map into disk");
+        let mut _tmpdir = None;
+        let header_map_base_path: PathBuf = header_map_base_path
+            .map(|p| p.as_ref().to_path_buf())
+            .unwrap_or_else(|| {
+                let mut builder = tempfile::Builder::new();
+                builder.prefix("ckb-tmp-");
+                let tmpdir = builder.tempdir().expect("create a temporary directory");
+                let path = tmpdir.path().to_path_buf();
+                _tmpdir = Some(tmpdir);
+                path
+            });
+        let header_map_path = header_map_base_path.join("header_map");
 
         // use a smaller system page cache here since we are using sled as a temporary storage,
         // most of the time we will only read header from memory.
         let db: Db = Config::new()
             .mode(Mode::HighThroughput)
             .cache_capacity(64 * 1024 * 1024)
-            .path(tmpdir.path())
+            .path(header_map_path)
             .open()
             .expect("failed to open a key-value database to save header map into disk");
 
         Self {
             db,
-            _tmpdir: tmpdir,
+            _tmpdir,
             count: AtomicUsize::new(0),
         }
     }
@@ -47,7 +51,11 @@ impl KeyValueBackend for SledBackend {
         self.count.load(Ordering::SeqCst)
     }
 
-    fn contains_key(&self, key: &Byte32) -> bool {
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn contains_key(&self, key: &Byte32) -> bool {
         self.db
             .contains_key(key.as_slice())
             .expect("sled contains_key")
@@ -72,7 +80,7 @@ impl KeyValueBackend for SledBackend {
         last_value.map(|_| ())
     }
 
-    fn insert_batch(&self, values: &[HeaderIndexView]) {
+    pub fn insert_batch(&self, values: &[HeaderIndexView]) {
         let mut count = 0;
         for value in values {
             let key = value.hash();
@@ -87,7 +95,7 @@ impl KeyValueBackend for SledBackend {
         self.count.fetch_add(count, Ordering::SeqCst);
     }
 
-    fn remove(&self, key: &Byte32) -> Option<HeaderIndexView> {
+    pub fn remove(&self, key: &Byte32) -> Option<HeaderIndexView> {
         let old_value = self
             .db
             .remove(key.as_slice())
@@ -99,7 +107,7 @@ impl KeyValueBackend for SledBackend {
         })
     }
 
-    fn remove_no_return(&self, key: &Byte32) {
+    pub fn remove_no_return(&self, key: &Byte32) {
         let old_value = self
             .db
             .remove(key.as_slice())
