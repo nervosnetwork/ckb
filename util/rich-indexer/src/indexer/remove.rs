@@ -39,14 +39,8 @@ pub(crate) async fn rollback_block(tx: &mut Transaction<'_, Any>) -> Result<(), 
     remove_batch_by_blobs("script", "id", &script_id_list_to_remove, tx).await?;
 
     // remove block and block associations
-    let uncle_id_list = query_uncle_id_list_by_block_id(block_id, tx).await?;
     remove_batch_by_blobs("block", "id", &[block_id], tx).await?;
     remove_batch_by_blobs("block_association_proposal", "block_id", &[block_id], tx).await?;
-    remove_batch_by_blobs("block_association_uncle", "block_id", &[block_id], tx).await?;
-
-    // remove uncles
-    remove_batch_by_blobs("block", "id", &uncle_id_list, tx).await?;
-    remove_batch_by_blobs("block_association_proposal", "block_id", &uncle_id_list, tx).await?;
 
     Ok(())
 }
@@ -103,24 +97,6 @@ async fn reset_spent_cells(tx_id_list: &[i64], tx: &mut Transaction<'_, Any>) ->
         .map_err(|err| Error::DB(err.to_string()))?;
 
     Ok(())
-}
-
-async fn query_uncle_id_list_by_block_id(
-    block_id: i64,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<i64>, Error> {
-    SQLXPool::new_query(
-        r#"
-            SELECT DISTINCT uncle_id
-            FROM block_association_uncle
-            WHERE block_id = $1
-            "#,
-    )
-    .bind(block_id)
-    .fetch_all(tx.as_mut())
-    .await
-    .map(|rows| rows.into_iter().map(|row| row.get("uncle_id")).collect())
-    .map_err(|err| Error::DB(err.to_string()))
 }
 
 async fn query_tip_id(tx: &mut Transaction<'_, Any>) -> Result<Option<i64>, Error> {
