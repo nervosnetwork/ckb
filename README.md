@@ -54,6 +54,9 @@ If you're looking for somewhere to start, check out the following [good-first-is
 
 The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md). To propose new protocol or standard for Nervos, see [Nervos RFC](https://github.com/nervosnetwork/rfcs).
 
+Join our developer Discord channels([English](https://discord.gg/DEpUEWNaQH) | [Chinese](https://discord.gg/eprqVfCT)) to ask questions.
+
+
 ---
 
 ## Documentations

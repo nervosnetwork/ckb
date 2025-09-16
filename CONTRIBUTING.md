@@ -1,6 +1,12 @@
 # Contributing
 
-When contributing to this repository, please first discuss the change you wish to make via [GitHub issue](https://github.com/nervosnetwork/ckb/issues).
+
+When contributing to this repository, please first discuss the change you wish to make via issue,
+email, or any other method with the community before making a change. The developer Discord channel
+([English] | [Chinese]) should be used to discuss complicated or controversial changes before working on a patch.
+
+[English]: https://discord.gg/DEpUEWNaQH
+[Chinese]: https://discord.gg/eprqVfCT
 
 Please note we have a code of conduct, please follow it in all your interactions with the project.
 
