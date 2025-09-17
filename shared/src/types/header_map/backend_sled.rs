@@ -1,6 +1,8 @@
 #![allow(unused)]
 
+use crate::shared;
 use crate::types::HeaderIndexView;
+use ckb_logger::info;
 use ckb_types::{packed::Byte32, prelude::*};
 use sled::{Config, Db, Mode};
 use std::path;
@@ -8,6 +10,8 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use tempfile::TempDir;
+
+const SHARED_BEST_HEADER_KEY: &[u8] = b"__ckb_shared_best_header__";
 
 pub(crate) struct SledBackend {
     count: AtomicUsize,
@@ -33,6 +37,7 @@ impl SledBackend {
             });
         let header_map_path = header_map_base_path.join("header_map");
 
+        info!("header_map_path: {}", header_map_path.display());
         // use a smaller system page cache here since we are using sled as a temporary storage,
         // most of the time we will only read header from memory.
         let db: Db = Config::new()
@@ -42,14 +47,21 @@ impl SledBackend {
             .open()
             .expect("failed to open a key-value database to save header map into disk");
 
-        Self {
-            db,
-            _tmpdir,
-            count: AtomicUsize::new(0),
+        let count = AtomicUsize::new(db.len());
+        let header_map = Self { db, _tmpdir, count };
+        if let Some(shared_best_header) = header_map.load_shared_best_header() {
+            info!(
+                "found shared_best_header in SledBackend: {:?}",
+                shared_best_header.number_and_hash()
+            );
+            header_map.count.fetch_sub(1, Ordering::SeqCst);
         }
+        info!("SledBackend have {} items", header_map.len());
+
+        header_map
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.count.load(Ordering::SeqCst)
     }
 
@@ -117,5 +129,34 @@ impl SledBackend {
         if old_value.is_some() {
             self.count.fetch_sub(1, Ordering::SeqCst);
         }
+    }
+
+    pub fn load_shared_best_header(&self) -> Option<HeaderIndexView> {
+        self.db
+            .get(SHARED_BEST_HEADER_KEY)
+            .unwrap_or_else(|err| {
+                panic!("read shared best header from disk should be ok, but {err}")
+            })
+            .map(|slice| {
+                if slice.len() < 32 {
+                    panic!(
+                        "stored shared best header should contain hash and payload, len {}",
+                        slice.len()
+                    );
+                }
+                let (hash, payload) = slice.split_at(32);
+                HeaderIndexView::from_slice_should_be_ok(hash, payload)
+            })
+    }
+
+    pub fn store_shared_best_header(&self, header: &HeaderIndexView) {
+        let hash = header.hash();
+        let payload = header.to_vec();
+        let mut buf = Vec::with_capacity(32 + payload.len());
+        buf.extend_from_slice(hash.as_slice());
+        buf.extend_from_slice(&payload);
+        self.db
+            .insert(SHARED_BEST_HEADER_KEY, buf)
+            .expect("failed to persist shared best header to sled");
     }
 }

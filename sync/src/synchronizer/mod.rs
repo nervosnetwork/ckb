@@ -122,7 +122,7 @@ impl BlockFetchCMD {
             CanStart::FetchToTarget(assume_target) => fetch_blocks_fn(self, assume_target),
             CanStart::Ready => fetch_blocks_fn(self, BlockNumber::MAX),
             CanStart::MinWorkNotReach => {
-                let best_known = self.sync_shared.state().shared_best_header_ref();
+                let best_known = self.sync_shared.shared_best_header_ref();
                 let number = best_known.number();
                 if number != self.number && (number - self.number) % 10000 == 0 {
                     self.number = number;
@@ -136,9 +136,8 @@ impl BlockFetchCMD {
                 }
             }
             CanStart::AssumeValidNotFound => {
-                let state = self.sync_shared.state();
                 let shared = self.sync_shared.shared();
-                let best_known = state.shared_best_header_ref();
+                let best_known = self.sync_shared.shared_best_header_ref();
                 let number = best_known.number();
                 let assume_valid_target: Byte32 = shared
                     .assume_valid_targets()
@@ -194,7 +193,7 @@ impl BlockFetchCMD {
             .genesis_block()
             .header()
             .timestamp();
-        let shared_best_timestamp = self.sync_shared.state().shared_best_header().timestamp();
+        let shared_best_timestamp = self.sync_shared.shared_best_header().timestamp();
 
         let ckb_process_start_timestamp = self.start_timestamp;
 
@@ -238,10 +237,9 @@ impl BlockFetchCMD {
         }
 
         let shared = self.sync_shared.shared();
-        let state = self.sync_shared.state();
 
         let min_work_reach = |flag: &mut CanStart| {
-            if state.min_chain_work_ready() {
+            if self.sync_shared.min_chain_work_ready() {
                 *flag = CanStart::AssumeValidNotFound;
             }
         };
@@ -280,7 +278,7 @@ impl BlockFetchCMD {
                     None => {
                         // Best known already not in the scope of ibd, it means target is invalid
                         if unix_time_as_millis()
-                            .saturating_sub(state.shared_best_header_ref().timestamp())
+                            .saturating_sub(self.sync_shared.shared_best_header_ref().timestamp())
                             < MAX_TIP_AGE
                         {
                             warn!(
@@ -439,7 +437,7 @@ impl Synchronizer {
                 active_chain.total_difficulty().to_owned(),
             )
         };
-        let best_known = self.shared.state().shared_best_header();
+        let best_known = self.shared.shared_best_header();
         // is_better_chain
         if total_difficulty > *best_known.total_difficulty() {
             (header, total_difficulty).into()
@@ -795,7 +793,7 @@ impl Synchronizer {
                         .unwrap();
                     self.fetch_channel = Some(sender);
                     let thread = ::std::thread::Builder::new();
-                    let number = self.shared.state().shared_best_header_ref().number();
+                    let number = self.shared.shared_best_header_ref().number();
                     const THREAD_NAME: &str = "BlockDownload";
                     let sync_shared: Arc<SyncShared> = Arc::to_owned(self.shared());
                     let blockdownload_jh = thread

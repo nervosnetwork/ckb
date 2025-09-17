@@ -63,7 +63,7 @@ impl<'a> HeadersProcess<'a> {
     fn debug(&self) {
         if log_enabled!(Level::Debug) {
             // Regain the updated best known
-            let shared_best_known = self.synchronizer.shared.state().shared_best_header();
+            let shared_best_known = self.synchronizer.shared.shared_best_header();
             let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
                 "chain: num={}, diff={:#x};",
