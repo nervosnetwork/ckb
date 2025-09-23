@@ -364,6 +364,7 @@ impl SharedBuilder {
         let ibd_finished = Arc::new(AtomicBool::new(false));
 
         let header_map = Arc::new(HeaderMap::new(
+            db.clone(),
             header_map_memory_limit,
             &async_handle,
             Arc::clone(&ibd_finished),

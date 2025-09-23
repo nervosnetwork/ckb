@@ -1132,13 +1132,14 @@ impl SyncShared {
         let parent_header_index = self
             .get_header_index_view(&parent_hash, store_first)
             .expect("parent should be verified");
+        let total_difficulty = parent_header_index.total_difficulty() + header.difficulty();
         let mut header_view = HeaderIndexView::new(
             header.hash(),
             header.number(),
             header.epoch(),
             header.timestamp(),
             parent_hash,
-            parent_header_index.total_difficulty() + header.difficulty(),
+            total_difficulty.clone(),
         );
 
         let snapshot = Arc::clone(&self.shared.snapshot());
@@ -1157,7 +1158,9 @@ impl SyncShared {
                 }
             },
         );
-        self.shared.header_map().insert(header_view.clone());
+        self.shared
+            .header_map()
+            .insert(header.to_owned(), total_difficulty);
         self.state
             .peers()
             .may_set_best_known_header(peer, header_view.as_header_index());

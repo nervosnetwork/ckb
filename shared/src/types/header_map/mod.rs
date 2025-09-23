@@ -1,7 +1,8 @@
 use ckb_async_runtime::Handle;
+use ckb_db::RocksDB;
 use ckb_logger::info;
 use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
-use ckb_types::packed::Byte32;
+use ckb_types::{U256, packed::Byte32};
 use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -27,7 +28,12 @@ const ITEM_BYTES_SIZE: usize = size_of::<HeaderIndexView>();
 const WARN_THRESHOLD: usize = ITEM_BYTES_SIZE * 100_000;
 
 impl HeaderMap {
-    pub fn new(memory_limit: usize, async_handle: &Handle, ibd_finished: Arc<AtomicBool>) -> Self {
+    pub fn new(
+        db: RocksDB,
+        memory_limit: usize,
+        async_handle: &Handle,
+        ibd_finished: Arc<AtomicBool>,
+    ) -> Self {
         if memory_limit < ITEM_BYTES_SIZE {
             panic!("The limit setting is too low");
         }
@@ -38,7 +44,7 @@ impl HeaderMap {
             );
         }
         let size_limit = memory_limit / ITEM_BYTES_SIZE;
-        let inner = Arc::new(HeaderMapKernel::new(size_limit, ibd_finished));
+        let inner = Arc::new(HeaderMapKernel::new(db, size_limit, ibd_finished));
         let map = Arc::clone(&inner);
         let stop_rx: CancellationToken = new_tokio_exit_rx();
 
@@ -82,7 +88,7 @@ impl HeaderMap {
         self.inner.get(hash)
     }
 
-    pub fn insert(&self, view: HeaderIndexView) -> Option<()> {
+    pub fn insert(&self, view: ckb_types::core::HeaderView, total_difficulty: U256) -> Option<()> {
         let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle().map(|metric| {
             metric
                 .ckb_header_map_ops_duration
@@ -90,7 +96,7 @@ impl HeaderMap {
                 .start_timer()
         });
 
-        self.inner.insert(view)
+        self.inner.insert(view, total_difficulty)
     }
 
     pub fn remove(&self, hash: &Byte32) {

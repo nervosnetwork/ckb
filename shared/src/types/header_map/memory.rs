@@ -104,22 +104,6 @@ impl MemoryMap {
         ret.map(|_| ())
     }
 
-    pub(crate) fn remove(&self, key: &Byte32, shrink_to_fit: bool) -> Option<HeaderIndexView> {
-        let mut guard = self.0.write();
-        let ret = guard.remove(key);
-
-        if shrink_to_fit {
-            shrink_to_fit!(guard, SHRINK_THRESHOLD);
-        }
-        ret.map(|inner| {
-            if let Some(metrics) = ckb_metrics::handle() {
-                metrics.ckb_header_map_memory_count.dec();
-            }
-
-            (key.clone(), inner).into()
-        })
-    }
-
     pub(crate) fn excess_items(&self, size_limit: usize) -> Option<Vec<HeaderIndexView>> {
         let guard = self.0.read();
         let size = guard.len();
