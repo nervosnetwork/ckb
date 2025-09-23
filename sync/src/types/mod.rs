@@ -1145,14 +1145,14 @@ impl SyncShared {
         let snapshot = Arc::clone(&self.shared.snapshot());
         header_view.build_skip(
             tip_number,
-            |hash, store_first| self.get_header_index_view(hash, store_first),
+            |hash, store_first| self.get_header_view(hash, store_first),
             |number, current| {
                 // shortcut to return an ancestor block
                 if current.number <= snapshot.tip_number() && snapshot.is_main_chain(&current.hash)
                 {
                     snapshot
                         .get_block_hash(number)
-                        .and_then(|hash| self.get_header_index_view(&hash, true))
+                        .and_then(|hash| self.get_header_view(&hash, true))
                 } else {
                     None
                 }
@@ -1165,6 +1165,14 @@ impl SyncShared {
             .peers()
             .may_set_best_known_header(peer, header_view.as_header_index());
         self.may_set_shared_best_header(header_view);
+    }
+
+    pub(crate) fn get_header_view(
+        &self,
+        hash: &Byte32,
+        store_first: bool,
+    ) -> Option<core::HeaderView> {
+        todo!("get header view");
     }
 
     pub(crate) fn get_header_index_view(
@@ -1718,7 +1726,7 @@ impl ActiveChain {
         self.unverified_tip_header().number()
     }
 
-    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<HeaderIndexView> {
+    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
         self.get_ancestor_internal(base, number, false)
     }
 
@@ -1726,7 +1734,7 @@ impl ActiveChain {
         &self,
         base: &Byte32,
         number: BlockNumber,
-    ) -> Option<HeaderIndexView> {
+    ) -> Option<core::HeaderView> {
         self.get_ancestor_internal(base, number, true)
     }
 
@@ -1735,7 +1743,7 @@ impl ActiveChain {
         base: &Byte32,
         number: BlockNumber,
         with_unverified: bool,
-    ) -> Option<HeaderIndexView> {
+    ) -> Option<core::HeaderView> {
         let tip_number = {
             if with_unverified {
                 self.unverified_tip_number()
@@ -1752,15 +1760,14 @@ impl ActiveChain {
             }
         };
 
-        let get_header_view_fn = |hash: &Byte32, store_first: bool| {
-            self.sync_shared.get_header_index_view(hash, store_first)
-        };
+        let get_header_view_fn =
+            |hash: &Byte32, store_first: bool| self.sync_shared.get_header_view(hash, store_first);
 
         let fast_scanner_fn = |number: BlockNumber, current: BlockNumberAndHash| {
             // shortcut to return an ancestor block
             if current.number <= tip_number && block_is_on_chain_fn(&current.hash) {
                 self.get_block_hash(number)
-                    .and_then(|hash| self.sync_shared.get_header_index_view(&hash, true))
+                    .and_then(|hash| self.sync_shared.get_header_view(&hash, true))
             } else {
                 None
             }

@@ -1,7 +1,9 @@
 #![allow(missing_docs)]
-use ckb_types::core::{BlockNumber, EpochNumberWithFraction};
-use ckb_types::packed::Byte32;
-use ckb_types::{BlockNumberAndHash, U256};
+use ckb_types::{
+    BlockNumberAndHash, U256,
+    core::{self, BlockNumber, EpochNumberWithFraction},
+    packed::Byte32,
+};
 
 pub mod header_map;
 
@@ -66,8 +68,8 @@ impl HeaderIndexView {
 
     pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
     where
-        F: Fn(&Byte32, bool) -> Option<HeaderIndexView>,
-        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderIndexView>,
+        F: Fn(&Byte32, bool) -> Option<HeaderView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
     {
         if self.number == 0 {
             return;
@@ -88,10 +90,10 @@ impl HeaderIndexView {
         number: BlockNumber,
         get_header_view: F,
         fast_scanner: G,
-    ) -> Option<HeaderIndexView>
+    ) -> Option<core::HeaderView>
     where
-        F: Fn(&Byte32, bool) -> Option<HeaderIndexView>,
-        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderIndexView>,
+        F: Fn(&Byte32, bool) -> Option<HeaderView>,
+        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderView>,
     {
         if number > self.number() {
             return None;

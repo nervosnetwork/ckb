@@ -196,7 +196,7 @@ impl BlockFetcher {
             end.saturating_sub(start) as usize + 1,
             state.read_inflight_blocks().peer_can_fetch_count(self.peer),
         );
-        let mut fetch = Vec::with_capacity(n_fetch);
+        let mut fetch: Vec<ckb_types::core::HeaderView> = Vec::with_capacity(n_fetch);
         let now = unix_time_as_millis();
         debug!(
             "finding which blocks to fetch, start: {}, end: {}, best_known: {}",
@@ -263,9 +263,7 @@ impl BlockFetcher {
                     .sync_shared
                     .active_chain()
                     .get_block_status(&parent_hash);
-                header = self
-                    .sync_shared
-                    .get_header_index_view(&parent_hash, false)?;
+                header = self.sync_shared.get_header_view(&parent_hash, false)?;
             }
 
             // Move `start` forward

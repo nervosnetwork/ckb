@@ -261,7 +261,7 @@ async fn contextual_check(
     }
 
     let store_first = tip.number() + 1 >= compact_block_header.number();
-    let parent = shared.get_header_index_view(
+    let parent = shared.get_header_view(
         &compact_block_header.data().raw().parent_hash(),
         store_first,
     );
@@ -307,7 +307,7 @@ async fn contextual_check(
                 })
                 .or_else(|| {
                     shared
-                        .get_header_index_view(&block_hash, false)
+                        .get_header_view(&block_hash, false)
                         .map(|header| HeaderFields {
                             hash: header.hash(),
                             number: header.number(),
