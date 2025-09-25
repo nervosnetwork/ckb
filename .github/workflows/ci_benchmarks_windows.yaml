@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: install required tools
-        if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2019' }}
+        if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2022' }}
         run: |
           iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
           .\install-scoop.ps1 -RunAsAdmin
