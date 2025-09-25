@@ -13,6 +13,9 @@ retry_cargo_publish() {
   sed -i.bak \
     -e '/^\[dev-dependencies\]/, /^\[/ { /^[^\[]/d }' \
     -e '/# dev-feature$/d' \
+    -e '/^ckb-test\.workspace/d' \
+    -e '/^ckb-test\.workspace/d' \
+    -e '/^ckb-test = .*version/d' \
     Cargo.toml
 
   local RETRIES=5
@@ -75,7 +78,7 @@ fi
 
 for crate_dir in $CRATES; do
   case "$crate_dir" in
-    benches | util/test-chain-utils)
+    benches | util/test-chain-utils | test)
       # ignore
       ;;
     *)
