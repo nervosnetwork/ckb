@@ -881,7 +881,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> aeebb4b2c (chore: update ckb-resource / ckb-script / ckb-spec / ckb-crypto to version 1.0.0)
 dependencies = [
  "cacache",
  "ckb-constant",
@@ -921,7 +925,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-crypto"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> aeebb4b2c (chore: update ckb-resource / ckb-script / ckb-spec / ckb-crypto to version 1.0.0)
 dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
@@ -1530,7 +1538,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> aeebb4b2c (chore: update ckb-resource / ckb-script / ckb-spec / ckb-crypto to version 1.0.0)
 dependencies = [
  "ckb-system-scripts",
  "ckb-types",
@@ -1663,7 +1675,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> aeebb4b2c (chore: update ckb-resource / ckb-script / ckb-spec / ckb-crypto to version 1.0.0)
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
