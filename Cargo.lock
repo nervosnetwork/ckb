@@ -800,7 +800,7 @@ dependencies = [
  "clap",
  "colored",
  "ctrlc",
- "daemonize",
+ "daemonize-me",
  "fdlimit",
  "is-terminal",
  "nix",
@@ -2400,12 +2400,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "daemonize"
-version = "0.5.0"
+name = "daemonize-me"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab8bfdaacb3c887a54d41bdf48d3af8873b3f5566469f8ba21b92057509f116e"
+checksum = "5d7e7dc0363f9af1531fb2d20d257551c971d2da608d37b785901163ca20985f"
 dependencies = [
  "libc",
+ "nix",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
