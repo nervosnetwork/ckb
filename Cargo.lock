@@ -704,7 +704,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-app-config"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
@@ -731,7 +735,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-async-runtime"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-logger",
  "ckb-spawn",
@@ -741,7 +749,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-benches"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -767,7 +779,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-bin"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -814,7 +830,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-block-filter"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
@@ -834,7 +854,11 @@ version = "1.0.0"
 
 [[package]]
 name = "ckb-chain"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -873,7 +897,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-iter"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-store",
  "ckb-types",
@@ -907,7 +935,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-channel"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "crossbeam-channel",
 ]
@@ -940,7 +972,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -968,7 +1004,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-db"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-db-schema",
@@ -981,7 +1021,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-migration"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-channel",
@@ -997,7 +1041,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-schema"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 
 [[package]]
 name = "ckb-error"
@@ -1015,7 +1063,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-fee-estimator"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -1067,7 +1119,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-freezer"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-error",
  "ckb-logger",
@@ -1110,7 +1166,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1128,7 +1188,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer-sync"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1148,7 +1212,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-instrument"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-chain",
  "ckb-chain-iter",
@@ -1179,7 +1247,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-launcher"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1219,7 +1291,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-light-client-protocol-server"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1241,14 +1317,22 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "ckb-logger-config"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "serde",
  "toml",
@@ -1256,7 +1340,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger-service"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "backtrace",
  "ckb-channel",
@@ -1274,7 +1362,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-memory-tracker"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-db",
  "ckb-logger",
@@ -1295,7 +1387,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "prometheus",
  "prometheus-static-metric",
@@ -1303,14 +1399,22 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics-config"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-metrics-service"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
@@ -1327,7 +1431,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-migrate"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -1346,7 +1454,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-migration-template"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "quote",
  "syn 2.0.99",
@@ -1354,7 +1466,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-miner"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -1385,7 +1501,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-multisig"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-crypto",
  "ckb-error",
@@ -1395,7 +1515,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-network"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "bitflags 2.9.0",
  "bloom-filters",
@@ -1434,7 +1558,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-network-alert"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1456,7 +1584,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-notify"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1504,7 +1636,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-pow"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "byteorder",
  "ckb-hash",
@@ -1516,7 +1652,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-proposal-table"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -1556,7 +1696,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-reward-calculator"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1572,7 +1716,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-rich-indexer"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "anyhow",
  "ckb-app-config",
@@ -1607,7 +1755,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1662,7 +1814,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc-gen"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-rpc",
  "ckb_schemars",
@@ -1707,7 +1863,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-shared"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "arc-swap",
  "bitflags 2.9.0",
@@ -1741,7 +1901,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-snapshot"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "arc-swap",
  "ckb-chain-spec",
@@ -1757,11 +1921,19 @@ dependencies = [
 
 [[package]]
 name = "ckb-spawn"
+<<<<<<< HEAD
 version = "0.204.0-pre"
 
 [[package]]
 name = "ckb-stop-handler"
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+
+[[package]]
+name = "ckb-stop-handler"
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-async-runtime",
  "ckb-channel",
@@ -1776,7 +1948,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-store"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -1794,7 +1970,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1849,14 +2029,22 @@ dependencies = [
 
 [[package]]
 name = "ckb-systemtime"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "web-time",
 ]
 
 [[package]]
 name = "ckb-test"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "byteorder",
  "ckb-app-config",
@@ -1894,7 +2082,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-test-chain-utils"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1923,7 +2115,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-tx-pool"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1992,7 +2188,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-util"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
@@ -2001,7 +2201,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-chain-spec",
  "ckb-constant",
@@ -2023,7 +2227,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-contextual"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "ckb-async-runtime",
  "ckb-chain",
@@ -2049,7 +2257,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-traits"
+<<<<<<< HEAD
 version = "0.204.0-pre"
+=======
+version = "1.0.0"
+>>>>>>> fff4f81f8 (chore: update other trivial crates version to 1.0.0)
 dependencies = [
  "bitflags 2.9.0",
  "ckb-error",
