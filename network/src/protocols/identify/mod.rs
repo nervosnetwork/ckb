@@ -206,11 +206,9 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
     async fn connected(&mut self, context: ProtocolContextMutRef<'_>, version: &str) {
         let session = context.session;
         debug!("IdentifyProtocol connected, session: {:?}", session);
+        let remote_info = RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
+        self.remote_infos.insert(session.id, remote_info);
         if self.callback.register(&context, version) {
-            let remote_info =
-                RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
-            self.remote_infos.insert(session.id, remote_info);
-
             let listen_addrs: Vec<Multiaddr> = self
                 .callback
                 .local_listen_addrs()
