@@ -209,6 +209,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
         let remote_info = RemoteInfo::new(session.clone(), Duration::from_secs(DEFAULT_TIMEOUT));
         self.remote_infos.insert(session.id, remote_info);
         self.callback.register(&context, version);
+
         let listen_addrs: Vec<Multiaddr> = self
             .callback
             .local_listen_addrs()
