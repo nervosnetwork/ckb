@@ -73,7 +73,7 @@ fun_pasing_message(){
     windows_runner_label='self-hosted-ci-windows-2019'
   else
     linux_runner_label='ubuntu-22.04'
-    windows_runner_label='windows-2019'
+    windows_runner_label='windows-2022'
   fi
   echo "linux_runner_label is "$linux_runner_label
   echo "windows_runner_label is "$windows_runner_label
@@ -110,7 +110,7 @@ if [[ $GITHUB_EVENT_NAME == "pull_request" ]];then
       echo "windows_runner_label=self-hosted-ci-windows-2019" >> $GITHUB_OUTPUT
     else
       echo "linux_runner_label=ubuntu-20.04" >> $GITHUB_OUTPUT
-      echo "windows_runner_label=windows-2019" >> $GITHUB_OUTPUT
+      echo "windows_runner_label=windows-2022" >> $GITHUB_OUTPUT
     fi
   fi
 fi
