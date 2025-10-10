@@ -38,13 +38,13 @@ impl<'a> GetBlockFiltersProcess<'a> {
         if latest >= start_number {
             let mut block_hashes = Vec::new();
             let mut filters = Vec::new();
-            let mut current_message_size = 0;
-            current_message_size += 8; // Size of start_number
+            let mut current_content_size = 0;
+            current_content_size += 8; // Size of start_number
 
             for block_number in start_number..start_number + BATCH_SIZE {
                 if let Some(block_hash) = active_chain.get_block_hash(block_number) {
                     if let Some(block_filter) = active_chain.get_block_filter(&block_hash) {
-                        if current_message_size
+                        if current_content_size
                             + block_hash.as_slice().len()
                             + block_filter.as_slice().len()
                             >= 2 * 1024 * 1024
@@ -52,7 +52,7 @@ impl<'a> GetBlockFiltersProcess<'a> {
                             // Break if the encoded size of `block_hash` + `block_filter` + `start_number` reaches 2MB, to avoid frame size too large
                             break;
                         }
-                        current_message_size +=
+                        current_content_size +=
                             block_hash.as_slice().len() + block_filter.as_slice().len();
                         block_hashes.push(block_hash);
                         filters.push(block_filter);
