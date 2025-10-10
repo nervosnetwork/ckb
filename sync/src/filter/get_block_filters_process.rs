@@ -38,24 +38,24 @@ impl<'a> GetBlockFiltersProcess<'a> {
         if latest >= start_number {
             let mut block_hashes = Vec::new();
             let mut filters = Vec::new();
+            let mut current_message_size = 0;
+            current_message_size += 8; // Size of start_number
+
             for block_number in start_number..start_number + BATCH_SIZE {
                 if let Some(block_hash) = active_chain.get_block_hash(block_number) {
                     if let Some(block_filter) = active_chain.get_block_filter(&block_hash) {
-                        block_hashes.push(block_hash);
-                        filters.push(block_filter);
-                        if packed::BlockFilters::new_builder()
-                            .filters(filters.clone())
-                            .build()
-                            .filters()
-                            .as_slice()
-                            .len()
-                            >= (1.8 * 1024.0 * 1024.0) as usize
+                        if current_message_size
+                            + block_hash.as_slice().len()
+                            + block_filter.as_slice().len()
+                            >= 2 * 1024 * 1024
                         {
-                            // Break if the encoded size of `filters` reaches 1.8MB, to avoid frame size too large
-                            block_hashes.pop();
-                            filters.pop();
+                            // Break if the encoded size of `block_hash` + `block_filter` + `start_number` reaches 2MB, to avoid frame size too large
                             break;
                         }
+                        current_message_size +=
+                            block_hash.as_slice().len() + block_filter.as_slice().len();
+                        block_hashes.push(block_hash);
+                        filters.push(block_filter);
                     } else {
                         break;
                     }
