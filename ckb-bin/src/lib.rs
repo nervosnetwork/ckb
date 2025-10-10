@@ -22,7 +22,7 @@ use setup_guard::SetupGuard;
 #[cfg(not(target_os = "windows"))]
 use colored::Colorize;
 #[cfg(not(target_os = "windows"))]
-use daemonize::Daemonize;
+use daemonize_me::Daemon;
 #[cfg(not(target_os = "windows"))]
 use subcommand::check_process;
 #[cfg(feature = "with_sentry")]
@@ -105,10 +105,7 @@ fn run_app_in_daemon(
     eprintln!("no ckb process, starting ...");
 
     let pwd = std::env::current_dir()?;
-    let daemon = Daemonize::new()
-        .pid_file(pid_file)
-        .chown_pid_file(true)
-        .working_directory(pwd);
+    let daemon = Daemon::new().pid_file(pid_file, Some(false)).work_dir(pwd);
 
     match daemon.start() {
         Ok(_) => {
