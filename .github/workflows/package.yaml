@@ -270,7 +270,7 @@ jobs:
 
   package-for-windows:
     name: package-for-windows
-    runs-on: windows-2019
+    runs-on: windows-2022
     steps:
       - name: Install Dependencies
         run: |
