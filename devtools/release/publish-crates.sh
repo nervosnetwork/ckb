@@ -14,7 +14,6 @@ retry_cargo_publish() {
     -e '/^\[dev-dependencies\]/, /^\[/ { /^[^\[]/d }' \
     -e '/# dev-feature$/d' \
     -e '/^ckb-test\.workspace/d' \
-    -e '/^ckb-test\.workspace/d' \
     -e '/^ckb-test = .*version/d' \
     Cargo.toml
 
