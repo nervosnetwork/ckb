@@ -47,7 +47,7 @@ impl<'a> GetBlockFiltersProcess<'a> {
                         if current_content_size
                             + block_hash.as_slice().len()
                             + block_filter.as_slice().len()
-                            >= 2 * 1024 * 1024
+                            >= (1.8 * 1024.0 * 1024.0) as usize
                         {
                             // Break if the encoded size of `block_hash` + `block_filter` + `start_number` reaches 2MB, to avoid frame size too large
                             break;
