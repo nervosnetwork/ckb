@@ -109,10 +109,10 @@ impl Message {
 
 /// Compress data
 pub fn compress(src: Bytes) -> Bytes {
-    Message::from_raw(src.clone()).compress()
+    Message::from_raw(src).compress()
 }
 
 /// Decompress data
 pub fn decompress(src: BytesMut) -> Result<Bytes, io::Error> {
-    Message::from_compressed(src.clone()).decompress()
+    Message::from_compressed(src).decompress()
 }
