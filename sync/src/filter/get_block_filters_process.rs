@@ -70,11 +70,9 @@ impl<'a> GetBlockFiltersProcess<'a> {
                 .block_hashes(block_hashes)
                 .filters(filters)
                 .build();
-            ckb_logger::info!("content size = {}", content.as_slice().len());
             let message = packed::BlockFilterMessage::new_builder()
                 .set(content)
                 .build();
-            ckb_logger::info!("message size = {}", message.as_slice().len());
             attempt!(send_message_to(self.nc.as_ref(), self.peer, &message))
         } else {
             Status::ignored()
