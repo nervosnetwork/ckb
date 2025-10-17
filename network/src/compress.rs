@@ -109,16 +109,10 @@ impl Message {
 
 /// Compress data
 pub fn compress(src: Bytes) -> Bytes {
-    let result = Message::from_raw(src.clone()).compress();
-    ckb_logger::info!(
-        "Before compress: {}, after compress {}",
-        src.len(),
-        result.len()
-    );
-    result
+    Message::from_raw(src.clone()).compress()
 }
 
 /// Decompress data
 pub fn decompress(src: BytesMut) -> Result<Bytes, io::Error> {
-    Message::from_compressed(src).decompress()
+    Message::from_compressed(src.clone()).decompress()
 }
