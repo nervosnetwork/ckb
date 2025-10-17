@@ -47,6 +47,8 @@ is-terminal.workspace = true
 fdlimit.workspace = true
 ckb-stop-handler.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [target.'cfg(not(target_os="windows"))'.dependencies]
 daemonize-me = { version = "2" }

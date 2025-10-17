@@ -10,7 +10,7 @@ data_dir = "data"
 spec = { file = "specs/integration.toml" }
 
 [logger]
-filter = "info,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug,ckb-network=debug"
+filter = "info,index=trace,sqlx=debug,ckb-tx-pool=error"
 color = true
 log_to_file = true
 log_to_stdout = false

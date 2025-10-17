@@ -13,6 +13,7 @@ use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::ChainController;
 use ckb_indexer::IndexerService;
 use ckb_indexer_sync::{PoolService, new_secondary_db};
+use ckb_logger::{debug, info};
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
@@ -227,6 +228,8 @@ impl<'a> ServiceBuilder<'a> {
 
         if self.config.rich_indexer_enable() {
             // Init rich-indexer service
+            info!("Rich Indexer enabled");
+            debug!("Rich Indexer enabled");
             let mut rich_indexer = RichIndexerService::new(
                 ckb_secondary_db,
                 pool_service,

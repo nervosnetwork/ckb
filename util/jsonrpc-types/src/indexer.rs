@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Indexer tip information
-#[derive(Serialize, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 pub struct IndexerTip {
     /// indexed tip block hash
     pub block_hash: H256,

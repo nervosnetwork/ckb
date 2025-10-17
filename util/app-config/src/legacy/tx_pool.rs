@@ -19,7 +19,7 @@ const DEFAULT_EXPIRY_HOURS: u8 = 12;
 const DEFAULT_MAX_TX_POOL_SIZE: usize = 180_000_000;
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+// #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 pub(crate) struct TxPoolConfig {
     #[serde(default = "default_max_tx_pool_size")]

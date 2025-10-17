@@ -68,6 +68,8 @@ pub fn main_test() {
         env::set_var("RUST_BACKTRACE", "full");
     }
 
+    // tracing_subscriber::fmt::init();
+
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
 
@@ -636,6 +638,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CheckVmBExtension),
         Box::new(RandomlyKill),
         Box::new(SyncChurn),
+        // Rich-indexer chain reorganization bug reproduction test
+        Box::new(RichIndexerUncleBlockBug::default()),
     ];
     specs.shuffle(&mut thread_rng());
     specs

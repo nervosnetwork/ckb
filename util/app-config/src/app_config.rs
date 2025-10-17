@@ -35,8 +35,7 @@ pub enum AppConfig {
 /// directory.
 ///
 /// **Attention:** Changing the order of fields will break integration test, see module doc.
-#[derive(Clone, Debug, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CKBAppConfig {
     /// The binary name.
     #[serde(skip)]
@@ -263,14 +262,16 @@ impl AppConfig {
 impl CKBAppConfig {
     /// Load a new instance from a file
     pub fn load_from_slice(slice: &[u8]) -> Result<Self, ExitCode> {
-        let legacy_config: legacy::CKBAppConfig = toml::from_slice(slice)?;
-        for field in legacy_config.deprecated_fields() {
-            eprintln!(
-                "WARN: the option \"{}\" in configuration files is deprecated since v{}.",
-                field.path, field.since
-            );
-        }
-        Ok(legacy_config.into())
+        let config = toml::from_slice(slice)?;
+        Ok(config)
+        // let legacy_config: legacy::CKBAppConfig = toml::from_slice(slice)?;
+        // for field in legacy_config.deprecated_fields() {
+        //     eprintln!(
+        //         "WARN: the option \"{}\" in configuration files is deprecated since v{}.",
+        //         field.path, field.since
+        //     );
+        // }
+        // Ok(legacy_config.into())
     }
 
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {

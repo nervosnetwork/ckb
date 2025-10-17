@@ -7,7 +7,7 @@ use url::Url;
 
 // The default values are set in the legacy version.
 /// Transaction pool configuration
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TxPoolConfig {
     /// Keep the transaction pool below <max_tx_pool_size> mb
     pub max_tx_pool_size: usize,
@@ -22,8 +22,10 @@ pub struct TxPoolConfig {
     /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
     /// rejected tx time to live by days
+    #[serde(default)]
     pub keep_rejected_tx_hashes_days: u8,
     /// rejected tx count limit
+    #[serde(default)]
     pub keep_rejected_tx_hashes_count: u64,
     /// The file to persist the tx pool on the disk when tx pool have been shutdown.
     ///
@@ -36,6 +38,7 @@ pub struct TxPoolConfig {
     #[serde(default)]
     pub recent_reject: PathBuf,
     /// The expiration time for pool transactions in hours
+    #[serde(default)]
     pub expiry_hours: u8,
 }
 

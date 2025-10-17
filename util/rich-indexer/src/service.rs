@@ -31,9 +31,10 @@ impl RichIndexerService {
         async_handle: Handle,
     ) -> Self {
         let mut store = SQLXPool::default();
+        log::info!("RichIndexer config: {:?}", &config.rich_indexer);
         async_handle
             .block_on(store.connect(&config.rich_indexer))
-            .expect("Failed to connect to rich-indexer database");
+            .unwrap_or_else(|err| panic!("Failed to connect to rich-indexer database:{:?}", err));
 
         let sync = IndexerSyncService::new(
             ckb_db,

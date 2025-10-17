@@ -10,6 +10,7 @@ use ckb_types::{
     packed::{Byte, CellInput, CellOutput, OutPoint, ScriptBuilder},
     prelude::*,
 };
+use log::info;
 use sql_builder::SqlBuilder;
 use sqlx::{
     Row, Transaction,
@@ -98,15 +99,29 @@ pub(crate) async fn insert_uncle_blocks(
     block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<Vec<i64>, Error> {
+    info!(
+        "insert_ucnle_blocks for block:{}-{},uncles:{}",
+        block_view.number(),
+        block_view.hash(),
+        block_view.uncles().into_iter().len()
+    );
     let uncle_blocks = block_view
         .uncles()
         .into_iter()
         .map(|uncle| {
             let uncle_block_header = uncle.header();
-            BlockView::new_advanced_builder()
+            let constructed_block = BlockView::new_advanced_builder()
                 .header(uncle_block_header)
                 .proposals(uncle.data().proposals())
-                .build()
+                .build();
+            info!(
+                "Indexer constructed BlockView({}-{}) from UncleView({}-{})",
+                constructed_block.number(),
+                constructed_block.hash(),
+                uncle.number(),
+                uncle.hash(),
+            );
+            constructed_block
         })
         .collect::<Vec<_>>();
     let uncle_block_rows: Vec<Vec<FieldValue>> = uncle_blocks
