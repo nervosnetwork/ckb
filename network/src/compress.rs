@@ -51,8 +51,18 @@ impl Message {
             let input = self.inner.split_off(1);
             match SnapEncoder::new().compress_vec(&input) {
                 Ok(res) => {
-                    self.inner.extend_from_slice(&res);
-                    self.set_compress_flag();
+                    debug!(
+                        "snappy compress result: raw: {}, compressed: {}",
+                        input.len(),
+                        res.len()
+                    );
+                    if res.len() >= input.len() {
+                        // compressed data is larger than or equal to uncompressed data
+                        self.inner.unsplit(input);
+                    } else {
+                        self.inner.extend_from_slice(&res);
+                        self.set_compress_flag();
+                    }
                 }
                 Err(e) => {
                     debug!("snappy compress error: {}", e);
