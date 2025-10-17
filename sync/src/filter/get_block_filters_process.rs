@@ -47,7 +47,7 @@ impl<'a> GetBlockFiltersProcess<'a> {
                         if current_content_size
                             + block_hash.as_slice().len()
                             + block_filter.as_slice().len()
-                            >= (1.8 * 1024.0 * 1024.0) as usize
+                            >= (2.0 * 1024.0 * 1024.0) as usize
                         {
                             // Break if the encoded size of `block_hash` + `block_filter` + `start_number` reaches 1.8MB, to avoid frame size too large
                             break;
@@ -68,10 +68,11 @@ impl<'a> GetBlockFiltersProcess<'a> {
                 .block_hashes(block_hashes)
                 .filters(filters)
                 .build();
-
+            ckb_logger::info!("content size = {}", content.as_slice().len());
             let message = packed::BlockFilterMessage::new_builder()
                 .set(content)
                 .build();
+            ckb_logger::info!("message size = {}", message.as_slice().len());
             attempt!(send_message_to(self.nc.as_ref(), self.peer, &message))
         } else {
             Status::ignored()
