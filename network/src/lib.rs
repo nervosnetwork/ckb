@@ -56,7 +56,7 @@ pub type ProtocolVersion = String;
 
 /// Observe listen port occupancy
 pub async fn observe_listen_port_occupancy(
-    _addrs: &[multiaddr::MultiAddr],
+    _addrs: &[multiaddr::Multiaddr],
 ) -> Result<(), std::io::Error> {
     #[cfg(target_os = "linux")]
     {

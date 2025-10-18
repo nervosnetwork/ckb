@@ -65,6 +65,6 @@ impl Spec for TorHashPasswordConnect {
         assert!(self.tor_server.lock().controller_password.is_some());
         info!("waiting tor bootstrap.... ");
         self.tor_server.lock().tor_wait_bootstrap_done();
-        info!("tor tor bootstrap done");
+        info!("tor bootstrap done");
     }
 }

@@ -1,15 +1,15 @@
-use p2p::multiaddr::{MultiAddr, Protocol};
+use p2p::multiaddr::{Multiaddr, Protocol};
 
 #[derive(Default, Clone, Debug)]
 pub struct NetworkAddresses {
-    pub regular_addresses: Vec<MultiAddr>,
+    pub regular_addresses: Vec<Multiaddr>,
 
     // onion addresses can't be solved by multiaddr_to_socketaddr or socketaddr_to_multiaddr
-    pub onion_addresses: Vec<MultiAddr>,
+    pub onion_addresses: Vec<Multiaddr>,
 }
 
 impl NetworkAddresses {
-    pub fn push(&mut self, address: MultiAddr) {
+    pub fn push(&mut self, address: Multiaddr) {
         if address
             .iter()
             .any(|proto| matches!(proto, Protocol::Onion3(_)))
@@ -21,7 +21,7 @@ impl NetworkAddresses {
     }
 
     // contains
-    pub fn contains(&self, address: &MultiAddr) -> bool {
+    pub fn contains(&self, address: &Multiaddr) -> bool {
         self.regular_addresses.contains(address) || self.onion_addresses.contains(address)
     }
 
@@ -38,9 +38,9 @@ impl NetworkAddresses {
 
 // implement iter() for NetworkAddresses, don't take ownership
 impl<'a> IntoIterator for &'a NetworkAddresses {
-    type Item = &'a MultiAddr;
+    type Item = &'a Multiaddr;
     type IntoIter =
-        std::iter::Chain<std::slice::Iter<'a, MultiAddr>, std::slice::Iter<'a, MultiAddr>>;
+        std::iter::Chain<std::slice::Iter<'a, Multiaddr>, std::slice::Iter<'a, Multiaddr>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.regular_addresses
@@ -49,9 +49,9 @@ impl<'a> IntoIterator for &'a NetworkAddresses {
     }
 }
 
-// convert Vec<MultiAddr> to NetworkAddresses
-impl From<Vec<MultiAddr>> for NetworkAddresses {
-    fn from(addresses: Vec<MultiAddr>) -> Self {
+// convert Vec<Multiaddr> to NetworkAddresses
+impl From<Vec<Multiaddr>> for NetworkAddresses {
+    fn from(addresses: Vec<Multiaddr>) -> Self {
         let mut regular_addresses = Vec::new();
         let mut onion_addresses = Vec::new();
         for address in addresses {
@@ -71,8 +71,8 @@ impl From<Vec<MultiAddr>> for NetworkAddresses {
     }
 }
 
-// convert NetworkAddresses to Vec<MultiAddr>
-impl From<NetworkAddresses> for Vec<MultiAddr> {
+// convert NetworkAddresses to Vec<Multiaddr>
+impl From<NetworkAddresses> for Vec<Multiaddr> {
     fn from(addresses: NetworkAddresses) -> Self {
         let mut result = addresses.regular_addresses;
         result.extend(addresses.onion_addresses);

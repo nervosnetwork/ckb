@@ -136,7 +136,7 @@ pub struct OnionConfig {
     pub p2p_listen_address: Option<String>,
     // path to store onion private key, default is ./data/network/onion_private_key
     pub onion_private_key_path: Option<String>,
-    // tor controller url, example: 127.0.0.1:9050
+    // tor controller url, example: 127.0.0.1:9051
     #[serde(default = "default_tor_controller")]
     pub tor_controller: String,
     // tor controller hashed password

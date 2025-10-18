@@ -17,9 +17,7 @@ pub type TorEventHandlerFn = fn(AsyncEvent<'_>) -> BoxFuture<'static, Result<(),
 
 /// Configuration for onion service
 pub struct OnionServiceConfig {
-    /// Tor server url: like: 127.0.0.1:9050
-    pub onion_server: String,
-    /// path to store onion private key, default is ./data/network/onion/onion_private_key
+    /// path to store onion private key, default is ./data/network/onion_private_key
     pub onion_private_key_path: String,
     /// tor controller url, example: 127.0.0.1:9051
     pub tor_controller: String,

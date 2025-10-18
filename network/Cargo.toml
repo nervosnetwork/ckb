@@ -35,6 +35,7 @@ bloom-filters.workspace = true
 ckb-spawn.workspace = true
 bitflags.workspace = true
 p2p = { workspace = true, default-features = false }
+url.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 p2p = { workspace = true, default-features = false, features = [

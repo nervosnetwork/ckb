@@ -464,7 +464,7 @@ impl Drop for LoggerInitGuard {
     }
 }
 
-/// Modifies the logger filter string to ensure "fast-socks5=info" is present.
+/// Modifies the logger filter string to ensure "fast-socks5=info" is present .
 fn modify_logger_filter(filter: String) -> String {
     if !filter.contains("fast-socks5") {
         if filter.is_empty() {

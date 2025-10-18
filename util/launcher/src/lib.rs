@@ -3,7 +3,7 @@
 //! ckb launcher is helps to launch ckb node.
 
 use ckb_app_config::{
-    BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol, Url,
+    BlockAssemblerConfig, ExitCode, RpcConfig, RpcModule, RunArgs, SupportProtocol,
 };
 use ckb_async_runtime::Handle;
 use ckb_block_filter::filter::BlockFilter as BlockFilterService;
@@ -13,8 +13,7 @@ use ckb_channel::Receiver;
 use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
-use ckb_logger::internal::warn;
-use ckb_logger::{error, info};
+use ckb_logger::{error, info, warn};
 use ckb_network::Error;
 use ckb_network::{
     CKBProtocol, Flags, NetworkController, NetworkService, NetworkState, SupportProtocols,
@@ -282,40 +281,15 @@ impl Launcher {
             return Ok(());
         }
         let onion_config = self.args.config.network.onion.clone();
-        let onion_server: String = {
-            match (
-                onion_config.onion_server,
-                self.args.config.network.proxy.proxy_url.clone(),
-            ) {
-                (Some(onion_server), _) => {
-                    info!("CKB use {} as onion server", onion_server);
-                    onion_server
-                }
-                (None, Some(proxy_url)) => {
-                    let parsed_proxy_url = Url::parse(&proxy_url)
-                        .map_err(|err| Error::Config(format!("parse proxy_url failed: {}", err)))?;
-                    match (parsed_proxy_url.host_str(), parsed_proxy_url.port()) {
-                        (Some(host), Some(port)) => format!("{}:{}", host, port),
-                        _ => {
-                            error!(
-                                "CKB tried to use the proxy url: {} as onion server, but failed to parse it",
-                                proxy_url,
-                            );
-                            return Err(Error::Config(format!(
-                                "Failed to parse proxy url: {}",
-                                proxy_url
-                            )));
-                        }
-                    }
-                }
-                _ => {
-                    info!(
-                        "Neither onion_server nor proxy_url is set in the config file, CKB won't listen on the onion hidden network"
-                    );
-                    return Ok(());
-                }
-            }
-        };
+
+        if onion_config.onion_server.is_none() && self.args.config.network.proxy.proxy_url.is_none()
+        {
+            info!(
+                "Neither onion_server nor proxy_url is set in the config file, CKB won't listen on the onion hidden network"
+            );
+            return Ok(());
+        }
+
         let p2p_listen_address: SocketAddr = {
             match onion_config.p2p_listen_address {
                 Some(p2p_listen_address) => {
@@ -391,7 +365,6 @@ impl Launcher {
         }
 
         let onion_service_config: OnionServiceConfig = OnionServiceConfig {
-            onion_server,
             onion_private_key_path: onion_config.onion_private_key_path.unwrap_or(
                 self.args
                     .config

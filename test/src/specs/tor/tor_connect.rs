@@ -66,7 +66,7 @@ impl Spec for TorConnect {
                             info!("node0 mined a block, node0's tip: {}-{}", tip.number(), tip.hash());
                         }
                         recv(stop_rx) -> _ => {
-                            info!("node0 stoped mine");
+                            info!("node0 stopped mine");
                             return;
                         }
                     };
@@ -87,7 +87,7 @@ impl Spec for TorConnect {
         );
         node2.connect_onion(node0);
         info!(
-            "node0 {} and node1 {} connected, node0 {} and node2 {} conencted",
+            "node0 {} and node1 {} connected, node0 {} and node2 {} connected",
             node0.get_onion_public_addr().unwrap(),
             node1.get_onion_public_addr().unwrap(),
             node0.get_onion_public_addr().unwrap(),
@@ -145,7 +145,7 @@ impl Spec for TorConnect {
         let ticker = ckb_channel::tick(std::time::Duration::from_secs(1));
         ckb_channel::select! {
             recv(ticker) -> _ => {
-                [node0,node1,node2].iter().enumerate().for_each(|( i,_node )|
+                [node0, node1, node2].iter().enumerate().for_each(|(i, _node)|
                     {
                 let tip = node1.rpc_client().get_tip_block_number();
                     info!("node{} tip: {}", i,tip);

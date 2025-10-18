@@ -67,6 +67,7 @@ jobs:
           scoop bucket add extras
           scoop install llvm
           scoop install tor
+          scoop install go
       - run: |
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               devtools/ci/ci_main.sh

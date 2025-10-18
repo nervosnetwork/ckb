@@ -1410,6 +1410,7 @@ dependencies = [
  "tentacle",
  "tokio",
  "tokio-util",
+ "url",
 ]
 
 [[package]]

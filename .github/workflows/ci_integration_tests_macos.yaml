@@ -54,7 +54,7 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-      - run: brew install tor
+      - run: brew install tor go
       - run: |
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               devtools/ci/ci_main.sh

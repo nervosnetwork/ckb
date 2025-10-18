@@ -74,7 +74,7 @@ impl<'a> IdentifyMessage<'a> {
                 Ok(multi_addr) => {
                     listen_addrs.push(multi_addr);
                 }
-                Err(err) => warn!("failed to decode listen_addr to MultiAddr: {}", err),
+                Err(err) => warn!("failed to decode listen_addr to Multiaddr: {}", err),
             }
         }
 

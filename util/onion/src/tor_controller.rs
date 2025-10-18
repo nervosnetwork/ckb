@@ -65,7 +65,10 @@ impl TorController {
     pub async fn get_uptime(&mut self) -> Result<Duration, ConnError> {
         let uptime = self.inner.get_info("uptime").await.map_err(|err| {
             // the tor server's version is less than 0.3.5.1-alpha
-            warn!("failed to get uptime: {}, It seems that the tor server's version is less than 0.3.5.1-alpha", err);
+            warn!(
+                "failed to get uptime; the Tor controller may not expose 'uptime' (older Tor versions) or returned an error: {}",
+                err
+            );
             err
         })?;
         debug!("tor server's uptime is {} seconds", uptime);

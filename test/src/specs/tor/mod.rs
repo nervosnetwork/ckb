@@ -158,7 +158,7 @@ impl TorServer {
         };
 
         let hashed_password = hashed_password_untrim.trim();
-        info!("got Tor hashed password *** : {}", password, hashed_password);
+        info!("Got Tor hashed password: {}", hashed_password);
         hashed_password.to_string()
     }
 }

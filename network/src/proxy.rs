@@ -1,4 +1,4 @@
-use ckb_app_config::Url;
+use url::Url;
 
 pub(crate) fn check_proxy_url(proxy_url: &str) -> Result<(), String> {
     let parsed_url = Url::parse(proxy_url).map_err(|e| e.to_string())?;
@@ -8,6 +8,9 @@ pub(crate) fn check_proxy_url(proxy_url: &str) -> Result<(), String> {
     let scheme = parsed_url.scheme();
     if scheme.ne("socks5") {
         return Err(format!("CKB doesn't support proxy scheme: {}", scheme));
+    }
+    if parsed_url.port().is_none() {
+        return Err(format!("missing port in proxy url: {}", proxy_url));
     }
     Ok(())
 }

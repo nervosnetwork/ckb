@@ -2,9 +2,11 @@ use base64::Engine;
 use ckb_async_runtime::Handle;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info, warn};
-use ckb_network::multiaddr::MultiAddr;
+use ckb_network::multiaddr::Multiaddr;
 use ckb_network::NetworkController;
 use ckb_stop_handler::CancellationToken;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
@@ -26,7 +28,7 @@ impl OnionService {
         handle: Handle,
         config: OnionServiceConfig,
         node_id: String,
-    ) -> Result<(OnionService, MultiAddr), Error> {
+    ) -> Result<(OnionService, Multiaddr), Error> {
         let key: TorSecretKeyV3 =
             load_or_create_tor_secret_key(config.onion_private_key_path.clone())?;
 
@@ -40,7 +42,7 @@ impl OnionService {
             "/onion3/{}:{}/p2p/{}",
             tor_address_without_dot_onion, p2p_port, node_id
         );
-        let onion_multi_addr = MultiAddr::from_str(&onion_multi_addr_str).map_err(|err| {
+        let onion_multi_addr = Multiaddr::from_str(&onion_multi_addr_str).map_err(|err| {
             InternalErrorKind::Other.other(format!(
                 "Failed to parse onion address {} to multi_addr: {:?}",
                 onion_multi_addr_str, err
@@ -59,7 +61,7 @@ impl OnionService {
     pub async fn start(
         &self,
         network_controller: NetworkController,
-        onion_service_addr: MultiAddr,
+        onion_service_addr: Multiaddr,
     ) -> Result<(), Error> {
         let stop_rx = ckb_stop_handler::new_tokio_exit_rx();
         loop {
@@ -158,13 +160,31 @@ fn create_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV
         "Generated new onion service v3 key for address: {}",
         key.public().get_onion_address()
     );
-    std::fs::write(
-        &onion_private_key_path,
-        base64::engine::general_purpose::STANDARD.encode(key.as_bytes()),
+
+    let mut options = OpenOptions::new();
+    let mut options = options.create(true).truncate(true).write(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options = options.mode(0o600);
+    }
+
+    let mut file = options.open(&onion_private_key_path).map_err(|err| {
+        InternalErrorKind::Other.other(format!(
+            "Failed to open onion private key for writing: {:?}",
+            err
+        ))
+    })?;
+    file.write_all(
+        &base64::engine::general_purpose::STANDARD
+            .encode(key.as_bytes())
+            .into_bytes(),
     )
     .map_err(|err| {
         InternalErrorKind::Other.other(format!("Failed to write onion private key: {:?}", err))
     })?;
+
     Ok(key)
 }
 

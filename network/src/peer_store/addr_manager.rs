@@ -1,5 +1,6 @@
 //! Address manager
 use crate::peer_store::{base_addr, types::AddrInfo};
+use ckb_logger::debug;
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     utils::multiaddr_to_socketaddr,
@@ -81,7 +82,7 @@ impl AddrManager {
                             addr_infos.push(addr_info);
                         } else {
                             debug!(
-                                "addr {:?} is not connectable or not onion address",
+                                "addr {:?} is not connectable and not an onion address",
                                 addr_info.addr
                             );
                         }

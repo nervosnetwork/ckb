@@ -339,11 +339,11 @@ impl NetworkState {
     }
 
     pub(crate) fn public_addrs(&self, count: usize) -> Vec<Multiaddr> {
-        if self.public_addrs.read().len() <= count {
-            return self.public_addrs.read().iter().cloned().collect();
+        let public_addrs = self.public_addrs.read();
+        if public_addrs.len() <= count {
+            return public_addrs.iter().cloned().collect();
         } else {
-            self.public_addrs
-                .read()
+            public_addrs
                 .iter()
                 .cloned()
                 .choose_multiple(&mut rand::thread_rng(), count)
@@ -1059,12 +1059,11 @@ impl NetworkService {
                             p2p::service::SocketState::Dial => {
                                 let domain = socket2::Domain::for_address(addr);
                                 if socket_ref.domain()? == domain {
-                                    let should_bind_socket = !(proxy_config_enable
-                                        && matches!(ctxt.state, p2p::service::SocketState::Dial));
-                                    if should_bind_socket {
-                                        socket_ref.bind(&addr.into())?;
-                                    } else {
+                                    if proxy_config_enable {
                                         // skip bind if proxy enabled
+                                        debug!("skip bind since proxy is enabled");
+                                    } else {
+                                        socket_ref.bind(&addr.into())?;
                                     }
                                 }
                                 Ok(socket)
