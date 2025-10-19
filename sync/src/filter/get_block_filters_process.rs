@@ -55,7 +55,7 @@ impl<'a> GetBlockFiltersProcess<'a> {
                             break;
                         }
                         current_content_size +=
-                            block_hash.as_slice().len() + 4 + block_filter.as_slice().len() + 4;
+                            block_hash.as_slice().len() + block_filter.as_slice().len() + 4;
                         block_hashes.push(block_hash);
                         filters.push(block_filter);
                     } else {
