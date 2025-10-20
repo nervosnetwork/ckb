@@ -138,10 +138,10 @@ impl IndexerSyncService {
     where
         I: IndexerSync + Clone + Send + 'static,
     {
+        if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+            error!("secondary_db try_catch_up_with_primary error {}", e);
+        }
         loop {
-            if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
-                error!("secondary_db try_catch_up_with_primary error {}", e);
-            }
             if has_received_stop_signal() {
                 info!("try_loop_sync received exit signal, exit now");
                 break;
@@ -169,6 +169,12 @@ impl IndexerSyncService {
                                     tip_hash
                                 );
                                 indexer.rollback().expect("rollback block should be OK");
+                                if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
+                                    error!(
+                                        "after rollback, secondary_db try_catch_up_with_primary error {}",
+                                        e
+                                    );
+                                }
                             }
                         }
                         None => {
