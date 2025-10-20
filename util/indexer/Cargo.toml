@@ -18,6 +18,7 @@ ckb-notify.workspace = true
 ckb-async-runtime.workspace = true
 ckb-indexer-sync.workspace = true
 rocksdb = { workspace = true, features = ["snappy"], default-features = false }
+ckb-metrics.workspace = true
 memchr.workspace = true
 
 [dev-dependencies]
