@@ -198,7 +198,8 @@ ckb-spawn = { path = "util/spawn", version = "=0.203.0-pre" }
 ckb-stop-handler = { path = "util/stop-handler", version = "=0.203.0-pre" }
 ckb-store = { path = "store", version = "=0.203.0-pre" }
 ckb-sync = { path = "sync", version = "=0.203.0-pre" }
-ckb-system-scripts = "=0.5.4"
+ckb-system-scripts-v0_5_4 = { package="ckb-system-scripts", version="=0.5.4" }
+ckb-system-scripts-v0_6_0 = { package="ckb-system-scripts", version="=0.6.0" }
 ckb-systemtime = { path = "util/systemtime", version = "=0.203.0-pre" }
 ckb-test-chain-utils = { path = "util/test-chain-utils", version = "=0.203.0-pre" }
 ckb-test = { path = "test", version = "=0.203.0-pre" }

@@ -14,13 +14,15 @@ phf = "= 0.8.0" # ckb-resource's build script need this, and cargo shear think c
 includedir.workspace = true
 serde = { workspace = true, features = ["derive"] }
 ckb-types.workspace = true
-ckb-system-scripts.workspace = true
+ckb-system-scripts-v0_5_4.workspace = true
+ckb-system-scripts-v0_6_0.workspace = true
 
 [build-dependencies]
 includedir_codegen.workspace = true
 walkdir.workspace = true
 ckb-types.workspace = true
-ckb-system-scripts.workspace = true
+ckb-system-scripts-v0_5_4.workspace = true
+ckb-system-scripts-v0_6_0.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

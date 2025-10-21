@@ -7,10 +7,12 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use walkdir::WalkDir;
 
-use ckb_system_scripts::{
-    CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
-    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+use ckb_system_scripts_v0_5_4::{
+    CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
 };
+
+use ckb_system_scripts_v0_5_4::CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL as CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY;
+use ckb_system_scripts_v0_6_0::CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL as CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_V2;
 
 fn main() {
     let mut bundled = includedir_codegen::start("BUNDLED");
@@ -58,9 +60,26 @@ fn main() {
 
     writeln!(
         &mut out_file,
-        "/// Data hash of the cell containing secp256k1 blake160 multisig all lock script.\n\
+        "/// Data hash of the cell containing secp256k1 blake160 multisig(legacy) all lock script. Deprecated.\n\
+        #[deprecated]
         pub const CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL: H256 = {:?};",
-        H256(CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL)
+        H256(CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY)
+    )
+    .expect("write to code_hashes.rs");
+
+    writeln!(
+        &mut out_file,
+        "/// Data hash of the cell containing secp256k1 blake160 multisig(legacy) all lock script.\n\
+        pub const CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY: H256 = {:?};",
+        H256(CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY)
+    )
+    .expect("write to code_hashes.rs");
+
+    writeln!(
+        &mut out_file,
+        "/// Data hash of the cell containing secp256k1 blake160 multisig(v1) all lock script.\n\
+        pub const CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_V2: H256 = {:?};",
+        H256(CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_V2)
     )
     .expect("write to code_hashes.rs");
 

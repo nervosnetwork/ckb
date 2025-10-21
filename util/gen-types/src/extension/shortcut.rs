@@ -123,6 +123,18 @@ impl packed::Script {
     pub fn is_hash_type_type(&self) -> bool {
         Into::<u8>::into(self.hash_type()) == Into::<u8>::into(core::ScriptHashType::Type)
     }
+
+    /// Checks whether the own [`hash_type`](#method.hash_type) is
+    /// [`Data`](../core/enum.ScriptHashType.html#variant.Data1).
+    pub fn is_hash_type_data(&self) -> bool {
+        Into::<u8>::into(self.hash_type()) == Into::<u8>::into(core::ScriptHashType::Data)
+    }
+
+    /// Checks whether the own [`hash_type`](#method.hash_type) is
+    /// [`Data1`](../core/enum.ScriptHashType.html#variant.Data1).
+    pub fn is_hash_type_data1(&self) -> bool {
+        Into::<u8>::into(self.hash_type()) == Into::<u8>::into(core::ScriptHashType::Data1)
+    }
 }
 
 impl packed::Transaction {

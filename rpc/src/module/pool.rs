@@ -8,7 +8,7 @@ use ckb_jsonrpc_types::{
 use ckb_logger::error;
 use ckb_shared::shared::Shared;
 use ckb_types::core::TransactionView;
-use ckb_types::{H256, core, packed, prelude::*};
+use ckb_types::{H256, core, h256, packed, prelude::*};
 use ckb_verification::{Since, SinceMetric};
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
@@ -771,7 +771,8 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
         output: &packed::CellOutput,
     ) -> std::result::Result<(), DefaultOutputsValidatorError> {
         self.validate_secp256k1_blake160_sighash_all(output)
-            .or_else(|_| self.validate_secp256k1_blake160_multisig_all(output))
+            .or_else(|_| self.validate_secp256k1_blake160_multisig_all_legacy(output))
+            .or_else(|_| self.validate_secp256k1_blake160_multisig_all_v2(output))
             .or_else(|_| self.validate_well_known_lock_scripts(output))
     }
 
@@ -804,7 +805,7 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
         }
     }
 
-    fn validate_secp256k1_blake160_multisig_all(
+    fn validate_secp256k1_blake160_multisig_all_legacy(
         &self,
         output: &packed::CellOutput,
     ) -> std::result::Result<(), DefaultOutputsValidatorError> {
@@ -816,6 +817,33 @@ impl<'a> WellKnownScriptsOnlyValidator<'a> {
                 .consensus
                 .secp256k1_blake160_multisig_all_type_hash()
                 .expect("No secp256k1_blake160_multisig_all system cell")
+        {
+            Err(DefaultOutputsValidatorError::CodeHash)
+        } else if script.args().len() != BLAKE160_LEN {
+            if script.args().len() == BLAKE160_LEN + SINCE_LEN {
+                if extract_since_from_secp256k1_blake160_multisig_all_args(&script).flags_is_valid()
+                {
+                    Ok(())
+                } else {
+                    Err(DefaultOutputsValidatorError::ArgsSince)
+                }
+            } else {
+                Err(DefaultOutputsValidatorError::ArgsLen)
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    fn validate_secp256k1_blake160_multisig_all_v2(
+        &self,
+        output: &packed::CellOutput,
+    ) -> std::result::Result<(), DefaultOutputsValidatorError> {
+        let script = output.lock();
+        if !script.is_hash_type_data1() {
+            Err(DefaultOutputsValidatorError::HashType)
+        } else if script.code_hash()
+            != h256!("0x36c971b8d41fbd94aabca77dc75e826729ac98447b46f91e00796155dddb0d29").pack()
         {
             Err(DefaultOutputsValidatorError::CodeHash)
         } else if script.args().len() != BLAKE160_LEN {

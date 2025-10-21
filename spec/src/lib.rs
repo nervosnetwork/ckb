@@ -22,7 +22,7 @@ use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
-    CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
+    CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY,
     CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA, Resource,
 };
 use ckb_types::{
@@ -763,7 +763,7 @@ impl ChainSpec {
         check_cells_data_hash(
             0,
             OUTPUT_INDEX_SECP256K1_BLAKE160_MULTISIG_ALL as usize,
-            &CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
+            &CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL_LEGACY,
         )?;
 
         Ok(())
