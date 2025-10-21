@@ -5,6 +5,11 @@
 //! * output digest size: 32
 //! * personalization: ckb-default-hash
 //!
+//! If used in ***On-Chain Script***, you need to disable the default features and enable `ckb-contract`.
+//! ```
+//! default-features = false, features = ["ckb-contract"]
+//! ```
+//!
 //! [blake2b]: https://blake2.net/blake2.pdf
 
 #![no_std]
