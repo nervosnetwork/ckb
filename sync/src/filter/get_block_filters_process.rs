@@ -40,20 +40,22 @@ impl<'a> GetBlockFiltersProcess<'a> {
             let mut filters = Vec::new();
             let mut current_content_size = 0;
             current_content_size += 8; // Size of start_number
-
+            current_content_size += 4 * 2; // Size of the header field `full-size` of `block_hash` and `block_filter`
             for block_number in start_number..start_number + BATCH_SIZE {
                 if let Some(block_hash) = active_chain.get_block_hash(block_number) {
                     if let Some(block_filter) = active_chain.get_block_filter(&block_hash) {
                         if current_content_size
                             + block_hash.as_slice().len()
+                            + 4
                             + block_filter.as_slice().len()
-                            >= 2 * 1024 * 1024
+                            + 4
+                            >= (1.8 * 1024.0 * 1024.0) as usize
                         {
-                            // Break if the encoded size of `block_hash` + `block_filter` + `start_number` reaches 2MB, to avoid frame size too large
+                            // Break if the encoded size of `block_hash` + `block_filter` + `start_number` + molecule header increase reaches 1.8MB, to avoid frame size too large
                             break;
                         }
                         current_content_size +=
-                            block_hash.as_slice().len() + block_filter.as_slice().len();
+                            block_hash.as_slice().len() + block_filter.as_slice().len() + 4;
                         block_hashes.push(block_hash);
                         filters.push(block_filter);
                     } else {
@@ -68,7 +70,6 @@ impl<'a> GetBlockFiltersProcess<'a> {
                 .block_hashes(block_hashes)
                 .filters(filters)
                 .build();
-
             let message = packed::BlockFilterMessage::new_builder()
                 .set(content)
                 .build();
