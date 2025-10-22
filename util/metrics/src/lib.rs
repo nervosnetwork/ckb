@@ -130,6 +130,8 @@ pub struct Metrics {
     pub ckb_hole_punching_active_success_count: IntCounter,
     pub ckb_hole_punching_passive_count: IntCounter,
     pub ckb_hole_punching_passive_success_count: IntCounter,
+    /// Gauge metric for CKB indexer tip block number
+    pub ckb_indexer_tip: IntGauge,
 }
 
 static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
@@ -334,6 +336,11 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
     ckb_hole_punching_passive_success_count: register_int_counter!(
         "ckb_hole_punching_passive_success_count",
         "The CKB hole punching passive success count"
+    )
+            .unwrap(),
+    ckb_indexer_tip: register_int_gauge!(
+        "ckb_indexer_tip",
+        "The CKB indexer tip block number"
     )
             .unwrap(),
     }
