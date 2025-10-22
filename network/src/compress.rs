@@ -29,20 +29,24 @@ const MAX_UNCOMPRESSED_LEN: usize = 1 << 23; // 8MB
 #[derive(Clone, Debug)]
 pub(crate) struct Message {
     inner: BytesMut,
+    protocol_id: p2p::ProtocolId,
 }
 
 impl Message {
     /// create from uncompressed raw data
-    pub(crate) fn from_raw(data: Bytes) -> Self {
+    pub(crate) fn from_raw(data: Bytes, protocol_id: p2p::ProtocolId) -> Self {
         let mut inner = BytesMut::with_capacity(data.len() + 1);
         inner.put_u8(UNCOMPRESS_FLAG);
         inner.put(data);
-        Self { inner }
+        Self { inner, protocol_id }
     }
 
     /// create from compressed data
-    pub(crate) fn from_compressed(data: BytesMut) -> Self {
-        Self { inner: data }
+    pub(crate) fn from_compressed(data: BytesMut, protocol_id: p2p::ProtocolId) -> Self {
+        Self {
+            inner: data,
+            protocol_id,
+        }
     }
 
     /// Compress message
@@ -52,9 +56,11 @@ impl Message {
             match SnapEncoder::new().compress_vec(&input) {
                 Ok(res) => {
                     debug!(
-                        "snappy compress result: raw: {}, compressed: {}",
+                        "protocol {} message snappy compress result: raw: {}, compressed: {}, ratio: {:.2}%",
+                        self.protocol_id,
                         input.len(),
-                        res.len()
+                        res.len(),
+                        (res.len() as f64 / input.len() as f64 * 100.0)
                     );
                     if res.len() >= input.len() {
                         // compressed data is larger than or equal to uncompressed data
@@ -65,7 +71,10 @@ impl Message {
                     }
                 }
                 Err(e) => {
-                    debug!("snappy compress error: {}", e);
+                    debug!(
+                        "protocol {} message snappy compress error: {}",
+                        self.protocol_id, e
+                    );
                     self.inner.unsplit(input);
                 }
             }
@@ -118,11 +127,13 @@ impl Message {
 }
 
 /// Compress data
-pub fn compress(src: Bytes) -> Bytes {
-    Message::from_raw(src).compress()
+pub fn compress(protocol_id: p2p::ProtocolId) -> impl Fn(Bytes) -> Bytes + 'static + Send {
+    move |src: Bytes| Message::from_raw(src, protocol_id).compress()
 }
 
 /// Decompress data
-pub fn decompress(src: BytesMut) -> Result<Bytes, io::Error> {
-    Message::from_compressed(src).decompress()
+pub fn decompress(
+    protocol_id: p2p::ProtocolId,
+) -> impl Fn(BytesMut) -> Result<Bytes, io::Error> + 'static + Send {
+    move |src| Message::from_compressed(src, protocol_id).decompress()
 }

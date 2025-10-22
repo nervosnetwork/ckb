@@ -259,8 +259,8 @@ impl CKBProtocol {
                     handler: self.handler,
                 }))
             })
-            .before_send(compress)
-            .before_receive(|| Some(Box::new(decompress)))
+            .before_send(compress(self.id))
+            .before_receive(move || Some(Box::new(decompress(self.id))))
             .build()
     }
 }
