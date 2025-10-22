@@ -62,6 +62,15 @@ impl Message {
                         res.len(),
                         (res.len() as f64 / input.len() as f64 * 100.0)
                     );
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics
+                            .ckb_network_compress
+                            .with_label_values(&[
+                                self.protocol_id.to_string().as_str(),
+                                "compressed ratio",
+                            ])
+                            .observe(res.len() as f64 / input.len() as f64);
+                    }
                     if res.len() >= input.len() {
                         // compressed data is larger than or equal to uncompressed data
                         self.inner.unsplit(input);
@@ -75,10 +84,22 @@ impl Message {
                         "protocol {} message snappy compress error: {}",
                         self.protocol_id, e
                     );
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics
+                            .ckb_network_compress
+                            .with_label_values(&[
+                                self.protocol_id.to_string().as_str(),
+                                "compressed ratio",
+                            ])
+                            .observe(1.0);
+                    }
                     self.inner.unsplit(input);
                 }
             }
+        } else if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_network_not_compress_count.inc();
         }
+
         self.inner.freeze()
     }
 

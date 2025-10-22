@@ -130,6 +130,8 @@ pub struct Metrics {
     pub ckb_hole_punching_active_success_count: IntCounter,
     pub ckb_hole_punching_passive_count: IntCounter,
     pub ckb_hole_punching_passive_success_count: IntCounter,
+    pub ckb_network_compress: HistogramVec,
+    pub ckb_network_not_compress_count: IntCounter,
 }
 
 static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
@@ -334,6 +336,19 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
     ckb_hole_punching_passive_success_count: register_int_counter!(
         "ckb_hole_punching_passive_success_count",
         "The CKB hole punching passive success count"
+    )
+            .unwrap(),
+    ckb_network_compress: register_histogram_vec!(
+        "ckb_network_compress",
+        "The CKB network compress ratio",
+        &["protocol_name", "compress_ratio"],
+        vec![
+            0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1
+        ]
+    ).unwrap(),
+        ckb_network_not_compress_count: register_int_counter!(
+        "ckb_network_not_compress_count",
+        "The CKB network not compress count"
     )
             .unwrap(),
     }
