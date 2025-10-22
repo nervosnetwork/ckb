@@ -36,7 +36,7 @@ pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 
 use crate::{
     Behaviour, Error, NetworkState, Peer, ProtocolVersion, SupportProtocols,
-    compress::{compress, decompress},
+    compress::LengthDelimitedCodecWithCompress,
     network::{async_disconnect_with_message, disconnect_with_message},
 };
 
@@ -174,6 +174,7 @@ pub struct CKBProtocol {
     max_frame_length: usize,
     handler: Box<dyn CKBProtocolHandler>,
     network_state: Arc<NetworkState>,
+    compress: bool,
 }
 
 impl CKBProtocol {
@@ -191,6 +192,7 @@ impl CKBProtocol {
             supported_versions: support_protocol.support_versions(),
             network_state,
             handler,
+            compress: true,
         }
     }
 
@@ -214,7 +216,14 @@ impl CKBProtocol {
                 versions.sort_by(|a, b| b.cmp(a));
                 versions.to_vec()
             },
+            compress: true,
         }
+    }
+
+    /// Enable or disable compression, default is enabled
+    pub fn compress(mut self, enable: bool) -> Self {
+        self.compress = enable;
+        self
     }
 
     /// Protocol id
@@ -245,11 +254,12 @@ impl CKBProtocol {
             .id(self.id)
             .name(move |_| protocol_name.clone())
             .codec(move || {
-                Box::new(
+                Box::new(LengthDelimitedCodecWithCompress::new(
+                    self.compress,
                     length_delimited::Builder::new()
                         .max_frame_length(max_frame_length)
                         .new_codec(),
-                )
+                ))
             })
             .support_versions(supported_versions)
             .service_handle(move || {
@@ -259,8 +269,6 @@ impl CKBProtocol {
                     handler: self.handler,
                 }))
             })
-            .before_send(compress)
-            .before_receive(|| Some(Box::new(decompress)))
             .build()
     }
 }
