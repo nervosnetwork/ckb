@@ -67,6 +67,7 @@ impl Message {
                             .ckb_network_compress
                             .with_label_values(&[
                                 self.protocol_id.to_string().as_str(),
+                                "succeeded",
                                 "compressed ratio",
                             ])
                             .observe(res.len() as f64 / input.len() as f64);
@@ -89,6 +90,7 @@ impl Message {
                             .ckb_network_compress
                             .with_label_values(&[
                                 self.protocol_id.to_string().as_str(),
+                                "failed",
                                 "compressed ratio",
                             ])
                             .observe(1.0);
@@ -97,7 +99,10 @@ impl Message {
                 }
             }
         } else if let Some(metrics) = ckb_metrics::handle() {
-            metrics.ckb_network_not_compress_count.inc();
+            metrics
+                .ckb_network_not_compress_count
+                .with_label_values(&[self.protocol_id.to_string().as_str()])
+                .inc();
         }
 
         self.inner.freeze()
