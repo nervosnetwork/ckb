@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## [v0.203.0](https://github.com/nervosnetwork/ckb/compare/v0.202.0...v0.203.0) (2025-10-22)
+
+### Features
+
+-   #4891: Hole punching protocol metrics (@driftluo)
+-   #4888: Add 2 outbound block-relay-only connections (@zhangsoledad)
+-   #4910: Impl from/into for gen-type (@driftluo)
+-   #4920: Enhance scriptHashType serialization logic (@zhangsoledad)
+
+### Bug Fixes
+
+-   #4895: `NetRpcImpl` fix error handling for `add_node` and `remove_node` (@eval-exec)
+
+### Improvements
+
+-   #4970: Set `strum` default-features to false (@eval-exec)
+-   #4946: Rich-indexer: keep rocksdb SecondaryDB sync before read (@eval-exec)
+-   #4972: Limit the size of `filters` field in message `BlockFilters`  in `GetBlockFiltersProcess` (@Officeyutong)
+
+    This PR limits size of `filters` field to 1.8MB, to avoid the frame sended by tentacle being too large (reaches 2MB) causing full CKB nodes disconnects light-client nodes
+
 ## [v0.202.0](https://github.com/nervosnetwork/ckb/compare/v0.201.0...v0.202.0) (2025-06-11)
 
 ### Features
@@ -10,7 +31,7 @@
 
 ## [v0.201.0](https://github.com/nervosnetwork/ckb/compare/v0.200.0...v0.201.0) (2025-04-02)
 
-### Fixings
+### Bug Fixes
 
 - #4825: Fix `make wasm` build failed by `error[E0521]: borrowed data escapes outside of closure` (@eval-exec)
 
