@@ -52,6 +52,8 @@ tower-http = { workspace = true, features = ["timeout", "cors"] }
 async-stream.workspace = true
 ckb-async-runtime.workspace = true
 schemars.workspace = true
+sysinfo.workspace = true
+bitflags.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking", "json"] }

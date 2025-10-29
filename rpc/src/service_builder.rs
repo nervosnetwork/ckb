@@ -2,11 +2,11 @@
 use crate::module::{
     AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl,
     IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, RichIndexerRpcImpl,
-    StatsRpcImpl, SubscriptionRpcImpl, add_alert_rpc_methods, add_chain_rpc_methods,
-    add_debug_rpc_methods, add_experiment_rpc_methods, add_indexer_rpc_methods,
-    add_integration_test_rpc_methods, add_miner_rpc_methods, add_net_rpc_methods,
-    add_pool_rpc_methods, add_rich_indexer_rpc_methods, add_stats_rpc_methods,
-    add_subscription_rpc_methods,
+    StatsRpcImpl, SubscriptionRpcImpl, TerminalRpcImpl, add_alert_rpc_methods,
+    add_chain_rpc_methods, add_debug_rpc_methods, add_experiment_rpc_methods,
+    add_indexer_rpc_methods, add_integration_test_rpc_methods, add_miner_rpc_methods,
+    add_net_rpc_methods, add_pool_rpc_methods, add_rich_indexer_rpc_methods, add_stats_rpc_methods,
+    add_subscription_rpc_methods, add_terminal_rpc_methods,
 };
 use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
@@ -187,6 +187,18 @@ impl<'a> ServiceBuilder<'a> {
     pub fn enable_debug(mut self) -> Self {
         let methods = DebugRpcImpl {};
         set_rpc_module_methods!(self, "Debug", debug_enable, add_debug_rpc_methods, methods)
+    }
+
+    /// Mounts methods from module Terminal if it is enabled in the config.
+    pub fn enable_terminal(mut self, shared: Shared) -> Self {
+        let methods = TerminalRpcImpl { shared };
+        set_rpc_module_methods!(
+            self,
+            "Terminal",
+            terminal_enable,
+            add_terminal_rpc_methods,
+            methods
+        )
     }
 
     /// Mounts methods from module Indexer if it is enabled in the config.
