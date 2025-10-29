@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.204.0-pre"
+version = "0.204.0-rc1"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",

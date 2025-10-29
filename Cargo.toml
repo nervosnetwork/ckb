@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.204.0-pre"
+version = "0.204.0-rc1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -114,7 +114,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.204.0-pre"
+version = "0.204.0-rc1"
 
 [workspace.dependencies]
 tempfile = "3"
