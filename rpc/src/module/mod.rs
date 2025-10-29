@@ -121,6 +121,7 @@ pub(crate) mod pool;
 mod rich_indexer;
 mod stats;
 mod subscription;
+mod terminal;
 mod test;
 
 pub(crate) use self::alert::AlertRpcImpl;
@@ -134,6 +135,7 @@ pub(crate) use self::pool::PoolRpcImpl;
 pub(crate) use self::rich_indexer::RichIndexerRpcImpl;
 pub(crate) use self::stats::StatsRpcImpl;
 pub(crate) use self::subscription::SubscriptionRpcImpl;
+pub(crate) use self::terminal::TerminalRpcImpl;
 pub(crate) use self::test::IntegrationTestRpcImpl;
 
 pub use self::alert::{AlertRpc, add_alert_rpc_methods, alert_rpc_doc};
@@ -147,6 +149,7 @@ pub use self::pool::{PoolRpc, add_pool_rpc_methods, pool_rpc_doc};
 pub use self::rich_indexer::{RichIndexerRpc, add_rich_indexer_rpc_methods, rich_indexer_rpc_doc};
 pub use self::stats::{StatsRpc, add_stats_rpc_methods, stats_rpc_doc};
 pub use self::subscription::{SubscriptionRpc, add_subscription_rpc_methods, subscription_rpc_doc};
+pub use self::terminal::{TerminalRpc, add_terminal_rpc_methods, terminal_rpc_doc};
 pub use self::test::{
     IntegrationTestRpc, add_integration_test_rpc_methods, integration_test_rpc_doc,
 };
