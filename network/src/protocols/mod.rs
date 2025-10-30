@@ -259,6 +259,7 @@ impl CKBProtocol {
                     length_delimited::Builder::new()
                         .max_frame_length(max_frame_length)
                         .new_codec(),
+                    self.id,
                 ))
             })
             .support_versions(supported_versions)

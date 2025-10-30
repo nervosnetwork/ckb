@@ -54,7 +54,7 @@ fn test_invalid_data() {
 #[test]
 fn test_length_delimited_codec_with_compress() {
     let mut codec_with_compress =
-        LengthDelimitedCodecWithCompress::new(true, LengthDelimitedCodec::new());
+        LengthDelimitedCodecWithCompress::new(true, LengthDelimitedCodec::new(), 1.into());
     let mut codec = LengthDelimitedCodec::new();
 
     let raw_data = Bytes::from(vec![1; COMPRESSION_SIZE_THRESHOLD + 1]);
@@ -85,7 +85,7 @@ fn test_length_delimited_codec_with_compress() {
 fn test_length_delimited_codec_with_no_need_compress() {
     let raw_data = Bytes::from("short data");
     let mut codec_with_compress =
-        LengthDelimitedCodecWithCompress::new(true, LengthDelimitedCodec::new());
+        LengthDelimitedCodecWithCompress::new(true, LengthDelimitedCodec::new(), 1.into());
     let mut codec = LengthDelimitedCodec::new();
 
     let mut buf = BytesMut::new();
@@ -115,7 +115,7 @@ fn test_length_delimited_codec_with_no_need_compress() {
 fn test_length_delimited_codec_with_compress_disabled() {
     let raw_data = Bytes::from(vec![1; COMPRESSION_SIZE_THRESHOLD + 1]);
     let mut codec_with_compress =
-        LengthDelimitedCodecWithCompress::new(false, LengthDelimitedCodec::new());
+        LengthDelimitedCodecWithCompress::new(false, LengthDelimitedCodec::new(), 1.into());
     let mut codec = LengthDelimitedCodec::new();
 
     let mut buf = BytesMut::new();

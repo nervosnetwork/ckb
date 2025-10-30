@@ -122,6 +122,7 @@ pub fn decompress(src: BytesMut) -> Result<Bytes, io::Error> {
 pub struct LengthDelimitedCodecWithCompress {
     length_delimited: length_delimited::LengthDelimitedCodec,
     enable_compress: bool,
+    protocol_id: p2p::ProtocolId,
 }
 
 impl LengthDelimitedCodecWithCompress {
@@ -129,10 +130,12 @@ impl LengthDelimitedCodecWithCompress {
     pub fn new(
         enable_compress: bool,
         length_delimited: length_delimited::LengthDelimitedCodec,
+        protocol_id: p2p::ProtocolId,
     ) -> Self {
         Self {
             length_delimited,
             enable_compress,
+            protocol_id,
         }
     }
 }
@@ -157,6 +160,23 @@ impl tokio_util::codec::Encoder<Bytes> for LengthDelimitedCodecWithCompress {
         if self.enable_compress && data.len() > COMPRESSION_SIZE_THRESHOLD {
             match SnapEncoder::new().compress_vec(&data) {
                 Ok(res) => {
+                    debug!(
+                        "protocol {} message snappy compress result: raw: {}, compressed: {}, ratio: {:.2}%",
+                        self.protocol_id,
+                        data.len(),
+                        res.len(),
+                        (res.len() as f64 / data.len() as f64 * 100.0)
+                    );
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics
+                            .ckb_network_compress
+                            .with_label_values(&[
+                                self.protocol_id.to_string().as_str(),
+                                "succeeded",
+                                "compressed ratio",
+                            ])
+                            .observe(res.len() as f64 / data.len() as f64);
+                    }
                     // compressed data is larger than or equal to uncompressed data
                     if res.len() >= data.len() {
                         process(&data, UNCOMPRESS_FLAG, dst)?;
@@ -165,11 +185,30 @@ impl tokio_util::codec::Encoder<Bytes> for LengthDelimitedCodecWithCompress {
                     }
                 }
                 Err(e) => {
-                    debug!("snappy compress error: {}", e);
+                    debug!(
+                        "protocol {} message snappy compress error: {}",
+                        self.protocol_id, e
+                    );
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics
+                            .ckb_network_compress
+                            .with_label_values(&[
+                                self.protocol_id.to_string().as_str(),
+                                "failed",
+                                "compressed ratio",
+                            ])
+                            .observe(1.0);
+                    }
                     process(&data, UNCOMPRESS_FLAG, dst)?;
                 }
             }
         } else {
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics
+                    .ckb_network_not_compress_count
+                    .with_label_values(&[self.protocol_id.to_string().as_str()])
+                    .inc();
+            }
             process(&data, UNCOMPRESS_FLAG, dst)?;
         }
         Ok(())
@@ -195,9 +234,9 @@ impl tokio_util::codec::Decoder for LengthDelimitedCodecWithCompress {
                                 );
                                 return Err(io::ErrorKind::InvalidData.into());
                             }
-                            let mut buf = vec![0; decompressed_bytes_len];
+                            let mut buf = BytesMut::zeroed(decompressed_bytes_len);
                             match SnapDecoder::new().decompress(&data[1..], &mut buf) {
-                                Ok(_) => Ok(Some(BytesMut::from(Bytes::from(buf)))),
+                                Ok(_) => Ok(Some(buf)),
                                 Err(e) => {
                                     debug!("snappy decompress error: {:?}", e);
                                     Err(io::ErrorKind::InvalidData.into())
