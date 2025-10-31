@@ -38,7 +38,7 @@ jobs:
             ci-aarch64-cargo-
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.91.0
           components: rustfmt
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential
       - name: Build for aarch64

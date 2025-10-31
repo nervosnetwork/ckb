@@ -1,4 +1,4 @@
-FROM nervos/ckb-docker-builder:aarch64-rust-1.85.0 as ckb-docker-builder
+FROM nervos/ckb-docker-builder:aarch64-rust-1.91.0 as ckb-docker-builder
 
 WORKDIR /ckb
 COPY ./ .
