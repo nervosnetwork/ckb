@@ -138,25 +138,26 @@ impl LengthDelimitedCodecWithCompress {
             protocol_id,
         }
     }
+
+    fn process(&self, data: &[u8], flag: u8, dst: &mut BytesMut) -> Result<(), io::Error> {
+        let len = data.len() + 1;
+        if len > self.length_delimited.max_frame_length() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "data too large",
+            ));
+        }
+        dst.reserve(4 + len);
+        dst.put_uint(len as u64, 4);
+        dst.put_u8(flag);
+        dst.extend_from_slice(data);
+        Ok(())
+    }
 }
 
 impl tokio_util::codec::Encoder<Bytes> for LengthDelimitedCodecWithCompress {
     type Error = io::Error;
     fn encode(&mut self, data: Bytes, dst: &mut BytesMut) -> Result<(), io::Error> {
-        let process = |data: &[u8], flag: u8, dst: &mut BytesMut| {
-            let len = data.len() + 1;
-            if len > self.length_delimited.max_frame_length() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "data too large",
-                ));
-            }
-            dst.reserve(4 + len);
-            dst.put_uint(len as u64, 4);
-            dst.put_u8(flag);
-            dst.extend_from_slice(data);
-            Ok(())
-        };
         if self.enable_compress && data.len() > COMPRESSION_SIZE_THRESHOLD {
             match SnapEncoder::new().compress_vec(&data) {
                 Ok(res) => {
@@ -179,9 +180,9 @@ impl tokio_util::codec::Encoder<Bytes> for LengthDelimitedCodecWithCompress {
                     }
                     // compressed data is larger than or equal to uncompressed data
                     if res.len() >= data.len() {
-                        process(&data, UNCOMPRESS_FLAG, dst)?;
+                        self.process(&data, UNCOMPRESS_FLAG, dst)?;
                     } else {
-                        process(&res, COMPRESS_FLAG, dst)?;
+                        self.process(&res, COMPRESS_FLAG, dst)?;
                     }
                 }
                 Err(e) => {
@@ -199,7 +200,7 @@ impl tokio_util::codec::Encoder<Bytes> for LengthDelimitedCodecWithCompress {
                             ])
                             .observe(1.0);
                     }
-                    process(&data, UNCOMPRESS_FLAG, dst)?;
+                    self.process(&data, UNCOMPRESS_FLAG, dst)?;
                 }
             }
         } else {
@@ -209,7 +210,7 @@ impl tokio_util::codec::Encoder<Bytes> for LengthDelimitedCodecWithCompress {
                     .with_label_values(&[self.protocol_id.to_string().as_str()])
                     .inc();
             }
-            process(&data, UNCOMPRESS_FLAG, dst)?;
+            self.process(&data, UNCOMPRESS_FLAG, dst)?;
         }
         Ok(())
     }
@@ -224,6 +225,10 @@ impl tokio_util::codec::Decoder for LengthDelimitedCodecWithCompress {
         }
         match self.length_delimited.decode(src)? {
             Some(mut data) => {
+                if data.len() < 2 {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+
                 if (data[0] & COMPRESS_FLAG) != 0 {
                     match decompress_len(&data[1..]) {
                         Ok(decompressed_bytes_len) => {

@@ -142,3 +142,19 @@ fn test_length_delimited_codec_with_compress_disabled() {
     assert_eq!(decoded, decoded_cmp[1..]);
     assert_eq!(UNCOMPRESS_FLAG, decoded_cmp[0]);
 }
+
+#[test]
+fn test_length_delimited_codec_with_invalid_data() {
+    let mut codec_with_compress =
+        LengthDelimitedCodecWithCompress::new(true, LengthDelimitedCodec::new(), 1.into());
+
+    let mut buf = BytesMut::from(&[0u8; 4][..]); // invalid data, length less than 2
+    assert!(codec_with_compress.decode(&mut buf).is_err());
+
+    let mut buf = BytesMut::from(&[0u8, 0, 0, 1, 0][..]); // invalid data, length 1
+    assert!(codec_with_compress.decode(&mut buf).is_err());
+
+    let mut buf = BytesMut::from(&[0u8, 0, 0, 5, 1, 2, 3][..]); // invalid data, length 5 but only 3 bytes
+    assert!(codec_with_compress.decode(&mut buf).is_ok());
+    assert!(codec_with_compress.decode(&mut buf).unwrap().is_none());
+}
