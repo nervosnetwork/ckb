@@ -39,7 +39,7 @@ impl<'a> MockChain<'a> {
     pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<TransactionView>, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
+        let dao = dao_data(self.consensus, &parent, std::slice::from_ref(&cellbase), store, false);
 
         let epoch = self
             .consensus
@@ -68,7 +68,7 @@ impl<'a> MockChain<'a> {
     ) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
+        let dao = dao_data(self.consensus, &parent, std::slice::from_ref(&cellbase), store, false);
 
         let epoch = self
             .consensus
@@ -92,7 +92,7 @@ impl<'a> MockChain<'a> {
     pub fn gen_empty_block_with_diff(&mut self, difficulty: u64, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
+        let dao = dao_data(self.consensus, &parent, std::slice::from_ref(&cellbase), store, false);
 
         let epoch = self
             .consensus
@@ -116,7 +116,7 @@ impl<'a> MockChain<'a> {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
+        let dao = dao_data(self.consensus, &parent, std::slice::from_ref(&cellbase), store, false);
 
         let epoch = self
             .consensus
@@ -139,7 +139,7 @@ impl<'a> MockChain<'a> {
     pub fn gen_empty_block_with_nonce(&mut self, nonce: u128, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
+        let dao = dao_data(self.consensus, &parent, std::slice::from_ref(&cellbase), store, false);
 
         let epoch = self
             .consensus
@@ -163,7 +163,7 @@ impl<'a> MockChain<'a> {
     pub fn gen_empty_block(&mut self, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(self.consensus, &parent, &[cellbase.clone()], store, false);
+        let dao = dao_data(self.consensus, &parent, std::slice::from_ref(&cellbase), store, false);
 
         let epoch = self
             .consensus

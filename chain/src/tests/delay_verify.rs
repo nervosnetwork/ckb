@@ -276,7 +276,7 @@ fn test_full_dead_transaction() {
     let dao = dao_data(
         shared.consensus(),
         &parent,
-        &[cellbase_tx.clone()],
+        std::slice::from_ref(&cellbase_tx),
         &mock_store,
         false,
     );

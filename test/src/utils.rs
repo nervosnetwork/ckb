@@ -66,7 +66,7 @@ pub fn build_block_transactions(block: &BlockView) -> Bytes {
 }
 
 pub fn build_header(header: &HeaderView) -> Bytes {
-    build_headers(&[header.clone()])
+    build_headers(std::slice::from_ref(header))
 }
 
 pub fn build_headers(headers: &[HeaderView]) -> Bytes {
