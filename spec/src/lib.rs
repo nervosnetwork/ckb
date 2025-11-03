@@ -1022,7 +1022,7 @@ pub(crate) fn build_type_id_script(input: &packed::CellInput, output_index: u64)
 pub fn calculate_block_reward(epoch_reward: Capacity, epoch_length: BlockNumber) -> Capacity {
     let epoch_reward = epoch_reward.as_u64();
     Capacity::shannons({
-        if epoch_reward % epoch_length != 0 {
+        if !epoch_reward.is_multiple_of(epoch_length) {
             epoch_reward / epoch_length + 1
         } else {
             epoch_reward / epoch_length

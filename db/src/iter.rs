@@ -12,18 +12,18 @@ use rocksdb::{ReadOptions, ops::IterateCF};
 pub trait DBIterator {
     /// Opens an iterator using the provided IteratorMode.
     /// This is used when you want to iterate over a specific ColumnFamily
-    fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIter> {
+    fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIter<'_>> {
         let opts = ReadOptions::default();
         self.iter_opt(col, mode, &opts)
     }
 
     /// Opens an iterator using the provided IteratorMode and ReadOptions.
     /// This is used when you want to iterate over a specific ColumnFamily with a modified ReadOptions
-    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter>;
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>>;
 }
 
 impl DBIterator for RocksDB {
-    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
         let cf = cf_handle(&self.inner, col)?;
         self.inner
             .iterator_cf_opt(cf, mode, readopts)
@@ -32,7 +32,7 @@ impl DBIterator for RocksDB {
 }
 
 impl DBIterator for RocksDBTransaction {
-    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
         let cf = cf_handle(&self.db, col)?;
         self.inner
             .iterator_cf_opt(cf, mode, readopts)
@@ -41,7 +41,7 @@ impl DBIterator for RocksDBTransaction {
 }
 
 impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
-    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
         let cf = cf_handle(&self.db, col)?;
         self.inner
             .iterator_cf_opt(cf, mode, readopts)
@@ -50,7 +50,7 @@ impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
 }
 
 impl DBIterator for RocksDBSnapshot {
-    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter> {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
         let cf = cf_handle(&self.db, col)?;
         self.iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)

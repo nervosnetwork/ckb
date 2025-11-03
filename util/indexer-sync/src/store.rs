@@ -68,7 +68,7 @@ impl SecondaryDB {
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
     /// so as to avoid unnecessary memory copy.
-    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>, Error> {
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>, Error> {
         let cf = self
             .inner
             .cf_handle(col)
@@ -91,7 +91,7 @@ impl SecondaryDB {
     }
 
     /// This is used when you want to iterate over a specific ColumnFamily
-    fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIterator, Error> {
+    fn iter(&self, col: Col, mode: IteratorMode) -> Result<DBIterator<'_>, Error> {
         let opts = ReadOptions::default();
         let cf = self
             .inner
@@ -112,12 +112,12 @@ impl ChainStore for SecondaryDB {
         None
     }
 
-    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice<'_>> {
         self.get_pinned(col, key)
             .expect("db operation should be ok")
     }
 
-    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIterator {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIterator<'_> {
         self.iter(col, mode).expect("db operation should be ok")
     }
 }

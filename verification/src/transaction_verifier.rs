@@ -865,15 +865,14 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
 
             // Only cells committed after the pre-defined block number in consensus is
             // applied to this rule
-            if let Some(info) = &input_meta.transaction_info {
-                if info.block_number
+            if let Some(info) = &input_meta.transaction_info
+                && info.block_number
                     < self
                         .consensus
                         .starting_block_limiting_dao_withdrawing_lock()
                 {
                     continue;
                 }
-            }
 
             // Now we have a pair of DAO deposit and withdrawing cells, it is expected
             // they have the lock scripts of the same size.

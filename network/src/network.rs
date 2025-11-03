@@ -225,11 +225,10 @@ impl NetworkState {
         }) {
             trace!("Report {:?} because {:?}", addr, behaviour);
             let report_result = self.peer_store.lock().report(&addr, behaviour);
-            if report_result.is_banned() {
-                if let Err(err) = disconnect_with_message(p2p_control, session_id, "banned") {
+            if report_result.is_banned()
+                && let Err(err) = disconnect_with_message(p2p_control, session_id, "banned") {
                     debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                 }
-            }
         } else {
             debug!(
                 "Report {} failure: not found in peer registry or it is on the whitelist",
@@ -287,15 +286,15 @@ impl NetworkState {
         // NOTE: be careful, here easy cause a deadlock,
         //    because peer_store's lock scope across peer_registry's lock scope
         let mut peer_store = self.peer_store.lock();
-        let accept_peer_result = {
+        
+        {
             self.peer_registry.write().accept_peer(
                 session_context.address.clone(),
                 session_context.id,
                 session_context.ty,
                 &mut peer_store,
             )
-        };
-        accept_peer_result
+        }
     }
 
     /// For restrict lock in inner scope
@@ -1455,15 +1454,14 @@ impl NetworkController {
     fn disconnect_peers_in_ip_range(&self, address: IpNetwork, reason: &str) {
         self.network_state.with_peer_registry(|reg| {
             reg.peers().iter().for_each(|(peer_index, peer)| {
-                if let Some(addr) = multiaddr_to_socketaddr(&peer.connected_addr) {
-                    if address.contains(addr.ip()) {
+                if let Some(addr) = multiaddr_to_socketaddr(&peer.connected_addr)
+                    && address.contains(addr.ip()) {
                         let _ = disconnect_with_message(
                             &self.p2p_control,
                             *peer_index,
                             &format!("Ban peer {}, reason: {}", addr.ip(), reason),
                         );
                     }
-                }
             })
         });
     }

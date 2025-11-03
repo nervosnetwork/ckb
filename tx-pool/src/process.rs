@@ -333,12 +333,11 @@ impl TxPoolService {
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<(), Reject> {
         if let Err(reject) = non_contextual_verify(&self.consensus, tx) {
-            if reject.is_malformed_tx() {
-                if let Some(remote) = remote {
+            if reject.is_malformed_tx()
+                && let Some(remote) = remote {
                     self.ban_malformed(remote.1, format!("reject {reject}"))
                         .await;
                 }
-            }
             return Err(reject);
         }
         Ok(())
@@ -407,14 +406,13 @@ impl TxPoolService {
 
     pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
         let mut tx_pool = self.tx_pool.write().await;
-        if let Some(ref mut recent_reject) = tx_pool.recent_reject {
-            if let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
+        if let Some(ref mut recent_reject) = tx_pool.recent_reject
+            && let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
                 error!(
                     "Failed to record recent_reject {} {} {}",
                     tx_hash, reject, e
                 );
             }
-        }
     }
 
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
@@ -445,8 +443,8 @@ impl TxPoolService {
         let tx_hash = tx.hash();
 
         // log tx verification result for monitor node
-        if log_enabled_target!("ckb_tx_monitor", Trace) {
-            if let Ok(c) = ret {
+        if log_enabled_target!("ckb_tx_monitor", Trace)
+            && let Ok(c) = ret {
                 trace_target!(
                     "ckb_tx_monitor",
                     r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
@@ -454,7 +452,6 @@ impl TxPoolService {
                     c.cycles
                 );
             }
-        }
 
         if matches!(
             ret,
@@ -696,8 +693,8 @@ impl TxPoolService {
 
         let verified = try_or_return_with_snapshot!(verified_ret, snapshot);
 
-        if let Some(declared) = declared_cycles {
-            if declared != verified.cycles {
+        if let Some(declared) = declared_cycles
+            && declared != verified.cycles {
                 info!(
                     "process_tx declared cycles not match verified cycles, declared: {:?} verified: {:?}, tx: {:?}",
                     declared, verified.cycles, tx
@@ -707,7 +704,6 @@ impl TxPoolService {
                     snapshot,
                 ));
             }
-        }
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
@@ -845,8 +841,8 @@ impl TxPoolService {
         for tx in txs {
             let tx_size = tx.data().serialized_size_in_block();
             let tx_hash = tx.hash();
-            if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx, false) {
-                if let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
+            if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx, false)
+                && let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
                     let verify_cache = fetched_cache.get(&tx_hash).cloned();
                     let snapshot = tx_pool.cloned_snapshot();
                     let tip_header = snapshot.tip_header();
@@ -869,7 +865,6 @@ impl TxPoolService {
                         }
                     }
                 }
-            }
         }
     }
 

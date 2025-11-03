@@ -2316,13 +2316,12 @@ impl ChainRpcImpl {
         }
 
         let retrieved_block_hash = retrieved_block_hash.expect("checked len");
-        if let Some(specified_block_hash) = block_hash {
-            if !retrieved_block_hash.eq(&specified_block_hash.into()) {
+        if let Some(specified_block_hash) = block_hash
+            && !retrieved_block_hash.eq(&specified_block_hash.into()) {
                 return Err(RPCError::invalid_params(
                     "Not all transactions found in specified block",
                 ));
             }
-        }
 
         snapshot
             .get_block(&retrieved_block_hash)
@@ -2350,12 +2349,11 @@ impl<'a> CellProvider for CyclesEstimator<'a> {
         snapshot
             .get_cell(out_point)
             .map(|mut cell_meta| {
-                if eager_load {
-                    if let Some((data, data_hash)) = snapshot.get_cell_data(out_point) {
+                if eager_load
+                    && let Some((data, data_hash)) = snapshot.get_cell_data(out_point) {
                         cell_meta.mem_cell_data = Some(data);
                         cell_meta.mem_cell_data_hash = Some(data_hash);
                     }
-                }
                 CellStatus::live_cell(cell_meta)
             })  // treat as live cell, regardless of live or dead
             .unwrap_or(CellStatus::Unknown)

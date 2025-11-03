@@ -96,11 +96,10 @@ impl MemoryMap {
         let mut guard = self.0.write();
         let (key, value) = header.into();
         let ret = guard.insert(key, value);
-        if ret.is_none() {
-            if let Some(metrics) = ckb_metrics::handle() {
+        if ret.is_none()
+            && let Some(metrics) = ckb_metrics::handle() {
                 metrics.ckb_header_map_memory_count.inc();
             }
-        }
         ret.map(|_| ())
     }
 

@@ -50,13 +50,13 @@ impl ReadOnlyDB {
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the default column
     /// so as to avoid unnecessary memory copy.
-    pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+    pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
         self.inner.get_pinned(key).map_err(internal_error)
     }
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
     /// so as to avoid unnecessary memory copy.
-    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
         let cf = self
             .inner
             .cf_handle(col)

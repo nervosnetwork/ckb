@@ -59,42 +59,37 @@ fn collect_code_block(
 ) -> io::Result<()> {
     if code_block.contains("\"method\":") {
         if let Some(request) = request {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 format!("Unexpected request. The request {request} has no matched response yet."),
             ));
         }
 
         let new_request: RpcTestRequest = serde_json::from_str(&code_block).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
+            io::Error::other(
                 format!("Invalid JSONRPC Request: {e}\n{code_block}"),
             )
         })?;
         *request = Some(new_request);
     } else {
         let response: RpcTestResponse = serde_json::from_str(&code_block).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
+            io::Error::other(
                 format!("Invalid JSONRPC Response: {e}\n{code_block}"),
             )
         })?;
         if let Some(request) = request.take() {
             if request.id != response.id {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     "Unmatched response id",
                 ));
             }
             let request_display = format!("{request}");
             if !collected.insert(RpcTestExample { request, response }) {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     format!("Duplicate example {request_display}"),
                 ));
             }
         } else {
-            return Err(io::Error::new(io::ErrorKind::Other, "Unexpected response"));
+            return Err(io::Error::other("Unexpected response"));
         }
     }
 
@@ -143,8 +138,7 @@ fn collect_rpc_examples_in_file(
         if let Some(comment) = find_comment(&line) {
             if comment == "```json" {
                 if !collecting.is_empty() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
+                    return Err(io::Error::other(
                         format!("{}:{}: Unexpected code block start", path.display(), lineno),
                     ));
                 }
@@ -153,8 +147,7 @@ fn collect_rpc_examples_in_file(
                 let code_block = collecting.join("\n");
                 if code_block.contains("\"jsonrpc\":") {
                     collect_code_block(collected, &mut request, code_block).map_err(|e| {
-                        io::Error::new(
-                            io::ErrorKind::Other,
+                        io::Error::other(
                             format!("{}:{}: {}", path.display(), lineno, e),
                         )
                     })?;
@@ -165,8 +158,7 @@ fn collect_rpc_examples_in_file(
             }
         } else {
             if !collecting.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
+                return Err(io::Error::other(
                     format!("{}:{}: Unexpected end of comment", path.display(), lineno),
                 ));
             }
@@ -188,8 +180,7 @@ fn collect_rpc_examples_in_file(
     if collecting.is_empty() {
         Ok(())
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
+        Err(io::Error::other(
             format!(
                 "{}: Unexpected EOF while the code block is still open",
                 path.display()

@@ -35,7 +35,7 @@ impl RocksDBSnapshot {
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
     /// so as to avoid unnecessary memory copy.
-    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
         let cf = cf_handle(&self.db, col)?;
         self.get_pinned_cf_full(Some(cf), key, None)
             .map_err(internal_error)

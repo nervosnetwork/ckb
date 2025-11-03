@@ -916,8 +916,8 @@ impl Node {
     #[allow(unused_mut)]
     pub fn stop_gracefully(&mut self) {
         let guard = self.take_guard();
-        if let Some(mut guard) = guard {
-            if !guard.killed {
+        if let Some(mut guard) = guard
+            && !guard.killed {
                 // on nix: send SIGINT to the child
                 // on windows: don't kill gracefully..... fix later
                 #[cfg(not(target_os = "windows"))]
@@ -927,7 +927,6 @@ impl Node {
                     guard.killed = true;
                 }
             }
-        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1032,12 +1031,12 @@ pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
     let other_node_addrs: Vec<Vec<Multiaddr>> = node_multiaddrs
         .keys()
         .map(|id| {
-            let addrs = node_multiaddrs
+            
+            node_multiaddrs
                 .iter()
                 .filter(|(other_id, _)| other_id.as_str() != id.as_str())
                 .map(|(_, addr)| addr.to_owned())
-                .collect::<Vec<_>>();
-            addrs
+                .collect::<Vec<_>>()
         })
         .collect();
     for (i, node) in nodes.iter_mut().enumerate() {

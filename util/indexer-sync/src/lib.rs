@@ -108,13 +108,11 @@ impl IndexerSyncService {
             let indexer_tip = indexer_service
                 .tip()
                 .expect("indexer_service tip should be OK");
-            if let Some((indexer_tip, _)) = indexer_tip {
-                if let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.into()) {
-                    if indexer_tip >= init_tip.number() {
+            if let Some((indexer_tip, _)) = indexer_tip
+                && let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.into())
+                    && indexer_tip >= init_tip.number() {
                         return;
                     }
-                }
-            }
             loop {
                 if has_received_stop_signal() {
                     info!("apply_init_tip received exit signal, exit now");

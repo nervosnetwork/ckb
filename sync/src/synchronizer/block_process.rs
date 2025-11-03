@@ -90,20 +90,17 @@ impl<'a> BlockProcess<'a> {
         );
         let shared = self.synchronizer.shared();
 
-        if shared.new_block_received(&block) {
-            if let Err(err) = self
+        if shared.new_block_received(&block)
+            && let Err(err) = self
                 .synchronizer
                 .blocking_process_new_block(block.clone(), self.peer)
-            {
-                if !ckb_error::is_internal_db_error(&err) {
+                && !ckb_error::is_internal_db_error(&err) {
                     return crate::StatusCode::BlockIsInvalid.with_context(format!(
                         "{}, error: {}",
                         block.hash(),
                         err,
                     ));
                 }
-            }
-        }
         crate::Status::ok()
     }
 }

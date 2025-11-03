@@ -307,7 +307,7 @@ impl PoolMap {
                 let entries = self.remove_entry_and_descendants(&id);
                 if !entries.is_empty() {
                     let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                    let rejects = std::iter::repeat(reject).take(entries.len());
+                    let rejects = std::iter::repeat_n(reject, entries.len());
                     conflicts.extend(entries.into_iter().zip(rejects));
                 }
             }
@@ -318,7 +318,7 @@ impl PoolMap {
                     let entries = self.remove_entry_and_descendants(&id);
                     if !entries.is_empty() {
                         let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                        let rejects = std::iter::repeat(reject).take(entries.len());
+                        let rejects = std::iter::repeat_n(reject, entries.len());
                         conflicts.extend(entries.into_iter().zip(rejects));
                     }
                 }

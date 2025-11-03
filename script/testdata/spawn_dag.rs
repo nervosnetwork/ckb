@@ -1384,7 +1384,7 @@ impl<'r> molecule::prelude::Reader<'r> for PipeReader<'r> {
             return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+        if !offset_first.is_multiple_of(molecule::NUMBER_SIZE) || offset_first < molecule::NUMBER_SIZE * 2 {
             return ve!(Self, OffsetsNotMatch);
         }
         if slice_len < offset_first {
@@ -1666,7 +1666,7 @@ impl<'r> molecule::prelude::Reader<'r> for PipesReader<'r> {
             );
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+        if !offset_first.is_multiple_of(molecule::NUMBER_SIZE) || offset_first < molecule::NUMBER_SIZE * 2 {
             return ve!(Self, OffsetsNotMatch);
         }
         if slice_len < offset_first {
@@ -2048,7 +2048,7 @@ impl<'r> molecule::prelude::Reader<'r> for WriteReader<'r> {
             return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+        if !offset_first.is_multiple_of(molecule::NUMBER_SIZE) || offset_first < molecule::NUMBER_SIZE * 2 {
             return ve!(Self, OffsetsNotMatch);
         }
         if slice_len < offset_first {
@@ -2350,7 +2350,7 @@ impl<'r> molecule::prelude::Reader<'r> for WritesReader<'r> {
             );
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+        if !offset_first.is_multiple_of(molecule::NUMBER_SIZE) || offset_first < molecule::NUMBER_SIZE * 2 {
             return ve!(Self, OffsetsNotMatch);
         }
         if slice_len < offset_first {
@@ -2701,7 +2701,7 @@ impl<'r> molecule::prelude::Reader<'r> for SpawnReader<'r> {
             return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+        if !offset_first.is_multiple_of(molecule::NUMBER_SIZE) || offset_first < molecule::NUMBER_SIZE * 2 {
             return ve!(Self, OffsetsNotMatch);
         }
         if slice_len < offset_first {
@@ -2983,7 +2983,7 @@ impl<'r> molecule::prelude::Reader<'r> for SpawnsReader<'r> {
             );
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+        if !offset_first.is_multiple_of(molecule::NUMBER_SIZE) || offset_first < molecule::NUMBER_SIZE * 2 {
             return ve!(Self, OffsetsNotMatch);
         }
         if slice_len < offset_first {
@@ -3333,7 +3333,7 @@ impl<'r> molecule::prelude::Reader<'r> for DataReader<'r> {
             return ve!(Self, HeaderIsBroken, molecule::NUMBER_SIZE * 2, slice_len);
         }
         let offset_first = molecule::unpack_number(&slice[molecule::NUMBER_SIZE..]) as usize;
-        if offset_first % molecule::NUMBER_SIZE != 0 || offset_first < molecule::NUMBER_SIZE * 2 {
+        if !offset_first.is_multiple_of(molecule::NUMBER_SIZE) || offset_first < molecule::NUMBER_SIZE * 2 {
             return ve!(Self, OffsetsNotMatch);
         }
         if slice_len < offset_first {

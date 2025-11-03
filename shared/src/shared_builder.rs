@@ -577,21 +577,18 @@ fn register_tx_pool_callback(
         move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
             let tx_hash = entry.transaction().hash();
             // record recent reject
-            if reject.should_recorded() {
-                if let Some(ref mut recent_reject) = tx_pool.recent_reject {
-                    if let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
+            if reject.should_recorded()
+                && let Some(ref mut recent_reject) = tx_pool.recent_reject
+                    && let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
                         error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
                     }
-                }
-            }
 
-            if reject.is_allowed_relay() {
-                if let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
+            if reject.is_allowed_relay()
+                && let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
                     tx_hash: tx_hash.clone(),
                 }) {
                     error!("tx-pool tx_relay_sender internal error {}", e);
                 }
-            }
 
             // notify
             let notify_tx_entry = create_notify_entry(entry);

@@ -324,14 +324,13 @@ pub fn modified_occupied_capacity(
     cell_meta: &CellMeta,
     consensus: &Consensus,
 ) -> CapacityResult<Capacity> {
-    if let Some(tx_info) = &cell_meta.transaction_info {
-        if tx_info.is_genesis()
+    if let Some(tx_info) = &cell_meta.transaction_info
+        && tx_info.is_genesis()
             && tx_info.is_cellbase()
             && cell_meta.cell_output.lock().args().raw_data() == consensus.satoshi_pubkey_hash.0[..]
         {
             return Into::<Capacity>::into(cell_meta.cell_output.capacity())
                 .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);
         }
-    }
     cell_meta.occupied_capacity()
 }

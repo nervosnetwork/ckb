@@ -224,14 +224,13 @@ impl ServiceProtocol for PingHandler {
                     }
                     PingPayload::Pong(nonce) => {
                         // check pong
-                        if let Some(status) = self.connected_session_ids.get_mut(&session.id) {
-                            if (true, nonce) == (status.processing, status.nonce()) {
+                        if let Some(status) = self.connected_session_ids.get_mut(&session.id)
+                            && (true, nonce) == (status.processing, status.nonce()) {
                                 status.processing = false;
                                 let last_ping_sent_at = status.last_ping_sent_at;
                                 self.pong_received(session.id, last_ping_sent_at);
                                 return;
                             }
-                        }
                         // if nonce is incorrect or can't find ping info
                         if let Err(err) = async_disconnect_with_message(
                             context.control(),

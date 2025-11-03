@@ -6,8 +6,10 @@ use schemars::JsonSchema;
 /// The fee estimate mode.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum EstimateMode {
     /// No priority, expect the transaction to be committed in 1 hour.
+    #[default]
     NoPriority,
     /// Low priority, expect the transaction to be committed in 30 minutes.
     LowPriority,
@@ -17,11 +19,6 @@ pub enum EstimateMode {
     HighPriority,
 }
 
-impl Default for EstimateMode {
-    fn default() -> Self {
-        Self::NoPriority
-    }
-}
 
 impl From<EstimateMode> for core::EstimateMode {
     fn from(json: EstimateMode) -> Self {

@@ -214,7 +214,7 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
             tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
         };
 
-        let b_weightier_than_c = rand::random::<u32>() % 2 == 0;
+        let b_weightier_than_c = rand::random::<u32>().is_multiple_of(2);
         if b_weightier_than_c {
             // make B's fee >> C's fee, which means B's tx-weight > C's tx-weight
             let minimum_outputs_capacity = tx_b

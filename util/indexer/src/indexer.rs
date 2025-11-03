@@ -514,7 +514,7 @@ where
             pool.transactions_committed(&transactions);
         }
 
-        if block_number % self.prune_interval == 0 {
+        if block_number.is_multiple_of(self.prune_interval) {
             self.prune()?;
         }
 

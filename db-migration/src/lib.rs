@@ -138,13 +138,13 @@ impl Migrations {
         };
         debug!("Current database version [{}]", db_version);
 
-        let migrations = self
+        let mut migrations = self
             .migrations
             .values()
             .filter(|m| include_background || !m.run_in_background());
 
         let latest_version = migrations
-            .last()
+            .next_back()
             .unwrap_or_else(|| panic!("should have at least one version"))
             .version();
         debug!("Latest database version [{}]", latest_version);
@@ -201,20 +201,18 @@ impl Migrations {
     }
 
     fn is_non_empty_rdb(&self, db: &ReadOnlyDB) -> bool {
-        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY) {
-            if v.is_some() {
+        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
+            && v.is_some() {
                 return true;
             }
-        }
         false
     }
 
     fn is_non_empty_db(&self, db: &RocksDB) -> bool {
-        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY) {
-            if v.is_some() {
+        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
+            && v.is_some() {
                 return true;
             }
-        }
         false
     }
 
@@ -288,15 +286,14 @@ impl Migrations {
     /// Initial db version
     pub fn init_db_version(&self, db: &RocksDB) -> Result<(), Error> {
         let db_version = self.get_migration_version(db)?;
-        if db_version.is_none() {
-            if let Some(m) = self.migrations.values().last() {
+        if db_version.is_none()
+            && let Some(m) = self.migrations.values().last() {
                 info!("Init database version {}", m.version());
                 db.put_default(MIGRATION_VERSION_KEY, m.version())
                     .map_err(|err| {
                         internal_error(format!("failed to migrate the database: {err}"))
                     })?;
             }
-        }
         Ok(())
     }
 
@@ -334,8 +331,8 @@ impl Migrations {
     }
 
     fn check_migration_downgrade(&self, cur_version: &str) -> Result<(), Error> {
-        if let Some(m) = self.migrations.values().last() {
-            if m.version() < cur_version {
+        if let Some(m) = self.migrations.values().last()
+            && m.version() < cur_version {
                 error!(
                     "Database downgrade detected. \
                     The database schema version is newer than `ckb` schema version,\
@@ -345,7 +342,6 @@ impl Migrations {
                     "Database downgrade is not supported".to_string(),
                 ));
             }
-        }
         Ok(())
     }
 }

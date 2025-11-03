@@ -86,12 +86,11 @@ impl<'a> CommitTxsScanner<'a> {
         loop {
             let mut using_modified = false;
 
-            if let Some(entry) = iter.peek() {
-                if self.skip_proposed_entry(&entry.proposal_short_id()) {
+            if let Some(entry) = iter.peek()
+                && self.skip_proposed_entry(&entry.proposal_short_id()) {
                     iter.next();
                     continue;
                 }
-            }
 
             // First try to find a new transaction in `proposed_pool` to evaluate.
             let tx_entry: TxEntry = match (iter.peek(), self.modified_entries.next_best_entry()) {

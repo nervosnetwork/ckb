@@ -252,7 +252,7 @@ impl<'r> packed::BlockReader<'r> {
     /// # Panics
     ///
     /// Panics if the first extra field exists but not a valid [`BytesReader`](struct.BytesReader.html).
-    pub fn extension(&self) -> Option<packed::BytesReader> {
+    pub fn extension(&self) -> Option<packed::BytesReader<'_>> {
         self.extra_field(0)
             .map(|data| packed::BytesReader::from_slice(data).unwrap())
     }
@@ -260,7 +260,7 @@ impl<'r> packed::BlockReader<'r> {
 
 impl<'r> packed::BlockV1Reader<'r> {
     /// Converts to a compatible [`BlockReader`](struct.BlockReader.html) with an extra field.
-    pub fn as_v0(&self) -> packed::BlockReader {
+    pub fn as_v0(&self) -> packed::BlockReader<'_> {
         packed::BlockReader::new_unchecked(self.as_slice())
     }
 }
@@ -274,7 +274,7 @@ impl packed::CompactBlockV1 {
 
 impl<'r> packed::CompactBlockV1Reader<'r> {
     /// Converts to a compatible [`CompactBlockReader`](struct.CompactBlockReader.html) with an extra field.
-    pub fn as_v0(&self) -> packed::CompactBlockReader {
+    pub fn as_v0(&self) -> packed::CompactBlockReader<'_> {
         packed::CompactBlockReader::new_unchecked(self.as_slice())
     }
 }

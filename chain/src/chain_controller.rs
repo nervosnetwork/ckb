@@ -1,6 +1,6 @@
 //! CKB chain controller.
 #![allow(missing_docs)]
-#![allow(elided_named_lifetimes)]
+#![allow(mismatched_lifetime_syntaxes)]
 
 use crate::utils::orphan_block_pool::OrphanBlockPool;
 use crate::{LonelyBlock, ProcessBlockRequest, RemoteBlock, TruncateRequest, VerifyResult};

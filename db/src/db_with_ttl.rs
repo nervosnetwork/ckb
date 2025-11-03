@@ -56,7 +56,7 @@ impl DBWithTTL {
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
     /// so as to avoid unnecessary memory copy.
-    pub fn get_pinned(&self, col: &str, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+    pub fn get_pinned(&self, col: &str, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
         let cf = self
             .inner
             .cf_handle(col)

@@ -167,7 +167,7 @@ where
     /// Gets an iterator visiting all elements in insertion order.
     ///
     /// The iterator element type is `&'a T`.
-    pub fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             iter: self.map.keys(),
         }

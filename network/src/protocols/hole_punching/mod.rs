@@ -266,12 +266,10 @@ impl HolePunching {
                     for multi_addr in &network_state.config.listen_addresses {
                         if let crate::network::TransportType::Tcp =
                             crate::network::find_type(multi_addr)
-                        {
-                            if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
+                            && let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
                                 bind_addr = Some(addr);
                                 break;
                             }
-                        }
                     }
                 }
                 bind_addr

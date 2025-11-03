@@ -489,18 +489,16 @@ impl<'a> BlockCellProvider<'a> {
 
         for (idx, tx) in block.transactions().iter().enumerate() {
             for dep in tx.cell_deps_iter() {
-                if let Some(output_idx) = output_indices.get(&dep.out_point().tx_hash()) {
-                    if *output_idx >= idx {
+                if let Some(output_idx) = output_indices.get(&dep.out_point().tx_hash())
+                    && *output_idx >= idx {
                         return Err(OutPointError::OutOfOrder(dep.out_point()).into());
                     }
-                }
             }
             for out_point in tx.input_pts_iter() {
-                if let Some(output_idx) = output_indices.get(&out_point.tx_hash()) {
-                    if *output_idx >= idx {
+                if let Some(output_idx) = output_indices.get(&out_point.tx_hash())
+                    && *output_idx >= idx {
                         return Err(OutPointError::OutOfOrder(out_point).into());
                     }
-                }
             }
         }
 

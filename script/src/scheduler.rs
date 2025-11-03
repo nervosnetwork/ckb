@@ -358,7 +358,8 @@ where
         self.process_message_box()?;
         assert!(self.message_box.lock().expect("lock").is_empty());
         // If the VM terminates, update VMs in join state, also closes its fds
-        let result = match result {
+        
+        match result {
             Ok(code) => {
                 self.terminated_vms.insert(vm_id_to_run, code);
                 // When root VM terminates, the execution stops immediately, we will purge
@@ -406,8 +407,7 @@ where
             }
             Err(Error::Yield) => Ok(()),
             Err(e) => Err(e),
-        };
-        result
+        }
     }
 
     // This internal function is actually a wrapper over +iterate_inner+,

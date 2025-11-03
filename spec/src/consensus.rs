@@ -989,7 +989,7 @@ impl Consensus {
     }
 
     fn primary_epoch_reward_of_next_epoch(&self, epoch: &EpochExt) -> Capacity {
-        if (epoch.number() + 1) % self.primary_epoch_reward_halving_interval() != 0 {
+        if !(epoch.number() + 1).is_multiple_of(self.primary_epoch_reward_halving_interval()) {
             epoch.primary_reward()
         } else {
             self.primary_epoch_reward(epoch.number() + 1)

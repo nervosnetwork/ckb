@@ -111,12 +111,10 @@ impl Dummy {
                 work: new_work,
                 ..
             }) = self.worker_rx.try_recv()
-            {
-                if new_pow_hash != pow_hash {
+                && new_pow_hash != pow_hash {
                     pow_hash = new_pow_hash;
                     work = new_work;
                 }
-            }
         }
     }
 }
@@ -125,11 +123,10 @@ impl Worker for Dummy {
     fn run<G: FnMut() -> u128>(&mut self, mut rng: G, _progress_bar: ProgressBar) {
         loop {
             self.poll_worker_message();
-            if self.start {
-                if let Some((pow_hash, work)) = self.pow_work.clone() {
+            if self.start
+                && let Some((pow_hash, work)) = self.pow_work.clone() {
                     self.solve(pow_hash, work, rng());
                 }
-            }
         }
     }
 }
