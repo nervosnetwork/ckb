@@ -261,25 +261,26 @@ impl<'a> GetLastStateProofProcess<'a> {
             }
             // The first difficulty should be greater than the total difficulty before the start block.
             if let Some(start_difficulty) = difficulties.first()
-                && start_block_number > 0 {
-                    let previous_block_number = start_block_number - 1;
-                    if let Some(total_difficulty) =
-                        sampler.get_block_total_difficulty(previous_block_number)
-                    {
-                        if total_difficulty >= *start_difficulty {
-                            let errmsg = format!(
-                                "the start difficulty is {start_difficulty:#x} too less than \
-                                the previous block #{previous_block_number} of the start block"
-                            );
-                            return StatusCode::InvalidRequest.with_context(errmsg);
-                        }
-                    } else {
+                && start_block_number > 0
+            {
+                let previous_block_number = start_block_number - 1;
+                if let Some(total_difficulty) =
+                    sampler.get_block_total_difficulty(previous_block_number)
+                {
+                    if total_difficulty >= *start_difficulty {
                         let errmsg = format!(
-                            "the total difficulty for block#{previous_block_number} is not found"
+                            "the start difficulty is {start_difficulty:#x} too less than \
+                                the previous block #{previous_block_number} of the start block"
                         );
-                        return StatusCode::InternalError.with_context(errmsg);
-                    };
-                }
+                        return StatusCode::InvalidRequest.with_context(errmsg);
+                    }
+                } else {
+                    let errmsg = format!(
+                        "the total difficulty for block#{previous_block_number} is not found"
+                    );
+                    return StatusCode::InternalError.with_context(errmsg);
+                };
+            }
         }
 
         let (sampled_numbers, last_n_numbers) = if last_block_number - start_block_number

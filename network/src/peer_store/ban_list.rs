@@ -48,9 +48,10 @@ impl BanList {
     fn is_ip_banned_until(&self, ip: IpAddr, now_ms: u64) -> bool {
         let ip_network = ip_to_network(ip);
         if let Some(banned_addr) = self.inner.get(&ip_network)
-            && banned_addr.ban_until.gt(&now_ms) {
-                return true;
-            }
+            && banned_addr.ban_until.gt(&now_ms)
+        {
+            return true;
+        }
 
         self.inner.iter().any(|(ip_network, banned_addr)| {
             banned_addr.ban_until.gt(&now_ms) && ip_network.contains(ip)

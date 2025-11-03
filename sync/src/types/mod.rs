@@ -721,16 +721,17 @@ impl InflightBlocks {
             // executable tasks for the corresponding node
             if now > timeout_limit + *time {
                 if let Some(state) = states.remove(key)
-                    && let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        if should_punish && adjustment {
-                            d.punish(1);
-                        }
-                        d.hashes.remove(key);
-                        debug!(
-                            "prune: remove download_schedulers: remove {}-{} from {}",
-                            key.number, key.hash, state.peer
-                        );
-                    };
+                    && let Some(d) = download_schedulers.get_mut(&state.peer)
+                {
+                    if should_punish && adjustment {
+                        d.punish(1);
+                    }
+                    d.hashes.remove(key);
+                    debug!(
+                        "prune: remove download_schedulers: remove {}-{} from {}",
+                        key.number, key.hash, state.peer
+                    );
+                };
 
                 if key.number > *restart_number {
                     *restart_number = key.number;
@@ -955,9 +956,10 @@ impl Peers {
                     return None;
                 }
                 if let Some(ref header) = state.best_known_header
-                    && header.number() < tip {
-                        return Some(*peer_index);
-                    }
+                    && header.number() < tip
+                {
+                    return Some(*peer_index);
+                }
                 None
             })
             .collect()

@@ -19,7 +19,6 @@ pub enum EstimateMode {
     HighPriority,
 }
 
-
 impl From<EstimateMode> for core::EstimateMode {
     fn from(json: EstimateMode) -> Self {
         match json {

@@ -358,7 +358,7 @@ where
         self.process_message_box()?;
         assert!(self.message_box.lock().expect("lock").is_empty());
         // If the VM terminates, update VMs in join state, also closes its fds
-        
+
         match result {
             Ok(code) => {
                 self.terminated_vms.insert(vm_id_to_run, code);

@@ -37,9 +37,10 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
     }
 
     if args.logs
-        && let Some(dir) = args.logs_dir {
-            target_dirs.push(dir);
-        }
+        && let Some(dir) = args.logs_dir
+    {
+        target_dirs.push(dir);
+    }
 
     if !args.force && (!target_dirs.is_empty() || !target_files.is_empty()) {
         let to_be_deleted_targets = target_dirs

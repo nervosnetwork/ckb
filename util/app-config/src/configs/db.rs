@@ -42,9 +42,10 @@ impl Config {
         }
         // If options file is a relative path, set the base path to `ckb.toml`
         if let Some(file) = self.options_file.iter_mut().next()
-            && file.is_relative() {
-                let file_new = root_dir.to_path_buf().join(&file);
-                *file = file_new;
-            }
+            && file.is_relative()
+        {
+            let file_new = root_dir.to_path_buf().join(&file);
+            *file = file_new;
+        }
     }
 }

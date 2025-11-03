@@ -435,9 +435,7 @@ fn gen_type(ty: &Value) -> String {
                         format!("`{}`", ty.as_str().unwrap())
                     }
                 } else if let Some(arr) = ty.as_array() {
-                    
-                    arr
-                        .iter()
+                    arr.iter()
                         .map(|t| format!("`{}`", gen_type(t)))
                         .collect::<Vec<_>>()
                         .join(" `|` ")

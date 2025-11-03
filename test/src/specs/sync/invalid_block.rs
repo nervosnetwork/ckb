@@ -156,9 +156,10 @@ impl Spec for ForkContainsInvalidBlock {
         );
         let ret = wait_until(10, || {
             if let Ok((_, _, data)) = net.receive_timeout(&good_node, Duration::from_secs(10))
-                && let Ok(message) = SyncMessage::from_slice(&data) {
-                    return message.to_enum().item_name() == packed::SendBlock::NAME;
-                }
+                && let Ok(message) = SyncMessage::from_slice(&data)
+            {
+                return message.to_enum().item_name() == packed::SendBlock::NAME;
+            }
             false
         });
         assert!(

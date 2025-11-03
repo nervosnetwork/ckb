@@ -209,10 +209,10 @@ impl AsyncRichIndexer {
                         && self
                             .custom_filters
                             .is_cell_filter_match(&output, &output_data.into())
-                        {
-                            build_input_rows(output_id, &input, input_index, &mut input_rows);
-                            is_tx_matched = true;
-                        }
+                    {
+                        build_input_rows(output_id, &input, input_index, &mut input_rows);
+                        is_tx_matched = true;
+                    }
                 } else if let Some(output_id) = query_output_id(&out_point, tx).await? {
                     build_input_rows(output_id, &input, input_index, &mut input_rows);
                     is_tx_matched = true;

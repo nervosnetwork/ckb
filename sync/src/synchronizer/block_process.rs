@@ -94,13 +94,14 @@ impl<'a> BlockProcess<'a> {
             && let Err(err) = self
                 .synchronizer
                 .blocking_process_new_block(block.clone(), self.peer)
-                && !ckb_error::is_internal_db_error(&err) {
-                    return crate::StatusCode::BlockIsInvalid.with_context(format!(
-                        "{}, error: {}",
-                        block.hash(),
-                        err,
-                    ));
-                }
+            && !ckb_error::is_internal_db_error(&err)
+        {
+            return crate::StatusCode::BlockIsInvalid.with_context(format!(
+                "{}, error: {}",
+                block.hash(),
+                err,
+            ));
+        }
         crate::Status::ok()
     }
 }

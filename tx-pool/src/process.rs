@@ -334,10 +334,11 @@ impl TxPoolService {
     ) -> Result<(), Reject> {
         if let Err(reject) = non_contextual_verify(&self.consensus, tx) {
             if reject.is_malformed_tx()
-                && let Some(remote) = remote {
-                    self.ban_malformed(remote.1, format!("reject {reject}"))
-                        .await;
-                }
+                && let Some(remote) = remote
+            {
+                self.ban_malformed(remote.1, format!("reject {reject}"))
+                    .await;
+            }
             return Err(reject);
         }
         Ok(())
@@ -407,12 +408,13 @@ impl TxPoolService {
     pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
         let mut tx_pool = self.tx_pool.write().await;
         if let Some(ref mut recent_reject) = tx_pool.recent_reject
-            && let Err(e) = recent_reject.put(tx_hash, reject.clone()) {
-                error!(
-                    "Failed to record recent_reject {} {} {}",
-                    tx_hash, reject, e
-                );
-            }
+            && let Err(e) = recent_reject.put(tx_hash, reject.clone())
+        {
+            error!(
+                "Failed to record recent_reject {} {} {}",
+                tx_hash, reject, e
+            );
+        }
     }
 
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
@@ -444,14 +446,15 @@ impl TxPoolService {
 
         // log tx verification result for monitor node
         if log_enabled_target!("ckb_tx_monitor", Trace)
-            && let Ok(c) = ret {
-                trace_target!(
-                    "ckb_tx_monitor",
-                    r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
-                    tx_hash,
-                    c.cycles
-                );
-            }
+            && let Ok(c) = ret
+        {
+            trace_target!(
+                "ckb_tx_monitor",
+                r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
+                tx_hash,
+                c.cycles
+            );
+        }
 
         if matches!(
             ret,
@@ -694,16 +697,17 @@ impl TxPoolService {
         let verified = try_or_return_with_snapshot!(verified_ret, snapshot);
 
         if let Some(declared) = declared_cycles
-            && declared != verified.cycles {
-                info!(
-                    "process_tx declared cycles not match verified cycles, declared: {:?} verified: {:?}, tx: {:?}",
-                    declared, verified.cycles, tx
-                );
-                return Some((
-                    Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
-                    snapshot,
-                ));
-            }
+            && declared != verified.cycles
+        {
+            info!(
+                "process_tx declared cycles not match verified cycles, declared: {:?} verified: {:?}, tx: {:?}",
+                declared, verified.cycles, tx
+            );
+            return Some((
+                Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
+                snapshot,
+            ));
+        }
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
@@ -842,29 +846,30 @@ impl TxPoolService {
             let tx_size = tx.data().serialized_size_in_block();
             let tx_hash = tx.hash();
             if let Ok((rtx, status)) = resolve_tx(tx_pool, tx_pool.snapshot(), tx, false)
-                && let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size) {
-                    let verify_cache = fetched_cache.get(&tx_hash).cloned();
-                    let snapshot = tx_pool.cloned_snapshot();
-                    let tip_header = snapshot.tip_header();
-                    let tx_env = Arc::new(status.with_env(tip_header));
-                    if let Ok(verified) = verify_rtx(
-                        snapshot,
-                        Arc::clone(&rtx),
-                        tx_env,
-                        &verify_cache,
-                        max_cycles,
-                        None,
-                    )
-                    .await
-                    {
-                        let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
-                        if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
-                            error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
-                        } else {
-                            debug!("readd_detached_tx submit_entry {}", tx_hash);
-                        }
+                && let Ok(fee) = check_tx_fee(tx_pool, tx_pool.snapshot(), &rtx, tx_size)
+            {
+                let verify_cache = fetched_cache.get(&tx_hash).cloned();
+                let snapshot = tx_pool.cloned_snapshot();
+                let tip_header = snapshot.tip_header();
+                let tx_env = Arc::new(status.with_env(tip_header));
+                if let Ok(verified) = verify_rtx(
+                    snapshot,
+                    Arc::clone(&rtx),
+                    tx_env,
+                    &verify_cache,
+                    max_cycles,
+                    None,
+                )
+                .await
+                {
+                    let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
+                    if let Err(e) = _submit_entry(tx_pool, status, entry, &self.callbacks) {
+                        error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
+                    } else {
+                        debug!("readd_detached_tx submit_entry {}", tx_hash);
                     }
                 }
+            }
         }
     }
 

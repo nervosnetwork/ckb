@@ -36,36 +36,38 @@ impl AsyncRichIndexerHandle {
         }
         let mut joined_ckb_transaction = false;
         if let Some(ref filter) = search_key.filter
-            && filter.block_range.is_some() {
-                query_builder
-                    .join("ckb_transaction")
-                    .on("output.tx_id = ckb_transaction.id")
-                    .join("block")
-                    .on("ckb_transaction.block_id = block.id");
-                joined_ckb_transaction = true;
-            }
+            && filter.block_range.is_some()
+        {
+            query_builder
+                .join("ckb_transaction")
+                .on("output.tx_id = ckb_transaction.id")
+                .join("block")
+                .on("ckb_transaction.block_id = block.id");
+            joined_ckb_transaction = true;
+        }
         if self.pool.is_some() && !joined_ckb_transaction {
             query_builder
                 .join("ckb_transaction")
                 .on("output.tx_id = ckb_transaction.id");
         }
         if let Some(ref filter) = search_key.filter
-            && (filter.script.is_some() || filter.script_len_range.is_some()) {
-                match search_key.script_type {
-                    IndexerScriptType::Lock => {
-                        query_builder
-                            .left()
-                            .join(name!("script";"type_script"))
-                            .on("output.type_script_id = type_script.id");
-                    }
-                    IndexerScriptType::Type => {
-                        query_builder
-                            .left()
-                            .join(name!("script";"lock_script"))
-                            .on("output.lock_script_id = lock_script.id");
-                    }
+            && (filter.script.is_some() || filter.script_len_range.is_some())
+        {
+            match search_key.script_type {
+                IndexerScriptType::Lock => {
+                    query_builder
+                        .left()
+                        .join(name!("script";"type_script"))
+                        .on("output.type_script_id = type_script.id");
+                }
+                IndexerScriptType::Type => {
+                    query_builder
+                        .left()
+                        .join(name!("script";"lock_script"))
+                        .on("output.lock_script_id = lock_script.id");
                 }
             }
+        }
         query_builder.and_where("output.is_spent = 0"); // live cells
 
         // filter cells in pool

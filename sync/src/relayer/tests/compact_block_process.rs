@@ -176,7 +176,7 @@ fn test_accept_not_a_better_block() {
     };
     let second_to_last_header: HeaderView = {
         let tip_header: HeaderView = relayer.shared().store().get_tip_header().unwrap();
-        
+
         relayer
             .shared()
             .store()

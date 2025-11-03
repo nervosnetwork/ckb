@@ -32,12 +32,13 @@ where
     let op = Option::<u64>::deserialize(d)?;
 
     if let Some(ref value) = op
-        && value < &100 {
-            return Err(serde::de::Error::invalid_value(
-                serde::de::Unexpected::Unsigned(*value),
-                &"a value at least 100",
-            ));
-        }
+        && value < &100
+    {
+        return Err(serde::de::Error::invalid_value(
+            serde::de::Unexpected::Unsigned(*value),
+            &"a value at least 100",
+        ));
+    }
     Ok(op)
 }
 

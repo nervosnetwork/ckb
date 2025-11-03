@@ -246,21 +246,22 @@ impl ConsumeUnverifiedBlockProcessor {
         )?;
 
         if let Some(ext) = self.shared.store().get_block_ext(&block.hash())
-            && let Some(verified) = ext.verified {
-                debug!(
-                    "block {}-{} has been verified, previously verified result: {}",
-                    block.number(),
-                    block.hash(),
-                    verified
-                );
-                return if verified {
-                    Ok(false)
-                } else {
-                    Err(InternalErrorKind::Other
-                        .other("block previously verified failed")
-                        .into())
-                };
-            }
+            && let Some(verified) = ext.verified
+        {
+            debug!(
+                "block {}-{} has been verified, previously verified result: {}",
+                block.number(),
+                block.hash(),
+                verified
+            );
+            return if verified {
+                Ok(false)
+            } else {
+                Err(InternalErrorKind::Other
+                    .other("block previously verified failed")
+                    .into())
+            };
+        }
 
         let cannon_total_difficulty =
             parent_ext.total_difficulty.to_owned() + block.header().difficulty();

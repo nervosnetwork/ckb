@@ -202,17 +202,19 @@ impl Migrations {
 
     fn is_non_empty_rdb(&self, db: &ReadOnlyDB) -> bool {
         if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
-            && v.is_some() {
-                return true;
-            }
+            && v.is_some()
+        {
+            return true;
+        }
         false
     }
 
     fn is_non_empty_db(&self, db: &RocksDB) -> bool {
         if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
-            && v.is_some() {
-                return true;
-            }
+            && v.is_some()
+        {
+            return true;
+        }
         false
     }
 
@@ -287,13 +289,12 @@ impl Migrations {
     pub fn init_db_version(&self, db: &RocksDB) -> Result<(), Error> {
         let db_version = self.get_migration_version(db)?;
         if db_version.is_none()
-            && let Some(m) = self.migrations.values().last() {
-                info!("Init database version {}", m.version());
-                db.put_default(MIGRATION_VERSION_KEY, m.version())
-                    .map_err(|err| {
-                        internal_error(format!("failed to migrate the database: {err}"))
-                    })?;
-            }
+            && let Some(m) = self.migrations.values().last()
+        {
+            info!("Init database version {}", m.version());
+            db.put_default(MIGRATION_VERSION_KEY, m.version())
+                .map_err(|err| internal_error(format!("failed to migrate the database: {err}")))?;
+        }
         Ok(())
     }
 
@@ -332,16 +333,17 @@ impl Migrations {
 
     fn check_migration_downgrade(&self, cur_version: &str) -> Result<(), Error> {
         if let Some(m) = self.migrations.values().last()
-            && m.version() < cur_version {
-                error!(
-                    "Database downgrade detected. \
+            && m.version() < cur_version
+        {
+            error!(
+                "Database downgrade detected. \
                     The database schema version is newer than `ckb` schema version,\
                     please upgrade `ckb` to the latest version"
-                );
-                return Err(internal_error(
-                    "Database downgrade is not supported".to_string(),
-                ));
-            }
+            );
+            return Err(internal_error(
+                "Database downgrade is not supported".to_string(),
+            ));
+        }
         Ok(())
     }
 }

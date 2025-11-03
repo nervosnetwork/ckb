@@ -40,14 +40,15 @@ impl<'a> HeadersProcess<'a> {
     fn is_continuous(&self, headers: &[core::HeaderView]) -> bool {
         for window in headers.windows(2) {
             if let [parent, header] = &window
-                && header.data().raw().parent_hash() != parent.hash() {
-                    debug!(
-                        "header.parent_hash {} parent.hash {}",
-                        header.parent_hash(),
-                        parent.hash()
-                    );
-                    return false;
-                }
+                && header.data().raw().parent_hash() != parent.hash()
+            {
+                debug!(
+                    "header.parent_hash {} parent.hash {}",
+                    header.parent_hash(),
+                    parent.hash()
+                );
+                return false;
+            }
         }
         true
     }

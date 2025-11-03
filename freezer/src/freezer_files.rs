@@ -114,9 +114,9 @@ impl FreezerFiles {
         let expected = self.number.load(Ordering::SeqCst);
         fail_point!("append-unexpected-number");
         if expected != number {
-            return Err(IoError::other(
-                format!("appending unexpected block expected {expected} have {number}"),
-            ));
+            return Err(IoError::other(format!(
+                "appending unexpected block expected {expected} have {number}"
+            )));
         }
 
         // https://github.com/rust-lang/rust/issues/49171
@@ -191,11 +191,9 @@ impl FreezerFiles {
 
             if self.enable_compression {
                 data = SnappyDecoder::new().decompress_vec(&data).map_err(|e| {
-                    IoError::other(
-                        format!(
-                            "decompress file-id-{file_id} offset-{start_offset} size-{size}: error {e}"
-                        ),
-                    )
+                    IoError::other(format!(
+                        "decompress file-id-{file_id} offset-{start_offset} size-{size}: error {e}"
+                    ))
                 })?;
             }
 

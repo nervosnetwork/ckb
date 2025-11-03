@@ -111,10 +111,11 @@ impl Dummy {
                 work: new_work,
                 ..
             }) = self.worker_rx.try_recv()
-                && new_pow_hash != pow_hash {
-                    pow_hash = new_pow_hash;
-                    work = new_work;
-                }
+                && new_pow_hash != pow_hash
+            {
+                pow_hash = new_pow_hash;
+                work = new_work;
+            }
         }
     }
 }
@@ -124,9 +125,10 @@ impl Worker for Dummy {
         loop {
             self.poll_worker_message();
             if self.start
-                && let Some((pow_hash, work)) = self.pow_work.clone() {
-                    self.solve(pow_hash, work, rng());
-                }
+                && let Some((pow_hash, work)) = self.pow_work.clone()
+            {
+                self.solve(pow_hash, work, rng());
+            }
         }
     }
 }

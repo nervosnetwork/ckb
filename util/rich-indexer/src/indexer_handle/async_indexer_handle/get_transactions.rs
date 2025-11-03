@@ -161,10 +161,11 @@ pub async fn get_tx_with_cell(
         .on("ckb_transaction.block_id = block.id");
 
     if let Some(filter) = &search_key.filter
-        && let Some(block_range) = &filter.block_range {
-            query_builder.and_where_ge("block.block_number", block_range.start());
-            query_builder.and_where_lt("block.block_number", block_range.end());
-        }
+        && let Some(block_range) = &filter.block_range
+    {
+        query_builder.and_where_ge("block.block_number", block_range.start());
+        query_builder.and_where_lt("block.block_number", block_range.end());
+    }
     if let Some((last, _)) = last_cursor {
         match order {
             IndexerOrder::Asc => query_builder.and_where_ge("tx_id", last),
@@ -286,10 +287,11 @@ pub async fn get_tx_with_cells(
         .on("ckb_transaction.block_id = block.id");
 
     if let Some(filter) = &search_key.filter
-        && let Some(block_range) = &filter.block_range {
-            query_builder.and_where_ge("block.block_number", block_range.start());
-            query_builder.and_where_lt("block.block_number", block_range.end());
-        }
+        && let Some(block_range) = &filter.block_range
+    {
+        query_builder.and_where_ge("block.block_number", block_range.start());
+        query_builder.and_where_lt("block.block_number", block_range.end());
+    }
     let sql = query_builder
         .subquery()
         .map_err(|err| Error::DB(err.to_string()))?
@@ -452,22 +454,23 @@ fn build_tx_with_cell_union_sub_query(
         }
     }
     if let Some(ref filter) = search_key.filter
-        && (filter.script.is_some() || filter.script_len_range.is_some()) {
-            match search_key.script_type {
-                IndexerScriptType::Lock => {
-                    query_output_builder
-                        .left()
-                        .join(name!("script";"type_script"))
-                        .on("output.type_script_id = type_script.id");
-                }
-                IndexerScriptType::Type => {
-                    query_output_builder
-                        .left()
-                        .join(name!("script";"lock_script"))
-                        .on("output.lock_script_id = lock_script.id");
-                }
+        && (filter.script.is_some() || filter.script_len_range.is_some())
+    {
+        match search_key.script_type {
+            IndexerScriptType::Lock => {
+                query_output_builder
+                    .left()
+                    .join(name!("script";"type_script"))
+                    .on("output.type_script_id = type_script.id");
+            }
+            IndexerScriptType::Type => {
+                query_output_builder
+                    .left()
+                    .join(name!("script";"lock_script"))
+                    .on("output.lock_script_id = lock_script.id");
             }
         }
+    }
     build_filter(
         db_driver,
         &mut query_output_builder,
@@ -497,22 +500,23 @@ fn build_tx_with_cell_union_sub_query(
         }
     }
     if let Some(ref filter) = search_key.filter
-        && (filter.script.is_some() || filter.script_len_range.is_some()) {
-            match search_key.script_type {
-                IndexerScriptType::Lock => {
-                    query_input_builder
-                        .left()
-                        .join(name!("script";"type_script"))
-                        .on("output.type_script_id = type_script.id");
-                }
-                IndexerScriptType::Type => {
-                    query_input_builder
-                        .left()
-                        .join(name!("script";"lock_script"))
-                        .on("output.lock_script_id = lock_script.id");
-                }
+        && (filter.script.is_some() || filter.script_len_range.is_some())
+    {
+        match search_key.script_type {
+            IndexerScriptType::Lock => {
+                query_input_builder
+                    .left()
+                    .join(name!("script";"type_script"))
+                    .on("output.type_script_id = type_script.id");
+            }
+            IndexerScriptType::Type => {
+                query_input_builder
+                    .left()
+                    .join(name!("script";"lock_script"))
+                    .on("output.lock_script_id = lock_script.id");
             }
         }
+    }
     build_filter(
         db_driver,
         &mut query_input_builder,

@@ -1,6 +1,5 @@
 /// The fee estimate mode.
-#[derive(Clone, Copy, Debug)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum EstimateMode {
     /// No priority, expect the transaction to be committed in 1 hour.
     #[default]
@@ -12,4 +11,3 @@ pub enum EstimateMode {
     /// High priority, expect the transaction to be committed as soon as possible.
     HighPriority,
 }
-

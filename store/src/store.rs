@@ -42,13 +42,15 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get_block(&self, h: &packed::Byte32) -> Option<BlockView> {
         let header = self.get_block_header(h)?;
         if let Some(freezer) = self.freezer()
-            && header.number() > 0 && header.number() < freezer.number() {
-                let raw_block = freezer.retrieve(header.number()).expect("block frozen")?;
-                let raw_block = packed::BlockReader::from_compatible_slice(&raw_block)
-                    .expect("checked data")
-                    .to_entity();
-                return Some(raw_block.into_view());
-            }
+            && header.number() > 0
+            && header.number() < freezer.number()
+        {
+            let raw_block = freezer.retrieve(header.number()).expect("block frozen")?;
+            let raw_block = packed::BlockReader::from_compatible_slice(&raw_block)
+                .expect("checked data")
+                .to_entity();
+            return Some(raw_block.into_view());
+        }
         let body = self.get_block_body(h);
         let uncles = self
             .get_block_uncles(h)
@@ -69,9 +71,10 @@ pub trait ChainStore: Send + Sync + Sized {
     /// Get header by block header hash
     fn get_block_header(&self, hash: &packed::Byte32) -> Option<HeaderView> {
         if let Some(cache) = self.cache()
-            && let Some(header) = cache.headers.lock().get(hash) {
-                return Some(header.clone());
-            };
+            && let Some(header) = cache.headers.lock().get(hash)
+        {
+            return Some(header.clone());
+        };
         let ret = self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
             Into::<HeaderView>::into(reader)
@@ -145,9 +148,10 @@ pub trait ChainStore: Send + Sync + Sized {
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
         if let Some(cache) = self.cache()
-            && let Some(hashes) = cache.block_tx_hashes.lock().get(hash) {
-                return hashes.clone();
-            };
+            && let Some(hashes) = cache.block_tx_hashes.lock().get(hash)
+        {
+            return hashes.clone();
+        };
 
         let prefix = hash.as_slice();
         let ret: Vec<_> = self
@@ -175,9 +179,10 @@ pub trait ChainStore: Send + Sync + Sized {
         hash: &packed::Byte32,
     ) -> Option<packed::ProposalShortIdVec> {
         if let Some(cache) = self.cache()
-            && let Some(data) = cache.block_proposals.lock().get(hash) {
-                return Some(data.clone());
-            };
+            && let Some(data) = cache.block_proposals.lock().get(hash)
+        {
+            return Some(data.clone());
+        };
 
         let ret = self
             .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
@@ -198,9 +203,10 @@ pub trait ChainStore: Send + Sync + Sized {
     /// Get block uncles by block header hash
     fn get_block_uncles(&self, hash: &packed::Byte32) -> Option<UncleBlockVecView> {
         if let Some(cache) = self.cache()
-            && let Some(data) = cache.block_uncles.lock().get(hash) {
-                return Some(data.clone());
-            };
+            && let Some(data) = cache.block_uncles.lock().get(hash)
+        {
+            return Some(data.clone());
+        };
 
         let ret = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
             let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
@@ -219,9 +225,10 @@ pub trait ChainStore: Send + Sync + Sized {
     /// Get block extension by block header hash
     fn get_block_extension(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
         if let Some(cache) = self.cache()
-            && let Some(data) = cache.block_extensions.lock().get(hash) {
-                return data.clone();
-            };
+            && let Some(data) = cache.block_extensions.lock().get(hash)
+        {
+            return data.clone();
+        };
 
         let ret = self
             .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
@@ -311,15 +318,17 @@ pub trait ChainStore: Send + Sync + Sized {
     ) -> Option<(TransactionView, TransactionInfo)> {
         let tx_info = self.get_transaction_info(hash)?;
         if let Some(freezer) = self.freezer()
-            && tx_info.block_number > 0 && tx_info.block_number < freezer.number() {
-                let raw_block = freezer
-                    .retrieve(tx_info.block_number)
-                    .expect("block frozen")?;
-                let raw_block_reader =
-                    packed::BlockReader::from_compatible_slice(&raw_block).expect("checked data");
-                let tx_reader = raw_block_reader.transactions().get(tx_info.index)?;
-                return Some((tx_reader.to_entity().into_view(), tx_info));
-            }
+            && tx_info.block_number > 0
+            && tx_info.block_number < freezer.number()
+        {
+            let raw_block = freezer
+                .retrieve(tx_info.block_number)
+                .expect("block frozen")?;
+            let raw_block_reader =
+                packed::BlockReader::from_compatible_slice(&raw_block).expect("checked data");
+            let tx_reader = raw_block_reader.transactions().get(tx_info.index)?;
+            return Some((tx_reader.to_entity().into_view(), tx_info));
+        }
         self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
             .map(|slice| {
                 let reader = packed::TransactionViewReader::from_slice_should_be_ok(slice.as_ref());
@@ -346,9 +355,10 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get_cell_data(&self, out_point: &OutPoint) -> Option<(Bytes, packed::Byte32)> {
         let key = out_point.to_cell_key();
         if let Some(cache) = self.cache()
-            && let Some(cached) = cache.cell_data.lock().get(&key) {
-                return Some(cached.clone());
-            };
+            && let Some(cached) = cache.cell_data.lock().get(&key)
+        {
+            return Some(cached.clone());
+        };
 
         let ret = self.get(COLUMN_CELL_DATA, &key).map(|slice| {
             if !slice.as_ref().is_empty() {
@@ -374,9 +384,10 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get_cell_data_hash(&self, out_point: &OutPoint) -> Option<packed::Byte32> {
         let key = out_point.to_cell_key();
         if let Some(cache) = self.cache()
-            && let Some(cached) = cache.cell_data_hash.lock().get(&key) {
-                return Some(cached.clone());
-            };
+            && let Some(cached) = cache.cell_data_hash.lock().get(&key)
+        {
+            return Some(cached.clone());
+        };
 
         let ret = self.get(COLUMN_CELL_DATA_HASH, &key).map(|raw| {
             if !raw.as_ref().is_empty() {
@@ -442,9 +453,10 @@ pub trait ChainStore: Send + Sync + Sized {
     /// Returns true if a block with the given hash exists in the store.
     fn block_exists(&self, hash: &packed::Byte32) -> bool {
         if let Some(cache) = self.cache()
-            && cache.headers.lock().get(hash).is_some() {
-                return true;
-            };
+            && cache.headers.lock().get(hash).is_some()
+        {
+            return true;
+        };
         self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).is_some()
     }
 

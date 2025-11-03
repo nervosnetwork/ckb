@@ -106,13 +106,14 @@ impl Freezer {
 
             if let Some(block) = get_block_by_number(number) {
                 if let Some(ref header) = guard.tip
-                    && header.hash() != block.header().parent_hash() {
-                        return Err(internal_error(format!(
-                            "appending unexpected block expected parent_hash {} have {}",
-                            header.hash(),
-                            block.header().parent_hash()
-                        )));
-                    }
+                    && header.hash() != block.header().parent_hash()
+                {
+                    return Err(internal_error(format!(
+                        "appending unexpected block expected parent_hash {} have {}",
+                        header.hash(),
+                        block.header().parent_hash()
+                    )));
+                }
                 let raw_block = block.data();
                 guard
                     .files

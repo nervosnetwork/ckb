@@ -870,9 +870,9 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
                     < self
                         .consensus
                         .starting_block_limiting_dao_withdrawing_lock()
-                {
-                    continue;
-                }
+            {
+                continue;
+            }
 
             // Now we have a pair of DAO deposit and withdrawing cells, it is expected
             // they have the lock scripts of the same size.

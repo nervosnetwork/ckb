@@ -270,12 +270,13 @@ async fn handle_jsonrpc<T: Default + Metadata>(
             }
             Request::Batch(calls) => {
                 if let Some(batch_size) = JSONRPC_BATCH_LIMIT.get()
-                    && calls.len() > *batch_size {
-                        return make_error_response(jsonrpc_core::Error::invalid_params(format!(
-                            "batch size is too large, expect it less than: {}",
-                            batch_size
-                        )));
-                    }
+                    && calls.len() > *batch_size
+                {
+                    return make_error_response(jsonrpc_core::Error::invalid_params(format!(
+                        "batch size is too large, expect it less than: {}",
+                        batch_size
+                    )));
+                }
 
                 let stream = stream::iter(calls)
                     .then(move |call| {

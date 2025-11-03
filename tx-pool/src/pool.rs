@@ -316,9 +316,10 @@ impl TxPool {
                         entry.fee_rate()
                     ));
                     if let Some(short_id) = current_entry_id
-                        && entry.proposal_short_id() == *short_id {
-                            ret = Some(reject.clone());
-                        }
+                        && entry.proposal_short_id() == *short_id
+                    {
+                        ret = Some(reject.clone());
+                    }
                     callbacks.call_reject(self, &entry, reject);
                 }
             }

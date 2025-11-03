@@ -232,11 +232,10 @@ impl CellProvider for Snapshot {
     fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
         match self.get_cell(out_point) {
             Some(mut cell_meta) => {
-                if eager_load
-                    && let Some((data, data_hash)) = self.get_cell_data(out_point) {
-                        cell_meta.mem_cell_data = Some(data);
-                        cell_meta.mem_cell_data_hash = Some(data_hash);
-                    }
+                if eager_load && let Some((data, data_hash)) = self.get_cell_data(out_point) {
+                    cell_meta.mem_cell_data = Some(data);
+                    cell_meta.mem_cell_data_hash = Some(data_hash);
+                }
                 CellStatus::live_cell(cell_meta)
             }
             None => CellStatus::Unknown,

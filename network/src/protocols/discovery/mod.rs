@@ -169,12 +169,13 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
                     }
                     DiscoveryMessage::Nodes(nodes) => {
                         if let Some(misbehavior) = verify_nodes_message(&nodes)
-                            && check(misbehavior) {
-                                if context.disconnect(session.id).await.is_err() {
-                                    debug!("Disconnect {:?} msg failed to send", session.id)
-                                }
-                                return;
+                            && check(misbehavior)
+                        {
+                            if context.disconnect(session.id).await.is_err() {
+                                debug!("Disconnect {:?} msg failed to send", session.id)
                             }
+                            return;
+                        }
 
                         if let Some(state) = self.sessions.get_mut(&session.id) {
                             if !nodes.announce && state.received_nodes {
@@ -230,9 +231,10 @@ impl<M: AddressManager + Send + Sync> ServiceProtocol for DiscoveryProtocol<M> {
             if let Some(addr) = state
                 .check_timer(now, ANNOUNCE_INTERVAL)
                 .filter(|addr| self.addr_mgr.is_valid_addr(addr))
-                && let Some(flags) = self.addr_mgr.node_flags(*id) {
-                    announce_list.push((addr.clone(), flags));
-                }
+                && let Some(flags) = self.addr_mgr.node_flags(*id)
+            {
+                announce_list.push((addr.clone(), flags));
+            }
         }
 
         if !announce_list.is_empty() {

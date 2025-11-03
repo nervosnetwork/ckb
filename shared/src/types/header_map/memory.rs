@@ -97,9 +97,10 @@ impl MemoryMap {
         let (key, value) = header.into();
         let ret = guard.insert(key, value);
         if ret.is_none()
-            && let Some(metrics) = ckb_metrics::handle() {
-                metrics.ckb_header_map_memory_count.inc();
-            }
+            && let Some(metrics) = ckb_metrics::handle()
+        {
+            metrics.ckb_header_map_memory_count.inc();
+        }
         ret.map(|_| ())
     }
 

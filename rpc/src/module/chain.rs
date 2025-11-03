@@ -2317,11 +2317,12 @@ impl ChainRpcImpl {
 
         let retrieved_block_hash = retrieved_block_hash.expect("checked len");
         if let Some(specified_block_hash) = block_hash
-            && !retrieved_block_hash.eq(&specified_block_hash.into()) {
-                return Err(RPCError::invalid_params(
-                    "Not all transactions found in specified block",
-                ));
-            }
+            && !retrieved_block_hash.eq(&specified_block_hash.into())
+        {
+            return Err(RPCError::invalid_params(
+                "Not all transactions found in specified block",
+            ));
+        }
 
         snapshot
             .get_block(&retrieved_block_hash)

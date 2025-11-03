@@ -181,9 +181,10 @@ fn test_load_code_with_snapshot() {
         loop {
             let tx_status = tx_pool.get_tx_status(tx.hash());
             if let Ok(Ok((status, _))) = tx_status
-                && status == TxStatus::Pending {
-                    break;
-                }
+                && status == TxStatus::Pending
+            {
+                break;
+            }
             // wait tx_pool if got `None`
             counter += 1;
             if counter > 100 {
@@ -273,9 +274,10 @@ fn _test_load_code_with_snapshot_after_hardfork(script_type: ScriptHashType) {
         loop {
             let tx_status = tx_pool.get_tx_status(tx.hash());
             if let Ok(Ok((status, _))) = tx_status
-                && status == TxStatus::Pending {
-                    break;
-                }
+                && status == TxStatus::Pending
+            {
+                break;
+            }
             // wait tx_pool if got `None`
             counter += 1;
             if counter > 100 {

@@ -220,10 +220,11 @@ impl PeerRegistry {
     /// Identify change feeler flags
     pub fn change_feeler_flags(&mut self, addr: &Multiaddr, flags: Flags) -> bool {
         if let Some(peer_id) = extract_peer_id(addr)
-            && let Some(i) = self.feeler_peers.get_mut(&peer_id) {
-                *i = flags;
-                return true;
-            }
+            && let Some(i) = self.feeler_peers.get_mut(&peer_id)
+        {
+            *i = flags;
+            return true;
+        }
         false
     }
 
