@@ -104,9 +104,9 @@ impl Reject {
     /// Returns true if tx can be resubmitted, allowing relay
     /// * Declared wrong cycles should allow relay with the correct cycles
     /// * Reject but is not malformed and the fee rate reached the threshold,
-    ///     it may be due to double spending
-    ///     or temporary limitations of the pool resources,
-    ///     and expired clearing
+    ///   it may be due to double spending
+    ///   or temporary limitations of the pool resources,
+    ///   and expired clearing
     pub fn is_allowed_relay(&self) -> bool {
         matches!(self, Reject::DeclaredWrongCycles(..))
             || (!matches!(self, Reject::LowFeeRate(..)) && !self.is_malformed_tx())
