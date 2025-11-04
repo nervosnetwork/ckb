@@ -314,11 +314,14 @@ impl Launcher {
         if support_protocols.contains(&SupportProtocol::Filter) {
             let filter = BlockFilter::new(Arc::clone(&sync_shared));
 
-            protocols.push(CKBProtocol::new_with_support_protocol(
-                SupportProtocols::Filter,
-                Box::new(filter),
-                Arc::clone(&network_state),
-            ));
+            protocols.push(
+                CKBProtocol::new_with_support_protocol(
+                    SupportProtocols::Filter,
+                    Box::new(filter),
+                    Arc::clone(&network_state),
+                )
+                .compress(false),
+            );
         } else {
             flags.remove(Flags::BLOCK_FILTER);
         }
