@@ -132,6 +132,8 @@ pub struct Metrics {
     pub ckb_hole_punching_passive_success_count: IntCounter,
     /// Gauge metric for CKB indexer tip block number
     pub ckb_indexer_tip: IntGauge,
+    pub ckb_network_compress: HistogramVec,
+    pub ckb_network_not_compress_count: IntCounterVec,
 }
 
 static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
@@ -340,7 +342,19 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
             .unwrap(),
     ckb_indexer_tip: register_int_gauge!(
         "ckb_indexer_tip",
-        "The CKB indexer tip block number"
+        "The CKB indexer tip block number").unwrap(),
+    ckb_network_compress: register_histogram_vec!(
+        "ckb_network_compress",
+        "The CKB network compress ratio",
+        &["protocol_name", "state", "compress_ratio"],
+        vec![
+            0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5
+        ]
+    ).unwrap(),
+    ckb_network_not_compress_count: register_int_counter_vec!(
+        "ckb_network_not_compress_count",
+        "The CKB network not compress count",
+        &["protocol_name"]
     )
             .unwrap(),
     }
