@@ -1,3 +1,4 @@
+use crate::Uint64;
 use ckb_types::U256;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,12 @@ pub struct Overview {
     pub sys: SysInfo,
     /// Mining information, covering hash power, difficulty.
     pub mining: MiningInfo,
+    /// Transaction pool information.
+    pub pool: TerminalPoolInfo,
+    /// CKB node version.
+    ///
+    /// Example: "version": "0.34.0 (f37f598 2020-07-17)"
+    pub version: String,
 }
 
 /// System’s information.
@@ -92,4 +99,28 @@ pub struct MiningInfo {
     /// This approximates the total computational power of the mining network.
     #[schemars(schema_with = "crate::json_schema::u256_json_schema")]
     pub hash_rate: U256,
+}
+
+/// Transaction pool information.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TerminalPoolInfo {
+    /// Count of transactions in the pending state.
+    ///
+    /// The pending transactions must be proposed in a new block first.
+    pub pending: Uint64,
+    /// Count of transactions in the proposed state.
+    ///
+    /// The proposed transactions are ready to be committed in the new block after the block
+    /// `tip_hash`.
+    pub proposed: Uint64,
+    /// Count of orphan transactions.
+    ///
+    /// An orphan transaction has an input cell from the transaction which is neither in the chain
+    /// nor in the transaction pool.
+    pub orphan: Uint64,
+    /// Count of committing transactions.
+    ///
+    /// The Committing transactions refer to transactions that have been packaged into the
+    /// block_template and are awaiting mining into a block.
+    pub committing: Uint64,
 }
