@@ -1,7 +1,9 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
+use ckb_dao_utils::extract_dao_data;
+use ckb_db_schema::COLUMN_CELL;
 use ckb_jsonrpc_types::{
-    Disk, DiskUsage, Global, MiningInfo, Network, Overview, SysInfo, TerminalPoolInfo,
+    CellsInfo, Disk, DiskUsage, Global, MiningInfo, Network, Overview, SysInfo, TerminalPoolInfo,
 };
 use ckb_logger::error;
 use ckb_network::NetworkController;
@@ -45,9 +47,11 @@ impl TerminalRpc for TerminalRpcImpl {
         let sys = self.get_sys_info(refresh)?;
         let mining = self.get_mining_info(refresh)?;
         let pool = self.get_tx_pool_info(refresh)?;
+        let cells = self.get_cells_info(refresh)?;
 
         Ok(Overview {
             sys,
+            cells,
             mining,
             pool,
             version: self.network_controller.version().to_owned(),
@@ -167,5 +171,25 @@ impl TerminalRpcImpl {
         };
 
         Ok(tx_pool_info)
+    }
+
+    fn get_cells_info(&self, refresh: RefreshKind) -> Result<CellsInfo> {
+        let snapshot = self.shared.cloned_snapshot();
+        let tip_header = snapshot.tip_header();
+        let (_ar, _c, _s, u) = extract_dao_data(tip_header.dao());
+        let estimate_live_cells_num = self
+            .shared
+            .store()
+            .estimate_num_keys_cf(COLUMN_CELL)
+            .map_err(|err| {
+                error!("estimate_num_keys_cf error {}", err);
+                RPCError::ckb_internal_error(err)
+            })?;
+
+        let cells_info = CellsInfo {
+            total_occupied_capacities: u.into(),
+            estimate_live_cells_num: estimate_live_cells_num.unwrap_or(0).into(),
+        };
+        Ok(cells_info)
     }
 }

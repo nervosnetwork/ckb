@@ -1,4 +1,4 @@
-use crate::Uint64;
+use crate::{Capacity, Uint64};
 use ckb_types::U256;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,8 @@ pub struct Overview {
     pub mining: MiningInfo,
     /// Transaction pool information.
     pub pool: TerminalPoolInfo,
+    /// Cells information.
+    pub cells: CellsInfo,
     /// CKB node version.
     ///
     /// Example: "version": "0.34.0 (f37f598 2020-07-17)"
@@ -123,4 +125,13 @@ pub struct TerminalPoolInfo {
     /// The Committing transactions refer to transactions that have been packaged into the
     /// block_template and are awaiting mining into a block.
     pub committing: Uint64,
+}
+
+/// Cells information.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CellsInfo {
+    /// estimate live cells total num
+    pub estimate_live_cells_num: Uint64,
+    ///  The total occupied capacities currently in the CKB
+    pub total_occupied_capacities: Capacity,
 }
