@@ -1551,6 +1551,7 @@ dependencies = [
  "ckb-constant",
  "ckb-dao",
  "ckb-dao-utils",
+ "ckb-db-schema",
  "ckb-error",
  "ckb-indexer",
  "ckb-indexer-sync",

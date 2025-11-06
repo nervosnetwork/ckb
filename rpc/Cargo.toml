@@ -42,6 +42,8 @@ ckb-indexer.workspace = true
 ckb-indexer-sync.workspace = true
 ckb-rich-indexer.workspace = true
 ckb-stop-handler.workspace = true
+ckb-dao-utils.workspace = true
+ckb-db-schema.workspace = true
 itertools.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
@@ -54,6 +56,7 @@ ckb-async-runtime.workspace = true
 schemars.workspace = true
 sysinfo.workspace = true
 bitflags.workspace = true
+
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking", "json"] }

@@ -203,4 +203,10 @@ impl ChainDB {
 
         Ok(())
     }
+
+    /// "rocksdb.estimate-num-keys" - returns estimated number of total keys in
+    /// the active and unflushed immutable memtables and storage.
+    pub fn estimate_num_keys_cf(&self, col: Col) -> Result<Option<u64>, Error> {
+        self.db.estimate_num_keys_cf(col)
+    }
 }

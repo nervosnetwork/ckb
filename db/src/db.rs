@@ -7,8 +7,8 @@ use ckb_app_config::DBConfig;
 use ckb_db_schema::Col;
 use ckb_logger::info;
 use rocksdb::ops::{
-    CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF,
-    Put, SetOptions, WriteOps,
+    CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, GetPropertyCF,
+    IterateCF, OpenCF, Put, SetOptions, WriteOps,
 };
 use rocksdb::{
     BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
@@ -17,6 +17,8 @@ use rocksdb::{
 };
 use std::path::Path;
 use std::sync::Arc;
+
+const PROPERTY_NUM_KEYS: &str = "rocksdb.estimate-num-keys";
 
 /// RocksDB wrapper base on OptimisticTransactionDB
 ///
@@ -328,6 +330,15 @@ impl RocksDB {
         let inner = Arc::get_mut(&mut self.inner)
             .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
         inner.drop_cf(col).map_err(internal_error)
+    }
+
+    /// "rocksdb.estimate-num-keys" - returns estimated number of total keys in
+    /// the active and unflushed immutable memtables and storage.
+    pub fn estimate_num_keys_cf(&self, col: Col) -> Result<Option<u64>> {
+        let cf = cf_handle(&self.inner, col)?;
+        self.inner
+            .property_int_value_cf(cf, PROPERTY_NUM_KEYS)
+            .map_err(internal_error)
     }
 }
 
