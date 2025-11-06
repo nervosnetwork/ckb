@@ -190,8 +190,15 @@ impl<'a> ServiceBuilder<'a> {
     }
 
     /// Mounts methods from module Terminal if it is enabled in the config.
-    pub fn enable_terminal(mut self, shared: Shared) -> Self {
-        let methods = TerminalRpcImpl { shared };
+    pub fn enable_terminal(
+        mut self,
+        shared: Shared,
+        network_controller: NetworkController,
+    ) -> Self {
+        let methods = TerminalRpcImpl {
+            shared,
+            network_controller,
+        };
         set_rpc_module_methods!(
             self,
             "Terminal",

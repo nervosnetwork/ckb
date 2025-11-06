@@ -421,6 +421,7 @@ impl Launcher {
                     .collect(),
             )
             .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
+            .enable_terminal(shared.clone(), network_controller.clone())
             .enable_indexer(
                 shared.clone(),
                 &self.args.config.db,

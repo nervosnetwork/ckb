@@ -1,6 +1,10 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
-use ckb_jsonrpc_types::{Disk, DiskUsage, Global, MiningInfo, Network, Overview, SysInfo};
+use ckb_jsonrpc_types::{
+    Disk, DiskUsage, Global, MiningInfo, Network, Overview, SysInfo, TerminalPoolInfo,
+};
+use ckb_logger::error;
+use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_types::utilities::compact_to_target;
@@ -29,6 +33,7 @@ pub trait TerminalRpc {
 #[derive(Clone)]
 pub(crate) struct TerminalRpcImpl {
     pub shared: Shared,
+    pub network_controller: NetworkController,
 }
 
 #[async_trait]
@@ -39,8 +44,14 @@ impl TerminalRpc for TerminalRpcImpl {
             .unwrap_or(RefreshKind::NOTHING);
         let sys = self.get_sys_info(refresh)?;
         let mining = self.get_mining_info(refresh)?;
+        let pool = self.get_tx_pool_info(refresh)?;
 
-        Ok(Overview { sys, mining })
+        Ok(Overview {
+            sys,
+            mining,
+            pool,
+            version: self.network_controller.version().to_owned(),
+        })
     }
 }
 
@@ -124,5 +135,37 @@ impl TerminalRpcImpl {
             virtual_memory: process.virtual_memory(),
         };
         Ok(sys_info)
+    }
+
+    fn get_tx_pool_info(&self, refresh: RefreshKind) -> Result<TerminalPoolInfo> {
+        let tx_pool = self.shared.tx_pool_controller();
+        let get_tx_pool_info = tx_pool.get_tx_pool_info();
+        if let Err(e) = get_tx_pool_info {
+            error!("Send get_tx_pool_info request error {}", e);
+            return Err(RPCError::ckb_internal_error(e));
+        };
+
+        let info = get_tx_pool_info.unwrap();
+
+        let block_template = self
+            .shared
+            .get_block_template(None, None, None)
+            .map_err(|err| {
+                error!("Send get_block_template request error {}", err);
+                RPCError::ckb_internal_error(err)
+            })?
+            .map_err(|err| {
+                error!("Get_block_template result error {}", err);
+                RPCError::from_any_error(err)
+            })?;
+
+        let tx_pool_info = TerminalPoolInfo {
+            pending: (info.pending_size as u64).into(),
+            proposed: (info.proposed_size as u64).into(),
+            orphan: (info.orphan_size as u64).into(),
+            committing: (block_template.transactions.len() as u64).into(),
+        };
+
+        Ok(tx_pool_info)
     }
 }
