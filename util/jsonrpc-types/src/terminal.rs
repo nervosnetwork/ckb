@@ -1,4 +1,4 @@
-use crate::{Capacity, Uint64};
+use crate::{Capacity, Timestamp, Uint64};
 use ckb_types::U256;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -125,6 +125,16 @@ pub struct TerminalPoolInfo {
     /// The Committing transactions refer to transactions that have been packaged into the
     /// block_template and are awaiting mining into a block.
     pub committing: Uint64,
+    /// Total count of recent reject transactions by pool
+    pub total_recent_reject_num: Uint64,
+    /// Total size of transactions bytes in the pool of all the different kinds of states (excluding orphan transactions).
+    pub total_tx_size: Uint64,
+    /// Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
+    pub total_tx_cycles: Uint64,
+    /// Total limit on the size of transactions in the tx-pool
+    pub max_tx_pool_size: Uint64,
+    /// Last updated time. This is the Unix timestamp in milliseconds.
+    pub last_txs_updated_at: Timestamp,
 }
 
 /// Cells information.

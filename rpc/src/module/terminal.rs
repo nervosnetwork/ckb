@@ -168,6 +168,10 @@ impl TerminalRpcImpl {
             proposed: (info.proposed_size as u64).into(),
             orphan: (info.orphan_size as u64).into(),
             committing: (block_template.transactions.len() as u64).into(),
+            total_tx_size: (info.total_tx_size as u64).into(),
+            total_tx_cycles: info.total_tx_cycles.into(),
+            last_txs_updated_at: info.last_txs_updated_at.into(),
+            max_tx_pool_size: info.max_tx_pool_size.into(),
         };
 
         Ok(tx_pool_info)
