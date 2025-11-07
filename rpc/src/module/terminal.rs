@@ -163,11 +163,17 @@ impl TerminalRpcImpl {
                 RPCError::from_any_error(err)
             })?;
 
+        let total_recent_reject_num = tx_pool.get_total_recent_reject_num().map_err(|err| {
+            error!("Get_total_recent_reject_num result error {}", err);
+            RPCError::from_any_error(err)
+        })?;
+
         let tx_pool_info = TerminalPoolInfo {
             pending: (info.pending_size as u64).into(),
             proposed: (info.proposed_size as u64).into(),
             orphan: (info.orphan_size as u64).into(),
             committing: (block_template.transactions.len() as u64).into(),
+            total_recent_reject_num: total_recent_reject_num.unwrap_or(0).into(),
             total_tx_size: (info.total_tx_size as u64).into(),
             total_tx_cycles: info.total_tx_cycles.into(),
             last_txs_updated_at: info.last_txs_updated_at.into(),
