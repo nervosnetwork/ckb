@@ -19,4 +19,4 @@ hyper = { workspace = true, features = ["http1", "http2", "server"] }
 http-body-util.workspace = true
 hyper-util = { workspace = true, features = ["server-auto", "server-graceful"] }
 ckb-stop-handler.workspace = true
-tokio = { workspace = true, features = ["sync", "macros"] }
+tokio = { workspace = true, features = ["sync", "macros", "net"] }
