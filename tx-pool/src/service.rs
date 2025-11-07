@@ -118,6 +118,7 @@ pub(crate) enum Message {
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
     GetPoolTxDetails(Request<Byte32, PoolTxDetailInfo>),
+    GetTotalRecentRejectNum(Request<(), Option<u64>>),
 
     UpdateIBDState(Request<bool, ()>),
     EstimateFeeRate(Request<(EstimateMode, bool), FeeEstimatesResult>),
@@ -424,6 +425,11 @@ impl TxPoolController {
     /// Submit local test tx to tx-pool, this tx will be put into verify queue directly.
     pub fn submit_local_test_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         send_message!(self, SubmitLocalTestTx, tx)
+    }
+
+    /// get total recent reject num
+    pub fn get_total_recent_reject_num(&self) -> Result<Option<u64>, AnyError> {
+        send_message!(self, GetTotalRecentRejectNum, ())
     }
 }
 
@@ -1024,6 +1030,12 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("Responder sending plug_entry failed {:?}", e);
             };
         }
+        Message::GetTotalRecentRejectNum(Request { responder, .. }) => {
+            let total_recent_reject_num = service.get_total_recent_reject_num().await;
+            if let Err(e) = responder.send(total_recent_reject_num) {
+                error!("Responder sending total_recent_reject_num failed {:?}", e)
+            };
+        }
     }
 }
 
@@ -1049,6 +1061,14 @@ impl TxPoolService {
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
             verify_queue_size: verify_queue.len(),
         }
+    }
+
+    async fn get_total_recent_reject_num(&self) -> Option<u64> {
+        let tx_pool = self.tx_pool.read().await;
+        tx_pool
+            .recent_reject
+            .as_ref()
+            .map(|r| r.get_estimate_total_keys_num())
     }
 
     /// Get Live Cell Status
