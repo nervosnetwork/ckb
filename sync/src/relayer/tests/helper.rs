@@ -396,14 +396,14 @@ impl CKBProtocolContext for MockProtocolContext {
     }
     fn quick_send_message(
         &self,
-        _proto_id: ProtocolId,
-        _peer_index: PeerIndex,
-        _data: P2pBytes,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: P2pBytes,
     ) -> Result<(), Error> {
-        unimplemented!();
+        self.send_message(proto_id, peer_index, data)
     }
-    fn quick_send_message_to(&self, _peer_index: PeerIndex, _data: P2pBytes) -> Result<(), Error> {
-        unimplemented!();
+    fn quick_send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
+        self.send_message_to(peer_index, data)
     }
     fn quick_filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
         Ok(())
