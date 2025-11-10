@@ -19,7 +19,7 @@ pub(crate) fn send_message<Message: Entity>(
     if let Err(err) = nc.send_message(protocol_id, peer_index, message.as_bytes()) {
         let name = message_name(protocol_id, message);
         let error_message = format!("nc.send_message {name}, error: {err:?}");
-        ckb_logger::error!("{}", error_message);
+        error!("{}", error_message);
         return StatusCode::Network.with_context(error_message);
     }
 
@@ -46,7 +46,7 @@ pub(crate) fn quick_send_message<Message: Entity>(
     if let Err(err) = nc.quick_send_message(protocol_id, peer_index, message.as_bytes()) {
         let name = message_name(protocol_id, message);
         let error_message = format!("nc.quick_send_message {name}, error: {err:?}");
-        ckb_logger::error!("{}", error_message);
+        error!("{}", error_message);
         return StatusCode::Network.with_context(error_message);
     }
 
