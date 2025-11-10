@@ -140,7 +140,7 @@ impl VerifyMgr {
     ) -> Self {
         // `num_cpus::get()` will always return at least 1,
         // don't use too many cpu cores to avoid high workload on the system
-        let worker_num = std::cmp::max(num_cpus::get() * 2, 1);
+        let worker_num = std::cmp::max(num_cpus::get() / 2, 1);
         let workers: Vec<_> = (0..worker_num)
             .map({
                 let tasks = Arc::clone(&service.verify_queue);
