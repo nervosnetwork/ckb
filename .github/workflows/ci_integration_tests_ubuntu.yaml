@@ -58,7 +58,7 @@ jobs:
         with:
           toolchain: 1.85.0
           components: rustfmt, clippy
-      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential
       - uses: actions/checkout@v4
       - run: |
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
@@ -85,7 +85,7 @@ jobs:
         with:
           toolchain: 1.85.0
           components: rustfmt, clippy
-      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential procps wget
       - uses: actions/checkout@v4
       - name: build ckb and run bats cli test
         run: |
