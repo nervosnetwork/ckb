@@ -36,23 +36,23 @@ async fn verify_queue_basic() {
         count
     });
 
-    assert!(queue.add_tx(tx.clone(), None).unwrap());
+    assert!(queue.add_tx(tx.clone(), false, None).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
-    assert!(!queue.add_tx(tx.clone(), None).unwrap());
+    assert!(!queue.add_tx(tx.clone(), false, None).unwrap());
 
     assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
     assert!(!queue.contains_key(&id));
 
-    assert!(queue.add_tx(tx.clone(), None).unwrap());
+    assert!(queue.add_tx(tx.clone(), false, None).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
 
-    assert!(queue.add_tx(tx.clone(), None).unwrap());
+    assert!(queue.add_tx(tx.clone(), false, None).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
-    assert!(queue.add_tx(tx2.clone(), None).unwrap());
+    assert!(queue.add_tx(tx2.clone(), false, None).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
     exit_tx.send(()).unwrap();
@@ -95,24 +95,24 @@ async fn test_verify_different_cycles() {
     let remote = |cycles| Some((cycles, SessionId::default()));
 
     let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(tx0.clone(), remote(1001)).unwrap());
+    assert!(queue.add_tx(tx0.clone(), false, remote(1001)).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx1 = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(tx1.clone(), remote(MAX_TX_VERIFY_CYCLES + 1))
+            .add_tx(tx1.clone(), false, remote(MAX_TX_VERIFY_CYCLES + 1))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx2 = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(tx2.clone(), remote(1001)).unwrap());
+    assert!(queue.add_tx(tx2.clone(), false, remote(1001)).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
     // now queue should be sorted by time (tx1, tx2)
 
     let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(tx3.clone(), remote(1001)).unwrap());
+    assert!(queue.add_tx(tx3.clone(), false, remote(1001)).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx_size_sum = [&tx0, &tx1, &tx2, &tx3]
@@ -121,6 +121,18 @@ async fn test_verify_different_cycles() {
         .sum::<usize>();
 
     assert_eq!(queue.total_tx_size(), tx_size_sum);
+
+    let tx_4_proposal = build_tx(vec![(&H256([4; 32]).into(), 0)], 1);
+    assert!(
+        queue
+            .add_tx(tx_4_proposal.clone(), true, remote(2000000))
+            .unwrap()
+    );
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    // first should pop the proposal tx
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx_4_proposal);
 
     // tx0 should be the first tx in the queue
     let cur = queue.pop_front(true);
@@ -145,7 +157,7 @@ async fn test_verify_different_cycles() {
 
     exit_tx.send(()).unwrap();
     let counts = count.await.unwrap();
-    assert_eq!(counts, 4);
+    assert_eq!(counts, 5);
     assert_eq!(queue.total_tx_size(), 0);
 }
 
@@ -188,10 +200,26 @@ async fn verify_queue_remove() {
 
     let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
 
-    assert!(queue.add_tx(entry1.tx.clone(), entry1.remote).unwrap());
-    assert!(queue.add_tx(entry2.tx.clone(), entry2.remote).unwrap());
-    assert!(queue.add_tx(entry3.tx.clone(), entry3.remote).unwrap());
-    assert!(queue.add_tx(entry4.tx.clone(), entry4.remote).unwrap());
+    assert!(
+        queue
+            .add_tx(entry1.tx.clone(), false, entry1.remote)
+            .unwrap()
+    );
+    assert!(
+        queue
+            .add_tx(entry2.tx.clone(), false, entry2.remote)
+            .unwrap()
+    );
+    assert!(
+        queue
+            .add_tx(entry3.tx.clone(), false, entry3.remote)
+            .unwrap()
+    );
+    assert!(
+        queue
+            .add_tx(entry4.tx.clone(), false, entry4.remote)
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert!(queue.contains_key(&entry1_id));

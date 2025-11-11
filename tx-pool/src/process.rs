@@ -158,7 +158,7 @@ impl TxPoolService {
                         let mut queue = self_clone.verify_queue.write().await;
                         for tx in may_recovered_txs {
                             debug!("recover back: {:?}", tx.proposal_short_id());
-                            let _ = queue.add_tx(tx, None);
+                            let _ = queue.add_tx(tx, false, None);
                         }
                     });
                 }
@@ -347,6 +347,7 @@ impl TxPoolService {
     pub(crate) async fn resumeble_process_tx(
         &self,
         tx: TransactionView,
+        is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         // non contextual verify first
@@ -360,7 +361,7 @@ impl TxPoolService {
         if self.verify_queue_contains(&tx).await {
             return Err(Reject::Duplicated(tx.hash()));
         }
-        self.enqueue_verify_queue(tx, remote).await
+        self.enqueue_verify_queue(tx, is_proposal_tx, remote).await
     }
 
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
@@ -582,7 +583,7 @@ impl TxPoolService {
                         tx.hash(),
                     );
                     self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    self.enqueue_verify_queue(orphan.tx, Some((orphan.cycle, orphan.peer)))
+                    self.enqueue_verify_queue(orphan.tx, false, Some((orphan.cycle, orphan.peer)))
                         .await
                         .expect("enqueue suspended tx");
                 } else if let Some((ret, _snapshot)) = self
@@ -821,10 +822,11 @@ impl TxPoolService {
     async fn enqueue_verify_queue(
         &self,
         tx: TransactionView,
+        is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         let mut queue = self.verify_queue.write().await;
-        queue.add_tx(tx, remote)
+        queue.add_tx(tx, is_proposal_tx, remote)
     }
 
     async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
