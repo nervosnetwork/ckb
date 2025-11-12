@@ -56,7 +56,7 @@ jobs:
           toolchain: 1.85.0
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
-      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y
+      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev build-essential -y
       - run: |
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               devtools/ci/ci_main.sh

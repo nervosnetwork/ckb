@@ -56,8 +56,8 @@ jobs:
           components: rustfmt, clippy
       - uses: actions/checkout@v4
       - run: cargo fmt --all -- --check
-      - run: pip install yq
-      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev jq -y
+      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev jq build-essential python3-pip -y
+      - run: pip3 install yq
       - run: |
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               echo tomlq path: $(which tomlq)
