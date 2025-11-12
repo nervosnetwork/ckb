@@ -1,7 +1,7 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::utils::send_message_to;
+use crate::utils::send_message_to_async;
 use crate::{Status, StatusCode, attempt};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
@@ -102,7 +102,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                         .flat_map(|u| u.data().proposals().into_iter())
                         .collect();
                     self.relayer.request_proposal_txs(
-                        self.nc.as_ref(),
+                        &self.nc,
                         self.peer,
                         (
                             compact_block.header().into_view().number(),
@@ -167,7 +167,13 @@ impl<'a> BlockTransactionsProcess<'a> {
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
 
-                attempt!(send_message_to(self.nc.as_ref(), self.peer, &message));
+                self.relayer
+                    .shared()
+                    .shared()
+                    .async_handle()
+                    .spawn(
+                        async move { send_message_to_async(&self.nc, self.peer, &message).await },
+                    );
 
                 let _ignore_prev_value =
                     mem::replace(expected_transaction_indexes, missing_transactions);

@@ -67,6 +67,23 @@ impl<A, R> Request<A, R> {
     }
 }
 
+pub(crate) struct AsyncRequest<A, R> {
+    pub responder: tokio::sync::oneshot::Sender<R>,
+    pub arguments: A,
+}
+
+impl<A, R> AsyncRequest<A, R> {
+    pub(crate) fn call(
+        arguments: A,
+        responder: tokio::sync::oneshot::Sender<R>,
+    ) -> AsyncRequest<A, R> {
+        AsyncRequest {
+            responder,
+            arguments,
+        }
+    }
+}
+
 pub(crate) struct Notify<A> {
     pub arguments: A,
 }
@@ -104,9 +121,12 @@ pub(crate) enum Message {
     TestAcceptTx(Request<TransactionView, TestAcceptTxResult>),
     SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
-    FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
+    FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(Request<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    FetchTxsWithCycles(Request<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
+    AsyncFetchTxs(
+        AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>,
+    ),
+    FetchTxsWithCycles(AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
     GetLiveCell(Request<(OutPoint, bool), CellStatus>),
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
@@ -271,6 +291,17 @@ impl TxPoolController {
         send_notify!(self, NotifyTxs, txs)
     }
 
+    pub async fn notify_txs_async(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
+        let notify = Notify::new(txs);
+        self.sender
+            .send(Message::NotifyTxs(notify))
+            .await
+            .map_err(|e| {
+                let e = ckb_error::OtherError::new(format!("SendError {e}"));
+                e.into()
+            })
+    }
+
     /// Return tx-pool information
     pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, AnyError> {
         send_message!(self, GetTxPoolInfo, ())
@@ -286,11 +317,16 @@ impl TxPoolController {
     }
 
     /// Return fresh proposals
-    pub fn fresh_proposals_filter(
+    pub async fn fresh_proposals_filter(
         &self,
         proposals: Vec<ProposalShortId>,
     ) -> Result<Vec<ProposalShortId>, AnyError> {
-        send_message!(self, FreshProposalsFilter, proposals)
+        let (responder, response) = tokio::sync::oneshot::channel();
+        let request = AsyncRequest::call(proposals, responder);
+        self.sender
+            .send(Message::FreshProposalsFilter(request))
+            .await?;
+        response.await.map_err(Into::into)
     }
 
     /// Return tx_status for rpc (get_transaction verbosity = 1)
@@ -315,13 +351,28 @@ impl TxPoolController {
         send_message!(self, FetchTxs, short_ids)
     }
 
+    pub async fn fetch_txs_async(
+        &self,
+        short_ids: HashSet<ProposalShortId>,
+    ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
+        let (responder, response) = tokio::sync::oneshot::channel();
+        let request = AsyncRequest::call(short_ids, responder);
+        self.sender.send(Message::AsyncFetchTxs(request)).await?;
+        response.await.map_err(Into::into)
+    }
+
     /// Return txs with cycles
     /// Mainly for relay transactions
-    pub fn fetch_txs_with_cycles(
+    pub async fn fetch_txs_with_cycles(
         &self,
         short_ids: HashSet<ProposalShortId>,
     ) -> Result<FetchTxsWithCyclesResult, AnyError> {
-        send_message!(self, FetchTxsWithCycles, short_ids)
+        let (responder, response) = tokio::sync::oneshot::channel();
+        let request = AsyncRequest::call(short_ids, responder);
+        self.sender
+            .send(Message::FetchTxsWithCycles(request))
+            .await?;
+        response.await.map_err(Into::into)
     }
 
     /// Clears the tx-pool, removing all txs, update snapshot.
@@ -804,7 +855,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 let _ret = service.resumeble_process_tx(tx, None).await;
             }
         }
-        Message::FreshProposalsFilter(Request {
+        Message::FreshProposalsFilter(AsyncRequest {
             responder,
             arguments: mut proposals,
         }) => {
@@ -909,7 +960,26 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("Responder sending fetch_txs failed {:?}", e);
             };
         }
-        Message::FetchTxsWithCycles(Request {
+        Message::AsyncFetchTxs(AsyncRequest {
+            responder,
+            arguments: short_ids,
+        }) => {
+            let tx_pool = service.tx_pool.read().await;
+            let orphan = service.orphan.read().await;
+            let txs = short_ids
+                .into_iter()
+                .filter_map(|short_id| {
+                    tx_pool
+                        .get_tx_from_pool_or_store(&short_id)
+                        .or_else(|| orphan.get(&short_id).map(|entry| &entry.tx).cloned())
+                        .map(|tx| (short_id, tx))
+                })
+                .collect();
+            if let Err(e) = responder.send(txs) {
+                error!("Responder sending fetch_txs failed {:?}", e);
+            };
+        }
+        Message::FetchTxsWithCycles(AsyncRequest {
             responder,
             arguments: short_ids,
         }) => {

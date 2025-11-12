@@ -352,10 +352,10 @@ impl CKBProtocolContext for MockProtocolContext {
     }
     async fn async_quick_filter_broadcast(
         &self,
-        _target: TargetSession,
-        _data: P2pBytes,
+        target: TargetSession,
+        data: P2pBytes,
     ) -> Result<(), Error> {
-        unimplemented!();
+        self.quick_filter_broadcast(target, data)
     }
     async fn async_future_task(
         &self,
@@ -391,6 +391,34 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         unimplemented!();
     }
+    async fn async_quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        match target {
+            TargetSession::All => unimplemented!(),
+            TargetSession::Multi(peers) => {
+                for peer in peers {
+                    self.sent_messages.borrow_mut().push((
+                        proto_id,
+                        peer,
+                        P2pBytes::from(data.clone()),
+                    ));
+                }
+            }
+            TargetSession::Single(peer) => {
+                self.sent_messages
+                    .borrow_mut()
+                    .push((proto_id, peer, P2pBytes::from(data)));
+            }
+            TargetSession::Filter(filter) => {
+                unimplemented!();
+            }
+        }
+        Ok(())
+    }
     async fn async_disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
         unimplemented!();
     }
@@ -406,6 +434,14 @@ impl CKBProtocolContext for MockProtocolContext {
         self.send_message_to(peer_index, data)
     }
     fn quick_filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
+        Ok(())
+    }
+    fn quick_filter_broadcast_with_proto(
+        &self,
+        _proto_id: ProtocolId,
+        _target: TargetSession,
+        _data: Bytes,
+    ) -> Result<(), Error> {
         Ok(())
     }
     fn future_task(

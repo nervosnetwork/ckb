@@ -315,13 +315,11 @@ impl MinerRpc for MinerRpcImpl {
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(content).build();
             let pid = SupportProtocols::RelayV3.protocol_id();
-            if let Err(err) = self
-                .network_controller
-                .quick_broadcast(pid, message.as_bytes())
-            {
-                error!("Broadcast new block failed: {:?}", err);
-            }
-
+            self.network_controller.quick_broadcast_with_handle(
+                pid,
+                message.as_bytes(),
+                self.shared.async_handle(),
+            );
             let parent_chain_root = {
                 let mmr = snapshot.chain_root_mmr(header.number() - 1);
                 match mmr.get_root() {
@@ -354,13 +352,19 @@ impl MinerRpc for MinerRpcImpl {
                 .filter(|(_id, peer)| peer.if_lightclient_subscribed)
                 .map(|(id, _)| id)
                 .collect();
-            if let Err(err) = self.network_controller.p2p_control().filter_broadcast(
-                TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
-                SupportProtocols::LightClient.protocol_id(),
-                light_client_message.as_bytes(),
-            ) {
-                warn!("Broadcast last state to light client failed: {:?}", err);
-            }
+            let async_control = self.network_controller.async_p2p_control();
+            self.shared.async_handle().spawn(async move {
+                if let Err(err) = async_control
+                    .filter_broadcast(
+                        TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
+                        SupportProtocols::LightClient.protocol_id(),
+                        light_client_message.as_bytes(),
+                    )
+                    .await
+                {
+                    warn!("Broadcast last state to light client failed: {:?}", err);
+                }
+            });
         }
 
         Ok(header.hash().into())

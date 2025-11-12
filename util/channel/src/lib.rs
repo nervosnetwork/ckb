@@ -39,4 +39,12 @@ impl<A, R> Request<A, R> {
         });
         response.recv().ok()
     }
+
+    pub fn call_without_response(sender: &Sender<Request<A, R>>, arguments: A) {
+        let (responder, _response) = oneshot::channel();
+        let _ = sender.send(Request {
+            responder,
+            arguments,
+        });
+    }
 }

@@ -329,6 +329,7 @@ fn test_send_missing_indexes() {
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     // send missing indexes messages
     assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 
@@ -347,6 +348,7 @@ fn test_send_missing_indexes() {
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     // send proposal request
     assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 }
@@ -431,7 +433,7 @@ fn test_accept_block() {
         Arc::<MockProtocolContext>::clone(&nc),
         peer_index,
     );
-    assert_eq!(compact_block_process.execute(), Status::ok(),);
+    assert_eq!(compact_block_process.execute(), Status::ok());
 
     let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
     assert!(
@@ -604,7 +606,7 @@ fn test_collision() {
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
-
+    std::thread::sleep(std::time::Duration::from_millis(100));
     // send missing indexes messages
     assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 }

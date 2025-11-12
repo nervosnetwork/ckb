@@ -128,6 +128,14 @@ impl CKBProtocolContext for MockProtocolContext {
         let protocol_id = self.protocol_id();
         self.send_message(protocol_id, peer_index, data)
     }
+    async fn async_quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: P2pBytes,
+    ) -> Result<(), Error> {
+        self.quick_filter_broadcast_with_proto(proto_id, target, data)
+    }
     fn quick_send_message(
         &self,
         proto_id: ProtocolId,
@@ -139,6 +147,33 @@ impl CKBProtocolContext for MockProtocolContext {
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
         let protocol_id = self.protocol_id();
         self.send_message(protocol_id, peer_index, data)
+    }
+    fn quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: P2pBytes,
+    ) -> Result<(), Error> {
+        match target {
+            TargetSession::Single(peer) => self.send_message(proto_id, peer, data)?,
+            TargetSession::Filter(mut peers) => {
+                let all = self.connected_peers();
+                for peer in all {
+                    if peers(&peer) {
+                        self.send_message(proto_id, peer, data.clone())?;
+                    }
+                }
+            }
+            TargetSession::Multi(iter) => {
+                for peer in iter {
+                    self.send_message(proto_id, peer, data.clone())?;
+                }
+            }
+            TargetSession::All => {
+                unimplemented!();
+            }
+        }
+        Ok(())
     }
 
     async fn async_filter_broadcast(

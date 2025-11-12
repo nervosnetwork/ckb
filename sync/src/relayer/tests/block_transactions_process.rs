@@ -89,6 +89,7 @@ fn test_accept_block() {
     let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
     assert!(pending_compact_blocks.get(&hash).is_none());
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(
         relayer
             .shared

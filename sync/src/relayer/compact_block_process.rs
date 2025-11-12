@@ -1,8 +1,8 @@
 use crate::SyncShared;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::types::{ActiveChain, PendingCompactBlockMap};
-use crate::utils::send_message_to;
+use crate::types::ActiveChain;
+use crate::utils::send_message_to_async;
 use crate::{Status, StatusCode, attempt};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
@@ -16,7 +16,6 @@ use ckb_types::{
     packed::{self, Byte32, CompactBlock},
     prelude::*,
 };
-use ckb_util::MutexGuard;
 use ckb_util::shrink_to_fit;
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
@@ -81,13 +80,11 @@ impl<'a> CompactBlockProcess<'a> {
         // Request proposal
         let proposals: Vec<_> = compact_block.proposals().into_iter().collect();
         self.relayer.request_proposal_txs(
-            self.nc.as_ref(),
+            &self.nc,
             self.peer,
             (header.number(), block_hash.clone()).into(),
             proposals,
         );
-
-        let mut pending_compact_blocks = shared.state().pending_compact_blocks();
 
         // Reconstruct block
         let ret = self
@@ -105,7 +102,7 @@ impl<'a> CompactBlockProcess<'a> {
                         .inc_by(block.transactions().len() as u64);
                     metrics.ckb_relay_cb_reconstruct_ok.inc();
                 }
-
+                let mut pending_compact_blocks = shared.state().pending_compact_blocks();
                 pending_compact_blocks.remove(&block_hash);
                 // remove all pending request below this block epoch
                 //
@@ -142,7 +139,7 @@ impl<'a> CompactBlockProcess<'a> {
                 missing_or_collided_post_process(
                     compact_block,
                     block_hash.clone(),
-                    pending_compact_blocks,
+                    &shared,
                     self.nc,
                     missing_transactions,
                     missing_uncles,
@@ -161,7 +158,7 @@ impl<'a> CompactBlockProcess<'a> {
                 missing_or_collided_post_process(
                     compact_block,
                     block_hash.clone(),
-                    pending_compact_blocks,
+                    &shared,
                     self.nc,
                     missing_transactions,
                     missing_uncles,
@@ -345,13 +342,15 @@ fn contextual_check(
 fn missing_or_collided_post_process(
     compact_block: CompactBlock,
     block_hash: Byte32,
-    mut pending_compact_blocks: MutexGuard<PendingCompactBlockMap>,
-    nc: Arc<dyn CKBProtocolContext>,
+    shared: &SyncShared,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     missing_transactions: Vec<u32>,
     missing_uncles: Vec<u32>,
     peer: PeerIndex,
 ) {
-    pending_compact_blocks
+    shared
+        .state()
+        .pending_compact_blocks()
         .entry(block_hash.clone())
         .or_insert_with(|| (compact_block, HashMap::default(), unix_time_as_millis()))
         .1
@@ -363,12 +362,14 @@ fn missing_or_collided_post_process(
         .uncle_indexes(missing_uncles.as_slice())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
-    let sending = send_message_to(nc.as_ref(), peer, &message);
-    if !sending.is_ok() {
-        ckb_logger::warn_target!(
-            crate::LOG_TARGET_RELAY,
-            "ignore the sending message error, error: {}",
-            sending
-        );
-    }
+    shared.shared().async_handle().spawn(async move {
+        let sending = send_message_to_async(&nc, peer, &message).await;
+        if !sending.is_ok() {
+            ckb_logger::warn_target!(
+                crate::LOG_TARGET_RELAY,
+                "ignore the sending message error, error: {}",
+                sending
+            );
+        }
+    });
 }
