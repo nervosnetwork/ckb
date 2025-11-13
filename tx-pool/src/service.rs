@@ -291,6 +291,7 @@ impl TxPoolController {
         send_notify!(self, NotifyTxs, txs)
     }
 
+    /// Receive txs from network, try to add txs to tx-pool
     pub async fn notify_txs_async(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
         let notify = Notify::new(txs);
         self.sender
@@ -351,6 +352,8 @@ impl TxPoolController {
         send_message!(self, FetchTxs, short_ids)
     }
 
+    /// Mainly used for compact block reconstruction and block proposal pre-broadcasting
+    /// Orphan/conflicted/etc transactions that are returned for compact block reconstruction.
     pub async fn fetch_txs_async(
         &self,
         short_ids: HashSet<ProposalShortId>,

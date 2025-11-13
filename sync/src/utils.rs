@@ -11,7 +11,7 @@ use std::{
 /// Send network message into parameterized `protocol_id` protocol connection.
 ///
 /// Equal to `nc.send_message`.
-#[must_use]
+#[allow(dead_code)]
 pub(crate) fn send_message<Message: Entity>(
     protocol_id: ProtocolId,
     nc: &dyn CKBProtocolContext,
@@ -76,9 +76,15 @@ pub(crate) async fn send_message_async<Message: Entity>(
     message: &Message,
 ) -> Status {
     // ignore Error return, only happens on shutdown case
-    let _ignore = nc
+    if let Err(err) = nc
         .async_send_message(protocol_id, peer_index, message.as_bytes())
-        .await;
+        .await
+    {
+        let name = message_name(protocol_id, message);
+        let error_message = format!("nc.send_message {name}, error: {err:?}");
+        ckb_logger::error!("{}", error_message);
+        return StatusCode::Network.with_context(error_message);
+    }
 
     let bytes = message.as_bytes().len() as u64;
     let item_name = item_name(protocol_id, message);
@@ -131,7 +137,7 @@ pub(crate) fn metric_ckb_message_bytes(
 /// Send network message into `nc.protocol_id()` protocol connection.
 ///
 /// Equal to `nc.send_message_to`.
-#[must_use]
+#[allow(dead_code)]
 pub(crate) fn send_message_to<Message: Entity>(
     nc: &dyn CKBProtocolContext,
     peer_index: PeerIndex,
@@ -167,9 +173,7 @@ fn message_name<Message: Entity>(protocol_id: ProtocolId, message: &Message) -> 
             .to_enum()
             .item_name()
             .to_owned()
-    } else if protocol_id == SupportProtocols::RelayV3.protocol_id()
-        || protocol_id == SupportProtocols::RelayV3.protocol_id()
-    {
+    } else if protocol_id == SupportProtocols::RelayV3.protocol_id() {
         RelayMessageReader::new_unchecked(message.as_slice())
             .to_enum()
             .item_name()

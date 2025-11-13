@@ -84,6 +84,7 @@ pub trait CKBProtocolContext: Send {
     /// Filter broadcast message
     async fn async_filter_broadcast(&self, target: TargetSession, data: Bytes)
     -> Result<(), Error>;
+    /// Filter broadcast message through quick queue and specify protocol id
     async fn async_quick_filter_broadcast_with_proto(
         &self,
         proto_id: ProtocolId,
@@ -103,6 +104,7 @@ pub trait CKBProtocolContext: Send {
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
     /// Filter broadcast message through quick queue
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
+    /// Filter broadcast message through quick queue and specify protocol id
     fn quick_filter_broadcast_with_proto(
         &self,
         proto_id: ProtocolId,

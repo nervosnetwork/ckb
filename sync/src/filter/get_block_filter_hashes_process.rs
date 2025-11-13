@@ -1,6 +1,6 @@
+use crate::Status;
 use crate::filter::BlockFilter;
-use crate::utils::send_message_to;
-use crate::{Status, attempt};
+use crate::utils::send_message_to_async;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core::BlockNumber, packed, prelude::*};
 use std::sync::Arc;
@@ -10,7 +10,7 @@ const BATCH_SIZE: BlockNumber = 2000;
 pub struct GetBlockFilterHashesProcess<'a> {
     message: packed::GetBlockFilterHashesReader<'a>,
     filter: &'a BlockFilter,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -18,7 +18,7 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
     pub fn new(
         message: packed::GetBlockFilterHashesReader<'a>,
         filter: &'a BlockFilter,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         Self {
@@ -29,7 +29,7 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let active_chain = self.filter.shared.active_chain();
         let start_number: BlockNumber = self.message.to_entity().start_number().into();
         let latest: BlockNumber = active_chain.get_latest_built_filter_block_number();
@@ -68,7 +68,7 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
             let message = packed::BlockFilterMessage::new_builder()
                 .set(content)
                 .build();
-            attempt!(send_message_to(self.nc.as_ref(), self.peer, &message))
+            send_message_to_async(&self.nc, self.peer, &message).await
         } else {
             Status::ignored()
         }

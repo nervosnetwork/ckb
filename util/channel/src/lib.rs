@@ -40,6 +40,7 @@ impl<A, R> Request<A, R> {
         response.recv().ok()
     }
 
+    /// Call the service with the arguments and don't wait for the response.
     pub fn call_without_response(sender: &Sender<Request<A, R>>, arguments: A) {
         let (responder, _response) = oneshot::channel();
         let _ = sender.send(Request {

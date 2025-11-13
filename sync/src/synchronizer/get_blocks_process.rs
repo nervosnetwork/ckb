@@ -1,17 +1,17 @@
 use crate::synchronizer::Synchronizer;
-use crate::utils::send_message_to;
-use crate::{Status, StatusCode, attempt};
+use crate::utils::send_message_to_async;
+use crate::{Status, StatusCode};
 use ckb_constant::sync::{INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
 use ckb_types::{packed, prelude::*};
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 pub struct GetBlocksProcess<'a> {
     message: packed::GetBlocksReader<'a>,
     synchronizer: &'a Synchronizer,
-    nc: &'a dyn CKBProtocolContext,
+    nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -20,7 +20,7 @@ impl<'a> GetBlocksProcess<'a> {
         message: packed::GetBlocksReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
+        nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
         GetBlocksProcess {
             peer,
@@ -75,7 +75,12 @@ impl<'a> GetBlocksProcess<'a> {
                 let content = packed::SendBlock::new_builder().block(block.data()).build();
                 let message = packed::SyncMessage::new_builder().set(content).build();
 
-                attempt!(send_message_to(self.nc, self.peer, &message));
+                let nc = Arc::clone(self.nc);
+                self.synchronizer
+                    .shared()
+                    .shared()
+                    .async_handle()
+                    .spawn(async move { send_message_to_async(&nc, self.peer, &message).await });
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

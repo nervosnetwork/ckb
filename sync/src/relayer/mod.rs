@@ -34,7 +34,7 @@ use ckb_logger::{
 };
 use ckb_network::{
     CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols, TargetSession,
-    async_trait, bytes::Bytes, tokio,
+    async_trait, bytes::Bytes,
 };
 use ckb_shared::Shared;
 use ckb_shared::block_status::BlockStatus;
@@ -142,9 +142,9 @@ impl Relayer {
                     .await
             }
             packed::RelayMessageUnionReader::GetBlockTransactions(reader) => {
-                tokio::task::block_in_place(|| {
-                    GetBlockTransactionsProcess::new(reader, self, nc, peer).execute()
-                })
+                GetBlockTransactionsProcess::new(reader, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::RelayMessageUnionReader::BlockTransactions(reader) => {
                 if reader.check_data() {

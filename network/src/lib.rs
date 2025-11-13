@@ -44,7 +44,10 @@ pub use p2p::{
     builder::ServiceBuilder,
     bytes, multiaddr, runtime,
     secio::{self, PeerId, PublicKey},
-    service::{ServiceControl, SessionType as RawSessionType, TargetProtocol, TargetSession},
+    service::{
+        ServiceAsyncControl, ServiceControl, SessionType as RawSessionType, TargetProtocol,
+        TargetSession,
+    },
     traits::ServiceProtocol,
     utils::{extract_peer_id, multiaddr_to_socketaddr},
 };

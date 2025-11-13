@@ -139,7 +139,7 @@ impl<'a> CompactBlockProcess<'a> {
                 missing_or_collided_post_process(
                     compact_block,
                     block_hash.clone(),
-                    &shared,
+                    shared,
                     self.nc,
                     missing_transactions,
                     missing_uncles,
@@ -158,7 +158,7 @@ impl<'a> CompactBlockProcess<'a> {
                 missing_or_collided_post_process(
                     compact_block,
                     block_hash.clone(),
-                    &shared,
+                    shared,
                     self.nc,
                     missing_transactions,
                     missing_uncles,
@@ -269,7 +269,7 @@ fn contextual_check(
             block_hash,
             peer
         );
-        active_chain.send_getheaders_to_peer(nc.as_ref(), peer, (&tip).into());
+        active_chain.send_getheaders_to_peer(nc, peer, (&tip).into());
         return StatusCode::CompactBlockRequiresParent.with_context(format!(
             "{} parent: {}",
             block_hash,

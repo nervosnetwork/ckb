@@ -401,19 +401,15 @@ impl CKBProtocolContext for MockProtocolContext {
             TargetSession::All => unimplemented!(),
             TargetSession::Multi(peers) => {
                 for peer in peers {
-                    self.sent_messages.borrow_mut().push((
-                        proto_id,
-                        peer,
-                        P2pBytes::from(data.clone()),
-                    ));
+                    self.sent_messages
+                        .borrow_mut()
+                        .push((proto_id, peer, data.clone()));
                 }
             }
             TargetSession::Single(peer) => {
-                self.sent_messages
-                    .borrow_mut()
-                    .push((proto_id, peer, P2pBytes::from(data)));
+                self.sent_messages.borrow_mut().push((proto_id, peer, data));
             }
-            TargetSession::Filter(filter) => {
+            TargetSession::Filter(_filter) => {
                 unimplemented!();
             }
         }

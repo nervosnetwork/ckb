@@ -321,7 +321,8 @@ fn test_collision_and_send_missing_indexes() {
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
 
-    // send missing indexes messages
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    // send c indexes messages
     assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 
     // update cached missing_index
@@ -434,6 +435,7 @@ fn test_missing() {
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     // send missing indexes messages
     assert!(nc.has_sent(
         SupportProtocols::RelayV3.protocol_id(),

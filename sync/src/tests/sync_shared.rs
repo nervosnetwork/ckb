@@ -360,13 +360,9 @@ fn test_sync_relay_collaboration() {
             )
             .build();
 
+        let nc = Arc::clone(&sync_nc) as Arc<dyn ckb_network::CKBProtocolContext + Sync>;
         // keep header process snapshot on old state, this is the bug reason
-        let header_process = HeadersProcess::new(
-            headers_content.as_reader(),
-            &sync,
-            1.into(),
-            sync_nc.as_ref(),
-        );
+        let header_process = HeadersProcess::new(headers_content.as_reader(), &sync, 1.into(), &nc);
 
         let compact_block_process = CompactBlockProcess::new(
             compact_block_content.as_reader(),
@@ -455,13 +451,9 @@ fn test_sync_relay_collaboration2() {
             )
             .build();
 
+        let nc = sync_nc as Arc<dyn ckb_network::CKBProtocolContext + Sync>;
         // keep header process snapshot on old state, this is the bug reason
-        let header_process = HeadersProcess::new(
-            headers_content.as_reader(),
-            &sync,
-            1.into(),
-            sync_nc.as_ref(),
-        );
+        let header_process = HeadersProcess::new(headers_content.as_reader(), &sync, 1.into(), &nc);
 
         let compact_block_process = CompactBlockProcess::new(
             compact_block_content.as_reader(),

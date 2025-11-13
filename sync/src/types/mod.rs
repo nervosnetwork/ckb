@@ -1,4 +1,7 @@
-use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, Status, StatusCode, TIME_TRACE_SIZE};
+use crate::{
+    FAST_INDEX, LOW_INDEX, NORMAL_INDEX, Status, StatusCode, TIME_TRACE_SIZE,
+    utils::send_message_async,
+};
 use ckb_app_config::SyncConfig;
 #[cfg(test)]
 use ckb_chain::VerifyResult;
@@ -41,8 +44,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use std::{cmp, fmt, iter};
-
-use crate::utils::send_message;
 
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
@@ -1911,7 +1912,7 @@ impl ActiveChain {
 
     pub fn send_getheaders_to_peer(
         &self,
-        nc: &dyn CKBProtocolContext,
+        nc: &Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         block_number_and_hash: BlockNumberAndHash,
     ) {
@@ -1950,7 +1951,10 @@ impl ActiveChain {
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        let _status = send_message(SupportProtocols::Sync.protocol_id(), nc, peer, &message);
+        let nc = Arc::clone(nc);
+        self.shared().async_handle().spawn(async move {
+            send_message_async(SupportProtocols::Sync.protocol_id(), &nc, peer, &message).await
+        });
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {

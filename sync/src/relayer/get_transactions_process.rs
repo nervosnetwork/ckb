@@ -1,5 +1,5 @@
 use crate::relayer::{MAX_RELAY_TXS_BYTES_PER_BATCH, MAX_RELAY_TXS_NUM_PER_BATCH, Relayer};
-use crate::utils::{send_message_to, send_message_to_async};
+use crate::utils::send_message_to_async;
 use crate::{Status, StatusCode, attempt};
 use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
