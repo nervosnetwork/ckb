@@ -179,7 +179,11 @@ impl VerifyQueue {
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         if self.contains_key(&tx.proposal_short_id()) {
-            return Ok(false);
+            if is_proposal_tx {
+                self.remove_tx(&tx.proposal_short_id());
+            } else {
+                return Ok(false);
+            }
         }
         let tx_size = tx.data().serialized_size_in_block();
         let is_large_cycle = remote
