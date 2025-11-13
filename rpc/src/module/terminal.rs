@@ -9,7 +9,7 @@ use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use ckb_types::utilities::compact_to_target;
+use ckb_types::utilities::compact_to_difficulty;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 use sysinfo::{Disks as SysDisks, Networks as SysNetworks, System};
@@ -71,7 +71,7 @@ impl TerminalRpcImpl {
                         "failed to get current epoch_ext",
                     )
                 })?;
-        let (difficulty, _overflow) = compact_to_target(current_epoch_ext.compact_target());
+        let difficulty = compact_to_difficulty(current_epoch_ext.compact_target());
         Ok(MiningInfo {
             difficulty,
             // We use previous_epoch_hash_rate to approximate the full network hash power,
