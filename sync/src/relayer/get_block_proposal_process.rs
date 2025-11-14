@@ -53,7 +53,7 @@ impl<'a> GetBlockProposalProcess<'a> {
 
         let fetched_transactions = {
             let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-            let fetch_txs = tx_pool.fetch_txs_async(proposals.clone()).await;
+            let fetch_txs = tx_pool.fetch_txs(proposals.clone()).await;
             if let Err(e) = fetch_txs {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,

@@ -123,7 +123,9 @@ impl Relayer {
 
         match message {
             packed::RelayMessageUnionReader::CompactBlock(reader) => {
-                CompactBlockProcess::new(reader, self, nc, peer).execute()
+                CompactBlockProcess::new(reader, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
                 if reader.check_data() {
@@ -148,7 +150,9 @@ impl Relayer {
             }
             packed::RelayMessageUnionReader::BlockTransactions(reader) => {
                 if reader.check_data() {
-                    BlockTransactionsProcess::new(reader, self, nc, peer).execute()
+                    BlockTransactionsProcess::new(reader, self, nc, peer)
+                        .execute()
+                        .await
                 } else {
                     StatusCode::ProtocolMessageIsMalformed
                         .with_context("BlockTransactions is invalid")
@@ -342,7 +346,7 @@ impl Relayer {
     // then once the block has been reconstructed, it shall be processed as normal,
     // keeping in mind that short_ids are expected to occasionally collide,
     // and that nodes must not be penalized for such collisions, wherever they appear.
-    pub fn reconstruct_block(
+    pub async fn reconstruct_block(
         &self,
         active_chain: &ActiveChain,
         compact_block: &packed::CompactBlock,
@@ -376,7 +380,7 @@ impl Relayer {
 
         if !short_ids_set.is_empty() {
             let tx_pool = self.shared.shared().tx_pool_controller();
-            let fetch_txs = tx_pool.fetch_txs(short_ids_set);
+            let fetch_txs = tx_pool.fetch_txs(short_ids_set).await;
             if let Err(e) = fetch_txs {
                 return ReconstructionResult::Error(StatusCode::TxPool.with_context(e));
             }
@@ -542,7 +546,7 @@ impl Relayer {
         let tx_pool = self.shared.shared().tx_pool_controller();
 
         let fetch_txs = tx_pool
-            .fetch_txs_async(
+            .fetch_txs(
                 get_block_proposals
                     .iter()
                     .map(|kv_pair| kv_pair.key().clone())

@@ -337,11 +337,11 @@ impl CKBProtocolContext for MockProtocolContext {
     }
     async fn async_quick_send_message(
         &self,
-        _proto_id: ProtocolId,
-        _peer_index: PeerIndex,
-        _data: P2pBytes,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: P2pBytes,
     ) -> Result<(), Error> {
-        unimplemented!();
+        self.quick_send_message(proto_id, peer_index, data)
     }
     async fn async_quick_send_message_to(
         &self,

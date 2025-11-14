@@ -37,6 +37,10 @@ fn test_in_block_status_map() {
         .transaction(TransactionBuilder::default().build())
         .header(header)
         .build();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
@@ -62,7 +66,7 @@ fn test_in_block_status_map() {
     }
 
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::BlockIsInvalid.into(),
     );
 
@@ -82,7 +86,7 @@ fn test_in_block_status_map() {
     }
 
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::CompactBlockAlreadyStored.into(),
     );
 
@@ -101,13 +105,20 @@ fn test_in_block_status_map() {
             .insert_block_status(block.header().hash(), BlockStatus::BLOCK_RECEIVED);
     }
 
-    assert_eq!(compact_block_process.execute(), Status::ignored());
+    assert_eq!(
+        rt.block_on(compact_block_process.execute()),
+        Status::ignored()
+    );
 }
 
 // send_getheaders_to_peer when UnknownParent
 #[test]
 fn test_unknow_parent() {
     let (_chain, relayer, _) = build_chain(5);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     // UnknownParent
     let block = BlockBuilder::default()
@@ -136,7 +147,7 @@ fn test_unknow_parent() {
         peer_index,
     );
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::CompactBlockRequiresParent.into()
     );
 
@@ -172,6 +183,11 @@ fn test_accept_not_a_better_block() {
         second_to_last_header
     };
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
     let uncle_block: BlockView = gen_block(
         &second_to_last_header,
         relayer.shared().shared(),
@@ -199,7 +215,7 @@ fn test_accept_not_a_better_block() {
         Arc::<MockProtocolContext>::clone(&nc),
         peer_index,
     );
-    assert_eq!(compact_block_process.execute(), Status::ok());
+    assert_eq!(rt.block_on(compact_block_process.execute()), Status::ok());
 
     // wait chain_service processed the compact block, check block hash in snapshot
     {
@@ -234,6 +250,10 @@ fn test_header_invalid() {
         .header(header)
         .transaction(TransactionBuilder::default().build())
         .build();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
@@ -250,7 +270,7 @@ fn test_header_invalid() {
         peer_index,
     );
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::CompactBlockHasInvalidHeader.into(),
     );
     // Assert block_status_map update
@@ -276,6 +296,10 @@ fn test_send_missing_indexes() {
     let proposal_id = ProposalShortId::new([1u8; 10]);
 
     let uncle = BlockBuilder::default().build();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     // Better block including one missing transaction
     let block = BlockBuilder::default()
@@ -317,7 +341,7 @@ fn test_send_missing_indexes() {
             .contains_inflight_proposal(&proposal_id)
     );
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::CompactBlockRequiresFreshTransactions.into()
     );
 
@@ -363,6 +387,10 @@ fn test_accept_block() {
         active_chain.tip_header()
     };
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let uncle = gen_block(&parent, relayer.shared().shared(), 0, 1, None);
 
     let block = gen_block(
@@ -382,7 +410,8 @@ fn test_accept_block() {
     let mock_block_2 = block.as_advanced_builder().number(7).build();
     let mock_compact_block_2 = CompactBlock::build_from_block(&mock_block_2, &Default::default());
     {
-        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+        let mut pending_compact_blocks =
+            rt.block_on(relayer.shared.state().pending_compact_blocks());
         pending_compact_blocks.insert(
             mock_block_1.header().hash(),
             (
@@ -433,9 +462,9 @@ fn test_accept_block() {
         Arc::<MockProtocolContext>::clone(&nc),
         peer_index,
     );
-    assert_eq!(compact_block_process.execute(), Status::ok());
+    assert_eq!(rt.block_on(compact_block_process.execute()), Status::ok());
 
-    let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+    let pending_compact_blocks = rt.block_on(relayer.shared.state().pending_compact_blocks());
     assert!(
         pending_compact_blocks
             .get(&mock_block_1.header().hash())
@@ -455,6 +484,10 @@ fn test_ignore_a_too_old_block() {
     let snapshot = relayer.shared.shared().snapshot();
     let parent = snapshot.tip_header();
     let parent = snapshot.get_ancestor(&parent.hash(), 2).unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let too_old_block = new_header_builder(relayer.shared.shared(), &parent).build();
 
@@ -479,7 +512,7 @@ fn test_ignore_a_too_old_block() {
     );
 
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::CompactBlockIsStaled.into(),
     );
 }
@@ -492,6 +525,10 @@ fn test_invalid_transaction_root() {
         active_chain.tip_header()
     };
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
 
     let block = BlockBuilder::default()
@@ -514,7 +551,7 @@ fn test_invalid_transaction_root() {
         peer_index,
     );
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
@@ -522,6 +559,10 @@ fn test_invalid_transaction_root() {
 #[test]
 fn test_collision() {
     let (_chain, relayer, _) = build_chain(5);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let last_block = relayer
         .shared
@@ -596,7 +637,7 @@ fn test_collision() {
             .contains_inflight_proposal(&proposal_id)
     );
     assert_eq!(
-        compact_block_process.execute(),
+        rt.block_on(compact_block_process.execute()),
         StatusCode::CompactBlockMeetsShortIdsCollision.into(),
     );
 

@@ -1019,7 +1019,7 @@ impl SyncShared {
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
             pending_get_block_proposals: DashMap::new(),
-            pending_compact_blocks: Mutex::new(HashMap::default()),
+            pending_compact_blocks: tokio::sync::Mutex::new(HashMap::default()),
             inflight_proposals: DashMap::new(),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
@@ -1322,7 +1322,7 @@ pub struct SyncState {
     /* Cached items which we had received but not completely process */
     pending_get_block_proposals: DashMap<packed::ProposalShortId, HashSet<PeerIndex>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
-    pending_compact_blocks: Mutex<PendingCompactBlockMap>,
+    pending_compact_blocks: tokio::sync::Mutex<PendingCompactBlockMap>,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: DashMap<packed::ProposalShortId, BlockNumber>,
@@ -1353,7 +1353,7 @@ impl SyncState {
     }
 
     pub fn compare_with_pending_compact(&self, hash: &Byte32, now: u64) -> bool {
-        let pending = self.pending_compact_blocks.lock();
+        let pending = self.pending_compact_blocks.blocking_lock();
         // After compact block request 2s or pending is empty, sync can create tasks
         pending.is_empty()
             || pending
@@ -1362,8 +1362,10 @@ impl SyncState {
                 .unwrap_or(true)
     }
 
-    pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {
-        self.pending_compact_blocks.lock()
+    pub async fn pending_compact_blocks(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, PendingCompactBlockMap> {
+        self.pending_compact_blocks.lock().await
     }
 
     pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {

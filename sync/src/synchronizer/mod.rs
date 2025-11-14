@@ -818,7 +818,9 @@ impl Synchronizer {
             },
             None => {
                 for peer in self.get_peers_to_fetch(ibd, &disconnect_list) {
-                    if let Some(fetch) = self.get_blocks_to_fetch(peer, ibd) {
+                    if let Some(fetch) =
+                        tokio::task::block_in_place(|| self.get_blocks_to_fetch(peer, ibd))
+                    {
                         for item in fetch {
                             self.send_getblocks(item, nc, peer);
                         }

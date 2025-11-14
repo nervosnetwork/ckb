@@ -53,7 +53,7 @@ impl<'a> CompactBlockProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let instant = Instant::now();
         let shared = self.relayer.shared();
         let active_chain = shared.active_chain();
@@ -67,7 +67,7 @@ impl<'a> CompactBlockProcess<'a> {
             return status;
         }
 
-        let status = contextual_check(&header, shared, &active_chain, &self.nc, self.peer);
+        let status = contextual_check(&header, shared, &active_chain, &self.nc, self.peer).await;
         if !status.is_ok() {
             return status;
         }
@@ -89,7 +89,8 @@ impl<'a> CompactBlockProcess<'a> {
         // Reconstruct block
         let ret = self
             .relayer
-            .reconstruct_block(&active_chain, &compact_block, vec![], &[], &[]);
+            .reconstruct_block(&active_chain, &compact_block, vec![], &[], &[])
+            .await;
 
         // Accept block
         // `relayer.accept_block` will make sure the validity of block before persisting
@@ -102,7 +103,7 @@ impl<'a> CompactBlockProcess<'a> {
                         .inc_by(block.transactions().len() as u64);
                     metrics.ckb_relay_cb_reconstruct_ok.inc();
                 }
-                let mut pending_compact_blocks = shared.state().pending_compact_blocks();
+                let mut pending_compact_blocks = shared.state().pending_compact_blocks().await;
                 pending_compact_blocks.remove(&block_hash);
                 // remove all pending request below this block epoch
                 //
@@ -144,7 +145,8 @@ impl<'a> CompactBlockProcess<'a> {
                     missing_transactions,
                     missing_uncles,
                     self.peer,
-                );
+                )
+                .await;
 
                 StatusCode::CompactBlockRequiresFreshTransactions.with_context(&block_hash)
             }
@@ -163,7 +165,8 @@ impl<'a> CompactBlockProcess<'a> {
                     missing_transactions,
                     missing_uncles,
                     self.peer,
-                );
+                )
+                .await;
                 StatusCode::CompactBlockMeetsShortIdsCollision.with_context(&block_hash)
             }
             ReconstructionResult::Error(status) => status,
@@ -224,7 +227,7 @@ fn non_contextual_check(
 /// * check compact block's parent block is not stored in db
 /// * check compact block is in pending
 /// * check compact header verification
-fn contextual_check(
+async fn contextual_check(
     compact_block_header: &HeaderView,
     shared: &Arc<SyncShared>,
     active_chain: &ActiveChain,
@@ -278,7 +281,7 @@ fn contextual_check(
     }
 
     // compact block is in pending
-    let pending_compact_blocks = shared.state().pending_compact_blocks();
+    let pending_compact_blocks = shared.state().pending_compact_blocks().await;
     if pending_compact_blocks
         .get(&block_hash)
         .map(|(_, peers_map, _)| peers_map.contains_key(&peer))
@@ -339,7 +342,7 @@ fn contextual_check(
 }
 
 /// request missing txs and uncles from peer
-fn missing_or_collided_post_process(
+async fn missing_or_collided_post_process(
     compact_block: CompactBlock,
     block_hash: Byte32,
     shared: &SyncShared,
@@ -351,6 +354,7 @@ fn missing_or_collided_post_process(
     shared
         .state()
         .pending_compact_blocks()
+        .await
         .entry(block_hash.clone())
         .or_insert_with(|| (compact_block, HashMap::default(), unix_time_as_millis()))
         .1

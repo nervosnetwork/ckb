@@ -42,7 +42,7 @@ impl<'a> BlockTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let active_chain = shared.active_chain();
         let block_transactions = self.message.to_entity();
@@ -65,6 +65,7 @@ impl<'a> BlockTransactionsProcess<'a> {
         if let Entry::Occupied(mut pending) = shared
             .state()
             .pending_compact_blocks()
+            .await
             .entry(block_hash.clone())
         {
             let (compact_block, peers_map, _) = pending.get_mut();
@@ -87,13 +88,16 @@ impl<'a> BlockTransactionsProcess<'a> {
                     &received_uncles,
                 ));
 
-                let ret = self.relayer.reconstruct_block(
-                    &active_chain,
-                    compact_block,
-                    received_transactions,
-                    expected_uncle_indexes,
-                    &received_uncles,
-                );
+                let ret = self
+                    .relayer
+                    .reconstruct_block(
+                        &active_chain,
+                        compact_block,
+                        received_transactions,
+                        expected_uncle_indexes,
+                        &received_uncles,
+                    )
+                    .await;
 
                 // Request proposal
                 {
@@ -167,13 +171,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
 
-                self.relayer
-                    .shared()
-                    .shared()
-                    .async_handle()
-                    .spawn(
-                        async move { send_message_to_async(&self.nc, self.peer, &message).await },
-                    );
+                let _ignore = send_message_to_async(&self.nc, self.peer, &message).await;
 
                 let _ignore_prev_value =
                     mem::replace(expected_transaction_indexes, missing_transactions);

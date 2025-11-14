@@ -122,10 +122,7 @@ pub(crate) enum Message {
     SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
-    FetchTxs(Request<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    AsyncFetchTxs(
-        AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>,
-    ),
+    FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
     GetLiveCell(Request<(OutPoint, bool), CellStatus>),
@@ -345,22 +342,13 @@ impl TxPoolController {
 
     /// Mainly used for compact block reconstruction and block proposal pre-broadcasting
     /// Orphan/conflicted/etc transactions that are returned for compact block reconstruction.
-    pub fn fetch_txs(
-        &self,
-        short_ids: HashSet<ProposalShortId>,
-    ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
-        send_message!(self, FetchTxs, short_ids)
-    }
-
-    /// Mainly used for compact block reconstruction and block proposal pre-broadcasting
-    /// Orphan/conflicted/etc transactions that are returned for compact block reconstruction.
-    pub async fn fetch_txs_async(
+    pub async fn fetch_txs(
         &self,
         short_ids: HashSet<ProposalShortId>,
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(short_ids, responder);
-        self.sender.send(Message::AsyncFetchTxs(request)).await?;
+        self.sender.send(Message::FetchTxs(request)).await?;
         response.await.map_err(Into::into)
     }
 
@@ -944,26 +932,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("Responder sending get_tx_status failed {:?}", e)
             };
         }
-        Message::FetchTxs(Request {
-            responder,
-            arguments: short_ids,
-        }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let orphan = service.orphan.read().await;
-            let txs = short_ids
-                .into_iter()
-                .filter_map(|short_id| {
-                    tx_pool
-                        .get_tx_from_pool_or_store(&short_id)
-                        .or_else(|| orphan.get(&short_id).map(|entry| &entry.tx).cloned())
-                        .map(|tx| (short_id, tx))
-                })
-                .collect();
-            if let Err(e) = responder.send(txs) {
-                error!("Responder sending fetch_txs failed {:?}", e);
-            };
-        }
-        Message::AsyncFetchTxs(AsyncRequest {
+        Message::FetchTxs(AsyncRequest {
             responder,
             arguments: short_ids,
         }) => {

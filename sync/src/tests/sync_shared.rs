@@ -329,6 +329,10 @@ fn test_sync_relay_collaboration() {
 
     let (shared, chain) = build_chain(2);
     let sync_shared = Arc::new(shared);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     {
         let sync = Synchronizer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
@@ -371,7 +375,7 @@ fn test_sync_relay_collaboration() {
             1.into(),
         );
 
-        let status = compact_block_process.execute();
+        let status = rt.block_on(compact_block_process.execute());
 
         assert!(status.is_ok());
 
@@ -405,6 +409,10 @@ fn test_sync_relay_collaboration2() {
 
     let (shared, chain) = build_chain(2);
     let sync_shared = Arc::new(shared);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     {
         let sync = Synchronizer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
@@ -462,7 +470,7 @@ fn test_sync_relay_collaboration2() {
             1.into(),
         );
 
-        let status = compact_block_process.execute();
+        let status = rt.block_on(compact_block_process.execute());
 
         assert!(status.is_ok());
 
@@ -485,7 +493,7 @@ fn test_sync_relay_collaboration2() {
             1.into(),
         );
 
-        let status = compact_block_process.execute();
+        let status = rt.block_on(compact_block_process.execute());
 
         assert_eq!(status, Status::ok());
 
