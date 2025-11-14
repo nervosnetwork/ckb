@@ -6,7 +6,6 @@
 //! And implemented several basic protocols: identify, discovery, ping, feeler, disconnect_message
 //!
 
-mod address;
 mod behaviour;
 /// compress module
 pub mod compress;

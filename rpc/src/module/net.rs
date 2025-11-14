@@ -588,7 +588,7 @@ impl NetRpc for NetRpcImpl {
             .iter()
             .map(|(peer_index, peer)| {
                 let addresses: HashSet<_> = std::iter::once(peer.connected_addr.clone())
-                    .chain(peer.listened_addrs.into_iter().cloned())
+                    .chain(peer.listened_addrs.iter().cloned())
                     .collect();
 
                 let node_addresses = addresses

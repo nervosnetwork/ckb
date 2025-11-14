@@ -1,5 +1,4 @@
 //! Global state struct and start function
-use crate::address::NetworkAddresses;
 use crate::errors::Error;
 #[cfg(not(target_family = "wasm"))]
 use crate::errors::P2PError;
@@ -76,7 +75,7 @@ pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<PeerStore>,
     /// Node listened addresses
-    pub(crate) listened_addrs: RwLock<NetworkAddresses>,
+    pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
     /// Node public addresses by config
     public_addrs: RwLock<HashSet<Multiaddr>>,
@@ -148,7 +147,7 @@ impl NetworkState {
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
             public_addrs: RwLock::new(public_addrs),
-            listened_addrs: RwLock::new(NetworkAddresses::default()),
+            listened_addrs: RwLock::new(Vec::new()),
             observed_addrs: RwLock::new(HashMap::default()),
             local_private_key,
             local_peer_id,
@@ -196,7 +195,7 @@ impl NetworkState {
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
             public_addrs: RwLock::new(public_addrs),
-            listened_addrs: RwLock::new(NetworkAddresses::default()),
+            listened_addrs: RwLock::new(Vec::new()),
             observed_addrs: RwLock::new(HashMap::default()),
             local_private_key,
             local_peer_id,
@@ -372,7 +371,7 @@ impl NetworkState {
                     None
                 }
             })
-            .chain(listened_addrs.into_iter().map(|addr| (addr.to_owned(), 1)))
+            .chain(listened_addrs.iter().map(|addr| (addr.clone(), 1)))
             .map(|(addr, score)| (addr.to_string(), score))
             .collect()
     }
