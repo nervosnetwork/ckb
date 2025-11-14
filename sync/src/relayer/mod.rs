@@ -21,7 +21,9 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::types::{ActiveChain, SyncShared, post_sync_process};
-use crate::utils::{MetricDirection, metric_ckb_message_bytes, send_message_to};
+use crate::utils::{
+    MetricDirection, metric_ckb_message_bytes, quick_send_message_to, send_message_to,
+};
 use crate::{Status, StatusCode};
 use ckb_chain::VerifyResult;
 use ckb_chain::{ChainController, RemoteBlock};
@@ -240,7 +242,7 @@ impl Relayer {
                 .proposals(to_ask_proposals.clone())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
-            if !send_message_to(nc, peer, &message).is_ok() {
+            if !quick_send_message_to(nc, peer, &message).is_ok() {
                 self.shared()
                     .state()
                     .remove_inflight_proposals(&to_ask_proposals);
@@ -562,7 +564,7 @@ impl Relayer {
                     .transactions(txs)
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                let status = send_message_to(nc, peer_index, &message);
+                let status = quick_send_message_to(nc, peer_index, &message);
                 if !status.is_ok() {
                     ckb_logger::error!(
                         "send RelayBlockProposal to {}, status: {:?}",

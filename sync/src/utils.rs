@@ -19,7 +19,34 @@ pub(crate) fn send_message<Message: Entity>(
     if let Err(err) = nc.send_message(protocol_id, peer_index, message.as_bytes()) {
         let name = message_name(protocol_id, message);
         let error_message = format!("nc.send_message {name}, error: {err:?}");
-        ckb_logger::error!("{}", error_message);
+        error!("{}", error_message);
+        return StatusCode::Network.with_context(error_message);
+    }
+
+    let bytes = message.as_bytes().len() as u64;
+    let item_name = item_name(protocol_id, message);
+    let protocol_name = protocol_name(protocol_id);
+    metric_ckb_message_bytes(
+        MetricDirection::Out,
+        &protocol_name,
+        &item_name,
+        None,
+        bytes,
+    );
+
+    Status::ok()
+}
+
+pub(crate) fn quick_send_message<Message: Entity>(
+    protocol_id: ProtocolId,
+    nc: &dyn CKBProtocolContext,
+    peer_index: PeerIndex,
+    message: &Message,
+) -> Status {
+    if let Err(err) = nc.quick_send_message(protocol_id, peer_index, message.as_bytes()) {
+        let name = message_name(protocol_id, message);
+        let error_message = format!("nc.quick_send_message {name}, error: {err:?}");
+        error!("{}", error_message);
         return StatusCode::Network.with_context(error_message);
     }
 
@@ -82,6 +109,15 @@ pub(crate) fn send_message_to<Message: Entity>(
 ) -> Status {
     let protocol_id = nc.protocol_id();
     send_message(protocol_id, nc, peer_index, message)
+}
+
+pub(crate) fn quick_send_message_to<Message: Entity>(
+    nc: &dyn CKBProtocolContext,
+    peer_index: PeerIndex,
+    message: &Message,
+) -> Status {
+    let protocol_id = nc.protocol_id();
+    quick_send_message(protocol_id, nc, peer_index, message)
 }
 
 // As for Sync protocol and Relay protocol, returns the internal item name;

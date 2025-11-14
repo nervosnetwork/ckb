@@ -10,8 +10,8 @@ use ubyte::ByteUnit;
 // Max data size in send buffer: 24MB (a little larger than max frame length)
 const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
 
-// Tentacle inner bound channel size, default 128
-const DEFAULT_CHANNEL_SIZE: usize = 128;
+// Tentacle inner bound channel size, default 1024
+const DEFAULT_CHANNEL_SIZE: usize = 1024;
 
 /// Network config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
