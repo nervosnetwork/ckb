@@ -37,10 +37,10 @@ impl OnionService {
             .get_onion_address()
             .get_address_without_dot_onion();
 
-        let p2p_port = config.p2p_listen_address.port();
+        let onion_external_port = config.onion_external_port;
         let onion_multi_addr_str = format!(
             "/onion3/{}:{}/p2p/{}",
-            tor_address_without_dot_onion, p2p_port, node_id
+            tor_address_without_dot_onion, onion_external_port, node_id
         );
         let onion_multi_addr = Multiaddr::from_str(&onion_multi_addr_str).map_err(|err| {
             InternalErrorKind::Other.other(format!(
@@ -103,7 +103,7 @@ impl OnionService {
         tor_controller.wait_tor_server_bootstrap_done().await?;
 
         let p2p_listener_addresses = [(
-            self.config.p2p_listen_address.port(),
+            self.config.onion_external_port,
             self.config.p2p_listen_address,
         )];
         info!(

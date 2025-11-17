@@ -376,6 +376,7 @@ impl Launcher {
             tor_controller: onion_config.tor_controller,
             tor_password: onion_config.tor_password,
             p2p_listen_address,
+            onion_external_port: onion_config.onion_external_port,
         };
         let (onion_service, onion_service_addr) = ckb_onion::onion_service::OnionService::new(
             self.async_handle.clone(),

@@ -26,4 +26,8 @@ pub struct OnionServiceConfig {
     /// onion service will bind to CKB's p2p listen address, default is "127.0.0.1:8115"
     /// if you want to use other address, you should set it to the address you want
     pub p2p_listen_address: SocketAddr,
+    /// The external port that the onion service will expose, default is 8115
+    /// This is the port that will be advertised in the onion address,
+    /// while traffic will be forwarded to `p2p_listen_address`.
+    pub onion_external_port: u16,
 }

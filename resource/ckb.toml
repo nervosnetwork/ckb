@@ -160,6 +160,11 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 ### Leave empty if no authentication is required.
 # tor_password = ""
 
+### The external port that the onion service will expose.
+### This is the port that will be advertised in the onion address,
+### while traffic will be forwarded to `p2p_listen_address`.
+# onion_external_port = 8115
+
 
 [rpc]
 # By default RPC only binds to localhost, thus it only allows accessing from the same machine.

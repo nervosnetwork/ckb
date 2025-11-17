@@ -141,11 +141,21 @@ pub struct OnionConfig {
     pub tor_controller: String,
     // tor controller hashed password
     pub tor_password: Option<String>,
+    // The external port that the onion service will expose. Default is 8115.
+    // This is the port that will be advertised in the onion address,
+    // while traffic will be forwarded to `p2p_listen_address`.
+    #[serde(default = "default_onion_external_port")]
+    pub onion_external_port: u16,
 }
 
 /// By default, use tor controller on "127.0.0.1:9051"
 fn default_tor_controller() -> String {
     "127.0.0.1:9051".to_string()
+}
+
+/// By default, use port 8115 for onion service
+fn default_onion_external_port() -> u16 {
+    8115
 }
 
 /// Chain synchronization config options.
