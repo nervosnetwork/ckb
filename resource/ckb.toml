@@ -111,10 +111,7 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 # memory_limit = "256MB"
 
 # [network.proxy]
-### The proxy_url is user-specified. If CKB needs to run behind the Onion network,
-### the user should start a Tor server and set proxy_url to the Tor server's address.
-### The default Tor SOCKS5 proxy URL is socks5://127.0.0.1:9050.
-### For more information on configuring Tor, visit: https://linux.die.net/man/1/tor
+### The proxy_url is user-specified SOCKS5 address, like: socks5://127.0.0.1:7891
 # proxy_url = "socks5://127.0.0.1:9050"
 
 ### Toggle random authentication for the proxy server.
@@ -133,6 +130,12 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 # proxy_random_auth = true
 
 # [network.onion]
+### If CKB needs to run behind the Onion network,
+### the user should start a Tor server and set proxy_url to the Tor server's address.
+### then MUST set [network.proxy.proxy_url] to tor server's address.
+### The default Tor SOCKS5 proxy URL is socks5://127.0.0.1:9050.
+### For more information on configuring Tor, visit: https://linux.die.net/man/1/tor
+
 ### Enable or disable listening on the Onion network.
 ### When set to true, CKB will accept incoming connections over Tor.
 ### You can get the onion listening address in log, or by local_node_info RPC
