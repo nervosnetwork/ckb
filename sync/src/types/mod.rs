@@ -1100,6 +1100,10 @@ impl SyncShared {
         let parent_header_index = self
             .get_header_index_view(&parent_hash, store_first)
             .expect("parent should be verified");
+
+        // Write header directly to ChainDB COLUMN_BLOCK_HEADER
+        self.store().insert_block_header(header);
+
         let header_view = HeaderIndexView::new(
             header.hash(),
             header.number(),
@@ -1109,7 +1113,6 @@ impl SyncShared {
             parent_header_index.total_difficulty() + header.difficulty(),
         );
 
-        self.shared.header_map().insert(header_view.clone());
         self.state
             .peers()
             .may_set_best_known_header(peer, header_view.as_header_index());

@@ -208,7 +208,6 @@ impl Launcher {
             .notify_config(self.args.config.notify.clone())
             .store_config(self.args.config.store)
             .sync_config(self.args.config.network.sync.clone())
-            .header_map_tmp_dir(self.args.config.tmp_dir.clone())
             .block_assembler_config(block_assembler_config)
             .fee_estimator_config(self.args.config.fee_estimator.clone())
             .build()?;
