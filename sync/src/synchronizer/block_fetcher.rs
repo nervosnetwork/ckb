@@ -7,7 +7,8 @@ use ckb_logger::{debug, trace};
 use ckb_metrics::HistogramTimer;
 use ckb_network::PeerIndex;
 use ckb_shared::block_status::BlockStatus;
-use ckb_shared::types::{HeaderIndex, HeaderIndexView};
+use ckb_shared::types::HeaderIndex;
+use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::BlockNumberAndHash;
 use ckb_types::core::BlockNumber;
@@ -125,10 +126,10 @@ impl BlockFetcher {
             while let Some(hash) = state.peers().take_unknown_last(self.peer) {
                 // Here we need to first try search from headermap, if not, fallback to search from the db.
                 // if not search from db, it can stuck here when the headermap may have been removed just as the block was downloaded
-                if let Some(header) = self.sync_shared.get_header_index_view(&hash, false) {
+                if let Some(header_index) = self.sync_shared.get_header_index(&hash) {
                     state
                         .peers()
-                        .may_set_best_known_header(self.peer, header.as_header_index());
+                        .may_set_best_known_header(self.peer, header_index);
                 } else {
                     state.peers().insert_unknown_header_hash(self.peer, hash);
                     break;
@@ -209,7 +210,7 @@ impl BlockFetcher {
             let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
 
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
-            let mut header: HeaderIndexView = {
+            let mut header_index = {
                 match self.ibd {
                     IBDState::In => self
                         .active_chain
@@ -219,6 +220,7 @@ impl BlockFetcher {
                         .get_ancestor(&best_known.hash(), start + span - 1),
                 }
             }?;
+            let mut header = self.sync_shared.store().get_block_header(&header_index.hash())?;
 
             let mut status = self
                 .sync_shared
@@ -229,6 +231,7 @@ impl BlockFetcher {
             for _ in 0..span {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
+                let number = header.number();
 
                 if status.contains(BlockStatus::BLOCK_STORED) {
                     if status.contains(BlockStatus::BLOCK_VALID) {
@@ -237,10 +240,10 @@ impl BlockFetcher {
                         self.sync_shared
                             .state()
                             .peers()
-                            .set_last_common_header(self.peer, header.number_and_hash());
+                            .set_last_common_header(self.peer, (number, hash.clone()).into());
                     }
 
-                    end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
+                    end = min(best_known.number(), number + BLOCK_DOWNLOAD_WINDOW);
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
@@ -248,24 +251,25 @@ impl BlockFetcher {
                     || state.compare_with_pending_compact(&hash, now))
                     && state
                         .write_inflight_blocks()
-                        .insert(self.peer, (header.number(), hash).into())
+                        .insert(self.peer, (number, hash.clone()).into())
                 {
                     debug!(
                         "block: {}-{} added to inflight, block_status: {:?}",
-                        header.number(),
-                        header.hash(),
+                        number,
+                        hash,
                         status
                     );
-                    fetch.push(header)
+                    fetch.push(header_index)
                 }
 
                 status = self
                     .sync_shared
                     .active_chain()
                     .get_block_status(&parent_hash);
-                header = self
+                header_index = self
                     .sync_shared
-                    .get_header_index_view(&parent_hash, false)?;
+                    .get_header_index(&parent_hash)?;
+                header = self.sync_shared.store().get_block_header(&parent_hash)?;
             }
 
             // Move `start` forward
@@ -334,7 +338,7 @@ impl BlockFetcher {
         Some(
             fetch
                 .chunks(INIT_BLOCKS_IN_TRANSIT_PER_PEER)
-                .map(|headers| headers.iter().map(HeaderIndexView::hash).collect())
+                .map(|headers| headers.iter().map(HeaderIndex::hash).collect())
                 .collect(),
         )
     }
