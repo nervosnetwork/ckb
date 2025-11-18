@@ -14,7 +14,6 @@ pub struct HeaderIndexView {
     timestamp: u64,
     parent_hash: Byte32,
     total_difficulty: U256,
-    skip_hash: Option<Byte32>,
 }
 
 impl HeaderIndexView {
@@ -33,7 +32,6 @@ impl HeaderIndexView {
             timestamp,
             parent_hash,
             total_difficulty,
-            skip_hash: None,
         }
     }
 
@@ -61,10 +59,6 @@ impl HeaderIndexView {
         self.parent_hash.clone()
     }
 
-    pub fn skip_hash(&self) -> Option<&Byte32> {
-        self.skip_hash.as_ref()
-    }
-
     // deserialize from bytes
     fn from_slice_should_be_ok(hash: &[u8], slice: &[u8]) -> Self {
         let hash = packed::Byte32Reader::from_slice_should_be_ok(hash).to_entity();
@@ -75,11 +69,6 @@ impl HeaderIndexView {
         let timestamp = u64::from_le_bytes(slice[16..24].try_into().expect("stored slice"));
         let parent_hash = packed::Byte32Reader::from_slice_should_be_ok(&slice[24..56]).to_entity();
         let total_difficulty = U256::from_little_endian(&slice[56..88]).expect("stored slice");
-        let skip_hash = if slice.len() == 120 {
-            Some(packed::Byte32Reader::from_slice_should_be_ok(&slice[88..120]).to_entity())
-        } else {
-            None
-        };
         Self {
             hash,
             number,
@@ -87,7 +76,6 @@ impl HeaderIndexView {
             timestamp,
             parent_hash,
             total_difficulty,
-            skip_hash,
         }
     }
 
@@ -99,28 +87,7 @@ impl HeaderIndexView {
         v.extend_from_slice(self.timestamp.to_le_bytes().as_slice());
         v.extend_from_slice(self.parent_hash.as_slice());
         v.extend_from_slice(self.total_difficulty.to_le_bytes().as_slice());
-        if let Some(ref skip_hash) = self.skip_hash {
-            v.extend_from_slice(skip_hash.as_slice());
-        }
         v
-    }
-
-    pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)
-    where
-        F: Fn(&Byte32, bool) -> Option<HeaderIndexView>,
-        G: Fn(BlockNumber, BlockNumberAndHash) -> Option<HeaderIndexView>,
-    {
-        if self.number == 0 {
-            return;
-        }
-        self.skip_hash = self
-            .get_ancestor(
-                tip_number,
-                get_skip_height(self.number()),
-                get_header_view,
-                fast_scanner,
-            )
-            .map(|header| header.hash());
     }
 
     pub fn get_ancestor<F, G>(
@@ -139,31 +106,16 @@ impl HeaderIndexView {
         }
 
         let mut current = self.clone();
-        let mut number_walk = current.number();
-        while number_walk > number {
-            let number_skip = get_skip_height(number_walk);
-            let number_skip_prev = get_skip_height(number_walk - 1);
-            let store_first = current.number() <= tip_number;
-            match current.skip_hash {
-                Some(ref hash)
-                    if number_skip == number
-                        || (number_skip > number
-                            && !(number_skip_prev + 2 < number_skip
-                                && number_skip_prev >= number)) =>
-                {
-                    // Only follow skip if parent->skip isn't better than skip->parent
-                    current = get_header_view(hash, store_first)?;
-                    number_walk = number_skip;
-                }
-                _ => {
-                    current = get_header_view(&current.parent_hash(), store_first)?;
-                    number_walk -= 1;
-                }
-            }
+        while current.number() > number {
+            // Try fast scanner optimization first
             if let Some(target) = fast_scanner(number, (current.number(), current.hash()).into()) {
                 current = target;
                 break;
             }
+
+            // Fall back to parent traversal
+            let store_first = current.number() <= tip_number;
+            current = get_header_view(&current.parent_hash(), store_first)?;
         }
         Some(current)
     }
@@ -190,7 +142,6 @@ impl From<(ckb_types::core::HeaderView, U256)> for HeaderIndexView {
             timestamp: header.timestamp(),
             parent_hash: header.parent_hash(),
             total_difficulty,
-            skip_hash: None,
         }
     }
 }
@@ -233,27 +184,6 @@ impl HeaderIndex {
 
     pub fn is_better_than(&self, other_total_difficulty: &U256) -> bool {
         self.total_difficulty() > other_total_difficulty
-    }
-}
-
-// Compute what height to jump back to with the skip pointer.
-fn get_skip_height(height: BlockNumber) -> BlockNumber {
-    // Turn the lowest '1' bit in the binary representation of a number into a '0'.
-    fn invert_lowest_one(n: i64) -> i64 {
-        n & (n - 1)
-    }
-
-    if height < 2 {
-        return 0;
-    }
-
-    // Determine which height to jump back to. Any number strictly lower than height is acceptable,
-    // but the following expression seems to perform well in simulations (max 110 steps to go back
-    // up to 2**18 blocks).
-    if (height & 1) > 0 {
-        invert_lowest_one(invert_lowest_one(height as i64 - 1)) as u64 + 1
-    } else {
-        invert_lowest_one(height as i64) as u64
     }
 }
 
