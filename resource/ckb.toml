@@ -131,8 +131,7 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 
 # [network.onion]
 ### If CKB needs to run behind the Onion network,
-### the user should start a Tor server and set proxy_url to the Tor server's address.
-### then MUST set [network.proxy.proxy_url] to tor server's address.
+### the user should start a Tor server and set [network.proxy.proxy_url] to Tor server's address.
 ### The default Tor SOCKS5 proxy URL is socks5://127.0.0.1:9050.
 ### For more information on configuring Tor, visit: https://linux.die.net/man/1/tor
 
