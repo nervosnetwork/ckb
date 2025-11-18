@@ -1100,7 +1100,7 @@ impl SyncShared {
         let parent_header_index = self
             .get_header_index_view(&parent_hash, store_first)
             .expect("parent should be verified");
-        let mut header_view = HeaderIndexView::new(
+        let header_view = HeaderIndexView::new(
             header.hash(),
             header.number(),
             header.epoch(),
@@ -1109,22 +1109,6 @@ impl SyncShared {
             parent_header_index.total_difficulty() + header.difficulty(),
         );
 
-        let snapshot = Arc::clone(&self.shared.snapshot());
-        header_view.build_skip(
-            tip_number,
-            |hash, store_first| self.get_header_index_view(hash, store_first),
-            |number, current| {
-                // shortcut to return an ancestor block
-                if current.number <= snapshot.tip_number() && snapshot.is_main_chain(&current.hash)
-                {
-                    snapshot
-                        .get_block_hash(number)
-                        .and_then(|hash| self.get_header_index_view(&hash, true))
-                } else {
-                    None
-                }
-            },
-        );
         self.shared.header_map().insert(header_view.clone());
         self.state
             .peers()

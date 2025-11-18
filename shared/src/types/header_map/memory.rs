@@ -16,7 +16,6 @@ struct HeaderIndexViewInner {
     timestamp: u64,
     parent_hash: Byte32,
     total_difficulty: U256,
-    skip_hash: Option<Byte32>,
 }
 
 impl From<(Byte32, HeaderIndexViewInner)> for HeaderIndexView {
@@ -27,7 +26,6 @@ impl From<(Byte32, HeaderIndexViewInner)> for HeaderIndexView {
             timestamp,
             parent_hash,
             total_difficulty,
-            skip_hash,
         } = inner;
         Self {
             hash,
@@ -36,7 +34,6 @@ impl From<(Byte32, HeaderIndexViewInner)> for HeaderIndexView {
             timestamp,
             parent_hash,
             total_difficulty,
-            skip_hash,
         }
     }
 }
@@ -50,7 +47,6 @@ impl From<HeaderIndexView> for (Byte32, HeaderIndexViewInner) {
             timestamp,
             parent_hash,
             total_difficulty,
-            skip_hash,
         } = view;
         (
             hash,
@@ -60,7 +56,6 @@ impl From<HeaderIndexView> for (Byte32, HeaderIndexViewInner) {
                 timestamp,
                 parent_hash,
                 total_difficulty,
-                skip_hash,
             },
         )
     }
