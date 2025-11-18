@@ -5,13 +5,7 @@ use ckb_types::{
     packed::Byte32,
 };
 use rand::{Rng, thread_rng};
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::atomic::{
-        AtomicUsize,
-        Ordering::{Acquire, SeqCst},
-    },
-};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::types::{FILTER_TTL, TtlFilter};
 

@@ -1,8 +1,7 @@
 #![allow(missing_docs)]
 use ckb_types::core::{BlockNumber, EpochNumberWithFraction};
 use ckb_types::packed::Byte32;
-use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
-use ckb_types::{BlockNumberAndHash, U256, packed};
+use ckb_types::{BlockNumberAndHash, U256};
 
 pub mod header_map;
 
@@ -57,37 +56,6 @@ impl HeaderIndexView {
 
     pub fn parent_hash(&self) -> Byte32 {
         self.parent_hash.clone()
-    }
-
-    // deserialize from bytes
-    fn from_slice_should_be_ok(hash: &[u8], slice: &[u8]) -> Self {
-        let hash = packed::Byte32Reader::from_slice_should_be_ok(hash).to_entity();
-        let number = BlockNumber::from_le_bytes(slice[0..8].try_into().expect("stored slice"));
-        let epoch = EpochNumberWithFraction::from_full_value(u64::from_le_bytes(
-            slice[8..16].try_into().expect("stored slice"),
-        ));
-        let timestamp = u64::from_le_bytes(slice[16..24].try_into().expect("stored slice"));
-        let parent_hash = packed::Byte32Reader::from_slice_should_be_ok(&slice[24..56]).to_entity();
-        let total_difficulty = U256::from_little_endian(&slice[56..88]).expect("stored slice");
-        Self {
-            hash,
-            number,
-            epoch,
-            timestamp,
-            parent_hash,
-            total_difficulty,
-        }
-    }
-
-    // serialize all fields except `hash` to bytes
-    fn to_vec(&self) -> Vec<u8> {
-        let mut v = Vec::new();
-        v.extend_from_slice(self.number.to_le_bytes().as_slice());
-        v.extend_from_slice(self.epoch.full_value().to_le_bytes().as_slice());
-        v.extend_from_slice(self.timestamp.to_le_bytes().as_slice());
-        v.extend_from_slice(self.parent_hash.as_slice());
-        v.extend_from_slice(self.total_difficulty.to_le_bytes().as_slice());
-        v
     }
 
     pub fn get_ancestor<F, G>(
