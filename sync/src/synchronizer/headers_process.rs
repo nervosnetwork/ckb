@@ -147,6 +147,11 @@ impl<'a> HeadersProcess<'a> {
             }
             ValidationState::Valid => {
                 // Valid, do nothing
+                debug!(
+                    "HeadersProcess accept_first result is valid, first header = {}-{}",
+                    headers[0].number(),
+                    headers[0].hash(),
+                );
             }
         };
 
@@ -173,6 +178,11 @@ impl<'a> HeadersProcess<'a> {
                 }
                 ValidationState::Valid => {
                     // Valid, do nothing
+                    debug!(
+                        "HeadersProcess accept result is valid, header = {}-{}",
+                        header.number(),
+                        header.hash()
+                    );
                 }
             };
         }
