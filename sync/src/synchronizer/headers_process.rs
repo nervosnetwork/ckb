@@ -178,11 +178,6 @@ impl<'a> HeadersProcess<'a> {
                 }
                 ValidationState::Valid => {
                     // Valid, do nothing
-                    debug!(
-                        "HeadersProcess accept result is valid, header = {}-{}",
-                        header.number(),
-                        header.hash()
-                    );
                 }
             };
         }
