@@ -68,12 +68,7 @@ fn test_get_ancestor() {
             .get(&hashes[&from])
             .cloned()
             .unwrap()
-            .get_ancestor(
-                0,
-                to,
-                |hash, _| header_map.get(hash).cloned(),
-                |_, _| None,
-            )
+            .get_ancestor(0, to, |hash, _| header_map.get(hash).cloned(), |_, _| None)
             .unwrap();
         assert_eq!(found_to_header.hash(), view_to.hash());
 
@@ -81,12 +76,7 @@ fn test_get_ancestor() {
             .get(&hashes[&from])
             .cloned()
             .unwrap()
-            .get_ancestor(
-                0,
-                0,
-                |hash, _| header_map.get(hash).cloned(),
-                |_, _| None,
-            )
+            .get_ancestor(0, 0, |hash, _| header_map.get(hash).cloned(), |_, _| None)
             .unwrap();
         assert_eq!(found_0_header.hash(), view_0.hash());
     }

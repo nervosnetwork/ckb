@@ -40,6 +40,12 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Get block by block header hash
     fn get_block(&self, h: &packed::Byte32) -> Option<BlockView> {
+        // Check if uncles exist first - this indicates a full block (not just header)
+        // Headers inserted during sync won't have uncles, so return None
+        if self.get(COLUMN_BLOCK_UNCLE, h.as_slice()).is_none() {
+            return None;
+        }
+
         let header = self.get_block_header(h)?;
         if let Some(freezer) = self.freezer() {
             if header.number() > 0 && header.number() < freezer.number() {
@@ -449,13 +455,17 @@ pub trait ChainStore: Send + Sync + Sized {
     }
 
     /// TODO(doc): @quake
+    /// Returns true if the full block exists (not just header)
+    /// Checks COLUMN_BLOCK_UNCLE to distinguish between header-only and full block
     fn block_exists(&self, hash: &packed::Byte32) -> bool {
         if let Some(cache) = self.cache() {
             if cache.headers.lock().get(hash).is_some() {
                 return true;
             }
         };
-        self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).is_some()
+        // Check COLUMN_BLOCK_UNCLE - only full blocks have uncles stored
+        // Headers inserted during sync won't have this column
+        self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).is_some()
     }
 
     /// Gets cellbase by block hash
@@ -489,6 +499,11 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block bytes by block hash
     fn get_packed_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
+        // Check if uncles exist first - this indicates a full block (not just header)
+        if self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).is_none() {
+            return None;
+        }
+
         let header = self
             .get(COLUMN_BLOCK_HEADER, hash.as_slice())
             .map(|slice| {
