@@ -1102,7 +1102,11 @@ impl SyncShared {
             .expect("parent should be verified");
 
         // Write header directly to ChainDB COLUMN_BLOCK_HEADER
-        self.store().insert_block_header(header);
+        let db_txn = self.store().begin_transaction();
+        db_txn
+            .insert_header(header)
+            .expect("insert header should be ok");
+        db_txn.commit().expect("commit should be ok");
 
         let header_view = HeaderIndexView::new(
             header.hash(),

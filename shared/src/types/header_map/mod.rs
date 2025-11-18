@@ -1,4 +1,4 @@
-use ckb_store::ChainStore;
+use ckb_store::{ChainDB, ChainStore};
 use ckb_types::packed::Byte32;
 use ckb_types::{U256, core::HeaderView};
 use std::sync::Arc;
@@ -8,11 +8,11 @@ use super::HeaderIndexView;
 /// HeaderMap provides a read-only view of headers from the chain store
 /// with on-demand computation of total_difficulty
 pub struct HeaderMap {
-    store: Arc<dyn ChainStore>,
+    store: Arc<ChainDB>,
 }
 
 impl HeaderMap {
-    pub fn new(store: Arc<dyn ChainStore>) -> Self {
+    pub fn new(store: Arc<ChainDB>) -> Self {
         Self { store }
     }
 
@@ -51,7 +51,8 @@ impl HeaderMap {
         // Recursive path: compute from parent
         let parent_hash = header.parent_hash();
         let parent_header = self.store.get_block_header(&parent_hash)?;
-        let parent_total_difficulty = self.compute_total_difficulty(&parent_hash, &parent_header)?;
+        let parent_total_difficulty =
+            self.compute_total_difficulty(&parent_hash, &parent_header)?;
         Some(parent_total_difficulty + header.difficulty())
     }
 }

@@ -369,7 +369,7 @@ impl SharedBuilder {
         })?;
 
         // Create HeaderMap with reference to store (no longer needs tmpdir or memory_limit)
-        let header_map = Arc::new(HeaderMap::new(Arc::clone(&store) as Arc<dyn ChainStore>));
+        let header_map = Arc::new(HeaderMap::new(Arc::new(store.clone())));
 
         let txs_verify_cache = Arc::new(TokioRwLock::new(init_cache()));
 

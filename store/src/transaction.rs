@@ -170,6 +170,18 @@ impl StoreTransaction {
         self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_slice())
     }
 
+    /// Insert only a header into COLUMN_BLOCK_HEADER
+    /// Used for verified headers during sync before full block is received
+    pub fn insert_header(&self, header: &HeaderView) -> Result<(), Error> {
+        let hash = header.hash();
+        let packed_header = Into::<packed::HeaderView>::into(header.clone());
+        self.insert_raw(
+            COLUMN_BLOCK_HEADER,
+            hash.as_slice(),
+            packed_header.as_slice(),
+        )
+    }
+
     /// TODO(doc): @quake
     pub fn insert_block(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
