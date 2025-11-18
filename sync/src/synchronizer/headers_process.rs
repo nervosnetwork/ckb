@@ -305,18 +305,14 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
         let status = self.active_chain.get_block_status(&self.header.hash());
         if status.contains(BlockStatus::HEADER_VALID) {
             let header_index = sync_shared
-                .get_header_index_view(
-                    &self.header.hash(),
-                    status.contains(BlockStatus::BLOCK_STORED),
-                )
+                .get_header_index(&self.header.hash())
                 .unwrap_or_else(|| {
                     panic!(
                         "header {}-{} with HEADER_VALID should exist",
                         self.header.number(),
                         self.header.hash()
                     )
-                })
-                .as_header_index();
+                });
             state
                 .peers()
                 .may_set_best_known_header(self.peer, header_index);

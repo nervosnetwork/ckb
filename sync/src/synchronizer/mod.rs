@@ -24,6 +24,8 @@ use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared, post_sync
 use crate::utils::{MetricDirection, async_send_message_to, metric_ckb_message_bytes};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
+use ckb_shared::types::HeaderIndex;
+use ckb_store::ChainStore;
 
 use ckb_chain::{ChainController, RemoteBlock};
 use ckb_channel as channel;
@@ -38,7 +40,6 @@ use ckb_network::{
     CKBProtocolContext, CKBProtocolHandler, PeerIndex, ServiceAsyncControl, ServiceControl,
     SupportProtocols, async_trait, bytes::Bytes, tokio,
 };
-use ckb_shared::types::HeaderIndexView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
 
@@ -194,7 +195,10 @@ impl BlockFetchCMD {
             .genesis_block()
             .header()
             .timestamp();
-        let shared_best_timestamp = self.sync_shared.state().shared_best_header().timestamp();
+        let shared_best = self.sync_shared.state().shared_best_header();
+        let shared_best_header = self.sync_shared.store().get_block_header(&shared_best.hash())
+            .expect("shared best header should exist");
+        let shared_best_timestamp = shared_best_header.timestamp();
 
         let ckb_process_start_timestamp = self.start_timestamp;
 
@@ -266,7 +270,7 @@ impl BlockFetchCMD {
                             *flag = CanStart::FetchToTarget(header.number());
                             info!(
                                 "assume valid target found in header_map; CKB will start fetch blocks to {:?} now",
-                                header.number_and_hash()
+                                (header.number(), header.hash())
                             );
                         }
                         // Blocks that are no longer in the scope of ibd must be forced to verify
@@ -279,8 +283,12 @@ impl BlockFetchCMD {
                     }
                     None => {
                         // Best known already not in the scope of ibd, it means target is invalid
+                        let shared_best = state.shared_best_header_ref();
+                        let shared_best_header = shared.store().get_block_header(&shared_best.hash())
+                            .expect("shared best header should exist");
+                        drop(shared_best);
                         if unix_time_as_millis()
-                            .saturating_sub(state.shared_best_header_ref().timestamp())
+                            .saturating_sub(shared_best_header.timestamp())
                             < MAX_TIP_AGE
                         {
                             warn!(
@@ -431,7 +439,7 @@ impl Synchronizer {
         self.shared().state().peers()
     }
 
-    fn better_tip_header(&self) -> HeaderIndexView {
+    fn better_tip_header(&self) -> HeaderIndex {
         let (header, total_difficulty) = {
             let active_chain = self.shared.active_chain();
             (
@@ -442,7 +450,7 @@ impl Synchronizer {
         let best_known = self.shared.state().shared_best_header();
         // is_better_chain
         if total_difficulty > *best_known.total_difficulty() {
-            (header, total_difficulty).into()
+            HeaderIndex::new(header.number(), header.hash(), total_difficulty)
         } else {
             best_known
         }
@@ -533,12 +541,17 @@ impl Synchronizer {
         let active_chain = self.shared.active_chain();
         let mut eviction = Vec::new();
         let better_tip_header = self.better_tip_header();
+        let better_tip_ts = self
+            .shared
+            .store()
+            .get_block_header(&better_tip_header.hash())
+            .expect("better tip header should exist")
+            .timestamp();
         for mut kv_pair in self.peers().state.iter_mut() {
             let (peer, state) = kv_pair.pair_mut();
             let now = unix_time_as_millis();
 
             if let Some(ref mut controller) = state.headers_sync_controller {
-                let better_tip_ts = better_tip_header.timestamp();
                 if let Some(is_timeout) = controller.is_timeout(better_tip_ts, now) {
                     if is_timeout {
                         eviction.push(*peer);
@@ -665,7 +678,9 @@ impl Synchronizer {
             }
             {
                 if let Some(mut peer_state) = self.peers().state.get_mut(&peer) {
-                    peer_state.start_sync(HeadersSyncController::from_header(&tip));
+                    let tip_header = self.shared.store().get_block_header(&tip.hash())
+                        .expect("tip header should exist");
+                    peer_state.start_sync(HeadersSyncController::from_header(&tip, &tip_header));
                 }
             }
 

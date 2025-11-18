@@ -9,6 +9,7 @@ use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::types::HeaderIndex;
+use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
@@ -241,7 +242,7 @@ async fn contextual_check(
     if status.contains(BlockStatus::BLOCK_STORED) {
         // update last common header and best known
         let parent = shared
-            .get_header_index_view(&compact_block_header.data().raw().parent_hash(), true)
+            .get_header_index(&compact_block_header.data().raw().parent_hash())
             .expect("parent block must exist");
 
         let header_index = HeaderIndex::new(
@@ -260,11 +261,7 @@ async fn contextual_check(
         return StatusCode::BlockIsInvalid.with_context(block_hash);
     }
 
-    let store_first = tip.number() + 1 >= compact_block_header.number();
-    let parent = shared.get_header_index_view(
-        &compact_block_header.data().raw().parent_hash(),
-        store_first,
-    );
+    let parent = shared.get_header_index(&compact_block_header.data().raw().parent_hash());
     if parent.is_none() {
         debug_target!(
             crate::LOG_TARGET_RELAY,
@@ -307,7 +304,8 @@ async fn contextual_check(
                 })
                 .or_else(|| {
                     shared
-                        .get_header_index_view(&block_hash, false)
+                        .store()
+                        .get_block_header(&block_hash)
                         .map(|header| HeaderFields {
                             hash: header.hash(),
                             number: header.number(),

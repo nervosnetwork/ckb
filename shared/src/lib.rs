@@ -13,4 +13,4 @@ pub mod block_status;
 pub mod types;
 
 pub use types::header_map::HeaderMap;
-pub use types::{HeaderIndex, HeaderIndexView};
+pub use types::HeaderIndex;
