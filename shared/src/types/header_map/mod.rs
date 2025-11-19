@@ -10,16 +10,20 @@ use std::{mem::size_of, path};
 use ckb_metrics::HistogramTimer;
 use tokio::time::MissedTickBehavior;
 
+mod backend;
 mod backend_sled;
 mod kernel_lru;
 mod memory;
 
-pub(crate) use self::{backend_sled::SledBackend, kernel_lru::HeaderMapKernel, memory::MemoryMap};
+pub(crate) use self::{
+    backend::KeyValueBackend, backend_sled::SledBackend, kernel_lru::HeaderMapKernel,
+    memory::MemoryMap,
+};
 
 use super::HeaderIndexView;
 
 pub struct HeaderMap {
-    inner: Arc<HeaderMapKernel>,
+    inner: Arc<HeaderMapKernel<SledBackend>>,
 }
 
 const INTERVAL: Duration = Duration::from_millis(5000);

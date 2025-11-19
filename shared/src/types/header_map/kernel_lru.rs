@@ -10,12 +10,15 @@ use ckb_util::{Mutex, MutexGuard};
 
 use ckb_types::packed::Byte32;
 
-use super::{MemoryMap, SledBackend};
+use super::{KeyValueBackend, MemoryMap};
 use crate::types::HeaderIndexView;
 
-pub(crate) struct HeaderMapKernel {
+pub(crate) struct HeaderMapKernel<Backend>
+where
+    Backend: KeyValueBackend,
+{
     pub(crate) memory: MemoryMap,
-    pub(crate) backend: SledBackend,
+    pub(crate) backend: Backend,
     // Configuration
     memory_limit: usize,
     // if ckb is in IBD mode, don't shrink memory map
@@ -41,13 +44,10 @@ struct HeaderMapKernelStats {
     backend_delete: usize,
 }
 
-impl Drop for HeaderMapKernel {
-    fn drop(&mut self) {
-        todo!("move all memory map to backend when drop");
-    }
-}
-
-impl HeaderMapKernel {
+impl<Backend> HeaderMapKernel<Backend>
+where
+    Backend: KeyValueBackend,
+{
     pub(crate) fn new<P>(
         tmpdir: Option<P>,
         memory_limit: usize,
@@ -57,7 +57,7 @@ impl HeaderMapKernel {
         P: AsRef<path::Path>,
     {
         let memory = Default::default();
-        let backend = SledBackend::new(tmpdir);
+        let backend = Backend::new(tmpdir);
 
         #[cfg(not(feature = "stats"))]
         {
