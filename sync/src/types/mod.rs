@@ -1952,9 +1952,14 @@ impl ActiveChain {
         let mut current_header = self.store().get_block_header(base)?;
         let mut current_hash = base.clone();
 
-        // Fast path: if target is on main chain and within verified tip
+        // Fast path: Try COLUMN_HEADER_INDEX first (includes unverified headers)
+        // This provides O(1) lookup for all headers, avoiding expensive parent walks
+        if let Some(hash) = self.store().get_header_hash(number) {
+            return Some((number, hash).into());
+        }
+
+        // Fallback to COLUMN_INDEX for verified blocks on main chain
         if current_header.number() <= tip_number && block_is_on_chain_fn(&current_hash) {
-            // Can use number_hash mapping for fast lookup
             if let Some(hash) = self.get_block_hash(number) {
                 return Some((number, hash).into());
             }
