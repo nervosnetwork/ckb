@@ -1,7 +1,8 @@
 #![allow(missing_docs)]
 use ckb_types::core::{BlockNumber, EpochNumberWithFraction};
 use ckb_types::packed::Byte32;
-use ckb_types::{BlockNumberAndHash, U256};
+use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
+use ckb_types::{BlockNumberAndHash, U256, packed};
 
 pub mod header_map;
 
@@ -62,6 +63,46 @@ impl HeaderIndexView {
 
     pub fn skip_hash(&self) -> Option<&Byte32> {
         self.skip_hash.as_ref()
+    }
+
+    // deserialize from bytes
+    fn from_slice_should_be_ok(hash: &[u8], slice: &[u8]) -> Self {
+        let hash = packed::Byte32Reader::from_slice_should_be_ok(hash).to_entity();
+        let number = BlockNumber::from_le_bytes(slice[0..8].try_into().expect("stored slice"));
+        let epoch = EpochNumberWithFraction::from_full_value(u64::from_le_bytes(
+            slice[8..16].try_into().expect("stored slice"),
+        ));
+        let timestamp = u64::from_le_bytes(slice[16..24].try_into().expect("stored slice"));
+        let parent_hash = packed::Byte32Reader::from_slice_should_be_ok(&slice[24..56]).to_entity();
+        let total_difficulty = U256::from_little_endian(&slice[56..88]).expect("stored slice");
+        let skip_hash = if slice.len() == 120 {
+            Some(packed::Byte32Reader::from_slice_should_be_ok(&slice[88..120]).to_entity())
+        } else {
+            None
+        };
+        Self {
+            hash,
+            number,
+            epoch,
+            timestamp,
+            parent_hash,
+            total_difficulty,
+            skip_hash,
+        }
+    }
+
+    // serialize all fields except `hash` to bytes
+    fn to_vec(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(self.number.to_le_bytes().as_slice());
+        v.extend_from_slice(self.epoch.full_value().to_le_bytes().as_slice());
+        v.extend_from_slice(self.timestamp.to_le_bytes().as_slice());
+        v.extend_from_slice(self.parent_hash.as_slice());
+        v.extend_from_slice(self.total_difficulty.to_le_bytes().as_slice());
+        if let Some(ref skip_hash) = self.skip_hash {
+            v.extend_from_slice(skip_hash.as_slice());
+        }
+        v
     }
 
     pub fn build_skip<F, G>(&mut self, tip_number: BlockNumber, get_header_view: F, fast_scanner: G)

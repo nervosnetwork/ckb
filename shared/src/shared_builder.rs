@@ -52,6 +52,8 @@ pub struct SharedBuilder {
     notify_config: Option<NotifyConfig>,
     async_handle: Handle,
     fee_estimator_config: Option<FeeEstimatorConfig>,
+
+    header_map_tmp_dir: Option<PathBuf>,
 }
 
 /// Open or create a rocksdb
@@ -157,6 +159,7 @@ impl SharedBuilder {
             block_assembler_config: None,
             async_handle,
             fee_estimator_config: None,
+            header_map_tmp_dir: None,
         })
     }
 
@@ -202,6 +205,8 @@ impl SharedBuilder {
             block_assembler_config: None,
             async_handle: runtime.get_or_init(new_background_runtime).clone(),
             fee_estimator_config: None,
+
+            header_map_tmp_dir: None,
         })
     }
 }
@@ -234,6 +239,12 @@ impl SharedBuilder {
     /// TODO(doc): @eval-exec
     pub fn sync_config(mut self, config: SyncConfig) -> Self {
         self.sync_config = Some(config);
+        self
+    }
+
+    /// TODO(doc): @eval-exec
+    pub fn header_map_tmp_dir(mut self, header_map_tmp_dir: Option<PathBuf>) -> Self {
+        self.header_map_tmp_dir = header_map_tmp_dir;
         self
     }
 
@@ -351,6 +362,7 @@ impl SharedBuilder {
             notify_config,
             async_handle,
             fee_estimator_config,
+            header_map_tmp_dir,
         } = self;
 
         let tx_pool_config = tx_pool_config.unwrap_or_default();
@@ -364,6 +376,7 @@ impl SharedBuilder {
         let ibd_finished = Arc::new(AtomicBool::new(false));
 
         let header_map = Arc::new(HeaderMap::new(
+            header_map_tmp_dir,
             header_map_memory_limit,
             &async_handle,
             Arc::clone(&ibd_finished),

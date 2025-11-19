@@ -35,6 +35,7 @@ ckb-metrics.workspace = true
 bitflags.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tempfile.workspace = true
+sled.workspace = true
 dashmap.workspace = true
 
 [dev-dependencies]

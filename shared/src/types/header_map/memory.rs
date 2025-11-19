@@ -120,6 +120,15 @@ impl MemoryMap {
         })
     }
 
+    pub(crate) fn front_items(&self, count: usize) -> Vec<HeaderIndexView> {
+        let guard = self.0.read();
+        guard
+            .iter()
+            .take(count)
+            .map(|(key, value)| (key.clone(), value.clone()).into())
+            .collect()
+    }
+
     pub(crate) fn excess_items(&self, size_limit: usize) -> Option<Vec<HeaderIndexView>> {
         let guard = self.0.read();
         let size = guard.len();

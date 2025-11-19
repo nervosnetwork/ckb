@@ -1,7 +1,7 @@
+use std::path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(feature = "stats")]
 use ckb_logger::info;
 use ckb_metrics::HistogramTimer;
 #[cfg(feature = "stats")]
@@ -10,11 +10,12 @@ use ckb_util::{RwLock, RwLockReadGuard};
 
 use ckb_types::{U256, core::EpochNumberWithFraction, packed::Byte32};
 
-use super::MemoryMap;
+use super::{MemoryMap, SledBackend};
 use crate::types::HeaderIndexView;
 
 pub(crate) struct HeaderMapKernel {
     pub(crate) memory: MemoryMap,
+    pub(crate) backend: SledBackend,
     // Configuration
     memory_limit: usize,
     // if ckb is in IBD mode, don't shrink memory map
@@ -36,18 +37,51 @@ struct HeaderMapKernelStats {
     primary_select: usize,
     primary_insert: usize,
     primary_delete: usize,
+
+    backend_contain: usize,
+    backend_delete: usize,
+}
+
+impl Drop for HeaderMapKernel {
+    fn drop(&mut self) {
+        loop {
+            let items = self.memory.front_items(1024);
+            if items.is_empty() {
+                break;
+            }
+
+            self.backend.insert_batch(&items);
+            self.memory
+                .remove_batch(items.iter().map(|item| item.hash()), false);
+        }
+        let best_header = self.shared_best_header.read().clone();
+        self.backend.store_shared_best_header(&best_header);
+        info!("HeaderMap persisted all items to backend");
+    }
 }
 
 impl HeaderMapKernel {
-    pub(crate) fn new(memory_limit: usize, ibd_finished: Arc<AtomicBool>) -> Self {
+    pub(crate) fn new<P>(
+        tmpdir: Option<P>,
+        memory_limit: usize,
+        ibd_finished: Arc<AtomicBool>,
+    ) -> Self
+    where
+        P: AsRef<path::Path>,
+    {
         let memory = Default::default();
-        let shared_best_header_value = Self::default_shared_best_header();
+        let backend = SledBackend::new(tmpdir);
+        info!("backend is empty: {}", backend.is_empty());
+        let shared_best_header_value = backend
+            .load_shared_best_header()
+            .unwrap_or_else(Self::default_shared_best_header);
         let shared_best_header = RwLock::new(shared_best_header_value);
 
         #[cfg(not(feature = "stats"))]
         {
             Self {
                 memory,
+                backend,
                 memory_limit,
                 ibd_finished,
                 shared_best_header,
@@ -58,6 +92,7 @@ impl HeaderMapKernel {
         {
             Self {
                 memory,
+                backend,
                 memory_limit,
                 ibd_finished,
                 shared_best_header,
@@ -80,7 +115,15 @@ impl HeaderMapKernel {
         if let Some(metrics) = ckb_metrics::handle() {
             metrics.ckb_header_map_memory_hit_miss_count.miss.inc();
         }
-        false
+
+        if self.backend.is_empty() {
+            return false;
+        }
+        #[cfg(feature = "stats")]
+        {
+            self.stats().tick_backend_contain();
+        }
+        self.backend.contains_key(hash)
     }
 
     pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
@@ -99,7 +142,23 @@ impl HeaderMapKernel {
             metrics.ckb_header_map_memory_hit_miss_count.miss.inc();
         }
 
-        None
+        if self.backend.is_empty() {
+            return None;
+        }
+        #[cfg(feature = "stats")]
+        {
+            self.stats().tick_backend_delete();
+        }
+        if let Some(view) = self.backend.remove(hash) {
+            #[cfg(feature = "stats")]
+            {
+                self.stats().tick_primary_insert();
+            }
+            self.memory.insert(view.clone());
+            Some(view)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn insert(&self, view: HeaderIndexView) -> Option<()> {
@@ -120,6 +179,10 @@ impl HeaderMapKernel {
         // If IBD is not finished, don't shrink memory map
         let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Acquire);
         self.memory.remove(hash, allow_shrink_to_fit);
+        if self.backend.is_empty() {
+            return;
+        }
+        self.backend.remove_no_return(hash);
     }
 
     pub(crate) fn limit_memory(&self) {
@@ -127,6 +190,10 @@ impl HeaderMapKernel {
             .map(|handle| handle.ckb_header_map_limit_memory_duration.start_timer());
 
         if let Some(values) = self.memory.excess_items(self.memory_limit) {
+            tokio::task::block_in_place(|| {
+                self.backend.insert_batch(&values);
+            });
+
             // If IBD is not finished, don't shrink memory map
             let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Acquire);
             self.memory
@@ -182,6 +249,7 @@ impl HeaderMapKernel {
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
             \n>\t|---------+---------+---------+---------+------------+---------+---------|\
             \n>\t| memory  |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
+            \n>\t| backend |{:>9}|{:>9}|{:>9}|{:>12}|{:>9}|{:>9}|\
             ",
                 self.memory.len(),
                 self.memory_limit,
@@ -189,6 +257,12 @@ impl HeaderMapKernel {
                 stats.primary_select,
                 stats.primary_insert,
                 stats.primary_delete,
+                self.backend.len(),
+                '-',
+                stats.backend_contain,
+                '-',
+                '-',
+                stats.backend_delete,
             );
             stats.trace_progress_reset();
         } else {
@@ -231,6 +305,10 @@ impl HeaderMapKernelStats {
         self.primary_contain += 1;
     }
 
+    fn tick_backend_contain(&mut self) {
+        self.backend_contain += 1;
+    }
+
     fn tick_primary_select(&mut self) {
         self.primary_select += 1;
     }
@@ -241,5 +319,9 @@ impl HeaderMapKernelStats {
 
     fn tick_primary_delete(&mut self) {
         self.primary_delete += 1;
+    }
+
+    fn tick_backend_delete(&mut self) {
+        self.backend_delete += 1;
     }
 }
