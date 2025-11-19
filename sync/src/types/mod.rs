@@ -1130,7 +1130,8 @@ impl SyncShared {
         db_txn.commit().expect("commit should be ok");
 
         // Cache the total_difficulty for this header
-        self.state.cache_header_difficulty(hash.clone(), total_difficulty.clone());
+        self.state
+            .cache_header_difficulty(hash.clone(), total_difficulty.clone());
 
         let header_index = HeaderIndex::new(header.number(), hash, total_difficulty);
 
@@ -1142,16 +1143,17 @@ impl SyncShared {
 
     /// Get HeaderIndex for a given hash
     /// Returns HeaderIndex with number, hash, and total_difficulty
-    pub(crate) fn get_header_index(
-        &self,
-        hash: &Byte32,
-    ) -> Option<HeaderIndex> {
+    pub(crate) fn get_header_index(&self, hash: &Byte32) -> Option<HeaderIndex> {
         let store = self.store();
         let header = store.get_block_header(hash)?;
         let total_difficulty = self
             .state
             .get_header_total_difficulty(store, hash, &header)?;
-        Some(HeaderIndex::new(header.number(), hash.clone(), total_difficulty))
+        Some(HeaderIndex::new(
+            header.number(),
+            hash.clone(),
+            total_difficulty,
+        ))
     }
 
     /// Check whether block has been inserted to chain store
@@ -1398,25 +1400,40 @@ impl SyncState {
         use ckb_logger::debug;
         let start = std::time::Instant::now();
 
-        // Fast path 1: Check if BlockExt exists (block is verified)
-        if let Some(block_ext) = store.get_block_ext(hash) {
-            debug!("get_header_total_difficulty: hit BlockExt for {}-{}, cost={:?}", header.number(), hash, start.elapsed());
-            return Some(block_ext.total_difficulty);
+        // Genesis block
+        if header.number() == 0 {
+            debug!(
+                "get_header_total_difficulty: genesis block {}-{}, cost={:?}",
+                header.number(),
+                hash,
+                start.elapsed()
+            );
+            return Some(header.difficulty());
         }
 
-        // Fast path 2: Check cache for recent unverified headers
+        // Fast path 1: Check cache for recent unverified headers
         {
             let cache = self.header_difficulty_cache.read();
             if let Some(td) = cache.peek(hash) {
-                debug!("get_header_total_difficulty: hit cache for {}-{}, cost={:?}", header.number(), hash, start.elapsed());
+                debug!(
+                    "get_header_total_difficulty: hit cache for {}-{}, cost={:?}",
+                    header.number(),
+                    hash,
+                    start.elapsed()
+                );
                 return Some(td.clone());
             }
         }
 
-        // Genesis block
-        if header.number() == 0 {
-            debug!("get_header_total_difficulty: genesis block {}-{}, cost={:?}", header.number(), hash, start.elapsed());
-            return Some(header.difficulty());
+        // Fast path 2: Check if BlockExt exists (block is verified)
+        if let Some(block_ext) = store.get_block_ext(hash) {
+            debug!(
+                "get_header_total_difficulty: hit BlockExt for {}-{}, cost={:?}",
+                header.number(),
+                hash,
+                start.elapsed()
+            );
+            return Some(block_ext.total_difficulty);
         }
 
         // Fast path 3: Check if parent is shared_best_header (common during sync)
@@ -1425,19 +1442,32 @@ impl SyncState {
             let shared_best = self.shared_best_header_ref();
             if shared_best.hash() == parent_hash {
                 let total_difficulty = shared_best.total_difficulty() + header.difficulty();
-                drop(shared_best);
-                // Cache and return
-                self.header_difficulty_cache.write().put(hash.clone(), total_difficulty.clone());
-                debug!("get_header_total_difficulty: hit shared_best parent for {}-{}, cost={:?}", header.number(), hash, start.elapsed());
+                debug!(
+                    "get_header_total_difficulty: hit shared_best parent for {}-{}, cost={:?}",
+                    header.number(),
+                    hash,
+                    start.elapsed()
+                );
                 return Some(total_difficulty);
             }
-            debug!("get_header_total_difficulty: shared_best mismatch for {}-{}, parent={}, shared_best={}, number={}",
-                   header.number(), hash, parent_hash, shared_best.hash(), shared_best.number());
+            debug!(
+                "get_header_total_difficulty: shared_best mismatch for {}-{}, parent={}, shared_best={}, number={}",
+                header.number(),
+                hash,
+                parent_hash,
+                shared_best.hash(),
+                shared_best.number()
+            );
         }
 
         // Fallback: Iteratively compute from parent chain (avoiding stack overflow)
         // Build a stack of headers to compute, walking back until we find one with known TD
-        debug!("get_header_total_difficulty: FALLBACK for {}-{}, parent={}", header.number(), hash, parent_hash);
+        debug!(
+            "get_header_total_difficulty: FALLBACK for {}-{}, parent={}",
+            header.number(),
+            hash,
+            parent_hash
+        );
         let mut headers_to_compute = vec![(hash.clone(), header.clone())];
         let mut current_hash = parent_hash.clone();
 
@@ -1453,11 +1483,18 @@ impl SyncState {
                 // Compute and cache all headers in reverse order
                 while let Some((h_hash, h_header)) = headers_to_compute.pop() {
                     total_difficulty = total_difficulty + h_header.difficulty();
-                    self.header_difficulty_cache.write().put(h_hash, total_difficulty.clone());
+                    self.header_difficulty_cache
+                        .write()
+                        .put(h_hash, total_difficulty.clone());
                 }
 
-                debug!("get_header_total_difficulty: hit BlockExt in fallback for {}-{}, walked {} headers, cost={:?}",
-                       header.number(), hash, walked_count, start.elapsed());
+                debug!(
+                    "get_header_total_difficulty: hit BlockExt in fallback for {}-{}, walked {} headers, cost={:?}",
+                    header.number(),
+                    hash,
+                    walked_count,
+                    start.elapsed()
+                );
                 return Some(total_difficulty);
             }
 
@@ -1473,11 +1510,18 @@ impl SyncState {
                     // Compute and cache all headers in reverse order
                     while let Some((h_hash, h_header)) = headers_to_compute.pop() {
                         total_difficulty = total_difficulty + h_header.difficulty();
-                        self.header_difficulty_cache.write().put(h_hash, total_difficulty.clone());
+                        self.header_difficulty_cache
+                            .write()
+                            .put(h_hash, total_difficulty.clone());
                     }
 
-                    debug!("get_header_total_difficulty: hit cache in fallback for {}-{}, walked {} headers, cost={:?}",
-                           header.number(), hash, walked_count, start.elapsed());
+                    debug!(
+                        "get_header_total_difficulty: hit cache in fallback for {}-{}, walked {} headers, cost={:?}",
+                        header.number(),
+                        hash,
+                        walked_count,
+                        start.elapsed()
+                    );
                     return Some(total_difficulty);
                 }
             }
@@ -1494,11 +1538,18 @@ impl SyncState {
                     // Compute and cache all headers in reverse order
                     while let Some((h_hash, h_header)) = headers_to_compute.pop() {
                         total_difficulty = total_difficulty + h_header.difficulty();
-                        self.header_difficulty_cache.write().put(h_hash, total_difficulty.clone());
+                        self.header_difficulty_cache
+                            .write()
+                            .put(h_hash, total_difficulty.clone());
                     }
 
-                    debug!("get_header_total_difficulty: hit shared_best in fallback for {}-{}, walked {} headers, cost={:?}",
-                           header.number(), hash, walked_count, start.elapsed());
+                    debug!(
+                        "get_header_total_difficulty: hit shared_best in fallback for {}-{}, walked {} headers, cost={:?}",
+                        header.number(),
+                        hash,
+                        walked_count,
+                        start.elapsed()
+                    );
                     return Some(total_difficulty);
                 }
             }
@@ -1512,11 +1563,18 @@ impl SyncState {
                 // Compute and cache all headers in reverse order
                 while let Some((h_hash, h_header)) = headers_to_compute.pop() {
                     total_difficulty = total_difficulty + h_header.difficulty();
-                    self.header_difficulty_cache.write().put(h_hash, total_difficulty.clone());
+                    self.header_difficulty_cache
+                        .write()
+                        .put(h_hash, total_difficulty.clone());
                 }
 
-                debug!("get_header_total_difficulty: hit genesis in fallback for {}-{}, walked {} headers, cost={:?}",
-                       header.number(), hash, walked_count, start.elapsed());
+                debug!(
+                    "get_header_total_difficulty: hit genesis in fallback for {}-{}, walked {} headers, cost={:?}",
+                    header.number(),
+                    hash,
+                    walked_count,
+                    start.elapsed()
+                );
                 return Some(total_difficulty);
             }
 
@@ -1528,7 +1586,9 @@ impl SyncState {
 
     /// Cache total_difficulty for a newly inserted header
     pub fn cache_header_difficulty(&self, hash: Byte32, total_difficulty: U256) {
-        self.header_difficulty_cache.write().put(hash, total_difficulty);
+        self.header_difficulty_cache
+            .write()
+            .put(hash, total_difficulty);
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
@@ -1842,7 +1902,7 @@ impl ActiveChain {
         self.unverified_tip_header().number()
     }
 
-    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<HeaderIndex> {
+    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<BlockNumberAndHash> {
         self.get_ancestor_internal(base, number, false)
     }
 
@@ -1850,7 +1910,7 @@ impl ActiveChain {
         &self,
         base: &Byte32,
         number: BlockNumber,
-    ) -> Option<HeaderIndex> {
+    ) -> Option<BlockNumberAndHash> {
         self.get_ancestor_internal(base, number, true)
     }
 
@@ -1859,7 +1919,7 @@ impl ActiveChain {
         base: &Byte32,
         number: BlockNumber,
         with_unverified: bool,
-    ) -> Option<HeaderIndex> {
+    ) -> Option<BlockNumberAndHash> {
         let tip_number = {
             if with_unverified {
                 self.unverified_tip_number()
@@ -1884,7 +1944,7 @@ impl ActiveChain {
         if current_header.number() <= tip_number && block_is_on_chain_fn(&current_hash) {
             // Can use number_hash mapping for fast lookup
             if let Some(hash) = self.get_block_hash(number) {
-                return self.sync_shared.get_header_index(&hash);
+                return Some((number, hash).into());
             }
         }
 
@@ -1893,7 +1953,7 @@ impl ActiveChain {
             // Try fast path again after each step
             if current_header.number() <= tip_number && block_is_on_chain_fn(&current_hash) {
                 if let Some(hash) = self.get_block_hash(number) {
-                    return self.sync_shared.get_header_index(&hash);
+                    return Some((number, hash).into());
                 }
             }
 
@@ -1904,7 +1964,7 @@ impl ActiveChain {
 
         // Should be at target number now
         if current_header.number() == number {
-            self.sync_shared.get_header_index(&current_hash)
+            Some((number, current_hash).into())
         } else {
             None
         }
@@ -1974,21 +2034,15 @@ impl ActiveChain {
             (pa.clone(), pb.clone())
         };
 
-        m_right = self
-            .get_ancestor(&m_right.hash(), m_left.number())?
-            .number_and_hash();
+        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?;
         if m_left == m_right {
             return Some(m_left);
         }
         debug_assert!(m_left.number() == m_right.number());
 
         while m_left != m_right {
-            m_left = self
-                .get_ancestor(&m_left.hash(), m_left.number() - 1)?
-                .number_and_hash();
-            m_right = self
-                .get_ancestor(&m_right.hash(), m_right.number() - 1)?
-                .number_and_hash();
+            m_left = self.get_ancestor(&m_left.hash(), m_left.number() - 1)?;
+            m_right = self.get_ancestor(&m_right.hash(), m_right.number() - 1)?;
         }
         Some(m_left)
     }

@@ -5,7 +5,6 @@ use ckb_types::{BlockNumberAndHash, U256};
 
 pub mod header_map;
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeaderIndex {
     number: BlockNumber,

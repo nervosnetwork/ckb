@@ -196,7 +196,10 @@ impl BlockFetchCMD {
             .header()
             .timestamp();
         let shared_best = self.sync_shared.state().shared_best_header();
-        let shared_best_header = self.sync_shared.store().get_block_header(&shared_best.hash())
+        let shared_best_header = self
+            .sync_shared
+            .store()
+            .get_block_header(&shared_best.hash())
             .expect("shared best header should exist");
         let shared_best_timestamp = shared_best_header.timestamp();
 
@@ -284,11 +287,12 @@ impl BlockFetchCMD {
                     None => {
                         // Best known already not in the scope of ibd, it means target is invalid
                         let shared_best = state.shared_best_header_ref();
-                        let shared_best_header = shared.store().get_block_header(&shared_best.hash())
+                        let shared_best_header = shared
+                            .store()
+                            .get_block_header(&shared_best.hash())
                             .expect("shared best header should exist");
                         drop(shared_best);
-                        if unix_time_as_millis()
-                            .saturating_sub(shared_best_header.timestamp())
+                        if unix_time_as_millis().saturating_sub(shared_best_header.timestamp())
                             < MAX_TIP_AGE
                         {
                             warn!(
@@ -678,7 +682,10 @@ impl Synchronizer {
             }
             {
                 if let Some(mut peer_state) = self.peers().state.get_mut(&peer) {
-                    let tip_header = self.shared.store().get_block_header(&tip.hash())
+                    let tip_header = self
+                        .shared
+                        .store()
+                        .get_block_header(&tip.hash())
                         .expect("tip header should exist");
                     peer_state.start_sync(HeadersSyncController::from_header(&tip, &tip_header));
                 }
