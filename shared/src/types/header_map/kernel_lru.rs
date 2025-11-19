@@ -2,7 +2,6 @@ use std::path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ckb_logger::info;
 #[cfg(feature = "stats")]
 use ckb_logger::info;
 use ckb_metrics::HistogramTimer;
@@ -44,17 +43,7 @@ struct HeaderMapKernelStats {
 
 impl Drop for HeaderMapKernel {
     fn drop(&mut self) {
-        loop {
-            let items = self.memory.front_items(1024);
-            if items.is_empty() {
-                break;
-            }
-
-            self.backend.insert_batch(&items);
-            self.memory
-                .remove_batch(items.iter().map(|item| item.hash()), false);
-        }
-        info!("HeaderMap persisted all items to backend");
+        todo!("move all memory map to backend when drop");
     }
 }
 
@@ -180,7 +169,7 @@ impl HeaderMapKernel {
         let _trace_timer: Option<HistogramTimer> = ckb_metrics::handle()
             .map(|handle| handle.ckb_header_map_limit_memory_duration.start_timer());
 
-        if let Some(values) = self.memory.excess_items(self.memory_limit) {
+        if let Some(values) = self.memory.front_n(self.memory_limit) {
             tokio::task::block_in_place(|| {
                 self.backend.insert_batch(&values);
             });

@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use crate::types::HeaderIndexView;
 use ckb_types::{packed::Byte32, prelude::*};
 use sled::{Config, Db, Mode};
