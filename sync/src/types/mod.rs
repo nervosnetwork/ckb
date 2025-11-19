@@ -1007,22 +1007,14 @@ impl SyncShared {
                 snapshot.tip_header().to_owned(),
             )
         };
-        if shared
-            .header_map()
-            .shared_best_header()
-            .hash()
-            .eq(&Byte32::zero())
-        {
-            shared
-                .header_map()
-                .set_shared_best_header((header, total_difficulty).into());
-        }
+        let shared_best_header = RwLock::new((header, total_difficulty).into());
         info!(
             "header_map.memory_limit {}",
             sync_config.header_map.memory_limit
         );
 
         let state = SyncState {
+            shared_best_header,
             tx_filter: Mutex::new(TtlFilter::default()),
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
@@ -1067,29 +1059,6 @@ impl SyncShared {
     /// Get consensus config
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
-    }
-
-    /// Check shared_best_header reached min_chain work
-    pub fn min_chain_work_ready(&self) -> bool {
-        self.shared
-            .header_map()
-            .shared_best_header()
-            .is_better_than(self.state.min_chain_work())
-    }
-
-    /// Get shared_best_header
-    pub fn shared_best_header(&self) -> HeaderIndexView {
-        self.shared.header_map().shared_best_header()
-    }
-
-    /// Get shared_best_header ref
-    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndexView> {
-        self.shared.header_map().shared_best_header_ref()
-    }
-
-    /// Set shared_best_header if the new header is better
-    pub fn may_set_shared_best_header(&self, header: HeaderIndexView) {
-        self.shared.header_map().may_set_shared_best_header(header);
     }
 
     // Only used by unit test
@@ -1161,7 +1130,7 @@ impl SyncShared {
         self.state
             .peers()
             .may_set_best_known_header(peer, header_view.as_header_index());
-        self.may_set_shared_best_header(header_view);
+        self.state.may_set_shared_best_header(header_view);
     }
 
     pub(crate) fn get_header_index_view(
@@ -1341,6 +1310,7 @@ impl PartialOrd for UnknownTxHashPriority {
 
 pub struct SyncState {
     /* Status irrelevant to peers */
+    shared_best_header: RwLock<HeaderIndexView>,
     tx_filter: Mutex<TtlFilter<Byte32>>,
 
     // The priority is ordering by timestamp (reversed), means do not ask the tx before this timestamp (timeout).
@@ -1366,6 +1336,12 @@ pub struct SyncState {
 impl SyncState {
     pub fn min_chain_work(&self) -> &U256 {
         &self.min_chain_work
+    }
+
+    pub fn min_chain_work_ready(&self) -> bool {
+        self.shared_best_header
+            .read()
+            .is_better_than(&self.min_chain_work)
     }
 
     pub fn n_sync_started(&self) -> &AtomicUsize {
@@ -1402,6 +1378,26 @@ impl SyncState {
 
     pub fn take_relay_tx_verify_results(&self, limit: usize) -> Vec<TxVerificationResult> {
         self.tx_relay_receiver.try_iter().take(limit).collect()
+    }
+
+    pub fn shared_best_header(&self) -> HeaderIndexView {
+        self.shared_best_header.read().to_owned()
+    }
+
+    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndexView> {
+        self.shared_best_header.read()
+    }
+
+    pub fn may_set_shared_best_header(&self, header: HeaderIndexView) {
+        let mut shared_best_header = self.shared_best_header.write();
+        if !header.is_better_than(shared_best_header.total_difficulty()) {
+            return;
+        }
+
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_shared_best_number.set(header.number() as i64);
+        }
+        *shared_best_header = header;
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {

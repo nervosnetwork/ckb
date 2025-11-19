@@ -3,12 +3,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ckb_logger::info;
+#[cfg(feature = "stats")]
+use ckb_logger::info;
 use ckb_metrics::HistogramTimer;
 #[cfg(feature = "stats")]
 use ckb_util::{Mutex, MutexGuard};
-use ckb_util::{RwLock, RwLockReadGuard};
 
-use ckb_types::{U256, core::EpochNumberWithFraction, packed::Byte32};
+use ckb_types::packed::Byte32;
 
 use super::{MemoryMap, SledBackend};
 use crate::types::HeaderIndexView;
@@ -20,7 +21,6 @@ pub(crate) struct HeaderMapKernel {
     memory_limit: usize,
     // if ckb is in IBD mode, don't shrink memory map
     ibd_finished: Arc<AtomicBool>,
-    shared_best_header: RwLock<HeaderIndexView>,
     // Statistics
     #[cfg(feature = "stats")]
     stats: Mutex<HeaderMapKernelStats>,
@@ -54,8 +54,6 @@ impl Drop for HeaderMapKernel {
             self.memory
                 .remove_batch(items.iter().map(|item| item.hash()), false);
         }
-        let best_header = self.shared_best_header.read().clone();
-        self.backend.store_shared_best_header(&best_header);
         info!("HeaderMap persisted all items to backend");
     }
 }
@@ -71,11 +69,6 @@ impl HeaderMapKernel {
     {
         let memory = Default::default();
         let backend = SledBackend::new(tmpdir);
-        info!("backend is empty: {}", backend.is_empty());
-        let shared_best_header_value = backend
-            .load_shared_best_header()
-            .unwrap_or_else(Self::default_shared_best_header);
-        let shared_best_header = RwLock::new(shared_best_header_value);
 
         #[cfg(not(feature = "stats"))]
         {
@@ -84,7 +77,6 @@ impl HeaderMapKernel {
                 backend,
                 memory_limit,
                 ibd_finished,
-                shared_best_header,
             }
         }
 
@@ -95,7 +87,6 @@ impl HeaderMapKernel {
                 backend,
                 memory_limit,
                 ibd_finished,
-                shared_best_header,
                 stats: Mutex::new(HeaderMapKernelStats::new(50_000)),
             }
         }
@@ -199,43 +190,6 @@ impl HeaderMapKernel {
             self.memory
                 .remove_batch(values.iter().map(|value| value.hash()), allow_shrink_to_fit);
         }
-    }
-
-    pub(crate) fn shared_best_header(&self) -> HeaderIndexView {
-        self.shared_best_header.read().clone()
-    }
-
-    pub(crate) fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndexView> {
-        self.shared_best_header.read()
-    }
-
-    pub(crate) fn set_shared_best_header(&self, header: HeaderIndexView) {
-        if let Some(metrics) = ckb_metrics::handle() {
-            metrics.ckb_shared_best_number.set(header.number() as i64);
-        }
-        *self.shared_best_header.write() = header;
-    }
-
-    pub(crate) fn may_set_shared_best_header(&self, header: HeaderIndexView) {
-        {
-            let current = self.shared_best_header.read();
-            if !header.is_better_than(current.total_difficulty()) {
-                return;
-            }
-        }
-
-        self.set_shared_best_header(header);
-    }
-
-    fn default_shared_best_header() -> HeaderIndexView {
-        HeaderIndexView::new(
-            Byte32::zero(),
-            0,
-            EpochNumberWithFraction::from_full_value(0),
-            0,
-            Byte32::default(),
-            U256::zero(),
-        )
     }
 
     #[cfg(feature = "stats")]

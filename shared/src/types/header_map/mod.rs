@@ -8,7 +8,6 @@ use std::time::Duration;
 use std::{mem::size_of, path};
 
 use ckb_metrics::HistogramTimer;
-use ckb_util::RwLockReadGuard;
 use tokio::time::MissedTickBehavior;
 
 mod backend_sled;
@@ -111,21 +110,5 @@ impl HeaderMap {
         });
 
         self.inner.remove(hash)
-    }
-
-    pub fn shared_best_header(&self) -> HeaderIndexView {
-        self.inner.shared_best_header()
-    }
-
-    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndexView> {
-        self.inner.shared_best_header_ref()
-    }
-
-    pub fn set_shared_best_header(&self, header: HeaderIndexView) {
-        self.inner.set_shared_best_header(header)
-    }
-
-    pub fn may_set_shared_best_header(&self, header: HeaderIndexView) {
-        self.inner.may_set_shared_best_header(header)
     }
 }

@@ -731,7 +731,7 @@ impl NetRpc for NetRpcImpl {
         let shared = chain.shared();
         let state = chain.state();
         let (fast_time, normal_time, low_time) = state.read_inflight_blocks().division_point();
-        let best_known = self.sync_shared.shared_best_header();
+        let best_known = state.shared_best_header();
         let min_chain_work = {
             let mut min_chain_work_500k_u128: [u8; 16] = [0; 16];
             min_chain_work_500k_u128
@@ -751,7 +751,7 @@ impl NetRpc for NetRpcImpl {
             )
             .into(),
             min_chain_work: min_chain_work.into(),
-            min_chain_work_reached: self.sync_shared.min_chain_work_ready(),
+            min_chain_work_reached: state.min_chain_work_ready(),
             best_known_block_number: best_known.number().into(),
             best_known_block_timestamp: best_known.timestamp().into(),
             orphan_blocks_count: (self.chain_controller.orphan_blocks_len() as u64).into(),
