@@ -872,7 +872,13 @@ impl Peers {
     pub fn may_set_best_known_header(&self, peer: PeerIndex, header_index: HeaderIndex) {
         if let Some(mut peer_state) = self.state.get_mut(&peer) {
             if let Some(ref known) = peer_state.best_known_header {
-                if header_index.is_better_chain(known) {
+                // If the new header has zero total_difficulty, compare by block number only
+                // This happens during IBD when processing unknown_header_list
+                if header_index.total_difficulty().is_zero() {
+                    if header_index.number() > known.number() {
+                        peer_state.best_known_header = Some(header_index);
+                    }
+                } else if header_index.is_better_chain(known) {
                     peer_state.best_known_header = Some(header_index);
                 }
             } else {
@@ -1173,7 +1179,13 @@ impl SyncShared {
             // header list is an ordered list, sorted from highest to lowest,
             // so here you discard and exit early
             for hash in header_list {
-                if let Some(header_index) = self.get_header_index(&hash) {
+                // We don't need total_difficulty here, just check if header exists and compare block number
+                if let Some(header) = self.store().get_block_header(&hash) {
+                    let header_index = ckb_shared::types::HeaderIndex::new(
+                        header.number(),
+                        hash.clone(),
+                        Default::default(), // Use zero for total_difficulty, only number matters
+                    );
                     self.state()
                         .peers
                         .may_set_best_known_header(pi, header_index);

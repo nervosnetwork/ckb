@@ -126,7 +126,13 @@ impl BlockFetcher {
             while let Some(hash) = state.peers().take_unknown_last(self.peer) {
                 // Here we need to first try search from headermap, if not, fallback to search from the db.
                 // if not search from db, it can stuck here when the headermap may have been removed just as the block was downloaded
-                if let Some(header_index) = self.sync_shared.get_header_index(&hash) {
+                // We don't need total_difficulty here, just check if header exists and compare block number
+                if let Some(header) = self.sync_shared.store().get_block_header(&hash) {
+                    let header_index = ckb_shared::types::HeaderIndex::new(
+                        header.number(),
+                        hash.clone(),
+                        Default::default(), // Use zero for total_difficulty, only number matters
+                    );
                     state
                         .peers()
                         .may_set_best_known_header(self.peer, header_index);
