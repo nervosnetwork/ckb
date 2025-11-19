@@ -257,7 +257,13 @@ impl<'a> HeadersProcess<'a> {
 
         // Batch insert all valid headers in ONE transaction
         if !headers_to_insert.is_empty() {
+            debug!(
+                "Calling insert_valid_headers_batch for {} headers",
+                headers_to_insert.len()
+            );
             shared.insert_valid_headers_batch(self.peer, &headers_to_insert);
+        } else {
+            debug!("No new headers to insert (all already valid)");
         }
 
         self.debug();

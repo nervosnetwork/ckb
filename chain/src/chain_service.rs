@@ -92,6 +92,10 @@ impl ChainService {
     fn asynchronous_process_block(&self, lonely_block: LonelyBlock) {
         let block_number = lonely_block.block().number();
         let block_hash = lonely_block.block().hash();
+        debug!(
+            "[ChainService] asynchronous_process_block {}-{}",
+            block_number, block_hash
+        );
         // Skip verifying a genesis block if its hash is equal to our genesis hash,
         // otherwise, return error and ban peer.
         if block_number < 1 {
