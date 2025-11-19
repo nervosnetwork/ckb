@@ -453,12 +453,18 @@ impl Synchronizer {
     //TODO: process block which we don't request
     pub fn asynchronous_process_remote_block(&self, remote_block: RemoteBlock) {
         let block_hash = remote_block.block.hash();
+        let block_number = remote_block.block.number();
         let status = self.shared.active_chain().get_block_status(&block_hash);
+        debug!(
+            "asynchronous_process_remote_block {}-{}, status: {:?}",
+            block_number, block_hash, status
+        );
         // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
         // stopping synchronization even when orphan_pool maintains dirty items by bugs.
         if status.contains(BlockStatus::BLOCK_STORED) {
             error!("Block {} already stored", block_hash);
         } else if status.contains(BlockStatus::HEADER_VALID) {
+            debug!("Calling accept_remote_block for {}-{}", block_number, block_hash);
             self.shared.accept_remote_block(&self.chain, remote_block);
         } else {
             debug!(

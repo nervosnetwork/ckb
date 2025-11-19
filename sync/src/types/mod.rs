@@ -1083,16 +1083,28 @@ impl SyncShared {
     }
 
     pub(crate) fn accept_remote_block(&self, chain: &ChainController, remote_block: RemoteBlock) {
+        let block_number = remote_block.block.number();
+        let block_hash = remote_block.block.header().hash();
+        debug!(
+            "accept_remote_block {}-{}",
+            block_number,
+            block_hash
+        );
         {
             let entry = self
                 .shared()
                 .block_status_map()
-                .entry(remote_block.block.header().hash());
+                .entry(block_hash.clone());
             if let dashmap::mapref::entry::Entry::Vacant(entry) = entry {
                 entry.insert(BlockStatus::BLOCK_RECEIVED);
             }
         }
 
+        debug!(
+            "Calling chain.asynchronous_process_remote_block for {}-{}",
+            block_number,
+            block_hash
+        );
         chain.asynchronous_process_remote_block(remote_block)
     }
 
@@ -1210,6 +1222,15 @@ impl SyncShared {
 
         // Commit ONCE - single fsync for all headers
         db_txn.commit().expect("commit should be ok");
+
+        debug!(
+            "insert_valid_headers_batch committed {} headers, range: {}-{} to {}-{}",
+            headers.len(),
+            headers.first().map(|h| h.number()).unwrap_or(0),
+            headers.first().map(|h| h.hash()).unwrap_or_default(),
+            headers.last().map(|h| h.number()).unwrap_or(0),
+            headers.last().map(|h| h.hash()).unwrap_or_default()
+        );
 
         last_header_index
     }

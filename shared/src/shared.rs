@@ -423,19 +423,21 @@ impl Shared {
         match self.block_status_map().get(block_hash) {
             Some(status_ref) => *status_ref.value(),
             None => {
-                if self.header_map().contains_key(block_hash) {
-                    BlockStatus::HEADER_VALID
-                } else {
-                    let verified = self
-                        .snapshot()
-                        .get_block_ext(block_hash)
-                        .map(|block_ext| block_ext.verified);
-                    match verified {
-                        None => BlockStatus::UNKNOWN,
-                        Some(None) => BlockStatus::BLOCK_STORED,
-                        Some(Some(true)) => BlockStatus::BLOCK_VALID,
-                        Some(Some(false)) => BlockStatus::BLOCK_INVALID,
+                let verified = self
+                    .snapshot()
+                    .get_block_ext(block_hash)
+                    .map(|block_ext| block_ext.verified);
+                match verified {
+                    None => {
+                        if self.header_map().contains_key(block_hash) {
+                            BlockStatus::HEADER_VALID
+                        } else {
+                            BlockStatus::UNKNOWN
+                        }
                     }
+                    Some(None) => BlockStatus::BLOCK_STORED,
+                    Some(Some(true)) => BlockStatus::BLOCK_VALID,
+                    Some(Some(false)) => BlockStatus::BLOCK_INVALID,
                 }
             }
         }
