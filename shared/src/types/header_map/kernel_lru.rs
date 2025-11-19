@@ -1,24 +1,20 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ckb_db::RocksDB;
-use ckb_db_schema::COLUMN_BLOCK_HEADER;
 #[cfg(feature = "stats")]
 use ckb_logger::info;
 use ckb_metrics::HistogramTimer;
-use ckb_types::packed;
 #[cfg(feature = "stats")]
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard};
 
-use ckb_types::{U256, core::EpochNumberWithFraction, packed::Byte32, prelude::*};
+use ckb_types::{U256, core::EpochNumberWithFraction, packed::Byte32};
 
 use super::MemoryMap;
 use crate::types::HeaderIndexView;
 
 pub(crate) struct HeaderMapKernel {
     pub(crate) memory: MemoryMap,
-    db: RocksDB,
     // Configuration
     memory_limit: usize,
     // if ckb is in IBD mode, don't shrink memory map
@@ -43,7 +39,7 @@ struct HeaderMapKernelStats {
 }
 
 impl HeaderMapKernel {
-    pub(crate) fn new(db: RocksDB, memory_limit: usize, ibd_finished: Arc<AtomicBool>) -> Self {
+    pub(crate) fn new(memory_limit: usize, ibd_finished: Arc<AtomicBool>) -> Self {
         let memory = Default::default();
         let shared_best_header_value = Self::default_shared_best_header();
         let shared_best_header = RwLock::new(shared_best_header_value);
@@ -51,7 +47,6 @@ impl HeaderMapKernel {
         #[cfg(not(feature = "stats"))]
         {
             Self {
-                db,
                 memory,
                 memory_limit,
                 ibd_finished,
@@ -62,7 +57,6 @@ impl HeaderMapKernel {
         #[cfg(feature = "stats")]
         {
             Self {
-                db,
                 memory,
                 memory_limit,
                 ibd_finished,
@@ -86,13 +80,7 @@ impl HeaderMapKernel {
         if let Some(metrics) = ckb_metrics::handle() {
             metrics.ckb_header_map_memory_hit_miss_count.miss.inc();
         }
-        let contains = self
-            .db
-            .get_pinned(COLUMN_BLOCK_HEADER, hash.as_slice())
-            .unwrap()
-            .is_some();
-
-        contains
+        false
     }
 
     pub(crate) fn get(&self, hash: &Byte32) -> Option<HeaderIndexView> {
@@ -111,46 +99,27 @@ impl HeaderMapKernel {
             metrics.ckb_header_map_memory_hit_miss_count.miss.inc();
         }
 
-        self.db
-            .get_pinned(COLUMN_BLOCK_HEADER, hash.as_slice())
-            .unwrap()
-            .and_then(|slice| {
-                let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-
-                let header_view = Unpack::<ckb_types::core::HeaderView>::unpack(&reader);
-                Some(header_view)
-            });
-
         None
     }
 
-    pub(crate) fn insert(
-        &self,
-        view: ckb_types::core::HeaderView,
-        total_difficulty: U256,
-    ) -> Option<()> {
+    pub(crate) fn insert(&self, view: HeaderIndexView) -> Option<()> {
         #[cfg(feature = "stats")]
         {
             self.trace();
             self.stats().tick_primary_insert();
         }
-        let packed_header: packed::HeaderView = view.clone().into();
-        let view: HeaderIndexView = (view, total_difficulty).into();
-        let hash = view.hash();
-        self.memory.insert(view.into());
-
-        self.db
-            .put(
-                COLUMN_BLOCK_HEADER,
-                hash.as_slice(),
-                packed_header.as_slice(),
-            )
-            .ok()
+        self.memory.insert(view)
     }
 
-    pub(crate) fn remove(&self, _hash: &Byte32) {
-        // TODO
-        // no need to remove
+    pub(crate) fn remove(&self, hash: &Byte32) {
+        #[cfg(feature = "stats")]
+        {
+            self.trace();
+            self.stats().tick_primary_delete();
+        }
+        // If IBD is not finished, don't shrink memory map
+        let allow_shrink_to_fit = self.ibd_finished.load(Ordering::Acquire);
+        self.memory.remove(hash, allow_shrink_to_fit);
     }
 
     pub(crate) fn limit_memory(&self) {

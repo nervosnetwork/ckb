@@ -8,7 +8,7 @@ use ckb_db_schema::Col;
 use ckb_logger::info;
 use rocksdb::ops::{
     CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, IterateCF, OpenCF,
-    Put, PutCF, SetOptions, WriteOps,
+    Put, SetOptions, WriteOps,
 };
 use rocksdb::{
     BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
@@ -177,16 +177,6 @@ impl RocksDB {
     /// so as to avoid unnecessary memory copy.
     pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         self.inner.get_pinned(key).map_err(internal_error)
-    }
-
-    /// Put a valueinto the given column under the given key.
-    pub fn put<K, V>(&self, col: Col, key: K, value: V) -> Result<()>
-    where
-        K: AsRef<[u8]>,
-        V: AsRef<[u8]>,
-    {
-        let cf = cf_handle(&self.inner, col)?;
-        self.inner.put_cf(cf, key, value).map_err(internal_error)
     }
 
     /// Insert a value into the database under the given key.
