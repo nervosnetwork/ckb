@@ -8,9 +8,9 @@ use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
-    COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY,
-    META_TIP_HEADER_KEY,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_HEADER_INDEX, COLUMN_INDEX, COLUMN_META,
+    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
+    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -268,6 +268,13 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get_block_hash(&self, number: BlockNumber) -> Option<packed::Byte32> {
         let block_number: packed::Uint64 = number.into();
         self.get(COLUMN_INDEX, block_number.as_slice())
+            .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity())
+    }
+
+    /// Get header hash by number from COLUMN_HEADER_INDEX (includes unverified headers)
+    fn get_header_hash(&self, number: BlockNumber) -> Option<packed::Byte32> {
+        let block_number: packed::Uint64 = number.into();
+        self.get(COLUMN_HEADER_INDEX, block_number.as_slice())
             .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity())
     }
 

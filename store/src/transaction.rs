@@ -9,8 +9,8 @@ use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_HEADER_INDEX, COLUMN_INDEX, COLUMN_META,
+    COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
     META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
@@ -179,7 +179,11 @@ impl StoreTransaction {
             COLUMN_BLOCK_HEADER,
             hash.as_slice(),
             packed_header.as_slice(),
-        )
+        )?;
+        // Also insert into COLUMN_HEADER_INDEX for fast number→hash lookup during IBD
+        // This allows get_ancestor to use O(1) lookups instead of walking parent chain
+        let block_number: packed::Uint64 = header.number().into();
+        self.insert_raw(COLUMN_HEADER_INDEX, block_number.as_slice(), hash.as_slice())
     }
 
     /// TODO(doc): @quake
