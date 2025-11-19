@@ -1959,13 +1959,6 @@ impl ActiveChain {
 
         // Walk back to target number via parent links
         while current_header.number() > number {
-            // Try fast path again after each step
-            if current_header.number() <= tip_number && block_is_on_chain_fn(&current_hash) {
-                if let Some(hash) = self.get_block_hash(number) {
-                    return Some((number, hash).into());
-                }
-            }
-
             // Follow parent link
             current_hash = current_header.parent_hash();
             current_header = self.store().get_block_header(&current_hash)?;
