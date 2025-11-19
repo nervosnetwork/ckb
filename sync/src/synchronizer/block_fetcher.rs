@@ -210,7 +210,7 @@ impl BlockFetcher {
             let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
 
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
-            let mut header_index = {
+            let mut block_num_hash = {
                 match self.ibd {
                     IBDState::In => self
                         .active_chain
@@ -220,7 +220,10 @@ impl BlockFetcher {
                         .get_ancestor(&best_known.hash(), start + span - 1),
                 }
             }?;
-            let mut header = self.sync_shared.store().get_block_header(&header_index.hash())?;
+            let mut header = self
+                .sync_shared
+                .store()
+                .get_block_header(&block_num_hash.hash())?;
 
             let mut status = self
                 .sync_shared
@@ -255,20 +258,16 @@ impl BlockFetcher {
                 {
                     debug!(
                         "block: {}-{} added to inflight, block_status: {:?}",
-                        number,
-                        hash,
-                        status
+                        number, hash, status
                     );
-                    fetch.push(header_index)
+                    fetch.push(block_num_hash.clone())
                 }
 
                 status = self
                     .sync_shared
                     .active_chain()
                     .get_block_status(&parent_hash);
-                header_index = self
-                    .sync_shared
-                    .get_header_index(&parent_hash)?;
+                block_num_hash = (number - 1, parent_hash.clone()).into();
                 header = self.sync_shared.store().get_block_header(&parent_hash)?;
             }
 
@@ -338,7 +337,7 @@ impl BlockFetcher {
         Some(
             fetch
                 .chunks(INIT_BLOCKS_IN_TRANSIT_PER_PEER)
-                .map(|headers| headers.iter().map(HeaderIndex::hash).collect())
+                .map(|headers| headers.iter().map(|h| h.hash()).collect())
                 .collect(),
         )
     }

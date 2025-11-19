@@ -1,6 +1,6 @@
 use ckb_store::{ChainDB, ChainStore};
-use ckb_types::packed::Byte32;
 use ckb_types::core::HeaderView;
+use ckb_types::packed::Byte32;
 use std::sync::Arc;
 
 /// HeaderMap provides a read-only view of headers from the chain store

@@ -12,5 +12,5 @@ pub use shared_builder::{SharedBuilder, SharedPackage};
 pub mod block_status;
 pub mod types;
 
-pub use types::header_map::HeaderMap;
 pub use types::HeaderIndex;
+pub use types::header_map::HeaderMap;
