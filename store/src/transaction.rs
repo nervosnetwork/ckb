@@ -183,7 +183,11 @@ impl StoreTransaction {
         // Also insert into COLUMN_HEADER_INDEX for fast number→hash lookup during IBD
         // This allows get_ancestor to use O(1) lookups instead of walking parent chain
         let block_number: packed::Uint64 = header.number().into();
-        self.insert_raw(COLUMN_HEADER_INDEX, block_number.as_slice(), hash.as_slice())
+        self.insert_raw(
+            COLUMN_HEADER_INDEX,
+            block_number.as_slice(),
+            hash.as_slice(),
+        )
     }
 
     /// TODO(doc): @quake

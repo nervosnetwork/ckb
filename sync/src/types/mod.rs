@@ -1147,6 +1147,74 @@ impl SyncShared {
         self.state.may_set_shared_best_header(header_index);
     }
 
+    /// Batch insert multiple valid headers in a single transaction
+    /// Headers must be continuous (parent-child chain)
+    /// Returns the last header's HeaderIndex
+    pub fn insert_valid_headers_batch(
+        &self,
+        peer: PeerIndex,
+        headers: &[core::HeaderView],
+    ) -> Option<HeaderIndex> {
+        if headers.is_empty() {
+            return None;
+        }
+
+        let store = self.store();
+
+        // Start with the first header's parent total_difficulty
+        let first_parent_hash = headers[0].parent_hash();
+        let mut current_td = {
+            let shared_best = self.state.shared_best_header_ref();
+            if shared_best.hash() == first_parent_hash {
+                shared_best.total_difficulty().clone()
+            } else {
+                drop(shared_best);
+                let parent_header = store
+                    .get_block_header(&first_parent_hash)
+                    .expect("parent should exist");
+                self.state
+                    .get_header_total_difficulty(store, &first_parent_hash, &parent_header)
+                    .expect("parent total_difficulty should be available")
+            }
+        };
+
+        // Create ONE transaction for all headers
+        let db_txn = store.begin_transaction();
+
+        let mut last_header_index = None;
+
+        // Insert all headers in sequence
+        for header in headers {
+            // Compute total_difficulty incrementally
+            current_td = current_td + header.difficulty();
+
+            // Insert header to DB
+            db_txn
+                .insert_header(header)
+                .expect("insert header should be ok");
+
+            // Cache the total_difficulty
+            let hash = header.hash();
+            self.state
+                .cache_header_difficulty(hash.clone(), current_td.clone());
+
+            // Track the last header index
+            let header_index = HeaderIndex::new(header.number(), hash, current_td.clone());
+            last_header_index = Some(header_index.clone());
+
+            // Update peer's best known header
+            self.state
+                .peers()
+                .may_set_best_known_header(peer, header_index.clone());
+            self.state.may_set_shared_best_header(header_index);
+        }
+
+        // Commit ONCE - single fsync for all headers
+        db_txn.commit().expect("commit should be ok");
+
+        last_header_index
+    }
+
     /// Get HeaderIndex for a given hash
     /// Returns HeaderIndex with number, hash, and total_difficulty
     pub(crate) fn get_header_index(&self, hash: &Byte32) -> Option<HeaderIndex> {
