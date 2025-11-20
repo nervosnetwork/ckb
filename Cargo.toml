@@ -244,7 +244,7 @@ hyper-util = "0.1"
 include_dir = "0.7"
 includedir = "0.6.0"
 includedir_codegen = "0.6.0"
-indicatif = "0.16"
+indicatif = "0.18"
 ipnetwork = "0.20"
 is-terminal = "0.4.7"
 is_sorted = "0.1.1"
@@ -278,7 +278,7 @@ rand = "0.8.5"
 rand_distr = "0.4"
 rayon = "1.0"
 regex = "1.1.6"
-reqwest = { version = "0.12" ,features = ["blocking", "json"]}
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 rhai = "1.16.0"
 rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
 rustc-hash = "1.1"

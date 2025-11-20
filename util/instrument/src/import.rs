@@ -56,6 +56,7 @@ impl Import {
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:50.cyan/blue} {bytes:>6}/{total_bytes:6} {msg}")
+                .unwrap()
                 .progress_chars("##-"),
         );
         for line in reader.lines() {

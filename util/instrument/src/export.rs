@@ -69,6 +69,7 @@ impl Export {
         progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:50.cyan/blue} {pos:>6}/{len:6} {msg}")
+                .unwrap()
                 .progress_chars("##-"),
         );
         for block in blocks_iter {

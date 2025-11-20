@@ -74,7 +74,7 @@ impl MigrationWorker {
                             idx += 1;
                             let pb = move |count: u64| -> ProgressBar {
                                 let pb = mpbc.add(ProgressBar::new(count));
-                                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), None));
+                                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), 20));
                                 pb.set_prefix(format!("[{}/{}]", idx, migrations_count));
                                 pb
                             };
@@ -227,7 +227,7 @@ impl Migrations {
             let mpbc = Arc::clone(&mpb);
             let pb = move |count: u64| -> ProgressBar {
                 let pb = mpbc.add(ProgressBar::new(count));
-                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), None));
+                pb.set_draw_target(ProgressDrawTarget::term(Term::stdout(), 20));
                 pb.set_prefix(format!("[{}/{}]", idx + 1, migrations_count));
                 pb
             };
@@ -235,7 +235,7 @@ impl Migrations {
             db.put_default(MIGRATION_VERSION_KEY, m.version())
                 .map_err(|err| internal_error(format!("failed to migrate the database: {err}")))?;
         }
-        mpb.join_and_clear().expect("MultiProgress join");
+        mpb.clear().expect("MultiProgress join");
         Ok(db)
     }
 

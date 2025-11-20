@@ -74,7 +74,11 @@ pub fn start_worker(
             if pow.as_any().downcast_ref::<DummyPowEngine>().is_some() {
                 let worker_name = "Dummy-Worker";
                 let pb = mp.add(ProgressBar::new(100));
-                pb.set_style(ProgressStyle::default_bar().template(PROGRESS_BAR_TEMPLATE));
+                pb.set_style(
+                    ProgressStyle::default_bar()
+                        .template(PROGRESS_BAR_TEMPLATE)
+                        .unwrap(),
+                );
                 pb.set_prefix(worker_name);
 
                 let (worker_tx, worker_rx) = unbounded();
@@ -107,7 +111,11 @@ pub fn start_worker(
                         // `100` is the len of progress bar, we can use any dummy value here,
                         // since we only show the spinner in console.
                         let pb = mp.add(ProgressBar::new(100));
-                        pb.set_style(ProgressStyle::default_bar().template(PROGRESS_BAR_TEMPLATE));
+                        pb.set_style(
+                            ProgressStyle::default_bar()
+                                .template(PROGRESS_BAR_TEMPLATE)
+                                .unwrap(),
+                        );
                         pb.set_prefix(worker_name.clone());
 
                         let (worker_tx, worker_rx) = unbounded();

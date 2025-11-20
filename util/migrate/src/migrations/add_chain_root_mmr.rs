@@ -28,12 +28,11 @@ impl Migration for AddChainRootMMR {
                 ProgressStyle::default_bar()
                     .template(
                         "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
-                    )
+                    ).unwrap()
                     .progress_chars("#>-"),
             );
         pbi.set_position(0);
-        pbi.enable_steady_tick(5000);
-
+        pbi.enable_steady_tick(std::time::Duration::from_millis(5000));
         let mut block_number = 0;
         let mut mmr_size = 0;
 
