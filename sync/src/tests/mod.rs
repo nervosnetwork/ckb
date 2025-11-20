@@ -249,6 +249,14 @@ impl CKBProtocolContext for TestNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.quick_filter_broadcast(target, data)
     }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.quick_filter_broadcast_with_proto(proto_id, target, data)
+    }
     async fn async_quick_filter_broadcast_with_proto(
         &self,
         proto_id: ProtocolId,

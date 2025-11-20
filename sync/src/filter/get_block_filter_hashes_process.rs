@@ -1,6 +1,6 @@
 use crate::Status;
 use crate::filter::BlockFilter;
-use crate::utils::send_message_to_async;
+use crate::utils::async_send_message_to;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core::BlockNumber, packed, prelude::*};
 use std::sync::Arc;
@@ -68,7 +68,7 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
             let message = packed::BlockFilterMessage::new_builder()
                 .set(content)
                 .build();
-            send_message_to_async(&self.nc, self.peer, &message).await
+            async_send_message_to(&self.nc, self.peer, &message).await
         } else {
             Status::ignored()
         }

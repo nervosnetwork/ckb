@@ -1,7 +1,7 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::utils::send_message_to_async;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode, attempt};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
@@ -171,7 +171,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
 
-                let _ignore = send_message_to_async(&self.nc, self.peer, &message).await;
+                let _ignore = async_send_message_to(&self.nc, self.peer, &message).await;
 
                 let _ignore_prev_value =
                     mem::replace(expected_transaction_indexes, missing_transactions);

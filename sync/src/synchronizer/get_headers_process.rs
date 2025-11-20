@@ -1,5 +1,5 @@
 use crate::synchronizer::Synchronizer;
-use crate::utils::{send_message_async, send_message_to_async};
+use crate::utils::{async_send_message, async_send_message_to};
 use crate::{Status, StatusCode};
 use ckb_constant::sync::MAX_LOCATOR_SIZE;
 use ckb_logger::{debug, info};
@@ -90,7 +90,7 @@ impl<'a> GetHeadersProcess<'a> {
                 .shared()
                 .shared()
                 .async_handle()
-                .spawn(async move { send_message_to_async(&nc, self.peer, &message).await });
+                .spawn(async move { async_send_message_to(&nc, self.peer, &message).await });
         } else {
             return StatusCode::GetHeadersMissCommonAncestors
                 .with_context(format!("{block_locator_hashes:#x?}"));
@@ -109,7 +109,7 @@ impl<'a> GetHeadersProcess<'a> {
             .async_handle()
             .spawn(async move {
                 let _ignore =
-                    send_message_async(SupportProtocols::Sync.protocol_id(), &nc, peer, &message)
+                    async_send_message(SupportProtocols::Sync.protocol_id(), &nc, peer, &message)
                         .await;
             });
     }

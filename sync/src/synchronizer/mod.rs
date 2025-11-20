@@ -21,7 +21,7 @@ pub(crate) use self::headers_process::HeadersProcess;
 pub(crate) use self::in_ibd_process::InIBDProcess;
 
 use crate::types::{HeadersSyncController, IBDState, Peers, SyncShared, post_sync_process};
-use crate::utils::{MetricDirection, metric_ckb_message_bytes, send_message_to_async};
+use crate::utils::{MetricDirection, async_send_message_to, metric_ckb_message_bytes};
 use crate::{Status, StatusCode};
 use ckb_shared::block_status::BlockStatus;
 
@@ -844,7 +844,7 @@ impl Synchronizer {
         debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
         let nc = Arc::clone(nc);
         self.shared.shared().async_handle().spawn(async move {
-            let _status = send_message_to_async(&nc, peer, &message).await;
+            let _status = async_send_message_to(&nc, peer, &message).await;
         });
     }
 }

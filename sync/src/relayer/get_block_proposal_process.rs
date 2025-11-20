@@ -1,5 +1,5 @@
 use crate::relayer::{MAX_RELAY_TXS_BYTES_PER_BATCH, Relayer};
-use crate::utils::send_message_to_async;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode, attempt};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -101,6 +101,6 @@ impl<'a> GetBlockProposalProcess<'a> {
             .transactions(txs)
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
-        send_message_to_async(&self.nc, self.peer, &message).await
+        async_send_message_to(&self.nc, self.peer, &message).await
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     FAST_INDEX, LOW_INDEX, NORMAL_INDEX, Status, StatusCode, TIME_TRACE_SIZE,
-    utils::send_message_async,
+    utils::async_send_message,
 };
 use ckb_app_config::SyncConfig;
 #[cfg(test)]
@@ -1955,7 +1955,7 @@ impl ActiveChain {
         let message = packed::SyncMessage::new_builder().set(content).build();
         let nc = Arc::clone(nc);
         self.shared().async_handle().spawn(async move {
-            send_message_async(SupportProtocols::Sync.protocol_id(), &nc, peer, &message).await
+            async_send_message(SupportProtocols::Sync.protocol_id(), &nc, peer, &message).await
         });
     }
 

@@ -128,6 +128,14 @@ impl CKBProtocolContext for MockProtocolContext {
         let protocol_id = self.protocol_id();
         self.send_message(protocol_id, peer_index, data)
     }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: P2pBytes,
+    ) -> Result<(), Error> {
+        self.quick_filter_broadcast_with_proto(proto_id, target, data)
+    }
     async fn async_quick_filter_broadcast_with_proto(
         &self,
         proto_id: ProtocolId,

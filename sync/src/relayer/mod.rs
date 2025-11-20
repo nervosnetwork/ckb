@@ -22,7 +22,8 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::types::{ActiveChain, SyncShared, post_sync_process};
 use crate::utils::{
-    MetricDirection, metric_ckb_message_bytes, quick_send_message_to_async, send_message_to_async,
+    MetricDirection, async_quick_send_message_to, async_send_message_to, metric_ckb_message_bytes,
+    send_block_proposals,
 };
 use crate::{Status, StatusCode};
 use ckb_chain::VerifyResult;
@@ -254,7 +255,7 @@ impl Relayer {
                     .proposals(to_ask_proposals.clone())
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                if !quick_send_message_to_async(&nc, peer, &message)
+                if !async_quick_send_message_to(&nc, peer, &message)
                     .await
                     .is_ok()
                 {
@@ -574,25 +575,6 @@ impl Relayer {
             }
         }
 
-        async fn send_block_proposals(
-            nc: &Arc<dyn CKBProtocolContext + Sync>,
-            peer_index: PeerIndex,
-            txs: Vec<packed::Transaction>,
-        ) {
-            let content = packed::BlockProposal::new_builder()
-                .transactions(txs)
-                .build();
-            let message = packed::RelayMessage::new_builder().set(content).build();
-            let status = quick_send_message_to_async(nc, peer_index, &message).await;
-            if !status.is_ok() {
-                ckb_logger::error!(
-                    "send RelayBlockProposal to {}, status: {:?}",
-                    peer_index,
-                    status
-                );
-            }
-        }
-
         let mut relay_bytes = 0;
         let mut relay_proposals = Vec::new();
         for (peer_index, txs) in peer_txs {
@@ -630,7 +612,7 @@ impl Relayer {
                     .tx_hashes(tx_hashes)
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                let status = send_message_to_async(nc, peer, &message).await;
+                let status = async_send_message_to(nc, peer, &message).await;
                 if !status.is_ok() {
                     ckb_logger::error!(
                         "interrupted request for transactions, status: {:?}",
@@ -793,7 +775,7 @@ fn build_and_broadcast_compact_block(
         .filter(|(_id, peer)| peer.if_lightclient_subscribed)
         .map(|(id, _)| id)
         .collect();
-    if let Err(err) = handle.block_on(nc.async_quick_filter_broadcast_with_proto(
+    if let Err(err) = handle.block_on(nc.async_filter_broadcast_with_proto(
         SupportProtocols::LightClient.protocol_id(),
         TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
         light_client_message.as_bytes(),

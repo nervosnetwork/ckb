@@ -496,6 +496,14 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        _proto_id: ProtocolId,
+        _target: TargetSession,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
     async fn async_quick_filter_broadcast_with_proto(
         &self,
         _proto_id: ProtocolId,

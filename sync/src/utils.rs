@@ -1,7 +1,7 @@
 use crate::{Status, StatusCode};
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex, ProtocolId, SupportProtocols};
-use ckb_types::packed::{RelayMessageReader, SyncMessageReader};
+use ckb_types::packed::{self, RelayMessageReader, SyncMessageReader};
 use ckb_types::prelude::*;
 use std::{
     fmt::{self, Formatter},
@@ -69,7 +69,7 @@ pub(crate) async fn quick_send_message_async<Message: Entity>(
     Status::ok()
 }
 
-pub(crate) async fn send_message_async<Message: Entity>(
+pub(crate) async fn async_send_message<Message: Entity>(
     protocol_id: ProtocolId,
     nc: &Arc<dyn CKBProtocolContext + Sync>,
     peer_index: PeerIndex,
@@ -147,16 +147,16 @@ pub(crate) fn send_message_to<Message: Entity>(
     send_message(protocol_id, nc, peer_index, message)
 }
 
-pub(crate) async fn send_message_to_async<Message: Entity>(
+pub(crate) async fn async_send_message_to<Message: Entity>(
     nc: &Arc<dyn CKBProtocolContext + Sync>,
     peer_index: PeerIndex,
     message: &Message,
 ) -> Status {
     let protocol_id = nc.protocol_id();
-    send_message_async(protocol_id, nc, peer_index, message).await
+    async_send_message(protocol_id, nc, peer_index, message).await
 }
 
-pub(crate) async fn quick_send_message_to_async<Message: Entity>(
+pub(crate) async fn async_quick_send_message_to<Message: Entity>(
     nc: &Arc<dyn CKBProtocolContext + Sync>,
     peer_index: PeerIndex,
     message: &Message,
@@ -232,5 +232,24 @@ fn protocol_name(protocol_id: ProtocolId) -> String {
             error!("send_message got an unknown protocol id: {}", protocol_id);
             "Unknown".to_owned()
         }
+    }
+}
+
+pub(crate) async fn send_block_proposals(
+    nc: &Arc<dyn CKBProtocolContext + Sync>,
+    peer_index: PeerIndex,
+    txs: Vec<packed::Transaction>,
+) {
+    let content = packed::BlockProposal::new_builder()
+        .transactions(txs)
+        .build();
+    let message = packed::RelayMessage::new_builder().set(content).build();
+    let status = async_quick_send_message_to(nc, peer_index, &message).await;
+    if !status.is_ok() {
+        ckb_logger::error!(
+            "send RelayBlockProposal to {}, status: {:?}",
+            peer_index,
+            status
+        );
     }
 }

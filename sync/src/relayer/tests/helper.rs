@@ -391,6 +391,15 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         unimplemented!();
     }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.async_quick_filter_broadcast_with_proto(proto_id, target, data)
+            .await
+    }
     async fn async_quick_filter_broadcast_with_proto(
         &self,
         proto_id: ProtocolId,

@@ -1,5 +1,5 @@
 use crate::synchronizer::Synchronizer;
-use crate::utils::send_message_to_async;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode};
 use ckb_constant::sync::{INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
@@ -80,7 +80,7 @@ impl<'a> GetBlocksProcess<'a> {
                     .shared()
                     .shared()
                     .async_handle()
-                    .spawn(async move { send_message_to_async(&nc, self.peer, &message).await });
+                    .spawn(async move { async_send_message_to(&nc, self.peer, &message).await });
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

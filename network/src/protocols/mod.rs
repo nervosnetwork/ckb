@@ -84,6 +84,13 @@ pub trait CKBProtocolContext: Send {
     /// Filter broadcast message
     async fn async_filter_broadcast(&self, target: TargetSession, data: Bytes)
     -> Result<(), Error>;
+    /// Filter broadcast message through queue and specify protocol id
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error>;
     /// Filter broadcast message through quick queue and specify protocol id
     async fn async_quick_filter_broadcast_with_proto(
         &self,
@@ -509,6 +516,17 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     ) -> Result<(), Error> {
         self.async_p2p_control
             .filter_broadcast(target, self.proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.async_p2p_control
+            .filter_broadcast(target, proto_id, data)
             .await?;
         Ok(())
     }

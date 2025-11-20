@@ -1509,15 +1509,12 @@ impl NetworkController {
     fn broadcast_inner<S: Spawn>(
         &self,
         quick: bool,
-        target: Option<SessionId>,
+        target: TargetSession,
         proto_id: ProtocolId,
         data: Bytes,
         handle: &S,
     ) {
         let async_control: ServiceAsyncControl = self.p2p_control.clone().into();
-        let target = target
-            .map(TargetSession::Single)
-            .unwrap_or(TargetSession::All);
 
         handle.spawn_task(async move {
             if quick {
@@ -1552,7 +1549,7 @@ impl NetworkController {
 
     /// Broadcast a message to all connected peers
     pub fn broadcast_with_handle<S: Spawn>(&self, proto_id: ProtocolId, data: Bytes, handle: &S) {
-        self.broadcast_inner(false, None, proto_id, data, handle)
+        self.broadcast_inner(false, TargetSession::All, proto_id, data, handle)
     }
 
     /// Broadcast a message to all connected peers through quick queue
@@ -1562,7 +1559,7 @@ impl NetworkController {
         data: Bytes,
         handle: &S,
     ) {
-        self.broadcast_inner(true, None, proto_id, data, handle)
+        self.broadcast_inner(true, TargetSession::All, proto_id, data, handle)
     }
 
     /// Send message to one connected peer
@@ -1573,7 +1570,13 @@ impl NetworkController {
         data: Bytes,
         handle: &S,
     ) {
-        self.broadcast_inner(false, Some(session_id), proto_id, data, handle)
+        self.broadcast_inner(
+            false,
+            TargetSession::Single(session_id),
+            proto_id,
+            data,
+            handle,
+        )
     }
 
     /// network message processing controller, always true, if false, discard any received messages

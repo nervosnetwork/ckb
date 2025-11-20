@@ -72,7 +72,10 @@ impl OnionService {
                 .await
             {
                 Ok(_) => {
-                    info!("CKB has started listening on the onion hidden network, the onion service address is: {}", onion_service_addr.clone());
+                    info!(
+                        "CKB has started listening on the onion hidden network, the onion service address is: {}",
+                        onion_service_addr.clone()
+                    );
                     network_controller.add_public_addr(onion_service_addr.clone());
                 }
                 Err(err) => {
@@ -84,7 +87,10 @@ impl OnionService {
             if stop_rx.is_cancelled() {
                 return Ok(());
             }
-            warn!("It seems that the connection to tor server's controller has been closed, retry connect to tor controller({})", self.config.tor_controller.to_string());
+            warn!(
+                "It seems that the connection to tor server's controller has been closed, retry connect to tor controller({})",
+                self.config.tor_controller.to_string()
+            );
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
@@ -163,6 +169,7 @@ fn create_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV
 
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut file_options = OpenOptions::new();
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut options = file_options.create(true).truncate(true).write(true);
 
     #[cfg(unix)]

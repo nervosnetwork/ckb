@@ -2,7 +2,7 @@ use crate::SyncShared;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
 use crate::types::ActiveChain;
-use crate::utils::send_message_to_async;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode, attempt};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
@@ -367,7 +367,7 @@ async fn missing_or_collided_post_process(
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     shared.shared().async_handle().spawn(async move {
-        let sending = send_message_to_async(&nc, peer, &message).await;
+        let sending = async_send_message_to(&nc, peer, &message).await;
         if !sending.is_ok() {
             ckb_logger::warn_target!(
                 crate::LOG_TARGET_RELAY,
