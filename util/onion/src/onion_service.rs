@@ -161,8 +161,8 @@ fn create_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV
         key.public().get_onion_address()
     );
 
-    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut file_options = OpenOptions::new();
+    #[allow(unused_mut)]
     let mut options = file_options.create(true).truncate(true).write(true);
 
     #[cfg(unix)]
