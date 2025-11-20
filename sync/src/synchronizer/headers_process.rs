@@ -10,12 +10,13 @@ use ckb_traits::HeaderFieldsProvider;
 use ckb_types::{core, packed, prelude::*};
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
+use std::sync::Arc;
 
 pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a dyn CKBProtocolContext,
+    nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     active_chain: ActiveChain,
 }
 
@@ -24,7 +25,7 @@ impl<'a> HeadersProcess<'a> {
         message: packed::SendHeadersReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
+        nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
         let active_chain = synchronizer.shared.active_chain();
         HeadersProcess {
@@ -202,12 +203,16 @@ impl<'a> HeadersProcess<'a> {
             && (!peer_flags.is_protect && !peer_flags.is_whitelist && peer_flags.is_outbound)
         {
             debug!("Disconnect an unprotected outbound peer ({})", self.peer);
-            if let Err(err) = self
-                .nc
-                .disconnect(self.peer, "useless outbound peer in IBD")
-            {
-                return StatusCode::Network.with_context(format!("Disconnect error: {err:?}"));
-            }
+            let nc = Arc::clone(self.nc);
+            self.synchronizer
+                .shared()
+                .shared()
+                .async_handle()
+                .spawn(async move {
+                    let _ignore = nc
+                        .async_disconnect(self.peer, "useless outbound peer in IBD")
+                        .await;
+                });
         }
 
         Status::ok()

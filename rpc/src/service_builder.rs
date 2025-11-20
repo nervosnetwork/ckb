@@ -178,8 +178,14 @@ impl<'a> ServiceBuilder<'a> {
         alert_verifier: Arc<AlertVerifier>,
         alert_notifier: Arc<Mutex<AlertNotifier>>,
         network_controller: NetworkController,
+        shared: Shared,
     ) -> Self {
-        let methods = AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller);
+        let methods = AlertRpcImpl::new(
+            alert_verifier,
+            alert_notifier,
+            network_controller,
+            shared.async_handle().clone(),
+        );
         set_rpc_module_methods!(self, "Alert", alert_enable, add_alert_rpc_methods, methods)
     }
 

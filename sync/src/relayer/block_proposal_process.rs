@@ -13,7 +13,7 @@ impl<'a> BlockProposalProcess<'a> {
         BlockProposalProcess { message, relayer }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let sync_state = shared.state();
         sync_state.clear_expired_inflight_proposals(
@@ -66,7 +66,7 @@ impl<'a> BlockProposalProcess<'a> {
         }
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-        if let Err(err) = tx_pool.notify_txs(asked_txs) {
+        if let Err(err) = tx_pool.notify_txs_async(asked_txs).await {
             warn_target!(
                 crate::LOG_TARGET_RELAY,
                 "BlockProposal notify_txs error: {:?}",

@@ -59,9 +59,7 @@ impl ChainController {
     }
 
     pub fn asynchronous_process_lonely_block(&self, lonely_block: LonelyBlock) {
-        if Request::call(&self.process_block_sender, lonely_block).is_none() {
-            error!("Chain service has gone")
-        }
+        Request::call_without_response(&self.process_block_sender, lonely_block);
     }
 
     /// MinerRpc::submit_block and `ckb import` need this blocking way to process block

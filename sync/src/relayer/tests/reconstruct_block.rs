@@ -16,6 +16,10 @@ fn test_missing_txs() {
     let prepare: Vec<TransactionView> = (0..20)
         .map(|i| new_transaction(&relayer, i, &always_success_out_point))
         .collect();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     // Case: miss tx.0
     {
@@ -27,13 +31,13 @@ fn test_missing_txs() {
         let transactions: Vec<TransactionView> = prepare.iter().skip(1).cloned().collect();
         let compact = compact_block_builder.short_ids(short_ids).build();
         assert_eq!(
-            relayer.reconstruct_block(
+            rt.block_on(relayer.reconstruct_block(
                 &relayer.shared().active_chain(),
                 &compact,
                 transactions,
                 &[],
                 &[]
-            ),
+            )),
             ReconstructionResult::Missing(vec![0], vec![]),
         );
     }
@@ -55,13 +59,13 @@ fn test_missing_txs() {
             .collect();
         let compact = compact_block_builder.short_ids(short_ids).build();
         assert_eq!(
-            relayer.reconstruct_block(
+            rt.block_on(relayer.reconstruct_block(
                 &relayer.shared().active_chain(),
                 &compact,
                 transactions,
                 &[],
                 &[]
-            ),
+            )),
             ReconstructionResult::Missing(missing, vec![]),
         );
     }
@@ -71,6 +75,10 @@ fn test_missing_txs() {
 fn test_reconstruct_transactions_and_uncles() {
     let (_chain, relayer, always_success_out_point) = build_chain(5);
     let parent = new_transaction(&relayer, 0, &always_success_out_point);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     // create a chain of transactions as prepare
     let mut prepare = vec![parent];
@@ -138,19 +146,23 @@ fn test_reconstruct_transactions_and_uncles() {
     }
     relayer.shared().shared().refresh_snapshot();
 
-    let ret = relayer.reconstruct_block(
+    let ret = rt.block_on(relayer.reconstruct_block(
         &relayer.shared().active_chain(),
         &compact,
         short_transactions,
         &[],
         &[],
-    );
+    ));
     assert_eq!(ret, ReconstructionResult::Block(block), "{ret:?}");
 }
 
 #[test]
 fn test_reconstruct_invalid_uncles() {
     let (_chain, relayer, _) = build_chain(5);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let uncle = BlockBuilder::default().build();
     // BLOCK_VALID
@@ -175,7 +187,13 @@ fn test_reconstruct_invalid_uncles() {
     relayer.shared().shared().refresh_snapshot();
 
     assert_eq!(
-        relayer.reconstruct_block(&relayer.shared().active_chain(), &compact, vec![], &[], &[]),
+        rt.block_on(relayer.reconstruct_block(
+            &relayer.shared().active_chain(),
+            &compact,
+            vec![],
+            &[],
+            &[]
+        )),
         ReconstructionResult::Error(StatusCode::CompactBlockHasInvalidUncle.into()),
     );
 }

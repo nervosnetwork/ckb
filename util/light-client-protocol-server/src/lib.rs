@@ -77,7 +77,7 @@ impl CKBProtocolHandler for LightClientProtocol {
         };
 
         let item_name = msg.item_name();
-        let status = self.try_process(nc.as_ref(), peer, msg);
+        let status = self.try_process(&nc, peer, msg).await;
         if let Some(ban_time) = status.should_ban() {
             error!(
                 "process {} from {}; ban {:?} since result is {}",
@@ -93,24 +93,32 @@ impl CKBProtocolHandler for LightClientProtocol {
 }
 
 impl LightClientProtocol {
-    fn try_process(
+    async fn try_process(
         &mut self,
-        nc: &dyn CKBProtocolContext,
+        nc: &Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         message: packed::LightClientMessageUnionReader<'_>,
     ) -> Status {
         match message {
             packed::LightClientMessageUnionReader::GetLastState(reader) => {
-                components::GetLastStateProcess::new(reader, self, peer_index, nc).execute()
+                components::GetLastStateProcess::new(reader, self, peer_index, nc)
+                    .execute()
+                    .await
             }
             packed::LightClientMessageUnionReader::GetLastStateProof(reader) => {
-                components::GetLastStateProofProcess::new(reader, self, peer_index, nc).execute()
+                components::GetLastStateProofProcess::new(reader, self, peer_index, nc)
+                    .execute()
+                    .await
             }
             packed::LightClientMessageUnionReader::GetBlocksProof(reader) => {
-                components::GetBlocksProofProcess::new(reader, self, peer_index, nc).execute()
+                components::GetBlocksProofProcess::new(reader, self, peer_index, nc)
+                    .execute()
+                    .await
             }
             packed::LightClientMessageUnionReader::GetTransactionsProof(reader) => {
-                components::GetTransactionsProofProcess::new(reader, self, peer_index, nc).execute()
+                components::GetTransactionsProofProcess::new(reader, self, peer_index, nc)
+                    .execute()
+                    .await
             }
             _ => StatusCode::UnexpectedProtocolMessage.into(),
         }
@@ -146,7 +154,11 @@ impl LightClientProtocol {
         Ok(tip_header)
     }
 
-    pub(crate) fn reply_tip_state<T>(&self, peer: PeerIndex, nc: &dyn CKBProtocolContext) -> Status
+    pub(crate) async fn reply_tip_state<T>(
+        &self,
+        peer: PeerIndex,
+        nc: &Arc<dyn CKBProtocolContext + Sync>,
+    ) -> Status
     where
         T: Entity,
         <T as Entity>::Builder: ProverMessageBuilder,
@@ -162,14 +174,14 @@ impl LightClientProtocol {
         let message = packed::LightClientMessage::new_builder()
             .set(content)
             .build();
-        nc.reply(peer, &message);
+        nc.reply(peer, &message).await;
         Status::ok()
     }
 
-    pub(crate) fn reply_proof<T>(
+    pub(crate) async fn reply_proof<T>(
         &self,
         peer: PeerIndex,
-        nc: &dyn CKBProtocolContext,
+        nc: &Arc<dyn CKBProtocolContext + Sync>,
         last_block: &core::BlockView,
         items_positions: Vec<u64>,
         proved_items: <<T as Entity>::Builder as ProverMessageBuilder>::ProvedItems,
@@ -218,7 +230,7 @@ impl LightClientProtocol {
         let message = packed::LightClientMessage::new_builder()
             .set(content)
             .build();
-        nc.reply(peer, &message);
+        nc.reply(peer, &message).await;
         Status::ok()
     }
 }

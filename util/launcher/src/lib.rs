@@ -553,7 +553,12 @@ impl Launcher {
                     .map(|script| script.clone().into())
                     .collect(),
             )
-            .enable_alert(alert_verifier, alert_notifier, network_controller.clone())
+            .enable_alert(
+                alert_verifier,
+                alert_notifier,
+                network_controller.clone(),
+                shared.clone(),
+            )
             .enable_indexer(
                 shared.clone(),
                 &self.args.config.db,
