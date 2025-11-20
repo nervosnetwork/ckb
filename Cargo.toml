@@ -313,6 +313,7 @@ yansi = "0.5"
 seq-macro = "0.3"
 strum = { version = "0.27", default-features = false, features = ["derive"] }
 phf = { version = "0.12", features = ["macros"] }
+sysinfo = "0.37"
 
 [profile.release]
 overflow-checks = true

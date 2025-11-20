@@ -17,6 +17,7 @@ mod pool;
 mod primitive;
 mod proposal_short_id;
 mod subscription;
+mod terminal;
 mod uints;
 
 #[cfg(test)]
@@ -53,6 +54,9 @@ pub use self::pool::{
 };
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::Topic;
+pub use self::terminal::{
+    CellsInfo, Disk, DiskUsage, Global, MiningInfo, Network, Overview, SysInfo, TerminalPoolInfo,
+};
 pub use self::uints::{Uint32, Uint64, Uint128};
 pub use ckb_types::core::RationalU256;
 pub use indexer::{
