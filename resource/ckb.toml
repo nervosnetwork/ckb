@@ -110,6 +110,61 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 # [network.sync.header_map]
 # memory_limit = "256MB"
 
+# [network.proxy]
+### The proxy_url is user-specified SOCKS5 address, like: socks5://127.0.0.1:7891
+# proxy_url = "socks5://127.0.0.1:9050"
+
+### Toggle random authentication for the proxy server.
+### Default setting: true
+###
+### When enabled (true), CKB will generate a random username and password for each connection
+### to the proxy server.
+### For a Tor Server, this increases privacy by ensuring the proxy cannot correlate
+### multiple connections.
+### Refer to the 'IsolateSOCKSAuth' section in the following documentation:
+### https://manpages.debian.org/testing/tor/torrc.5.en.html
+###
+### Important Note:
+### If you are using a non-Tor SOCKS5 proxy that supports, but does not require authentication,
+### enabling this may lead to connection rejections. In such cases, set proxy_random_auth to false.
+# proxy_random_auth = true
+
+# [network.onion]
+### If CKB needs to run behind the Onion network,
+### the user should start a Tor server and set [network.proxy.proxy_url] to Tor server's address.
+### The default Tor SOCKS5 proxy URL is socks5://127.0.0.1:9050.
+### For more information on configuring Tor, visit: https://linux.die.net/man/1/tor
+
+### Enable or disable listening on the Onion network.
+### When set to true, CKB will accept incoming connections over Tor.
+### You can get the onion listening address in log, or by local_node_info RPC
+# listen_on_onion = true
+
+### The onion service will proxy incoming traffic to `p2p_listen_address`.
+### If the CKB's peer-to-peer listen address is not set to the default 127.0.0.1
+### with the port specified in `[network].listen_addresses` for IPv4, you should configure this field.
+# p2p_listen_address = "127.0.0.1:8115"
+
+### The address and port of the Tor SOCKS5 proxy server that CKB will use to establish
+### outbound connections to other Onion services. If not set, it will use network.proxy.proxy_url
+# onion_server = "127.0.0.1:9050"
+
+### The address and port of the Tor ControlPort, which allows CKB to communicate with
+### the Tor process for tasks like creating Onion services.
+### Default: "127.0.0.1:9051"
+# tor_controller = "127.0.0.1:9051"
+
+### The password for authenticating with the Tor ControlPort.
+### This should match the 'HashedControlPassword' set in your Tor configuration.
+### Leave empty if no authentication is required.
+# tor_password = ""
+
+### The external port that the onion service will expose.
+### This is the port that will be advertised in the onion address,
+### while traffic will be forwarded to `p2p_listen_address`.
+# onion_external_port = 8115
+
+
 [rpc]
 # By default RPC only binds to localhost, thus it only allows accessing from the same machine.
 #

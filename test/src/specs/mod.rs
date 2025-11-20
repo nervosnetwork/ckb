@@ -8,6 +8,7 @@ mod p2p;
 mod relay;
 mod rpc;
 mod sync;
+mod tor;
 mod tx_pool;
 
 pub use alert::*;
@@ -20,6 +21,7 @@ pub use p2p::*;
 pub use relay::*;
 pub use rpc::*;
 pub use sync::*;
+pub use tor::*;
 pub use tx_pool::*;
 
 use crate::Node;

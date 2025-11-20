@@ -51,12 +51,16 @@ impl Miner {
             .collect();
 
         let pb = mp.add(ProgressBar::new(100));
-        pb.set_style(ProgressStyle::default_bar().template("{msg:.green}"));
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{msg:.green}")
+                .expect("Failed to set progress bar template"),
+        );
 
         let stderr_is_tty = console::Term::stderr().features().is_attended();
 
         thread::spawn(move || {
-            mp.join().expect("MultiProgress join failed");
+            drop(mp);
         });
 
         Miner {

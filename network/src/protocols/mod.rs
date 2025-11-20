@@ -35,10 +35,13 @@ pub type PeerIndex = SessionId;
 pub type BoxedFutureTask = Pin<Box<dyn Future<Output = ()> + 'static + Send>>;
 
 use crate::{
-    Behaviour, Error, NetworkState, Peer, ProtocolVersion, SupportProtocols,
+    Behaviour, Error, NetworkState, Peer, ProtocolVersion,
     compress::LengthDelimitedCodecWithCompress,
     network::{async_disconnect_with_message, disconnect_with_message},
 };
+
+#[cfg(not(target_family = "wasm"))]
+use crate::SupportProtocols;
 
 /// Abstract protocol context
 #[async_trait]

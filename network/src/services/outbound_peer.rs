@@ -8,7 +8,7 @@ use ckb_systemtime::unix_time_as_millis;
 use futures::{Future, StreamExt};
 use p2p::runtime::{Interval, MissedTickBehavior};
 use p2p::{
-    multiaddr::{MultiAddr, Protocol},
+    multiaddr::{Multiaddr, Protocol},
     service::ServiceControl,
 };
 use rand::prelude::IteratorRandom;
@@ -131,7 +131,7 @@ impl OutboundPeerService {
             paddrs
         };
 
-        let peers: Box<dyn Iterator<Item = MultiAddr>> = if self.try_identify_count > 3 {
+        let peers: Box<dyn Iterator<Item = Multiaddr>> = if self.try_identify_count > 3 {
             self.try_identify_count = 0;
             let len = self.network_state.bootnodes.len();
             if len < count {
