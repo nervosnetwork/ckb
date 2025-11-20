@@ -125,6 +125,7 @@ fn sanity_check(shared: Shared, chain_controller: ChainController, full_verifica
             .template(
                 "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
             )
+            .expect("Failed to set progress bar template")
             .progress_chars("#>-"),
     );
     let switch = if full_verification {
