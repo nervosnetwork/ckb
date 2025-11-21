@@ -609,7 +609,7 @@ impl ChainSpec {
                 .raw()
                 .outputs()
                 .iter()
-                .map(|output| Unpack::<Capacity>::unpack(&output.capacity()))
+                .map(|output| Into::<Capacity>::into(output.capacity()))
                 .try_fold(Capacity::zero(), Capacity::safe_add)
         }?;
 
@@ -895,7 +895,7 @@ impl ChainSpec {
         let input_out_point = cellbase_tx
             .outputs()
             .into_iter()
-            .position(|output| Unpack::<Bytes>::unpack(&output.lock().args()) == lock_arg)
+            .position(|output| Into::<Bytes>::into(output.lock().args()) == lock_arg)
             .map(|index| packed::OutPoint::new(cellbase_tx.hash(), index as u32))
             .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);

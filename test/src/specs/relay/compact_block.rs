@@ -297,7 +297,7 @@ impl Spec for CompactBlockMissingWithDropTx {
                             .as_reader()
                             .indexes()
                             .iter()
-                            .map(|i| Unpack::<u32>::unpack(&i))
+                            .map(Into::<u32>::into)
                             .collect::<Vec<u32>>();
                         vec![2] == msg
                     } else {
@@ -331,7 +331,7 @@ impl Spec for CompactBlockMissingWithDropTx {
                             .as_reader()
                             .indexes()
                             .iter()
-                            .map(|i| Unpack::<u32>::unpack(&i))
+                            .map(Into::<u32>::into)
                             .collect::<Vec<u32>>();
                         vec![1, 2] == msg
                     } else {

@@ -1395,7 +1395,7 @@ impl From<RawMerkleProof> for MerkleProof {
                 .iter()
                 .map(|index| (*index).into())
                 .collect(),
-            lemmas: proof.lemmas().iter().map(Unpack::<H256>::unpack).collect(),
+            lemmas: proof.lemmas().iter().map(Into::<H256>::into).collect(),
         }
     }
 }

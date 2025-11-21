@@ -76,7 +76,7 @@ pub trait ChainStore: Send + Sync + Sized {
         };
         let ret = self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-            Unpack::<HeaderView>::unpack(&reader)
+            Into::<HeaderView>::into(reader)
         });
 
         if let Some(cache) = self.cache() {
@@ -98,7 +98,7 @@ pub trait ChainStore: Send + Sync + Sized {
         .take_while(|(key, _)| key.starts_with(prefix))
         .map(|(_key, value)| {
             let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
-            Unpack::<TransactionView>::unpack(&reader)
+            Into::<TransactionView>::into(reader)
         })
         .collect()
     }
@@ -109,7 +109,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .get(COLUMN_BLOCK_HEADER, hash.as_slice())
             .map(|slice| {
                 let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-                Unpack::<HeaderView>::unpack(&reader)
+                Into::<HeaderView>::into(reader)
             })?;
 
         let body = self.get_block_body(hash);
@@ -119,7 +119,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .map(|slice| {
                 let reader =
                     packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
-                Unpack::<UncleBlockVecView>::unpack(&reader)
+                Into::<UncleBlockVecView>::into(reader)
             })
             .expect("block uncles must be stored");
 
@@ -209,7 +209,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
         let ret = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
             let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
-            Unpack::<UncleBlockVecView>::unpack(&reader)
+            Into::<UncleBlockVecView>::into(reader)
         });
 
         if let Some(cache) = self.cache() {
@@ -306,7 +306,7 @@ pub trait ChainStore: Send + Sync + Sized {
         self.get(COLUMN_TRANSACTION_INFO, hash.as_slice())
             .map(|slice| {
                 let reader = packed::TransactionInfoReader::from_slice_should_be_ok(slice.as_ref());
-                Unpack::<TransactionInfo>::unpack(&reader)
+                Into::<TransactionInfo>::into(reader)
             })
     }
 
@@ -444,7 +444,7 @@ pub trait ChainStore: Send + Sync + Sized {
     fn get_uncle_header(&self, hash: &packed::Byte32) -> Option<HeaderView> {
         self.get(COLUMN_UNCLES, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-            Unpack::<HeaderView>::unpack(&reader)
+            Into::<HeaderView>::into(reader)
         })
     }
 
@@ -465,7 +465,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .build();
         self.get(COLUMN_BLOCK_BODY, key.as_slice()).map(|slice| {
             let reader = packed::TransactionViewReader::from_slice_should_be_ok(slice.as_ref());
-            Unpack::<TransactionView>::unpack(&reader)
+            Into::<TransactionView>::into(reader)
         })
     }
 
