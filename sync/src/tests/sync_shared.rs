@@ -329,6 +329,10 @@ fn test_sync_relay_collaboration() {
 
     let (shared, chain) = build_chain(2);
     let sync_shared = Arc::new(shared);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     {
         let sync = Synchronizer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
@@ -360,13 +364,9 @@ fn test_sync_relay_collaboration() {
             )
             .build();
 
+        let nc = Arc::clone(&sync_nc) as Arc<dyn ckb_network::CKBProtocolContext + Sync>;
         // keep header process snapshot on old state, this is the bug reason
-        let header_process = HeadersProcess::new(
-            headers_content.as_reader(),
-            &sync,
-            1.into(),
-            sync_nc.as_ref(),
-        );
+        let header_process = HeadersProcess::new(headers_content.as_reader(), &sync, 1.into(), &nc);
 
         let compact_block_process = CompactBlockProcess::new(
             compact_block_content.as_reader(),
@@ -375,7 +375,7 @@ fn test_sync_relay_collaboration() {
             1.into(),
         );
 
-        let status = compact_block_process.execute();
+        let status = rt.block_on(compact_block_process.execute());
 
         assert!(status.is_ok());
 
@@ -409,6 +409,10 @@ fn test_sync_relay_collaboration2() {
 
     let (shared, chain) = build_chain(2);
     let sync_shared = Arc::new(shared);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     {
         let sync = Synchronizer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
@@ -455,13 +459,9 @@ fn test_sync_relay_collaboration2() {
             )
             .build();
 
+        let nc = sync_nc as Arc<dyn ckb_network::CKBProtocolContext + Sync>;
         // keep header process snapshot on old state, this is the bug reason
-        let header_process = HeadersProcess::new(
-            headers_content.as_reader(),
-            &sync,
-            1.into(),
-            sync_nc.as_ref(),
-        );
+        let header_process = HeadersProcess::new(headers_content.as_reader(), &sync, 1.into(), &nc);
 
         let compact_block_process = CompactBlockProcess::new(
             compact_block_content.as_reader(),
@@ -470,7 +470,7 @@ fn test_sync_relay_collaboration2() {
             1.into(),
         );
 
-        let status = compact_block_process.execute();
+        let status = rt.block_on(compact_block_process.execute());
 
         assert!(status.is_ok());
 
@@ -493,7 +493,7 @@ fn test_sync_relay_collaboration2() {
             1.into(),
         );
 
-        let status = compact_block_process.execute();
+        let status = rt.block_on(compact_block_process.execute());
 
         assert_eq!(status, Status::ok());
 

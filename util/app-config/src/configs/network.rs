@@ -97,6 +97,65 @@ pub struct Config {
     /// Chain synchronization config options.
     #[serde(default)]
     pub sync: SyncConfig,
+
+    /// Proxy related config options
+    #[serde(default)]
+    pub proxy: ProxyConfig,
+
+    /// Onion related config options
+    #[serde(default)]
+    pub onion: OnionConfig,
+}
+
+/// Proxy related config options
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ProxyConfig {
+    // like: socks5://username:password@127.0.0.1:1080
+    pub proxy_url: Option<String>,
+    // use random auth for each proxy connection
+    #[serde(default = "default_proxy_random_auth")]
+    pub proxy_random_auth: bool,
+}
+
+/// By default, let ckb to use random auth
+const fn default_proxy_random_auth() -> bool {
+    true
+}
+
+/// Onion related config options
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OnionConfig {
+    // Automatically create Tor onion service
+    pub listen_on_onion: bool,
+    // Tor server url: like: 127.0.0.1:9050
+    pub onion_server: Option<String>,
+    // The onion service will proxy incoming traffic to `p2p_listen_address`.
+    // If the CKB's peer-to-peer listen address is not set to the default 127.0.0.1
+    // with the port specified in `[network].listen_addresses` for IPv4, you should configure this field.
+    pub p2p_listen_address: Option<String>,
+    // path to store onion private key, default is ./data/network/onion_private_key
+    pub onion_private_key_path: Option<String>,
+    // tor controller url, example: 127.0.0.1:9051
+    #[serde(default = "default_tor_controller")]
+    pub tor_controller: String,
+    // tor controller hashed password
+    pub tor_password: Option<String>,
+    // The external port that the onion service will expose. Default is 8115.
+    // This is the port that will be advertised in the onion address,
+    // while traffic will be forwarded to `p2p_listen_address`.
+    #[serde(default = "default_onion_external_port")]
+    pub onion_external_port: u16,
+}
+
+/// By default, use tor controller on "127.0.0.1:9051"
+fn default_tor_controller() -> String {
+    "127.0.0.1:9051".to_string()
+}
+
+/// By default, use port 8115 for onion service
+fn default_onion_external_port() -> u16 {
+    8115
 }
 
 /// Chain synchronization config options.
@@ -253,6 +312,13 @@ impl Config {
     pub fn secret_key_path(&self) -> PathBuf {
         let mut path = self.path.clone();
         path.push("secret_key");
+        path
+    }
+
+    /// Gets the onion network private key path.
+    pub fn onion_private_key_path(&self) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push("onion_private_key");
         path
     }
 

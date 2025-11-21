@@ -21,6 +21,10 @@ fn test_accept_block() {
     let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
     let other_peer_index: PeerIndex = 101.into();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let tx1 = TransactionBuilder::default().build();
     let tx2 = TransactionBuilder::default()
@@ -54,7 +58,8 @@ fn test_accept_block() {
     let hash = compact_block.header().calc_header_hash();
 
     {
-        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+        let mut pending_compact_blocks =
+            rt.block_on(relayer.shared.state().pending_compact_blocks());
         pending_compact_blocks.insert(
             hash.clone(),
             (
@@ -84,11 +89,12 @@ fn test_accept_block() {
         peer_index,
     );
 
-    assert_eq!(process.execute(), Status::ok());
+    assert_eq!(rt.block_on(process.execute()), Status::ok());
 
-    let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+    let pending_compact_blocks = rt.block_on(relayer.shared.state().pending_compact_blocks());
     assert!(pending_compact_blocks.get(&hash).is_none());
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(
         relayer
             .shared
@@ -101,6 +107,10 @@ fn test_accept_block() {
 fn test_unknown_request() {
     let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let tx1 = TransactionBuilder::default().build();
     let tx2 = TransactionBuilder::default()
@@ -122,7 +132,8 @@ fn test_unknown_request() {
 
     let foo_peer_index: PeerIndex = 998.into();
     {
-        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+        let mut pending_compact_blocks =
+            rt.block_on(relayer.shared.state().pending_compact_blocks());
         pending_compact_blocks.insert(
             compact_block.header().calc_header_hash(),
             (
@@ -147,13 +158,17 @@ fn test_unknown_request() {
         Arc::<MockProtocolContext>::clone(&nc),
         peer_index,
     );
-    assert_eq!(process.execute(), Status::ignored());
+    assert_eq!(rt.block_on(process.execute()), Status::ignored());
 }
 
 #[test]
 fn test_invalid_transaction_root() {
     let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let tx1 = TransactionBuilder::default().build();
     let tx2 = TransactionBuilder::default()
@@ -187,7 +202,8 @@ fn test_invalid_transaction_root() {
     let block_hash = compact_block.header().calc_header_hash();
 
     {
-        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+        let mut pending_compact_blocks =
+            rt.block_on(relayer.shared.state().pending_compact_blocks());
         pending_compact_blocks.insert(
             block_hash.clone(),
             (
@@ -213,7 +229,7 @@ fn test_invalid_transaction_root() {
         peer_index,
     );
     assert_eq!(
-        process.execute(),
+        rt.block_on(process.execute()),
         StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
@@ -221,6 +237,10 @@ fn test_invalid_transaction_root() {
 #[test]
 fn test_collision_and_send_missing_indexes() {
     let (_chain, relayer, _) = build_chain(5);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let active_chain = relayer.shared.active_chain();
     let last_block = relayer
@@ -283,7 +303,8 @@ fn test_collision_and_send_missing_indexes() {
 
     let hash = compact_block.header().calc_header_hash();
     {
-        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+        let mut pending_compact_blocks =
+            rt.block_on(relayer.shared.state().pending_compact_blocks());
         pending_compact_blocks.insert(
             hash.clone(),
             (
@@ -309,7 +330,7 @@ fn test_collision_and_send_missing_indexes() {
         peer_index,
     );
     assert_eq!(
-        process.execute(),
+        rt.block_on(process.execute()),
         StatusCode::CompactBlockMeetsShortIdsCollision.into()
     );
 
@@ -320,12 +341,13 @@ fn test_collision_and_send_missing_indexes() {
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_bytes();
 
-    // send missing indexes messages
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    // send c indexes messages
     assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 
     // update cached missing_index
     {
-        let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+        let pending_compact_blocks = rt.block_on(relayer.shared.state().pending_compact_blocks());
         assert_eq!(
             pending_compact_blocks
                 .get(&hash)
@@ -352,7 +374,7 @@ fn test_collision_and_send_missing_indexes() {
         peer_index,
     );
     assert_eq!(
-        process.execute(),
+        rt.block_on(process.execute()),
         StatusCode::CompactBlockHasUnmatchedTransactionRootWithReconstructedBlock.into(),
     );
 }
@@ -367,6 +389,10 @@ fn test_missing() {
 
     let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     let tx1 = TransactionBuilder::default().build();
     let tx2 = TransactionBuilder::default()
@@ -397,7 +423,8 @@ fn test_missing() {
     // tx3 should be in tx_pool already, but it's not.
     // so the reconstruct block will fail
     {
-        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
+        let mut pending_compact_blocks =
+            rt.block_on(relayer.shared.state().pending_compact_blocks());
         pending_compact_blocks.insert(
             compact_block.header().calc_header_hash(),
             (
@@ -423,7 +450,7 @@ fn test_missing() {
         peer_index,
     );
     assert_eq!(
-        process.execute(),
+        rt.block_on(process.execute()),
         StatusCode::CompactBlockRequiresFreshTransactions.into()
     );
 
@@ -433,6 +460,7 @@ fn test_missing() {
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     // send missing indexes messages
     assert!(nc.has_sent(
         SupportProtocols::RelayV3.protocol_id(),

@@ -1,4 +1,3 @@
-extern crate num_cpus;
 use crate::component::verify_queue::VerifyQueue;
 use crate::service::TxPoolService;
 use ckb_logger::{debug, info};
@@ -138,9 +137,7 @@ impl VerifyMgr {
         command_rx: watch::Receiver<ChunkCommand>,
         signal_exit: CancellationToken,
     ) -> Self {
-        // `num_cpus::get()` will always return at least 1,
-        // don't use too many cpu cores to avoid high workload on the system
-        let worker_num = std::cmp::max(num_cpus::get() / 2, 1);
+        let worker_num = service.tx_pool_config.max_tx_verify_workers;
         let workers: Vec<_> = (0..worker_num)
             .map({
                 let tasks = Arc::clone(&service.verify_queue);

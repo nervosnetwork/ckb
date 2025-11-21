@@ -496,6 +496,22 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        _proto_id: ProtocolId,
+        _target: TargetSession,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    async fn async_quick_filter_broadcast_with_proto(
+        &self,
+        _proto_id: ProtocolId,
+        _target: TargetSession,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
     async fn async_disconnect(
         &self,
         peer_index: PeerIndex,
@@ -553,6 +569,14 @@ impl CKBProtocolContext for DummyNetworkContext {
     }
     fn filter_broadcast(
         &self,
+        _target: TargetSession,
+        _data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
+    fn quick_filter_broadcast_with_proto(
+        &self,
+        _proto_id: ProtocolId,
         _target: TargetSession,
         _data: Bytes,
     ) -> Result<(), ckb_network::Error> {
@@ -637,13 +661,19 @@ fn test_sync_process() {
         .headers(headers.iter().map(|h| h.data()).collect::<Vec<_>>())
         .build();
 
-    let mock_nc = mock_network_context(4);
+    let mock_nc = Arc::new(mock_network_context(4));
     let peer1: PeerIndex = 1.into();
     let peer2: PeerIndex = 2.into();
-    synchronizer1.on_connected(&mock_nc, peer1);
-    synchronizer1.on_connected(&mock_nc, peer2);
+    synchronizer1.on_connected(mock_nc.as_ref(), peer1);
+    synchronizer1.on_connected(mock_nc.as_ref(), peer2);
     assert_eq!(
-        HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc).execute(),
+        HeadersProcess::new(
+            sendheaders.as_reader(),
+            &synchronizer1,
+            peer1,
+            &(Arc::clone(&mock_nc) as Arc<dyn ckb_network::CKBProtocolContext + Sync>)
+        )
+        .execute(),
         Status::ok(),
     );
 
@@ -696,7 +726,13 @@ fn test_sync_process() {
         .headers(headers.iter().map(|h| h.data()).collect::<Vec<_>>())
         .build();
     assert_eq!(
-        HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc).execute(),
+        HeadersProcess::new(
+            sendheaders.as_reader(),
+            &synchronizer1,
+            peer1,
+            &(mock_nc as Arc<dyn ckb_network::CKBProtocolContext + Sync>)
+        )
+        .execute(),
         Status::ok(),
     );
 
@@ -719,7 +755,7 @@ fn test_header_sync_timeout() {
 
     let (_chain, _, synchronizer) = start_chain(None);
 
-    let network_context = mock_network_context(5);
+    let network_context = Arc::new(mock_network_context(5));
 
     _faketime_guard.set_faketime(MAX_TIP_AGE * 2);
     assert!(
@@ -757,7 +793,7 @@ fn test_header_sync_timeout() {
         peers.state.insert(2.into(), state_2);
         peers.state.insert(3.into(), state_3);
     }
-    synchronizer.eviction(&network_context);
+    synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
     let disconnected = network_context.disconnected.lock();
     assert_eq!(
         disconnected.deref(),
@@ -781,7 +817,7 @@ fn test_chain_sync_timeout() {
 
     assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
 
-    let network_context = mock_network_context(7);
+    let network_context = Arc::new(mock_network_context(7));
     let peers = synchronizer.peers();
     //6 peers do not trigger header sync timeout
     let not_timeout = HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
@@ -844,7 +880,7 @@ fn test_chain_sync_timeout() {
             .n_sync_started()
             .fetch_add(1, Ordering::AcqRel);
     }
-    synchronizer.eviction(&network_context);
+    synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
     {
         // Protected peer 0 still in sync state
         assert!(
@@ -924,7 +960,7 @@ fn test_chain_sync_timeout() {
         }
     }
     _faketime_guard.set_faketime(CHAIN_SYNC_TIMEOUT + 1);
-    synchronizer.eviction(&network_context);
+    synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
     {
         // No evidence yet that our peer has synced to a chain with work equal to that
         // of our tip, when we first detected it was behind. Send a single getheaders
@@ -940,7 +976,7 @@ fn test_chain_sync_timeout() {
         );
     }
     _faketime_guard.set_faketime(unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1);
-    synchronizer.eviction(&network_context);
+    synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
     {
         // Protected peer 0 chain_sync timeout
         assert!(
@@ -984,7 +1020,7 @@ fn test_n_sync_started() {
 
     assert_eq!(shared.snapshot().total_difficulty(), &U256::from(3u64));
 
-    let network_context = mock_network_context(1);
+    let network_context = Arc::new(mock_network_context(1));
     let peers = synchronizer.peers();
     //6 peers do not trigger header sync timeout
     let not_timeout = HeadersSyncController::new(MAX_TIP_AGE * 2, 0, MAX_TIP_AGE * 2, 0, false);
@@ -1012,11 +1048,11 @@ fn test_n_sync_started() {
             .n_sync_started()
             .fetch_add(1, Ordering::AcqRel);
     }
-    synchronizer.eviction(&network_context);
+    synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
 
     assert!({ network_context.disconnected.lock().is_empty() });
     _faketime_guard.set_faketime(CHAIN_SYNC_TIMEOUT + 1);
-    synchronizer.eviction(&network_context);
+    synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
     {
         assert!({ network_context.disconnected.lock().is_empty() });
         assert_eq!(
@@ -1032,7 +1068,7 @@ fn test_n_sync_started() {
 
     _faketime_guard.set_faketime(unix_time_as_millis() + EVICTION_HEADERS_RESPONSE_TIME + 1);
 
-    synchronizer.eviction(&network_context);
+    synchronizer.eviction(&(network_context as Arc<dyn CKBProtocolContext + Sync>));
     {
         // Protected peer 0 chain_sync timeout
         assert!(
@@ -1123,18 +1159,23 @@ fn test_fix_last_common_header() {
             .unwrap();
     }
     {
-        let nc = mock_network_context(1);
+        let nc = Arc::new(mock_network_context(1));
         let peer: PeerIndex = 0.into();
         let fork_headers = (1..=fork_tip_number)
             .map(|number| graph.get(&f_(number)).cloned().unwrap())
             .map(|block| block.header().data())
             .collect::<Vec<_>>();
         let sendheaders = SendHeadersBuilder::default().headers(fork_headers).build();
-        synchronizer.on_connected(&nc, peer);
+        synchronizer.on_connected(nc.as_ref(), peer);
         assert!(
-            HeadersProcess::new(sendheaders.as_reader(), &synchronizer, peer, &nc)
-                .execute()
-                .is_ok()
+            HeadersProcess::new(
+                sendheaders.as_reader(),
+                &synchronizer,
+                peer,
+                &(nc as Arc<dyn ckb_network::CKBProtocolContext + Sync>)
+            )
+            .execute()
+            .is_ok()
         );
     }
 
@@ -1207,7 +1248,7 @@ fn get_blocks_process() {
         .block_hashes(vec![genesis_hash])
         .build();
 
-    let nc = mock_network_context(1);
+    let nc = Arc::new(mock_network_context(1)) as Arc<dyn CKBProtocolContext + Sync + 'static>;
     let peer: PeerIndex = 1.into();
     let process = GetBlocksProcess::new(message_with_genesis.as_reader(), &synchronizer, peer, &nc);
     assert_eq!(
@@ -1220,7 +1261,7 @@ fn get_blocks_process() {
         .block_hashes(vec![hash.clone(), hash])
         .build();
 
-    let nc = mock_network_context(1);
+    let nc = Arc::new(mock_network_context(1)) as Arc<dyn CKBProtocolContext + Sync + 'static>;
     let peer: PeerIndex = 1.into();
     let process = GetBlocksProcess::new(message_with_dup.as_reader(), &synchronizer, peer, &nc);
     assert_eq!(

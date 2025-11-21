@@ -4,6 +4,7 @@ use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*};
+use std::sync::Arc;
 
 use crate::{LightClientProtocol, Status, StatusCode, constant};
 
@@ -11,7 +12,7 @@ pub(crate) struct GetBlocksProofProcess<'a> {
     message: packed::GetBlocksProofReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
-    nc: &'a dyn CKBProtocolContext,
+    nc: &'a Arc<dyn CKBProtocolContext + Sync>,
 }
 
 impl<'a> GetBlocksProofProcess<'a> {
@@ -19,7 +20,7 @@ impl<'a> GetBlocksProofProcess<'a> {
         message: packed::GetBlocksProofReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
+        nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
         Self {
             message,
@@ -29,7 +30,7 @@ impl<'a> GetBlocksProofProcess<'a> {
         }
     }
 
-    pub(crate) fn execute(self) -> Status {
+    pub(crate) async fn execute(self) -> Status {
         if self.message.block_hashes().is_empty() {
             return StatusCode::MalformedProtocolMessage.with_context("no block");
         }
@@ -44,7 +45,8 @@ impl<'a> GetBlocksProofProcess<'a> {
         if !snapshot.is_main_chain(&last_block_hash) {
             return self
                 .protocol
-                .reply_tip_state::<packed::SendBlocksProof>(self.peer, self.nc);
+                .reply_tip_state::<packed::SendBlocksProof>(self.peer, self.nc)
+                .await;
         }
         let last_block = snapshot
             .get_block(&last_block_hash)
@@ -99,13 +101,15 @@ impl<'a> GetBlocksProofProcess<'a> {
         );
         let missing_items = missing.into();
 
-        self.protocol.reply_proof::<packed::SendBlocksProofV1>(
-            self.peer,
-            self.nc,
-            &last_block,
-            positions,
-            proved_items,
-            missing_items,
-        )
+        self.protocol
+            .reply_proof::<packed::SendBlocksProofV1>(
+                self.peer,
+                self.nc,
+                &last_block,
+                positions,
+                proved_items,
+                missing_items,
+            )
+            .await
     }
 }

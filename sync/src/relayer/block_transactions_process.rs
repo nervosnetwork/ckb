@@ -1,7 +1,7 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::utils::send_message_to;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode, attempt};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
@@ -42,7 +42,7 @@ impl<'a> BlockTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let active_chain = shared.active_chain();
         let block_transactions = self.message.to_entity();
@@ -65,6 +65,7 @@ impl<'a> BlockTransactionsProcess<'a> {
         if let Entry::Occupied(mut pending) = shared
             .state()
             .pending_compact_blocks()
+            .await
             .entry(block_hash.clone())
         {
             let (compact_block, peers_map, _) = pending.get_mut();
@@ -87,13 +88,16 @@ impl<'a> BlockTransactionsProcess<'a> {
                     &received_uncles,
                 ));
 
-                let ret = self.relayer.reconstruct_block(
-                    &active_chain,
-                    compact_block,
-                    received_transactions,
-                    expected_uncle_indexes,
-                    &received_uncles,
-                );
+                let ret = self
+                    .relayer
+                    .reconstruct_block(
+                        &active_chain,
+                        compact_block,
+                        received_transactions,
+                        expected_uncle_indexes,
+                        &received_uncles,
+                    )
+                    .await;
 
                 // Request proposal
                 {
@@ -102,7 +106,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                         .flat_map(|u| u.data().proposals().into_iter())
                         .collect();
                     self.relayer.request_proposal_txs(
-                        self.nc.as_ref(),
+                        &self.nc,
                         self.peer,
                         (
                             compact_block.header().into_view().number(),
@@ -167,7 +171,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
 
-                attempt!(send_message_to(self.nc.as_ref(), self.peer, &message));
+                let _ignore = async_send_message_to(&self.nc, self.peer, &message).await;
 
                 let _ignore_prev_value =
                     mem::replace(expected_transaction_indexes, missing_transactions);

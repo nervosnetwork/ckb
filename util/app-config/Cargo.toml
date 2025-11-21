@@ -13,6 +13,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 toml.workspace = true
 path-clean.workspace = true
+num_cpus.workspace = true
+
 ckb-logger.workspace = true
 ckb-logger-config.workspace = true
 ckb-metrics-config.workspace = true

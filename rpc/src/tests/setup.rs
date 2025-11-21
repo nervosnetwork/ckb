@@ -226,7 +226,12 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             vec![],
         )
         .enable_debug()
-        .enable_alert(alert_verifier, alert_notifier, network_controller);
+        .enable_alert(
+            alert_verifier,
+            alert_notifier,
+            network_controller,
+            shared.clone(),
+        );
 
     let io_handler = builder.build();
     let shared_clone = shared.clone();

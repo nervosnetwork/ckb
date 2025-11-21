@@ -1,4 +1,7 @@
-use crate::{FAST_INDEX, LOW_INDEX, NORMAL_INDEX, Status, StatusCode, TIME_TRACE_SIZE};
+use crate::{
+    FAST_INDEX, LOW_INDEX, NORMAL_INDEX, Status, StatusCode, TIME_TRACE_SIZE,
+    utils::async_send_message,
+};
 use ckb_app_config::SyncConfig;
 #[cfg(test)]
 use ckb_chain::VerifyResult;
@@ -41,8 +44,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use std::{cmp, fmt, iter};
-
-use crate::utils::send_message;
 
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
@@ -1018,7 +1019,7 @@ impl SyncShared {
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
             pending_get_block_proposals: DashMap::new(),
-            pending_compact_blocks: Mutex::new(HashMap::default()),
+            pending_compact_blocks: tokio::sync::Mutex::new(HashMap::default()),
             inflight_proposals: DashMap::new(),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
@@ -1321,7 +1322,7 @@ pub struct SyncState {
     /* Cached items which we had received but not completely process */
     pending_get_block_proposals: DashMap<packed::ProposalShortId, HashSet<PeerIndex>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
-    pending_compact_blocks: Mutex<PendingCompactBlockMap>,
+    pending_compact_blocks: tokio::sync::Mutex<PendingCompactBlockMap>,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: DashMap<packed::ProposalShortId, BlockNumber>,
@@ -1352,7 +1353,7 @@ impl SyncState {
     }
 
     pub fn compare_with_pending_compact(&self, hash: &Byte32, now: u64) -> bool {
-        let pending = self.pending_compact_blocks.lock();
+        let pending = self.pending_compact_blocks.blocking_lock();
         // After compact block request 2s or pending is empty, sync can create tasks
         pending.is_empty()
             || pending
@@ -1361,8 +1362,10 @@ impl SyncState {
                 .unwrap_or(true)
     }
 
-    pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {
-        self.pending_compact_blocks.lock()
+    pub async fn pending_compact_blocks(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, PendingCompactBlockMap> {
+        self.pending_compact_blocks.lock().await
     }
 
     pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {
@@ -1911,7 +1914,7 @@ impl ActiveChain {
 
     pub fn send_getheaders_to_peer(
         &self,
-        nc: &dyn CKBProtocolContext,
+        nc: &Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         block_number_and_hash: BlockNumberAndHash,
     ) {
@@ -1950,7 +1953,10 @@ impl ActiveChain {
             .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        let _status = send_message(SupportProtocols::Sync.protocol_id(), nc, peer, &message);
+        let nc = Arc::clone(nc);
+        self.shared().async_handle().spawn(async move {
+            async_send_message(SupportProtocols::Sync.protocol_id(), &nc, peer, &message).await
+        });
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {

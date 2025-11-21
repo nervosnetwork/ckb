@@ -249,6 +249,22 @@ impl CKBProtocolContext for TestNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.quick_filter_broadcast(target, data)
     }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.quick_filter_broadcast_with_proto(proto_id, target, data)
+    }
+    async fn async_quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        self.quick_filter_broadcast_with_proto(proto_id, target, data)
+    }
     async fn async_future_task(
         &self,
         _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
@@ -315,6 +331,42 @@ impl CKBProtocolContext for TestNetworkContext {
         data: Bytes,
     ) -> Result<(), ckb_network::Error> {
         self.filter_broadcast(target, data)
+    }
+
+    fn quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
+        match target {
+            TargetSession::Single(peer) => self.send_message(proto_id, peer, data).unwrap(),
+            TargetSession::Filter(mut peers) => {
+                for peer in self
+                    .senders
+                    .keys()
+                    .filter_map(|index| match index {
+                        Index::Msg(_, id) => Some(id),
+                        _ => None,
+                    })
+                    .copied()
+                    .collect::<HashSet<PeerIndex>>()
+                {
+                    if peers(&peer) {
+                        self.send_message(proto_id, peer, data.clone()).unwrap();
+                    }
+                }
+            }
+            TargetSession::Multi(iter) => {
+                for peer in iter {
+                    self.send_message(proto_id, peer, data.clone()).unwrap();
+                }
+            }
+            TargetSession::All => {
+                unimplemented!();
+            }
+        }
+        Ok(())
     }
     fn send_message(
         &self,
