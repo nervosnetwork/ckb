@@ -219,16 +219,14 @@ impl Node {
     }
 
     pub fn get_onion_public_addr(&self) -> Option<String> {
-        let onion_public_addr = self
-            .rpc_client()
+        self.rpc_client()
             .local_node_info()
             .addresses
             .iter()
             .filter(|addr| addr.address.contains("/onion3/"))
             .collect::<Vec<_>>()
             .first()
-            .map(|addr| addr.address.clone());
-        onion_public_addr
+            .map(|addr| addr.address.clone())
     }
 
     pub fn p2p_address(&self) -> String {

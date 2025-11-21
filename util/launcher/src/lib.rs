@@ -318,13 +318,12 @@ impl Launcher {
                                 let mut iter = addr.iter();
                                 if let (Some(Protocol::Ip4(ip)), Some(Protocol::Tcp(port))) =
                                     (iter.next(), iter.next())
+                                    && (ip == Ipv4Addr::new(0, 0, 0, 0)
+                                        || ip == Ipv4Addr::new(127, 0, 0, 1))
                                 {
-                                    if ip == Ipv4Addr::new(0, 0, 0, 0)
-                                        || ip == Ipv4Addr::new(127, 0, 0, 1)
-                                    {
-                                        return Some(port);
-                                    }
+                                    return Some(port);
                                 }
+
                                 None
                             })
                     } {
