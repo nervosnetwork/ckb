@@ -286,7 +286,10 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
                 .expect("has default value")
                 .to_string()
         } else {
-            matches.get_one::<String>("spec").unwrap().to_string()
+            matches
+                .get_one::<String>("spec")
+                .expect("spec argument must have a value when present")
+                .to_string()
         };
         let rpc_port = matches
             .get_one::<String>(cli::ARG_RPC_PORT)
