@@ -103,13 +103,6 @@ impl<'a> HeadersProcess<'a> {
         true
     }
 
-    pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
-        let shared: &SyncShared = self.synchronizer.shared();
-        let verifier = HeaderVerifier::new(shared, shared.consensus());
-        let acceptor = HeaderAcceptor::new(first, self.peer, verifier, self.active_chain.clone());
-        acceptor.accept()
-    }
-
     fn debug(&self) {
         if log_enabled!(Level::Debug) {
             // Regain the updated best known
@@ -179,46 +172,24 @@ impl<'a> HeadersProcess<'a> {
             return StatusCode::HeadersIsInvalid.with_context("not continuous");
         }
 
-        let result = self.accept_first(&headers[0]);
-        match result.state {
-            ValidationState::Invalid => {
-                debug!(
-                    "HeadersProcess accept_first result is invalid, error = {:?}, first header = {:?}",
-                    result.error, headers[0]
-                );
-                return StatusCode::HeadersIsInvalid
-                    .with_context(format!("accept first header {:?}", headers[0]));
-            }
-            ValidationState::TemporaryInvalid => {
-                debug!(
-                    "HeadersProcess accept_first result is temporary invalid, first header = {:?}",
-                    headers[0]
-                );
-                return Status::ok();
-            }
-            ValidationState::Valid => {
-                // Valid, do nothing
-                debug!(
-                    "HeadersProcess accept_first result is valid, first header = {}-{}",
-                    headers[0].number(),
-                    headers[0].hash(),
-                );
-            }
-        };
-
         // Batch verify all headers using BatchHeaderFieldsProvider
         // This allows headers to reference each other without being in DB yet
-        let batch_provider = BatchHeaderFieldsProvider::new(shared, &headers[1..]);
+        let batch_provider = BatchHeaderFieldsProvider::new(shared, &headers);
         let mut headers_to_insert = Vec::new();
 
-        for (idx, header) in headers.iter().enumerate().skip(1) {
+        for (idx, header) in headers.iter().enumerate() {
+            // For the first header, use shared data loader; for others use batch provider
+            let verifier = if idx == 0 {
+                HeaderVerifier::new(shared, consensus)
+            } else {
+                HeaderVerifier::new(&batch_provider, consensus)
+            };
             // Check if already valid (skip re-validation)
             let status = self.active_chain.get_block_status(&header.hash());
             if status.contains(BlockStatus::HEADER_VALID) {
                 continue;
             }
 
-            let verifier = HeaderVerifier::new(&batch_provider, consensus);
             let acceptor =
                 HeaderAcceptor::new(header, self.peer, verifier, self.active_chain.clone());
             let (result, already_valid) = acceptor.validate();
