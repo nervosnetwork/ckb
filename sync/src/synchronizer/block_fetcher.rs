@@ -153,25 +153,37 @@ impl BlockFetcher {
                 return None;
             }
         };
-        if !best_known.is_better_than(self.active_chain.total_difficulty()) {
-            // Advancing this peer's last_common_header is unnecessary for block-sync mechanism.
-            // However, RPC `get_peers`, returns peers information which includes
-            // last_common_header, is expected to provide a more realistic picture. Hence here we
-            // specially advance this peer's last_common_header at the case of both us on the same
-            // active chain.
-            if self.active_chain.is_main_chain(&best_known.hash()) {
-                self.sync_shared
-                    .state()
-                    .peers()
-                    .set_last_common_header(self.peer, best_known.number_and_hash());
-            }
+        // if !best_known.is_better_than(self.active_chain.total_difficulty()) {
+        //     // Advancing this peer's last_common_header is unnecessary for block-sync mechanism.
+        //     // However, RPC `get_peers`, returns peers information which includes
+        //     // last_common_header, is expected to provide a more realistic picture. Hence here we
+        //     // specially advance this peer's last_common_header at the case of both us on the same
+        //     // active chain.
+        //     if self.active_chain.is_main_chain(&best_known.hash()) {
+        //         self.sync_shared
+        //             .state()
+        //             .peers()
+        //             .set_last_common_header(self.peer, best_known.number_and_hash());
+        //     }
+        //     debug!(
+        //         "Peer best_known {}-{} is not better than active_chain total_difficulty",
+        //         best_known.number(),
+        //         best_known.hash(),
+        //     );
 
-            return None;
-        }
+        //     return None;
+        // }
 
         let best_known = best_known.number_and_hash();
         let last_common = self.update_last_common_header(&best_known)?;
         if last_common == best_known {
+            debug!(
+                "Peer {}'s best_known: {} equals to last_common: {}, won't request block from this peer",
+                self.peer,
+                best_known.number(),
+                last_common.number()
+            );
+
             return None;
         }
 
