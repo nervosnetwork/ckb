@@ -178,12 +178,8 @@ impl<'a> HeadersProcess<'a> {
         let mut headers_to_insert = Vec::new();
 
         for (idx, header) in headers.iter().enumerate() {
-            // For the first header, use shared data loader; for others use batch provider
-            let verifier = if idx == 0 {
-                HeaderVerifier::new(shared, consensus)
-            } else {
-                HeaderVerifier::new(&batch_provider, consensus)
-            };
+            // Use batch provider for all headers - it falls back to shared for parent lookups
+            let verifier = HeaderVerifier::new(&batch_provider, consensus);
             // Check if already valid (skip re-validation)
             let status = self.active_chain.get_block_status(&header.hash());
             if status.contains(BlockStatus::HEADER_VALID) {
