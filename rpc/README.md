@@ -5560,7 +5560,7 @@ Consecutive block number starting from 0.
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](type.Uint64.html#examples).
 
 ### Type `BlockResponse`
-The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
+The wrapper represents the response of `get_block` | `get_block_by_number`, and returns a Block with cycles.
 
 ### Type `BlockTemplate`
 A block template for miners.
@@ -5966,7 +5966,7 @@ It's an enum value from one of:
 Use the cell itself as the dep cell.
   - dep_group : Type "dep_group".
 
-The cell is a dep group which members are cells. These members are used as dep cells instead of the group itself.
+The cell is a dep group whose members are cells. These members are used as dep cells instead of the group itself.
 
 The dep group stores the array of `OutPoint`s serialized via molecule in the cell data. Each `OutPoint` points to one cell member.
 
@@ -6111,7 +6111,7 @@ CKB adjusts difficulty based on epochs.
 
 * `start_number`: [`Uint64`](#type-uint64) - The block number of the first block in the epoch.
 
-    It also equals the total count of blocks in all the epochs which epoch number is less than this epoch.
+    It also equals the total count of blocks in all the epochs whose epoch number is less than this epoch.
 
 ### Type `EstimateCycles`
 Response result of the RPC method `estimate_cycles`.
@@ -6717,7 +6717,7 @@ An enum value from one of:
   - `LowFeeRate` :  Transaction fee lower than config
   - `ExceededMaximumAncestorsCount` :  Transaction exceeded maximum ancestors count limit
   - `ExceededTransactionSizeLimit` :  Transaction exceeded maximum size limit
-  - `Full` :  Transaction are replaced because the pool is full
+  - `Full` :  Transactions are replaced because the pool is full
   - `Duplicated` :  Transaction already exists in transaction_pool
   - `Malformed` :  Malformed transaction
   - `DeclaredWrongCycles` :  Declared wrong cycles
@@ -6994,10 +6994,10 @@ Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/
 The hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.
 
 It's an enum value from one of:
-  - data : Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+  - data : Type "data" matches script code via cell data hash, and runs the script code in v0 CKB VM
   - type : Type "type" matches script code via cell type script hash.
-  - data1 : Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
-  - data2 : Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+  - data1 : Type "data1" matches script code via cell data hash, and runs the script code in v1 CKB VM
+  - data2 : Type "data2" matches script code via cell data hash, and runs the script code in v2 CKB VM
 
 ### Type `SerializedBlock`
 This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.
@@ -7322,7 +7322,7 @@ Transaction pool information.
 
 * `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold.
 
-    The pool reject to replace for transactions which fee rate is below this threshold. if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
+    The pool rejects to replace transactions whose fee rate is below this threshold. if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
