@@ -1,4 +1,4 @@
-use crate::utils::send_message_to;
+use crate::utils::async_send_message_to;
 use ckb_constant::sync::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, warn};
 use ckb_network::async_trait;
@@ -119,7 +119,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
             let now = ckb_systemtime::unix_time_as_millis();
             let time = packed::Time::new_builder().timestamp(now).build();
-            let _status = send_message_to(nc.as_ref(), peer_index, &time);
+            let _status = async_send_message_to(&nc, peer_index, &time).await;
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::relayer::{MAX_RELAY_TXS_BYTES_PER_BATCH, MAX_RELAY_TXS_NUM_PER_BATCH, Relayer};
-use crate::utils::send_message_to;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode, attempt};
 use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub struct GetTransactionsProcess<'a> {
     message: packed::GetRelayTransactionsReader<'a>,
     relayer: &'a Relayer,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -18,7 +18,7 @@ impl<'a> GetTransactionsProcess<'a> {
     pub fn new(
         message: packed::GetRelayTransactionsReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         GetTransactionsProcess {
@@ -29,7 +29,7 @@ impl<'a> GetTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let message_len = self.message.tx_hashes().len();
         {
             if message_len > MAX_RELAY_TXS_NUM_PER_BATCH {
@@ -60,7 +60,7 @@ impl<'a> GetTransactionsProcess<'a> {
                 return StatusCode::RequestDuplicate.with_context("Request duplicate transaction");
             }
 
-            let fetch_txs_with_cycles = tx_pool.fetch_txs_with_cycles(tx_hashes_set);
+            let fetch_txs_with_cycles = tx_pool.fetch_txs_with_cycles(tx_hashes_set).await;
 
             if let Err(e) = fetch_txs_with_cycles {
                 debug_target!(
@@ -88,7 +88,8 @@ impl<'a> GetTransactionsProcess<'a> {
             let mut relay_txs = Vec::new();
             for tx in transactions {
                 if relay_bytes + tx.total_size() > MAX_RELAY_TXS_BYTES_PER_BATCH {
-                    self.send_relay_transactions(std::mem::take(&mut relay_txs));
+                    self.send_relay_transactions(std::mem::take(&mut relay_txs))
+                        .await;
                     relay_bytes = tx.total_size();
                 } else {
                     relay_bytes += tx.total_size();
@@ -96,13 +97,13 @@ impl<'a> GetTransactionsProcess<'a> {
                 relay_txs.push(tx);
             }
             if !relay_txs.is_empty() {
-                attempt!(self.send_relay_transactions(relay_txs));
+                attempt!(self.send_relay_transactions(relay_txs).await);
             }
         }
         Status::ok()
     }
 
-    fn send_relay_transactions(&self, txs: Vec<packed::RelayTransaction>) -> Status {
+    async fn send_relay_transactions(&self, txs: Vec<packed::RelayTransaction>) -> Status {
         let message = packed::RelayMessage::new_builder()
             .set(
                 packed::RelayTransactions::new_builder()
@@ -110,6 +111,6 @@ impl<'a> GetTransactionsProcess<'a> {
                     .build(),
             )
             .build();
-        send_message_to(self.nc.as_ref(), self.peer, &message)
+        async_send_message_to(&self.nc, self.peer, &message).await
     }
 }

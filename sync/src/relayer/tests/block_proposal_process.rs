@@ -24,8 +24,12 @@ fn test_no_unknown() {
         )
         .build();
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let process = BlockProposalProcess::new(content.as_reader(), &relayer);
-    assert_eq!(process.execute(), Status::ignored());
+    assert_eq!(rt.block_on(process.execute()), Status::ignored());
 }
 
 #[test]
@@ -44,8 +48,12 @@ fn test_no_asked() {
         )
         .build();
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let process = BlockProposalProcess::new(content.as_reader(), &relayer);
-    assert_eq!(process.execute(), Status::ignored());
+    assert_eq!(rt.block_on(process.execute()), Status::ignored());
 
     let known = relayer.shared.state().already_known_tx(&transaction.hash());
     assert!(!known);
@@ -78,8 +86,12 @@ fn test_ok() {
         )
         .build();
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let process = BlockProposalProcess::new(content.as_reader(), &relayer);
-    assert_eq!(process.execute(), Status::ok());
+    assert_eq!(rt.block_on(process.execute()), Status::ok());
 
     let known = relayer.shared.state().already_known_tx(&transaction.hash());
     assert!(known);
@@ -112,6 +124,10 @@ fn test_clear_expired_inflight_proposals() {
         )
         .build();
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let process = BlockProposalProcess::new(content.as_reader(), &relayer);
-    assert_eq!(process.execute(), Status::ignored());
+    assert_eq!(rt.block_on(process.execute()), Status::ignored());
 }

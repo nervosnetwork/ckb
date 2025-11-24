@@ -84,6 +84,20 @@ pub trait CKBProtocolContext: Send {
     /// Filter broadcast message
     async fn async_filter_broadcast(&self, target: TargetSession, data: Bytes)
     -> Result<(), Error>;
+    /// Filter broadcast message through queue and specify protocol id
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error>;
+    /// Filter broadcast message through quick queue and specify protocol id
+    async fn async_quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error>;
     /// Disconnect session
     async fn async_disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     /// Send message through quick queue
@@ -97,6 +111,13 @@ pub trait CKBProtocolContext: Send {
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
     /// Filter broadcast message through quick queue
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
+    /// Filter broadcast message through quick queue and specify protocol id
+    fn quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error>;
     /// spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
     fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error>;
     /// Send message
@@ -498,6 +519,28 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .await?;
         Ok(())
     }
+    async fn async_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.async_p2p_control
+            .filter_broadcast(target, proto_id, data)
+            .await?;
+        Ok(())
+    }
+    async fn async_quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.async_p2p_control
+            .quick_filter_broadcast(target, proto_id, data)
+            .await?;
+        Ok(())
+    }
     async fn async_disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error> {
         debug!("Disconnect peer: {}, message: {}", peer_index, message);
         async_disconnect_with_message(&self.async_p2p_control, peer_index, message).await?;
@@ -533,6 +576,16 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error> {
         self.p2p_control
             .quick_filter_broadcast(target, self.proto_id, data)?;
+        Ok(())
+    }
+    fn quick_filter_broadcast_with_proto(
+        &self,
+        proto_id: ProtocolId,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.p2p_control
+            .quick_filter_broadcast(target, proto_id, data)?;
         Ok(())
     }
     fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error> {
