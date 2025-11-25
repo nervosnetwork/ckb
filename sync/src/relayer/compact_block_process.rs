@@ -110,7 +110,7 @@ impl<'a> CompactBlockProcess<'a> {
                 // use epoch as the judgment condition because we accept
                 // all block in current epoch as uncle block
                 pending_compact_blocks.retain(|_, (v, _, _)| {
-                    Unpack::<EpochNumberWithFraction>::unpack(&v.header().as_reader().raw().epoch())
+                    Into::<EpochNumberWithFraction>::into(v.header().as_reader().raw().epoch())
                         .number()
                         >= block.epoch().number()
                 });
