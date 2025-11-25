@@ -162,6 +162,7 @@ fn test_unknow_parent() {
     let message = packed::SyncMessage::new_builder().set(content).build();
     let data = message.as_bytes();
 
+    std::thread::sleep(std::time::Duration::from_millis(100));
     // send_getheaders_to_peer
     assert!(nc.has_sent(SupportProtocols::Sync.protocol_id(), peer_index, data));
 }
