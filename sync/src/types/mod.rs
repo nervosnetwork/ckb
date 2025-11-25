@@ -21,7 +21,7 @@ use ckb_shared::{
     Snapshot,
     block_status::BlockStatus,
     shared::Shared,
-    types::{HeaderIndex, HeaderIndexView, SHRINK_THRESHOLD},
+    types::{HeaderIndex, SHRINK_THRESHOLD},
 };
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
@@ -167,9 +167,9 @@ impl HeadersSyncController {
         }
     }
 
-    pub(crate) fn from_header(better_tip_header: &HeaderIndexView) -> Self {
+    pub(crate) fn from_header(_better_tip_header: &HeaderIndex, header: &core::HeaderView) -> Self {
         let started_ts = unix_time_as_millis();
-        let started_tip_ts = better_tip_header.timestamp();
+        let started_tip_ts = header.timestamp();
         Self {
             started_ts,
             started_tip_ts,
@@ -873,7 +873,13 @@ impl Peers {
     pub fn may_set_best_known_header(&self, peer: PeerIndex, header_index: HeaderIndex) {
         if let Some(mut peer_state) = self.state.get_mut(&peer) {
             if let Some(ref known) = peer_state.best_known_header {
-                if header_index.is_better_chain(known) {
+                // If the new header has zero total_difficulty, compare by block number only
+                // This happens during IBD when processing unknown_header_list
+                if header_index.total_difficulty().is_zero() {
+                    if header_index.number() > known.number() {
+                        peer_state.best_known_header = Some(header_index);
+                    }
+                } else if header_index.is_better_chain(known) {
                     peer_state.best_known_header = Some(header_index);
                 }
             } else {
@@ -1007,7 +1013,11 @@ impl SyncShared {
                 snapshot.tip_header().to_owned(),
             )
         };
-        let shared_best_header = RwLock::new((header, total_difficulty).into());
+        let shared_best_header = RwLock::new(HeaderIndex::new(
+            header.number(),
+            header.hash(),
+            total_difficulty,
+        ));
         info!(
             "header_map.memory_limit {}",
             sync_config.header_map.memory_limit
@@ -1015,6 +1025,7 @@ impl SyncShared {
 
         let state = SyncState {
             shared_best_header,
+            header_difficulty_cache: RwLock::new(LruCache::new(HEADER_DIFFICULTY_CACHE_SIZE)),
             tx_filter: Mutex::new(TtlFilter::default()),
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
             peers: Peers::default(),
@@ -1073,16 +1084,28 @@ impl SyncShared {
     }
 
     pub(crate) fn accept_remote_block(&self, chain: &ChainController, remote_block: RemoteBlock) {
+        let block_number = remote_block.block.number();
+        let block_hash = remote_block.block.header().hash();
+        debug!(
+            "accept_remote_block {}-{}",
+            block_number,
+            block_hash
+        );
         {
             let entry = self
                 .shared()
                 .block_status_map()
-                .entry(remote_block.block.header().hash());
+                .entry(block_hash.clone());
             if let dashmap::mapref::entry::Entry::Vacant(entry) = entry {
                 entry.insert(BlockStatus::BLOCK_RECEIVED);
             }
         }
 
+        debug!(
+            "Calling chain.asynchronous_process_remote_block for {}-{}",
+            block_number,
+            block_hash
+        );
         chain.asynchronous_process_remote_block(remote_block)
     }
 
@@ -1092,71 +1115,140 @@ impl SyncShared {
     // Update the shared_best_header if need
     // Update the peer's best_known_header
     pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView) {
-        let tip_number = self.active_chain().tip_number();
-        let store_first = tip_number >= header.number();
-        // We don't use header#parent_hash clone here because it will hold the arc counter of the SendHeaders message
-        // which will cause the 2000 headers to be held in memory for a long time
-        let parent_hash = Byte32::from_slice(header.data().raw().parent_hash().as_slice())
-            .expect("checked slice length");
-        let parent_header_index = self
-            .get_header_index_view(&parent_hash, store_first)
-            .expect("parent should be verified");
-        let mut header_view = HeaderIndexView::new(
-            header.hash(),
-            header.number(),
-            header.epoch(),
-            header.timestamp(),
-            parent_hash,
-            parent_header_index.total_difficulty() + header.difficulty(),
-        );
+        let store = self.store();
+        let hash = header.hash();
 
-        let snapshot = Arc::clone(&self.shared.snapshot());
-        header_view.build_skip(
-            tip_number,
-            |hash, store_first| self.get_header_index_view(hash, store_first),
-            |number, current| {
-                // shortcut to return an ancestor block
-                if current.number <= snapshot.tip_number() && snapshot.is_main_chain(&current.hash)
-                {
-                    snapshot
-                        .get_block_hash(number)
-                        .and_then(|hash| self.get_header_index_view(&hash, true))
-                } else {
-                    None
-                }
-            },
-        );
-        self.shared.header_map().insert(header_view.clone());
+        // Compute total_difficulty for this header
+        let total_difficulty = {
+            let parent_hash = header.parent_hash();
+
+            // Fast path: If parent is shared_best_header
+            let shared_best = self.state.shared_best_header_ref();
+            if shared_best.hash() == parent_hash {
+                shared_best.total_difficulty() + header.difficulty()
+            } else {
+                drop(shared_best);
+                // Get parent's total_difficulty
+                let parent_header = store
+                    .get_block_header(&parent_hash)
+                    .expect("parent should exist");
+                let parent_td = self
+                    .state
+                    .get_header_total_difficulty(store, &parent_hash, &parent_header)
+                    .expect("parent total_difficulty should be available");
+                parent_td + header.difficulty()
+            }
+        };
+
+        // Write header directly to ChainDB COLUMN_BLOCK_HEADER
+        let db_txn = store.begin_transaction();
+        db_txn
+            .insert_header(header)
+            .expect("insert header should be ok");
+        db_txn.commit().expect("commit should be ok");
+
+        // Cache the total_difficulty for this header
+        self.state
+            .cache_header_difficulty(hash.clone(), total_difficulty.clone());
+
+        let header_index = HeaderIndex::new(header.number(), hash, total_difficulty);
+
         self.state
             .peers()
-            .may_set_best_known_header(peer, header_view.as_header_index());
-        self.state.may_set_shared_best_header(header_view);
+            .may_set_best_known_header(peer, header_index.clone());
+        self.state.may_set_shared_best_header(header_index);
     }
 
-    pub(crate) fn get_header_index_view(
+    /// Batch insert multiple valid headers in a single transaction
+    /// Headers must be continuous (parent-child chain)
+    /// Returns the last header's HeaderIndex
+    pub fn insert_valid_headers_batch(
         &self,
-        hash: &Byte32,
-        store_first: bool,
-    ) -> Option<HeaderIndexView> {
-        let store = self.store();
-        if store_first {
-            store
-                .get_block_header(hash)
-                .and_then(|header| {
-                    store
-                        .get_block_ext(hash)
-                        .map(|block_ext| (header, block_ext.total_difficulty).into())
-                })
-                .or_else(|| self.shared.header_map().get(hash))
-        } else {
-            self.shared.header_map().get(hash).or_else(|| {
-                store.get_block_header(hash).and_then(|header| {
-                    store
-                        .get_block_ext(hash)
-                        .map(|block_ext| (header, block_ext.total_difficulty).into())
-                })
-            })
+        peer: PeerIndex,
+        headers: &[core::HeaderView],
+    ) -> Option<HeaderIndex> {
+        if headers.is_empty() {
+            return None;
         }
+
+        let store = self.store();
+
+        // Start with the first header's parent total_difficulty
+        let first_parent_hash = headers[0].parent_hash();
+        let mut current_td = {
+            let shared_best = self.state.shared_best_header_ref();
+            if shared_best.hash() == first_parent_hash {
+                shared_best.total_difficulty().clone()
+            } else {
+                drop(shared_best);
+                let parent_header = store
+                    .get_block_header(&first_parent_hash)
+                    .expect("parent should exist");
+                self.state
+                    .get_header_total_difficulty(store, &first_parent_hash, &parent_header)
+                    .expect("parent total_difficulty should be available")
+            }
+        };
+
+        // Create ONE transaction for all headers
+        let db_txn = store.begin_transaction();
+
+        let mut last_header_index = None;
+
+        // Insert all headers in sequence
+        for header in headers {
+            // Compute total_difficulty incrementally
+            current_td = current_td + header.difficulty();
+
+            // Insert header to DB
+            db_txn
+                .insert_header(header)
+                .expect("insert header should be ok");
+
+            // Cache the total_difficulty
+            let hash = header.hash();
+            self.state
+                .cache_header_difficulty(hash.clone(), current_td.clone());
+
+            // Track the last header index
+            let header_index = HeaderIndex::new(header.number(), hash, current_td.clone());
+            last_header_index = Some(header_index.clone());
+
+            // Update peer's best known header
+            self.state
+                .peers()
+                .may_set_best_known_header(peer, header_index.clone());
+            self.state.may_set_shared_best_header(header_index);
+        }
+
+        // Commit ONCE - single fsync for all headers
+        db_txn.commit().expect("commit should be ok");
+
+        debug!(
+            "insert_valid_headers_batch committed {} headers, range: {}-{} to {}-{}",
+            headers.len(),
+            headers.first().map(|h| h.number()).unwrap_or(0),
+            headers.first().map(|h| h.hash()).unwrap_or_default(),
+            headers.last().map(|h| h.number()).unwrap_or(0),
+            headers.last().map(|h| h.hash()).unwrap_or_default()
+        );
+
+        last_header_index
+    }
+
+    /// Get HeaderIndex for a given hash
+    /// Returns HeaderIndex with number, hash, and total_difficulty
+    pub(crate) fn get_header_index(&self, hash: &Byte32) -> Option<HeaderIndex> {
+        let store = self.store();
+        let header = store.get_block_header(hash)?;
+        let total_difficulty = self
+            .state
+            .get_header_total_difficulty(store, hash, &header)?;
+        Some(HeaderIndex::new(
+            header.number(),
+            hash.clone(),
+            total_difficulty,
+        ))
     }
 
     /// Check whether block has been inserted to chain store
@@ -1177,10 +1269,16 @@ impl SyncShared {
             // header list is an ordered list, sorted from highest to lowest,
             // so here you discard and exit early
             for hash in header_list {
-                if let Some(header) = self.shared().header_map().get(&hash) {
+                // We don't need total_difficulty here, just check if header exists and compare block number
+                if let Some(header) = self.store().get_block_header(&hash) {
+                    let header_index = ckb_shared::types::HeaderIndex::new(
+                        header.number(),
+                        hash.clone(),
+                        Default::default(), // Use zero for total_difficulty, only number matters
+                    );
                     self.state()
                         .peers
-                        .may_set_best_known_header(pi, header.as_header_index());
+                        .may_set_best_known_header(pi, header_index);
                     break;
                 } else {
                     self.state().peers.insert_unknown_header_hash(pi, hash)
@@ -1222,26 +1320,14 @@ impl SyncShared {
 
 impl HeaderFieldsProvider for SyncShared {
     fn get_header_fields(&self, hash: &Byte32) -> Option<HeaderFields> {
-        self.shared
-            .header_map()
-            .get(hash)
+        self.store()
+            .get_block_header(hash)
             .map(|header| HeaderFields {
                 hash: header.hash(),
                 number: header.number(),
                 epoch: header.epoch(),
                 timestamp: header.timestamp(),
                 parent_hash: header.parent_hash(),
-            })
-            .or_else(|| {
-                self.store()
-                    .get_block_header(hash)
-                    .map(|header| HeaderFields {
-                        hash: header.hash(),
-                        number: header.number(),
-                        epoch: header.epoch(),
-                        timestamp: header.timestamp(),
-                        parent_hash: header.parent_hash(),
-                    })
             })
     }
 }
@@ -1308,9 +1394,14 @@ impl PartialOrd for UnknownTxHashPriority {
     }
 }
 
+const HEADER_DIFFICULTY_CACHE_SIZE: usize = 10000;
+
 pub struct SyncState {
     /* Status irrelevant to peers */
-    shared_best_header: RwLock<HeaderIndexView>,
+    shared_best_header: RwLock<HeaderIndex>,
+    // Cache for total_difficulty of recent unverified headers
+    // Key: header hash, Value: total_difficulty
+    header_difficulty_cache: RwLock<LruCache<Byte32, U256>>,
     tx_filter: Mutex<TtlFilter<Byte32>>,
 
     // The priority is ordering by timestamp (reversed), means do not ask the tx before this timestamp (timeout).
@@ -1380,15 +1471,15 @@ impl SyncState {
         self.tx_relay_receiver.try_iter().take(limit).collect()
     }
 
-    pub fn shared_best_header(&self) -> HeaderIndexView {
+    pub fn shared_best_header(&self) -> HeaderIndex {
         self.shared_best_header.read().to_owned()
     }
 
-    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndexView> {
+    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndex> {
         self.shared_best_header.read()
     }
 
-    pub fn may_set_shared_best_header(&self, header: HeaderIndexView) {
+    pub fn may_set_shared_best_header(&self, header: HeaderIndex) {
         let mut shared_best_header = self.shared_best_header.write();
         if !header.is_better_than(shared_best_header.total_difficulty()) {
             return;
@@ -1398,6 +1489,207 @@ impl SyncState {
             metrics.ckb_shared_best_number.set(header.number() as i64);
         }
         *shared_best_header = header;
+    }
+
+    /// Get total_difficulty for a header, using cache or computing on-demand
+    pub fn get_header_total_difficulty(
+        &self,
+        store: &ChainDB,
+        hash: &Byte32,
+        header: &core::HeaderView,
+    ) -> Option<U256> {
+        use ckb_logger::debug;
+        let start = std::time::Instant::now();
+
+        // Genesis block
+        if header.number() == 0 {
+            debug!(
+                "get_header_total_difficulty: genesis block {}-{}, cost={:?}",
+                header.number(),
+                hash,
+                start.elapsed()
+            );
+            return Some(header.difficulty());
+        }
+
+        // Fast path 1: Check cache for recent unverified headers
+        {
+            let cache = self.header_difficulty_cache.read();
+            if let Some(td) = cache.peek(hash) {
+                debug!(
+                    "get_header_total_difficulty: hit cache for {}-{}, cost={:?}",
+                    header.number(),
+                    hash,
+                    start.elapsed()
+                );
+                return Some(td.clone());
+            }
+        }
+
+        // Fast path 2: Check if BlockExt exists (block is verified)
+        if let Some(block_ext) = store.get_block_ext(hash) {
+            debug!(
+                "get_header_total_difficulty: hit BlockExt for {}-{}, cost={:?}",
+                header.number(),
+                hash,
+                start.elapsed()
+            );
+            return Some(block_ext.total_difficulty);
+        }
+
+        // Fast path 3: Check if parent is shared_best_header (common during sync)
+        let parent_hash = header.parent_hash();
+        {
+            let shared_best = self.shared_best_header_ref();
+            if shared_best.hash() == parent_hash {
+                let total_difficulty = shared_best.total_difficulty() + header.difficulty();
+                debug!(
+                    "get_header_total_difficulty: hit shared_best parent for {}-{}, cost={:?}",
+                    header.number(),
+                    hash,
+                    start.elapsed()
+                );
+                return Some(total_difficulty);
+            }
+            debug!(
+                "get_header_total_difficulty: shared_best mismatch for {}-{}, parent={}, shared_best={}, number={}",
+                header.number(),
+                hash,
+                parent_hash,
+                shared_best.hash(),
+                shared_best.number()
+            );
+        }
+
+        // Fallback: Iteratively compute from parent chain (avoiding stack overflow)
+        // Build a stack of headers to compute, walking back until we find one with known TD
+        debug!(
+            "get_header_total_difficulty: FALLBACK for {}-{}, parent={}",
+            header.number(),
+            hash,
+            parent_hash
+        );
+        let mut headers_to_compute = vec![(hash.clone(), header.clone())];
+        let mut current_hash = parent_hash.clone();
+
+        loop {
+            let current_header = store.get_block_header(&current_hash)?;
+
+            // Check if we can find TD for this header
+            if let Some(block_ext) = store.get_block_ext(&current_hash) {
+                // Found verified block - compute forward from here
+                let mut total_difficulty = block_ext.total_difficulty;
+                let walked_count = headers_to_compute.len();
+
+                // Compute and cache all headers in reverse order
+                while let Some((h_hash, h_header)) = headers_to_compute.pop() {
+                    total_difficulty = total_difficulty + h_header.difficulty();
+                    self.header_difficulty_cache
+                        .write()
+                        .put(h_hash, total_difficulty.clone());
+                }
+
+                debug!(
+                    "get_header_total_difficulty: hit BlockExt in fallback for {}-{}, walked {} headers, cost={:?}",
+                    header.number(),
+                    hash,
+                    walked_count,
+                    start.elapsed()
+                );
+                return Some(total_difficulty);
+            }
+
+            // Check cache
+            {
+                let cache = self.header_difficulty_cache.read();
+                if let Some(td) = cache.peek(&current_hash) {
+                    // Found cached value - compute forward from here
+                    let mut total_difficulty = td.clone();
+                    drop(cache);
+                    let walked_count = headers_to_compute.len();
+
+                    // Compute and cache all headers in reverse order
+                    while let Some((h_hash, h_header)) = headers_to_compute.pop() {
+                        total_difficulty = total_difficulty + h_header.difficulty();
+                        self.header_difficulty_cache
+                            .write()
+                            .put(h_hash, total_difficulty.clone());
+                    }
+
+                    debug!(
+                        "get_header_total_difficulty: hit cache in fallback for {}-{}, walked {} headers, cost={:?}",
+                        header.number(),
+                        hash,
+                        walked_count,
+                        start.elapsed()
+                    );
+                    return Some(total_difficulty);
+                }
+            }
+
+            // Check if current is shared_best_header
+            {
+                let shared_best = self.shared_best_header_ref();
+                if shared_best.hash() == current_hash {
+                    // Found shared_best - compute forward from here
+                    let mut total_difficulty = shared_best.total_difficulty().clone();
+                    drop(shared_best);
+                    let walked_count = headers_to_compute.len();
+
+                    // Compute and cache all headers in reverse order
+                    while let Some((h_hash, h_header)) = headers_to_compute.pop() {
+                        total_difficulty = total_difficulty + h_header.difficulty();
+                        self.header_difficulty_cache
+                            .write()
+                            .put(h_hash, total_difficulty.clone());
+                    }
+
+                    debug!(
+                        "get_header_total_difficulty: hit shared_best in fallback for {}-{}, walked {} headers, cost={:?}",
+                        header.number(),
+                        hash,
+                        walked_count,
+                        start.elapsed()
+                    );
+                    return Some(total_difficulty);
+                }
+            }
+
+            // Genesis block
+            if current_header.number() == 0 {
+                // Start from genesis difficulty and compute forward
+                let mut total_difficulty = current_header.difficulty();
+                let walked_count = headers_to_compute.len();
+
+                // Compute and cache all headers in reverse order
+                while let Some((h_hash, h_header)) = headers_to_compute.pop() {
+                    total_difficulty = total_difficulty + h_header.difficulty();
+                    self.header_difficulty_cache
+                        .write()
+                        .put(h_hash, total_difficulty.clone());
+                }
+
+                debug!(
+                    "get_header_total_difficulty: hit genesis in fallback for {}-{}, walked {} headers, cost={:?}",
+                    header.number(),
+                    hash,
+                    walked_count,
+                    start.elapsed()
+                );
+                return Some(total_difficulty);
+            }
+
+            // Continue walking back
+            headers_to_compute.push((current_hash.clone(), current_header.clone()));
+            current_hash = current_header.parent_hash();
+        }
+    }
+
+    /// Cache total_difficulty for a newly inserted header
+    pub fn cache_header_difficulty(&self, hash: Byte32, total_difficulty: U256) {
+        self.header_difficulty_cache
+            .write()
+            .put(hash, total_difficulty);
     }
 
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
@@ -1711,7 +2003,7 @@ impl ActiveChain {
         self.unverified_tip_header().number()
     }
 
-    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<HeaderIndexView> {
+    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<BlockNumberAndHash> {
         self.get_ancestor_internal(base, number, false)
     }
 
@@ -1719,7 +2011,7 @@ impl ActiveChain {
         &self,
         base: &Byte32,
         number: BlockNumber,
-    ) -> Option<HeaderIndexView> {
+    ) -> Option<BlockNumberAndHash> {
         self.get_ancestor_internal(base, number, true)
     }
 
@@ -1728,7 +2020,7 @@ impl ActiveChain {
         base: &Byte32,
         number: BlockNumber,
         with_unverified: bool,
-    ) -> Option<HeaderIndexView> {
+    ) -> Option<BlockNumberAndHash> {
         let tip_number = {
             if with_unverified {
                 self.unverified_tip_number()
@@ -1745,23 +2037,36 @@ impl ActiveChain {
             }
         };
 
-        let get_header_view_fn = |hash: &Byte32, store_first: bool| {
-            self.sync_shared.get_header_index_view(hash, store_first)
-        };
+        // Start from base header
+        let mut current_header = self.store().get_block_header(base)?;
+        let mut current_hash = base.clone();
 
-        let fast_scanner_fn = |number: BlockNumber, current: BlockNumberAndHash| {
-            // shortcut to return an ancestor block
-            if current.number <= tip_number && block_is_on_chain_fn(&current.hash) {
-                self.get_block_hash(number)
-                    .and_then(|hash| self.sync_shared.get_header_index_view(&hash, true))
-            } else {
-                None
+        // Fast path: Try COLUMN_HEADER_INDEX first (includes unverified headers)
+        // This provides O(1) lookup for all headers, avoiding expensive parent walks
+        if let Some(hash) = self.store().get_header_hash(number) {
+            return Some((number, hash).into());
+        }
+
+        // Fallback to COLUMN_INDEX for verified blocks on main chain
+        if current_header.number() <= tip_number && block_is_on_chain_fn(&current_hash) {
+            if let Some(hash) = self.get_block_hash(number) {
+                return Some((number, hash).into());
             }
-        };
+        }
 
-        self.sync_shared
-            .get_header_index_view(base, false)?
-            .get_ancestor(tip_number, number, get_header_view_fn, fast_scanner_fn)
+        // Walk back to target number via parent links
+        while current_header.number() > number {
+            // Follow parent link
+            current_hash = current_header.parent_hash();
+            current_header = self.store().get_block_header(&current_hash)?;
+        }
+
+        // Should be at target number now
+        if current_header.number() == number {
+            Some((number, current_hash).into())
+        } else {
+            None
+        }
     }
 
     pub fn get_locator(&self, start: BlockNumberAndHash) -> Vec<Byte32> {
@@ -1828,21 +2133,15 @@ impl ActiveChain {
             (pa.clone(), pb.clone())
         };
 
-        m_right = self
-            .get_ancestor(&m_right.hash(), m_left.number())?
-            .number_and_hash();
+        m_right = self.get_ancestor(&m_right.hash(), m_left.number())?;
         if m_left == m_right {
             return Some(m_left);
         }
         debug_assert!(m_left.number() == m_right.number());
 
         while m_left != m_right {
-            m_left = self
-                .get_ancestor(&m_left.hash(), m_left.number() - 1)?
-                .number_and_hash();
-            m_right = self
-                .get_ancestor(&m_right.hash(), m_right.number() - 1)?
-                .number_and_hash();
+            m_left = self.get_ancestor(&m_left.hash(), m_left.number() - 1)?;
+            m_right = self.get_ancestor(&m_right.hash(), m_right.number() - 1)?;
         }
         Some(m_left)
     }

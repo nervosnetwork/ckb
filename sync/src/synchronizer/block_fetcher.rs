@@ -7,7 +7,8 @@ use ckb_logger::{debug, trace};
 use ckb_metrics::HistogramTimer;
 use ckb_network::PeerIndex;
 use ckb_shared::block_status::BlockStatus;
-use ckb_shared::types::{HeaderIndex, HeaderIndexView};
+use ckb_shared::types::HeaderIndex;
+use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::BlockNumberAndHash;
 use ckb_types::core::BlockNumber;
@@ -125,10 +126,16 @@ impl BlockFetcher {
             while let Some(hash) = state.peers().take_unknown_last(self.peer) {
                 // Here we need to first try search from headermap, if not, fallback to search from the db.
                 // if not search from db, it can stuck here when the headermap may have been removed just as the block was downloaded
-                if let Some(header) = self.sync_shared.get_header_index_view(&hash, false) {
+                // We don't need total_difficulty here, just check if header exists and compare block number
+                if let Some(header) = self.sync_shared.store().get_block_header(&hash) {
+                    let header_index = ckb_shared::types::HeaderIndex::new(
+                        header.number(),
+                        hash.clone(),
+                        Default::default(), // Use zero for total_difficulty, only number matters
+                    );
                     state
                         .peers()
-                        .may_set_best_known_header(self.peer, header.as_header_index());
+                        .may_set_best_known_header(self.peer, header_index);
                 } else {
                     state.peers().insert_unknown_header_hash(self.peer, hash);
                     break;
@@ -146,25 +153,37 @@ impl BlockFetcher {
                 return None;
             }
         };
-        if !best_known.is_better_than(self.active_chain.total_difficulty()) {
-            // Advancing this peer's last_common_header is unnecessary for block-sync mechanism.
-            // However, RPC `get_peers`, returns peers information which includes
-            // last_common_header, is expected to provide a more realistic picture. Hence here we
-            // specially advance this peer's last_common_header at the case of both us on the same
-            // active chain.
-            if self.active_chain.is_main_chain(&best_known.hash()) {
-                self.sync_shared
-                    .state()
-                    .peers()
-                    .set_last_common_header(self.peer, best_known.number_and_hash());
-            }
+        // if !best_known.is_better_than(self.active_chain.total_difficulty()) {
+        //     // Advancing this peer's last_common_header is unnecessary for block-sync mechanism.
+        //     // However, RPC `get_peers`, returns peers information which includes
+        //     // last_common_header, is expected to provide a more realistic picture. Hence here we
+        //     // specially advance this peer's last_common_header at the case of both us on the same
+        //     // active chain.
+        //     if self.active_chain.is_main_chain(&best_known.hash()) {
+        //         self.sync_shared
+        //             .state()
+        //             .peers()
+        //             .set_last_common_header(self.peer, best_known.number_and_hash());
+        //     }
+        //     debug!(
+        //         "Peer best_known {}-{} is not better than active_chain total_difficulty",
+        //         best_known.number(),
+        //         best_known.hash(),
+        //     );
 
-            return None;
-        }
+        //     return None;
+        // }
 
         let best_known = best_known.number_and_hash();
         let last_common = self.update_last_common_header(&best_known)?;
         if last_common == best_known {
+            debug!(
+                "Peer {}'s best_known: {} equals to last_common: {}, won't request block from this peer",
+                self.peer,
+                best_known.number(),
+                last_common.number()
+            );
+
             return None;
         }
 
@@ -209,7 +228,7 @@ impl BlockFetcher {
             let span = min(end - start + 1, (n_fetch - fetch.len()) as u64);
 
             // Iterate in range `[start, start+span)` and consider as the next to-fetch candidates.
-            let mut header: HeaderIndexView = {
+            let mut block_num_hash = {
                 match self.ibd {
                     IBDState::In => self
                         .active_chain
@@ -219,6 +238,10 @@ impl BlockFetcher {
                         .get_ancestor(&best_known.hash(), start + span - 1),
                 }
             }?;
+            let mut header = self
+                .sync_shared
+                .store()
+                .get_block_header(&block_num_hash.hash())?;
 
             let mut status = self
                 .sync_shared
@@ -229,6 +252,7 @@ impl BlockFetcher {
             for _ in 0..span {
                 let parent_hash = header.parent_hash();
                 let hash = header.hash();
+                let number = header.number();
 
                 if status.contains(BlockStatus::BLOCK_STORED) {
                     if status.contains(BlockStatus::BLOCK_VALID) {
@@ -237,10 +261,10 @@ impl BlockFetcher {
                         self.sync_shared
                             .state()
                             .peers()
-                            .set_last_common_header(self.peer, header.number_and_hash());
+                            .set_last_common_header(self.peer, (number, hash.clone()).into());
                     }
 
-                    end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
+                    end = min(best_known.number(), number + BLOCK_DOWNLOAD_WINDOW);
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
@@ -248,24 +272,21 @@ impl BlockFetcher {
                     || state.compare_with_pending_compact(&hash, now))
                     && state
                         .write_inflight_blocks()
-                        .insert(self.peer, (header.number(), hash).into())
+                        .insert(self.peer, (number, hash.clone()).into())
                 {
                     debug!(
                         "block: {}-{} added to inflight, block_status: {:?}",
-                        header.number(),
-                        header.hash(),
-                        status
+                        number, hash, status
                     );
-                    fetch.push(header)
+                    fetch.push(block_num_hash.clone())
                 }
 
                 status = self
                     .sync_shared
                     .active_chain()
                     .get_block_status(&parent_hash);
-                header = self
-                    .sync_shared
-                    .get_header_index_view(&parent_hash, false)?;
+                block_num_hash = (number - 1, parent_hash.clone()).into();
+                header = self.sync_shared.store().get_block_header(&parent_hash)?;
             }
 
             // Move `start` forward
@@ -334,7 +355,7 @@ impl BlockFetcher {
         Some(
             fetch
                 .chunks(INIT_BLOCKS_IN_TRANSIT_PER_PEER)
-                .map(|headers| headers.iter().map(HeaderIndexView::hash).collect())
+                .map(|headers| headers.iter().map(|h| h.hash()).collect())
                 .collect(),
         )
     }

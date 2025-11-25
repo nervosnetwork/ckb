@@ -6,11 +6,61 @@ use ckb_error::Error;
 use ckb_logger::{Level, debug, log_enabled, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
-use ckb_traits::HeaderFieldsProvider;
+use ckb_traits::{HeaderFields, HeaderFieldsProvider};
+use ckb_types::core::HeaderView;
 use ckb_types::{core, packed, prelude::*};
-use ckb_verification::{HeaderError, HeaderVerifier};
+use ckb_verification::{HeaderError, HeaderVerifier, UnknownParentError};
 use ckb_verification_traits::Verifier;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// HeaderFieldsProvider that checks in-memory headers first, then falls back to database
+/// This allows batch verification of continuous headers without inserting them into DB first
+pub struct BatchHeaderFieldsProvider<'a, DL> {
+    data_loader: &'a DL,
+    headers_map: HashMap<packed::Byte32, HeaderFields>,
+}
+
+impl<'a, DL: HeaderFieldsProvider> BatchHeaderFieldsProvider<'a, DL> {
+    pub fn new(data_loader: &'a DL, headers: &[HeaderView]) -> Self {
+        let mut headers_map = HashMap::new();
+        for header in headers {
+            let fields = HeaderFields {
+                hash: header.hash(),
+                number: header.number(),
+                epoch: header.epoch(),
+                timestamp: header.timestamp(),
+                parent_hash: header.parent_hash(),
+            };
+            headers_map.insert(header.hash(), fields);
+        }
+        BatchHeaderFieldsProvider {
+            data_loader,
+            headers_map,
+        }
+    }
+}
+
+impl<'a, DL: HeaderFieldsProvider> HeaderFieldsProvider for BatchHeaderFieldsProvider<'a, DL> {
+    fn get_header_fields(&self, hash: &packed::Byte32) -> Option<HeaderFields> {
+        // Check in-memory batch first
+        if let Some(fields) = self.headers_map.get(hash) {
+            return Some(HeaderFields {
+                hash: fields.hash.clone(),
+                number: fields.number,
+                epoch: fields.epoch,
+                timestamp: fields.timestamp,
+                parent_hash: fields.parent_hash.clone(),
+            });
+        }
+        // Fall back to database
+        self.data_loader.get_header_fields(hash)
+    }
+
+    // Note: block_median_time() uses the default trait implementation,
+    // which internally calls get_header_fields() above, so it automatically
+    // checks the in-memory batch first, then falls back to database.
+}
 
 pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
@@ -51,13 +101,6 @@ impl<'a> HeadersProcess<'a> {
             }
         }
         true
-    }
-
-    pub fn accept_first(&self, first: &core::HeaderView) -> ValidationResult {
-        let shared: &SyncShared = self.synchronizer.shared();
-        let verifier = HeaderVerifier::new(shared, shared.consensus());
-        let acceptor = HeaderAcceptor::new(first, self.peer, verifier, self.active_chain.clone());
-        acceptor.accept()
     }
 
     fn debug(&self) {
@@ -129,53 +172,65 @@ impl<'a> HeadersProcess<'a> {
             return StatusCode::HeadersIsInvalid.with_context("not continuous");
         }
 
-        let result = self.accept_first(&headers[0]);
-        match result.state {
-            ValidationState::Invalid => {
-                debug!(
-                    "HeadersProcess accept_first result is invalid, error = {:?}, first header = {:?}",
-                    result.error, headers[0]
-                );
-                return StatusCode::HeadersIsInvalid
-                    .with_context(format!("accept first header {:?}", headers[0]));
-            }
-            ValidationState::TemporaryInvalid => {
-                debug!(
-                    "HeadersProcess accept_first result is temporary invalid, first header = {:?}",
-                    headers[0]
-                );
-                return Status::ok();
-            }
-            ValidationState::Valid => {
-                // Valid, do nothing
-            }
-        };
+        // Batch verify all headers using BatchHeaderFieldsProvider
+        // This allows headers to reference each other without being in DB yet
+        let batch_provider = BatchHeaderFieldsProvider::new(shared, &headers);
+        let mut headers_to_insert = Vec::new();
 
-        for header in headers.iter().skip(1) {
-            let verifier = HeaderVerifier::new(shared, consensus);
+        for (idx, header) in headers.iter().enumerate() {
+            // Use batch provider for all headers - it falls back to shared for parent lookups
+            let verifier = HeaderVerifier::new(&batch_provider, consensus);
+            // Check if already valid (skip re-validation)
+            let status = self.active_chain.get_block_status(&header.hash());
+            if status.contains(BlockStatus::HEADER_VALID) {
+                continue;
+            }
+
             let acceptor =
                 HeaderAcceptor::new(header, self.peer, verifier, self.active_chain.clone());
-            let result = acceptor.accept();
+            let (result, already_valid) = acceptor.validate();
+
             match result.state {
                 ValidationState::Invalid => {
+                    // Mark all remaining headers as invalid (invalid parent)
+                    for remaining_header in headers.iter().skip(idx + 1) {
+                        shared.shared().insert_block_status(
+                            remaining_header.hash(),
+                            BlockStatus::BLOCK_INVALID,
+                        );
+                    }
                     debug!(
-                        "HeadersProcess accept result is invalid, error = {:?}, header = {:?}",
-                        result.error, headers,
+                        "HeadersProcess validation failed, error = {:?}, header = {:?}",
+                        result.error, header,
                     );
                     return StatusCode::HeadersIsInvalid
-                        .with_context(format!("accept header {header:?}"));
+                        .with_context(format!("validate header {header:?}"));
                 }
                 ValidationState::TemporaryInvalid => {
                     debug!(
-                        "HeadersProcess accept result is temporarily invalid, header = {:?}",
+                        "HeadersProcess validation temporarily invalid, header = {:?}",
                         header
                     );
                     return Status::ok();
                 }
                 ValidationState::Valid => {
-                    // Valid, do nothing
+                    // Collect valid headers for batch insertion
+                    if !already_valid {
+                        headers_to_insert.push(header.clone());
+                    }
                 }
             };
+        }
+
+        // Batch insert all valid headers in ONE transaction
+        if !headers_to_insert.is_empty() {
+            debug!(
+                "Calling insert_valid_headers_batch for {} headers",
+                headers_to_insert.len()
+            );
+            shared.insert_valid_headers_batch(self.peer, &headers_to_insert);
+        } else {
+            debug!("No new headers to insert (all already valid)");
         }
 
         self.debug();
@@ -268,6 +323,10 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                     state.invalid(Some(ValidationError::Verify(error)));
                     true
                 }
+            } else if error.downcast_ref::<UnknownParentError>().is_some() {
+                // UnknownParent is temporary - we just don't have the parent header yet
+                state.temporary_invalid(Some(ValidationError::Verify(error)));
+                false
             } else {
                 state.invalid(Some(ValidationError::Verify(error)));
                 true
@@ -284,33 +343,30 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
         }
     }
 
-    pub fn accept(&self) -> ValidationResult {
+    /// Validate header without inserting it to database
+    /// Returns ValidationResult and whether the header was already valid
+    pub fn validate(&self) -> (ValidationResult, bool) {
         let mut result = ValidationResult::default();
         let sync_shared = self.active_chain.sync_shared();
         let state = self.active_chain.state();
         let shared = sync_shared.shared();
 
-        // FIXME If status == BLOCK_INVALID then return early. But which error
-        // type should we return?
+        // Check if already valid
         let status = self.active_chain.get_block_status(&self.header.hash());
         if status.contains(BlockStatus::HEADER_VALID) {
             let header_index = sync_shared
-                .get_header_index_view(
-                    &self.header.hash(),
-                    status.contains(BlockStatus::BLOCK_STORED),
-                )
+                .get_header_index(&self.header.hash())
                 .unwrap_or_else(|| {
                     panic!(
                         "header {}-{} with HEADER_VALID should exist",
                         self.header.number(),
                         self.header.hash()
                     )
-                })
-                .as_header_index();
+                });
             state
                 .peers()
                 .may_set_best_known_header(self.peer, header_index);
-            return result;
+            return (result, true);
         }
 
         if self.prev_block_check(&mut result).is_err() {
@@ -320,7 +376,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.hash(),
             );
             shared.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
-            return result;
+            return (result, false);
         }
 
         if let Some(is_invalid) = self.non_contextual_check(&mut result).err() {
@@ -332,7 +388,7 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
             if is_invalid {
                 shared.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
             }
-            return result;
+            return (result, false);
         }
 
         if self.version_check(&mut result).is_err() {
@@ -342,10 +398,21 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.hash(),
             );
             shared.insert_block_status(self.header.hash(), BlockStatus::BLOCK_INVALID);
-            return result;
+            return (result, false);
         }
 
-        sync_shared.insert_valid_header(self.peer, self.header);
+        (result, false)
+    }
+
+    pub fn accept(&self) -> ValidationResult {
+        let (result, already_valid) = self.validate();
+
+        // If validation passed and header wasn't already valid, insert it
+        if result.state == ValidationState::Valid && !already_valid {
+            let sync_shared = self.active_chain.sync_shared();
+            sync_shared.insert_valid_header(self.peer, self.header);
+        }
+
         result
     }
 }
