@@ -8,7 +8,7 @@ use ckb_hash::blake2b_256;
 
 #[test]
 fn proposals_hash() {
-    let proposal1 = [1; 10].into();
+    let proposal1: packed::ProposalShortId = [1; 10].into();
     let proposal2 = [2; 10].into();
     let proposals: ProposalShortIdVec = vec![proposal1, proposal2].into();
     let expect = h256!("0xd1670e45af1deb9cc00951d71c09ce80932e7ddf9fb151d744436bd04ac4a562");
@@ -50,7 +50,11 @@ fn uncles_hash() {
         .raw(uncle1_raw_header)
         .nonce(0x5ff1_389a_f870_6543_11a2_bee6_1237u128)
         .build();
-    let uncle1_proposals: ProposalShortIdVec = vec![[1; 10].into(), [2; 10].into()].into();
+    let uncle1_proposals: ProposalShortIdVec = vec![
+        Into::<packed::ProposalShortId>::into([1; 10]),
+        [2; 10].into(),
+    ]
+    .into();
     let uncle1 = packed::UncleBlock::new_builder()
         .header(uncle1_header)
         .proposals(uncle1_proposals)

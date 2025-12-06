@@ -471,7 +471,9 @@ impl Spec for HeaderSyncCycle {
         let mut net = Net::new(self.name(), node0.consensus(), vec![SupportProtocols::Sync]);
         net.connect(node0);
 
-        let send_headers = SendHeaders::new_builder().headers(Vec::new()).build();
+        let send_headers = SendHeaders::new_builder()
+            .headers(Vec::<packed::Header>::new())
+            .build();
 
         let msg = SyncMessage::new_builder()
             .set(send_headers)

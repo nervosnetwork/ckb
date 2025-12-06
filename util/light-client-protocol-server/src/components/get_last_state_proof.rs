@@ -224,7 +224,7 @@ impl<'a> GetLastStateProofProcess<'a> {
             .message
             .difficulties()
             .iter()
-            .map(|d| Unpack::<U256>::unpack(&d))
+            .map(Into::<U256>::into)
             .collect::<Vec<_>>();
 
         let last_block_number = last_block.number();

@@ -110,7 +110,7 @@ fn test_bundled_specs() {
         let outputs_capacity = dep_group_tx
             .outputs()
             .into_iter()
-            .map(|output| Unpack::<Capacity>::unpack(&output.capacity()))
+            .map(|output| Into::<Capacity>::into(output.capacity()))
             .try_fold(Capacity::zero(), Capacity::safe_add)
             .unwrap();
         // capacity for input and outputs should be same

@@ -50,8 +50,8 @@ pub fn prompt(msg: &str) -> String {
     let mut stdout = stdout.lock();
     let stdin = stdin();
 
-    write!(stdout, "{msg}").unwrap();
-    stdout.flush().unwrap();
+    write!(stdout, "{msg}").expect("failed to write prompt to stdout");
+    stdout.flush().expect("failed to flush stdout");
 
     let mut input = String::new();
     let _ = stdin.read_line(&mut input);
