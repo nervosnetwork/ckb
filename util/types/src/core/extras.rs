@@ -21,13 +21,13 @@ use std::str::FromStr;
 /// Additionally, the `get_fee_rate_statistics` RPC function requires accurate `txs_sizes` and `txs_fees` data from `BlockExt`.
 #[derive(Clone, PartialEq, Default, Debug, Eq)]
 pub struct BlockExt {
-    /// TODO(doc): @quake
+    /// Timestamp when the block was received.
     pub received_at: u64,
-    /// TODO(doc): @quake
+    /// Total cumulative difficulty at this block.
     pub total_difficulty: U256,
-    /// TODO(doc): @quake
+    /// Total number of uncle blocks up to this block.
     pub total_uncles_count: u64,
-    /// TODO(doc): @quake
+    /// Whether the block has been verified.
     pub verified: Option<bool>,
     /// Transaction fees for each transaction except the cellbase.
     /// The length of `txs_fees` is equal to the length of `cycles`.
@@ -40,23 +40,23 @@ pub struct BlockExt {
     pub txs_sizes: Option<Vec<u64>>,
 }
 
-/// TODO(doc): @quake
+/// Transaction information including its location in the blockchain.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct TransactionInfo {
-    /// TODO(doc): @quake
+    /// Hash of the block containing this transaction.
     // Block hash
     pub block_hash: packed::Byte32,
-    /// TODO(doc): @quake
+    /// Number of the block containing this transaction.
     pub block_number: BlockNumber,
-    /// TODO(doc): @quake
+    /// Epoch of the block containing this transaction.
     pub block_epoch: EpochNumberWithFraction,
-    /// TODO(doc): @quake
+    /// Index of the transaction within the block.
     // Index in the block
     pub index: usize,
 }
 
 impl TransactionInfo {
-    /// TODO(doc): @quake
+    /// Returns the transaction key for database lookups.
     pub fn key(&self) -> packed::TransactionKey {
         packed::TransactionKey::new_builder()
             .block_hash(self.block_hash.clone())
@@ -64,7 +64,7 @@ impl TransactionInfo {
             .build()
     }
 
-    /// TODO(doc): @quake
+    /// Creates a new transaction info with the given parameters.
     pub fn new(
         block_number: BlockNumber,
         block_epoch: EpochNumberWithFraction,
@@ -79,18 +79,18 @@ impl TransactionInfo {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if this is a cellbase transaction (first transaction in a block).
     pub fn is_cellbase(&self) -> bool {
         self.index == 0
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if this transaction is in the genesis block.
     pub fn is_genesis(&self) -> bool {
         self.block_number == 0
     }
 }
 
-/// TODO(doc): @quake
+/// Extended epoch information.
 #[derive(Clone, Eq, PartialEq, Debug, Default)]
 pub struct EpochExt {
     pub(crate) number: EpochNumber,
@@ -111,48 +111,48 @@ impl EpochExt {
     // Simple Getters
     //
 
-    /// TODO(doc): @quake
+    /// Returns the epoch number.
     pub fn number(&self) -> EpochNumber {
         self.number
     }
 
-    /// TODO(doc): @quake
+    /// Returns the total primary reward for the epoch.
     pub fn primary_reward(&self) -> Capacity {
         Capacity::shannons(
             self.base_block_reward.as_u64() * self.length + self.remainder_reward.as_u64(),
         )
     }
-    /// TODO(doc): @quake
+    /// Returns the base block reward.
     pub fn base_block_reward(&self) -> &Capacity {
         &self.base_block_reward
     }
 
-    /// TODO(doc): @quake
+    /// Returns the remainder reward.
     pub fn remainder_reward(&self) -> &Capacity {
         &self.remainder_reward
     }
 
-    /// TODO(doc): @quake
+    /// Returns the previous epoch's hash rate.
     pub fn previous_epoch_hash_rate(&self) -> &U256 {
         &self.previous_epoch_hash_rate
     }
 
-    /// TODO(doc): @quake
+    /// Returns the hash of the last block in the previous epoch.
     pub fn last_block_hash_in_previous_epoch(&self) -> packed::Byte32 {
         self.last_block_hash_in_previous_epoch.clone()
     }
 
-    /// TODO(doc): @quake
+    /// Returns the starting block number of this epoch.
     pub fn start_number(&self) -> BlockNumber {
         self.start_number
     }
 
-    /// TODO(doc): @quake
+    /// Returns the length of this epoch in blocks.
     pub fn length(&self) -> BlockNumber {
         self.length
     }
 
-    /// TODO(doc): @quake
+    /// Returns the compact difficulty target.
     pub fn compact_target(&self) -> u32 {
         self.compact_target
     }
@@ -161,27 +161,27 @@ impl EpochExt {
     // Simple Setters
     //
 
-    /// TODO(doc): @quake
+    /// Sets the epoch number.
     pub fn set_number(&mut self, number: BlockNumber) {
         self.number = number;
     }
 
-    /// TODO(doc): @quake
+    /// Sets the base block reward.
     pub fn set_base_block_reward(&mut self, base_block_reward: Capacity) {
         self.base_block_reward = base_block_reward;
     }
 
-    /// TODO(doc): @quake
+    /// Sets the remainder reward.
     pub fn set_remainder_reward(&mut self, remainder_reward: Capacity) {
         self.remainder_reward = remainder_reward;
     }
 
-    /// TODO(doc): @quake
+    /// Sets the previous epoch's hash rate.
     pub fn set_previous_epoch_hash_rate(&mut self, previous_epoch_hash_rate: U256) {
         self.previous_epoch_hash_rate = previous_epoch_hash_rate;
     }
 
-    /// TODO(doc): @quake
+    /// Sets the hash of the last block in the previous epoch.
     pub fn set_last_block_hash_in_previous_epoch(
         &mut self,
         last_block_hash_in_previous_epoch: packed::Byte32,
@@ -189,24 +189,24 @@ impl EpochExt {
         self.last_block_hash_in_previous_epoch = last_block_hash_in_previous_epoch;
     }
 
-    /// TODO(doc): @quake
+    /// Sets the starting block number.
     pub fn set_start_number(&mut self, start_number: BlockNumber) {
         self.start_number = start_number;
     }
 
-    /// TODO(doc): @quake
+    /// Sets the epoch length.
     pub fn set_length(&mut self, length: BlockNumber) {
         self.length = length;
     }
 
-    /// TODO(doc): @quake
+    /// Sets the primary reward by calculating base and remainder rewards.
     pub fn set_primary_reward(&mut self, primary_reward: Capacity) {
         let primary_reward_u64 = primary_reward.as_u64();
         self.base_block_reward = Capacity::shannons(primary_reward_u64 / self.length);
         self.remainder_reward = Capacity::shannons(primary_reward_u64 % self.length);
     }
 
-    /// TODO(doc): @quake
+    /// Sets the compact difficulty target.
     pub fn set_compact_target(&mut self, compact_target: u32) {
         self.compact_target = compact_target;
     }
@@ -215,22 +215,22 @@ impl EpochExt {
     // Normal Methods
     //
 
-    /// TODO(doc): @quake
+    /// Creates a new epoch extension builder.
     pub fn new_builder() -> EpochExtBuilder {
         EpochExtBuilder(EpochExt::default())
     }
 
-    /// TODO(doc): @quake
+    /// Converts this epoch extension into a builder.
     pub fn into_builder(self) -> EpochExtBuilder {
         EpochExtBuilder(self)
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if this is the genesis epoch.
     pub fn is_genesis(&self) -> bool {
         0 == self.number
     }
 
-    /// TODO(doc): @quake
+    /// Returns the block reward for a specific block number in this epoch.
     pub fn block_reward(&self, number: BlockNumber) -> CapacityResult<Capacity> {
         if number >= self.start_number()
             && number < self.start_number() + self.remainder_reward.as_u64()
@@ -241,7 +241,7 @@ impl EpochExt {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Returns the epoch number with fraction for a given block number.
     pub fn number_with_fraction(&self, number: BlockNumber) -> EpochNumberWithFraction {
         debug_assert!(
             number >= self.start_number() && number < self.start_number() + self.length()
@@ -251,7 +251,7 @@ impl EpochExt {
 
     // We name this issuance since it covers multiple parts: block reward,
     // NervosDAO issuance as well as treasury part.
-    /// TODO(doc): @quake
+    /// Returns the secondary block issuance for a given block number.
     pub fn secondary_block_issuance(
         &self,
         block_number: BlockNumber,
@@ -381,32 +381,32 @@ impl Ord for EpochNumberWithFraction {
 }
 
 impl EpochNumberWithFraction {
-    /// TODO(doc): @quake
+    /// Bit offset for the epoch number field.
     pub const NUMBER_OFFSET: usize = 0;
-    /// TODO(doc): @quake
+    /// Number of bits for the epoch number field.
     pub const NUMBER_BITS: usize = 24;
-    /// TODO(doc): @quake
+    /// Maximum value for the epoch number field.
     pub const NUMBER_MAXIMUM_VALUE: u64 = (1u64 << Self::NUMBER_BITS);
-    /// TODO(doc): @quake
+    /// Bitmask for extracting the epoch number.
     pub const NUMBER_MASK: u64 = (Self::NUMBER_MAXIMUM_VALUE - 1);
-    /// TODO(doc): @quake
+    /// Bit offset for the index field.
     pub const INDEX_OFFSET: usize = Self::NUMBER_BITS;
-    /// TODO(doc): @quake
+    /// Number of bits for the index field.
     pub const INDEX_BITS: usize = 16;
-    /// TODO(doc): @quake
+    /// Maximum value for the index field.
     pub const INDEX_MAXIMUM_VALUE: u64 = (1u64 << Self::INDEX_BITS);
-    /// TODO(doc): @quake
+    /// Bitmask for extracting the index.
     pub const INDEX_MASK: u64 = (Self::INDEX_MAXIMUM_VALUE - 1);
-    /// TODO(doc): @quake
+    /// Bit offset for the length field.
     pub const LENGTH_OFFSET: usize = Self::NUMBER_BITS + Self::INDEX_BITS;
-    /// TODO(doc): @quake
+    /// Number of bits for the length field.
     pub const LENGTH_BITS: usize = 16;
-    /// TODO(doc): @quake
+    /// Maximum value for the length field.
     pub const LENGTH_MAXIMUM_VALUE: u64 = (1u64 << Self::LENGTH_BITS);
-    /// TODO(doc): @quake
+    /// Bitmask for extracting the length.
     pub const LENGTH_MASK: u64 = (Self::LENGTH_MAXIMUM_VALUE - 1);
 
-    /// TODO(doc): @quake
+    /// Creates a new epoch number with fraction.
     pub fn new(number: u64, index: u64, length: u64) -> EpochNumberWithFraction {
         debug_assert!(number < Self::NUMBER_MAXIMUM_VALUE);
         debug_assert!(index < Self::INDEX_MAXIMUM_VALUE);
@@ -415,7 +415,7 @@ impl EpochNumberWithFraction {
         Self::new_unchecked(number, index, length)
     }
 
-    /// TODO(doc): @quake
+    /// Creates a new epoch number with fraction without bounds checking.
     pub const fn new_unchecked(number: u64, index: u64, length: u64) -> Self {
         EpochNumberWithFraction(
             (length << Self::LENGTH_OFFSET)
@@ -424,22 +424,22 @@ impl EpochNumberWithFraction {
         )
     }
 
-    /// TODO(doc): @quake
+    /// Returns the epoch number.
     pub fn number(self) -> EpochNumber {
         (self.0 >> Self::NUMBER_OFFSET) & Self::NUMBER_MASK
     }
 
-    /// TODO(doc): @quake
+    /// Returns the block index within the epoch.
     pub fn index(self) -> u64 {
         (self.0 >> Self::INDEX_OFFSET) & Self::INDEX_MASK
     }
 
-    /// TODO(doc): @quake
+    /// Returns the epoch length in blocks.
     pub fn length(self) -> u64 {
         (self.0 >> Self::LENGTH_OFFSET) & Self::LENGTH_MASK
     }
 
-    /// TODO(doc): @quake
+    /// Returns the packed 64-bit representation.
     pub const fn full_value(self) -> u64 {
         self.0
     }
@@ -459,7 +459,7 @@ impl EpochNumberWithFraction {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Creates an epoch number with fraction from a packed 64-bit value.
     // One caveat here, is that if the user specifies a zero epoch length either
     // deliberately, or by accident, calling to_rational() after that might
     // result in a division by zero panic. To prevent that, this method would
