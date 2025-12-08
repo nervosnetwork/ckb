@@ -1,4 +1,8 @@
-//! TODO(doc): @quake
+//! Shared blockchain data and services.
+//!
+//! This crate provides shared access to blockchain data and consensus components
+//! across different parts of the CKB node, including chain state, consensus, and
+//! transaction pool integration.
 
 // num_cpus is used in proc_macro
 pub mod chain_services_builder;

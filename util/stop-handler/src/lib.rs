@@ -1,4 +1,7 @@
-//! TODO(doc): @keroro520
+//! Stop handler utilities for graceful shutdown.
+//!
+//! This crate provides utilities for managing graceful shutdown of CKB components,
+//! including signal handling and cancellation token management.
 
 pub use stop_register::{
     broadcast_exit_signals, has_received_stop_signal, new_crossbeam_exit_rx, new_tokio_exit_rx,

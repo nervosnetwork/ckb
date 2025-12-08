@@ -140,16 +140,16 @@ pub enum Works {
     FailSubmit(Byte32),
 }
 
-/// TODO(doc): @quake
+/// Mining client that fetches block templates and submits solutions.
 #[derive(Debug, Clone)]
 pub struct Client {
-    /// TODO(doc): @quake
+    /// Current work ID being processed.
     pub current_work_id: Arc<AtomicU64>,
-    /// TODO(doc): @quake
+    /// Channel sender for new work notifications.
     pub new_work_tx: Sender<Works>,
-    /// TODO(doc): @quake
+    /// Miner client configuration.
     pub config: MinerClientConfig,
-    /// TODO(doc): @quake
+    /// RPC client for communicating with the CKB node.
     pub rpc: Rpc,
     handle: Handle,
 }

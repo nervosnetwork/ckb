@@ -1,4 +1,8 @@
-//! TODO(doc): @quake
+//! Notification service for blockchain events.
+//!
+//! This crate provides a publish-subscribe notification system for CKB blockchain events,
+//! including new blocks, transactions, and network alerts. Components can register to receive
+//! notifications about these events asynchronously.
 use ckb_app_config::NotifyConfig;
 use ckb_async_runtime::Handle;
 use ckb_logger::{debug, error, info, trace};
@@ -41,14 +45,14 @@ impl<A, R> Request<A, R> {
     }
 }
 
-/// TODO(doc): @quake
+/// Channel size for signal communication.
 pub const SIGNAL_CHANNEL_SIZE: usize = 1;
-/// TODO(doc): @quake
+/// Channel size for registration requests.
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
-/// TODO(doc): @quake
+/// Channel size for notification messages.
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
-/// TODO(doc): @quake
+/// Type alias for notification registration sender.
 pub type NotifyRegister<M> = Sender<Request<String, Receiver<M>>>;
 
 /// watcher request type alias
@@ -85,7 +89,10 @@ impl NotifyTimeout {
     }
 }
 
-/// TODO(doc): @quake
+/// Controller for the notification service.
+///
+/// Provides methods to subscribe to various blockchain events and notify subscribers
+/// of new blocks, transactions, and network alerts.
 #[derive(Clone)]
 pub struct NotifyController {
     new_block_register: NotifyRegister<BlockView>,
@@ -102,7 +109,9 @@ pub struct NotifyController {
     handle: Handle,
 }
 
-/// TODO(doc): @quake
+/// Background service that manages event subscriptions and notifications.
+///
+/// Runs asynchronously and dispatches events to registered subscribers.
 pub struct NotifyService {
     config: NotifyConfig,
     new_block_subscribers: HashMap<String, Sender<BlockView>>,
@@ -116,7 +125,7 @@ pub struct NotifyService {
 }
 
 impl NotifyService {
-    /// TODO(doc): @quake
+    /// Creates a new notification service with the given configuration and async runtime handle.
     pub fn new(config: NotifyConfig, handle: Handle) -> Self {
         let timeout = NotifyTimeout::new(&config);
 
@@ -409,7 +418,9 @@ impl NotifyService {
 }
 
 impl NotifyController {
-    /// TODO(doc): @quake
+    /// Subscribes to new block notifications with the given name.
+    ///
+    /// Returns a receiver channel that will receive new block events.
     pub async fn subscribe_new_block<S: ToString>(&self, name: S) -> Receiver<BlockView> {
         Request::call(&self.new_block_register, name.to_string())
             .await
@@ -423,7 +434,7 @@ impl NotifyController {
             .expect("Watch new block should be OK")
     }
 
-    /// TODO(doc): @quake
+    /// Notifies all subscribers of a new block.
     pub fn notify_new_block(&self, block: BlockView) {
         let new_block_notifier = self.new_block_notifier.clone();
         self.handle.spawn(async move {
@@ -433,7 +444,9 @@ impl NotifyController {
         });
     }
 
-    /// TODO(doc): @quake
+    /// Subscribes to new transaction notifications with the given name.
+    ///
+    /// Returns a receiver channel that will receive new transaction events from the transaction pool.
     pub async fn subscribe_new_transaction<S: ToString>(
         &self,
         name: S,
@@ -443,7 +456,7 @@ impl NotifyController {
             .expect("Subscribe new transaction should be OK")
     }
 
-    /// TODO(doc): @quake
+    /// Notifies all subscribers of a new transaction in the transaction pool.
     pub fn notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
         let new_transaction_notifier = self.new_transaction_notifier.clone();
         self.handle.spawn(async move {
@@ -453,7 +466,9 @@ impl NotifyController {
         });
     }
 
-    /// TODO(doc): @quake
+    /// Subscribes to proposed transaction notifications with the given name.
+    ///
+    /// Returns a receiver channel that will receive proposed transaction events.
     pub async fn subscribe_proposed_transaction<S: ToString>(
         &self,
         name: S,
@@ -463,7 +478,7 @@ impl NotifyController {
             .expect("Subscribe proposed transaction should be OK")
     }
 
-    /// TODO(doc): @quake
+    /// Notifies all subscribers of a proposed transaction.
     pub fn notify_proposed_transaction(&self, tx_entry: PoolTransactionEntry) {
         let proposed_transaction_notifier = self.proposed_transaction_notifier.clone();
         self.handle.spawn(async move {
@@ -473,7 +488,9 @@ impl NotifyController {
         });
     }
 
-    /// TODO(doc): @quake
+    /// Subscribes to rejected transaction notifications with the given name.
+    ///
+    /// Returns a receiver channel that will receive rejected transaction events.
     pub async fn subscribe_reject_transaction<S: ToString>(
         &self,
         name: S,
@@ -483,7 +500,7 @@ impl NotifyController {
             .expect("Subscribe rejected transaction should be OK")
     }
 
-    /// TODO(doc): @quake
+    /// Notifies all subscribers of a rejected transaction.
     pub fn notify_reject_transaction(&self, tx_entry: PoolTransactionEntry, reject: Reject) {
         let reject_transaction_notifier = self.reject_transaction_notifier.clone();
         self.handle.spawn(async move {
@@ -493,14 +510,16 @@ impl NotifyController {
         });
     }
 
-    /// TODO(doc): @quake
+    /// Subscribes to network alert notifications with the given name.
+    ///
+    /// Returns a receiver channel that will receive network alert events.
     pub async fn subscribe_network_alert<S: ToString>(&self, name: S) -> Receiver<Alert> {
         Request::call(&self.network_alert_register, name.to_string())
             .await
             .expect("Subscribe network alert should be OK")
     }
 
-    /// TODO(doc): @quake
+    /// Notifies all subscribers of a network alert.
     pub fn notify_network_alert(&self, alert: Alert) {
         let network_alert_notifier = self.network_alert_notifier.clone();
         self.handle.spawn(async move {
