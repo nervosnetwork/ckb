@@ -376,12 +376,12 @@ impl TxPoolController {
         send_message!(self, ClearVerifyQueue, ())
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Returns information about all transactions in the pool.
     pub fn get_all_entry_info(&self) -> Result<TxPoolEntryInfo, AnyError> {
         send_message!(self, GetAllEntryInfo, ())
     }
 
-    /// TODO(doc): @zhangsoledad
+    /// Returns the IDs of all transactions in the pool.
     pub fn get_all_ids(&self) -> Result<TxPoolIds, AnyError> {
         send_message!(self, GetAllIds, ())
     }
