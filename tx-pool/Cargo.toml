@@ -16,7 +16,6 @@ ckb-logger.workspace = true
 ckb-verification.workspace = true
 ckb-systemtime.workspace = true
 lru.workspace = true
-num_cpus.workspace = true
 
 ckb-dao.workspace = true
 ckb-reward-calculator.workspace = true

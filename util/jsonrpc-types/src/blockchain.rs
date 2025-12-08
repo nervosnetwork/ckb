@@ -31,14 +31,14 @@ seq!(N in 3..=127 {
     #[serde(rename_all = "snake_case")]
     #[repr(u8)]
     pub enum ScriptHashType {
-        /// Type "data" matches script code via cell data hash, and run the script code in v0 CKB VM.
+        /// Type "data" matches script code via cell data hash, and runs the script code in v0 CKB VM
         #[default]
         Data = 0,
         /// Type "type" matches script code via cell type script hash.
         Type = 1,
-        /// Type "data1" matches script code via cell data hash, and run the script code in v1 CKB VM.
+        /// Type "data1" matches script code via cell data hash, and runs the script code in v1 CKB VM
         Data1 = 2,
-        /// Type "data2" matches script code via cell data hash, and run the script code in v2 CKB VM.
+        /// Type "data2" matches script code via cell data hash, and runs the script code in v2 CKB VM
         Data2 = 4,
         #(
             #[doc = concat!("Type \"data", stringify!(N), "\" matches script code via cell data hash, and runs the script code in v", stringify!(N), " CKB VM.")]
@@ -307,7 +307,7 @@ pub enum DepType {
     Code,
     /// Type "dep_group".
     ///
-    /// The cell is a dep group which members are cells. These members are used as dep cells
+    /// The cell is a dep group whose members are cells. These members are used as dep cells
     /// instead of the group itself.
     ///
     /// The dep group stores the array of `OutPoint`s serialized via molecule in the cell data.
@@ -574,7 +574,7 @@ pub struct TransactionWithStatusResponse {
     pub transaction: Option<ResponseFormat<TransactionView>>,
     /// The transaction consumed cycles.
     pub cycles: Option<Cycle>,
-    /// If the transaction is in tx-pool, `time_added_to_pool` represent when it enters the tx-pool. unit: Millisecond
+    /// If the transaction is in tx-pool, `time_added_to_pool` represents when it enters the tx-pool. unit: Millisecond
     pub time_added_to_pool: Option<Uint64>,
     /// The Transaction status.
     pub tx_status: TxStatus,
@@ -1000,7 +1000,7 @@ pub struct Block {
     pub extension: Option<JsonBytes>,
 }
 
-/// The wrapper represent response of `get_block` | `get_block_by_number`, return a Block with cycles.
+/// The wrapper represents the response of `get_block` | `get_block_by_number`, and returns a Block with cycles.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(untagged)]
 pub enum BlockResponse {
@@ -1226,7 +1226,7 @@ pub struct EpochView {
     pub number: EpochNumber,
     /// The block number of the first block in the epoch.
     ///
-    /// It also equals the total count of blocks in all the epochs which epoch number is
+    /// It also equals the total count of blocks in all the epochs whose epoch number is
     /// less than this epoch.
     pub start_number: BlockNumber,
     /// The number of blocks in this epoch.
@@ -1395,7 +1395,7 @@ impl From<RawMerkleProof> for MerkleProof {
                 .iter()
                 .map(|index| (*index).into())
                 .collect(),
-            lemmas: proof.lemmas().iter().map(Unpack::<H256>::unpack).collect(),
+            lemmas: proof.lemmas().iter().map(Into::<H256>::into).collect(),
         }
     }
 }

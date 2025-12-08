@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          brew install grep gnu-sed
+          brew install grep gnu-sed go
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               devtools/ci/ci_main.sh
           else

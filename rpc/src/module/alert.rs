@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use async_trait::async_trait;
+use ckb_async_runtime::Handle;
 use ckb_jsonrpc_types::Alert;
-use ckb_logger::error;
 use ckb_network::{NetworkController, SupportProtocols};
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_types::{packed, prelude::*};
@@ -78,6 +78,7 @@ pub(crate) struct AlertRpcImpl {
     network_controller: NetworkController,
     verifier: Arc<AlertVerifier>,
     notifier: Arc<Mutex<AlertNotifier>>,
+    handle: Handle,
 }
 
 impl AlertRpcImpl {
@@ -85,11 +86,13 @@ impl AlertRpcImpl {
         verifier: Arc<AlertVerifier>,
         notifier: Arc<Mutex<AlertNotifier>>,
         network_controller: NetworkController,
+        handle: Handle,
     ) -> Self {
         AlertRpcImpl {
             network_controller,
             verifier,
             notifier,
+            handle,
         }
     }
 }
@@ -113,12 +116,12 @@ impl AlertRpc for AlertRpcImpl {
                 // set self node notifier
                 self.notifier.lock().add(&alert);
 
-                self.network_controller
-                    .broadcast(SupportProtocols::Alert.protocol_id(), alert.as_bytes())
-                    .map_err(|err| {
-                        error!("Broadcast alert failed: {:?}", err);
-                        RPCError::custom_with_error(RPCError::P2PFailedToBroadcast, err)
-                    })
+                self.network_controller.broadcast_with_handle(
+                    SupportProtocols::Alert.protocol_id(),
+                    alert.as_bytes(),
+                    &self.handle,
+                );
+                Ok(())
             }
             Err(e) => Err(RPCError::custom_with_error(
                 RPCError::AlertFailedToVerifySignatures,

@@ -94,11 +94,7 @@ pub(crate) fn base_addr(addr: &Multiaddr) -> Multiaddr {
         .filter_map(|p| {
             if matches!(
                 p,
-                Protocol::Ws
-                    | Protocol::Wss
-                    | Protocol::Memory(_)
-                    | Protocol::Tls(_)
-                    | Protocol::Onion3(_)
+                Protocol::Ws | Protocol::Wss | Protocol::Memory(_) | Protocol::Tls(_)
             ) {
                 None
             } else {

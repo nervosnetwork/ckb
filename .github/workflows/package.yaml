@@ -16,7 +16,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v1.16.0
+  CKB_CLI_VERSION: v2.0.0
 
 jobs:
   create-release:
@@ -97,7 +97,7 @@ jobs:
       - name: Add rust target
         run: rustup target add aarch64-unknown-linux-gnu
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu build-essential
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}

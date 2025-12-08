@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           brew unlink yq
-          brew install grep gnu-sed bash python-yq
+          brew install grep gnu-sed bash python-yq go
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               echo bash version:
               bash --version

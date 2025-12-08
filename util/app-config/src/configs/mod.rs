@@ -28,6 +28,6 @@ pub use notify::Config as NotifyConfig;
 pub use rich_indexer::{DBDriver, RichIndexerConfig};
 pub use rpc::{Config as RpcConfig, Module as RpcModule};
 pub use store::Config as StoreConfig;
-pub use tx_pool::{BlockAssemblerConfig, TxPoolConfig};
+pub use tx_pool::{BlockAssemblerConfig, TxPoolConfig, default_max_tx_verify_workers};
 
 pub use network::{generate_random_key, read_secret_key, write_secret_to_file};

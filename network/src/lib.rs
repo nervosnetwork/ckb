@@ -16,6 +16,9 @@ mod peer;
 pub mod peer_registry;
 pub mod peer_store;
 mod protocols;
+
+#[cfg(not(target_family = "wasm"))]
+mod proxy;
 mod services;
 
 #[cfg(test)]
@@ -41,7 +44,10 @@ pub use p2p::{
     builder::ServiceBuilder,
     bytes, multiaddr, runtime,
     secio::{self, PeerId, PublicKey},
-    service::{ServiceControl, SessionType as RawSessionType, TargetProtocol, TargetSession},
+    service::{
+        ServiceAsyncControl, ServiceControl, SessionType as RawSessionType, TargetProtocol,
+        TargetSession,
+    },
     traits::ServiceProtocol,
     utils::{extract_peer_id, multiaddr_to_socketaddr},
 };
@@ -52,7 +58,7 @@ pub type ProtocolVersion = String;
 
 /// Observe listen port occupancy
 pub async fn observe_listen_port_occupancy(
-    _addrs: &[multiaddr::MultiAddr],
+    _addrs: &[multiaddr::Multiaddr],
 ) -> Result<(), std::io::Error> {
     #[cfg(target_os = "linux")]
     {

@@ -1,3 +1,4 @@
+use crate::configs::default_max_tx_verify_workers;
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
 use ckb_jsonrpc_types::FeeRateDef;
 use ckb_types::core::{Cycle, FeeRate};
@@ -29,6 +30,8 @@ pub(crate) struct TxPoolConfig {
     pub(crate) max_verify_cache_size: Option<usize>,
     pub(crate) max_conflict_cache_size: Option<usize>,
     pub(crate) max_committed_txs_hash_cache_size: Option<usize>,
+    #[serde(default = "default_max_tx_verify_workers")]
+    max_tx_verify_workers: usize,
     #[serde(default = "default_keep_rejected_tx_hashes_days")]
     keep_rejected_tx_hashes_days: u8,
     #[serde(default = "default_keep_rejected_tx_hashes_count")]
@@ -82,6 +85,7 @@ impl Default for TxPoolConfig {
             max_verify_cache_size: None,
             max_conflict_cache_size: None,
             max_committed_txs_hash_cache_size: None,
+            max_tx_verify_workers: default_max_tx_verify_workers(),
             keep_rejected_tx_hashes_days: default_keep_rejected_tx_hashes_days(),
             keep_rejected_tx_hashes_count: default_keep_rejected_tx_hashes_count(),
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
@@ -104,6 +108,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             max_verify_cache_size: _,
             max_conflict_cache_size: _,
             max_committed_txs_hash_cache_size: _,
+            max_tx_verify_workers,
             keep_rejected_tx_hashes_days,
             keep_rejected_tx_hashes_count,
             min_fee_rate,
@@ -120,6 +125,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             min_rbf_rate,
             max_tx_verify_cycles,
+            max_tx_verify_workers,
             max_ancestors_count: cmp::max(DEFAULT_MAX_ANCESTORS_COUNT, max_ancestors_count),
             keep_rejected_tx_hashes_days,
             keep_rejected_tx_hashes_count,

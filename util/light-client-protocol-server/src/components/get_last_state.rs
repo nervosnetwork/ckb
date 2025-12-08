@@ -1,5 +1,6 @@
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
+use std::sync::Arc;
 
 use crate::{LightClientProtocol, Status, StatusCode, prelude::*};
 
@@ -7,7 +8,7 @@ pub(crate) struct GetLastStateProcess<'a> {
     message: packed::GetLastStateReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
-    nc: &'a dyn CKBProtocolContext,
+    nc: &'a Arc<dyn CKBProtocolContext + Sync>,
 }
 
 impl<'a> GetLastStateProcess<'a> {
@@ -15,7 +16,7 @@ impl<'a> GetLastStateProcess<'a> {
         message: packed::GetLastStateReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
+        nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
         Self {
             message,
@@ -25,7 +26,7 @@ impl<'a> GetLastStateProcess<'a> {
         }
     }
 
-    pub(crate) fn execute(self) -> Status {
+    pub(crate) async fn execute(self) -> Status {
         let subscribe: bool = self.message.subscribe().into();
         if subscribe {
             self.nc.with_peer_mut(
@@ -50,6 +51,6 @@ impl<'a> GetLastStateProcess<'a> {
             .set(content)
             .build();
 
-        self.nc.reply(self.peer, &message)
+        self.nc.reply(self.peer, &message).await
     }
 }

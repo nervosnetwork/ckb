@@ -612,12 +612,11 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         if broadcast {
             let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
             let message = packed::RelayMessage::new_builder().set(content).build();
-            if let Err(err) = self
-                .network_controller
-                .quick_broadcast(SupportProtocols::RelayV3.protocol_id(), message.as_bytes())
-            {
-                error!("Broadcast new block failed: {:?}", err);
-            }
+            self.network_controller.quick_broadcast_with_handle(
+                SupportProtocols::RelayV3.protocol_id(),
+                message.as_bytes(),
+                self.shared.async_handle(),
+            );
         }
         if ret.is_ok() {
             Ok(Some(block.hash().into()))
@@ -819,12 +818,11 @@ impl IntegrationTestRpcImpl {
             .map_err(|err| RPCError::custom(RPCError::CKBInternalError, err.to_string()))?;
 
         // announce new block
-        if let Err(err) = self
-            .network_controller
-            .quick_broadcast(SupportProtocols::RelayV3.protocol_id(), message.as_bytes())
-        {
-            error!("Broadcast new block failed: {:?}", err);
-        }
+        self.network_controller.quick_broadcast_with_handle(
+            SupportProtocols::RelayV3.protocol_id(),
+            message.as_bytes(),
+            self.shared.async_handle(),
+        );
 
         Ok(block_view.header().hash().into())
     }

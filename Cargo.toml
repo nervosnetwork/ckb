@@ -57,6 +57,7 @@ members = [
     "util/logger-service",
     "util/runtime",
     "util/stop-handler",
+    "util/onion",
     "util/metrics",
     "util/metrics-service",
     "util/fixed-hash",
@@ -184,6 +185,7 @@ ckb-notify = { path = "notify", version = "1" }
 ckb-occupied-capacity = { path = "util/occupied-capacity", version = "1" }
 ckb-occupied-capacity-core = { path = "util/occupied-capacity/core", version = "1" }
 ckb-occupied-capacity-macros = { path = "util/occupied-capacity/macros", version = "1" }
+ckb-onion = { path = "util/onion", version = "1" }
 ckb-pow = { path = "pow", version = "1" }
 ckb-proposal-table = { path = "util/proposal-table", version = "1" }
 ckb-rational = { path = "util/rational", version = "1" }
@@ -244,7 +246,7 @@ hyper-util = "0.1"
 include_dir = "0.7"
 includedir = "0.6.0"
 includedir_codegen = "0.6.0"
-indicatif = "0.16"
+indicatif = "0.18"
 ipnetwork = "0.20"
 is-terminal = "0.4.7"
 is_sorted = "0.1.1"
@@ -260,11 +262,11 @@ merkle-cbt = "0.3"
 minstant = "0.1.4"
 molecule = { version = "0.8.0", default-features = false }
 multi_index_map = "0.6.0"
-multiaddr = { version = "0.3.0", package = "tentacle-multiaddr" }
+multiaddr = { version = "0.3.6", package = "tentacle-multiaddr" }
 num-bigint = "0.4"
 num_cpus = "1.16.0"
 numext-fixed-uint = "0.1"
-p2p = { version = "0.7.0", package = "tentacle", default-features = false }
+p2p = { version = "0.7.1", package = "tentacle", default-features = false }
 parking_lot = "0.12"
 paste = "1.0"
 path-clean = "0.1.0"
@@ -282,7 +284,7 @@ reqwest = { version = "0.12" ,features = ["blocking", "json"]}
 rhai = "1.16.0"
 rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
 rustc-hash = "1.1"
-secio = { version = "0.6", package = "tentacle-secio" }
+secio = { version = "0.6.6", package = "tentacle-secio" }
 secp256k1 = "0.30"
 semver = "1.0"
 sentry = "0.34.0"
@@ -302,6 +304,7 @@ tiny-keccak = "2.0"
 tokio = "1.35.0"
 tokio-util = "0.7.8"
 toml = "0.5"
+torut = "0.2.1"
 tower-http = "0.6"
 ubyte = "0.10"
 url = "2.2.2"

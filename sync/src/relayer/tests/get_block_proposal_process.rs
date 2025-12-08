@@ -24,8 +24,12 @@ fn test_duplicate() {
     let peer_index: PeerIndex = 1.into();
     let process = GetBlockProposalProcess::new(content.as_reader(), &relayer, nc, peer_index);
 
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     assert_eq!(
-        process.execute(),
+        rt.block_on(process.execute()),
         StatusCode::RequestDuplicate.with_context("Request duplicate proposal")
     );
 }
