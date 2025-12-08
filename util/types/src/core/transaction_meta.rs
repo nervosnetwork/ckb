@@ -1,7 +1,9 @@
 use crate::packed::Byte32;
 use bit_vec::BitVec;
 
-/// TODO(doc): @quake
+/// Metadata for tracking transaction state in the chain.
+///
+/// Stores information about which outputs of a transaction have been spent.
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct TransactionMeta {
     pub(crate) block_number: u64,
@@ -13,7 +15,7 @@ pub struct TransactionMeta {
 }
 
 impl TransactionMeta {
-    /// TODO(doc): @quake
+    /// Creates new transaction metadata.
     pub fn new(
         block_number: u64,
         epoch_number: u64,
@@ -59,44 +61,44 @@ impl TransactionMeta {
         self.dead_cell.len()
     }
 
-    /// TODO(doc): @quake
+    /// Returns the block number where this transaction was committed.
     pub fn block_number(&self) -> u64 {
         self.block_number
     }
 
-    /// TODO(doc): @quake
+    /// Returns the epoch number where this transaction was committed.
     pub fn epoch_number(&self) -> u64 {
         self.epoch_number
     }
 
-    /// TODO(doc): @quake
+    /// Returns the hash of the block containing this transaction.
     pub fn block_hash(&self) -> Byte32 {
         self.block_hash.clone()
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the transaction has no outputs.
     pub fn is_empty(&self) -> bool {
         self.dead_cell.is_empty()
     }
 
-    /// TODO(doc): @quake
+    /// Returns whether the output at the given index has been spent.
     pub fn is_dead(&self, index: usize) -> Option<bool> {
         self.dead_cell.get(index)
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if all outputs have been spent.
     pub fn all_dead(&self) -> bool {
         self.dead_cell.all()
     }
 
-    /// TODO(doc): @quake
+    /// Marks the output at the given index as spent.
     pub fn set_dead(&mut self, index: usize) {
         if index < self.len() {
             self.dead_cell.set(index, true);
         }
     }
 
-    /// TODO(doc): @quake
+    /// Marks the output at the given index as unspent.
     pub fn unset_dead(&mut self, index: usize) {
         if index < self.len() {
             self.dead_cell.set(index, false);
@@ -104,7 +106,7 @@ impl TransactionMeta {
     }
 }
 
-/// TODO(doc): @quake
+/// Builder for `TransactionMeta`.
 #[derive(Default)]
 pub struct TransactionMetaBuilder {
     block_number: u64,
@@ -116,43 +118,43 @@ pub struct TransactionMetaBuilder {
 }
 
 impl TransactionMetaBuilder {
-    /// TODO(doc): @quake
+    /// Sets the block number.
     pub fn block_number(mut self, block_number: u64) -> Self {
         self.block_number = block_number;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the epoch number.
     pub fn epoch_number(mut self, epoch_number: u64) -> Self {
         self.epoch_number = epoch_number;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the block hash.
     pub fn block_hash(mut self, block_hash: Byte32) -> Self {
         self.block_hash = block_hash;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets whether this is a cellbase transaction.
     pub fn cellbase(mut self, cellbase: bool) -> Self {
         self.cellbase = cellbase;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the bit vector indicating spent outputs.
     pub fn bits(mut self, bits: Vec<u8>) -> Self {
         self.bits = bits;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the total number of outputs.
     pub fn len(mut self, len: usize) -> Self {
         self.len = len;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Builds the `TransactionMeta`.
     pub fn build(self) -> TransactionMeta {
         let TransactionMetaBuilder {
             block_number,

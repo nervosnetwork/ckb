@@ -1,8 +1,11 @@
-//! TODO(doc): @quake
+//! Chain iterator utilities.
+//!
+//! This crate provides iterators for traversing the blockchain, allowing efficient
+//! iteration over blocks in the chain.
 use ckb_store::ChainStore;
 use ckb_types::{core::BlockNumber, core::BlockView};
 
-/// TODO(doc): @quake
+/// An iterator over the blocks in a chain.
 // An iterator over the entries of a `Chain`.
 pub struct ChainIterator<'a, S: ChainStore> {
     store: &'a S,
@@ -11,7 +14,7 @@ pub struct ChainIterator<'a, S: ChainStore> {
 }
 
 impl<'a, S: ChainStore> ChainIterator<'a, S> {
-    /// TODO(doc): @quake
+    /// Creates a new chain iterator starting from the genesis block.
     pub fn new(store: &'a S) -> Self {
         let current = store.get_block_hash(0).and_then(|h| store.get_block(&h));
         let tip = store.get_tip_header().expect("store inited").number();
@@ -22,7 +25,7 @@ impl<'a, S: ChainStore> ChainIterator<'a, S> {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Returns the total number of blocks in the chain.
     pub fn len(&self) -> u64 {
         self.tip + 1
     }

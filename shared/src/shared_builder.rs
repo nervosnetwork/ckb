@@ -212,43 +212,43 @@ impl SharedBuilder {
 }
 
 impl SharedBuilder {
-    /// TODO(doc): @quake
+    /// Sets the consensus configuration for the shared state.
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = value;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the transaction pool configuration.
     pub fn tx_pool_config(mut self, config: TxPoolConfig) -> Self {
         self.tx_pool_config = Some(config);
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the notification service configuration.
     pub fn notify_config(mut self, config: NotifyConfig) -> Self {
         self.notify_config = Some(config);
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the store configuration.
     pub fn store_config(mut self, config: StoreConfig) -> Self {
         self.store_config = Some(config);
         self
     }
 
-    /// TODO(doc): @eval-exec
+    /// Sets the sync configuration.
     pub fn sync_config(mut self, config: SyncConfig) -> Self {
         self.sync_config = Some(config);
         self
     }
 
-    /// TODO(doc): @eval-exec
+    /// Sets the temporary directory for header map storage.
     pub fn header_map_tmp_dir(mut self, header_map_tmp_dir: Option<PathBuf>) -> Self {
         self.header_map_tmp_dir = header_map_tmp_dir;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the block assembler configuration for mining.
     pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
         self.block_assembler_config = config;
         self
@@ -349,7 +349,9 @@ impl SharedBuilder {
         Ok((snapshot, proposal_table))
     }
 
-    /// TODO(doc): @quake
+    /// Builds the shared state and related components.
+    ///
+    /// Returns the shared state and a package containing the transaction pool and block assembler.
     pub fn build(self) -> Result<(Shared, SharedPackage), ExitCode> {
         let SharedBuilder {
             db,

@@ -50,7 +50,10 @@ impl Drop for FreezerClose {
     }
 }
 
-/// TODO(doc): @quake
+/// Shared blockchain state accessible across the CKB node.
+///
+/// Provides thread-safe access to the chain store, transaction pool, consensus parameters,
+/// and other core components needed throughout the node.
 #[derive(Clone)]
 pub struct Shared {
     pub(crate) store: ChainDB,
@@ -296,22 +299,22 @@ impl Shared {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Returns a reference to the transaction pool controller.
     pub fn tx_pool_controller(&self) -> &TxPoolController {
         &self.tx_pool_controller
     }
 
-    /// TODO(doc): @quake
+    /// Returns the transaction verification cache.
     pub fn txs_verify_cache(&self) -> Arc<TokioRwLock<TxVerificationCache>> {
         Arc::clone(&self.txs_verify_cache)
     }
 
-    /// TODO(doc): @quake
+    /// Returns a reference to the notification controller.
     pub fn notify_controller(&self) -> &NotifyController {
         &self.notify_controller
     }
 
-    /// TODO(doc): @quake
+    /// Returns a guard to the current snapshot of the blockchain state.
     pub fn snapshot(&self) -> Guard<Arc<Snapshot>> {
         self.snapshot_mgr.load()
     }
@@ -321,18 +324,18 @@ impl Shared {
         Arc::clone(&self.snapshot())
     }
 
-    /// TODO(doc): @quake
+    /// Stores a new snapshot of the blockchain state.
     pub fn store_snapshot(&self, snapshot: Arc<Snapshot>) {
         self.snapshot_mgr.store(snapshot)
     }
 
-    /// TODO(doc): @quake
+    /// Refreshes the current snapshot with the latest store data.
     pub fn refresh_snapshot(&self) {
         let new = self.snapshot().refresh(self.store.get_snapshot());
         self.store_snapshot(Arc::new(new));
     }
 
-    /// TODO(doc): @quake
+    /// Creates a new snapshot with the given tip and metadata.
     pub fn new_snapshot(
         &self,
         tip_header: HeaderView,
@@ -350,7 +353,7 @@ impl Shared {
         ))
     }
 
-    /// TODO(doc): @quake
+    /// Returns a reference to the consensus parameters.
     pub fn consensus(&self) -> &Consensus {
         &self.consensus
     }
@@ -365,12 +368,12 @@ impl Shared {
         &self.async_handle
     }
 
-    /// TODO(doc): @quake
+    /// Returns the hash of the genesis block.
     pub fn genesis_hash(&self) -> Byte32 {
         self.consensus.genesis_hash()
     }
 
-    /// TODO(doc): @quake
+    /// Returns a reference to the chain store.
     pub fn store(&self) -> &ChainDB {
         &self.store
     }
