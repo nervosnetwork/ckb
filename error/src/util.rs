@@ -188,7 +188,4 @@ macro_rules! def_error_base_on_kind {
             )
         );
     };
-    ($error:ident, $error_kind:ty) => {
-        def_error_base_on_kind!($error, $error_kind, "/// Error type for the operation.");
-    };
 }

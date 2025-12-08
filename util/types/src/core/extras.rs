@@ -46,7 +46,7 @@ pub struct TransactionInfo {
     /// Hash of the block containing this transaction.
     // Block hash
     pub block_hash: packed::Byte32,
-    /// Number of the block containing this transaction.
+    /// Block number of the block containing this transaction.
     pub block_number: BlockNumber,
     /// Epoch of the block containing this transaction.
     pub block_epoch: EpochNumberWithFraction,

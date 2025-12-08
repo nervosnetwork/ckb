@@ -61,12 +61,12 @@ impl TransactionMeta {
         self.dead_cell.len()
     }
 
-    /// Returns the block number where this transaction was included.
+    /// Returns the block number where this transaction was committed.
     pub fn block_number(&self) -> u64 {
         self.block_number
     }
 
-    /// Returns the epoch number where this transaction was included.
+    /// Returns the epoch number where this transaction was committed.
     pub fn epoch_number(&self) -> u64 {
         self.epoch_number
     }
