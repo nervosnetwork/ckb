@@ -21,7 +21,7 @@ use std::sync::OnceLock;
 pub enum ResolvedDep {
     /// A single cell dependency.
     Cell(CellMeta),
-    /// A group of cells (for type script groups).
+    /// A group of cell dependencies encoded in the cell data.
     Group(CellMeta, Vec<CellMeta>),
 }
 
@@ -297,7 +297,7 @@ impl ResolvedTransaction {
         self.transaction.outputs_capacity()
     }
 
-    /// Returns an iterator over all dependency outpoints.
+    /// Returns an iterator over all dependency outpoints after expanding all cell groups.
     pub fn related_dep_out_points(&self) -> impl Iterator<Item = &OutPoint> {
         self.resolved_cell_deps
             .iter()
