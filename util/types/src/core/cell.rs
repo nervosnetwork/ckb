@@ -1,4 +1,7 @@
-//! TODO(doc): @quake
+//! Cell-related data structures.
+//!
+//! This module defines core types for cells in CKB, including cell metadata,
+//! cell status, and cell provider traits for accessing cell data.
 use crate::{
     bytes::Bytes,
     core::error::OutPointError,

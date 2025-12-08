@@ -1,4 +1,7 @@
-//! TODO(doc): @quake
+//! Miner implementation for CKB block mining.
+//!
+//! This crate provides mining functionality including block template generation,
+//! proof-of-work verification, and worker management for the CKB blockchain.
 mod client;
 mod miner;
 mod worker;
@@ -10,12 +13,12 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_types::packed::Block;
 use std::convert::From;
 
-/// TODO(doc): @quake
+/// Mining work unit containing a block template and work ID.
 #[derive(Clone)]
 pub struct Work {
-    /// TODO(doc): @quake
+    /// Unique identifier for this work unit.
     work_id: u64,
-    /// TODO(doc): @quake
+    /// The block to be mined.
     block: Block,
 }
 
