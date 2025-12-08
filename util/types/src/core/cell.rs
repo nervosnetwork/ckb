@@ -16,12 +16,12 @@ use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::OnceLock;
 
-/// TODO(doc): @quake
+/// Resolved cell dependency.
 #[derive(Debug)]
 pub enum ResolvedDep {
-    /// TODO(doc): @quake
+    /// A single cell dependency.
     Cell(CellMeta),
-    /// TODO(doc): @quake
+    /// A group of cells (for type script groups).
     Group(CellMeta, Vec<CellMeta>),
 }
 
@@ -32,16 +32,16 @@ pub static SYSTEM_CELL: OnceLock<SystemCellMap> = OnceLock::new();
 
 const MAX_DEP_EXPANSION_LIMIT: usize = 2048;
 
-/// TODO(doc): @quake
+/// Cell metadata with additional information beyond the basic cell output.
 #[derive(Clone, Eq, PartialEq, Default)]
 pub struct CellMeta {
-    /// TODO(doc): @quake
+    /// The cell output data structure.
     pub cell_output: CellOutput,
-    /// TODO(doc): @quake
+    /// The outpoint referencing this cell.
     pub out_point: OutPoint,
-    /// TODO(doc): @quake
+    /// Transaction information where this cell was created.
     pub transaction_info: Option<TransactionInfo>,
-    /// TODO(doc): @quake
+    /// Size of the cell data in bytes.
     pub data_bytes: u64,
     /// In memory cell data
     /// A live cell either exists in memory or DB
@@ -53,7 +53,7 @@ pub struct CellMeta {
     pub mem_cell_data_hash: Option<Byte32>,
 }
 
-/// TODO(doc): @quake
+/// Builder for `CellMeta`.
 #[derive(Default)]
 pub struct CellMetaBuilder {
     cell_output: CellOutput,
@@ -65,7 +65,7 @@ pub struct CellMetaBuilder {
 }
 
 impl CellMetaBuilder {
-    /// TODO(doc): @quake
+    /// Creates a builder from an existing `CellMeta`.
     pub fn from_cell_meta(cell_meta: CellMeta) -> Self {
         let CellMeta {
             cell_output,
@@ -85,7 +85,7 @@ impl CellMetaBuilder {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Creates a builder from a cell output and its data.
     pub fn from_cell_output(cell_output: CellOutput, data: Bytes) -> Self {
         CellMetaBuilder {
             cell_output,
@@ -96,19 +96,19 @@ impl CellMetaBuilder {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Sets the outpoint.
     pub fn out_point(mut self, out_point: OutPoint) -> Self {
         self.out_point = out_point;
         self
     }
 
-    /// TODO(doc): @quake
+    /// Sets the transaction information.
     pub fn transaction_info(mut self, transaction_info: TransactionInfo) -> Self {
         self.transaction_info = Some(transaction_info);
         self
     }
 
-    /// TODO(doc): @quake
+    /// Builds the `CellMeta`.
     pub fn build(self) -> CellMeta {
         let Self {
             cell_output,
@@ -141,7 +141,7 @@ impl fmt::Debug for CellMeta {
 }
 
 impl CellMeta {
-    /// TODO(doc): @quake
+    /// Returns true if this cell was created in a cellbase transaction.
     pub fn is_cellbase(&self) -> bool {
         self.transaction_info
             .as_ref()
@@ -149,25 +149,25 @@ impl CellMeta {
             .unwrap_or(false)
     }
 
-    /// TODO(doc): @quake
+    /// Returns the capacity of this cell.
     pub fn capacity(&self) -> Capacity {
         self.cell_output.capacity().into()
     }
 
-    /// TODO(doc): @quake
+    /// Returns the occupied capacity required to store this cell.
     pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
         self.cell_output
             .occupied_capacity(Capacity::bytes(self.data_bytes as usize)?)
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the cell's capacity is less than its occupied capacity.
     pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
         self.cell_output
             .is_lack_of_capacity(Capacity::bytes(self.data_bytes as usize)?)
     }
 }
 
-/// TODO(doc): @quake
+/// Cell status in the chain.
 #[derive(PartialEq, Debug, Eq, Clone)]
 pub enum CellStatus {
     /// Cell exists and has not been spent.
@@ -179,17 +179,17 @@ pub enum CellStatus {
 }
 
 impl CellStatus {
-    /// TODO(doc): @quake
+    /// Creates a live cell status.
     pub fn live_cell(cell_meta: CellMeta) -> CellStatus {
         CellStatus::Live(cell_meta)
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the cell is live.
     pub fn is_live(&self) -> bool {
         matches!(*self, CellStatus::Live(_))
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the cell is dead (spent).
     pub fn is_dead(&self) -> bool {
         self == &CellStatus::Dead
     }
@@ -203,13 +203,13 @@ impl CellStatus {
 /// Transaction with resolved input cells.
 #[derive(Debug, Clone, Eq)]
 pub struct ResolvedTransaction {
-    /// TODO(doc): @quake
+    /// The transaction view.
     pub transaction: TransactionView,
-    /// TODO(doc): @quake
+    /// Resolved cell dependencies.
     pub resolved_cell_deps: Vec<CellMeta>,
-    /// TODO(doc): @quake
+    /// Resolved input cells.
     pub resolved_inputs: Vec<CellMeta>,
-    /// TODO(doc): @quake
+    /// Resolved dependency group cells.
     pub resolved_dep_groups: Vec<CellMeta>,
 }
 
@@ -278,13 +278,13 @@ impl ResolvedTransaction {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if this is a cellbase transaction (has no inputs).
     // cellbase will be resolved with empty input cells, we can use low cost check here:
     pub fn is_cellbase(&self) -> bool {
         self.resolved_inputs.is_empty()
     }
 
-    /// TODO(doc): @quake
+    /// Returns the total capacity of all inputs.
     pub fn inputs_capacity(&self) -> CapacityResult<Capacity> {
         self.resolved_inputs
             .iter()
@@ -292,12 +292,12 @@ impl ResolvedTransaction {
             .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 
-    /// TODO(doc): @quake
+    /// Returns the total capacity of all outputs.
     pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.transaction.outputs_capacity()
     }
 
-    /// TODO(doc): @quake
+    /// Returns an iterator over all dependency outpoints.
     pub fn related_dep_out_points(&self) -> impl Iterator<Item = &OutPoint> {
         self.resolved_cell_deps
             .iter()
@@ -423,13 +423,17 @@ where
     }
 }
 
-/// TODO(doc): @quake
+/// Trait for providing access to cells.
 pub trait CellProvider {
-    /// TODO(doc): @quake
+    /// Returns the cell status for the given outpoint.
+    ///
+    /// If `eager_load` is true, cell data should be loaded immediately.
     fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus;
 }
 
-/// TODO(doc): @quake
+/// Cell provider that overlays one provider on top of another.
+///
+/// Checks the overlay provider first, and falls back to the base provider.
 pub struct OverlayCellProvider<'a, A, B> {
     overlay: &'a A,
     cell_provider: &'a B,
@@ -440,7 +444,7 @@ where
     A: CellProvider,
     B: CellProvider,
 {
-    /// TODO(doc): @quake
+    /// Creates a new overlay cell provider.
     pub fn new(overlay: &'a A, cell_provider: &'a B) -> Self {
         Self {
             overlay,
@@ -463,7 +467,9 @@ where
     }
 }
 
-/// TODO(doc): @quake
+/// Cell provider for cells within a block.
+///
+/// Provides cells from transactions within a single block.
 pub struct BlockCellProvider<'a> {
     output_indices: HashMap<Byte32, usize>,
     block: &'a BlockView,
@@ -472,7 +478,7 @@ pub struct BlockCellProvider<'a> {
 // Transactions are expected to be sorted within a block,
 // Transactions have to appear after any transactions upon which they depend
 impl<'a> BlockCellProvider<'a> {
-    /// TODO(doc): @quake
+    /// Creates a new block cell provider from the given block.
     pub fn new(block: &'a BlockView) -> Result<Self, Error> {
         let output_indices: HashMap<Byte32, usize> = block
             .transactions()
@@ -566,20 +572,20 @@ impl CellChecker for TransactionsChecker {
     }
 }
 
-/// TODO(doc): @quake
+/// Cell provider for a collection of transactions.
 #[derive(Default)]
 pub struct TransactionsProvider<'a> {
     transactions: HashMap<Byte32, &'a TransactionView>,
 }
 
 impl<'a> TransactionsProvider<'a> {
-    /// TODO(doc): @quake
+    /// Creates a new transactions provider from an iterator of transactions.
     pub fn new(transactions: impl Iterator<Item = &'a TransactionView>) -> Self {
         let transactions = transactions.map(|tx| (tx.hash(), tx)).collect();
         Self { transactions }
     }
 
-    /// TODO(doc): @quake
+    /// Inserts a transaction into the provider.
     pub fn insert(&mut self, transaction: &'a TransactionView) {
         self.transactions.insert(transaction.hash(), transaction);
     }
@@ -608,7 +614,7 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
     }
 }
 
-/// TODO(doc): @quake
+/// Trait for checking if headers are in the main chain.
 pub trait HeaderChecker {
     /// Check if header in main chain
     fn check_valid(&self, block_hash: &Byte32) -> Result<(), OutPointError>;
@@ -847,7 +853,7 @@ fn build_cell_meta_from_out_point<CP: CellProvider>(
     }
 }
 
-/// TODO(doc): @quake
+/// Sets up the system cell cache from the genesis block.
 pub fn setup_system_cell_cache<CP: CellProvider>(
     genesis: &BlockView,
     cell_provider: &CP,
