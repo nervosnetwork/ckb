@@ -99,6 +99,11 @@ impl VerifyQueue {
         self.inner.get_by_id(id).is_some()
     }
 
+    /// Returns true if the queue contains a tx with the specified id.
+    pub fn get_tx_by_id(&self, id: &ProposalShortId) -> Option<&Entry> {
+        self.inner.get_by_id(id).map(|e| &e.inner)
+    }
+
     /// Shrink the capacity of the queue as much as possible.
     pub fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.inner, SHRINK_THRESHOLD);
