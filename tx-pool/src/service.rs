@@ -1110,7 +1110,8 @@ impl TxPoolService {
                 }
                 CellStatus::live_cell(cell_meta)
             }
-            _ => CellStatus::Unknown,
+            CellStatus::Dead => CellStatus::Dead,
+            CellStatus::Unknown => CellStatus::Unknown,
         }
     }
 
