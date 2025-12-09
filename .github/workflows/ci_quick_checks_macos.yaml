@@ -48,7 +48,7 @@ jobs:
   ci_quick_checks_macos:
     name: ci_quick_checks_macos
     needs: prologue
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: |
