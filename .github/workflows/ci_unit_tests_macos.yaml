@@ -48,7 +48,7 @@ jobs:
   ci_unit_tests_macos:
     name: ci_unit_tests_macos
     needs: prologue
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
