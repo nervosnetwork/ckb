@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ckb-fixed-hash-core",
  "ckb-fixed-hash-macros",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics-service"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
