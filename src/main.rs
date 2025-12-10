@@ -64,7 +64,7 @@ fn check_msvc_version() {
         }
     }
 
-    if let Some(version) = get_vc_redist_version("x64")? {
+    if let Some(version) = get_vc_redist_version("x64").unwrap_or_default() {
         eprintln!("Detected VC++ Redistributable version (x64): {}", version);
         let threshold = "14.44.0.0";
         if !is_version_at_least(&version, threshold) {
