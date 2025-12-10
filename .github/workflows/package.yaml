@@ -16,9 +16,20 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v2.0.0
 
 jobs:
+  get-ckb-cli-version:
+    name: Get CKB CLI Version
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      - name: Get latest ckb-cli version
+        id: get-version
+        run: |
+          CKB_CLI_VERSION=$(curl -s https://api.github.com/repos/nervosnetwork/ckb-cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "version=$CKB_CLI_VERSION" >> $GITHUB_OUTPUT
+
   create-release:
     name: Create release
     runs-on: ubuntu-22.04
@@ -44,6 +55,8 @@ jobs:
   package-for-linux:
     name: package-for-linux
     runs-on: ubuntu-22.04
+    needs:
+      - get-ckb-cli-version
     strategy:
       matrix:
         include:
@@ -82,10 +95,13 @@ jobs:
     env:
       BUILDER_IMAGE: nervos/ckb-docker-builder:bionic-rust-1.85.0
       REL_PKG: ${{ matrix.rel_pkg }}
+      CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
   package-for-linux-aarch64:
     name: package-for-linux-aarch64
     runs-on: ubuntu-22.04
+    needs:
+      - get-ckb-cli-version
     steps:
       - uses: actions/checkout@v4
       - name: Set Env
@@ -122,10 +138,13 @@ jobs:
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       REL_PKG: aarch64-unknown-linux-gnu.tar.gz
+      CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
   package-for-centos:
     name: package-for-centos
     runs-on: ubuntu-22.04
+    needs:
+      - get-ckb-cli-version
     strategy:
       matrix:
         include:
@@ -164,10 +183,13 @@ jobs:
     env:
       BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.85.0
       REL_PKG: ${{ matrix.rel_pkg }}
+      CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
   package-for-mac:
     name: package-for-mac
     runs-on: macos-15
+    needs:
+      - get-ckb-cli-version
     strategy:
       matrix:
         include:
@@ -207,10 +229,13 @@ jobs:
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       REL_PKG: ${{ matrix.rel_pkg }}
+      CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
   package-for-mac-aarch64:
     name: package-for-mac-aarch64
     runs-on: [self-hosted, macOS, ARM64]
+    needs:
+      - get-ckb-cli-version
     strategy:
       matrix:
         include:
@@ -263,10 +288,13 @@ jobs:
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       REL_PKG: ${{ matrix.rel_pkg }}
+      CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
   package-for-windows:
     name: package-for-windows
     runs-on: windows-2022
+    needs:
+      - get-ckb-cli-version
     steps:
       - name: Install Dependencies
         run: |
@@ -323,6 +351,7 @@ jobs:
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       REL_PKG: x86_64-pc-windows-msvc.zip
+      CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
   Upload_File:
     name: Upload_Zip_File
