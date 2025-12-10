@@ -25,7 +25,7 @@ fn check_msvc_version() {
     use winreg::enums::*;
     // if users msvc version less than 14.44, print a warning
 
-    fn get_vc_redist_version(arch: &str) -> io::Result<Option<String>> {
+    fn get_vc_redist_version(arch: &str) -> std::io::Result<Option<String>> {
         // arch: "x64" or "x86"
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         let key_path = format!(
