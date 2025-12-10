@@ -16,7 +16,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v2.0.0
 
 jobs:
   create-release:
@@ -57,6 +56,10 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Get latest ckb-cli version
+        run: |
+          CKB_CLI_VERSION=$(curl -s https://api.github.com/repos/nervosnetwork/ckb-cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "CKB_CLI_VERSION=$CKB_CLI_VERSION" >> $GITHUB_ENV
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
@@ -94,6 +97,10 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Get latest ckb-cli version
+        run: |
+          CKB_CLI_VERSION=$(curl -s https://api.github.com/repos/nervosnetwork/ckb-cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "CKB_CLI_VERSION=$CKB_CLI_VERSION" >> $GITHUB_ENV
       - name: Add rust target
         run: rustup target add aarch64-unknown-linux-gnu
       - name: Install dependencies
@@ -143,6 +150,10 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Get latest ckb-cli version
+        run: |
+          CKB_CLI_VERSION=$(curl -s https://api.github.com/repos/nervosnetwork/ckb-cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "CKB_CLI_VERSION=$CKB_CLI_VERSION" >> $GITHUB_ENV
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
@@ -185,6 +196,10 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Get latest ckb-cli version
+        run: |
+          CKB_CLI_VERSION=$(curl -s https://api.github.com/repos/nervosnetwork/ckb-cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "CKB_CLI_VERSION=$CKB_CLI_VERSION" >> $GITHUB_ENV
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
@@ -233,6 +248,10 @@ jobs:
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
+      - name: Get latest ckb-cli version
+        run: |
+          CKB_CLI_VERSION=$(curl -s https://api.github.com/repos/nervosnetwork/ckb-cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "CKB_CLI_VERSION=$CKB_CLI_VERSION" >> $GITHUB_ENV
       - name: Install Depedencies
         run: |
           if ! type -f gpg &> /dev/null; then
@@ -283,6 +302,11 @@ jobs:
           echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "LIBCLANG_PATH=$env:USERPROFILE\scoop\apps\llvm\current\bin" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
+      - name: Get latest ckb-cli version
+        run: |
+          $response = Invoke-RestMethod -Uri "https://api.github.com/repos/nervosnetwork/ckb-cli/releases/latest"
+          $CKB_CLI_VERSION = $response.tag_name
+          echo "CKB_CLI_VERSION=$CKB_CLI_VERSION" >> $env:GITHUB_ENV
       - name: Build
         run: |
           devtools/windows/make prod
