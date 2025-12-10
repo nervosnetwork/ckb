@@ -1,0 +1,4 @@
+[[package]]
+name = "ckb"
+# Root crate will be published manually
+release = false
