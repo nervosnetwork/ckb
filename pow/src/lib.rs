@@ -1,4 +1,7 @@
-//! TODO(doc): @quake
+//! Proof of Work (PoW) engine implementations.
+//!
+//! This crate provides the PoW engine interface and various implementations
+//! for CKB's mining algorithm, including Eaglesong and dummy engines for testing.
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_types::{
     packed::{Byte32, Header},

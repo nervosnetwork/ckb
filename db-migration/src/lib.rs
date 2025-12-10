@@ -1,4 +1,7 @@
-//! TODO(doc): @quake
+//! Database migration framework.
+//!
+//! This crate provides a migration framework for managing database schema changes
+//! and data transformations across different versions of CKB.
 use ckb_channel::Receiver;
 use ckb_channel::select;
 use ckb_channel::unbounded;
@@ -28,7 +31,7 @@ fn internal_error(reason: String) -> Error {
     InternalErrorKind::Database.other(reason).into()
 }
 
-/// TODO(doc): @quake
+/// Collection of database migrations.
 #[derive(Default)]
 pub struct Migrations {
     migrations: BTreeMap<String, Arc<dyn Migration>>,
@@ -94,14 +97,14 @@ impl MigrationWorker {
 }
 
 impl Migrations {
-    /// TODO(doc): @quake
+    /// Creates a new empty migrations collection.
     pub fn new() -> Self {
         Migrations {
             migrations: BTreeMap::new(),
         }
     }
 
-    /// TODO(doc): @quake
+    /// Adds a migration to the collection.
     pub fn add_migration(&mut self, migration: Arc<dyn Migration>) {
         self.migrations
             .insert(migration.version().to_string(), migration);
@@ -297,7 +300,9 @@ impl Migrations {
         Ok(())
     }
 
-    /// TODO(doc): @quake
+    /// Runs pending migrations on the database.
+    ///
+    /// If `run_in_background` is true, long-running migrations will be executed asynchronously.
     pub fn migrate(&self, db: RocksDB, run_in_background: bool) -> Result<RocksDB, Error> {
         let db_version = self.get_migration_version(&db)?;
         match db_version {
@@ -345,9 +350,11 @@ impl Migrations {
     }
 }
 
-/// TODO(doc): @quake
+/// Trait for database migrations.
 pub trait Migration: Send + Sync {
-    /// TODO(doc): @quake
+    /// Executes the migration on the database.
+    ///
+    /// The `pb` parameter is a progress bar factory for tracking migration progress.
     fn migrate(
         &self,
         _db: RocksDB,
@@ -389,13 +396,13 @@ pub trait Migration: Send + Sync {
     }
 }
 
-/// TODO(doc): @quake
+/// Default migration implementation that does nothing.
 pub struct DefaultMigration {
     version: String,
 }
 
 impl DefaultMigration {
-    /// TODO(doc): @quake
+    /// Creates a new default migration with the given version string.
     pub fn new(version: &str) -> Self {
         Self {
             version: version.to_string(),

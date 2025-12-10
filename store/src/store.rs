@@ -273,12 +273,12 @@ pub trait ChainStore: Send + Sync + Sized {
             .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the block is on the main chain.
     fn is_main_chain(&self, hash: &packed::Byte32) -> bool {
         self.get(COLUMN_INDEX, hash.as_slice()).is_some()
     }
 
-    /// TODO(doc): @quake
+    /// Returns the header of the chain tip.
     fn get_tip_header(&self) -> Option<HeaderView> {
         self.get(COLUMN_META, META_TIP_HEADER_KEY).and_then(|raw| {
             self.get_block_header(
@@ -301,7 +301,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .map(|(tx, tx_info)| (tx, tx_info.block_hash))
     }
 
-    /// TODO(doc): @quake
+    /// Returns transaction info by transaction hash.
     fn get_transaction_info(&self, hash: &packed::Byte32) -> Option<TransactionInfo> {
         self.get(COLUMN_TRANSACTION_INFO, hash.as_slice())
             .map(|slice| {
@@ -349,7 +349,7 @@ pub trait ChainStore: Send + Sync + Sized {
         })
     }
 
-    /// TODO(doc): @quake
+    /// Returns cell data and its hash for the given outpoint.
     fn get_cell_data(&self, out_point: &OutPoint) -> Option<(Bytes, packed::Byte32)> {
         let key = out_point.to_cell_key();
         if let Some(cache) = self.cache() {
@@ -378,7 +378,7 @@ pub trait ChainStore: Send + Sync + Sized {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Returns the hash of cell data for the given outpoint.
     fn get_cell_data_hash(&self, out_point: &OutPoint) -> Option<packed::Byte32> {
         let key = out_point.to_cell_key();
         if let Some(cache) = self.cache() {
@@ -429,13 +429,13 @@ pub trait ChainStore: Send + Sync + Sized {
             .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity())
     }
 
-    /// TODO(doc): @quake
+    /// Returns the epoch of the block with the given hash.
     fn get_block_epoch(&self, hash: &packed::Byte32) -> Option<EpochExt> {
         self.get_block_epoch_index(hash)
             .and_then(|index| self.get_epoch_ext(&index))
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if the given hash is an uncle block.
     fn is_uncle(&self, hash: &packed::Byte32) -> bool {
         self.get(COLUMN_UNCLES, hash.as_slice()).is_some()
     }
@@ -448,7 +448,7 @@ pub trait ChainStore: Send + Sync + Sized {
         })
     }
 
-    /// TODO(doc): @quake
+    /// Returns true if a block with the given hash exists in the store.
     fn block_exists(&self, hash: &packed::Byte32) -> bool {
         if let Some(cache) = self.cache() {
             if cache.headers.lock().get(hash).is_some() {
