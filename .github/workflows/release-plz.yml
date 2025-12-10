@@ -35,6 +35,8 @@ jobs:
       - name: Run release-plz
         run: |
           release-plz release --git-token "${GITHUB_TOKEN}" --allow-dirty
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
 
   release-plz-pr:
     name: Release-plz PR
