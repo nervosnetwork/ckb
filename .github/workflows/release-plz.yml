@@ -26,17 +26,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Strip dev-dependencies
         run: devtools/ci/strip-dev-dependencies.sh
-      - name: Install binaries
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-semver-checks@0.45, release-plz@0.3.150
-      - name: Configure git user from GitHub token
-        uses: release-plz/git-config@59144859caf016f8b817a2ac9b051578729173c4
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - name: Run release-plz
-        run: |
-          release-plz release --git-token "${GITHUB_TOKEN}" --allow-dirty
+        uses: release-plz/action@v0.5
+        with:
+          command: release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
 
