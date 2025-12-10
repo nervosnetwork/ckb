@@ -1,4 +1,4 @@
-//! # The Sync module
+//! The ckb sync/relayer protocols implementation
 //!
 //! Sync module implement ckb sync protocol as specified here:
 //! <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0004-ckb-block-sync/0004-ckb-block-sync.md>

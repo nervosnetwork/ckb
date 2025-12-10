@@ -4,7 +4,7 @@ version = "1.0.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "The schema include constants define the low level database column families."
+description = "The schema include constants define the low level database column families"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

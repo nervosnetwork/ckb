@@ -4,7 +4,7 @@ version = "1.0.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "Ckb constant container"
+description = "Collect constants used across ckb components"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

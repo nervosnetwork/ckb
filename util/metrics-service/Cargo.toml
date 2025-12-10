@@ -4,7 +4,7 @@ version = "1.0.1"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2024"
-description = "The service which handle the metrics data in CKB."
+description = "The service which handles the metrics data in CKB"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

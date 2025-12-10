@@ -1,4 +1,4 @@
-//! # The DB Library
+//! The ckb data persistent implementation
 //!
 //! This Library contains the `KeyValueDB` traits
 //! which provides key-value store interface
