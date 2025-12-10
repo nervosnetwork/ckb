@@ -1,0 +1,8 @@
+[workspace]
+# Only mark root crate release as latest
+git_release_latest = false
+
+[[package]]
+name = "ckb"
+# Root crate will be published manually
+release = false

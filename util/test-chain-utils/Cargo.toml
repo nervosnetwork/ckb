@@ -1,5 +1,6 @@
 [package]
 name = "ckb-test-chain-utils"
+publish = false
 version = "1.0.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
