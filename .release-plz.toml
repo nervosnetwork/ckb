@@ -1,7 +1,6 @@
 [workspace]
 # Only mark root crate release as latest
 git_release_latest = false
-allow_dirty = true
 
 [[package]]
 name = "ckb"
