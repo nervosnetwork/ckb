@@ -1,5 +1,6 @@
 [package]
 name = "ckb-rpc-gen"
+publish = false
 version = "1.0.0"
 edition = "2024"
 license = "MIT"
