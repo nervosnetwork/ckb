@@ -24,8 +24,6 @@ jobs:
       - &install-rust
         name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Strip dev-dependencies
-        run: devtools/ci/strip-dev-dependencies.sh
       - name: Run release-plz
         uses: release-plz/action@v0.5
         with:
