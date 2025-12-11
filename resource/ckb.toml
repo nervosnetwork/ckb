@@ -51,6 +51,10 @@ dsn = "" # {{
 # # Seconds between checking the process, 0 is disable, default is 0.
 # interval = 600
 
+# Config Prometheus metrics server
+# [metrics.exporter.prometheus]
+# target = { type = "prometheus", listen_address = "127.0.0.1:8100" }
+
 [db]
 # The capacity of RocksDB cache, which caches uncompressed data blocks, indexes and filters, default is 256MB.
 # Rocksdb will automatically create and use an 32MB internal cache for each column family by default if you set this value to 0.
