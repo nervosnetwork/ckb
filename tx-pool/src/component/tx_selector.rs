@@ -1,6 +1,7 @@
 extern crate slab;
 use crate::component::pool_map::PoolMap;
 use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
+use ckb_logger::debug;
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use ckb_util::LinkedHashMap;
 use multi_index_map::MultiIndexMap;
@@ -46,10 +47,30 @@ impl MultiIndexModifiedTxMap {
 // Limit the number of attempts to add transactions to the block when it is
 // close to full; this is just a simple heuristic to finish quickly if the
 // mempool has a lot of entries.
-const MAX_CONSECUTIVE_FAILURES: usize = 500;
+const MAX_CONSECUTIVE_FAILURES: usize = 4000;
 
-/// find txs to package into commitment
-pub struct CommitTxsScanner<'a> {
+/// Selects transactions for inclusion in a block-template using **package-aware** fee-rate sorting.
+///
+/// ### Package definition
+/// A package is a connected group of ≤ MAX_ANCESTORS_COUNT（2_000）transactions
+/// The mempool is linearly ordered into non-overlapping packages using a greedy clustering
+/// algorithm that maximizes total fee for a given size and cycles.
+///
+/// ### Why packages instead of individual transactions?
+/// - A high-fee child transaction is worthless without its low-fee parent(s) (CPFP).
+/// - A low-fee parent with many high-fee children should be prioritized as a unit (package).
+/// - Sorting individual txs breaks incentive compatibility and leads to suboptimal templates.
+///
+/// ### Sorting rule
+/// Packages are sorted by **package fee rate** = total fee / total weight of the entire package.
+///
+/// ### Selection process
+// This is accomplished by walking the descendants of selected
+// transactions and storing a temporary modified state in `modified_entries``.
+// Each time through the loop, we compare the best transaction in
+// `modified_entries` with the next transaction in the tx-pool to decide what
+// transaction package to work on next.
+pub struct TxSelector<'a> {
     pool_map: &'a PoolMap,
     entries: Vec<TxEntry>,
     // modified_entries will store sorted packages after they are modified
@@ -61,9 +82,9 @@ pub struct CommitTxsScanner<'a> {
     failed_txs: HashSet<ProposalShortId>,
 }
 
-impl<'a> CommitTxsScanner<'a> {
-    pub fn new(pool_map: &'a PoolMap) -> CommitTxsScanner<'a> {
-        CommitTxsScanner {
+impl<'a> TxSelector<'a> {
+    pub fn new(pool_map: &'a PoolMap) -> TxSelector<'a> {
+        TxSelector {
             entries: Vec::new(),
             pool_map,
             modified_entries: MultiIndexModifiedTxMap::default(),
@@ -82,7 +103,13 @@ impl<'a> CommitTxsScanner<'a> {
         let mut cycles: Cycle = 0;
         let mut consecutive_failed = 0;
 
-        let mut iter = self.pool_map.sorted_proposed_iter().peekable();
+        let mut iter = self
+            .pool_map
+            .sorted_proposed_iter()
+            .filter(|entry| {
+                entry.ancestors_size < size_limit && entry.ancestors_cycles < cycles_limit
+            })
+            .peekable();
         loop {
             let mut using_modified = false;
 
@@ -164,8 +191,11 @@ impl<'a> CommitTxsScanner<'a> {
                 .collect();
 
             for (short_id, entry) in &ancestors {
-                let is_inserted = self.fetched_txs.insert(short_id.clone());
-                debug_assert!(is_inserted, "package duplicate txs");
+                let is_new = self.fetched_txs.insert(short_id.clone());
+                if !is_new {
+                    debug!("package duplicate txs {}", short_id);
+                    continue;
+                }
                 cycles = cycles.saturating_add(entry.cycles);
                 size = size.saturating_add(entry.size);
                 self.entries.push(entry.to_owned());
