@@ -263,7 +263,7 @@ memchr = "2.7"
 merkle-cbt = "0.3"
 minstant = "0.1.4"
 molecule = { version = "0.8.0", default-features = false }
-multi_index_map = "0.6.0"
+multi_index_map = "0.15.0"
 multiaddr = { version = "0.3.6", package = "tentacle-multiaddr" }
 num-bigint = "0.4"
 num_cpus = "1.16.0"
