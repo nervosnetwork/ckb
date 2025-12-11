@@ -1,5 +1,3 @@
-//! # The Instrument Library
-//!
 //! Instruments for ckb for working with `Export`, `Import`
 //!
 //! - [`Export`] provides block data export function.

@@ -4,7 +4,7 @@ version = "1.0.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2024"
-description = "CKB logging facade."
+description = "CKB logging facade"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

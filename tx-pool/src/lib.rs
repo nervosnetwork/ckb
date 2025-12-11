@@ -1,5 +1,6 @@
-//! CKB Tx-pool stores transactions,
-//! design for CKB [Two-Step-Transaction-Confirmation](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#Two-Step-Transaction-Confirmation) mechanism
+//! CKB Tx-pool stores transactions, which is designed for CKB
+//! [Two-Step-Transaction-Confirmation](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#Two-Step-Transaction-Confirmation)
+//! mechanism
 
 pub mod block_assembler;
 mod callback;

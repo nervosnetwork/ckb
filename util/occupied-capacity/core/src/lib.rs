@@ -1,4 +1,4 @@
-//! Data structure measurement.
+//! Data wrapper for capacity.
 
 mod units;
 
