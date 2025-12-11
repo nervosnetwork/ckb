@@ -274,12 +274,14 @@ block_uncles_cache_size    = 30
 # cell_filter = "let script = output.type;script!=() && script.code_hash == \"0x00000000000000000000000000000000000000000000000000545950455f4944\""
 # # The initial tip can be set higher than the current indexer tip as the starting height for indexing.
 # init_tip_hash = "0x8fbd0ec887159d2814cee475911600e3589849670f5ee1ed9798b38fdeef4e44"
-# By default, there is no limitation on the size of indexer request
-# However, because serde json serialization consumes too much memory(10x),
-# it may cause the physical machine to become unresponsive.
-# We recommend a consumption limit of 2g, which is 400 as the limit,
-# which is a safer approach
+# # By default, there is no limitation on the size of indexer request
+# # However, because serde json serialization consumes too much memory(10x),
+# # it may cause the physical machine to become unresponsive.
+# # We recommend a consumption limit of 2g, which is 400 as the limit,
+# # which is a safer approach
 # request_limit = 400
+# # By default, there is a timeout limit of 10 seconds for each indexer request
+# timeout_limit = 10
 #
 # # CKB rich-indexer has its unique configuration.
 # [indexer_v2.rich_indexer]

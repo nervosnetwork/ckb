@@ -38,6 +38,9 @@ pub struct IndexerConfig {
     /// limit of indexer request
     #[serde(default)]
     pub request_limit: Option<usize>,
+    /// limit of indexer request timeout
+    #[serde(default)]
+    pub timeout_limit: Option<u64>,
     /// Rich indexer config options
     #[serde(default)]
     pub rich_indexer: RichIndexerConfig,
@@ -60,6 +63,7 @@ impl Default for IndexerConfig {
             db_keep_log_file_num: None,
             init_tip_hash: None,
             request_limit: None,
+            timeout_limit: None,
             rich_indexer: RichIndexerConfig::default(),
         }
     }
