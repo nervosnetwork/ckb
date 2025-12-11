@@ -107,7 +107,7 @@ impl<'a> TxSelector<'a> {
             .pool_map
             .sorted_proposed_iter()
             .filter(|entry| {
-                entry.ancestors_size < size_limit && entry.ancestors_cycles < cycles_limit
+                entry.ancestors_size <= size_limit && entry.ancestors_cycles <= cycles_limit
             })
             .peekable();
         loop {
@@ -173,9 +173,23 @@ impl<'a> TxSelector<'a> {
 
             // prepare to package tx with ancestors
             let ancestors_ids = self.pool_map.calc_ancestors(&short_id);
+            if ancestors_ids
+                .iter()
+                .any(|id| !self.pool_map.has_proposed(id))
+            {
+                if using_modified {
+                    self.modified_entries.remove(&short_id);
+                    self.failed_txs.insert(short_id.clone());
+                }
+                consecutive_failed += 1;
+                if consecutive_failed > MAX_CONSECUTIVE_FAILURES {
+                    break;
+                }
+                continue;
+            }
+
             let mut ancestors = ancestors_ids
                 .iter()
-                .filter(|id| self.pool_map.has_proposed(id))
                 .filter_map(only_unconfirmed)
                 .cloned()
                 .collect::<Vec<TxEntry>>();
