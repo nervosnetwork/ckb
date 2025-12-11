@@ -1,7 +1,7 @@
 //! Top-level Pool type, methods, and tests
 extern crate rustc_hash;
 extern crate slab;
-use super::component::{TxEntry, commit_txs_scanner::CommitTxsScanner};
+use super::component::{TxEntry, tx_selector::TxSelector};
 use crate::callback::Callbacks;
 use crate::component::pool_map::{PoolEntry, PoolMap, Status};
 use crate::component::recent_reject::RecentReject;
@@ -487,7 +487,7 @@ impl TxPool {
     }
 
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
-        let mut txs = CommitTxsScanner::new(&self.pool_map)
+        let mut txs = TxSelector::new(&self.pool_map)
             .txs_to_commit(usize::MAX, Cycle::MAX)
             .0
             .into_iter()
@@ -526,7 +526,7 @@ impl TxPool {
         proposals_limit: u64,
         uncles: &[UncleBlockView],
     ) -> HashSet<ProposalShortId> {
-        let uncle_proposals = uncles
+        let uncle_proposals: HashSet<ProposalShortId> = uncles
             .iter()
             .flat_map(|u| u.data().proposals().into_iter())
             .collect();
@@ -539,7 +539,7 @@ impl TxPool {
         txs_size_limit: usize,
     ) -> (Vec<TxEntry>, usize, Cycle) {
         let (entries, size, cycles) =
-            CommitTxsScanner::new(&self.pool_map).txs_to_commit(txs_size_limit, max_block_cycles);
+            TxSelector::new(&self.pool_map).txs_to_commit(txs_size_limit, max_block_cycles);
 
         if !entries.is_empty() {
             ckb_logger::info!(
