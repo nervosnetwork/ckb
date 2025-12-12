@@ -11,7 +11,7 @@ body = """
         ({{ release_link }})\
     {% endif %} \
     - {{ timestamp | date(format="%Y-%m-%d") }}
-{% for group, commits in commits | group_by(attribute="group") %}
+{% for group, commits in commits | filter(attribute="merge_commit", value=false) | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 
     {% for commit in commits %}
@@ -41,26 +41,28 @@ body = """
 """
 
 commit_parsers = [
-  { message = "^feat", group = "⛰️ Features" },
-  { message = "^fix", group = "🐛 Bug Fixes" },
-  { message = "^doc", group = "📚 Documentation" },
-  { message = "^perf", group = "⚡ Performance" },
+  { message = "^[mM]erge", skip = true },
+  { message = "^feat", group = "<!-- 1 -->⛰️ Features" },
+  { message = "^[aA]dd(ed)? ", group = "<!-- 1 -->⛰️ Features" },
+  { message = "^[fF]ix", group = "<!-- 2 -->🐛 Bug Fixes" },
+  { message = "^doc", group = "<!-- 4 -->📚 Documentation" },
+  { message = "^perf", group = "<!-- 5 -->⚡ Performance" },
   { message = "^refactor\\(clippy\\)", skip = true },
-  { message = "^refactor", group = "🚜 Improvements" },
-  { message = "^changed", group = "🚜 Improvements" },
-  { message = "^style", group = "🎨 Styling" },
-  { message = "^test", group = "🧪 Testing" },
+  { message = "^refactor", group = "<!-- 3 -->🚜 Improvements" },
+  { message = "^[cC]hanged", group = "<!-- 3 -->🚜 Improvements" },
+  { message = "^style", group = "<!-- 6 -->🎨 Styling" },
+  { message = "^test", group = "<!-- 7 -->🧪 Testing" },
   { message = "^chore\\(release\\):", skip = true },
   { message = "^chore: release", skip = true },
   { message = "^chore\\(deps.*\\)", skip = true },
   { message = "^chore\\(pr\\)", skip = true },
   { message = "^chore\\(pull\\)", skip = true },
-  { message = "^chore|^ci", group = "⚙️ Miscellaneous" },
-  { message = "^security", group = "🛡️ Security" },
-  { body = ".*security", group = "🛡️ Security" },
-  { message = "^revert", group = "◀️ Revert" },
-  { message = "^deprecated", group = "⚠️ Deprecated" },
-  { message = "^.*", group = "⚙️ Miscellaneous Tasks" },
+  { message = "^chore|^ci", group = "<!-- 9 -->⚙️ Miscellaneous" },
+  { message = "^security", group = "<!-- 0 -->🛡️ Security" },
+  { body = ".*security", group = "<!-- 0 -->🛡️ Security" },
+  { message = "^revert", group = "<!-- 8 -->◀️ Revert" },
+  { message = "^deprecated", group = "<!-- 8 -->⚠️ Deprecated" },
+  { message = "^.*", group = "<!-- 9 -->⚙️ Miscellaneous" },
 ]
 
 [[package]]
