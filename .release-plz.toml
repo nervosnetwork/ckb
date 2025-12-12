@@ -41,6 +41,9 @@ body = """
 """
 
 commit_parsers = [
+  { sha = "631ae26b5231e91e383defd34d1db7dc94234593", skip = true },
+  { sha = "adcd32d1d5dca4565ee6466d3981af41cb0c9424", skip = true },
+
   { message = "^[mM]erge", skip = true },
   { message = "^feat", group = "<!-- 1 -->⛰️ Features" },
   { message = "^[aA]dd(ed)? ", group = "<!-- 1 -->⛰️ Features" },
