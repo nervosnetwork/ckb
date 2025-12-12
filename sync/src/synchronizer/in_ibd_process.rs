@@ -2,18 +2,19 @@ use crate::synchronizer::Synchronizer;
 use crate::{Status, StatusCode};
 use ckb_logger::info;
 use ckb_network::{CKBProtocolContext, PeerIndex};
+use std::sync::Arc;
 
 pub struct InIBDProcess<'a> {
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a dyn CKBProtocolContext,
+    nc: &'a Arc<dyn CKBProtocolContext + Sync>,
 }
 
 impl<'a> InIBDProcess<'a> {
     pub fn new(
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
+        nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
         InIBDProcess {
             nc,
@@ -22,7 +23,7 @@ impl<'a> InIBDProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         info!("getheader with ibd peer {:?}", self.peer);
         if let Some(mut kv_pair) = self.synchronizer.peers().state.get_mut(&self.peer) {
             let state = kv_pair.value_mut();
@@ -34,7 +35,9 @@ impl<'a> InIBDProcess<'a> {
             if state.peer_flags.is_outbound {
                 if state.peer_flags.is_whitelist {
                     self.synchronizer.shared().state().suspend_sync(state);
-                } else if let Err(err) = self.nc.disconnect(self.peer, "outbound in ibd") {
+                } else if let Err(err) =
+                    self.nc.async_disconnect(self.peer, "outbound in ibd").await
+                {
                     return StatusCode::Network.with_context(format!("Disconnect error: {err:?}"));
                 }
             } else {

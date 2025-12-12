@@ -1,4 +1,7 @@
-//! TODO(doc): @quake
+//! Data loader wrapper for blockchain data access.
+//!
+//! This module provides a wrapper around the chain store for efficient loading
+//! of cell data and other blockchain information needed for transaction verification.
 use crate::ChainStore;
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFields, HeaderFieldsProvider,

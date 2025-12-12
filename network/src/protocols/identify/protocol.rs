@@ -1,3 +1,4 @@
+use ckb_logger::warn;
 use p2p::{bytes::Bytes, multiaddr::Multiaddr};
 
 use ckb_types::{packed, prelude::*};
@@ -69,7 +70,12 @@ impl<'a> IdentifyMessage<'a> {
             Multiaddr::try_from(reader.observed_addr().bytes().raw_data().to_vec()).ok()?;
         let mut listen_addrs = Vec::with_capacity(reader.listen_addrs().len());
         for addr in reader.listen_addrs().iter() {
-            listen_addrs.push(Multiaddr::try_from(addr.bytes().raw_data().to_vec()).ok()?)
+            match Multiaddr::try_from(addr.bytes().raw_data().to_vec()) {
+                Ok(multi_addr) => {
+                    listen_addrs.push(multi_addr);
+                }
+                Err(err) => warn!("failed to decode listen_addr to Multiaddr: {}", err),
+            }
         }
 
         Some(IdentifyMessage {

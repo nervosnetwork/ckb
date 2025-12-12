@@ -1,4 +1,4 @@
-//! # The Store Library
+//! CKB chain related persistent implementation
 //!
 //! This Library contains the `ChainStore` traits
 //! which provides chain data store interface

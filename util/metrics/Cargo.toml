@@ -1,10 +1,10 @@
 [package]
 name = "ckb-metrics"
-version.workspace = true
+version = "1.1.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2024"
-description = "A lightweight metrics facade used in CKB."
+description = "A lightweight metrics facade used in CKB"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

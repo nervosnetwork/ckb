@@ -1,10 +1,10 @@
 [package]
 name = "ckb-jsonrpc-types"
-version.workspace = true
+version = "1.0.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "CKB common types for JSON serialization."
+description = "Wrappers for JSON serialization"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

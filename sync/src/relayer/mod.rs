@@ -21,7 +21,10 @@ use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::types::{ActiveChain, SyncShared, post_sync_process};
-use crate::utils::{MetricDirection, metric_ckb_message_bytes, send_message_to};
+use crate::utils::{
+    MetricDirection, async_quick_send_message_to, async_send_message_to, metric_ckb_message_bytes,
+    send_block_proposals,
+};
 use crate::{Status, StatusCode};
 use ckb_chain::VerifyResult;
 use ckb_chain::{ChainController, RemoteBlock};
@@ -32,7 +35,7 @@ use ckb_logger::{
 };
 use ckb_network::{
     CKBProtocolContext, CKBProtocolHandler, PeerIndex, SupportProtocols, TargetSession,
-    async_trait, bytes::Bytes, tokio,
+    async_trait, bytes::Bytes,
 };
 use ckb_shared::Shared;
 use ckb_shared::block_status::BlockStatus;
@@ -100,7 +103,7 @@ impl Relayer {
         &self.shared
     }
 
-    fn try_process(
+    async fn try_process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
@@ -121,7 +124,9 @@ impl Relayer {
 
         match message {
             packed::RelayMessageUnionReader::CompactBlock(reader) => {
-                CompactBlockProcess::new(reader, self, nc, peer).execute()
+                CompactBlockProcess::new(reader, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
                 if reader.check_data() {
@@ -135,29 +140,37 @@ impl Relayer {
                 TransactionHashesProcess::new(reader, self, peer).execute()
             }
             packed::RelayMessageUnionReader::GetRelayTransactions(reader) => {
-                GetTransactionsProcess::new(reader, self, nc, peer).execute()
+                GetTransactionsProcess::new(reader, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::RelayMessageUnionReader::GetBlockTransactions(reader) => {
-                GetBlockTransactionsProcess::new(reader, self, nc, peer).execute()
+                GetBlockTransactionsProcess::new(reader, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::RelayMessageUnionReader::BlockTransactions(reader) => {
                 if reader.check_data() {
-                    BlockTransactionsProcess::new(reader, self, nc, peer).execute()
+                    BlockTransactionsProcess::new(reader, self, nc, peer)
+                        .execute()
+                        .await
                 } else {
                     StatusCode::ProtocolMessageIsMalformed
                         .with_context("BlockTransactions is invalid")
                 }
             }
             packed::RelayMessageUnionReader::GetBlockProposal(reader) => {
-                GetBlockProposalProcess::new(reader, self, nc, peer).execute()
+                GetBlockProposalProcess::new(reader, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
-                BlockProposalProcess::new(reader, self).execute()
+                BlockProposalProcess::new(reader, self).execute().await
             }
         }
     }
 
-    fn process(
+    async fn process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
@@ -165,7 +178,7 @@ impl Relayer {
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;
-        let status = self.try_process(Arc::clone(&nc), peer, message);
+        let status = self.try_process(Arc::clone(&nc), peer, message).await;
 
         metric_ckb_message_bytes(
             MetricDirection::In,
@@ -207,45 +220,49 @@ impl Relayer {
     /// Request the transaction corresponding to the proposal id from the specified node
     pub fn request_proposal_txs(
         &self,
-        nc: &dyn CKBProtocolContext,
+        nc: &Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         block_hash_and_number: BlockNumberAndHash,
         proposals: Vec<packed::ProposalShortId>,
     ) {
-        let tx_pool = self.shared.shared().tx_pool_controller();
-        let fresh_proposals: Vec<ProposalShortId> = match tx_pool.fresh_proposals_filter(proposals)
-        {
-            Err(err) => {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "tx_pool fresh_proposals_filter error: {:?}",
-                    err,
-                );
-                return;
-            }
-            Ok(fresh_proposals) => fresh_proposals.into_iter().unique().collect(),
-        };
+        let tx_pool = self.shared.shared().tx_pool_controller().clone();
+        let shared = Arc::clone(&self.shared);
+        let nc = Arc::clone(nc);
+        self.shared().shared().async_handle().spawn(async move {
+            let fresh_proposals: Vec<ProposalShortId> =
+                match tx_pool.fresh_proposals_filter(proposals).await {
+                    Err(err) => {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "tx_pool fresh_proposals_filter error: {:?}",
+                            err,
+                        );
+                        return;
+                    }
+                    Ok(fresh_proposals) => fresh_proposals.into_iter().unique().collect(),
+                };
 
-        let to_ask_proposals: Vec<ProposalShortId> = self
-            .shared()
-            .state()
-            .insert_inflight_proposals(fresh_proposals.clone(), block_hash_and_number.number)
-            .into_iter()
-            .zip(fresh_proposals)
-            .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
-            .collect();
-        if !to_ask_proposals.is_empty() {
-            let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block_hash_and_number.hash)
-                .proposals(to_ask_proposals.clone())
-                .build();
-            let message = packed::RelayMessage::new_builder().set(content).build();
-            if !send_message_to(nc, peer, &message).is_ok() {
-                self.shared()
-                    .state()
-                    .remove_inflight_proposals(&to_ask_proposals);
+            let to_ask_proposals: Vec<ProposalShortId> = shared
+                .state()
+                .insert_inflight_proposals(fresh_proposals.clone(), block_hash_and_number.number)
+                .into_iter()
+                .zip(fresh_proposals)
+                .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
+                .collect();
+            if !to_ask_proposals.is_empty() {
+                let content = packed::GetBlockProposal::new_builder()
+                    .block_hash(block_hash_and_number.hash)
+                    .proposals(to_ask_proposals.clone())
+                    .build();
+                let message = packed::RelayMessage::new_builder().set(content).build();
+                if !async_quick_send_message_to(&nc, peer, &message)
+                    .await
+                    .is_ok()
+                {
+                    shared.state().remove_inflight_proposals(&to_ask_proposals);
+                }
             }
-        }
+        });
     }
 
     /// Accept a new block from network
@@ -330,7 +347,7 @@ impl Relayer {
     // then once the block has been reconstructed, it shall be processed as normal,
     // keeping in mind that short_ids are expected to occasionally collide,
     // and that nodes must not be penalized for such collisions, wherever they appear.
-    pub fn reconstruct_block(
+    pub async fn reconstruct_block(
         &self,
         active_chain: &ActiveChain,
         compact_block: &packed::CompactBlock,
@@ -364,7 +381,7 @@ impl Relayer {
 
         if !short_ids_set.is_empty() {
             let tx_pool = self.shared.shared().tx_pool_controller();
-            let fetch_txs = tx_pool.fetch_txs(short_ids_set);
+            let fetch_txs = tx_pool.fetch_txs(short_ids_set).await;
             if let Err(e) = fetch_txs {
                 return ReconstructionResult::Error(StatusCode::TxPool.with_context(e));
             }
@@ -525,16 +542,18 @@ impl Relayer {
         }
     }
 
-    fn prune_tx_proposal_request(&self, nc: &dyn CKBProtocolContext) {
+    async fn prune_tx_proposal_request(&self, nc: &Arc<dyn CKBProtocolContext + Sync>) {
         let get_block_proposals = self.shared().state().drain_get_block_proposals();
         let tx_pool = self.shared.shared().tx_pool_controller();
 
-        let fetch_txs = tx_pool.fetch_txs(
-            get_block_proposals
-                .iter()
-                .map(|kv_pair| kv_pair.key().clone())
-                .collect(),
-        );
+        let fetch_txs = tx_pool
+            .fetch_txs(
+                get_block_proposals
+                    .iter()
+                    .map(|kv_pair| kv_pair.key().clone())
+                    .collect(),
+            )
+            .await;
         if let Err(err) = fetch_txs {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -556,22 +575,6 @@ impl Relayer {
             }
         }
 
-        let send_block_proposals =
-            |nc: &dyn CKBProtocolContext, peer_index: PeerIndex, txs: Vec<packed::Transaction>| {
-                let content = packed::BlockProposal::new_builder()
-                    .transactions(txs)
-                    .build();
-                let message = packed::RelayMessage::new_builder().set(content).build();
-                let status = send_message_to(nc, peer_index, &message);
-                if !status.is_ok() {
-                    ckb_logger::error!(
-                        "send RelayBlockProposal to {}, status: {:?}",
-                        peer_index,
-                        status
-                    );
-                }
-            };
-
         let mut relay_bytes = 0;
         let mut relay_proposals = Vec::new();
         for (peer_index, txs) in peer_txs {
@@ -579,7 +582,8 @@ impl Relayer {
                 let data = tx.data();
                 let tx_size = data.total_size();
                 if relay_bytes + tx_size > MAX_RELAY_TXS_BYTES_PER_BATCH {
-                    send_block_proposals(nc, peer_index, std::mem::take(&mut relay_proposals));
+                    send_block_proposals(nc, peer_index, std::mem::take(&mut relay_proposals))
+                        .await;
                     relay_bytes = tx_size;
                 } else {
                     relay_bytes += tx_size;
@@ -587,14 +591,14 @@ impl Relayer {
                 relay_proposals.push(data);
             }
             if !relay_proposals.is_empty() {
-                send_block_proposals(nc, peer_index, std::mem::take(&mut relay_proposals));
+                send_block_proposals(nc, peer_index, std::mem::take(&mut relay_proposals)).await;
                 relay_bytes = 0;
             }
         }
     }
 
     /// Ask for relay transaction by hash from all peers
-    pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
+    pub async fn ask_for_txs(&self, nc: &Arc<dyn CKBProtocolContext + Sync>) {
         for (peer, mut tx_hashes) in self.shared().state().pop_ask_for_txs() {
             if !tx_hashes.is_empty() {
                 debug_target!(
@@ -608,7 +612,7 @@ impl Relayer {
                     .tx_hashes(tx_hashes)
                     .build();
                 let message = packed::RelayMessage::new_builder().set(content).build();
-                let status = send_message_to(nc, peer, &message);
+                let status = async_send_message_to(nc, peer, &message).await;
                 if !status.is_ok() {
                     ckb_logger::error!(
                         "interrupted request for transactions, status: {:?}",
@@ -620,7 +624,7 @@ impl Relayer {
     }
 
     /// Send bulk of tx hashes to selected peers
-    pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
+    pub async fn send_bulk_of_tx_hashes(&self, nc: &Arc<dyn CKBProtocolContext + Sync>) {
         const BUFFER_SIZE: usize = 42;
 
         let connected_peers = nc.full_relay_connected_peers();
@@ -685,7 +689,10 @@ impl Relayer {
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
 
-            if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), message.as_bytes()) {
+            if let Err(err) = nc
+                .async_filter_broadcast(TargetSession::Single(peer), message.as_bytes())
+                .await
+            {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send TransactionHashes error: {:?}",
@@ -719,10 +726,11 @@ fn build_and_broadcast_compact_block(
         .filter(|target_peer| peer != *target_peer)
         .take(MAX_RELAY_PEERS)
         .collect();
-    if let Err(err) = nc.quick_filter_broadcast(
+    let handle = shared.async_handle();
+    if let Err(err) = handle.block_on(nc.async_quick_filter_broadcast(
         TargetSession::Multi(Box::new(selected_peers.into_iter())),
         message.as_bytes(),
-    ) {
+    )) {
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "relayer send block when accept block error: {:?}",
@@ -730,55 +738,53 @@ fn build_and_broadcast_compact_block(
         );
     }
 
-    if let Some(p2p_control) = nc.p2p_control() {
-        let snapshot = shared.snapshot();
-        let parent_chain_root = {
-            let mmr = snapshot.chain_root_mmr(block.header().number() - 1);
-            match mmr.get_root() {
-                Ok(root) => root,
-                Err(err) => {
-                    error_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "Generate last state to light client failed: {:?}",
-                        err
-                    );
-                    return;
-                }
+    let snapshot = shared.snapshot();
+    let parent_chain_root = {
+        let mmr = snapshot.chain_root_mmr(block.header().number() - 1);
+        match mmr.get_root() {
+            Ok(root) => root,
+            Err(err) => {
+                error_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "Generate last state to light client failed: {:?}",
+                    err
+                );
+                return;
             }
-        };
-
-        let tip_header = packed::VerifiableHeader::new_builder()
-            .header(block.header().data())
-            .uncles_hash(block.calc_uncles_hash())
-            .extension(Pack::pack(&block.extension()))
-            .parent_chain_root(parent_chain_root)
-            .build();
-        let light_client_message = {
-            let content = packed::SendLastState::new_builder()
-                .last_header(tip_header)
-                .build();
-            packed::LightClientMessage::new_builder()
-                .set(content)
-                .build()
-        };
-        let light_client_peers: HashSet<PeerIndex> = nc
-            .connected_peers()
-            .into_iter()
-            .filter_map(|index| nc.get_peer(index).map(|peer| (index, peer)))
-            .filter(|(_id, peer)| peer.if_lightclient_subscribed)
-            .map(|(id, _)| id)
-            .collect();
-        if let Err(err) = p2p_control.filter_broadcast(
-            TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
-            SupportProtocols::LightClient.protocol_id(),
-            light_client_message.as_bytes(),
-        ) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "relayer send last state to light client when accept block, error: {:?}",
-                err,
-            );
         }
+    };
+
+    let tip_header = packed::VerifiableHeader::new_builder()
+        .header(block.header().data())
+        .uncles_hash(block.calc_uncles_hash())
+        .extension(Pack::pack(&block.extension()))
+        .parent_chain_root(parent_chain_root)
+        .build();
+    let light_client_message = {
+        let content = packed::SendLastState::new_builder()
+            .last_header(tip_header)
+            .build();
+        packed::LightClientMessage::new_builder()
+            .set(content)
+            .build()
+    };
+    let light_client_peers: HashSet<PeerIndex> = nc
+        .connected_peers()
+        .into_iter()
+        .filter_map(|index| nc.get_peer(index).map(|peer| (index, peer)))
+        .filter(|(_id, peer)| peer.if_lightclient_subscribed)
+        .map(|(id, _)| id)
+        .collect();
+    if let Err(err) = handle.block_on(nc.async_filter_broadcast_with_proto(
+        SupportProtocols::LightClient.protocol_id(),
+        TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
+        light_client_message.as_bytes(),
+    )) {
+        debug_target!(
+            crate::LOG_TARGET_RELAY,
+            "relayer send last state to light client when accept block, error: {:?}",
+            err,
+        );
     }
 }
 
@@ -885,7 +891,7 @@ impl CKBProtocolHandler for Relayer {
         }
 
         let start_time = Instant::now();
-        tokio::task::block_in_place(|| self.process(nc, peer_index, msg));
+        self.process(nc, peer_index, msg).await;
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "process message={}, peer={}, cost={:?}",
@@ -931,13 +937,15 @@ impl CKBProtocolHandler for Relayer {
         }
 
         let start_time = Instant::now();
-        trace_target!(crate::LOG_TARGET_RELAY, "start notify token={}", token);
+        trace_target!(
+            crate::LOG_TARGET_RELAY,
+            "start notifas_ref()y token={}",
+            token
+        );
         match token {
-            TX_PROPOSAL_TOKEN => {
-                tokio::task::block_in_place(|| self.prune_tx_proposal_request(nc.as_ref()))
-            }
-            ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
-            TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
+            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(&nc).await,
+            ASK_FOR_TXS_TOKEN => self.ask_for_txs(&nc).await,
+            TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(&nc).await,
             _ => unreachable!(),
         }
         trace_target!(

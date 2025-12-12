@@ -1,10 +1,11 @@
 [package]
 name = "ckb-test"
-version.workspace = true
+publish = false
+version = "1.0.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "CKB integration tests."
+description = "CKB integration tests"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
@@ -29,6 +30,7 @@ ckb-logger-config.workspace = true
 ckb-logger-service.workspace = true
 ckb-error.workspace = true
 ckb-constant.workspace = true
+ckb-onion.workspace = true
 ckb-store.workspace = true
 ckb-shared.workspace = true
 tempfile.workspace = true

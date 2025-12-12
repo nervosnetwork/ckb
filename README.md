@@ -1,6 +1,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
-[![Version](https://img.shields.io/badge/version-0.203.0--pre-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
+[![Version](https://img.shields.io/badge/version-0.204.0--pre-orange.svg)](https://github.com/nervosnetwork/ckb/releases)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/t/where-to-discuss-ckb-and-how-to-ask-for-support/6024)
 
 master | develop
@@ -45,12 +45,17 @@ CKB uses the [Eaglesong](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/
 
 ## Development Process
 
-The `master` branch is regularly built and tested. It is considered already production ready; The `develop` branch is the work branch to merge new features, and it's not stable. The CHANGELOG is available in [Releases](https://github.com/nervosnetwork/ckb/releases) and [CHANGELOG.md](https://github.com/nervosnetwork/ckb/blob/master/CHANGELOG.md) in the `master` branch.
+The `master` branch is regularly built and tested. It is considered already production ready; The `develop` branch is the working branch to merge new features, and it's not stable. The CHANGELOG is available in [Releases](https://github.com/nervosnetwork/ckb/releases) and [CHANGELOG.md](https://github.com/nervosnetwork/ckb/blob/master/CHANGELOG.md) in the `master` branch.
 
 
 ## How to Contribute
 
+If you're looking for somewhere to start, check out the following [good-first-issues](https://github.com/nervosnetwork/ckb/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22).
+
 The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md). To propose new protocol or standard for Nervos, see [Nervos RFC](https://github.com/nervosnetwork/rfcs).
+
+Join our developer Discord channels([English](https://discord.gg/DEpUEWNaQH) | [Chinese](https://discord.gg/eprqVfCT)) to ask questions.
+
 
 ---
 
@@ -67,7 +72,7 @@ Mainnet Mirana or Testnet Pudge, switch to the branch [master].
 - [Configure CKB](docs/configure.md)
 - [Platform Support](docs/platform-support.md)
 - [How to Download or Build CKB Binary](https://docs.nervos.org/docs/basics/guides/get-ckb)
-- [How to Download or Build CKB Binary on Windows](https://docs.nervos.org/docs/basics/guides/ckb-on-windows)
+- [How to Download or Build CKB Binary on Windows](https://docs-old.nervos.org/docs/basics/guides/ckb-on-windows)
 - [How to test miner on dev chain](docs/dev-miner.md)
 
 You can find a more comprehensive document website at [https://docs.nervos.org](https://docs.nervos.org).

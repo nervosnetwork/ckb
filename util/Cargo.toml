@@ -1,17 +1,16 @@
 [package]
 name = "ckb-util"
-version.workspace = true
+version = "1.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "CKB utilities library."
+description = "CKB utilities"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
 [dependencies]
 parking_lot.workspace = true
 linked-hash-map = { workspace = true, features = ["serde_impl"] }
-regex.workspace = true
 
 [dev-dependencies]
 ckb-fixed-hash.workspace = true

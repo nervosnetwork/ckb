@@ -3,7 +3,7 @@ use merkle_cbt::{CBMT as ExCBMT, MerkleProof as ExMerkleProof, merkle_tree::Merg
 
 use crate::{packed::Byte32, prelude::*};
 
-/// TODO(doc): @quake
+/// Merge function for computing Merkle tree nodes from pairs of `Byte32` values.
 pub struct MergeByte32;
 
 impl Merge for MergeByte32 {
@@ -19,12 +19,12 @@ impl Merge for MergeByte32 {
     }
 }
 
-/// TODO(doc): @quake
+/// Complete Binary Merkle Tree specialized for `Byte32` leaves.
 pub type CBMT = ExCBMT<Byte32, MergeByte32>;
-/// TODO(doc): @quake
+/// Merkle proof for `Byte32` values.
 pub type MerkleProof = ExMerkleProof<Byte32, MergeByte32>;
 
-/// TODO(doc): @quake
+/// Computes the Merkle root from a list of leaves.
 pub fn merkle_root(leaves: &[Byte32]) -> Byte32 {
     CBMT::build_merkle_root(leaves)
 }

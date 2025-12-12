@@ -16,13 +16,50 @@ use ckb_types::{H256, core, packed, prelude::*};
 use memchr::memmem;
 use rocksdb::{Direction, IteratorMode, prelude::*};
 
-use std::convert::TryInto;
-use std::num::NonZeroUsize;
-use std::sync::{Arc, RwLock};
+use std::{
+    convert::TryInto,
+    num::NonZeroUsize,
+    sync::{Arc, RwLock},
+    time::{Duration, Instant},
+};
 
 pub(crate) const SUBSCRIBER_NAME: &str = "Indexer";
 const DEFAULT_LOG_KEEP_NUM: usize = 1;
 const DEFAULT_MAX_BACKGROUND_JOBS: usize = 6;
+
+struct TimeoutIterator<I> {
+    inner: I,
+    start_time: Instant,
+    timeout: Duration,
+    timed_out: bool,
+}
+
+impl<I> TimeoutIterator<I> {
+    fn new(inner: I, timeout: Duration) -> Self {
+        Self {
+            inner,
+            start_time: Instant::now(),
+            timeout,
+            timed_out: false,
+        }
+    }
+
+    fn is_timed_out(&self) -> bool {
+        self.timed_out
+    }
+}
+
+impl<I: Iterator> Iterator for TimeoutIterator<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.start_time.elapsed() > self.timeout {
+            self.timed_out = true;
+            return None;
+        }
+        self.inner.next()
+    }
+}
 
 /// Indexer service
 #[derive(Clone)]
@@ -32,6 +69,7 @@ pub struct IndexerService {
     block_filter: Option<String>,
     cell_filter: Option<String>,
     request_limit: usize,
+    timeout_limit: Duration,
 }
 
 impl IndexerService {
@@ -58,6 +96,7 @@ impl IndexerService {
             block_filter: config.block_filter.clone(),
             cell_filter: config.cell_filter.clone(),
             request_limit: config.request_limit.unwrap_or(usize::MAX),
+            timeout_limit: Duration::from_secs(config.timeout_limit.unwrap_or(10)),
         }
     }
 
@@ -70,6 +109,7 @@ impl IndexerService {
             store: self.store.clone(),
             pool: self.sync.pool(),
             request_limit: self.request_limit,
+            timeout_limit: self.timeout_limit,
         }
     }
 
@@ -128,6 +168,7 @@ pub struct IndexerHandle {
     pub(crate) store: RocksdbStore,
     pub(crate) pool: Option<Arc<RwLock<Pool>>>,
     request_limit: usize,
+    timeout_limit: Duration,
 }
 
 impl IndexerHandle {
@@ -198,7 +239,7 @@ impl IndexerHandle {
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
-        let iter = snapshot.iterator(mode).skip(skip);
+        let mut iter = TimeoutIterator::new(snapshot.iterator(mode).skip(skip), self.timeout_limit);
 
         let mut last_key = Vec::new();
         let pool = self
@@ -206,6 +247,7 @@ impl IndexerHandle {
             .as_ref()
             .map(|pool| pool.read().expect("acquire lock"));
         let cells = iter
+            .by_ref()
             .take_while(|(key, _value)| key.starts_with(&prefix))
             .filter_map(|(key, value)| {
                 if script_search_exact {
@@ -328,8 +370,11 @@ impl IndexerHandle {
             })
             .take(limit)
             .collect::<Vec<_>>();
-
-        Ok(IndexerPagination::new(cells, JsonBytes::from_vec(last_key)))
+        if iter.is_timed_out() {
+            Err(Error::invalid_params("Indexer request timeout"))
+        } else {
+            Ok(IndexerPagination::new(cells, JsonBytes::from_vec(last_key)))
+        }
     }
 
     /// Get transaction by specified params
@@ -414,12 +459,15 @@ impl IndexerHandle {
 
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
-        let iter = snapshot.iterator(mode).skip(skip);
+        let mut iter = TimeoutIterator::new(snapshot.iterator(mode).skip(skip), self.timeout_limit);
 
         if search_key.group_by_transaction.unwrap_or_default() {
             let mut tx_with_cells: Vec<IndexerTxWithCells> = Vec::new();
             let mut last_key = Vec::new();
-            for (key, value) in iter.take_while(|(key, _value)| key.starts_with(&prefix)) {
+            for (key, value) in iter
+                .by_ref()
+                .take_while(|(key, _value)| key.starts_with(&prefix))
+            {
                 if script_search_exact {
                     // Exact match mode, check key length is equal to full script len + BlockNumber (8) + TxIndex (4) + CellIndex (4) + CellType (1)
                     if key.len() != prefix.len() + 17 {
@@ -523,14 +571,18 @@ impl IndexerHandle {
                     });
                 }
             }
-
-            Ok(IndexerPagination::new(
-                tx_with_cells.into_iter().map(IndexerTx::Grouped).collect(),
-                JsonBytes::from_vec(last_key),
-            ))
+            if iter.is_timed_out() {
+                Err(Error::invalid_params("Indexer request timeout"))
+            } else {
+                Ok(IndexerPagination::new(
+                    tx_with_cells.into_iter().map(IndexerTx::Grouped).collect(),
+                    JsonBytes::from_vec(last_key),
+                ))
+            }
         } else {
             let mut last_key = Vec::new();
             let txs = iter
+                .by_ref()
                 .take_while(|(key, _value)| key.starts_with(&prefix))
                 .filter_map(|(key, value)| {
                     if script_search_exact {
@@ -622,7 +674,11 @@ impl IndexerHandle {
                 .take(limit)
                 .collect::<Vec<_>>();
 
-            Ok(IndexerPagination::new(txs, JsonBytes::from_vec(last_key)))
+            if iter.is_timed_out() {
+                Err(Error::invalid_params("Indexer request timeout"))
+            } else {
+                Ok(IndexerPagination::new(txs, JsonBytes::from_vec(last_key)))
+            }
         }
     }
 
@@ -661,13 +717,14 @@ impl IndexerHandle {
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
         let snapshot = self.store.inner().snapshot();
-        let iter = snapshot.iterator(mode).skip(skip);
+        let mut iter = TimeoutIterator::new(snapshot.iterator(mode).skip(skip), self.timeout_limit);
         let pool = self
             .pool
             .as_ref()
             .map(|pool| pool.read().expect("acquire lock"));
 
         let capacity: u64 = iter
+            .by_ref()
             .take_while(|(key, _value)| key.starts_with(&prefix))
             .filter_map(|(key, value)| {
                 if script_search_exact {
@@ -774,22 +831,26 @@ impl IndexerHandle {
                     }
                 }
 
-                Some(Unpack::<core::Capacity>::unpack(&output.capacity()).as_u64())
+                Some(Into::<core::Capacity>::into(output.capacity()).as_u64())
             })
             .sum();
 
-        let tip_mode = IteratorMode::From(&[KeyPrefix::Header as u8 + 1], Direction::Reverse);
-        let mut tip_iter = snapshot.iterator(tip_mode);
-        Ok(tip_iter.next().map(|(key, _value)| IndexerCellsCapacity {
-            capacity: capacity.into(),
-            block_hash: packed::Byte32::from_slice(&key[9..41])
-                .expect("stored block key")
+        if iter.is_timed_out() {
+            Err(Error::invalid_params("Indexer request timeout"))
+        } else {
+            let tip_mode = IteratorMode::From(&[KeyPrefix::Header as u8 + 1], Direction::Reverse);
+            let mut tip_iter = snapshot.iterator(tip_mode);
+            Ok(tip_iter.next().map(|(key, _value)| IndexerCellsCapacity {
+                capacity: capacity.into(),
+                block_hash: packed::Byte32::from_slice(&key[9..41])
+                    .expect("stored block key")
+                    .into(),
+                block_number: core::BlockNumber::from_be_bytes(
+                    key[1..9].try_into().expect("stored block key"),
+                )
                 .into(),
-            block_number: core::BlockNumber::from_be_bytes(
-                key[1..9].try_into().expect("stored block key"),
-            )
-            .into(),
-        }))
+            }))
+        }
     }
 }
 
@@ -941,6 +1002,15 @@ mod tests {
     }
 
     #[test]
+    fn timeout_iter() {
+        let vec = vec![1, 2, 3, 4, 5];
+        let mut iter = TimeoutIterator::new(vec.into_iter(), Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(2));
+        assert_eq!(iter.next(), None);
+        assert!(iter.is_timed_out());
+    }
+
+    #[test]
     fn rpc() {
         let store: RocksdbStore = new_store("rpc");
         let pool = Arc::new(RwLock::new(Pool::default()));
@@ -949,6 +1019,7 @@ mod tests {
             store,
             pool: Some(Arc::clone(&pool)),
             request_limit: usize::MAX,
+            timeout_limit: Duration::from_secs(u64::MAX),
         };
 
         // setup test data
@@ -1080,7 +1151,7 @@ mod tests {
 
         // test get_tip rpc
         let tip = rpc.get_indexer_tip().unwrap().unwrap();
-        assert_eq!(Unpack::<H256>::unpack(&pre_block.hash()), tip.block_hash);
+        assert_eq!(Into::<H256>::into(pre_block.hash()), tip.block_hash);
         assert_eq!(pre_block.number(), tip.block_number.value());
 
         // test get_cells rpc
@@ -1542,6 +1613,7 @@ mod tests {
             store,
             pool: None,
             request_limit: usize::MAX,
+            timeout_limit: Duration::from_secs(u64::MAX),
         };
 
         // setup test data
@@ -1789,6 +1861,7 @@ mod tests {
             store,
             pool: None,
             request_limit: 2,
+            timeout_limit: Duration::from_secs(u64::MAX),
         };
 
         let lock_script1 = ScriptBuilder::default()
@@ -1822,6 +1895,7 @@ mod tests {
             store,
             pool: None,
             request_limit: usize::MAX,
+            timeout_limit: Duration::from_secs(u64::MAX),
         };
 
         // setup test data

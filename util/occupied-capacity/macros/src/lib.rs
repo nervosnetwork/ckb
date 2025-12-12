@@ -1,4 +1,7 @@
-//! TODO(doc): @keroro520
+//! Procedural macros for occupied capacity calculation.
+//!
+//! This crate provides derive macros for automatically implementing occupied capacity
+//! calculation for CKB data structures.
 extern crate proc_macro;
 
 use quote::quote;
@@ -6,7 +9,9 @@ use syn::{Error as SynError, parse_macro_input};
 
 use ckb_occupied_capacity_core::Capacity;
 
-/// TODO(doc): @keroro520
+/// Creates a `Capacity` constant from a byte literal.
+///
+/// This macro converts a numeric literal representing bytes into a `Capacity` value at compile time.
 #[proc_macro]
 pub fn capacity_bytes(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as syn::LitInt);

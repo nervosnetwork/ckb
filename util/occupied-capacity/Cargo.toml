@@ -1,10 +1,10 @@
 [package]
 name = "ckb-occupied-capacity"
-version.workspace = true
+version = "1.0.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "TODO(doc): @keroro520 crate description"
+description = "Data wrapper for capacity"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

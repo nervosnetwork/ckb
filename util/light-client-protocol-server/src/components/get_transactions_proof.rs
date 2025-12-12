@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -11,7 +11,7 @@ pub(crate) struct GetTransactionsProofProcess<'a> {
     message: packed::GetTransactionsProofReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
-    nc: &'a dyn CKBProtocolContext,
+    nc: &'a Arc<dyn CKBProtocolContext + Sync>,
 }
 
 impl<'a> GetTransactionsProofProcess<'a> {
@@ -19,7 +19,7 @@ impl<'a> GetTransactionsProofProcess<'a> {
         message: packed::GetTransactionsProofReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
+        nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
         Self {
             message,
@@ -29,7 +29,7 @@ impl<'a> GetTransactionsProofProcess<'a> {
         }
     }
 
-    pub(crate) fn execute(self) -> Status {
+    pub(crate) async fn execute(self) -> Status {
         if self.message.tx_hashes().is_empty() {
             return StatusCode::MalformedProtocolMessage.with_context("no transaction");
         }
@@ -44,7 +44,8 @@ impl<'a> GetTransactionsProofProcess<'a> {
         if !snapshot.is_main_chain(&last_block_hash) {
             return self
                 .protocol
-                .reply_tip_state::<packed::SendTransactionsProof>(self.peer, self.nc);
+                .reply_tip_state::<packed::SendTransactionsProof>(self.peer, self.nc)
+                .await;
         }
         let last_block = snapshot
             .get_block(&last_block_hash)
@@ -142,5 +143,6 @@ impl<'a> GetTransactionsProofProcess<'a> {
                 proved_items,
                 missing_items,
             )
+            .await
     }
 }

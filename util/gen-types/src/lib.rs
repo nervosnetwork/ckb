@@ -1,6 +1,4 @@
-//! # The Generated Types Library
-//!
-//! This Library provides the generated types for CKB.
+//! Provides the generated types for CKB
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

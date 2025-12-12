@@ -1,7 +1,7 @@
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::RawTxPool;
 use ckb_logger::info;
-use ckb_types::{H256, prelude::Unpack};
+use ckb_types::H256;
 
 pub struct GetRawTxPool;
 
@@ -21,7 +21,7 @@ impl Spec for GetRawTxPool {
             txs_hash.push(node0.rpc_client().send_transaction(tx.data().into()));
         });
 
-        let mut pending: Vec<H256> = txs_hash.iter().map(Unpack::unpack).collect();
+        let mut pending: Vec<H256> = txs_hash.iter().map(Into::<H256>::into).collect();
         pending.sort();
         let result = node0.rpc_client().get_raw_tx_pool(None);
         match result {

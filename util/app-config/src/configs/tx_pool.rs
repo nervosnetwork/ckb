@@ -19,6 +19,9 @@ pub struct TxPoolConfig {
     pub min_rbf_rate: FeeRate,
     /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,
+    /// max tx verify workers, default is 3/4 of cpu cores
+    #[serde(default = "default_max_tx_verify_workers")]
+    pub max_tx_verify_workers: usize,
     /// max ancestors size limit for a single tx
     pub max_ancestors_count: usize,
     /// rejected tx time to live by days
@@ -37,6 +40,11 @@ pub struct TxPoolConfig {
     pub recent_reject: PathBuf,
     /// The expiration time for pool transactions in hours
     pub expiry_hours: u8,
+}
+
+/// default max tx verify workers is 3/4 of cpu cores
+pub fn default_max_tx_verify_workers() -> usize {
+    std::cmp::max(num_cpus::get() * 3 / 4, 1)
 }
 
 /// Block assembler config options.

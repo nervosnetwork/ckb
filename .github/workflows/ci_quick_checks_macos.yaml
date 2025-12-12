@@ -48,12 +48,12 @@ jobs:
   ci_quick_checks_macos:
     name: ci_quick_checks_macos
     needs: prologue
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: |
           brew unlink yq
-          brew install grep gnu-sed bash python-yq
+          brew install grep gnu-sed bash python-yq go
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               echo bash version:
               bash --version

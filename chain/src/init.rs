@@ -90,7 +90,7 @@ pub fn build_chain_services(
         })
         .expect("start preload_unverified_block should ok");
 
-    let (process_block_tx, process_block_rx) = channel::bounded(0);
+    let (process_block_tx, process_block_rx) = channel::bounded(24);
 
     let is_verifying_unverified_blocks_on_startup = Arc::new(AtomicBool::new(true));
 

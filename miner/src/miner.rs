@@ -18,7 +18,7 @@ use std::thread;
 
 const WORK_CACHE_SIZE: usize = 32;
 
-/// TODO(doc): @quake
+/// Main miner coordinator that manages mining workers and block submissions.
 pub struct Miner {
     pub(crate) _pow: Arc<dyn PowEngine>,
     pub(crate) client: Client,
@@ -34,7 +34,15 @@ pub struct Miner {
 }
 
 impl Miner {
-    /// TODO(doc): @quake
+    /// Creates a new miner instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `pow` - The proof-of-work engine to use for mining
+    /// * `client` - The RPC client for fetching templates and submitting blocks
+    /// * `work_rx` - Channel for receiving new work notifications
+    /// * `workers` - Configuration for mining worker threads
+    /// * `limit` - Maximum number of nonces to try before stopping (0 for unlimited)
     pub fn new(
         pow: Arc<dyn PowEngine>,
         client: Client,
@@ -51,12 +59,16 @@ impl Miner {
             .collect();
 
         let pb = mp.add(ProgressBar::new(100));
-        pb.set_style(ProgressStyle::default_bar().template("{msg:.green}"));
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{msg:.green}")
+                .expect("Failed to set progress bar template"),
+        );
 
         let stderr_is_tty = console::Term::stderr().features().is_attended();
 
         thread::spawn(move || {
-            mp.join().expect("MultiProgress join failed");
+            drop(mp);
         });
 
         Miner {
@@ -73,7 +85,7 @@ impl Miner {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Runs the main mining loop until a stop signal is received.
     pub fn run(&mut self, stop_rx: Receiver<()>) {
         loop {
             select! {

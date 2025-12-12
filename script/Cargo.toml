@@ -1,11 +1,11 @@
 [package]
 name = "ckb-script"
-version.workspace = true
+version = "1.0.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 build = "build.rs"
-description = "CKB component to run the type/lock scripts."
+description = "CKB component to run the type/lock scripts"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

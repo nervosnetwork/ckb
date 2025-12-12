@@ -64,7 +64,7 @@ pub fn genesis_dao_data_with_satoshi_gift(
                 let occupied_capacity = if tx_index == 0
                     && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
                 {
-                    Unpack::<Capacity>::unpack(&output.capacity())
+                    Into::<Capacity>::into(output.capacity())
                         .safe_mul_ratio(satoshi_cell_occupied_ratio)
                 } else {
                     Capacity::bytes(data.len()).and_then(|c| output.occupied_capacity(c))

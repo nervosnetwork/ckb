@@ -1,10 +1,10 @@
 [package]
 name = "ckb-tx-pool"
-version.workspace = true
+version = "1.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "The CKB tx-pool"
+description = "CKB Tx-pool stores transactions, which is designed for CKB Two Step Transaction Confirmation mechanism"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
@@ -16,7 +16,6 @@ ckb-logger.workspace = true
 ckb-verification.workspace = true
 ckb-systemtime.workspace = true
 lru.workspace = true
-num_cpus.workspace = true
 
 ckb-dao.workspace = true
 ckb-reward-calculator.workspace = true

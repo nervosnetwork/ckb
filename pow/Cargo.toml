@@ -1,10 +1,10 @@
 [package]
 name = "ckb-pow"
-version.workspace = true
+version = "1.0.1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"
-description = "PoW verification engines for CKB"
+description = "Proof of Work (PoW) engine implementations"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

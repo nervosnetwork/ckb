@@ -16,7 +16,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  CKB_CLI_VERSION: v1.15.0
+  CKB_CLI_VERSION: v2.0.0
 
 jobs:
   create-release:
@@ -60,8 +60,6 @@ jobs:
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
-          QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -97,12 +95,10 @@ jobs:
       - name: Add rust target
         run: rustup target add aarch64-unknown-linux-gnu
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu build-essential
       - name: Build CKB and Package CKB
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
-          QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -171,7 +167,7 @@ jobs:
 
   package-for-mac:
     name: package-for-mac
-    runs-on: macos-13
+    runs-on: macos-15
     strategy:
       matrix:
         include:
@@ -384,20 +380,3 @@ jobs:
           asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
           asset_path: ${{ github.workspace }}/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}.asc
           asset_content_type: application/octet-stream
-
-  Trigger_smoking_test:
-    name: Trigger_smoking_test
-    runs-on: ubuntu-22.04
-    needs:
-      - Upload_File
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set tag
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
-      - uses: peter-evans/repository-dispatch@v1
-        with:
-          token: ${{ secrets.REPO_ACCESS_TOKEN }}
-          event-type: smoking-test
-          client-payload: '{"CKB_linux_release_package": "${{secrets.QINIU_CDN_SITE}}/ckb_${{env.GIT_TAG_NAME}}_x86_64-unknown-linux-gnu.7z"}'

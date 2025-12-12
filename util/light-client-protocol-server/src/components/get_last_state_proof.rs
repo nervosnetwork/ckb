@@ -1,4 +1,7 @@
-use std::cmp::{Ordering, min};
+use std::{
+    cmp::{Ordering, min},
+    sync::Arc,
+};
 
 use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -12,7 +15,7 @@ pub(crate) struct GetLastStateProofProcess<'a> {
     message: packed::GetLastStateProofReader<'a>,
     protocol: &'a LightClientProtocol,
     peer: PeerIndex,
-    nc: &'a dyn CKBProtocolContext,
+    nc: &'a Arc<dyn CKBProtocolContext + Sync>,
 }
 
 pub(crate) trait FindBlocksViaDifficulties {
@@ -182,7 +185,7 @@ impl<'a> GetLastStateProofProcess<'a> {
         message: packed::GetLastStateProofReader<'a>,
         protocol: &'a LightClientProtocol,
         peer: PeerIndex,
-        nc: &'a dyn CKBProtocolContext,
+        nc: &'a Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
         Self {
             message,
@@ -192,7 +195,7 @@ impl<'a> GetLastStateProofProcess<'a> {
         }
     }
 
-    pub(crate) fn execute(self) -> Status {
+    pub(crate) async fn execute(self) -> Status {
         let last_n_blocks: u64 = self.message.last_n_blocks().into();
 
         if self.message.difficulties().len() + (last_n_blocks as usize) * 2
@@ -207,7 +210,8 @@ impl<'a> GetLastStateProofProcess<'a> {
         if !snapshot.is_main_chain(&last_block_hash) {
             return self
                 .protocol
-                .reply_tip_state::<packed::SendLastStateProof>(self.peer, self.nc);
+                .reply_tip_state::<packed::SendLastStateProof>(self.peer, self.nc)
+                .await;
         }
         let last_block = snapshot
             .get_block(&last_block_hash)
@@ -220,7 +224,7 @@ impl<'a> GetLastStateProofProcess<'a> {
             .message
             .difficulties()
             .iter()
-            .map(|d| Unpack::<U256>::unpack(&d))
+            .map(Into::<U256>::into)
             .collect::<Vec<_>>();
 
         let last_block_number = last_block.number();
@@ -358,13 +362,15 @@ impl<'a> GetLastStateProofProcess<'a> {
 
         let proved_items = headers.into();
 
-        self.protocol.reply_proof::<packed::SendLastStateProof>(
-            self.peer,
-            self.nc,
-            &last_block,
-            positions,
-            proved_items,
-            (),
-        )
+        self.protocol
+            .reply_proof::<packed::SendLastStateProof>(
+                self.peer,
+                self.nc,
+                &last_block,
+                positions,
+                proved_items,
+                (),
+            )
+            .await
     }
 }

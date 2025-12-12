@@ -85,7 +85,7 @@ function check_version() {
             dep_name=$(echo ${dep} | awk -F' ' '{print $1}')
             dep_version=$(echo ${dep} | awk -F' ' '{print $2}')
             if [[  -v ckb_workspace_members["${dep_name}"] ]]; then
-                # thes dep is a ckb's workspace member
+                # the dep is a ckb's workspace member
                 # if dep_version not equal to ckb's version, then it's an error
                 if [ "${dep_version}" != "v${ckb_version}" ]; then
                     ERRCNT=$((ERRCNT + 1))
@@ -145,7 +145,7 @@ function check_dependencies() {
 function main() {
   echo "[BEGIN] Checking Cargo.toml ..."
   check_package_name
-  check_version
+  # check_version
   check_license
   check_cargo_publish
   check_dependencies

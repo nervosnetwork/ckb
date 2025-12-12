@@ -138,7 +138,8 @@ impl Migration for ChangeMoleculeTableToStruct {
         let pb = pb(9);
         let spinner_style = ProgressStyle::default_spinner()
             .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
-            .template("{prefix:.bold.dim} {spinner} {wide_msg}");
+            .template("{prefix:.bold.dim} {spinner} {wide_msg}")
+            .expect("Failed to set progress bar template");
         pb.set_style(spinner_style);
 
         pb.set_message("migrating: block header");

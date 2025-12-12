@@ -1,10 +1,10 @@
 [package]
 name = "ckb-light-client-protocol-server"
-version.workspace = true
+version = "1.1.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "Server-side implementation for CKB light client protocol."
+description = "Server-side implementation for CKB light client protocol"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

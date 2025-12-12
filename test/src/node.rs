@@ -218,6 +218,19 @@ impl Node {
         self.inner.rpc_listen.clone()
     }
 
+    pub fn get_onion_public_addr(&self) -> Option<String> {
+        let onion_public_addr = self
+            .rpc_client()
+            .local_node_info()
+            .addresses
+            .iter()
+            .filter(|addr| addr.address.contains("/onion3/"))
+            .collect::<Vec<_>>()
+            .first()
+            .map(|addr| addr.address.clone());
+        onion_public_addr
+    }
+
     pub fn p2p_address(&self) -> String {
         format!("{}/p2p/{}", self.p2p_listen(), self.node_id())
     }
@@ -282,6 +295,32 @@ impl Node {
         self.rpc_client()
             .add_node(peer.node_id(), peer.p2p_listen());
         let connected = wait_until(5, || {
+            self.rpc_client()
+                .get_peers()
+                .iter()
+                .any(|p| p.node_id == peer.node_id())
+        });
+        if !connected {
+            panic!("Connect outbound peer timeout, node id: {}", peer.node_id());
+        }
+    }
+
+    pub fn connect_onion(&self, peer: &Self) {
+        wait_until(30, || peer.get_onion_public_addr().is_some());
+
+        let onion_pub_address = peer
+            .get_onion_public_addr()
+            .expect("peer onion address is not found");
+
+        info!(
+            "got peer:{}'s onion address: {}",
+            peer.node_id(),
+            onion_pub_address
+        );
+
+        self.rpc_client()
+            .add_node(peer.node_id(), onion_pub_address);
+        let connected = wait_until(180, || {
             self.rpc_client()
                 .get_peers()
                 .iter()
@@ -658,14 +697,19 @@ impl Node {
     }
 
     pub fn start(&mut self) {
-        let mut child_process = Command::new(binary())
+        let working_dir = self.working_dir();
+        let args = ["-C", &working_dir.to_string_lossy(), "run", "--ba-advanced"];
+        let binary = binary();
+
+        {
+            let full_command = format!("{} {}", binary.display(), args.join(" "),);
+
+            info!("Start Node: {}", full_command);
+        }
+
+        let mut child_process = Command::new(binary)
             .env("RUST_BACKTRACE", "full")
-            .args([
-                "-C",
-                &self.working_dir().to_string_lossy(),
-                "run",
-                "--ba-advanced",
-            ])
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())

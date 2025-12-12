@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use ckb_logger::{debug, error};
-use p2p::multiaddr::MultiAddr;
+use p2p::multiaddr::Multiaddr;
 use std::path::Path;
 use std::{
     fs::{File, OpenOptions, copy, create_dir_all, remove_file, rename},
@@ -82,7 +82,7 @@ impl BanList {
 impl Anchors {
     /// Load address list from disk
     pub fn load<R: Read>(r: R) -> Result<Self, Error> {
-        let addrs: Vec<MultiAddr> = serde_json::from_reader(r).map_err(PeerStoreError::Serde)?;
+        let addrs: Vec<Multiaddr> = serde_json::from_reader(r).map_err(PeerStoreError::Serde)?;
         let mut anchors = Anchors::default();
         addrs.into_iter().for_each(|addr| anchors.add(addr));
         Ok(anchors)

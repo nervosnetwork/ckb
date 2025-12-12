@@ -18,7 +18,7 @@ jobs:
         with:
           toolchain: 1.85.0
           components: rustfmt,llvm-tools-preview
-      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib
+      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib build-essential
       - name: unit coverage
         run: make cov
       - name: integration cov

@@ -48,7 +48,7 @@ jobs:
   ci_benchmarks_macos:
     name: ci_benchmarks_macos
     needs: prologue
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: |

@@ -1,10 +1,10 @@
 [package]
 name = "ckb-logger-config"
-version.workspace = true
+version = "1.0.1"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2024"
-description = "CKB logger configurations."
+description = "CKB logger configurations"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

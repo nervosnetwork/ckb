@@ -1,10 +1,10 @@
 [package]
 name = "ckb-test-chain-utils"
-version.workspace = true
+version = "1.0.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"
-description = "Provide several functions used for testing."
+description = "Provide several functions used for testing"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

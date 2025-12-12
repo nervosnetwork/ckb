@@ -1,11 +1,11 @@
 [package]
 name = "ckb-resource"
-version.workspace = true
+version = "1.0.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 build = "build.rs"
-description = "Bundled resources for the CKB binary."
+description = "Bundles resources in the ckb binary"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

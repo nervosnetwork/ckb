@@ -1,10 +1,10 @@
 [package]
 name = "ckb-chain-spec"
-version.workspace = true
+version = "1.0.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "The CKB block chain specification"
+description = "The Chain Specification"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 

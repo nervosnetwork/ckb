@@ -1,0 +1,23 @@
+[package]
+name = "ckb-onion"
+version = "1.0.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2021"
+license = "MIT"
+description = "Onion service module"
+homepage = "https://github.com/nervosnetwork/ckb"
+repository = "https://github.com/nervosnetwork/ckb"
+
+[dependencies]
+base64.workspace = true
+tokio = { workspace = true, features = [ "full", "macros" ]}
+torut.workspace = true
+ckb-error.workspace = true
+ckb-async-runtime.workspace = true
+ckb-logger.workspace = true
+ckb-stop-handler.workspace = true
+ckb-network.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+ckb-network.workspace = true

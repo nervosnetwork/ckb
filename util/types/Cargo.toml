@@ -1,10 +1,10 @@
 [package]
 name = "ckb-types"
-version.workspace = true
+version = "1.0.1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"
-description = "Provides the essential types for CKB."
+description = "The Core Types Library"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 
