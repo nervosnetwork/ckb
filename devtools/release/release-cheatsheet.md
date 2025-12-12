@@ -23,6 +23,18 @@ All crates in the workspace **except** the root `ckb` crate are managed by [rele
    - New versions are automatically published to crates.io
    - No manual intervention required
 
+### Conventional Commit Messages
+
+Release-plz assumes you are using [Conventional Commit messages](https://www.conventionalcommits.org/).
+
+The most important prefixes you should have in mind are:
+
+- `fix:`: represents bug fixes, and results in a SemVer patch bump.
+- `feat:`: represents a new feature, and results in a SemVer minor bump.
+- `<prefix>!:` (e.g. `feat!:`): represents a breaking change (indicated by the !) and results in a SemVer major bump.
+
+Commits that don't follow the Conventional Commit format result in a SemVer patch bump.
+
 ### Important Notes
 
 ⚠️ **Breaking Changes**: Release-plz may not catch all breaking changes automatically. Manual version bumping is appreciated when you know a change is breaking.
