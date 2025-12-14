@@ -41,39 +41,28 @@ fn check_msvc_version() {
         }
     }
 
-    fn version_string_to_tuple(ver: &str) -> Option<(u32, u32, u32, u32)> {
-        let parts: Vec<&str> = ver.split('.').collect();
-        if parts.len() >= 4 {
-            let major = parts[0].parse().ok()?;
-            let minor = parts[1].parse().ok()?;
-            let bld = parts[2].parse().ok()?;
-            let rbld = parts[3].parse().ok()?;
-            Some((major, minor, bld, rbld))
-        } else {
-            None
-        }
-    }
     fn is_version_at_least(current: &str, threshold: &str) -> bool {
-        if let (Some(cur), Some(thr)) = (
-            version_string_to_tuple(current),
-            version_string_to_tuple(threshold),
-        ) {
-            cur >= thr
+        use version_compare::{Cmp, Version};
+
+        // Strip leading 'v' or 'V' if present
+        let current = current.trim_start_matches(|c| c == 'v' || c == 'V');
+        let threshold = threshold.trim_start_matches(|c| c == 'v' || c == 'V');
+
+        if let (Some(cur), Some(thr)) = (Version::from(current), Version::from(threshold)) {
+            cur.compare(&thr) != Cmp::Lt
         } else {
             false
         }
     }
 
     if let Some(version) = get_vc_redist_version("x64").unwrap_or_default() {
-        eprintln!("Detected VC++ Redistributable version (x64): {}", version);
         let threshold = "14.44.0.0";
         if !is_version_at_least(&version, threshold) {
+            eprintln!("Detected VC++ Redistributable version (x64): {}", version);
             eprintln!(
                 "Version is below {}. Please download/upgrade the Visual C++ Redistributable. Help: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-supported-redistributable-version ",
                 threshold
             );
-        } else {
-            eprintln!("MSVC Version: {} meets the requirement.", version);
         }
     } else {
         eprintln!(
