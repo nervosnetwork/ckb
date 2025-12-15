@@ -127,20 +127,20 @@ impl Worker {
                     }
                     None => {
                         if self.sequencial_worker {
-                            info!("sequencial worker is waiting for command");
+                            info!("sequential worker is waiting for command");
                             if start_sequencial_task {
                                 match self.sequencial_tasks.lock().pop() {
                                     Some(spec) => {
                                         self.run_spec(spec.as_ref(), 0);
                                     }
                                     None => {
-                                        info!("sequencial worker has no task to run");
+                                        info!("sequential worker has no task to run");
                                         self.outbox.send(Notify::Stop).unwrap();
                                         return;
                                     }
                                 };
                             } else {
-                                info!("sequencial worker is waiting for parallel workers finish");
+                                info!("sequential worker is waiting for parallel workers finish");
                                 std::thread::sleep(std::time::Duration::from_secs(1));
                             }
                         } else {
@@ -269,9 +269,9 @@ impl Workers {
             .0
             .send(Command::StartSequencial)
         {
-            error!("start sequencial worker failed, error: {}", err);
+            error!("start sequential worker failed, error: {}", err);
         } else {
-            info!("start sequencial worker success")
+            info!("start sequential worker success")
         }
     }
 

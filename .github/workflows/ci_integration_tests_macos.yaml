@@ -51,9 +51,10 @@ jobs:
     name: ci_integration_tests_macos
     needs: prologue
     timeout-minutes: 140
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - run: brew install tor go
       - run: |
           if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
               devtools/ci/ci_main.sh

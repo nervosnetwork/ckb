@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version.workspace = true
+version = "1.0.1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"
@@ -13,6 +13,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 toml.workspace = true
 path-clean.workspace = true
+num_cpus.workspace = true
+
 ckb-logger.workspace = true
 ckb-logger-config.workspace = true
 ckb-metrics-config.workspace = true

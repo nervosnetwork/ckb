@@ -1,7 +1,7 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
-MOLC_VERSION := 0.9.0
+MOLC_VERSION := 0.9.2
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::redundant_clone -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms -A clippy::needless_return -A clippy::needless_lifetimes -A clippy::extra_unused_lifetimes
@@ -67,11 +67,18 @@ cov: cov-install-tools ## Run code coverage.
 	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 test --all
 	GRCOV_OUTPUT=lcov-unit-test.info make cov-collect-data
 
+.PHONY: obfs
+obfs:
+	@if [ ! -d test/obfs4 ]; then \
+		git clone https://github.com/Yawning/obfs4 test/obfs4; \
+	fi
+	cd test/obfs4 && GO111MODULE=on go build -v -o obfs4proxy/obfs4proxy ./obfs4proxy
 
 
 .PHONY: submodule-init
 submodule-init:
 	git submodule update --init
+	$(MAKE) obfs
 
 .PHONY: integration
 integration: submodule-init ## Run integration tests in "test" dir.

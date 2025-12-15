@@ -74,10 +74,9 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
                                 // dao contract stores header deps index as u64 in the input_type field of WitnessArgs
-                                let witness = WitnessArgs::from_slice(&Unpack::<Bytes>::unpack(
-                                    &witness_data,
-                                ))
-                                .map_err(|_| DaoError::InvalidDaoFormat)?;
+                                let witness =
+                                    WitnessArgs::from_slice(&Into::<Bytes>::into(witness_data))
+                                        .map_err(|_| DaoError::InvalidDaoFormat)?;
                                 let header_deps_index_data: Option<Bytes> =
                                     witness.input_type().to_opt().map(|witness| witness.into());
                                 if header_deps_index_data.is_none()
@@ -330,7 +329,7 @@ pub fn modified_occupied_capacity(
             && tx_info.is_cellbase()
             && cell_meta.cell_output.lock().args().raw_data() == consensus.satoshi_pubkey_hash.0[..]
         {
-            return Unpack::<Capacity>::unpack(&cell_meta.cell_output.capacity())
+            return Into::<Capacity>::into(cell_meta.cell_output.capacity())
                 .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);
         }
     }

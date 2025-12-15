@@ -130,22 +130,22 @@ impl<'a> ChainStore for StoreTransactionSnapshot<'a> {
 }
 
 impl StoreTransaction {
-    /// TODO(doc): @quake
+    /// Inserts a raw key-value pair into the specified column.
     pub fn insert_raw(&self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.inner.put(col, key, value)
     }
 
-    /// TODO(doc): @quake
+    /// Deletes a key from the specified column.
     pub fn delete(&self, col: Col, key: &[u8]) -> Result<(), Error> {
         self.inner.delete(col, key)
     }
 
-    /// TODO(doc): @quake
+    /// Commits the transaction, writing all changes to the database.
     pub fn commit(&self) -> Result<(), Error> {
         self.inner.commit()
     }
 
-    /// TODO(doc): @quake
+    /// Returns a snapshot of the transaction's current state.
     pub fn get_snapshot(&self) -> StoreTransactionSnapshot<'_> {
         StoreTransactionSnapshot {
             inner: self.inner.get_snapshot(),
@@ -154,7 +154,7 @@ impl StoreTransaction {
         }
     }
 
-    /// TODO(doc): @quake
+    /// Gets the tip header hash for update, locking the row in the transaction.
     pub fn get_update_for_tip_hash(
         &self,
         snapshot: &StoreTransactionSnapshot<'_>,
@@ -165,12 +165,12 @@ impl StoreTransaction {
             .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(slice.as_ref()).to_entity())
     }
 
-    /// TODO(doc): @quake
+    /// Inserts or updates the tip header hash in the store.
     pub fn insert_tip_header(&self, h: &HeaderView) -> Result<(), Error> {
         self.insert_raw(COLUMN_META, META_TIP_HEADER_KEY, h.hash().as_slice())
     }
 
-    /// TODO(doc): @quake
+    /// Inserts a block into the store.
     pub fn insert_block(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
         let header = Into::<packed::HeaderView>::into(block.header());
@@ -211,7 +211,7 @@ impl StoreTransaction {
         Ok(())
     }
 
-    /// TODO(doc): @quake
+    /// Deletes a block from the store.
     pub fn delete_block(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
         let txs_len = block.transactions().len();
@@ -239,7 +239,7 @@ impl StoreTransaction {
         Ok(())
     }
 
-    /// TODO(doc): @quake
+    /// Inserts block extension data.
     pub fn insert_block_ext(
         &self,
         block_hash: &packed::Byte32,
@@ -253,7 +253,7 @@ impl StoreTransaction {
         )
     }
 
-    /// TODO(doc): @quake
+    /// Attaches a block to the main chain, indexing its transactions and uncles.
     pub fn attach_block(&self, block: &BlockView) -> Result<(), Error> {
         let header = block.data().header();
         let block_hash = block.hash();
@@ -281,7 +281,7 @@ impl StoreTransaction {
         self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())
     }
 
-    /// TODO(doc): @quake
+    /// Detaches a block from the main chain, removing its transaction and uncle indices.
     pub fn detach_block(&self, block: &BlockView) -> Result<(), Error> {
         for tx_hash in block.tx_hashes().iter() {
             self.delete(COLUMN_TRANSACTION_INFO, tx_hash.as_slice())?;
@@ -294,7 +294,7 @@ impl StoreTransaction {
         self.delete(COLUMN_INDEX, block.hash().as_slice())
     }
 
-    /// TODO(doc): @quake
+    /// Inserts the block-to-epoch index mapping.
     pub fn insert_block_epoch_index(
         &self,
         block_hash: &packed::Byte32,
@@ -307,7 +307,7 @@ impl StoreTransaction {
         )
     }
 
-    /// TODO(doc): @quake
+    /// Inserts epoch extension data.
     pub fn insert_epoch_ext(&self, hash: &packed::Byte32, epoch: &EpochExt) -> Result<(), Error> {
         self.insert_raw(
             COLUMN_EPOCH,
@@ -318,7 +318,7 @@ impl StoreTransaction {
         self.insert_raw(COLUMN_EPOCH, epoch_number.as_slice(), hash.as_slice())
     }
 
-    /// TODO(doc): @quake
+    /// Inserts the current epoch extension data.
     pub fn insert_current_epoch_ext(&self, epoch: &EpochExt) -> Result<(), Error> {
         self.insert_raw(
             COLUMN_META,
@@ -327,7 +327,7 @@ impl StoreTransaction {
         )
     }
 
-    /// TODO(doc): @quake
+    /// Inserts multiple cells into the store.
     pub fn insert_cells(
         &self,
         cells: impl Iterator<
@@ -356,7 +356,7 @@ impl StoreTransaction {
         Ok(())
     }
 
-    /// TODO(doc): @quake
+    /// Deletes multiple cells from the store.
     pub fn delete_cells(
         &self,
         out_points: impl Iterator<Item = packed::OutPoint>,

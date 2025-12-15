@@ -774,7 +774,7 @@ impl IndexerHandle {
                     }
                 }
 
-                Some(Unpack::<core::Capacity>::unpack(&output.capacity()).as_u64())
+                Some(Into::<core::Capacity>::into(output.capacity()).as_u64())
             })
             .sum();
 
@@ -1080,7 +1080,7 @@ mod tests {
 
         // test get_tip rpc
         let tip = rpc.get_indexer_tip().unwrap().unwrap();
-        assert_eq!(Unpack::<H256>::unpack(&pre_block.hash()), tip.block_hash);
+        assert_eq!(Into::<H256>::into(pre_block.hash()), tip.block_hash);
         assert_eq!(pre_block.number(), tip.block_number.value());
 
         // test get_cells rpc

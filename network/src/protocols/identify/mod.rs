@@ -215,9 +215,13 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 .local_listen_addrs()
                 .iter()
                 .filter(|addr| {
-                    multiaddr_to_socketaddr(addr)
-                        .map(|socket_addr| !self.global_ip_only || is_reachable(socket_addr.ip()))
-                        .unwrap_or(false)
+                    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+                        !self.global_ip_only || is_reachable(socket_addr.ip())
+                    } else {
+                        // allow /onion3 address
+                        addr.iter()
+                            .any(|protocol| matches!(protocol, Protocol::Onion3(_)))
+                    }
                 })
                 .take(MAX_ADDRS)
                 .cloned()

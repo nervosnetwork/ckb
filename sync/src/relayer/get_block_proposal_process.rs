@@ -1,5 +1,5 @@
 use crate::relayer::{MAX_RELAY_TXS_BYTES_PER_BATCH, Relayer};
-use crate::utils::send_message_to;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode, attempt};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub struct GetBlockProposalProcess<'a> {
     message: packed::GetBlockProposalReader<'a>,
     relayer: &'a Relayer,
-    nc: Arc<dyn CKBProtocolContext>,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
 }
 
@@ -18,7 +18,7 @@ impl<'a> GetBlockProposalProcess<'a> {
     pub fn new(
         message: packed::GetBlockProposalReader<'a>,
         relayer: &'a Relayer,
-        nc: Arc<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
     ) -> Self {
         GetBlockProposalProcess {
@@ -29,7 +29,7 @@ impl<'a> GetBlockProposalProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let message_len = self.message.proposals().len();
         {
@@ -53,7 +53,7 @@ impl<'a> GetBlockProposalProcess<'a> {
 
         let fetched_transactions = {
             let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-            let fetch_txs = tx_pool.fetch_txs(proposals.clone());
+            let fetch_txs = tx_pool.fetch_txs(proposals.clone()).await;
             if let Err(e) = fetch_txs {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -82,7 +82,8 @@ impl<'a> GetBlockProposalProcess<'a> {
             let data = tx.data();
             let tx_size = data.total_size();
             if relay_bytes + tx_size > MAX_RELAY_TXS_BYTES_PER_BATCH {
-                self.send_block_proposals(std::mem::take(&mut relay_proposals));
+                self.send_block_proposals(std::mem::take(&mut relay_proposals))
+                    .await;
                 relay_bytes = tx_size;
             } else {
                 relay_bytes += tx_size;
@@ -90,16 +91,16 @@ impl<'a> GetBlockProposalProcess<'a> {
             relay_proposals.push(data);
         }
         if !relay_proposals.is_empty() {
-            attempt!(self.send_block_proposals(relay_proposals));
+            attempt!(self.send_block_proposals(relay_proposals).await);
         }
         Status::ok()
     }
 
-    fn send_block_proposals(&self, txs: Vec<packed::Transaction>) -> Status {
+    async fn send_block_proposals(&self, txs: Vec<packed::Transaction>) -> Status {
         let content = packed::BlockProposal::new_builder()
             .transactions(txs)
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
-        send_message_to(self.nc.as_ref(), self.peer, &message)
+        async_send_message_to(&self.nc, self.peer, &message).await
     }
 }

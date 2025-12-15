@@ -1,6 +1,6 @@
 [package]
 name = "ckb-script-fuzz"
-version = "0.203.0"
+version = "0.0.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"

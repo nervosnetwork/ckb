@@ -1,8 +1,8 @@
 use crate::SyncShared;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::{ReconstructionResult, Relayer};
-use crate::types::{ActiveChain, PendingCompactBlockMap};
-use crate::utils::send_message_to;
+use crate::types::ActiveChain;
+use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode, attempt};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{self, debug_target};
@@ -16,7 +16,6 @@ use ckb_types::{
     packed::{self, Byte32, CompactBlock},
     prelude::*,
 };
-use ckb_util::MutexGuard;
 use ckb_util::shrink_to_fit;
 use ckb_verification::{HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
@@ -54,7 +53,7 @@ impl<'a> CompactBlockProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Status {
+    pub async fn execute(self) -> Status {
         let instant = Instant::now();
         let shared = self.relayer.shared();
         let active_chain = shared.active_chain();
@@ -68,7 +67,7 @@ impl<'a> CompactBlockProcess<'a> {
             return status;
         }
 
-        let status = contextual_check(&header, shared, &active_chain, &self.nc, self.peer);
+        let status = contextual_check(&header, shared, &active_chain, &self.nc, self.peer).await;
         if !status.is_ok() {
             return status;
         }
@@ -81,18 +80,17 @@ impl<'a> CompactBlockProcess<'a> {
         // Request proposal
         let proposals: Vec<_> = compact_block.proposals().into_iter().collect();
         self.relayer.request_proposal_txs(
-            self.nc.as_ref(),
+            &self.nc,
             self.peer,
             (header.number(), block_hash.clone()).into(),
             proposals,
         );
 
-        let mut pending_compact_blocks = shared.state().pending_compact_blocks();
-
         // Reconstruct block
         let ret = self
             .relayer
-            .reconstruct_block(&active_chain, &compact_block, vec![], &[], &[]);
+            .reconstruct_block(&active_chain, &compact_block, vec![], &[], &[])
+            .await;
 
         // Accept block
         // `relayer.accept_block` will make sure the validity of block before persisting
@@ -105,14 +103,14 @@ impl<'a> CompactBlockProcess<'a> {
                         .inc_by(block.transactions().len() as u64);
                     metrics.ckb_relay_cb_reconstruct_ok.inc();
                 }
-
+                let mut pending_compact_blocks = shared.state().pending_compact_blocks().await;
                 pending_compact_blocks.remove(&block_hash);
                 // remove all pending request below this block epoch
                 //
                 // use epoch as the judgment condition because we accept
                 // all block in current epoch as uncle block
                 pending_compact_blocks.retain(|_, (v, _, _)| {
-                    Unpack::<EpochNumberWithFraction>::unpack(&v.header().as_reader().raw().epoch())
+                    Into::<EpochNumberWithFraction>::into(v.header().as_reader().raw().epoch())
                         .number()
                         >= block.epoch().number()
                 });
@@ -142,12 +140,13 @@ impl<'a> CompactBlockProcess<'a> {
                 missing_or_collided_post_process(
                     compact_block,
                     block_hash.clone(),
-                    pending_compact_blocks,
+                    shared,
                     self.nc,
                     missing_transactions,
                     missing_uncles,
                     self.peer,
-                );
+                )
+                .await;
 
                 StatusCode::CompactBlockRequiresFreshTransactions.with_context(&block_hash)
             }
@@ -161,12 +160,13 @@ impl<'a> CompactBlockProcess<'a> {
                 missing_or_collided_post_process(
                     compact_block,
                     block_hash.clone(),
-                    pending_compact_blocks,
+                    shared,
                     self.nc,
                     missing_transactions,
                     missing_uncles,
                     self.peer,
-                );
+                )
+                .await;
                 StatusCode::CompactBlockMeetsShortIdsCollision.with_context(&block_hash)
             }
             ReconstructionResult::Error(status) => status,
@@ -227,7 +227,7 @@ fn non_contextual_check(
 /// * check compact block's parent block is not stored in db
 /// * check compact block is in pending
 /// * check compact header verification
-fn contextual_check(
+async fn contextual_check(
     compact_block_header: &HeaderView,
     shared: &Arc<SyncShared>,
     active_chain: &ActiveChain,
@@ -272,7 +272,7 @@ fn contextual_check(
             block_hash,
             peer
         );
-        active_chain.send_getheaders_to_peer(nc.as_ref(), peer, (&tip).into());
+        active_chain.send_getheaders_to_peer(nc, peer, (&tip).into());
         return StatusCode::CompactBlockRequiresParent.with_context(format!(
             "{} parent: {}",
             block_hash,
@@ -281,7 +281,7 @@ fn contextual_check(
     }
 
     // compact block is in pending
-    let pending_compact_blocks = shared.state().pending_compact_blocks();
+    let pending_compact_blocks = shared.state().pending_compact_blocks().await;
     if pending_compact_blocks
         .get(&block_hash)
         .map(|(_, peers_map, _)| peers_map.contains_key(&peer))
@@ -342,16 +342,19 @@ fn contextual_check(
 }
 
 /// request missing txs and uncles from peer
-fn missing_or_collided_post_process(
+async fn missing_or_collided_post_process(
     compact_block: CompactBlock,
     block_hash: Byte32,
-    mut pending_compact_blocks: MutexGuard<PendingCompactBlockMap>,
-    nc: Arc<dyn CKBProtocolContext>,
+    shared: &SyncShared,
+    nc: Arc<dyn CKBProtocolContext + Sync>,
     missing_transactions: Vec<u32>,
     missing_uncles: Vec<u32>,
     peer: PeerIndex,
 ) {
-    pending_compact_blocks
+    shared
+        .state()
+        .pending_compact_blocks()
+        .await
         .entry(block_hash.clone())
         .or_insert_with(|| (compact_block, HashMap::default(), unix_time_as_millis()))
         .1
@@ -363,12 +366,14 @@ fn missing_or_collided_post_process(
         .uncle_indexes(missing_uncles.as_slice())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
-    let sending = send_message_to(nc.as_ref(), peer, &message);
-    if !sending.is_ok() {
-        ckb_logger::warn_target!(
-            crate::LOG_TARGET_RELAY,
-            "ignore the sending message error, error: {}",
-            sending
-        );
-    }
+    shared.shared().async_handle().spawn(async move {
+        let sending = async_send_message_to(&nc, peer, &message).await;
+        if !sending.is_ok() {
+            ckb_logger::warn_target!(
+                crate::LOG_TARGET_RELAY,
+                "ignore the sending message error, error: {}",
+                sending
+            );
+        }
+    });
 }

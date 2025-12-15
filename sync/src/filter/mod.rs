@@ -30,7 +30,7 @@ impl BlockFilter {
         Self { shared }
     }
 
-    fn try_process(
+    async fn try_process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
@@ -38,13 +38,19 @@ impl BlockFilter {
     ) -> Status {
         match message {
             packed::BlockFilterMessageUnionReader::GetBlockFilters(msg) => {
-                GetBlockFiltersProcess::new(msg, self, nc, peer).execute()
+                GetBlockFiltersProcess::new(msg, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::BlockFilterMessageUnionReader::GetBlockFilterHashes(msg) => {
-                GetBlockFilterHashesProcess::new(msg, self, nc, peer).execute()
+                GetBlockFilterHashesProcess::new(msg, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::BlockFilterMessageUnionReader::GetBlockFilterCheckPoints(msg) => {
-                GetBlockFilterCheckPointsProcess::new(msg, self, nc, peer).execute()
+                GetBlockFilterCheckPointsProcess::new(msg, self, nc, peer)
+                    .execute()
+                    .await
             }
             packed::BlockFilterMessageUnionReader::BlockFilters(_)
             | packed::BlockFilterMessageUnionReader::BlockFilterHashes(_)
@@ -61,7 +67,7 @@ impl BlockFilter {
         }
     }
 
-    fn process(
+    async fn process(
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
@@ -69,7 +75,7 @@ impl BlockFilter {
     ) {
         let item_name = message.item_name();
         let item_bytes = message.as_slice().len() as u64;
-        let status = self.try_process(Arc::clone(&nc), peer, message);
+        let status = self.try_process(Arc::clone(&nc), peer, message).await;
 
         metric_ckb_message_bytes(
             MetricDirection::In,
@@ -143,7 +149,7 @@ impl CKBProtocolHandler for BlockFilter {
             peer_index
         );
         let start_time = Instant::now();
-        self.process(nc, peer_index, msg);
+        self.process(nc, peer_index, msg).await;
         debug_target!(
             crate::LOG_TARGET_FILTER,
             "process message={}, peer={}, cost={:?}",

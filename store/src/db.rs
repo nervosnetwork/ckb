@@ -167,7 +167,7 @@ impl ChainDB {
         self.db.compact_range(col, start, end)
     }
 
-    /// TODO(doc): @quake
+    /// Initializes the database with the genesis block and epoch.
     pub fn init(&self, consensus: &Consensus) -> Result<(), Error> {
         let genesis = consensus.genesis_block();
         let epoch = consensus.genesis_epoch_ext();

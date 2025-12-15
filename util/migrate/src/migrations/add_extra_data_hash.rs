@@ -29,7 +29,8 @@ impl Migration for AddExtraDataHash {
         let pb = pb(1);
         let spinner_style = ProgressStyle::default_spinner()
             .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
-            .template("{prefix:.bold.dim} {spinner} {wide_msg}");
+            .template("{prefix:.bold.dim} {spinner} {wide_msg}")
+            .expect("Failed to set progress bar template");
         pb.set_style(spinner_style);
         let mut next_key = vec![0];
         while !next_key.is_empty() {

@@ -48,10 +48,11 @@ pub fn multi_thread_migration(input: TokenStream) -> TokenStream {
                     .template(
                         "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}",
                     )
+                    .expect("Failed to set progress bar template")
                     .progress_chars("#>-"),
             );
             pbi.set_position(0);
-            pbi.enable_steady_tick(5000);
+            pbi.enable_steady_tick(std::time::Duration::from_millis(5000));
             ::std::thread::spawn(move || {
                 let mut wb = chain_db.new_write_batch();
 

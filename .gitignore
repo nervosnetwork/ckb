@@ -15,7 +15,7 @@ target-cache/
 test/target
 
 # Cargo lock in subs
-**/Cargo.lock
+*/**/Cargo.lock
 
 # editor specific
 # vim stuff

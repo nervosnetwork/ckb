@@ -1,6 +1,6 @@
 [package]
 name = "ckb-occupied-capacity-macros"
-version.workspace = true
+version = "1.0.1"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 license = "MIT"

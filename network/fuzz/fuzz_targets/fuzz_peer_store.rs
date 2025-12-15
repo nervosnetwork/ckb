@@ -3,11 +3,11 @@
 use libfuzzer_sys::fuzz_target;
 
 use ckb_network::{
-    multiaddr::MultiAddr, peer_store::types::BannedAddr, peer_store::PeerStore, Flags, PeerId,
+    multiaddr::Multiaddr, peer_store::types::BannedAddr, peer_store::PeerStore, Flags, PeerId,
 };
 use ckb_network_fuzz::BufManager;
 
-fn new_multi_addr(data: &mut BufManager) -> (MultiAddr, Flags) {
+fn new_multi_addr(data: &mut BufManager) -> (Multiaddr, Flags) {
     let flags = data.get();
     let addr_flag = data.get::<u8>();
 

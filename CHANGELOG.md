@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [v0.204.0](https://github.com/nervosnetwork/ckb/compare/v0.203.0...v0.204.0) (2025-12-10)
+
+### Features
+
+-   #4733: Add `proxy` and `onion` support for `ckb-network` (@eval-exec)
+
+### Improvements
+
+-   #5001: Relay use async send msg (@driftluo)
+-   #4986: Improve compress impl (@driftluo)
+-   #4982: Add indexer_tip metrics (@eval-exec)
+-   #4997: Hint windows user to install latest vc-redist if host vc-redist is lower than 14.44 (@eval-exec)
+
 ## [v0.203.0](https://github.com/nervosnetwork/ckb/compare/v0.202.0...v0.203.0) (2025-10-22)
 
 ### Features
