@@ -23,6 +23,9 @@ jobs:
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.85.0
       - name: Run cargo deny checks
         run: |
           cargo deny --version || cargo +stable install cargo-deny --locked --version 0.17.0
