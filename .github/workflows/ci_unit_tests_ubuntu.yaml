@@ -5,11 +5,7 @@ concurrency:
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - master
-      - develop
-      - "rc/*"
+  push: {}
   merge_group: {}
   workflow_dispatch: {}
 
