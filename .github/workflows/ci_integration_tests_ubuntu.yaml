@@ -42,8 +42,6 @@ jobs:
           export BINARY_NAME=ckb
           make CKB_TEST_ARGS="-c 4 --no-report --max-time 7200 " integration
         shell: bash
-        env:
-          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}
       - name: upload log files
         if: always()
         uses: actions/upload-artifact@v4
@@ -65,5 +63,3 @@ jobs:
           make prod
           make cli-test
         shell: bash
-        env:
-          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}

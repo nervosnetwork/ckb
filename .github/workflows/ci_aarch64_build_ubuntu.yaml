@@ -46,5 +46,3 @@ jobs:
           export CC=gcc
           export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
           cargo build --locked --target=aarch64-unknown-linux-gnu --features portable
-        env:
-          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}

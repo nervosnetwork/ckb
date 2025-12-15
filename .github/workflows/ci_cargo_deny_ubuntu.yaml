@@ -29,5 +29,3 @@ jobs:
           make security-audit
           make check-crates
           make check-licenses
-        env:
-          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}

@@ -32,5 +32,3 @@ jobs:
       - name: Run unit tests
         run: make test
         shell: bash
-        env:
-          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}
