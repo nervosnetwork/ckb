@@ -17,8 +17,8 @@ env:
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
 jobs:
-  prologue:
-    name: prologue
+  ci_unit_tests_macos:
+    name: ci_unit_tests_macos
     if: |
       github.event_name != 'push' ||
       ( github.event_name == 'push' &&
@@ -27,39 +27,15 @@ jobs:
          startsWith(github.ref, 'refs/heads/rc/')
        )
       ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ubuntu-22.04
-    outputs:
-      os_skip: ${{ steps.prologue.outputs.os_skip }}
-      job_skip: ${{ steps.prologue.outputs.job_skip }}
-      runner_label: ${{ steps.prologue.outputs.runner_label }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: prologue
-        id: prologue
-        uses: ./.github/actions/ci_prologue
-        with:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
-          PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
-  ci_unit_tests_macos:
-    name: ci_unit_tests_macos
-    needs: prologue
     runs-on: macos-15
     steps:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - uses: actions/checkout@v4
-      - run: |
-          if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-              devtools/ci/ci_main.sh
-          else
-            echo "skip job"
-            exit 0
-          fi
+      - name: Run unit tests
+        run: make test
         shell: bash
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
+        env:
+          RUNNER_LABEL: macos-15
+          CKB_FEATURES: deadlock_detection,with_sentry,portable
+          CARGO_TARGET_DIR: ${{ format('{0}/target', github.workspace) }}

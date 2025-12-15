@@ -20,8 +20,8 @@ env:
   LOGBAK_PASSWORD: ${{secrets.LOGBAK_PASSWORD}}
   LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
 jobs:
-  prologue:
-    name: prologue
+  ci_integration_tests_ubuntu:
+    name: ci_integration_tests_ubuntu
     if: |
       github.event_name != 'push' ||
       ( github.event_name == 'push' &&
@@ -30,29 +30,8 @@ jobs:
          startsWith(github.ref, 'refs/heads/rc/')
        )
       ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ubuntu-22.04
-    outputs:
-      os_skip: ${{ steps.prologue.outputs.os_skip }}
-      job_skip: ${{ steps.prologue.outputs.job_skip }}
-      linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: prologue
-        id: prologue
-        uses: ./.github/actions/ci_prologue
-        with:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
-          PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
-  ci_integration_tests_ubuntu:
-    name: ci_integration_tests_ubuntu
-    needs: prologue
     timeout-minutes: 140
-    runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -63,26 +42,33 @@ jobs:
         with:
           go-version: '1.20'
       - uses: actions/checkout@v4
-      - run: |
-          if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-              devtools/ci/ci_main.sh
-          else
-            echo "skip job"
-            exit 0
-          fi
+      - name: Run integration tests
+        run: |
+          export BUILD_BUILDID=$GITHUB_RUN_ID
+          export ImageOS=$RUNNER_OS
+          export BINARY_NAME=ckb
+          make CKB_TEST_ARGS="-c 4 --no-report --max-time 7200 " integration
         shell: bash
+        env:
+          RUNNER_LABEL: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}
       - name: upload log files
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}_integration.log
           path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}
   ci_cli_bats_test:
     name: ci_cli_bats_test
-    needs: prologue
-    runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
+    if: |
+      github.event_name != 'push' ||
+      ( github.event_name == 'push' &&
+       ( github.ref == 'refs/heads/master' ||
+         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
+         startsWith(github.ref, 'refs/heads/rc/')
+       )
+      ) || (github.repository_owner != 'nervosnetwork')
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -95,5 +81,6 @@ jobs:
           make prod
           make cli-test
         shell: bash
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.linux_runner_label }}
+        env:
+          RUNNER_LABEL: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}

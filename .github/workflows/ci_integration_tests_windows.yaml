@@ -20,8 +20,8 @@ env:
   LOGBAK_PASSWORD: ${{secrets.LOGBAK_PASSWORD}}
   LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
 jobs:
-  prologue:
-    name: prologue
+  ci_integration_tests_windows:
+    name: ci_integration_tests_windows
     if: |
       github.event_name != 'push' ||
       ( github.event_name == 'push' &&
@@ -30,33 +30,12 @@ jobs:
          startsWith(github.ref, 'refs/heads/rc/')
        )
       ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ubuntu-22.04
-    outputs:
-      os_skip: ${{ steps.prologue.outputs.os_skip }}
-      job_skip: ${{ steps.prologue.outputs.job_skip }}
-      windows_runner_label: ${{ steps.prologue.outputs.windows_runner_label }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: prologue
-        id: prologue
-        uses: ./.github/actions/ci_prologue
-        with:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
-          PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
-  ci_integration_tests_windows:
-    name: ci_integration_tests_windows
-    needs: prologue
     runs-on: windows-latest
     timeout-minutes: 140
     steps:
       - uses: actions/checkout@v4
       - name: install required tools
-        if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2022' }}
+        if: ${{ github.repository_owner != 'nervosnetwork' }}
         run: |
           iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
           .\install-scoop.ps1 -RunAsAdmin
@@ -68,19 +47,19 @@ jobs:
           scoop install llvm
           scoop install tor
           scoop install go
-      - run: |
-          if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-              devtools/ci/ci_main.sh
-          else
-            echo "skip job"
-            exit 0
-          fi
+      - name: Run integration tests
+        run: |
+          export BUILD_BUILDID=$GITHUB_RUN_ID
+          export ImageOS=$RUNNER_OS
+          export BINARY_NAME=ckb.exe
+          make CKB_TEST_ARGS="-c 4 --no-report --max-time 7200 " integration
         shell: bash
+        env:
+          RUNNER_LABEL: windows-latest
+          CARGO_TARGET_DIR: ${{ format('{0}/target', github.workspace) }}
       - name: upload log files
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}_integration.log
           path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.windows_runner_label }}

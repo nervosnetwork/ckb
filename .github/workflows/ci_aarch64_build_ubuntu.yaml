@@ -17,30 +17,9 @@ env:
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
 jobs:
-  prologue:
-    name: prologue
-    runs-on: ubuntu-22.04
-    outputs:
-      os_skip: ${{ steps.prologue.outputs.os_skip }}
-      job_skip: ${{ steps.prologue.outputs.job_skip }}
-      linux_runner_label: ${{ steps.prologue.outputs.linux_runner_label }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: prologue
-        id: prologue
-        uses: ./.github/actions/ci_prologue
-        with:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
-          PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
   ci_aarch64_build_ubuntu:
     name: ci_aarch64_build_ubuntu
-    needs: prologue
-    runs-on: ${{ needs.prologue.outputs.linux_runner_label }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -48,13 +27,24 @@ jobs:
           toolchain: 1.85.0
           components: rustfmt
       - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib build-essential
-      - name: ci_aarch64_build_ubuntu
+      - name: Build for aarch64
         run: |
-          if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-              devtools/ci/ci_main.sh
-          else
-            echo "skip job"
-            exit 0
-          fi
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
+          sudo apt-get install -y gcc-multilib
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu clang
+          rustup target add aarch64-unknown-linux-gnu
+          curl -LO https://www.openssl.org/source/openssl-3.1.3.tar.gz
+          tar -xvzf openssl-3.1.3.tar.gz
+          cd openssl-3.1.3
+          CC=aarch64-linux-gnu-gcc ./Configure linux-aarch64 shared
+          CC=aarch64-linux-gnu-gcc make
+          cd ..
+          export TOP
+          export OPENSSL_LIB_DIR=$(pwd)/openssl-3.1.3
+          export OPENSSL_INCLUDE_DIR=$(pwd)/openssl-3.1.3/include
+          export PKG_CONFIG_ALLOW_CROSS=1
+          export CC=gcc
+          export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+          cargo build --locked --target=aarch64-unknown-linux-gnu --features portable
+        env:
+          RUNNER_LABEL: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}
