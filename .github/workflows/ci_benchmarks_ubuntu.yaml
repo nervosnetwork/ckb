@@ -11,6 +11,7 @@ on:
       - develop
       - "rc/*"
   merge_group: {}
+  workflow_dispatch: {}
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
