@@ -1,21 +1,23 @@
 # CI Workflow Documentation
 
-This document explains how the CKB CI (Continuous Integration) workflow operates, including how to skip jobs, the difference between required and optional checks, and how duplicate runs are prevented.
+This document explains how the CKB CI (Continuous Integration) workflow operates, including the difference between required and optional checks, and how duplicate runs are prevented.
 
 ## Overview
 
 The CI workflow runs tests and checks across multiple operating systems (Ubuntu, macOS, Windows) for various job types (quick checks, unit tests, integration tests, benchmarks, linters, etc.). The workflow is designed to:
 
-- Allow selective job execution via PR comments
+- Run all tests automatically on PRs and protected branches
 - Make Ubuntu jobs required for PR merges while other OS jobs are optional (but still block if they fail)
 - Prevent duplicate workflow runs on both PR events and push events
+- Support manual workflow triggering for testing purposes
 
 ## Workflow Structure
 
 Each CI workflow follows a consistent pattern:
 
-1. **Prologue Job**: Determines which jobs should run and on which OS
-2. **Test/Check Jobs**: Execute the actual tests or checks based on prologue decisions
+1. **Workflow Triggers**: Respond to pull requests, pushes to protected branches, merge groups, and manual dispatch
+2. **Runner Selection**: Automatically choose self-hosted runners for nervosnetwork repositories, GitHub-hosted runners for forks
+3. **Test/Check Jobs**: Execute the actual tests or checks
 
 ### Concurrency Control
 
@@ -32,81 +34,34 @@ This ensures that:
 - New pushes/PR updates cancel in-progress runs
 - The same workflow won't run simultaneously on both PR and push events for the same commit
 
-## Skipping Jobs
+## Runner Selection
 
-You can control which jobs run and on which operating systems by adding special comments to your PR description or commit message.
+Runner selection is automatic and based on the repository owner:
 
-### How It Works
+- **nervosnetwork repositories**: Use self-hosted runners
+  - Ubuntu: `self-hosted-ci-ubuntu-20.04`
+  - Windows: `self-hosted-ci-windows-2019`
+  - macOS: `macos-15` (GitHub-hosted)
+- **Fork repositories**: Use GitHub-hosted runners
+  - Ubuntu: `ubuntu-22.04`
+  - Windows: `windows-2022`
+  - macOS: `macos-15`
 
-The `ci_prologue.sh` script parses PR comments or commit messages to determine:
-- Which operating systems should run (`ci-runs-on:`)
-- Which job types should run (`ci-runs-only:`)
-- Whether to use self-hosted runners (`ci-uses-self-runner:`)
-
-### Syntax
-
-Add these directives to your **PR description** or **commit message**:
-
-#### Skip Operating Systems
-
-```
-ci-runs-on: [ ubuntu, macos, windows ]
+This is determined automatically using:
+```yaml
+runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
 ```
 
-- Default: All three OS run (`[ ubuntu, macos, windows ]`)
-- To run only Ubuntu: `ci-runs-on: [ ubuntu ]`
-- To skip macOS: `ci-runs-on: [ ubuntu, windows ]`
+## Manual Workflow Testing
 
-#### Skip Job Types
+All CI workflows support manual triggering via `workflow_dispatch`. This allows you to:
 
-```
-ci-runs-only: [ quick_checks, unit_tests, integration_tests, benchmarks, linters, cargo_deny, aarch64_build ]
-```
+1. Go to the Actions tab in GitHub
+2. Select the workflow you want to run
+3. Click "Run workflow"
+4. Choose the branch to run on
 
-- Default: All jobs run
-- To run only quick checks: `ci-runs-only: [ quick_checks ]`
-- To skip benchmarks: `ci-runs-only: [ quick_checks, unit_tests, integration_tests, linters, cargo_deny, aarch64_build ]`
-
-#### Use Self-Hosted Runners
-
-```
-ci-uses-self-runner: true
-```
-
-- Default: `false` (uses GitHub-hosted runners)
-- Set to `true` to use self-hosted runners (requires appropriate permissions)
-
-### Permission Requirements
-
-**For PRs**, you can only customize CI runs if:
-- You have the `ci-trust` label on your PR, OR
-- You have `admin` or `write` permissions to the repository
-
-**For pushes**, customization is available for:
-- Commits to `master` branch
-- Merge commits to `develop` branch (commits starting with "Merge pull request #")
-- Commits to `rc/*` branches
-- Any push in non-nervosnetwork repositories
-
-**For merge_group events** (merge queue), customization is disabled - all jobs run.
-
-### Examples
-
-**Example 1: Run only quick checks on Ubuntu**
-```
-ci-runs-only: [ quick_checks ]
-ci-runs-on: [ ubuntu ]
-```
-
-**Example 2: Skip macOS and Windows, run all jobs**
-```
-ci-runs-on: [ ubuntu ]
-```
-
-**Example 3: Run only unit tests and linters on all OS**
-```
-ci-runs-only: [ unit_tests, linters ]
-```
+This is useful for testing workflow changes on dedicated branches without creating a PR.
 
 ## Required vs Optional Checks
 
@@ -158,8 +113,9 @@ Workflows trigger on:
 - `pull_request`: `opened`, `synchronize`, `reopened`
 - `push`: Only on specific branches (`master`, `develop`, `rc/*`)
 - `merge_group`: For merge queue
+- `workflow_dispatch`: For manual triggering
 
-The prologue job has additional conditions to prevent unnecessary runs on push events:
+Jobs have conditions to prevent unnecessary runs on push events:
 
 ```yaml
 if: |
@@ -173,9 +129,10 @@ if: |
 ```
 
 This means:
-- PR events always run the prologue
+- PR events always run
 - Push events only run on protected branches or merge commits
 - Forks can always run (for testing)
+- Manual dispatch always runs
 
 ### 3. Workflow Execution Flow
 
@@ -199,23 +156,22 @@ CI workflows are organized by job type and OS:
 - `ci_integration_tests_ubuntu.yaml` / `ci_integration_tests_macos.yaml` / `ci_integration_tests_windows.yaml`
 - `ci_benchmarks_ubuntu.yaml` / `ci_benchmarks_macos.yaml`
 - `ci_linters_ubuntu.yaml` / `ci_linters_macos.yaml`
+- `ci_cargo_deny_ubuntu.yaml`
 - `ci_aarch64_build_ubuntu.yaml`
-
-Each workflow follows the same structure with a `prologue` job and one or more test/check jobs.
 
 ## Troubleshooting
 
-### Jobs are being skipped unexpectedly
+### Jobs are not running as expected
 
-1. Check your PR description or commit message for `ci-runs-on:` or `ci-runs-only:` directives
-2. Verify you have the required permissions (`ci-trust` label or `admin`/`write` access)
-3. Check the prologue job output in the workflow run logs
+1. Check the job's `if` condition in the workflow run logs
+2. Verify the workflow is triggered by the correct event
+3. For push events, ensure you're pushing to a protected branch (master, develop, rc/*)
 
 ### Duplicate runs are occurring
 
 1. Verify concurrency groups are properly configured
 2. Check if workflows are triggered by both PR and push events for the same commit
-3. Review the prologue job's `if` condition to ensure it's not running unnecessarily
+3. Review the job's `if` condition to ensure it's not running unnecessarily
 
 ### Required checks not passing
 
