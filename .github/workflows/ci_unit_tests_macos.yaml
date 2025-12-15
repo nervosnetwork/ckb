@@ -22,6 +22,11 @@ jobs:
     name: ci_unit_tests_macos
     runs-on: macos-15
     steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /Applications/Xcode_*.app
+          sudo rm -rf /usr/local/lib/android
+          brew cleanup
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - uses: actions/checkout@v4

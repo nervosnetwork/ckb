@@ -22,6 +22,11 @@ jobs:
     name: ci_benchmarks_macos
     runs-on: macos-15
     steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /Applications/Xcode_*.app
+          sudo rm -rf /usr/local/lib/android
+          brew cleanup
       - uses: actions/checkout@v4
       - name: Run benchmark tests
         run: make bench-test

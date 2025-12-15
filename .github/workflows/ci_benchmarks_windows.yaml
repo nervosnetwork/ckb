@@ -22,6 +22,11 @@ jobs:
     name: ci_benchmarks_windows
     runs-on: windows-2022
     steps:
+      - name: Free up disk space
+        run: |
+          Remove-Item -Path "C:\Program Files\dotnet" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "$env:PROGRAMDATA\chocolatey" -Recurse -Force -ErrorAction SilentlyContinue
       - uses: actions/checkout@v4
       - name: install required tools
         run: |

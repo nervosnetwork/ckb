@@ -26,6 +26,14 @@ jobs:
     timeout-minutes: 140
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
+      - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
@@ -52,6 +60,14 @@ jobs:
     name: ci_cli_bats_test
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
+      - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
