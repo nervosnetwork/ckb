@@ -27,6 +27,14 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
       - uses: actions/checkout@v4
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
@@ -36,3 +44,12 @@ jobs:
           make security-audit
           make check-crates
           make check-licenses
+      - name: Disk usage summary
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        run: |
+          echo "=== Disk Space Summary ==="
+          df -h
+          echo ""
+          echo "=== Target Directory Usage ==="
+          du -sh target/ 2>/dev/null || echo "target/ directory not found"
+          du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"

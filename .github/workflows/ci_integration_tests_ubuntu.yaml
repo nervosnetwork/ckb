@@ -39,6 +39,14 @@ jobs:
         with:
           go-version: '1.20'
       - uses: actions/checkout@v4
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-
       - name: Run integration tests
         run: |
           export BUILD_BUILDID=$GITHUB_RUN_ID
@@ -52,6 +60,15 @@ jobs:
         with:
           name: ${{ runner.os }}_integration.log
           path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
+      - name: Disk usage summary
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        run: |
+          echo "=== Disk Space Summary ==="
+          df -h
+          echo ""
+          echo "=== Target Directory Usage ==="
+          du -sh target/ 2>/dev/null || echo "target/ directory not found"
+          du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"
   ci_cli_bats_test:
     name: ci_cli_bats_test
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
@@ -70,8 +87,25 @@ jobs:
           components: rustfmt, clippy
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential procps wget
       - uses: actions/checkout@v4
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-
       - name: build ckb and run bats cli test
         run: |
           make prod
           make cli-test
         shell: bash
+      - name: Disk usage summary
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        run: |
+          echo "=== Disk Space Summary ==="
+          df -h
+          echo ""
+          echo "=== Target Directory Usage ==="
+          du -sh target/ 2>/dev/null || echo "target/ directory not found"
+          du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"

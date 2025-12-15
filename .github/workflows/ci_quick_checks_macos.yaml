@@ -24,6 +24,14 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           brew cleanup
       - uses: actions/checkout@v4
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-
       - name: Run quick checks
         run: |
           brew unlink yq
@@ -37,3 +45,12 @@ jobs:
           devtools/ci/check-cyclic-dependencies.py
           devtools/ci/check-relaxed.sh
         shell: bash
+      - name: Disk usage summary
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        run: |
+          echo "=== Disk Space Summary ==="
+          df -h
+          echo ""
+          echo "=== Target Directory Usage ==="
+          du -sh target/ 2>/dev/null || echo "target/ directory not found"
+          du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"

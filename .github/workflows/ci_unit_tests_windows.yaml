@@ -24,6 +24,14 @@ jobs:
           Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "$env:PROGRAMDATA\chocolatey" -Recurse -Force -ErrorAction SilentlyContinue
       - uses: actions/checkout@v4
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-
       - name: install required tools
         run: |
           iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
@@ -39,3 +47,16 @@ jobs:
       - name: Run unit tests
         run: make test
         shell: bash
+      - name: Disk usage summary
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        run: |
+          echo "=== Disk Space Summary ==="
+          Get-PSDrive -PSProvider FileSystem | Format-Table
+          echo ""
+          echo "=== Target Directory Usage ==="
+          if (Test-Path target) {
+            Get-ChildItem target -Recurse | Measure-Object -Property Length -Sum | Select-Object @{Name="Size(GB)";Expression={"{0:N2}" -f ($_.Sum / 1GB)}}
+          } else {
+            echo "target/ directory not found"
+          }
+        shell: pwsh
