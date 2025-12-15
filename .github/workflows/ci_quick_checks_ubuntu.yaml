@@ -20,7 +20,7 @@ env:
 jobs:
   ci_quick_checks_ubuntu:
     name: ci_quick_checks_ubuntu
-    runs-on: ubuntu-22.04
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -46,3 +46,5 @@ jobs:
           devtools/ci/check-cyclic-dependencies.py
           devtools/ci/check-relaxed.sh
         shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}

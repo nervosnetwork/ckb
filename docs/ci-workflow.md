@@ -16,7 +16,7 @@ The CI workflow runs tests and checks across multiple operating systems (Ubuntu,
 Each CI workflow follows a consistent pattern:
 
 1. **Workflow Triggers**: Respond to pull requests, pushes to protected branches, merge groups, and manual dispatch
-2. **Runner Selection**: Use GitHub-hosted runners for all builds
+2. **Runner Selection**: Linux workflows use self-hosted runners for nervosnetwork, GitHub-hosted runners for forks. Windows and macOS workflows use GitHub-hosted runners.
 3. **Test/Check Jobs**: Execute the actual tests or checks
 
 ### Concurrency Control
@@ -36,13 +36,22 @@ This ensures that:
 
 ## Runner Selection
 
-All workflows use GitHub-hosted runners:
+Runner selection varies by platform:
 
-- **Ubuntu**: `ubuntu-22.04`
-- **Windows**: `windows-2022`
-- **macOS**: `macos-15`
+**Linux/Ubuntu workflows:**
+- **nervosnetwork repositories**: Use self-hosted runner `self-hosted-ci-ubuntu-20.04`
+- **Fork repositories**: Use GitHub-hosted runner `ubuntu-22.04`
 
-This ensures consistent behavior across all repositories (nervosnetwork and forks).
+**Windows workflows:**
+- All repositories use GitHub-hosted runner `windows-2022`
+
+**macOS workflows:**
+- All repositories use GitHub-hosted runner `macos-15`
+
+This is determined automatically for Linux workflows using:
+```yaml
+runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+```
 
 ## Manual Workflow Testing
 

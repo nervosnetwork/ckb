@@ -20,7 +20,7 @@ env:
 jobs:
   ci_linters_ubuntu:
     name: ci_linters_ubuntu
-    runs-on: ubuntu-22.04
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -40,3 +40,5 @@ jobs:
           make clippy
           git diff --exit-code Cargo.lock
         shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}

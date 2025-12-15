@@ -20,7 +20,7 @@ env:
 jobs:
   ci_cargo_deny_ubuntu:
     name: ci_cargo_deny_ubuntu
-    runs-on: ubuntu-22.04
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v4
       - name: Run cargo deny checks
@@ -29,3 +29,5 @@ jobs:
           make security-audit
           make check-crates
           make check-licenses
+        env:
+          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}
