@@ -20,14 +20,6 @@ env:
 jobs:
   ci_benchmarks_macos:
     name: ci_benchmarks_macos
-    if: |
-      github.event_name != 'push' ||
-      ( github.event_name == 'push' &&
-       ( github.ref == 'refs/heads/master' ||
-         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-         startsWith(github.ref, 'refs/heads/rc/')
-       )
-      ) || (github.repository_owner != 'nervosnetwork')
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +27,4 @@ jobs:
         run: make bench-test
         shell: bash
         env:
-          RUNNER_LABEL: macos-15
           CKB_BENCH_FEATURES: ci,portable
-          CARGO_TARGET_DIR: ${{ format('{0}/target', github.workspace) }}

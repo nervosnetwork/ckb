@@ -20,15 +20,7 @@ env:
 jobs:
   ci_unit_tests_ubuntu:
     name: ci_unit_tests_ubuntu
-    if: |
-      github.event_name != 'push' ||
-      ( github.event_name == 'push' &&
-       ( github.ref == 'refs/heads/master' ||
-         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-         startsWith(github.ref, 'refs/heads/rc/')
-       )
-      ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+    runs-on: ubuntu-22.04
     steps:
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -40,6 +32,3 @@ jobs:
       - name: Run unit tests
         run: make test
         shell: bash
-        env:
-          RUNNER_LABEL: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
-          CARGO_TARGET_DIR: ${{ github.repository_owner == 'nervosnetwork' && format('{0}/../target', github.workspace) || format('{0}/target', github.workspace) }}

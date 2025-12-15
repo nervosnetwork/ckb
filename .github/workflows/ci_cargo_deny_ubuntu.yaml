@@ -20,14 +20,6 @@ env:
 jobs:
   ci_cargo_deny_ubuntu:
     name: ci_cargo_deny_ubuntu
-    if: |
-      github.event_name != 'push' ||
-      ( github.event_name == 'push' &&
-       ( github.ref == 'refs/heads/master' ||
-         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-         startsWith(github.ref, 'refs/heads/rc/')
-       )
-      ) || (github.repository_owner != 'nervosnetwork')
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +29,3 @@ jobs:
           make security-audit
           make check-crates
           make check-licenses
-        env:
-          RUNNER_LABEL: ubuntu-22.04
-          CARGO_TARGET_DIR: ${{ format('{0}/target', github.workspace) }}

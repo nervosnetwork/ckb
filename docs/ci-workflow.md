@@ -16,7 +16,7 @@ The CI workflow runs tests and checks across multiple operating systems (Ubuntu,
 Each CI workflow follows a consistent pattern:
 
 1. **Workflow Triggers**: Respond to pull requests, pushes to protected branches, merge groups, and manual dispatch
-2. **Runner Selection**: Automatically choose self-hosted runners for nervosnetwork repositories, GitHub-hosted runners for forks
+2. **Runner Selection**: Use GitHub-hosted runners for all builds
 3. **Test/Check Jobs**: Execute the actual tests or checks
 
 ### Concurrency Control
@@ -36,32 +36,28 @@ This ensures that:
 
 ## Runner Selection
 
-Runner selection is automatic and based on the repository owner:
+All workflows use GitHub-hosted runners:
 
-- **nervosnetwork repositories**: Use self-hosted runners
-  - Ubuntu: `self-hosted-ci-ubuntu-20.04`
-  - Windows: `self-hosted-ci-windows-2019`
-  - macOS: `macos-15` (GitHub-hosted)
-- **Fork repositories**: Use GitHub-hosted runners
-  - Ubuntu: `ubuntu-22.04`
-  - Windows: `windows-2022`
-  - macOS: `macos-15`
+- **Ubuntu**: `ubuntu-22.04`
+- **Windows**: `windows-2022`
+- **macOS**: `macos-15`
 
-This is determined automatically using:
-```yaml
-runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
-```
+This ensures consistent behavior across all repositories (nervosnetwork and forks).
 
 ## Manual Workflow Testing
 
-All CI workflows support manual triggering via `workflow_dispatch`. This allows you to:
+All CI workflows support manual triggering via `workflow_dispatch` and can run on any branch. This allows you to:
 
 1. Go to the Actions tab in GitHub
 2. Select the workflow you want to run
 3. Click "Run workflow"
-4. Choose the branch to run on
+4. Choose any branch to run on (not limited to master, develop, or rc/*)
 
-This is useful for testing workflow changes on dedicated branches without creating a PR.
+This is useful for testing workflow changes on dedicated branches without creating a PR. To test changes:
+
+1. Push your changes to a dedicated test branch (e.g., `test-ci-changes`)
+2. Manually trigger the workflow on that branch
+3. Verify the workflow runs as expected
 
 ## Required vs Optional Checks
 
@@ -111,27 +107,13 @@ concurrency:
 
 Workflows trigger on:
 - `pull_request`: `opened`, `synchronize`, `reopened`
-- `push`: Only on specific branches (`master`, `develop`, `rc/*`)
+- `push`: On all branches (master, develop, rc/*, and any other branch)
 - `merge_group`: For merge queue
 - `workflow_dispatch`: For manual triggering
 
-Jobs have conditions to prevent unnecessary runs on push events:
-
-```yaml
-if: |
-  github.event_name != 'push' ||
-  ( github.event_name == 'push' &&
-   ( github.ref == 'refs/heads/master' ||
-     (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-     startsWith(github.ref, 'refs/heads/rc/')
-   )
-  ) || (github.repository_owner != 'nervosnetwork')
-```
-
 This means:
 - PR events always run
-- Push events only run on protected branches or merge commits
-- Forks can always run (for testing)
+- Push events run on any branch
 - Manual dispatch always runs
 
 ### 3. Workflow Execution Flow
@@ -163,15 +145,14 @@ CI workflows are organized by job type and OS:
 
 ### Jobs are not running as expected
 
-1. Check the job's `if` condition in the workflow run logs
-2. Verify the workflow is triggered by the correct event
-3. For push events, ensure you're pushing to a protected branch (master, develop, rc/*)
+1. Check the workflow is triggered by the correct event
+2. Verify concurrency groups are properly configured
+3. For manual testing, use workflow_dispatch to trigger on any branch
 
 ### Duplicate runs are occurring
 
 1. Verify concurrency groups are properly configured
 2. Check if workflows are triggered by both PR and push events for the same commit
-3. Review the job's `if` condition to ensure it's not running unnecessarily
 
 ### Required checks not passing
 

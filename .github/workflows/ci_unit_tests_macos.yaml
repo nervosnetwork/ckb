@@ -20,14 +20,6 @@ env:
 jobs:
   ci_unit_tests_macos:
     name: ci_unit_tests_macos
-    if: |
-      github.event_name != 'push' ||
-      ( github.event_name == 'push' &&
-       ( github.ref == 'refs/heads/master' ||
-         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-         startsWith(github.ref, 'refs/heads/rc/')
-       )
-      ) || (github.repository_owner != 'nervosnetwork')
     runs-on: macos-15
     steps:
       - name: Install nextest
@@ -37,6 +29,4 @@ jobs:
         run: make test
         shell: bash
         env:
-          RUNNER_LABEL: macos-15
           CKB_FEATURES: deadlock_detection,with_sentry,portable
-          CARGO_TARGET_DIR: ${{ format('{0}/target', github.workspace) }}

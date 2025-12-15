@@ -23,20 +23,11 @@ env:
 jobs:
   ci_integration_tests_windows:
     name: ci_integration_tests_windows
-    if: |
-      github.event_name != 'push' ||
-      ( github.event_name == 'push' &&
-       ( github.ref == 'refs/heads/master' ||
-         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-         startsWith(github.ref, 'refs/heads/rc/')
-       )
-      ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 140
     steps:
       - uses: actions/checkout@v4
       - name: install required tools
-        if: ${{ github.repository_owner != 'nervosnetwork' }}
         run: |
           iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
           .\install-scoop.ps1 -RunAsAdmin
@@ -55,9 +46,6 @@ jobs:
           export BINARY_NAME=ckb.exe
           make CKB_TEST_ARGS="-c 4 --no-report --max-time 7200 " integration
         shell: bash
-        env:
-          RUNNER_LABEL: windows-latest
-          CARGO_TARGET_DIR: ${{ format('{0}/target', github.workspace) }}
       - name: upload log files
         if: always()
         uses: actions/upload-artifact@v4
