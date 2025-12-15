@@ -69,9 +69,6 @@ cov: cov-install-tools ## Run code coverage.
 
 .PHONY: obfs
 obfs:
-	@if [ ! -d test/obfs4 ]; then \
-		git clone https://github.com/Yawning/obfs4 test/obfs4; \
-	fi
 	cd test/obfs4 && GO111MODULE=on go build -v -o obfs4proxy/obfs4proxy ./obfs4proxy
 
 
