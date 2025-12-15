@@ -1,7 +1,7 @@
 name: ci_unit_tests_windows
 concurrency:
   group: ci_unit_tests_windows-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened]
