@@ -719,7 +719,6 @@ version = "0.205.0-pre"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
- "ckb-test",
  "console-subscriber",
  "tikv-jemallocator",
  "version-compare",

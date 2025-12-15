@@ -9,15 +9,11 @@ description = "CKB is the layer 1 of Nervos Network, a public/permissionless blo
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.85.0"
+default-run = "ckb"
 
 [[bin]]
 name = "ckb"
 path = "src/main.rs"
-
-
-[[bin]]
-name = "ckb-test"
-path = "test/src/main.rs"
 
 [build-dependencies]
 ckb-build-info.workspace = true
@@ -25,7 +21,6 @@ ckb-build-info.workspace = true
 [dependencies]
 ckb-build-info.workspace = true
 ckb-bin.workspace = true
-ckb-test.workspace = true
 console-subscriber = { workspace = true, optional = true }
 
 [target.'cfg(target_env = "msvc")'.dependencies]
@@ -34,7 +29,7 @@ version-compare = "0.2"
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
 tikv-jemallocator = { version = "0.5.0", features = [
-    "unprefixed_malloc_on_supported_platforms",
+  "unprefixed_malloc_on_supported_platforms",
 ] }
 
 [dev-dependencies]
@@ -42,84 +37,87 @@ tikv-jemallocator = { version = "0.5.0", features = [
 [workspace]
 # To get a list sorted by dependencies, run devtools/ci/check-cyclic-dependencies.py
 members = [
-    "util",
-    "util/occupied-capacity/core",
-    "util/channel",
-    "util/systemtime",
-    "util/fixed-hash/core",
-    "util/build-info",
-    "util/logger",
-    "util/logger-config",
-    "util/metrics-config",
-    "util/hash",
-    "util/rational",
-    "benches",
-    "db-schema",
-    "util/spawn",
-    "util/occupied-capacity/macros",
-    "util/fixed-hash/macros",
-    "util/logger-service",
-    "util/runtime",
-    "util/stop-handler",
-    "util/onion",
-    "util/metrics",
-    "util/metrics-service",
-    "util/fixed-hash",
-    "util/occupied-capacity",
-    "util/crypto",
-    "util/constant",
-    "error",
-    "util/multisig",
-    "util/gen-types",
-    "util/migrate/migration-template",
-    "util/types",
-    "util/jsonrpc-types",
-    "freezer",
-    "resource",
-    "pow",
-    "util/dao/utils",
-    "traits",
-    "spec",
-    "util/fee-estimator",
-    "util/proposal-table",
-    "script",
-    "util/app-config",
-    "db",
-    "network",
-    "miner",
-    "notify",
-    "util/memory-tracker",
-    "db-migration",
-    "util/network-alert",
-    "store",
-    "util/indexer-sync",
-    "util/indexer",
-    "util/rich-indexer",
-    "util/chain-iter",
-    "util/dao",
-    "util/test-chain-utils",
-    "util/reward-calculator",
-    "util/snapshot",
-    "util/migrate",
-    "verification/traits",
-    "verification",
-    "verification/contextual",
-    "tx-pool",
-    "shared",
-    "block-filter",
-    "chain",
-    "sync",
-    "util/instrument",
-    "rpc",
-    "util/light-client-protocol-server",
-    "util/launcher",
-    "devtools/doc/rpc-gen",
-    "ckb-bin",
-    "test",
+  "util",
+  "util/occupied-capacity/core",
+  "util/channel",
+  "util/systemtime",
+  "util/fixed-hash/core",
+  "util/build-info",
+  "util/logger",
+  "util/logger-config",
+  "util/metrics-config",
+  "util/hash",
+  "util/rational",
+  "benches",
+  "db-schema",
+  "util/spawn",
+  "util/occupied-capacity/macros",
+  "util/fixed-hash/macros",
+  "util/logger-service",
+  "util/runtime",
+  "util/stop-handler",
+  "util/onion",
+  "util/metrics",
+  "util/metrics-service",
+  "util/fixed-hash",
+  "util/occupied-capacity",
+  "util/crypto",
+  "util/constant",
+  "error",
+  "util/multisig",
+  "util/gen-types",
+  "util/migrate/migration-template",
+  "util/types",
+  "util/jsonrpc-types",
+  "freezer",
+  "resource",
+  "pow",
+  "util/dao/utils",
+  "traits",
+  "spec",
+  "util/fee-estimator",
+  "util/proposal-table",
+  "script",
+  "util/app-config",
+  "db",
+  "network",
+  "miner",
+  "notify",
+  "util/memory-tracker",
+  "db-migration",
+  "util/network-alert",
+  "store",
+  "util/indexer-sync",
+  "util/indexer",
+  "util/rich-indexer",
+  "util/chain-iter",
+  "util/dao",
+  "util/test-chain-utils",
+  "util/reward-calculator",
+  "util/snapshot",
+  "util/migrate",
+  "verification/traits",
+  "verification",
+  "verification/contextual",
+  "tx-pool",
+  "shared",
+  "block-filter",
+  "chain",
+  "sync",
+  "util/instrument",
+  "rpc",
+  "util/light-client-protocol-server",
+  "util/launcher",
+  "devtools/doc/rpc-gen",
+  "ckb-bin",
+  "test",
 ]
 
 [workspace.package]
 version = "0.205.0-pre"
+
+[workspace.metadata.cargo-shear]
+ignored = ["ckb-test"]
 
 [workspace.dependencies]
 tempfile = "3"
@@ -237,9 +235,9 @@ futures = "0.3"
 futures-util = "0.3.21"
 golomb-coded-set = "0.2.0"
 governor = { version = "0.10", default-features = false, features = [
-    "std",
-    "jitter",
-    "quanta",
+  "std",
+  "jitter",
+  "quanta",
 ] }
 hex = "0.4"
 hickory-resolver = "0.24.2"
@@ -284,7 +282,7 @@ rand = "0.8.5"
 rand_distr = "0.4"
 rayon = "1.0"
 regex = "1.1.6"
-reqwest = { version = "0.12" ,features = ["blocking", "json"]}
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 rhai = "1.16.0"
 rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
 rustc-hash = "1.1"
