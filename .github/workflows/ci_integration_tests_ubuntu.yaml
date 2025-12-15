@@ -23,6 +23,7 @@ jobs:
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -73,6 +74,7 @@ jobs:
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
