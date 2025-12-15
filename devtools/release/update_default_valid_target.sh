@@ -90,7 +90,7 @@ printf "MainNet:\n"
 TEXT_MAINNET=$(print_60_days_ago_block mainnet https://mainnet.ckb.dev https://explorer.nervos.org)
 
 printf "TestNet:\n"
-TEXT_TESTNET=$(print_60_days_ago_block testnet https://testnet.ckb.dev https://pudge.explorer.nervos.org)
+TEXT_TESTNET=$(print_60_days_ago_block testnet https://testnet.ckb.dev https://testnet.explorer.nervos.org)
 echo "${TEXT_HEADER}" > util/constant/src/latest_assume_valid_target.rs
 echo "${TEXT_MAINNET}" >> util/constant/src/latest_assume_valid_target.rs
 echo "${TEXT_TESTNET}" >> util/constant/src/latest_assume_valid_target.rs
