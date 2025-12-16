@@ -122,7 +122,10 @@ impl RpcServer {
             .route("/ping", get(ping_handler))
             .layer(Extension(Arc::clone(rpc)))
             .layer(CorsLayer::permissive())
-            .layer(TimeoutLayer::new(Duration::from_secs(30)))
+            .layer(TimeoutLayer::with_status_code(
+                Duration::from_secs(30),
+                http::StatusCode::REQUEST_TIMEOUT,
+            ))
             .layer(Extension(stream_config));
 
         let (tx_addr, rx_addr) = tokio::sync::oneshot::channel::<SocketAddr>();
