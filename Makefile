@@ -83,13 +83,13 @@ integration: integration-release
 .PHONY: integration-release
 integration-release: submodule-init
 	cargo build --locked --bin ckb ${VERBOSE} --release --features "deadlock_detection"
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" --release -- --bin ${CARGO_TARGET_DIR}/release/${BINARY_NAME} ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" --release -- --bin '${CARGO_TARGET_DIR}/release/${BINARY_NAME}' ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
 integration-cov: cov-install-tools submodule-init ## Run integration tests and generate coverage report.
 	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
 	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 build --bin ckb --features deadlock_detection
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" -- --bin ${CARGO_TARGET_DIR}/debug/${BINARY_NAME} ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" -- --bin '${CARGO_TARGET_DIR}/debug/${BINARY_NAME}' ${CKB_TEST_ARGS}
 	GRCOV_OUTPUT=lcov-integration-test.info make cov-collect-data
 
 ##@ Document
