@@ -38,6 +38,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential
       - name: Run cargo deny checks
         run: |
           cargo deny --version || cargo +stable install cargo-deny --locked --version 0.17.0
