@@ -52,14 +52,16 @@ jobs:
           export BUILD_BUILDID=$GITHUB_RUN_ID
           export ImageOS=$RUNNER_OS
           export BINARY_NAME=ckb
+          export CKB_INTEGRATION_TEST_TMP="${{ runner.temp }}/ckb-integration-test"
+          mkdir -p "$CKB_INTEGRATION_TEST_TMP"
           make CKB_TEST_ARGS="-c 4 --no-report --max-time 7200 " integration
         shell: bash
       - name: upload log files
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}_integration.log
-          path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
+          name: ${{ runner.os }}_integration_logs
+          path: ${{ runner.temp }}/ckb-integration-test
       - name: Disk usage summary
         if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
         run: |
