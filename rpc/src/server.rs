@@ -124,7 +124,7 @@ impl RpcServer {
             .layer(CorsLayer::permissive())
             .layer(TimeoutLayer::with_status_code(
                 Duration::from_secs(30),
-                http::StatusCode::REQUEST_TIMEOUT,
+                StatusCode::REQUEST_TIMEOUT,
             ))
             .layer(Extension(stream_config));
 
