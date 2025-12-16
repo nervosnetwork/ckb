@@ -1,58 +1,38 @@
 name: ci_benchmarks_windows
 concurrency:
   group: ci_benchmarks_windows-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - master
-      - develop
-      - "rc/*"
+  push: {}
   merge_group: {}
+  workflow_dispatch: {}
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
 jobs:
-  prologue:
-    name: prologue
-    if: |
-      github.event_name != 'push' ||
-      ( github.event_name == 'push' &&
-       ( github.ref == 'refs/heads/master' ||
-         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-         startsWith(github.ref, 'refs/heads/rc/')
-       )
-      ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ubuntu-22.04
-    outputs:
-      os_skip: ${{ steps.prologue.outputs.os_skip }}
-      job_skip: ${{ steps.prologue.outputs.job_skip }}
-      windows_runner_label: ${{ steps.prologue.outputs.windows_runner_label }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: prologue
-        id: prologue
-        uses: ./.github/actions/ci_prologue
-        with:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
-          PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
   ci_benchmarks_windows:
     name: ci_benchmarks_windows
-    needs: prologue
-    runs-on: ${{ needs.prologue.outputs.windows_runner_label }}
+    runs-on: windows-2022
     steps:
+      - name: Free up disk space
+        run: |
+          Remove-Item -Path "C:\Program Files\dotnet" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "$env:PROGRAMDATA\chocolatey" -Recurse -Force -ErrorAction SilentlyContinue
       - uses: actions/checkout@v4
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-
       - name: install required tools
-        if: ${{ needs.prologue.outputs.windows_runner_label == 'windows-2022' }}
         run: |
           iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
           .\install-scoop.ps1 -RunAsAdmin
@@ -62,13 +42,19 @@ jobs:
           scoop install git
           scoop bucket add extras
           scoop install llvm
-      - run: |
-          if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-              devtools/ci/ci_main.sh
-          else
-            echo "skip job"
-            exit 0
-          fi
+      - name: Run benchmark tests
+        run: make bench-test
         shell: bash
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.windows_runner_label }}
+      - name: Disk usage summary
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        run: |
+          echo "=== Disk Space Summary ==="
+          Get-PSDrive -PSProvider FileSystem | Format-Table
+          echo ""
+          echo "=== Target Directory Usage ==="
+          if (Test-Path target) {
+            Get-ChildItem target -Recurse | Measure-Object -Property Length -Sum | Select-Object @{Name="Size(GB)";Expression={"{0:N2}" -f ($_.Sum / 1GB)}}
+          } else {
+            echo "target/ directory not found"
+          }
+        shell: pwsh

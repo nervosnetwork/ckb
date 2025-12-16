@@ -1,16 +1,13 @@
 name: ci_integration_tests_macos
 concurrency:
   group: ci_integration_tests_macos-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - master
-      - develop
-      - "rc/*"
+  push: {}
   merge_group: {}
+  workflow_dispatch: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,54 +17,49 @@ env:
   LOGBAK_PASSWORD: ${{secrets.LOGBAK_PASSWORD}}
   LOGBAK_SERVER: ${{secrets.LOGBAK_SERVER}}
 jobs:
-  prologue:
-    if: |
-      github.event_name != 'push' ||
-      ( github.event_name == 'push' &&
-       ( github.ref == 'refs/heads/master' ||
-         (github.ref == 'refs/heads/develop' && startsWith(github.event.head_commit.message, 'Merge pull request #')) ||
-         startsWith(github.ref, 'refs/heads/rc/')
-       )
-      ) || (github.repository_owner != 'nervosnetwork')
-    runs-on: ubuntu-22.04
-    outputs:
-      os_skip: ${{ steps.prologue.outputs.os_skip }}
-      job_skip: ${{ steps.prologue.outputs.job_skip }}
-      runner_label: ${{ steps.prologue.outputs.runner_label }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: prologue
-        id: prologue
-        uses: ./.github/actions/ci_prologue
-        with:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          COMMIT_MESSAGE: "${{github.event.head_commit.message}}"
-          PR_COMMONS_BODY: "${{ github.event.pull_request.body }}"
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-          LABELS: "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
   ci_integration_tests_macos:
     name: ci_integration_tests_macos
-    needs: prologue
     timeout-minutes: 140
     runs-on: macos-15
     steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /Applications/Xcode_*.app
+          sudo rm -rf /usr/local/lib/android
+          brew cleanup
       - uses: actions/checkout@v4
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-
       - run: brew install tor go
-      - run: |
-          if [[ ${{ needs.prologue.outputs.os_skip }} == run ]] && [[ ${{ needs.prologue.outputs.job_skip }} == run ]];then
-              devtools/ci/ci_main.sh
-          else
-            echo "skip job"
-            exit 0
-          fi
+      - name: Run integration tests
+        run: |
+          export BUILD_BUILDID=$GITHUB_RUN_ID
+          export ImageOS=$RUNNER_OS
+          export BINARY_NAME=ckb
+          export CKB_INTEGRATION_TEST_TMP="${{ runner.temp }}/ckb-integration-test"
+          mkdir -p "$CKB_INTEGRATION_TEST_TMP"
+          make CKB_TEST_ARGS="-c 4 --no-report --max-time 7200 " integration
         shell: bash
+        env:
+          CKB_FEATURES: deadlock_detection,with_sentry,portable
       - name: upload log files
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}_integration.log
-          path: ${{ env.CKB_INTEGRATION_TEST_TMP }}/integration.log
-    env:
-      RUNNER_LABEL: ${{ needs.prologue.outputs.runner_label }}
+          name: ${{ runner.os }}_integration_logs
+          path: ${{ runner.temp }}/ckb-integration-test
+      - name: Disk usage summary
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        run: |
+          echo "=== Disk Space Summary ==="
+          df -h
+          echo ""
+          echo "=== Target Directory Usage ==="
+          du -sh target/ 2>/dev/null || echo "target/ directory not found"
+          du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"
