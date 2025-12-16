@@ -2,6 +2,8 @@ use crate::util::cell::gen_spendable;
 use crate::util::transaction::always_success_transactions;
 use crate::{Node, Spec};
 
+use ckb_logger::info;
+
 pub struct RpcTruncate;
 
 impl Spec for RpcTruncate {
@@ -18,8 +20,10 @@ impl Spec for RpcTruncate {
 
         let to_truncate = node.get_block_by_number(truncate_number).hash();
 
+        info!("submit tx1");
         node.submit_transaction(tx1);
         node.mine_until_transaction_confirm(&tx1.hash());
+        info!("submit tx2");
         node.submit_transaction(tx2);
 
         // tx1 is already committed on chain, tx2 is still in tx-pool.
@@ -71,6 +75,7 @@ impl Spec for RpcTruncate {
 
         // The chain can generate new blocks
         node.mine(3);
+        info!("submit tx1 again");
         node.submit_transaction(tx1);
         node.mine_until_transaction_confirm(&tx1.hash());
         let cell1 = node
