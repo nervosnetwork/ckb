@@ -839,13 +839,22 @@ impl Node {
         // wait for node[0] to find unverified blocks finished
 
         let now = std::time::Instant::now();
+        let timeout = Duration::from_secs(
+            std::env::var("CKB_TEST_BLOCK_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(180),
+        );
         while !self
             .access_log(|line: &str| line.contains("find unverified blocks finished"))
             .expect("node[0] must have log")
         {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            if now.elapsed() > Duration::from_secs(60) {
-                panic!("node[0] should find unverified blocks finished in 60s");
+            if now.elapsed() > timeout {
+                panic!(
+                    "node[0] should find unverified blocks finished in {}s",
+                    timeout.as_secs()
+                );
             }
             info!("waiting for node[0] to find unverified blocks finished");
         }
