@@ -36,9 +36,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
-          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ci-${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ci-${{ runner.os }}-cargo-
+            ci-${{ runner.os }}-cargo-bench-
       - name: Run benchmark tests
         run: make bench-test
         shell: bash

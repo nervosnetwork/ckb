@@ -37,16 +37,16 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential tor
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.20'
+          go-version: "1.20"
       - uses: actions/checkout@v4
       - name: Cache cargo target
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
         uses: actions/cache@v4
         with:
           path: target
-          key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ci-${{ runner.os }}-cargo-it-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ci-${{ runner.os }}-cargo-
+            ci-${{ runner.os }}-cargo-it-
       - name: Run integration tests
         run: |
           export BUILD_BUILDID=$GITHUB_RUN_ID
