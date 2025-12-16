@@ -6,8 +6,18 @@ jobs:
   audit:
     runs-on: ubuntu-22.04
     if: github.repository_owner == 'nervosnetwork'
+    permissions:
+      contents: read
+      issues: write
     steps:
-      - uses: actions/checkout@v1
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Generate GitHub token
+        uses: actions/create-github-app-token@v2
+        id: generate-token
+        with:
+          app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
       - uses: yangby-cryptape/cargo-audit-check-action@customized-for-ckb
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
