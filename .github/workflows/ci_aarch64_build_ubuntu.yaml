@@ -39,7 +39,7 @@ jobs:
         with:
           toolchain: 1.85.0
           components: rustfmt
-      - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib build-essential
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential
       - name: Build for aarch64
         run: |
           sudo apt-get install -y gcc-multilib
