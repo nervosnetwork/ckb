@@ -187,7 +187,7 @@ jobs:
 
   package-for-mac:
     name: package-for-mac
-    runs-on: macos-15
+    runs-on: macos-15-intel
     needs:
       - get-ckb-cli-version
     strategy:
@@ -233,7 +233,7 @@ jobs:
 
   package-for-mac-aarch64:
     name: package-for-mac-aarch64
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: macos-15
     needs:
       - get-ckb-cli-version
     strategy:
