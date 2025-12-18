@@ -1,4 +1,4 @@
-#![allow(clippy::unchecked_duration_subtraction)]
+#![allow(clippy::unchecked_time_subtraction)]
 
 use super::random_addr;
 use crate::{

@@ -146,34 +146,34 @@ impl Launcher {
         let store = shared.store();
         let stored_spec_hash = store.get_chain_spec_hash();
 
-        if stored_spec_hash.is_none() {
+        if let Some(stored_hash) = stored_spec_hash {
+            if stored_hash == self.args.chain_spec_hash {
+                // stored == configured
+                // do nothing
+            } else if self.args.overwrite_chain_spec {
+                // stored != configured with --overwrite-spec
+                self.write_chain_spec_hash(store)?;
+                info!(
+                    "Overwrite chain spec hash from {} to {}",
+                    stored_hash, self.args.overwrite_chain_spec,
+                );
+            } else if self.args.skip_chain_spec_check {
+                // stored != configured with --skip-spec-check
+                // do nothing
+            } else {
+                // stored != configured
+                eprintln!(
+                    "chain_spec_hash mismatch: Config({}), storage({}). \
+                        If the two chains are compatible, pass command line argument --skip-spec-check; \
+                        otherwise, pass --overwrite-spec to enforce overriding the stored chain spec with the configured one.",
+                    self.args.chain_spec_hash, stored_hash
+                );
+                return Err(ExitCode::Config);
+            }
+        } else {
             // fresh yet
             self.write_chain_spec_hash(store)?;
             info!("Touch chain spec hash: {}", self.args.chain_spec_hash);
-        } else if stored_spec_hash.as_ref() == Some(&self.args.chain_spec_hash) {
-            // stored == configured
-            // do nothing
-        } else if self.args.overwrite_chain_spec {
-            // stored != configured with --overwrite-spec
-            self.write_chain_spec_hash(store)?;
-            info!(
-                "Overwrite chain spec hash from {} to {}",
-                stored_spec_hash.expect("checked"),
-                self.args.overwrite_chain_spec,
-            );
-        } else if self.args.skip_chain_spec_check {
-            // stored != configured with --skip-spec-check
-            // do nothing
-        } else {
-            // stored != configured
-            eprintln!(
-                "chain_spec_hash mismatch: Config({}), storage({}). \
-                    If the two chains are compatible, pass command line argument --skip-spec-check; \
-                    otherwise, pass --overwrite-spec to enforce overriding the stored chain spec with the configured one.",
-                self.args.chain_spec_hash,
-                stored_spec_hash.expect("checked")
-            );
-            return Err(ExitCode::Config);
         }
         Ok(())
     }

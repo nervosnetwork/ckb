@@ -530,8 +530,8 @@ fn build_store(
     store_config: StoreConfig,
     ancient_path: Option<PathBuf>,
 ) -> Result<ChainDB, Error> {
-    let store = if store_config.freezer_enable && ancient_path.is_some() {
-        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
+    let store = if let (true, Some(ancient_path)) = (store_config.freezer_enable, ancient_path) {
+        let freezer = Freezer::open(ancient_path)?;
         ChainDB::new_with_freezer(db, freezer, store_config)
     } else {
         ChainDB::new(db, store_config)

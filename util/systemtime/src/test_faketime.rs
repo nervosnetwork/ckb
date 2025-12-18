@@ -5,7 +5,9 @@ mod tests_faketime {
 
     #[test]
     fn test_basic() {
-        assert!(cfg!(feature = "enable_faketime"));
+        const {
+            assert!(cfg!(feature = "enable_faketime"));
+        }
 
         let faketime_guard = faketime();
 
