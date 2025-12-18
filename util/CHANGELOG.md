@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-util-v1.1.0...ckb-util-v1.2.0) - 2025-12-18
+
+### <!-- 1 -->⛰️ Features
+
+- add default time cost limit on indexer rpc (by @driftluo) - #5012
+
+### Contributors
+
+* @doitian
+* @driftluo
+
 ## [1.1.0](https://github.com/nervosnetwork/ckb/compare/ckb-util-v1.0.0...ckb-util-v1.1.0) - 2025-12-10
 
 ### Added

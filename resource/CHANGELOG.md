@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2](https://github.com/nervosnetwork/ckb/compare/ckb-resource-v1.0.1...ckb-resource-v1.0.2) - 2025-12-18
+
+### <!-- 9 -->⚙️ Miscellaneous
+
+- Add default promethues server config (by @eval-exec) - #5035
+
+### Contributors
+
+* @doitian
+* @eval-exec
+
 ## [1.0.1](https://github.com/nervosnetwork/ckb/compare/ckb-resource-v1.0.0...ckb-resource-v1.0.1) - 2025-12-10
 
 ### Other

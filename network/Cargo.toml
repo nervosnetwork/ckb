@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "1.1.0"
+version = "1.1.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
