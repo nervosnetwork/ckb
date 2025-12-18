@@ -14,10 +14,10 @@ jobs:
         github.repository_owner == 'nervosnetwork'
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.85.0
-          components: rustfmt,llvm-tools-preview
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup component add rustfmt llvm-tools-preview
       - run: sudo apt-get update && sudo apt-get install libssl-dev pkg-config libclang-dev -y && sudo apt-get install -y gcc-multilib build-essential
       - name: unit coverage
         run: make cov

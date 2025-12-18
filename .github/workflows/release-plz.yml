@@ -22,7 +22,9 @@ jobs:
           persist-credentials: true
       - &install-rust
         name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          rustup toolchain install
+          rustup component add rustfmt
       - &generate-token
         name: Generate GitHub token
         uses: actions/create-github-app-token@v2

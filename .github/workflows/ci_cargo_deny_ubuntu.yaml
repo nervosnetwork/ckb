@@ -35,9 +35,8 @@ jobs:
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ci-${{ runner.os }}-cargo-
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.85.0
+      - name: Install Rust toolchain
+        run: rustup toolchain install
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential
       - name: Run cargo deny checks
         run: |
