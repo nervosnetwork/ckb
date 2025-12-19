@@ -35,6 +35,8 @@ The most important prefixes you should have in mind are:
 
 Commits that don't follow the Conventional Commit format result in a SemVer patch bump.
 
+**Note**: Since we use Squash Merge to merge PRs, the PR title will become the commit message. Therefore, the Conventional Commit Messages rule applies to PR titles as well. Please ensure your PR titles follow the Conventional Commit format.
+
 ### Important Notes
 
 ⚠️ **Breaking Changes**: Release-plz may not catch all breaking changes automatically. Manual version bumping is appreciated when you know a change is breaking.
