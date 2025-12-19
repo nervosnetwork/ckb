@@ -11,6 +11,7 @@ pub(crate) fn ensure_committed(node: &Node, transaction: &TransactionView) -> Ou
         .send_transaction(transaction.data().into());
     node.mine_until_transaction_confirm_with_windows(&tx_hash, closest);
     assert!(is_transaction_committed(node, transaction));
+    node.wait_for_tx_pool();
     OutPoint::new(tx_hash, 0)
 }
 
@@ -27,4 +28,5 @@ pub(crate) fn goto_target_point(node: &Node, target_point: EpochNumberWithFracti
 
         node.mine(1);
     }
+    node.wait_for_tx_pool();
 }
