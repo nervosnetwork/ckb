@@ -44,15 +44,6 @@ Commits that don't follow the Conventional Commit format result in a SemVer patc
    - **Trusted publisher must be added** (see [Trusted Publishing Setup](#trusted-publishing-setup) below)
    - After the initial manual publication, release-plz will handle subsequent releases
 
-### Configuration
-
-The root crate is excluded from release-plz via `.release-plz.toml`:
-```toml
-[[package]]
-name = "ckb"
-release = false
-```
-
 ### Trusted Publishing Setup
 
 For release-plz to automatically publish crates to crates.io, trusted publishing must be configured for each crate:
@@ -69,114 +60,192 @@ For release-plz to automatically publish crates to crates.io, trusted publishing
 
 The root `ckb` crate and binary packages are released together through a unified workflow that combines binary packaging and crate publishing.
 
-### Release Phases
+### Minor Release
+
+Minor releases are the regular release cycle for the CKB project, occurring approximately every **6 weeks**. These releases bump the minor version (`v{major}.{minor + 1}.0`) and include new features, improvements, and bug fixes accumulated during the development cycle.
 
 The release process consists of three phases: **Freeze**, **RC** (Release Candidate), and **Release**.
 
 #### Phase 1: Freeze
 
-1. **Security Review**: Review [security issues](https://github.com/nervosnetwork/ckb/security/advisories)
+The freeze phase marks the beginning of the release cycle. At this point, feature development is frozen, and the focus shifts to stabilization and testing.
 
-2. **Create RC Branch**: Create a release candidate branch from `develop` following the pattern `rc/v{major}.{minor}.x`
+1. **Merge Release-plz PR**: Merge any pending release-plz PR.
+
+2. **Create RC Branch**: Create an RC branch from `develop` following the pattern `rc/v{major}.{minor}.x`.
    ```bash
    git checkout develop
    git checkout -b rc/v0.204.x
-   git push -u origin rc/v0.204.x
+   git push -u upstream rc/v0.204.x
    ```
 
-3. **Update Assume Valid Target**: Update the default assume valid target in the RC branch
+3. **Update Assume Valid Target**: Update the default assume valid target in the RC branch.
    ```bash
    devtools/release/update_default_valid_target.sh
-   # Commit the changes
+   # Review and commit the changes
    ```
 
-4. **Generate Changelog**: Generate CHANGELOG from Pull Requests using [github-changelog.py](https://gist.github.com/doitian/0ce3a86cc737bc9e0153d2ab2a52746e)
+4. **Bump Version for RC**: Bump version with RC suffix (e.g., `0.204.0-rc1`) and generate CHANGELOG using the script `bump.sh`.
    ```bash
-   github-changelog.py v${last_release}
+   devtools/release/bump.sh ${major}.${minor}.${patch}-rc${rc_number}
+   # Review the generated CHANGELOG and commit the changes, then
+   git push -u upstream rc/v0.204.x
    ```
 
-5. **Notify Stakeholders**: Create a public issue with release information and notify relevant Discord channels
+5. **Notify Stakeholders**: Create a public issue with release information (`devtools/release/create-release-issue.py`) and notify relevant Discord channels to inform the community about the upcoming release.
 
 #### Phase 2: RC (Release Candidate)
 
-1. **Bump Version for RC**: Bump version with RC suffix and push to `pkg/` branch
+The RC phase involves building, testing, and validating the release candidate. Multiple RCs may be created if issues are discovered.
+
+1. **Bump Version for RC**: Bump version and generate CHANGELOG if this is not the first RC version.
    ```bash
    devtools/release/bump.sh ${major}.${minor}.${patch}-rc${rc_number}
-   # Commit the changes, then
+   # Review the generated CHANGELOG and commit the changes, then
+   git push -u upstream rc/v0.204.x
+   ```
+
+2. **Trigger Packaging CI**: Push the release candidate from the RC branch to a `pkg/` branch to trigger the packaging workflow
+   ```bash
    devtools/release/release-pkg.sh push-pkg
    ```
-   This creates a branch `pkg/v{major}.{minor}.{patch}-rc{rc_number}` which triggers `.github/workflows/package.yaml`
+   This creates a branch `pkg/v{major}.{minor}.{patch}-rc{rc_number}` which automatically triggers `.github/workflows/package.yaml`
 
-2. **Wait for Packaging**: Monitor the [packaging CI](https://github.com/nervosnetwork/ckb/actions/workflows/package.yaml)
+3. **Wait for Packaging**: Monitor the [packaging CI](https://github.com/nervosnetwork/ckb/actions/workflows/package.yaml) to ensure all platform builds complete successfully
 
-3. **Smoking Test**: Download the RC binary and verify it can synchronize with mainnet
+4. **Smoking Test**: Download the RC binary and verify it can synchronize with mainnet
    ```bash
    ckb run
    ```
 
-4. **Publish Docker Images**: Build and publish Docker images
-   ```bash
-   make docker
-   make docker-aarch64
-   make docker-publish
-   ```
-
 5. **Publish RC Release**: Publish the RC version on GitHub
    - Edit the release title to match `ckb --version` output
-   - Generate release notes
+   - Add release notes summarizing changes and improvements
 
-6. **Deploy and Test**: Deploy RC to testnet and run regression tests
+6. **Deploy and Test**: Deploy RC to testnet and run comprehensive regression tests
 
-⚠️ **Release when no bugs found in a week**
+⚠️ **Important**: Proceed to final release only after no critical bugs are found for at least **one week** during RC testing. If issues are discovered, create a new RC with fixes and restart the testing period.
 
 #### Phase 3: Release
 
-1. **Update CHANGELOG**: Update the CHANGELOG with final release notes
+The final release phase involves creating the production release, publishing artifacts, and updating the main branches.
 
-2. **Bump Final Version**: Bump to final version
+1. **Bump Final Version**: Bump to the final release version (remove RC suffix) in the RC branch.
    ```bash
    devtools/release/bump.sh ${major}.${minor}.${patch}
    ```
 
-3. **Push to pkg/ Branch**: Push to packaging branch
+2. **Update CHANGELOG**: Edit CHANGELOG to consolidate all RC versions into a single final release entry, then commit the changes
+
+3. **Push to pkg/ Branch**: Push to the packaging branch to trigger the final build
    ```bash
    devtools/release/release-pkg.sh push-pkg
    ```
-   This creates a branch `pkg/v{major}.{minor}.{patch}` which triggers `.github/workflows/package.yaml`
+   This creates a branch `pkg/v{major}.{minor}.{patch}` which automatically triggers `.github/workflows/package.yaml`
 
-4. **Wait for Packaging**: Wait for packaging CI to complete
+4. **Wait for Packaging**: Wait for the packaging CI to complete and verify all platform builds succeed
 
-5. **Smoking Test**: Verify the release binary works correctly
+5. **Smoking Test**: Perform a final verification that the release binary works correctly
 
-6. **Create and Push Tag**: Create the release tag and push it
+6. **Create and Push Tag**: Create the signed release tag and push it to the repository
    ```bash
    devtools/release/release-pkg.sh tag
    devtools/release/release-pkg.sh push-tag
    ```
    The tag automatically triggers `.github/workflows/publish-root-ckb-crate.yaml` to publish the root crate to crates.io
 
-7. **Publish Release**: Publish the version on GitHub
+7. **Publish Release**: Publish the final version on GitHub
    - Edit the release title to match `ckb --version` output
-   - Generate release notes
+   - Add comprehensive release notes highlighting key features and changes
 
-8. **Publish Docker Images**: Build and publish Docker images
+8. **Merge Back**: Merge the RC branch back to `develop` and `master` to synchronize the release
    ```bash
-   make docker
-   make docker-aarch64
-   make docker-publish
+   git checkout develop
+   git merge rc/v{major}.{minor}.x
+   git push upstream develop
+
+   git checkout master
+   git merge rc/v{major}.{minor}.x
+   git push upstream master
    ```
 
-9. **Merge Back**: Merge master back to develop
+9. **Notify Stakeholders**: Notify Discord channels and deploy the new version to production
+
+### Patch Release
+
+Patch releases are typically used for hotfixes that need to be deployed quickly to address critical bugs or security issues.
+
+The patch release process involves:
+- Merging hotfix changes into **all affected RC branches**
+- Only the **latest RC branch** is merged back into `master` and `develop`
+- Patch releases may publish **RC versions for preview** before the final release
+
+#### Process
+
+1. **Identify Hotfix**: Determine the issue that requires a patch release
+
+2. **Apply Fix**: Make the necessary changes to fix the issue
+
+3. **Merge to All Affected RC Branches**: Merge the hotfix into all affected RC branches
+   ```bash
+   # For each affected RC branch
+   git checkout rc/v{major}.{minor}.x
+   git merge hotfix/v{major}.{minor}.{patch}
+   git push upstream rc/v{major}.{minor}.x
+   ```
+
+4. **Optional: Publish RC Version for Preview**: If testing is needed before final release, publish an RC version
+   - **Bump Version for RC**: Bump version with RC suffix
+     ```bash
+     devtools/release/bump.sh ${major}.${minor}.${patch}-rc${rc_number}
+     ```
+   - **Push to pkg/ Branch**: Push to packaging branch
+     ```bash
+     devtools/release/release-pkg.sh push-pkg
+     ```
+   - **Wait for Packaging**: Wait for packaging CI to complete
+   - **Publish RC Release**: Publish the RC version on GitHub for preview and testing
+   - **Test**: Perform testing and validation
+   - If issues are found, fix and create a new RC; otherwise proceed to final release
+
+5. **Bump Final Version**: Bump to the final patch version (remove RC suffix if RC was published)
+   ```bash
+   devtools/release/bump.sh ${major}.${minor}.${patch}
+   ```
+
+6. **Update CHANGELOG**: Edit CHANGELOG to consolidate RC versions (if any) into the final release entry, then commit
+
+7. **Push to pkg/ Branch**: Push to packaging branch for the final release
+   ```bash
+   devtools/release/release-pkg.sh push-pkg
+   ```
+
+8. **Wait for Packaging**: Wait for packaging CI to complete
+
+9. **Smoking Test**: Verify the patch release binary works correctly
+
+10. **Create and Push Tag**: Create the release tag and push it
     ```bash
-    devtools/git/merge-master.sh
+    devtools/release/release-pkg.sh tag
+    devtools/release/release-pkg.sh push-tag
     ```
 
-10. **Bump Develop Version**: Bump version in develop to next minor version
+11. **Publish Release**: Publish the final version on GitHub
+    - Edit the release title to match `ckb --version` output
+    - Add release notes explaining the hotfix
+
+12. **Merge Back**: Merge **only the latest RC branch** back to `develop` and `master`
     ```bash
-    devtools/release/bump.sh ${major}.${minor}.0-pre
+    git checkout develop
+    git merge rc/v{major}.{minor}.x
+    git push upstream develop
+
+    git checkout master
+    git merge rc/v{major}.{minor}.x
+    git push upstream master
     ```
 
-11. **Notify Stakeholders**: Notify Discord channels and deploy the new version
+13. **Notify Stakeholders**: Notify Discord channels and deploy the patch release
 
 ### Version Requirements
 
@@ -221,13 +290,12 @@ When a `pkg/*` branch is pushed, `.github/workflows/package.yaml` automatically:
 
 ## Helper Scripts
 
-- **`devtools/release/bump.sh`**: Bumps version in `Cargo.toml` and `README.md`
+- **`devtools/release/bump.sh`**: Bumps version and generate CHANGELOG for the root crate
 - **`devtools/release/release-pkg.sh`**: Helper script for packaging workflow
   - `push-pkg`: Push current branch to `pkg/v{version}` branch
   - `tag`: Create a signed release tag
   - `push-tag`: Push the release tag
 - **`devtools/release/update_default_valid_target.sh`**: Update assume valid target
-- **`devtools/git/merge-master.sh`**: Merge master back to develop
 
 ## Best Practices
 
