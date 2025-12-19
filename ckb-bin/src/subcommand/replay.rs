@@ -8,7 +8,7 @@ use ckb_store::ChainStore;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
 
-const MIN_PROFILING_TIME: u64 = 5;
+const MIN_PROFILING_TIME: u64 = 2;
 
 pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
     let shared_builder = SharedBuilder::new(
