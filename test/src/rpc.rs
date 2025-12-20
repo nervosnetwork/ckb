@@ -225,9 +225,13 @@ impl RpcClient {
     }
 
     pub fn send_transaction(&self, tx: Transaction) -> Byte32 {
-        self.send_transaction_result(tx)
-            .expect("rpc call send_transaction")
-            .into()
+        match self.send_transaction_result(tx.clone()) {
+            Ok(hash) => hash.into(),
+            Err(err) => {
+                ckb_logger::debug!("failed to send transaction {:?}", tx);
+                panic!("rpc call send_transaction: {}", err);
+            }
+        }
     }
 
     pub fn send_transaction_result(&self, tx: Transaction) -> Result<H256, AnyError> {
