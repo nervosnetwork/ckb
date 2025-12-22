@@ -11,33 +11,6 @@ The CI workflow runs tests and checks across multiple operating systems (Ubuntu,
 - Prevent duplicate workflow runs on both PR events and push events
 - Support manual workflow triggering for testing purposes
 
-## Workflow Structure
-
-Each CI workflow follows a consistent pattern:
-
-1. **Workflow Triggers**: Respond to pull requests, pushes to protected branches, merge groups, and manual dispatch
-2. **Runner Selection**: Linux workflows use self-hosted runners for nervosnetwork, GitHub-hosted runners for forks. Windows and macOS workflows use GitHub-hosted runners.
-3. **Test/Check Jobs**: Execute the actual tests or checks
-
-## Runner Selection
-
-Runner selection varies by platform:
-
-**Linux/Ubuntu workflows:**
-- **nervosnetwork repositories**: Use self-hosted runner `self-hosted-ci-ubuntu-20.04`
-- **Fork repositories**: Use GitHub-hosted runner `ubuntu-22.04`
-
-**Windows workflows:**
-- All repositories use GitHub-hosted runner `windows-2022`
-
-**macOS workflows:**
-- All repositories use GitHub-hosted runner `macos-15`
-
-This is determined automatically for Linux workflows using:
-```yaml
-runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
-```
-
 ## Manual Workflow Testing
 
 All CI workflows support manual triggering via `workflow_dispatch` and can run on any branch. This allows you to:
@@ -100,12 +73,14 @@ concurrency:
 ### 2. Event Triggers
 
 Workflows trigger on:
+
 - `pull_request`: `opened`, `synchronize`, `reopened`
 - `push`: On all branches (master, develop, rc/*, and any other branch)
 - `merge_group`: For merge queue
 - `workflow_dispatch`: For manual triggering
 
 This means:
+
 - PR events always run
 - Push events run on any branch
 - Manual dispatch always runs
@@ -113,10 +88,12 @@ This means:
 ### 3. Workflow Execution Flow
 
 When a PR is opened/updated:
+
 1. Workflow runs triggered by `pull_request` event
 2. Concurrency group ensures only one run per workflow
 
 When a PR is merged (push to `develop`):
+
 1. The merge commit triggers `push` event
 2. Concurrency group matches the PR's reference, canceling any remaining PR runs
 3. New push-based run executes
