@@ -17,6 +17,7 @@ env:
 jobs:
   ci_quick_checks_macos:
     name: ci_quick_checks_macos
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: macos-15
     steps:
       - name: Free up disk space
