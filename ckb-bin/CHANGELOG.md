@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3](https://github.com/nervosnetwork/ckb/compare/ckb-bin-v1.0.2...ckb-bin-v1.0.3) - 2025-12-24
+
+### <!-- 9 -->⚙️ Miscellaneous
+
+- Upgrade rust-toolchain from 1.85.0 to 1.92.0 ([#4993](https://github.com/nervosnetwork/ckb/pull/4993)) (by @eval-exec) - #4993
+- Decrease MIN_PROFILING_TIME to 2 ([#5059](https://github.com/nervosnetwork/ckb/pull/5059)) (by @eval-exec) - #5059
+
+### Contributors
+
+* @eval-exec
+
 ## [1.0.2](https://github.com/nervosnetwork/ckb/compare/ckb-bin-v1.0.1...ckb-bin-v1.0.2) - 2025-12-18
 
 ### <!-- 9 -->⚙️ Miscellaneous

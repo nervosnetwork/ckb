@@ -1,6 +1,6 @@
 [package]
 name = "ckb-gen-types"
-version = "1.0.2"
+version = "1.0.3"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2021"
 license = "MIT"
