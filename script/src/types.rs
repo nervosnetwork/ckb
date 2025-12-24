@@ -58,7 +58,7 @@ pub type Machine = ckb_vm::TraceMachine<
 pub type DebugPrinter = Arc<dyn Fn(&Byte32, &str) + Send + Sync>;
 /// Syscall generator function type
 pub type SyscallGenerator<DL, V, M> =
-    fn(&VmId, &SgData<DL>, &VmContext<DL>, &V) -> Vec<Box<(dyn Syscalls<M>)>>;
+    fn(&VmId, &SgData<DL>, &VmContext<DL>, &V) -> Vec<Box<dyn Syscalls<M>>>;
 
 /// The version of CKB Script Verifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -295,7 +295,7 @@ impl Fd {
 
     /// Tests if current fd is used for reading from a pipe
     pub fn is_read(&self) -> bool {
-        self.0 % 2 == 0
+        self.0.is_multiple_of(2)
     }
 
     /// Tests if current fd is used for writing to a pipe

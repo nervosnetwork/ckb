@@ -467,7 +467,7 @@ impl Shared {
         );
     }
 
-    pub fn assume_valid_targets(&self) -> MutexGuard<Option<Vec<H256>>> {
+    pub fn assume_valid_targets(&self) -> MutexGuard<'_, Option<Vec<H256>>> {
         self.assume_valid_targets.lock()
     }
 

@@ -668,11 +668,10 @@ impl TxPoolServiceBuilder {
                                     let service_clone = process_service.clone();
                                     block_assembler::process(service_clone, message).await;
                                 }
-                                if !queue.is_empty() {
-                                    if let Some(ref block_assembler) = process_service.block_assembler {
+                                if !queue.is_empty()
+                                    && let Some(ref block_assembler) = process_service.block_assembler {
                                         block_assembler.notify().await;
                                     }
-                                }
                                 queue.clear();
                             }
                             _ = signal_receiver.cancelled() => {
@@ -1102,11 +1101,9 @@ impl TxPoolService {
 
         match provider.cell(&out_point, false) {
             CellStatus::Live(mut cell_meta) => {
-                if eager_load {
-                    if let Some((data, data_hash)) = snapshot.get_cell_data(&out_point) {
-                        cell_meta.mem_cell_data = Some(data);
-                        cell_meta.mem_cell_data_hash = Some(data_hash);
-                    }
+                if eager_load && let Some((data, data_hash)) = snapshot.get_cell_data(&out_point) {
+                    cell_meta.mem_cell_data = Some(data);
+                    cell_meta.mem_cell_data_hash = Some(data_hash);
                 }
                 CellStatus::live_cell(cell_meta)
             }

@@ -15,12 +15,12 @@ pub fn generate_ckb_syscalls<DL, M>(
     sg_data: &SgData<DL>,
     vm_context: &VmContext<DL>,
     debug_printer: &DebugPrinter,
-) -> Vec<Box<(dyn Syscalls<M>)>>
+) -> Vec<Box<dyn Syscalls<M>>>
 where
     DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
     M: SupportMachine,
 {
-    let mut syscalls: Vec<Box<(dyn Syscalls<M>)>> = vec![
+    let mut syscalls: Vec<Box<dyn Syscalls<M>>> = vec![
         Box::new(LoadScriptHash::new(sg_data)),
         Box::new(LoadTx::new(sg_data)),
         Box::new(LoadCell::new(sg_data)),

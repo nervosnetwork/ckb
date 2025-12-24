@@ -196,7 +196,7 @@ impl PoolMap {
     /// Returns `Reject` when any error happened, otherwise return `Ok((succ, evicts))`
     /// - succ  : means whether the entry is inserted actually into pool,
     /// - evicts: is the evicted transactions before inserting this `TxEntry`,
-    ///           Currently, evicts when inserting is only due to referring cell dep will be consumed by this new transaction.
+    ///   Currently, evicts when inserting is only due to referring cell dep will be consumed by this new transaction.
     pub(crate) fn add_entry(
         &mut self,
         mut entry: TxEntry,
@@ -307,7 +307,7 @@ impl PoolMap {
                 let entries = self.remove_entry_and_descendants(&id);
                 if !entries.is_empty() {
                     let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                    let rejects = std::iter::repeat(reject).take(entries.len());
+                    let rejects = std::iter::repeat_n(reject, entries.len());
                     conflicts.extend(entries.into_iter().zip(rejects));
                 }
             }
@@ -318,7 +318,7 @@ impl PoolMap {
                     let entries = self.remove_entry_and_descendants(&id);
                     if !entries.is_empty() {
                         let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
-                        let rejects = std::iter::repeat(reject).take(entries.len());
+                        let rejects = std::iter::repeat_n(reject, entries.len());
                         conflicts.extend(entries.into_iter().zip(rejects));
                     }
                 }

@@ -97,21 +97,19 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
             };
         }
 
-        if let Some(ref assume_valid_targets) = config.network.sync.assume_valid_targets {
-            if let Some(first_target) = assume_valid_targets.first() {
-                if assume_valid_targets.len() == 1 {
-                    if first_target
-                        == &H256::from_slice(&[0; 32]).expect("must parse Zero h256 successful")
-                    {
-                        info!("Disable assume valid targets since assume_valid_targets is zero");
-                        config.network.sync.assume_valid_targets = None;
-                    } else {
-                        info!(
-                            "assume_valid_targets set to {:?}",
-                            config.network.sync.assume_valid_targets
-                        );
-                    }
-                }
+        if let Some(ref assume_valid_targets) = config.network.sync.assume_valid_targets
+            && let Some(first_target) = assume_valid_targets.first()
+            && assume_valid_targets.len() == 1
+        {
+            if first_target == &H256::from_slice(&[0; 32]).expect("must parse Zero h256 successful")
+            {
+                info!("Disable assume valid targets since assume_valid_targets is zero");
+                config.network.sync.assume_valid_targets = None;
+            } else {
+                info!(
+                    "assume_valid_targets set to {:?}",
+                    config.network.sync.assume_valid_targets
+                );
             }
         }
 
@@ -418,13 +416,13 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     #[cfg(feature = "with_sentry")]
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec();
-        if let Ok(spec) = &result {
-            if self.is_sentry_enabled {
-                sentry::configure_scope(|scope| {
-                    scope.set_tag("spec.name", &spec.name);
-                    scope.set_tag("spec.pow", &spec.pow);
-                });
-            }
+        if let Ok(spec) = &result
+            && self.is_sentry_enabled
+        {
+            sentry::configure_scope(|scope| {
+                scope.set_tag("spec.name", &spec.name);
+                scope.set_tag("spec.pow", &spec.pow);
+            });
         }
 
         result
@@ -440,12 +438,12 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     pub fn consensus(&self) -> Result<Consensus, ExitCode> {
         let result = consensus_from_spec(&self.chain_spec()?);
 
-        if let Ok(consensus) = &result {
-            if self.is_sentry_enabled {
-                sentry::configure_scope(|scope| {
-                    scope.set_tag("genesis", consensus.genesis_hash());
-                });
-            }
+        if let Ok(consensus) = &result
+            && self.is_sentry_enabled
+        {
+            sentry::configure_scope(|scope| {
+                scope.set_tag("genesis", consensus.genesis_hash());
+            });
         }
 
         result

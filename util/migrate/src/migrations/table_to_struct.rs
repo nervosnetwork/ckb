@@ -167,10 +167,10 @@ impl Migration for ChangeMoleculeTableToStruct {
         pb.inc(1);
 
         let mut wb = db.new_write_batch();
-        if let Some(current_epoch) = db.get_pinned(COLUMN_META, META_CURRENT_EPOCH_KEY)? {
-            if current_epoch.len() != 108 {
-                wb.put(COLUMN_META, META_CURRENT_EPOCH_KEY, &current_epoch[36..])?;
-            }
+        if let Some(current_epoch) = db.get_pinned(COLUMN_META, META_CURRENT_EPOCH_KEY)?
+            && current_epoch.len() != 108
+        {
+            wb.put(COLUMN_META, META_CURRENT_EPOCH_KEY, &current_epoch[36..])?;
         }
         db.write(&wb)?;
 

@@ -47,7 +47,7 @@ fn get_low64(target: &U256) -> u64 {
 /// Converts PoW target into compact format of difficulty.
 pub fn target_to_compact(target: U256) -> u32 {
     let bits = 256 - target.leading_zeros();
-    let exponent = u64::from((bits + 7) / 8);
+    let exponent = u64::from(bits.div_ceil(8));
     let mut compact = if exponent <= 3 {
         get_low64(&target) << (8 * (3 - exponent))
     } else {

@@ -320,7 +320,7 @@ fn test_candidate_uncles_retain() {
 
     let block1_0 = gen_block(&block0_0.header(), 12, &epoch);
     let block2_0 = gen_block(&block1_0.header(), 13, &epoch);
-    for block in vec![block1_0, block2_0.clone()] {
+    for block in [block1_0, block2_0.clone()] {
         chain_controller
             .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_ALL)
             .unwrap();

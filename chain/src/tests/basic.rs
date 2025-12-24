@@ -536,7 +536,7 @@ fn test_chain_fork_by_first_received() {
         chain3.gen_empty_block_with_diff(20u64, &mock_store);
     }
 
-    for chain in vec![chain1.clone(), chain2.clone(), chain3.clone()] {
+    for chain in [chain1.clone(), chain2.clone(), chain3.clone()] {
         for block in chain.blocks() {
             chain_controller
                 .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)

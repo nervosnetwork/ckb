@@ -35,7 +35,7 @@ impl BanList {
         self.inner.insert(banned_addr.address, banned_addr);
         let (insert_count, _) = self.insert_count.overflowing_add(1);
         self.insert_count = insert_count;
-        if self.insert_count % CLEAR_INTERVAL_COUNTER == 0 {
+        if self.insert_count.is_multiple_of(CLEAR_INTERVAL_COUNTER) {
             self.clear_expires();
         }
     }
@@ -47,10 +47,10 @@ impl BanList {
 
     fn is_ip_banned_until(&self, ip: IpAddr, now_ms: u64) -> bool {
         let ip_network = ip_to_network(ip);
-        if let Some(banned_addr) = self.inner.get(&ip_network) {
-            if banned_addr.ban_until.gt(&now_ms) {
-                return true;
-            }
+        if let Some(banned_addr) = self.inner.get(&ip_network)
+            && banned_addr.ban_until.gt(&now_ms)
+        {
+            return true;
         }
 
         self.inner.iter().any(|(ip_network, banned_addr)| {

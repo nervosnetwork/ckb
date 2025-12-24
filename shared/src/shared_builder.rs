@@ -530,8 +530,8 @@ fn build_store(
     store_config: StoreConfig,
     ancient_path: Option<PathBuf>,
 ) -> Result<ChainDB, Error> {
-    let store = if store_config.freezer_enable && ancient_path.is_some() {
-        let freezer = Freezer::open(ancient_path.expect("exist checked"))?;
+    let store = if let (true, Some(ancient_path)) = (store_config.freezer_enable, ancient_path) {
+        let freezer = Freezer::open(ancient_path)?;
         ChainDB::new_with_freezer(db, freezer, store_config)
     } else {
         ChainDB::new(db, store_config)
@@ -577,20 +577,19 @@ fn register_tx_pool_callback(
         move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
             let tx_hash = entry.transaction().hash();
             // record recent reject
-            if reject.should_recorded() {
-                if let Some(ref mut recent_reject) = tx_pool.recent_reject {
-                    if let Err(e) = recent_reject.put(&tx_hash, reject.clone()) {
-                        error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
-                    }
-                }
+            if reject.should_recorded()
+                && let Some(ref mut recent_reject) = tx_pool.recent_reject
+                && let Err(e) = recent_reject.put(&tx_hash, reject.clone())
+            {
+                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
             }
 
-            if reject.is_allowed_relay() {
-                if let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
+            if reject.is_allowed_relay()
+                && let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
                     tx_hash: tx_hash.clone(),
-                }) {
-                    error!("tx-pool tx_relay_sender internal error {}", e);
-                }
+                })
+            {
+                error!("tx-pool tx_relay_sender internal error {}", e);
             }
 
             // notify

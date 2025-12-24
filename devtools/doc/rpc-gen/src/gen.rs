@@ -435,12 +435,10 @@ fn gen_type(ty: &Value) -> String {
                         format!("`{}`", ty.as_str().unwrap())
                     }
                 } else if let Some(arr) = ty.as_array() {
-                    let ty = arr
-                        .iter()
+                    arr.iter()
                         .map(|t| format!("`{}`", gen_type(t)))
                         .collect::<Vec<_>>()
-                        .join(" `|` ");
-                    ty
+                        .join(" `|` ")
                 } else if ty.as_str() == Some("object") {
                     // json schemars bug!
                     // type is `HashMap` here
@@ -465,7 +463,7 @@ fn gen_type(ty: &Value) -> String {
                 res.retain(|value| value != "`string`");
                 format!("\nIt's an enum value from one of:\n{}\n", res.join("\n"))
             } else if let Some(link) = map.get("$ref") {
-                let link = link.as_str().unwrap().split('/').last().unwrap();
+                let link = link.as_str().unwrap().split('/').next_back().unwrap();
                 format!("[`{}`](#type-{})", fix_type_name(link), link.to_lowercase())
             } else {
                 "".to_owned()

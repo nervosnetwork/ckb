@@ -176,12 +176,12 @@ fn test_accept_not_a_better_block() {
     };
     let second_to_last_header: HeaderView = {
         let tip_header: HeaderView = relayer.shared().store().get_tip_header().unwrap();
-        let second_to_last_header = relayer
+
+        relayer
             .shared()
             .store()
             .get_block_header(&tip_header.data().raw().parent_hash())
-            .unwrap();
-        second_to_last_header
+            .unwrap()
     };
 
     let rt = tokio::runtime::Builder::new_current_thread()

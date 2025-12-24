@@ -73,10 +73,10 @@ impl TorController {
         })?;
         debug!("tor server's uptime is {} seconds", uptime);
         let secs: u64 = uptime.parse().map_err(|err| {
-            ConnError::IOError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("failed to parse uptime {} to u64 {}", uptime, err),
-            ))
+            ConnError::IOError(std::io::Error::other(format!(
+                "failed to parse uptime {} to u64 {}",
+                uptime, err
+            )))
         })?;
         Ok(Duration::from_secs(secs))
     }

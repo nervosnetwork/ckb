@@ -219,16 +219,14 @@ impl Node {
     }
 
     pub fn get_onion_public_addr(&self) -> Option<String> {
-        let onion_public_addr = self
-            .rpc_client()
+        self.rpc_client()
             .local_node_info()
             .addresses
             .iter()
             .filter(|addr| addr.address.contains("/onion3/"))
             .collect::<Vec<_>>()
             .first()
-            .map(|addr| addr.address.clone());
-        onion_public_addr
+            .map(|addr| addr.address.clone())
     }
 
     pub fn p2p_address(&self) -> String {
@@ -916,16 +914,16 @@ impl Node {
     #[allow(unused_mut)]
     pub fn stop_gracefully(&mut self) {
         let guard = self.take_guard();
-        if let Some(mut guard) = guard {
-            if !guard.killed {
-                // on nix: send SIGINT to the child
-                // on windows: don't kill gracefully..... fix later
-                #[cfg(not(target_os = "windows"))]
-                {
-                    Self::kill_gracefully(guard.child.id());
-                    let _ = guard.child.wait();
-                    guard.killed = true;
-                }
+        if let Some(mut guard) = guard
+            && !guard.killed
+        {
+            // on nix: send SIGINT to the child
+            // on windows: don't kill gracefully..... fix later
+            #[cfg(not(target_os = "windows"))]
+            {
+                Self::kill_gracefully(guard.child.id());
+                let _ = guard.child.wait();
+                guard.killed = true;
             }
         }
     }
@@ -1032,12 +1030,11 @@ pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
     let other_node_addrs: Vec<Vec<Multiaddr>> = node_multiaddrs
         .keys()
         .map(|id| {
-            let addrs = node_multiaddrs
+            node_multiaddrs
                 .iter()
                 .filter(|(other_id, _)| other_id.as_str() != id.as_str())
                 .map(|(_, addr)| addr.to_owned())
-                .collect::<Vec<_>>();
-            addrs
+                .collect::<Vec<_>>()
         })
         .collect();
     for (i, node) in nodes.iter_mut().enumerate() {

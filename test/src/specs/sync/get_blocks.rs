@@ -74,17 +74,16 @@ fn wait_get_blocks_point(
     let instant = Instant::now();
     let mut last_hash = None;
     while instant.elapsed() < Duration::from_secs(secs) {
-        if let Ok((_, _, data)) = net.receive_timeout(node, Duration::from_secs(1)) {
-            if let Ok(message) = packed::SyncMessage::from_slice(&data) {
-                if let packed::SyncMessageUnion::GetBlocks(inner) = message.to_enum() {
-                    count += inner.block_hashes().len();
-                    if let Some(hash) = inner.block_hashes().into_iter().last() {
-                        last_hash = Some(hash);
-                    }
-                    if count >= expected_count {
-                        break;
-                    }
-                }
+        if let Ok((_, _, data)) = net.receive_timeout(node, Duration::from_secs(1))
+            && let Ok(message) = packed::SyncMessage::from_slice(&data)
+            && let packed::SyncMessageUnion::GetBlocks(inner) = message.to_enum()
+        {
+            count += inner.block_hashes().len();
+            if let Some(hash) = inner.block_hashes().into_iter().last() {
+                last_hash = Some(hash);
+            }
+            if count >= expected_count {
+                break;
             }
         }
     }

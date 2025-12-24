@@ -1,7 +1,8 @@
 /// The fee estimate mode.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum EstimateMode {
     /// No priority, expect the transaction to be committed in 1 hour.
+    #[default]
     NoPriority,
     /// Low priority, expect the transaction to be committed in 30 minutes.
     LowPriority,
@@ -9,10 +10,4 @@ pub enum EstimateMode {
     MediumPriority,
     /// High priority, expect the transaction to be committed as soon as possible.
     HighPriority,
-}
-
-impl Default for EstimateMode {
-    fn default() -> Self {
-        Self::NoPriority
-    }
 }

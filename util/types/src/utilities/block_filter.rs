@@ -60,6 +60,6 @@ pub fn calc_filter_hash(
     )
 }
 
-fn build_gcs_filter(out: &mut dyn Write) -> GCSFilterWriter<SipHasher24Builder> {
+fn build_gcs_filter(out: &mut dyn Write) -> GCSFilterWriter<'_, SipHasher24Builder> {
     GCSFilterWriter::new(out, SipHasher24Builder::new(0, 0), M, P)
 }

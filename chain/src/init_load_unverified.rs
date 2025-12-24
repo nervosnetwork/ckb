@@ -50,8 +50,8 @@ impl InitLoadUnverified {
             .map(|(key_number_hash, _v)| {
                 let reader =
                     packed::NumberHashReader::from_slice_should_be_ok(key_number_hash.as_ref());
-                let unverified_block_hash = reader.block_hash().to_entity();
-                unverified_block_hash
+
+                reader.block_hash().to_entity()
             })
             .filter(|hash| self.shared.store().get_block_ext(hash).is_none())
             .collect::<Vec<packed::Byte32>>();

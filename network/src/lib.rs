@@ -71,15 +71,15 @@ pub async fn observe_listen_port_occupancy(
                 None => multiaddr_to_socketaddr(raw_addr),
             };
 
-            if let Some(addr) = ip_addr {
-                if let Err(e) = TcpListener::bind(addr) {
-                    ckb_logger::error!(
-                        "addr {} can't use on your machines by error: {}, please check",
-                        raw_addr,
-                        e
-                    );
-                    return Err(e);
-                }
+            if let Some(addr) = ip_addr
+                && let Err(e) = TcpListener::bind(addr)
+            {
+                ckb_logger::error!(
+                    "addr {} can't use on your machines by error: {}, please check",
+                    raw_addr,
+                    e
+                );
+                return Err(e);
             }
         }
     }

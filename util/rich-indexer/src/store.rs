@@ -113,11 +113,11 @@ impl SQLXPool {
         Ok(count.try_into().expect("i64 to u64"))
     }
 
-    pub fn new_query(sql: &str) -> Query<Any, AnyArguments> {
+    pub fn new_query(sql: &str) -> Query<'_, Any, AnyArguments<'_>> {
         sqlx::query(sql)
     }
 
-    pub fn new_query_as<T>(sql: &str) -> QueryAs<Any, T, AnyArguments>
+    pub fn new_query_as<T>(sql: &str) -> QueryAs<'_, Any, T, AnyArguments<'_>>
     where
         T: for<'r> sqlx::FromRow<'r, AnyRow>,
     {

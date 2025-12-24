@@ -78,8 +78,8 @@ impl packed::UncleBlock {
     /// The block has 1 more uncle:
     /// - the block will has 1 more offset (+NUM_SIZE) in UncleBlockVec
     /// - UncleBlockVec has 1 more UncleBlock.
-    ///      UncleBlock comes with 1 `total` field, and 2 field offsets, (+NUM_SIZE * 3)
-    ///      UncleBlock contains Header (+208) and empty proposals (only one total_size, + NUM_SIZE because it is a fixVec)
+    ///   UncleBlock comes with 1 `total` field, and 2 field offsets, (+NUM_SIZE * 3)
+    ///   UncleBlock contains Header (+208) and empty proposals (only one total_size, + NUM_SIZE because it is a fixVec)
     ///
     /// The total is +NUM_SIZE*5 + Header.size() = 228
     /// see tests block_size_should_not_include_uncles_proposals.

@@ -19,7 +19,7 @@ fn mean(numbers: &[u64]) -> u64 {
 fn median(numbers: &mut [u64]) -> u64 {
     numbers.sort_unstable();
     let mid = numbers.len() / 2;
-    if numbers.len() % 2 == 0 {
+    if numbers.len().is_multiple_of(2) {
         mean(&[numbers[mid - 1], numbers[mid]])
     } else {
         numbers[mid]

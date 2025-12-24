@@ -720,18 +720,18 @@ impl InflightBlocks {
             // If the time exceeds low time limit, delete the task and halve the number of
             // executable tasks for the corresponding node
             if now > timeout_limit + *time {
-                if let Some(state) = states.remove(key) {
-                    if let Some(d) = download_schedulers.get_mut(&state.peer) {
-                        if should_punish && adjustment {
-                            d.punish(1);
-                        }
-                        d.hashes.remove(key);
-                        debug!(
-                            "prune: remove download_schedulers: remove {}-{} from {}",
-                            key.number, key.hash, state.peer
-                        );
-                    };
-                }
+                if let Some(state) = states.remove(key)
+                    && let Some(d) = download_schedulers.get_mut(&state.peer)
+                {
+                    if should_punish && adjustment {
+                        d.punish(1);
+                    }
+                    d.hashes.remove(key);
+                    debug!(
+                        "prune: remove download_schedulers: remove {}-{} from {}",
+                        key.number, key.hash, state.peer
+                    );
+                };
 
                 if key.number > *restart_number {
                     *restart_number = key.number;
@@ -955,10 +955,10 @@ impl Peers {
                 if !state.unknown_header_list.is_empty() {
                     return None;
                 }
-                if let Some(ref header) = state.best_known_header {
-                    if header.number() < tip {
-                        return Some(*peer_index);
-                    }
+                if let Some(ref header) = state.best_known_header
+                    && header.number() < tip
+                {
+                    return Some(*peer_index);
                 }
                 None
             })
@@ -1368,11 +1368,11 @@ impl SyncState {
         self.pending_compact_blocks.lock().await
     }
 
-    pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {
+    pub fn read_inflight_blocks(&self) -> RwLockReadGuard<'_, InflightBlocks> {
         self.inflight_blocks.read()
     }
 
-    pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
+    pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<'_, InflightBlocks> {
         self.inflight_blocks.write()
     }
 
@@ -1384,7 +1384,7 @@ impl SyncState {
         self.shared_best_header.read().to_owned()
     }
 
-    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<HeaderIndexView> {
+    pub fn shared_best_header_ref(&self) -> RwLockReadGuard<'_, HeaderIndexView> {
         self.shared_best_header.read()
     }
 
@@ -1528,13 +1528,13 @@ impl SyncState {
         self.tx_filter.lock().contains(hash)
     }
 
-    pub fn tx_filter(&self) -> MutexGuard<TtlFilter<Byte32>> {
+    pub fn tx_filter(&self) -> MutexGuard<'_, TtlFilter<Byte32>> {
         self.tx_filter.lock()
     }
 
     pub fn unknown_tx_hashes(
         &self,
-    ) -> MutexGuard<KeyedPriorityQueue<Byte32, UnknownTxHashPriority>> {
+    ) -> MutexGuard<'_, KeyedPriorityQueue<Byte32, UnknownTxHashPriority>> {
         self.unknown_tx_hashes.lock()
     }
 

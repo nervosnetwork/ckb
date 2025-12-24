@@ -38,13 +38,13 @@ impl ChainStore for ChainDB {
         self.freezer.as_ref()
     }
 
-    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice<'_>> {
         self.db
             .get_pinned(col, key)
             .expect("db operation should be ok")
     }
 
-    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter<'_> {
         self.db.iter(col, mode).expect("db operation should be ok")
     }
 }
@@ -112,7 +112,7 @@ impl ChainDB {
     }
 
     /// Return the chain spec hash
-    pub fn get_migration_version(&self) -> Option<DBPinnableSlice> {
+    pub fn get_migration_version(&self) -> Option<DBPinnableSlice<'_>> {
         self.db
             .get_pinned_default(MIGRATION_VERSION_KEY)
             .expect("db operation should be ok")

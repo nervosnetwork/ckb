@@ -17,7 +17,7 @@ pub struct RocksDBTransaction {
 
 impl RocksDBTransaction {
     /// Return the bytes associated with the given key and given column.
-    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }
@@ -86,7 +86,7 @@ pub struct RocksDBTransactionSnapshot<'a> {
 
 impl<'a> RocksDBTransactionSnapshot<'a> {
     /// Return the bytes associated with the given key and given column.
-    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+    pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.get_pinned_cf(cf, key).map_err(internal_error)
     }

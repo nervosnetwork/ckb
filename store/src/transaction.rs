@@ -49,7 +49,7 @@ impl ChainStore for StoreTransaction {
             .expect("db operation should be ok")
     }
 
-    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter<'_> {
         self.inner
             .iter(col, mode)
             .expect("db operation should be ok")
@@ -78,11 +78,9 @@ impl CellProvider for StoreTransaction {
     fn cell(&self, out_point: &OutPoint, eager_load: bool) -> CellStatus {
         match self.get_cell(out_point) {
             Some(mut cell_meta) => {
-                if eager_load {
-                    if let Some((data, data_hash)) = self.get_cell_data(out_point) {
-                        cell_meta.mem_cell_data = Some(data);
-                        cell_meta.mem_cell_data_hash = Some(data_hash);
-                    }
+                if eager_load && let Some((data, data_hash)) = self.get_cell_data(out_point) {
+                    cell_meta.mem_cell_data = Some(data);
+                    cell_meta.mem_cell_data_hash = Some(data_hash);
                 }
                 CellStatus::live_cell(cell_meta)
             }
@@ -116,13 +114,13 @@ impl<'a> ChainStore for StoreTransactionSnapshot<'a> {
         self.freezer.as_ref()
     }
 
-    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice<'_>> {
         self.inner
             .get_pinned(col, key)
             .expect("db operation should be ok")
     }
 
-    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter<'_> {
         self.inner
             .iter(col, mode)
             .expect("db operation should be ok")

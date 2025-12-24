@@ -215,12 +215,12 @@ impl Logger {
                                     };
                                     println!("{output}");
                                 }
-                                if main_logger.to_file {
-                                    if let Some(mut file) = main_logger.file.as_ref() {
-                                        let _ = file.write_all(removed_color.as_bytes());
-                                        let _ = file.write_all(b"\n");
-                                    };
-                                }
+                                if main_logger.to_file
+                                    && let Some(mut file) = main_logger.file.as_ref()
+                                {
+                                    let _ = file.write_all(removed_color.as_bytes());
+                                    let _ = file.write_all(b"\n");
+                                };
                             }
                             for name in extras {
                                 if let Some(mut file) = extra_files.get(&name) {

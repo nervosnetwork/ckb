@@ -36,10 +36,10 @@ pub fn reset_data(args: ResetDataArgs) -> Result<(), ExitCode> {
         target_files.push(args.network_secret_key_path);
     }
 
-    if args.logs {
-        if let Some(dir) = args.logs_dir {
-            target_dirs.push(dir);
-        }
+    if args.logs
+        && let Some(dir) = args.logs_dir
+    {
+        target_dirs.push(dir);
     }
 
     if !args.force && (!target_dirs.is_empty() || !target_files.is_empty()) {

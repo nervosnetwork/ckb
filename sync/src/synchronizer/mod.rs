@@ -124,7 +124,7 @@ impl BlockFetchCMD {
             CanStart::MinWorkNotReach => {
                 let best_known = self.sync_shared.state().shared_best_header_ref();
                 let number = best_known.number();
-                if number != self.number && (number - self.number) % 10000 == 0 {
+                if number != self.number && (number - self.number).is_multiple_of(10000) {
                     self.number = number;
                     info!(
                         "The current best known header number: {}, total difficulty: {:#x}. \
@@ -147,7 +147,7 @@ impl BlockFetchCMD {
                     .map(Pack::pack)
                     .expect("assume valid target must exist");
 
-                if number != self.number && (number - self.number) % 10000 == 0 {
+                if number != self.number && (number - self.number).is_multiple_of(10000) {
                     self.number = number;
                     let remaining_headers_sync_log = self.reaming_headers_sync_log();
 

@@ -438,18 +438,17 @@ impl<'a> VersionbitsConditionChecker for Versionbits<'a> {
     }
 
     fn condition<I: VersionbitsIndexer>(&self, header: &HeaderView, indexer: &I) -> bool {
-        if let Some(cellbase) = indexer.cellbase(&header.hash()) {
-            if let Some(witness) = cellbase.witnesses().get(0) {
-                if let Ok(reader) = CellbaseWitnessReader::from_slice(&witness.raw_data()) {
-                    let message = reader.message().to_entity();
-                    if message.len() >= 4 {
-                        if let Ok(raw) = message.raw_data()[..4].try_into() {
-                            let version = u32::from_le_bytes(raw);
-                            return ((version & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS)
-                                && (version & self.mask()) != 0;
-                        }
-                    }
-                }
+        if let Some(cellbase) = indexer.cellbase(&header.hash())
+            && let Some(witness) = cellbase.witnesses().get(0)
+            && let Ok(reader) = CellbaseWitnessReader::from_slice(&witness.raw_data())
+        {
+            let message = reader.message().to_entity();
+            if message.len() >= 4
+                && let Ok(raw) = message.raw_data()[..4].try_into()
+            {
+                let version = u32::from_le_bytes(raw);
+                return ((version & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS)
+                    && (version & self.mask()) != 0;
             }
         }
         false

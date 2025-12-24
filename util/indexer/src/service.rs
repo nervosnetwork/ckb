@@ -335,10 +335,10 @@ impl IndexerHandle {
                     }
                 }
 
-                if let Some([r0, r1]) = filter_options.output_data_len_range {
-                    if output_data.len() < r0 || output_data.len() >= r1 {
-                        return None;
-                    }
+                if let Some([r0, r1]) = filter_options.output_data_len_range
+                    && (output_data.len() < r0 || output_data.len() >= r1)
+                {
+                    return None;
                 }
 
                 if let Some([r0, r1]) = filter_options.output_capacity_range {
@@ -348,10 +348,10 @@ impl IndexerHandle {
                     }
                 }
 
-                if let Some([r0, r1]) = filter_options.block_range {
-                    if block_number < r0 || block_number >= r1 {
-                        return None;
-                    }
+                if let Some([r0, r1]) = filter_options.block_range
+                    && (block_number < r0 || block_number >= r1)
+                {
+                    return None;
                 }
 
                 last_key = key.to_vec();
@@ -544,10 +544,10 @@ impl IndexerHandle {
                     }
                 }
 
-                if let Some([r0, r1]) = filter_block_range {
-                    if block_number < r0 || block_number >= r1 {
-                        continue;
-                    }
+                if let Some([r0, r1]) = filter_block_range
+                    && (block_number < r0 || block_number >= r1)
+                {
+                    continue;
                 }
 
                 let last_tx_hash_is_same = tx_with_cells
@@ -656,10 +656,10 @@ impl IndexerHandle {
                         }
                     }
 
-                    if let Some([r0, r1]) = filter_block_range {
-                        if block_number < r0 || block_number >= r1 {
-                            return None;
-                        }
+                    if let Some([r0, r1]) = filter_block_range
+                        && (block_number < r0 || block_number >= r1)
+                    {
+                        return None;
                     }
 
                     last_key = key.to_vec();
@@ -812,10 +812,10 @@ impl IndexerHandle {
                     }
                 }
 
-                if let Some([r0, r1]) = filter_options.output_data_len_range {
-                    if output_data.len() < r0 || output_data.len() >= r1 {
-                        return None;
-                    }
+                if let Some([r0, r1]) = filter_options.output_data_len_range
+                    && (output_data.len() < r0 || output_data.len() >= r1)
+                {
+                    return None;
                 }
 
                 if let Some([r0, r1]) = filter_options.output_capacity_range {
@@ -825,10 +825,10 @@ impl IndexerHandle {
                     }
                 }
 
-                if let Some([r0, r1]) = filter_options.block_range {
-                    if block_number < r0 || block_number >= r1 {
-                        return None;
-                    }
+                if let Some([r0, r1]) = filter_options.block_range
+                    && (block_number < r0 || block_number >= r1)
+                {
+                    return None;
                 }
 
                 Some(Into::<core::Capacity>::into(output.capacity()).as_u64())

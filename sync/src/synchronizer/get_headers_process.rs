@@ -57,10 +57,10 @@ impl<'a> GetHeadersProcess<'a> {
             );
             self.send_in_ibd();
             let shared = self.synchronizer.shared();
-            if let Some(flag) = shared.state().peers().get_flag(self.peer) {
-                if flag.is_outbound || flag.is_whitelist || flag.is_protect {
-                    shared.insert_peer_unknown_header_list(self.peer, block_locator_hashes);
-                }
+            if let Some(flag) = shared.state().peers().get_flag(self.peer)
+                && (flag.is_outbound || flag.is_whitelist || flag.is_protect)
+            {
+                shared.insert_peer_unknown_header_list(self.peer, block_locator_hashes);
             };
             return Status::ignored();
         }

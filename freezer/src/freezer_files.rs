@@ -2,7 +2,7 @@ use fail::fail_point;
 use lru::LruCache;
 use snap::raw::{Decoder as SnappyDecoder, Encoder as SnappyEncoder};
 use std::fs::{self, File};
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::io::Error as IoError;
 use std::io::{Read, Write};
 use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -84,12 +84,12 @@ impl IndexEntry {
         let file_id = u32::from_le_bytes(
             raw_file_id
                 .try_into()
-                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode file_id {e}")))?,
+                .map_err(|e| IoError::other(format!("decode file_id {e}")))?,
         );
         let offset = u64::from_le_bytes(
             raw_offset
                 .try_into()
-                .map_err(|e| IoError::new(IoErrorKind::Other, format!("decode offset {e}")))?,
+                .map_err(|e| IoError::other(format!("decode offset {e}")))?,
         );
         Ok(IndexEntry { offset, file_id })
     }
@@ -114,10 +114,9 @@ impl FreezerFiles {
         let expected = self.number.load(Ordering::SeqCst);
         fail_point!("append-unexpected-number");
         if expected != number {
-            return Err(IoError::new(
-                IoErrorKind::Other,
-                format!("appending unexpected block expected {expected} have {number}"),
-            ));
+            return Err(IoError::other(format!(
+                "appending unexpected block expected {expected} have {number}"
+            )));
         }
 
         // https://github.com/rust-lang/rust/issues/49171
@@ -127,7 +126,7 @@ impl FreezerFiles {
         if self.enable_compression {
             compressed_data = SnappyEncoder::new()
                 .compress_vec(data)
-                .map_err(|e| IoError::new(IoErrorKind::Other, format!("compress error {e}")))?;
+                .map_err(|e| IoError::other(format!("compress error {e}")))?;
             data = &compressed_data;
         };
 
@@ -192,12 +191,9 @@ impl FreezerFiles {
 
             if self.enable_compression {
                 data = SnappyDecoder::new().decompress_vec(&data).map_err(|e| {
-                    IoError::new(
-                        IoErrorKind::Other,
-                        format!(
-                            "decompress file-id-{file_id} offset-{start_offset} size-{size}: error {e}"
-                        ),
-                    )
+                    IoError::other(format!(
+                        "decompress file-id-{file_id} offset-{start_offset} size-{size}: error {e}"
+                    ))
                 })?;
             }
 

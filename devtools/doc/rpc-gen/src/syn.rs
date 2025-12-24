@@ -36,8 +36,8 @@ fn get_deprected_attr(attr: &syn::Attribute) -> Option<Vec<String>> {
 }
 
 fn get_doc_from_attr(attr: &syn::Attribute) -> String {
-    if attr.path().is_ident("doc") {
-        if let Meta::NameValue(MetaNameValue {
+    if attr.path().is_ident("doc")
+        && let Meta::NameValue(MetaNameValue {
             value:
                 Expr::Lit(syn::ExprLit {
                     lit: syn::Lit::Str(lit),
@@ -45,10 +45,9 @@ fn get_doc_from_attr(attr: &syn::Attribute) -> String {
                 }),
             ..
         }) = &attr.meta
-        {
-            let lit = lit.value();
-            return lit;
-        }
+    {
+        let lit = lit.value();
+        return lit;
     }
     "".to_string()
 }
@@ -96,19 +95,19 @@ impl Visit<'_> for CommentFinder {
 
     fn visit_item_trait(&mut self, trait_item: &'_ syn::ItemTrait) {
         for i in trait_item.items.iter() {
-            if let syn::TraitItem::Fn(item_fn) = i {
-                if !item_fn.attrs.is_empty() {
-                    let current_rpc = trait_item
-                        .ident
-                        .to_string()
-                        .trim_end_matches("Rpc")
-                        .to_owned();
-                    self.current_fn = Some(format!("{}.{}", current_rpc, item_fn.sig.ident));
-                    for attr in &item_fn.attrs {
-                        self.visit_attribute(attr);
-                    }
-                    self.current_fn = None;
+            if let syn::TraitItem::Fn(item_fn) = i
+                && !item_fn.attrs.is_empty()
+            {
+                let current_rpc = trait_item
+                    .ident
+                    .to_string()
+                    .trim_end_matches("Rpc")
+                    .to_owned();
+                self.current_fn = Some(format!("{}.{}", current_rpc, item_fn.sig.ident));
+                for attr in &item_fn.attrs {
+                    self.visit_attribute(attr);
                 }
+                self.current_fn = None;
             }
         }
     }
@@ -143,10 +142,10 @@ impl Visit<'_> for CommentFinder {
 impl CommentFinder {
     fn visit_source_file(&mut self, file_path: &std::path::Path) {
         let code = std::fs::read_to_string(file_path).unwrap();
-        if let Ok(tokens) = code.parse() {
-            if let Ok(file) = parse2(tokens) {
-                self.visit_file(&file);
-            }
+        if let Ok(tokens) = code.parse()
+            && let Ok(file) = parse2(tokens)
+        {
+            self.visit_file(&file);
         }
     }
 

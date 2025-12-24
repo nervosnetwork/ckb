@@ -30,10 +30,10 @@ pub(crate) async fn rollback_block(tx: &mut Transaction<'_, Any>) -> Result<(), 
         if !script_exists_in_output(lock_script_id, tx).await? {
             script_id_list_to_remove.push(lock_script_id);
         }
-        if let Some(type_script_id) = type_script_id {
-            if !script_exists_in_output(type_script_id, tx).await? {
-                script_id_list_to_remove.push(type_script_id);
-            }
+        if let Some(type_script_id) = type_script_id
+            && !script_exists_in_output(type_script_id, tx).await?
+        {
+            script_id_list_to_remove.push(type_script_id);
         }
     }
     remove_batch_by_blobs("script", "id", &script_id_list_to_remove, tx).await?;

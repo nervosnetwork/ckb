@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt;
 use std::fs;
-use std::io::{self, BufReader, Cursor, Read};
+use std::io::{BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use ckb_system_scripts::BUNDLED_CELL;
@@ -185,10 +185,10 @@ impl Resource {
     ///
     /// If the path is relative, expand the path relative to the directory `base`.
     pub fn absolutize<P: AsRef<Path>>(&mut self, base: P) {
-        if let Resource::FileSystem { file: path } = self {
-            if path.is_relative() {
-                *path = base.as_ref().join(&path)
-            }
+        if let Resource::FileSystem { file: path } = self
+            && path.is_relative()
+        {
+            *path = base.as_ref().join(&path)
         }
     }
 
@@ -267,7 +267,7 @@ impl<'a> SourceFiles<'a> {
 }
 
 fn from_utf8(data: Cow<[u8]>) -> Result<String> {
-    String::from_utf8(data.to_vec()).map_err(|err| Error::new(io::ErrorKind::Other, err))
+    String::from_utf8(data.to_vec()).map_err(Error::other)
 }
 
 fn join_bundled_key(mut root_dir: PathBuf, key: &str) -> PathBuf {

@@ -31,7 +31,7 @@ jobs:
           sudo docker image prune --all --force
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.92.0
           components: rustfmt, clippy
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential tor
       - uses: actions/setup-go@v6
@@ -84,7 +84,7 @@ jobs:
           sudo docker image prune --all --force
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.92.0
           components: rustfmt, clippy
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential procps wget
       - uses: actions/checkout@v4

@@ -24,13 +24,13 @@ impl ChainStore for StoreSnapshot {
         self.freezer.as_ref()
     }
 
-    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice> {
+    fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice<'_>> {
         self.inner
             .get_pinned(col, key)
             .expect("db operation should be ok")
     }
 
-    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter {
+    fn get_iter(&self, col: Col, mode: IteratorMode) -> DBIter<'_> {
         self.inner
             .iter(col, mode)
             .expect("db operation should be ok")

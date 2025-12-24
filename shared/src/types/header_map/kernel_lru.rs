@@ -186,7 +186,7 @@ where
         let mut stats = self.stats();
         let progress = stats.trace_progress();
         let frequency = stats.frequency();
-        if progress % frequency == 0 {
+        if progress.is_multiple_of(frequency) {
             info!(
                 "Header Map Statistics\
             \n>\t| storage | length  |  limit  | contain |   select   | insert  | delete  |\
@@ -214,7 +214,7 @@ where
     }
 
     #[cfg(feature = "stats")]
-    fn stats(&self) -> MutexGuard<HeaderMapKernelStats> {
+    fn stats(&self) -> MutexGuard<'_, HeaderMapKernelStats> {
         self.stats.lock()
     }
 }

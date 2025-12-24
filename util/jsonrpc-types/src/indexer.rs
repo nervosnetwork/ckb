@@ -79,19 +79,15 @@ impl Default for IndexerSearchKey {
 /// IndexerSearchMode represent search mode, default is prefix search
 #[derive(Deserialize, PartialEq, Eq, JsonSchema, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum IndexerSearchMode {
     /// Mode `prefix` search with prefix
+    #[default]
     Prefix,
     /// Mode `exact` search with exact match
     Exact,
     /// Mode `partial` search with partial match
     Partial,
-}
-
-impl Default for IndexerSearchMode {
-    fn default() -> Self {
-        Self::Prefix
-    }
 }
 
 /// A array represent (half-open) range bounded inclusively below and exclusively above [start, end).
