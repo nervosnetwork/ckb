@@ -26,7 +26,26 @@ pub trait RichIndexerRpc {
 
     /// Returns the live cells collection by the lock or type script.
     ///
-    /// The difference from the original CKB Indexer is that the `script_search_mode` parameter accepts the `partial` enumeration value. This implies that a partial search can be conducted on the `args` of the `script`.
+    /// ## Differences from CKB Indexer
+    ///
+    /// 1. **Partial search support**: The `script_search_mode` parameter accepts the `partial` enumeration value,
+    ///    allowing partial search on the `args` of the `script`.
+    ///
+    /// 2. **Ordering mechanism**: Unlike CKB Indexer which sorts by RocksDB key structure
+    ///    `[Script] + [BlockNumber] + [TxIndex] + [OutputIndex]`, Rich Indexer sorts results by an
+    ///    auto-incrementing database primary key (`output.id`).
+    ///
+    ///    **Key advantages over CKB Indexer**:
+    ///    - Cells are returned in insertion order, which corresponds to block order
+    ///      `(block_number, tx_index, output_index)` since blocks are indexed sequentially
+    ///    - When using prefix search with variable args, new cells will NEVER appear before your cursor,
+    ///      preventing missed cells in incremental scans (CKB Indexer sorts by script args lexicographically,
+    ///      which can cause newer cells with smaller args to appear before older cursors)
+    ///    - More resilient to chain reorganizations: During reorg, affected blocks are rolled back in reverse
+    ///      order and re-indexed in forward order, maintaining block_number ordering. Reorged cells get new IDs
+    ///      after the cursor, ensuring they won't be missed. (CKB Indexer may skip reorged cells if their
+    ///      RocksDB keys fall before the cursor due to args ordering)
+    ///    - Better suited for wallet implementations that need reliable, sequential cell tracking
     ///
     /// ## Params
     ///
