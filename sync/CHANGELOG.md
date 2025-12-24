@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-sync-v1.2.0...ckb-sync-v1.2.1) - 2025-12-24
+
+### <!-- 9 -->⚙️ Miscellaneous
+
+- Upgrade rust-toolchain from 1.85.0 to 1.92.0 ([#4993](https://github.com/nervosnetwork/ckb/pull/4993)) (by @eval-exec) - #4993
+
+### Contributors
+
+* @eval-exec
+
 ## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-sync-v1.1.0...ckb-sync-v1.2.0) - 2025-12-18
 
 ### <!-- 1 -->⛰️ Features
