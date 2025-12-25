@@ -10,10 +10,14 @@ main() {
     exit 1
   fi
   local v="$1"
-  sed -i.bak -e 's/^version = .*/version = "'"$v"'"/' Cargo.toml
-  rm -f Cargo.toml.bak
-  sed -i.bak 's/badge\/version-.*-orange/badge\/version-'"$(echo "$v" | sed s/-/--/g)"'-orange/' README.md
-  rm -f README.md.bak
+
+  # Enable release for the root crate
+  sed -i.bak -e 's/^release = false/release = true/' .release-plz.toml
+  rm -f .release-plz.toml.bak
+  release-plz update -p ckb --git-token "$GITHUB_TOKEN" --allow-dirty --repo-url "https://github.com/nervosnetwork/ckb"
+  git checkout .release-plz.toml
+
+  release-plz set-version "ckb@$v"
   cargo check
 }
 

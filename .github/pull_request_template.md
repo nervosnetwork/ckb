@@ -5,11 +5,17 @@ If you haven't already, please read [CONTRIBUTING](https://github.com/nervosnetw
 
 If you're unsure about anything, just ask; somebody should be along to answer within a day or two.
 
-PR Title Format:
-1. module [, module2, module3]: what's changed
-2. *: what's changed
--->
+**Important**: We use Squash Merge to merge PRs, so the PR title will become the commit message.
+Please ensure your PR title follows the [Conventional Commit Messages](https://www.conventionalcommits.org/) format.
 
+The most important prefixes you should use:
+
+- `fix:`: represents bug fixes, and results in a SemVer patch bump.
+- `feat:`: represents a new feature, and results in a SemVer minor bump.
+- `<prefix>!:` (e.g. `feat!:`): represents a breaking change (indicated by the !) and results in a SemVer major bump.
+
+Other conventional prefixes are also acceptable (e.g., `docs:`, `refactor:`, `test:`, `chore:`, etc.).
+-->
 ### What problem does this PR solve?
 
 Issue Number: close #xxx <!-- REMOVE this line if no issue to close -->
@@ -40,12 +46,3 @@ Side effects
 
 - Performance regression
 - Breaking backward compatibility
-
-### Release note <!-- Choose from None, Title Only and Note. Bugfixes or new features need a release note. -->
-
-```release-note
-None: Exclude this PR from the release note.
-Title Only: Include only the PR title in the release note.
-Note: Add a note under the PR title in the release note.
-```
-
