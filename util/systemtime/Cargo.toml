@@ -7,6 +7,7 @@ edition = "2024"
 description = "ckb_systemtime provide real system timestamp, and faketime when `enable_faketime` feature is enabled"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dependencies]
 

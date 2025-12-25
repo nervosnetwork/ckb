@@ -7,6 +7,7 @@ license = "MIT"
 description = "Provides the generated types for CKB"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dev-dependencies]
 ckb-hash.workspace = true

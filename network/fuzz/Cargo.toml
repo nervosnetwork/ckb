@@ -7,6 +7,7 @@ license = "MIT"
 description = "ckb network fuzz testing"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [package.metadata]
 cargo-fuzz = true
