@@ -21,12 +21,6 @@ CREATE TABLE IF NOT EXISTS block_association_proposal(
     proposal BYTEA NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS block_association_uncle(
-    id BIGSERIAL,
-    block_id BIGINT NOT NULL,
-    uncle_id BIGINT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS ckb_transaction(
     id BIGSERIAL PRIMARY KEY,
     tx_hash BYTEA NOT NULL,
