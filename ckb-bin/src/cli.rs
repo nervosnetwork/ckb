@@ -35,6 +35,12 @@ pub const ARG_FORMAT: &str = "format";
 pub const ARG_TARGET: &str = "target";
 /// Command line argument `--source`.
 pub const ARG_SOURCE: &str = "source";
+/// Command line argument `--num-threads`.
+pub const ARG_NUM_THREADS: &str = "num-threads";
+/// Command line flag: `--skip-script-verify`.
+pub const ARG_SKIP_SCRIPT_VERIFY: &str = "skip-script-verify";
+/// Command line flag: `--skip-all-verify`.
+pub const ARG_SKIP_ALL_VERIFY: &str = "skip-all-verify";
 /// Command line argument `--data`.
 pub const ARG_DATA: &str = "data";
 /// Command line argument `--list-chains`.
@@ -375,26 +381,70 @@ fn replay() -> Command {
 }
 
 fn export() -> Command {
-    Command::new(CMD_EXPORT).about("Export CKB data").arg(
-        Arg::new(ARG_TARGET)
-            .short('t')
-            .long(ARG_TARGET)
-            .value_name("path")
-            .value_parser(clap::builder::PathBufValueParser::new())
-            .required(true)
-            .help("Specify the export target path"),
-    )
+    Command::new(CMD_EXPORT)
+        .about("Export CKB data")
+        .arg(
+            Arg::new(ARG_TARGET)
+                .short('t')
+                .long(ARG_TARGET)
+                .value_name("path")
+                .value_parser(clap::value_parser!(String))
+                .allow_hyphen_values(true)
+                .required(true)
+                .help("Specify the export target path (use '-' for stdout)"),
+        )
+        .arg(
+            Arg::new(ARG_FROM)
+                .long(ARG_FROM)
+                .value_name("from")
+                .required(false)
+                .help("Specify the from block number/hash for export"),
+        )
+        .arg(
+            Arg::new(ARG_TO)
+                .long(ARG_TO)
+                .value_name("to")
+                .required(false)
+                .help("Specify the to block number/hash for export"),
+        )
 }
 
 fn import() -> Command {
-    Command::new(CMD_IMPORT).about("Import CKB data").arg(
-        Arg::new(ARG_SOURCE)
-            .index(1)
-            .value_name("path")
-            .value_parser(clap::builder::PathBufValueParser::new())
-            .required(true)
-            .help("Specify the exported data path"),
-    )
+    Command::new(CMD_IMPORT)
+        .about("Import CKB data")
+        .arg(
+            Arg::new(ARG_NUM_THREADS)
+                .long(ARG_NUM_THREADS)
+                .value_name(ARG_NUM_THREADS)
+                .value_parser(clap::value_parser!(usize))
+                .required(false)
+                .help("Specify the number of threads to use for parallel processing. If not specified, it will use the number of logical CPUs available on the system."),
+        )
+        .arg(
+            Arg::new(ARG_SOURCE)
+                .index(1)
+                .value_name("path")
+                .value_parser(clap::value_parser!(String))
+                .allow_hyphen_values(true)
+                .required(true)
+                .help("Specify the exported data path, import JSONL-formatted blocks. If path is '-', read JSONL blocks from STDIN."),
+        )
+        .arg(
+            //
+            Arg::new(ARG_SKIP_SCRIPT_VERIFY)
+                .long(ARG_SKIP_SCRIPT_VERIFY)
+                .action(clap::ArgAction::SetTrue)
+                .conflicts_with(ARG_SKIP_ALL_VERIFY)
+                .help("Skip script verification during import"),
+        )
+        .arg(
+            //
+            Arg::new(ARG_SKIP_ALL_VERIFY)
+                .long(ARG_SKIP_ALL_VERIFY)
+                .conflicts_with(ARG_SKIP_SCRIPT_VERIFY)
+                .action(clap::ArgAction::SetTrue)
+                .help("Skip all verifications during import"),
+        )
 }
 
 fn migrate() -> Command {

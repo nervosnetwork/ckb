@@ -739,6 +739,7 @@ dependencies = [
  "ckb-resource",
  "ckb-systemtime",
  "ckb-types",
+ "ckb-verification-traits",
  "num_cpus",
  "path-clean",
  "rand 0.8.5",
@@ -994,7 +995,7 @@ dependencies = [
  "ckb-error",
  "ckb-logger",
  "ckb-stop-handler",
- "console",
+ "console 0.15.11",
  "indicatif",
  "tempfile",
 ]
@@ -1134,12 +1135,17 @@ dependencies = [
 name = "ckb-instrument"
 version = "1.0.2"
 dependencies = [
+ "ckb-app-config",
  "ckb-chain",
- "ckb-chain-iter",
+ "ckb-channel",
  "ckb-jsonrpc-types",
  "ckb-shared",
+ "ckb-store",
  "ckb-types",
+ "ckb-verification-traits",
  "indicatif",
+ "itertools 0.11.0",
+ "rayon",
  "serde_json",
 ]
 
@@ -1347,7 +1353,7 @@ dependencies = [
  "ckb-pow",
  "ckb-stop-handler",
  "ckb-types",
- "console",
+ "console 0.15.11",
  "eaglesong",
  "futures",
  "http-body-util",
@@ -2133,6 +2139,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
+]
+
+[[package]]
+name = "console"
+version = "0.15.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "unicode-width 0.2.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3859,7 +3878,7 @@ version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9375e112e4b463ec1b1c6c011953545c65a30164fbab5b581df32b3abf0dcb88"
 dependencies = [
- "console",
+ "console 0.16.1",
  "portable-atomic",
  "unicode-width 0.2.2",
  "unit-prefix",
