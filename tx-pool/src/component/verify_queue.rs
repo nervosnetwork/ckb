@@ -45,6 +45,8 @@ struct VerifyEntry {
     /// whether the tx is a large cycle tx
     #[multi_index(hashed_non_unique)]
     is_large_cycle: bool,
+    /// whether the tx is a proposal tx
+    is_proposal_tx: bool,
 
     /// other sort key
     inner: Entry,
@@ -95,6 +97,11 @@ impl VerifyQueue {
     /// Returns true if the queue contains a tx with the specified id.
     pub fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.inner.get_by_id(id).is_some()
+    }
+
+    /// Returns true if the queue contains a tx with the specified id.
+    pub fn get_tx_by_id(&self, id: &ProposalShortId) -> Option<&Entry> {
+        self.inner.get_by_id(id).map(|e| &e.inner)
     }
 
     /// Shrink the capacity of the queue as much as possible.
@@ -153,12 +160,19 @@ impl VerifyQueue {
 
     /// Returns the first entry in the queue
     pub fn peek(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
-        if only_small_cycle {
+        let mut iter = self.inner.iter_by_added_time();
+
+        if let Some(proposal_entry) = iter.find(|e| e.is_proposal_tx) {
+            return Some(proposal_entry.inner.tx.proposal_short_id());
+        }
+
+        let entry = if only_small_cycle {
             self.inner.iter_by_added_time().find(|e| !e.is_large_cycle)
         } else {
             self.inner.iter_by_added_time().next()
-        }
-        .map(|entry| entry.inner.tx.proposal_short_id())
+        };
+
+        entry.map(|e| e.inner.tx.proposal_short_id())
     }
 
     /// If the queue did not have this tx present, true is returned.
@@ -166,10 +180,15 @@ impl VerifyQueue {
     pub fn add_tx(
         &mut self,
         tx: TransactionView,
+        is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         if self.contains_key(&tx.proposal_short_id()) {
-            return Ok(false);
+            if is_proposal_tx {
+                self.remove_tx(&tx.proposal_short_id());
+            } else {
+                return Ok(false);
+            }
         }
         let tx_size = tx.data().serialized_size_in_block();
         let is_large_cycle = remote
@@ -186,6 +205,7 @@ impl VerifyQueue {
             added_time: unix_time_as_millis(),
             inner: Entry { tx, remote },
             is_large_cycle,
+            is_proposal_tx,
         });
         self.total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
             error!(

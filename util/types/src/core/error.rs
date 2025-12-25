@@ -38,6 +38,19 @@ pub enum OutPointError {
     OverMaxDepExpansionLimit,
 }
 
+impl OutPointError {
+    /// Attempt to retrieve the out_point from the error.
+    pub fn out_point(&self) -> Option<&OutPoint> {
+        match self {
+            Self::Dead(out_point)
+            | Self::Unknown(out_point)
+            | Self::OutOfOrder(out_point)
+            | Self::InvalidDepGroup(out_point) => Some(out_point),
+            _ => None,
+        }
+    }
+}
+
 impl From<OutPointError> for Error {
     fn from(error: OutPointError) -> Self {
         ErrorKind::OutPoint.because(error)
