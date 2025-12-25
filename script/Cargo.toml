@@ -8,6 +8,7 @@ build = "build.rs"
 description = "CKB component to run the type/lock scripts"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [features]
 default = ["logging", "detect-asm"]

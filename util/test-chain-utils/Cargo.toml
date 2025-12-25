@@ -7,6 +7,7 @@ license = "MIT"
 description = "Provide several functions used for testing"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dependencies]
 ckb-types.workspace = true

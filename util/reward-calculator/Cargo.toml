@@ -7,6 +7,7 @@ edition = "2024"
 description = "This mod implemented a ckb block reward calculator"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dependencies]
 ckb-types.workspace = true
