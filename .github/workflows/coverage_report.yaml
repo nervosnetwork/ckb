@@ -9,7 +9,7 @@ env:
 jobs:
   coverage_report:
     name: coverage_report
-    runs-on: self-hosted-coverage_report-ubuntu-20.04
+    runs-on: blacksmith-32vcpu-ubuntu-2204
     if: |
         github.repository_owner == 'nervosnetwork'
     steps:
