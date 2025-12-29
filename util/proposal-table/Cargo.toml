@@ -8,6 +8,7 @@ license = "MIT"
 description = "The ckb proposal-table design for two-step-transaction-confirmation"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dependencies]
 ckb-logger.workspace = true

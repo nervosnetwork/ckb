@@ -7,6 +7,7 @@ edition = "2024"
 description = "CKB chain service"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dependencies]
 ckb-logger.workspace = true

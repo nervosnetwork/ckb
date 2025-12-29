@@ -7,6 +7,7 @@ license = "MIT"
 description = "Procedural macros for occupied capacity calculation"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [lib]
 proc-macro = true

@@ -8,6 +8,7 @@ build = "build.rs"
 description = "Bundles resources in the ckb binary"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dependencies]
 phf = "= 0.8.0" # ckb-resource's build script need this, and cargo shear think ckb don't need this

@@ -7,5 +7,6 @@ edition = "2024"
 description = "The crate `ckb-build-info` generates CKB version from the build environment"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
+rust-version = "1.92.0"
 
 [dependencies]
