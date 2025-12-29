@@ -1,7 +1,9 @@
 [workspace]
 # Only mark root crate release as latest
 git_release_latest = false
+git_release_draft = true
 git_release_enable = false
+features_always_increment_minor = true
 
 [changelog]
 body = """
@@ -11,7 +13,7 @@ body = """
         ({{ release_link }})\
     {% endif %} \
     - {{ timestamp | date(format="%Y-%m-%d") }}
-{% for group, commits in commits | filter(attribute="merge_commit", value=false) | group_by(attribute="group") %}
+{% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | upper_first }}
 
     {% for commit in commits %}
@@ -22,53 +24,49 @@ body = """
                     ({% for link in commit.links %}[{{link.text}}]({{link.href}}) {% endfor -%})\
                 {% endif %}
         {% else -%}
-            - {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message }}{{ self::username(commit=commit) }}{{ self::pr(commit=commit) }}
+            - {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message }}{{ self::username(commit=commit) }}
         {% endif -%}
     {% endfor -%}
 {% endfor %}
 {%- if remote.contributors %}
 ### Contributors
 {% for contributor in remote.contributors %}
-    * @{{ contributor.username }}
+    - @{{ contributor.username }}
 {%- endfor %}
 {% endif -%}
 {%- macro username(commit) -%}
     {% if commit.remote.username %} (by @{{ commit.remote.username }}){% endif -%}
 {% endmacro -%}
-{%- macro pr(commit) -%}
-    {% if commit.remote.pr_number %} - #{{ commit.remote.pr_number }}{% endif -%}
-{% endmacro -%}
 """
 
 commit_parsers = [
-  { sha = "631ae26b5231e91e383defd34d1db7dc94234593", skip = true },
-  { sha = "adcd32d1d5dca4565ee6466d3981af41cb0c9424", skip = true },
-
-  { message = "^[mM]erge", skip = true },
-  { message = "^feat", group = "<!-- 1 -->⛰️ Features" },
-  { message = "^[aA]dd(ed)? ", group = "<!-- 1 -->⛰️ Features" },
-  { message = "^[fF]ix", group = "<!-- 2 -->🐛 Bug Fixes" },
-  { message = "^doc", group = "<!-- 4 -->📚 Documentation" },
-  { message = "^perf", group = "<!-- 5 -->⚡ Performance" },
-  { message = "^refactor\\(clippy\\)", skip = true },
-  { message = "^refactor", group = "<!-- 3 -->🚜 Improvements" },
-  { message = "^[cC]hanged", group = "<!-- 3 -->🚜 Improvements" },
-  { message = "^style", group = "<!-- 6 -->🎨 Styling" },
-  { message = "^test", group = "<!-- 7 -->🧪 Testing" },
-  { message = "^chore\\(release\\):", skip = true },
-  { message = "^chore: release", skip = true },
-  { message = "^chore\\(deps.*\\)", skip = true },
-  { message = "^chore\\(pr\\)", skip = true },
-  { message = "^chore\\(pull\\)", skip = true },
-  { message = "^chore|^ci", group = "<!-- 9 -->⚙️ Miscellaneous" },
-  { message = "^security", group = "<!-- 0 -->🛡️ Security" },
-  { body = ".*security", group = "<!-- 0 -->🛡️ Security" },
-  { message = "^revert", group = "<!-- 8 -->◀️ Revert" },
-  { message = "^deprecated", group = "<!-- 8 -->⚠️ Deprecated" },
-  { message = "^.*", group = "<!-- 9 -->⚙️ Miscellaneous" },
+  { field = "author.name", pattern = "\\[bot\\]", skip = true },
+  { message = "^release ", skip = true },
+  { message = "no-changelog", skip = true },
+  { message = "^ci[:(]", skip = true },
+  { message = "^feat", group = "Added" },
+  { message = "^[aA]dd", group = "Added" },
+  { message = "^[sS]upport", group = "Added" },
+  { message = "^[rR]emove", group = "Removed" },
+  { message = "^[dD]elete", group = "Removed" },
+  { message = "^[dD]precate", group = "Deprecated" },
+  { message = "^[tT]est", group = "Fixed" },
+  { message = "^[fF]ix", group = "Fixed" },
+  { message = "^.*: add", group = "Added" },
+  { message = "^.*: support", group = "Added" },
+  { message = "^.*: remove", group = "Removed" },
+  { message = "^.*: delete", group = "Removed" },
+  { message = "^.*: deprecate", group = "Deprecated" },
+  { message = "^.*: test", group = "Fixed" },
+  { message = "^.*: fix", group = "Fixed" },
+  { message = "[sS]ecurity", group = "Security" },
+  { message = "^.*", group = "Changed" },
 ]
 
 [[package]]
 name = "ckb"
 # Root crate will be published manually
 release = false
+publish = false
+git_tag_enable = false
+git_tag_name = "v{{ version }}"

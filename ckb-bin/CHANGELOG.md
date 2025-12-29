@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.2](https://github.com/nervosnetwork/ckb/compare/ckb-bin-v1.0.1...ckb-bin-v1.0.2) - 2025-12-18
 
-### <!-- 9 -->⚙️ Miscellaneous
+### Other
 
 - improve robustness of bats test case load_notify_config (by @doitian) - #5033
 

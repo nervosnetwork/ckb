@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.205.0-pre"
+version = "0.204.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -112,9 +112,6 @@ members = [
   "ckb-bin",
   "test",
 ]
-
-[workspace.package]
-version = "0.205.0-pre"
 
 [workspace.metadata.cargo-shear]
 ignored = ["ckb-test"]

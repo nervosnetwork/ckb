@@ -1,6 +1,5 @@
 # Contributing
 
-
 When contributing to this repository, please first discuss the change you wish to make via issue,
 email, or any other method with the community before making a change. The developer Discord channel
 ([English] | [Chinese]) should be used to discuss complicated or controversial changes before working on a patch.
@@ -26,6 +25,12 @@ Please note we have a code of conduct, please follow it in all your interactions
 ### Send PR
 
 * See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
+
+* **PR Title Format**: Since we use **Squash Merge** to merge PRs, the PR title will become the commit message. Please ensure your PR title follows the Conventional Commit Messages format:
+  - `fix:`: for bug fixes
+  - `feat:`: for new features
+  - `<prefix>!:` (e.g. `feat!:`): for breaking changes
+  - Other conventional prefixes are also acceptable (e.g., `docs:`, `refactor:`, `test:`, etc.)
 
 * Open a new GitHub pull request with the patch.
 
