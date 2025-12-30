@@ -19,6 +19,7 @@ ckb-indexer-sync.workspace = true
 ckb-jsonrpc-types.workspace = true
 ckb-notify.workspace = true
 ckb-types.workspace = true
+ckb-metrics.workspace = true
 futures.workspace = true
 log.workspace = true
 num-bigint.workspace = true

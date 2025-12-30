@@ -74,13 +74,27 @@ impl IndexerSync for RichIndexer {
     /// Appends a new block to the indexer
     fn append(&self, block: &BlockView) -> Result<(), Error> {
         let future = self.async_rich_indexer.append(block);
-        self.async_runtime.block_on(future)
+        let append_ret = self.async_runtime.block_on(future);
+
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_indexer_tip.set(block.number() as i64);
+        }
+
+        append_ret
     }
 
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error> {
         let future = self.async_rich_indexer.rollback();
-        self.async_runtime.block_on(future)
+        let rollback_ret = self.async_runtime.block_on(future);
+
+        if let Some((number, _)) = self.tip().ok().flatten()
+            && let Some(metrics) = ckb_metrics::handle()
+        {
+            metrics.ckb_indexer_tip.set(number as i64);
+        };
+
+        rollback_ret
     }
 
     /// Return identity
