@@ -402,6 +402,9 @@ pub struct IssuedCell {
     pub capacity: Capacity,
     /// The cell lock
     pub lock: Script,
+    /// The cell data
+    #[serde(default)]
+    pub data: Bytes,
 }
 
 /// The genesis dep_group file resources
@@ -826,7 +829,7 @@ impl ChainSpec {
                 .iter()
                 .map(IssuedCell::build_output),
         );
-        outputs_data.extend(self.genesis.issued_cells.iter().map(|_| Bytes::new()));
+        outputs_data.extend(self.genesis.issued_cells.iter().map(|x| x.data.clone()));
 
         let script: packed::Script = self.genesis.bootstrap_lock.clone().into();
 
