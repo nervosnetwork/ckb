@@ -18,6 +18,7 @@ env:
 jobs:
   ci_integration_tests_ubuntu:
     name: ci_integration_tests_ubuntu
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     timeout-minutes: 140
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
@@ -72,6 +73,7 @@ jobs:
           du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"
   ci_cli_bats_test:
     name: ci_cli_bats_test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
     steps:
       - name: Free up disk space
