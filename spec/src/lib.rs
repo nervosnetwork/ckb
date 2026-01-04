@@ -19,7 +19,7 @@ use crate::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
-use ckb_jsonrpc_types::Script;
+use ckb_jsonrpc_types::{JsonBytes, Script};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
     CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_MULTISIG_ALL,
@@ -400,11 +400,11 @@ pub struct GenesisCell {
 pub struct IssuedCell {
     /// The cell capacity
     pub capacity: Capacity,
+    /// The cell data, can be ignored in spec
+    #[serde(default)]
+    pub data: JsonBytes,
     /// The cell lock
     pub lock: Script,
-    /// The cell data
-    #[serde(default)]
-    pub data: Bytes,
 }
 
 /// The genesis dep_group file resources
@@ -829,7 +829,12 @@ impl ChainSpec {
                 .iter()
                 .map(IssuedCell::build_output),
         );
-        outputs_data.extend(self.genesis.issued_cells.iter().map(|x| x.data.clone()));
+        outputs_data.extend(
+            self.genesis
+                .issued_cells
+                .iter()
+                .map(|x| x.data.clone().into_bytes()),
+        );
 
         let script: packed::Script = self.genesis.bootstrap_lock.clone().into();
 

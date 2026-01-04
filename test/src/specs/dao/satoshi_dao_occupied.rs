@@ -7,6 +7,7 @@ use crate::{Node, Spec};
 use ckb_chain_spec::IssuedCell;
 use ckb_crypto::secp::{Generator, Privkey, Pubkey};
 use ckb_dao_utils::extract_dao_data;
+use ckb_jsonrpc_types::JsonBytes;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::core::{EpochNumberWithFraction, TransactionBuilder};
 use ckb_types::packed::{CellInput, CellOutput, OutPoint};
@@ -154,5 +155,6 @@ fn issue_satoshi_cell() -> IssuedCell {
     IssuedCell {
         capacity: SATOSHI_CELL_CAPACITY,
         lock: lock.into(),
+        data: JsonBytes::default(),
     }
 }
