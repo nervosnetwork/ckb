@@ -1,7 +1,7 @@
 name: ci_linters_ubuntu
 concurrency:
-  group: ci_linters_ubuntu-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+  group: ci_linters_ubuntu-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened]
