@@ -154,5 +154,7 @@ fn issue_satoshi_cell() -> IssuedCell {
     IssuedCell {
         capacity: SATOSHI_CELL_CAPACITY,
         lock: lock.into(),
+        data: None,
+        type_: None,
     }
 }
