@@ -156,5 +156,6 @@ fn issue_satoshi_cell() -> IssuedCell {
         capacity: SATOSHI_CELL_CAPACITY,
         lock: lock.into(),
         data: JsonBytes::default(),
+        type_: None,
     }
 }

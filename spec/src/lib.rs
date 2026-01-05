@@ -403,6 +403,9 @@ pub struct IssuedCell {
     /// The cell data, can be ignored in spec
     #[serde(default)]
     pub data: JsonBytes,
+    /// The cell type script
+    #[serde(rename = "type")]
+    pub type_: Option<Script>,
     /// The cell lock
     pub lock: Script,
 }
@@ -961,6 +964,7 @@ impl IssuedCell {
         packed::CellOutput::new_builder()
             .lock(self.lock.clone())
             .capacity(self.capacity)
+            .type_(self.type_.clone().map(|x| x.into()))
             .build()
     }
 }
