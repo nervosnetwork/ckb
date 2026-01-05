@@ -401,8 +401,7 @@ pub struct IssuedCell {
     /// The cell capacity
     pub capacity: Capacity,
     /// The cell data, can be ignored in spec
-    #[serde(default)]
-    pub data: JsonBytes,
+    pub data: Option<JsonBytes>,
     /// The cell type script
     #[serde(rename = "type")]
     pub type_: Option<Script>,
@@ -836,7 +835,7 @@ impl ChainSpec {
             self.genesis
                 .issued_cells
                 .iter()
-                .map(|x| x.data.clone().into_bytes()),
+                .map(|x| x.data.clone().unwrap_or_default().into_bytes()),
         );
 
         let script: packed::Script = self.genesis.bootstrap_lock.clone().into();

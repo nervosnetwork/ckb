@@ -76,7 +76,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .map(|_| IssuedCell {
             capacity: capacity_bytes!(100_000),
             lock: secp_script.clone().into(),
-            data: JsonBytes::default(),
+            data: None,
             type_: None,
         })
         .collect();
