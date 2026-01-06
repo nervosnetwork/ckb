@@ -39,7 +39,8 @@ jobs:
           key: ci-${{ runner.os }}-cargo-it-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ci-${{ runner.os }}-cargo-it
-      - run: brew install tor go
+      - name: Install dependencies
+        run: brew install llvm tor go
       - name: Build ckb and ckb-test binaries
         run: |
           make submodule-init

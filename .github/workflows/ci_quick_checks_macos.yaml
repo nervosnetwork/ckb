@@ -37,7 +37,7 @@ jobs:
       - name: Run quick checks
         run: |
           brew unlink yq
-          brew install grep gnu-sed bash python-yq go
+          brew install llvm grep gnu-sed bash python-yq go
           echo bash version:
           bash --version
           make check-cargotoml
