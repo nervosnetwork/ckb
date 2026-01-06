@@ -75,7 +75,15 @@ pub trait ChainStore: Send + Sync + Sized {
         {
             return Some(header.clone());
         };
-        let ret = self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
+
+        // Get block number from COLUMN_BLOCK_NUMBER
+        let number: u64 = self
+            .get(COLUMN_BLOCK_NUMBER, hash.as_slice())
+            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())?;
+
+        // Build composite key and fetch header
+        let block_key = hash.to_block_key(number);
+        let ret = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
             Into::<HeaderView>::into(reader)
         });
@@ -91,12 +99,21 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Get block body by block header hash
     fn get_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
-        let prefix = hash.as_slice();
+        // Get block number from COLUMN_BLOCK_NUMBER
+        let number: u64 = match self.get(COLUMN_BLOCK_NUMBER, hash.as_slice()) {
+            Some(raw) => packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into(),
+            None => return vec![],
+        };
+
+        // Build composite key prefix: (number + hash)
+        let block_key = hash.to_block_key(number);
+
+        // Scan with composite key prefix
         self.get_iter(
             COLUMN_BLOCK_BODY,
-            IteratorMode::From(prefix, Direction::Forward),
+            IteratorMode::From(&block_key, Direction::Forward),
         )
-        .take_while(|(key, _)| key.starts_with(prefix))
+        .take_while(|(key, _)| key.starts_with(&block_key))
         .map(|(_key, value)| {
             let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
             Into::<TransactionView>::into(reader)
