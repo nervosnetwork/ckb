@@ -52,7 +52,7 @@ const MAX_CONSECUTIVE_FAILURES: usize = 4000;
 /// Selects transactions for inclusion in a block-template using **package-aware** fee-rate sorting.
 ///
 /// ### Package definition
-/// A package is a connected group of ≤ MAX_ANCESTORS_COUNT（2_000）transactions
+/// A package is a connected group of ≤ MAX_ANCESTORS_COUNT（1_000）transactions
 /// The mempool is linearly ordered into non-overlapping packages using a greedy clustering
 /// algorithm that maximizes total fee for a given size and cycles.
 ///

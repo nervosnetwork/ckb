@@ -12,7 +12,7 @@ use ckb_types::{
 
 pub struct SendTxChain;
 
-const MAX_ANCESTORS_COUNT: usize = 2000;
+const MAX_ANCESTORS_COUNT: usize = 1000;
 const PROPOSAL_LIMIT: usize = 1500;
 
 impl Spec for SendTxChain {
