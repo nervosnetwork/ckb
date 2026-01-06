@@ -167,8 +167,8 @@ jobs:
 
           # Run the tests with -c 1
           RUST_BACKTRACE=1 RUST_LOG=info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug \
-            ${{ github.workspace }}/target/release/ckb-test.exe --bin ${{ github.workspace }}/target/release/ckb.exe \
-            --obfs4proxy-bin ${{ github.workspace }}/test/obfs4/obfs4proxy/obfs4proxy \
+            ./target/release/ckb-test.exe --bin "$(pwd)/target/release/ckb.exe" \
+            --obfs4proxy-bin "$(pwd)/test/obfs4/obfs4proxy/obfs4proxy" \
             -c 1 --no-report --max-time 900 $CHUNK_SPECS
         shell: bash
       - name: upload log files
