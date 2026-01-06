@@ -398,14 +398,14 @@ fn export() -> Command {
                 .long(ARG_FROM)
                 .value_name("from")
                 .required(false)
-                .help("Specify the from block number/hash for export"),
+                .help("Specify the starting block number/hash for export (inclusive)"),
         )
         .arg(
             Arg::new(ARG_TO)
                 .long(ARG_TO)
                 .value_name("to")
                 .required(false)
-                .help("Specify the to block number/hash for export"),
+                .help("Specify the ending block number/hash for export (inclusive)"),
         )
 }
 
