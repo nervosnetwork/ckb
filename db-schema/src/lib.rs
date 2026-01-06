@@ -3,16 +3,24 @@
 /// Column families alias type
 pub type Col = &'static str;
 /// Total column number
-pub const COLUMNS: u32 = 19;
+pub const COLUMNS: u32 = 20;
 
 /// Column store chain index (bidirectional mapping)
 ///
 /// Key format:
 /// - `Uint64` (block_number) -> Value: `Byte32` (block_hash) [main chain only]
-/// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) [ALL blocks]
+/// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) [main chain only]
 ///
-/// Note: hash->number mapping exists for ALL blocks to support composite key lookup
+/// Note: This column only tracks main chain blocks. Use COLUMN_BLOCK_NUMBER for all blocks.
 pub const COLUMN_INDEX: Col = "0";
+
+/// Column store block number mapping for ALL blocks
+///
+/// Key format: `Byte32` (block_hash) -> Value: `Uint64` (block_number)
+///
+/// Note: This column stores hash->number for ALL blocks (main chain + forks),
+/// enabling composite key lookup. For main chain check, use COLUMN_INDEX.
+pub const COLUMN_BLOCK_NUMBER: Col = "19";
 
 /// Column store block's header
 ///
