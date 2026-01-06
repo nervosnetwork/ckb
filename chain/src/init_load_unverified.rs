@@ -9,7 +9,6 @@ use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockNumber, BlockView};
 use ckb_types::packed;
-use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
 use std::cmp;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;

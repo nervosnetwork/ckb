@@ -269,7 +269,7 @@ impl Shared {
         if !side.is_empty() {
             // Wipe out side chain
             for (hash, (number, txs)) in &side {
-                batch.delete_block(number.into(), hash, *txs).map_err(|e| {
+                batch.delete_block(*number, hash, *txs).map_err(|e| {
                     ckb_logger::error!("Freezer delete_block_body failed {}", e);
                     e
                 })?;

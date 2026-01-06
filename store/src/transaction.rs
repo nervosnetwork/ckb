@@ -13,7 +13,7 @@ use ckb_db_schema::{
     COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
     META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
-use ckb_error::Error;
+use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
@@ -249,10 +249,7 @@ impl StoreTransaction {
             .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
             .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
             .ok_or_else(|| {
-                ckb_error::Error::from(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "block number not found for hash",
-                ))
+                InternalErrorKind::DataCorrupted.other("block number not found for hash in COLUMN_BLOCK_NUMBER")
             })?;
 
         // Build composite key: (number + hash)
