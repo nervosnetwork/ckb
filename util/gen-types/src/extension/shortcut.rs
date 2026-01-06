@@ -87,6 +87,58 @@ impl packed::OutPoint {
     }
 }
 
+impl packed::Byte32 {
+    /// Creates a composite block key (number + hash) for RocksDB storage.
+    ///
+    /// Format: `Uint64 (block_number, big-endian) + Byte32 (block_hash)`
+    /// Total size: 40 bytes (8 + 32)
+    ///
+    /// The big-endian encoding of block_number ensures sequential storage in RocksDB,
+    /// while the hash suffix allows multiple blocks (forks) at the same height.
+    pub fn to_block_key(&self, number: BlockNumber) -> Vec<u8> {
+        let mut key = Vec::with_capacity(40);
+        key.extend_from_slice(&number.to_be_bytes());
+        key.extend_from_slice(self.as_slice());
+        key
+    }
+
+    /// Creates a composite transaction key (number + hash + tx_index) for RocksDB storage.
+    ///
+    /// Format: `Uint64 (block_number, big-endian) + Byte32 (block_hash) + Uint32 (tx_index, big-endian)`
+    /// Total size: 44 bytes (8 + 32 + 4)
+    pub fn to_tx_key(&self, number: BlockNumber, index: u32) -> Vec<u8> {
+        let mut key = Vec::with_capacity(44);
+        key.extend_from_slice(&number.to_be_bytes());
+        key.extend_from_slice(self.as_slice());
+        key.extend_from_slice(&index.to_be_bytes());
+        key
+    }
+
+    /// Extracts block_hash from a composite block key.
+    ///
+    /// Expects key format: `Uint64 (8 bytes) + Byte32 (32 bytes)`
+    /// Returns None if key length is invalid.
+    pub fn from_block_key(key: &[u8]) -> Option<Self> {
+        if key.len() < 40 {
+            return None;
+        }
+        packed::Byte32::from_slice(&key[8..40]).ok()
+    }
+
+    /// Extracts block_number from a composite block key.
+    ///
+    /// Expects key format: `Uint64 (8 bytes) + Byte32 (32 bytes)`
+    /// Returns None if key length is invalid.
+    pub fn block_number_from_key(key: &[u8]) -> Option<BlockNumber> {
+        if key.len() < 8 {
+            return None;
+        }
+        Some(BlockNumber::from_be_bytes(
+            key[0..8].try_into().ok()?,
+        ))
+    }
+}
+
 impl packed::CellInput {
     /// Creates a new `CellInput`.
     pub fn new(previous_output: packed::OutPoint, block_number: BlockNumber) -> Self {
