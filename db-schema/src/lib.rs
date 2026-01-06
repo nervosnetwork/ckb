@@ -9,37 +9,33 @@ pub const COLUMNS: u32 = 19;
 ///
 /// Key format:
 /// - `Uint64` (block_number) -> Value: `Byte32` (block_hash) [main chain only]
-/// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) [main chain only]
+/// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) [ALL blocks]
 ///
-/// Note: Uses sequential block_number as key, good for range scans
+/// Note: hash->number mapping exists for ALL blocks to support composite key lookup
 pub const COLUMN_INDEX: Col = "0";
 
 /// Column store block's header
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `HeaderView` (header data + hash)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
-/// - High write amplification: random inserts across RocksDB LSM tree
-/// - High read amplification: sequential block reads require random seeks
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_HEADER: Col = "1";
 
 /// Column store block's body (transactions)
 ///
-/// Key format: `TransactionKey` = `Byte32` (block_hash) + `Uint32` (tx_index)
+/// Key format: `TransactionKey` = `Uint64` (block_number) + `Byte32` (block_hash) + `Uint32` (tx_index)
 /// Value format: `TransactionView` (transaction data + hashes)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key prefix (random order)
-/// - High write amplification: random inserts across RocksDB LSM tree
-/// - High read amplification: sequential block reads require random seeks
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_BODY: Col = "2";
 
 /// Column store block's uncle and uncles' proposal zones
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `UncleBlockVecView` (uncle blocks data + hashes)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_UNCLE: Col = "3";
 
 /// Column store meta data
@@ -61,26 +57,26 @@ pub const COLUMN_TRANSACTION_INFO: Col = "5";
 
 /// Column store block extra information
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `BlockExt` or `BlockExtV1` (received_at, total_difficulty, verified, etc.)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_EXT: Col = "6";
 
 /// Column store block's proposal ids
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `ProposalShortIdVec` (list of proposal short ids)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = "7";
 
 /// Column store block to epoch index mapping
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `Byte32` (epoch_hash/index)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_EPOCH: Col = "8";
 
 /// Column store epoch data (bidirectional mapping)
@@ -116,11 +112,12 @@ pub const COLUMN_CELL_DATA: Col = "12";
 
 /// Column store block number-hash pair with transaction count
 ///
+/// DEPRECATED: This column is no longer needed with composite keys.
+/// The composite key (number + hash) is now used directly in block columns.
+/// This column will be removed in a future version.
+///
 /// Key format: `NumberHash` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `Uint32` (transaction count)
-///
-/// Note: Added in migration 20200710181855
-/// Uses block_number as key prefix (sequential order), good for performance
 pub const COLUMN_NUMBER_HASH: Col = "13";
 
 /// Column store cell data hash
@@ -131,10 +128,10 @@ pub const COLUMN_CELL_DATA_HASH: Col = "14";
 
 /// Column store block extension data
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `Bytes` (extension data)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_EXTENSION: Col = "15";
 
 /// Column store chain root MMR data
@@ -147,18 +144,18 @@ pub const COLUMN_CHAIN_ROOT_MMR: Col = "16";
 
 /// Column store filter data for client-side filtering
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `Bytes` (filter data)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_FILTER: Col = "17";
 
 /// Column store filter data hash for client-side filtering
 ///
-/// Key format: `Byte32` (block_hash)
+/// Key format: `BlockKey` = `Uint64` (block_number) + `Byte32` (block_hash)
 /// Value format: `Byte32` (filter_hash)
 ///
-/// PERFORMANCE ISSUE: Uses block_hash as key (random order)
+/// Note: Composite key provides sequential storage by number while supporting forks
 pub const COLUMN_BLOCK_FILTER_HASH: Col = "18";
 
 /// META_TIP_HEADER_KEY tracks the latest known best block header
