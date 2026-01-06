@@ -38,6 +38,20 @@ pub trait ChainStore: Send + Sync + Sized {
         BorrowedDataLoaderWrapper::new(self)
     }
 
+    /// Helper: Gets block number from COLUMN_BLOCK_NUMBER and builds composite key.
+    ///
+    /// This is a convenience method that combines the two-step process of:
+    /// 1. Looking up block_number from block_hash in COLUMN_BLOCK_NUMBER
+    /// 2. Building the composite key (number + hash)
+    ///
+    /// Returns None if the block_hash is not found in COLUMN_BLOCK_NUMBER.
+    fn get_block_key(&self, block_hash: &packed::Byte32) -> Option<Vec<u8>> {
+        let number: u64 = self
+            .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
+            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())?;
+        Some(block_hash.to_block_key(number))
+    }
+
     /// Get block by block header hash
     fn get_block(&self, h: &packed::Byte32) -> Option<BlockView> {
         let header = self.get_block_header(h)?;
@@ -76,13 +90,7 @@ pub trait ChainStore: Send + Sync + Sized {
             return Some(header.clone());
         };
 
-        // Get block number from COLUMN_BLOCK_NUMBER
-        let number: u64 = self
-            .get(COLUMN_BLOCK_NUMBER, hash.as_slice())
-            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())?;
-
-        // Build composite key and fetch header
-        let block_key = hash.to_block_key(number);
+        let block_key = self.get_block_key(hash)?;
         let ret = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
             Into::<HeaderView>::into(reader)

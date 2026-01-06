@@ -152,6 +152,23 @@ impl StoreTransaction {
         }
     }
 
+    /// Helper: Gets block number from COLUMN_BLOCK_NUMBER and builds composite key.
+    ///
+    /// This is a convenience method that combines the two-step process of:
+    /// 1. Looking up block_number from block_hash in COLUMN_BLOCK_NUMBER
+    /// 2. Building the composite key (number + hash)
+    ///
+    /// Returns an error if the block_hash is not found in COLUMN_BLOCK_NUMBER.
+    fn get_block_key(&self, block_hash: &packed::Byte32) -> Result<Vec<u8>, Error> {
+        let number: u64 = self
+            .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
+            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
+            .ok_or_else(|| {
+                InternalErrorKind::DataCorrupted.other("block number not found for hash in COLUMN_BLOCK_NUMBER")
+            })?;
+        Ok(block_hash.to_block_key(number))
+    }
+
     /// Gets the tip header hash for update, locking the row in the transaction.
     pub fn get_update_for_tip_hash(
         &self,
@@ -244,17 +261,7 @@ impl StoreTransaction {
         block_hash: &packed::Byte32,
         ext: &BlockExt,
     ) -> Result<(), Error> {
-        // Get block number from COLUMN_BLOCK_NUMBER
-        let number: u64 = self
-            .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
-            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
-            .ok_or_else(|| {
-                InternalErrorKind::DataCorrupted.other("block number not found for hash in COLUMN_BLOCK_NUMBER")
-            })?;
-
-        // Build composite key: (number + hash)
-        let block_key = block_hash.to_block_key(number);
-
+        let block_key = self.get_block_key(block_hash)?;
         let packed_ext: packed::BlockExtV1 = ext.into();
         self.insert_raw(
             COLUMN_BLOCK_EXT,
@@ -336,17 +343,7 @@ impl StoreTransaction {
         block_hash: &packed::Byte32,
         epoch_hash: &packed::Byte32,
     ) -> Result<(), Error> {
-        // Get block number from COLUMN_BLOCK_NUMBER
-        let number: u64 = self
-            .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
-            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
-            .ok_or_else(|| {
-                InternalErrorKind::DataCorrupted.other("block number not found for hash in COLUMN_BLOCK_NUMBER")
-            })?;
-
-        // Build composite key: (number + hash)
-        let block_key = block_hash.to_block_key(number);
-
+        let block_key = self.get_block_key(block_hash)?;
         self.insert_raw(
             COLUMN_BLOCK_EPOCH,
             &block_key,
@@ -444,16 +441,7 @@ impl StoreTransaction {
         filter_data: &packed::Bytes,
         parent_block_filter_hash: &packed::Byte32,
     ) -> Result<(), Error> {
-        // Get block number from COLUMN_BLOCK_NUMBER
-        let number: u64 = self
-            .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
-            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
-            .ok_or_else(|| {
-                InternalErrorKind::DataCorrupted.other("block number not found for hash in COLUMN_BLOCK_NUMBER")
-            })?;
-
-        // Build composite key: (number + hash)
-        let block_key = block_hash.to_block_key(number);
+        let block_key = self.get_block_key(block_hash)?;
 
         self.insert_raw(
             COLUMN_BLOCK_FILTER,
