@@ -139,12 +139,10 @@ pub trait ChainStore: Send + Sync + Sized {
         // Build composite key
         let block_key = hash.to_block_key(number);
 
-        let header = self
-            .get(COLUMN_BLOCK_HEADER, &block_key)
-            .map(|slice| {
-                let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-                Into::<HeaderView>::into(reader)
-            })?;
+        let header = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
+            let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
+            Into::<HeaderView>::into(reader)
+        })?;
 
         let body = self.get_block_body(hash);
 
@@ -317,21 +315,19 @@ pub trait ChainStore: Send + Sync + Sized {
         // Build composite key
         let block_key = block_hash.to_block_key(number);
 
-        self.get(COLUMN_BLOCK_EXT, &block_key)
-            .map(|slice| {
-                let reader =
-                    packed::BlockExtReader::from_compatible_slice_should_be_ok(slice.as_ref());
-                match reader.count_extra_fields() {
-                    0 => reader.into(),
-                    2 => packed::BlockExtV1Reader::from_slice_should_be_ok(slice.as_ref()).into(),
-                    _ => {
-                        panic!(
-                            "BlockExt storage field count doesn't match, expect 7 or 5, actual {}",
-                            reader.field_count()
-                        )
-                    }
+        self.get(COLUMN_BLOCK_EXT, &block_key).map(|slice| {
+            let reader = packed::BlockExtReader::from_compatible_slice_should_be_ok(slice.as_ref());
+            match reader.count_extra_fields() {
+                0 => reader.into(),
+                2 => packed::BlockExtV1Reader::from_slice_should_be_ok(slice.as_ref()).into(),
+                _ => {
+                    panic!(
+                        "BlockExt storage field count doesn't match, expect 7 or 5, actual {}",
+                        reader.field_count()
+                    )
                 }
-            })
+            }
+        })
     }
 
     /// Get block header hash by block number
@@ -602,12 +598,10 @@ pub trait ChainStore: Send + Sync + Sized {
         // Build composite key
         let block_key = hash.to_block_key(number);
 
-        let header = self
-            .get(COLUMN_BLOCK_HEADER, &block_key)
-            .map(|slice| {
-                let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-                reader.data().to_entity()
-            })?;
+        let header = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
+            let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
+            reader.data().to_entity()
+        })?;
 
         let transactions: packed::TransactionVec = self
             .get_iter(

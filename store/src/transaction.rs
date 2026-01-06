@@ -164,7 +164,8 @@ impl StoreTransaction {
             .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
             .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
             .ok_or_else(|| {
-                InternalErrorKind::DataCorrupted.other("block number not found for hash in COLUMN_BLOCK_NUMBER")
+                InternalErrorKind::DataCorrupted
+                    .other("block number not found for hash in COLUMN_BLOCK_NUMBER")
             })?;
         Ok(block_hash.to_block_key(number))
     }
@@ -200,17 +201,9 @@ impl StoreTransaction {
         self.insert_raw(COLUMN_BLOCK_HEADER, &block_key, header.as_slice())?;
         self.insert_raw(COLUMN_BLOCK_UNCLE, &block_key, uncles.as_slice())?;
         if let Some(extension) = block.extension() {
-            self.insert_raw(
-                COLUMN_BLOCK_EXTENSION,
-                &block_key,
-                extension.as_slice(),
-            )?;
+            self.insert_raw(COLUMN_BLOCK_EXTENSION, &block_key, extension.as_slice())?;
         }
-        self.insert_raw(
-            COLUMN_BLOCK_PROPOSAL_IDS,
-            &block_key,
-            proposals.as_slice(),
-        )?;
+        self.insert_raw(COLUMN_BLOCK_PROPOSAL_IDS, &block_key, proposals.as_slice())?;
 
         // Store transactions with composite keys: (number + hash + tx_index)
         for (index, tx) in block.transactions().into_iter().enumerate() {
@@ -221,7 +214,11 @@ impl StoreTransaction {
 
         // Index hash -> number for ALL blocks (needed for composite key lookup)
         let number_packed: packed::Uint64 = number.into();
-        self.insert_raw(COLUMN_BLOCK_NUMBER, hash.as_slice(), number_packed.as_slice())?;
+        self.insert_raw(
+            COLUMN_BLOCK_NUMBER,
+            hash.as_slice(),
+            number_packed.as_slice(),
+        )?;
 
         Ok(())
     }
@@ -263,11 +260,7 @@ impl StoreTransaction {
     ) -> Result<(), Error> {
         let block_key = self.get_block_key(block_hash)?;
         let packed_ext: packed::BlockExtV1 = ext.into();
-        self.insert_raw(
-            COLUMN_BLOCK_EXT,
-            &block_key,
-            packed_ext.as_slice(),
-        )
+        self.insert_raw(COLUMN_BLOCK_EXT, &block_key, packed_ext.as_slice())
     }
 
     /// Attaches a block to the main chain, indexing its transactions and uncles.
@@ -280,8 +273,16 @@ impl StoreTransaction {
         let number_packed: packed::Uint64 = block_number.into();
 
         // Mark as canonical: bidirectional mapping in COLUMN_INDEX (main chain only)
-        self.insert_raw(COLUMN_INDEX, number_packed.as_slice(), block_hash.as_slice())?;
-        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), number_packed.as_slice())?;
+        self.insert_raw(
+            COLUMN_INDEX,
+            number_packed.as_slice(),
+            block_hash.as_slice(),
+        )?;
+        self.insert_raw(
+            COLUMN_INDEX,
+            block_hash.as_slice(),
+            number_packed.as_slice(),
+        )?;
 
         // Index transactions (main chain only)
         for (index, tx_hash) in block.tx_hashes().iter().enumerate() {
@@ -344,11 +345,7 @@ impl StoreTransaction {
         epoch_hash: &packed::Byte32,
     ) -> Result<(), Error> {
         let block_key = self.get_block_key(block_hash)?;
-        self.insert_raw(
-            COLUMN_BLOCK_EPOCH,
-            &block_key,
-            epoch_hash.as_slice(),
-        )
+        self.insert_raw(COLUMN_BLOCK_EPOCH, &block_key, epoch_hash.as_slice())
     }
 
     /// Inserts epoch extension data.
@@ -443,11 +440,7 @@ impl StoreTransaction {
     ) -> Result<(), Error> {
         let block_key = self.get_block_key(block_hash)?;
 
-        self.insert_raw(
-            COLUMN_BLOCK_FILTER,
-            &block_key,
-            filter_data.as_slice(),
-        )?;
+        self.insert_raw(COLUMN_BLOCK_FILTER, &block_key, filter_data.as_slice())?;
         let current_block_filter_hash = calc_filter_hash(parent_block_filter_hash, filter_data);
         self.insert_raw(
             COLUMN_BLOCK_FILTER_HASH,

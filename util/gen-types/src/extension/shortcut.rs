@@ -133,9 +133,7 @@ impl packed::Byte32 {
         if key.len() < 8 {
             return None;
         }
-        Some(BlockNumber::from_be_bytes(
-            key[0..8].try_into().ok()?,
-        ))
+        Some(BlockNumber::from_be_bytes(key[0..8].try_into().ok()?))
     }
 }
 
