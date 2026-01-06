@@ -15,12 +15,15 @@ env:
   RUST_BACKTRACE: full
   # Add -g to enable debug info in backtrace
   RUSTFLAGS: -D warnings -g
+  NUM_TEST_CHUNKS: 8
 jobs:
-  ci_integration_tests_ubuntu:
-    name: ci_integration_tests_ubuntu
+  build:
+    name: Build and prepare test chunks
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    timeout-minutes: 140
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+    outputs:
+      test_chunks: ${{ steps.chunk_tests.outputs.test_chunks }}
+      chunk_indices: ${{ steps.chunk_tests.outputs.chunk_indices }}
     steps:
       - name: Free up disk space
         if: github.repository_owner != 'nervosnetwork'
@@ -47,30 +50,147 @@ jobs:
           key: ci-${{ runner.os }}-cargo-it-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ci-${{ runner.os }}-cargo-it-
-      - name: Run integration tests
+      - name: Build ckb and ckb-test binaries
         run: |
-          export BUILD_BUILDID=$GITHUB_RUN_ID
-          export ImageOS=$RUNNER_OS
-          export BINARY_NAME=ckb
+          make submodule-init
+          cargo build --locked --bin ckb --verbose --release --features "deadlock_detection"
+          cargo build --locked -p ckb-test --verbose --release --features "deadlock_detection"
+        shell: bash
+      - name: List and chunk test specs
+        id: chunk_tests
+        run: |
+          # List all test specs
+          ./target/release/ckb-test --list-specs --bin ./target/release/ckb > all_specs.txt
+
+          # Split specs into chunks
+          NUM_CHUNKS=${{ env.NUM_TEST_CHUNKS }}
+          total_specs=$(wc -l < all_specs.txt)
+          echo "Total specs: $total_specs"
+          echo "Number of chunks: $NUM_CHUNKS"
+
+          # Create chunks array
+          declare -a chunks
+          for i in $(seq 0 $((NUM_CHUNKS - 1))); do
+            chunks[$i]=""
+          done
+
+          # Distribute specs round-robin
+          chunk_idx=0
+          while IFS= read -r spec; do
+            if [ -n "${chunks[$chunk_idx]}" ]; then
+              chunks[$chunk_idx]="${chunks[$chunk_idx]} $spec"
+            else
+              chunks[$chunk_idx]="$spec"
+            fi
+            chunk_idx=$(( (chunk_idx + 1) % NUM_CHUNKS ))
+          done < all_specs.txt
+
+          # Create JSON array for chunks
+          test_chunks="["
+          chunk_indices="["
+          for i in $(seq 0 $((NUM_CHUNKS - 1))); do
+            if [ $i -gt 0 ]; then
+              test_chunks="$test_chunks,"
+              chunk_indices="$chunk_indices,"
+            fi
+            # Escape quotes and create JSON string
+            chunk_json=$(echo "${chunks[$i]}" | jq -Rs .)
+            test_chunks="$test_chunks$chunk_json"
+            chunk_indices="$chunk_indices$i"
+          done
+          test_chunks="$test_chunks]"
+          chunk_indices="$chunk_indices]"
+
+          echo "test_chunks=$test_chunks" >> $GITHUB_OUTPUT
+          echo "chunk_indices=$chunk_indices" >> $GITHUB_OUTPUT
+
+          echo "Test chunks created:"
+          echo "$test_chunks" | jq .
+        shell: bash
+      - name: Upload ckb binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ckb-binary-${{ runner.os }}
+          path: target/release/ckb
+          retention-days: 1
+      - name: Upload ckb-test binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ckb-test-binary-${{ runner.os }}
+          path: target/release/ckb-test
+          retention-days: 1
+      - name: Upload obfs4proxy
+        uses: actions/upload-artifact@v4
+        with:
+          name: obfs4proxy-${{ runner.os }}
+          path: test/obfs4/obfs4proxy/obfs4proxy
+          retention-days: 1
+
+  test:
+    name: Run tests (chunk ${{ matrix.chunk_index }})
+    needs: build
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk_index: ${{ fromJson(needs.build.outputs.chunk_indices) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Download ckb binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ckb-binary-${{ runner.os }}
+          path: target/release/
+      - name: Download ckb-test binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ckb-test-binary-${{ runner.os }}
+          path: target/release/
+      - name: Download obfs4proxy
+        uses: actions/download-artifact@v4
+        with:
+          name: obfs4proxy-${{ runner.os }}
+          path: test/obfs4/obfs4proxy/
+      - name: Make binaries executable
+        run: |
+          chmod +x target/release/ckb
+          chmod +x target/release/ckb-test
+          chmod +x test/obfs4/obfs4proxy/obfs4proxy
+        shell: bash
+      - name: Run integration tests for chunk ${{ matrix.chunk_index }}
+        run: |
           export CKB_INTEGRATION_TEST_TMP="${{ runner.temp }}/ckb-integration-test"
           mkdir -p "$CKB_INTEGRATION_TEST_TMP"
-          make CKB_TEST_ARGS="-c 4 --no-report --max-time 7200 " integration
+
+          # Get the test specs for this chunk
+          CHUNK_SPECS=$(echo '${{ needs.build.outputs.test_chunks }}' | jq -r '.[${{ matrix.chunk_index }}]')
+          echo "Running tests: $CHUNK_SPECS"
+
+          # Run the tests with -c 1
+          RUST_BACKTRACE=1 RUST_LOG=info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug \
+            ${{ github.workspace }}/target/release/ckb-test --bin ${{ github.workspace }}/target/release/ckb \
+            --obfs4proxy-bin ${{ github.workspace }}/test/obfs4/obfs4proxy/obfs4proxy \
+            -c 1 --no-report --max-time 7200 $CHUNK_SPECS
         shell: bash
       - name: upload log files
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}_integration_logs
+          name: ${{ runner.os }}_integration_logs_chunk_${{ matrix.chunk_index }}
           path: ${{ runner.temp }}/ckb-integration-test
-      - name: Disk usage summary
-        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
-        run: |
-          echo "=== Disk Space Summary ==="
-          df -h
-          echo ""
-          echo "=== Target Directory Usage ==="
-          du -sh target/ 2>/dev/null || echo "target/ directory not found"
-          du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"
+
+  ci_integration_tests_ubuntu:
+    name: ci_integration_tests_ubuntu
+    needs: test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: All tests passed
+        run: echo "All test chunks completed successfully"
+
   ci_cli_bats_test:
     name: ci_cli_bats_test
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -103,12 +223,3 @@ jobs:
           make prod
           make cli-test
         shell: bash
-      - name: Disk usage summary
-        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
-        run: |
-          echo "=== Disk Space Summary ==="
-          df -h
-          echo ""
-          echo "=== Target Directory Usage ==="
-          du -sh target/ 2>/dev/null || echo "target/ directory not found"
-          du -sh target/*/ 2>/dev/null || echo "No subdirectories in target/"
