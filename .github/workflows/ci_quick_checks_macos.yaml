@@ -34,10 +34,13 @@ jobs:
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ci-${{ runner.os }}-cargo-
-      - name: Run quick checks
+      - name: Install dependencies
         run: |
           brew unlink yq
           brew install llvm grep gnu-sed bash python-yq go
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+      - name: Run quick checks
+        run: |
           echo bash version:
           bash --version
           make check-cargotoml

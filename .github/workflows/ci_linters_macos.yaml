@@ -34,9 +34,12 @@ jobs:
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ci-${{ runner.os }}-cargo-
-      - name: Run linters
+      - name: Install dependencies
         run: |
           brew install llvm grep gnu-sed go
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+      - name: Run linters
+        run: |
           cargo fmt --version || rustup component add rustfmt
           cargo clippy --version || rustup component add clippy
           make fmt

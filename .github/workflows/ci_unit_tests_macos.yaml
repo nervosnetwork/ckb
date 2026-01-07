@@ -29,7 +29,9 @@ jobs:
         uses: taiki-e/install-action@nextest
       - uses: actions/checkout@v4
       - name: Install LLVM
-        run: brew install llvm
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
       - name: Cache cargo target
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
         uses: actions/cache@v4
