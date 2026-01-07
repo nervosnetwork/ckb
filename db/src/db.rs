@@ -73,11 +73,21 @@ impl RocksDB {
 
         for cf in cf_descriptors.iter_mut() {
             let mut block_opts = BlockBasedOptions::default();
+            // Ribbon filter: space-efficient bloom filter alternative
             block_opts.set_ribbon_filter(10.0);
+            // Two-level index for large datasets (reduces memory usage)
             block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
             block_opts.set_partition_filters(true);
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
+
+            // Larger block size (16KB) for sequential key patterns
+            // Default is 4KB; larger blocks reduce index size and improve sequential read
+            block_opts.set_block_size(16 * 1024);
+
+            // Use latest SST format for better compression and features
+            block_opts.set_format_version(5);
+
             match cache {
                 Some(ref cache) => {
                     block_opts.set_block_cache(cache);

@@ -3,16 +3,54 @@
 # For detailed file format spec, please refer to the official documents
 # in https://rocksdb.org/docs/
 #
+# Optimized for sequential key patterns (block_number prefix).
 
 [DBOptions]
+# Sync data to disk every 1MB to prevent data loss
 bytes_per_sync=1048576
+# Background threads for flush and compaction (adjust based on CPU cores)
 max_background_jobs=6
+# Maximum total WAL size before forcing flush (128MB)
 max_total_wal_size=134217728
+# Keep recent log files for debugging
 keep_log_file_num=32
 
 [CFOptions "default"]
+# Dynamic level sizing for better space amplification
 level_compaction_dynamic_level_bytes=true
-write_buffer_size=8388608
-min_write_buffer_number_to_merge=1
-max_write_buffer_number=2
+
+# === Write Buffer (MemTable) Settings ===
+# Larger memtable (64MB) batches more sequential writes before flush
+# This reduces write amplification for sequential key patterns
+write_buffer_size=67108864
+# Merge memtables before flush to reduce L0 files
+min_write_buffer_number_to_merge=2
+# Allow more concurrent memtables (one flushing, others accepting writes)
+max_write_buffer_number=4
+# Maintain write buffer memory for transactions
 max_write_buffer_size_to_maintain=-1
+
+# === Level 0 Compaction Triggers ===
+# Delay L0->L1 compaction to batch more sequential writes
+# This allows more trivial moves (files go directly to target level)
+level0_file_num_compaction_trigger=4
+# Slow down writes when L0 files accumulate (back pressure)
+level0_slowdown_writes_trigger=20
+# Stop writes to prevent L0 overflow
+level0_stop_writes_trigger=36
+
+# === Target File Size ===
+# Larger SST files (64MB) reduce file count and metadata overhead
+# Good for sequential access patterns
+target_file_size_base=67108864
+# Multiplier for file sizes at higher levels
+target_file_size_multiplier=1
+
+# === Compression Settings ===
+# L0-L1: LZ4 (fast compression for recent/hot data)
+# L2+: ZSTD (better ratio for older/cold data)
+compression_per_level=kLZ4Compression:kLZ4Compression:kZSTD:kZSTD:kZSTD:kZSTD:kZSTD
+
+# === Block Settings ===
+# Larger blocks (16KB) for sequential read patterns
+# Note: This is set in code via BlockBasedOptions, not here
