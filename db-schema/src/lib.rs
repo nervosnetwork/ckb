@@ -3,24 +3,26 @@
 /// Column families alias type
 pub type Col = &'static str;
 /// Total column number
-pub const COLUMNS: u32 = 20;
+pub const COLUMNS: u32 = 19;
 
-/// Column store chain index (bidirectional mapping)
+/// Column store chain index and block number mapping
 ///
-/// Key format:
+/// Key formats:
 /// - `Uint64` (block_number) -> Value: `Byte32` (block_hash) [main chain only]
-/// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) [main chain only]
+/// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) + `u8` (is_main_chain flag) [ALL blocks]
 ///
-/// Note: This column only tracks main chain blocks. Use COLUMN_BLOCK_NUMBER for all blocks.
+/// The hash->number mapping stores ALL blocks (main chain + forks) with a flag byte:
+/// - Value format: 9 bytes = 8 bytes (number, big-endian) + 1 byte (0x01 if main chain, 0x00 if fork)
+/// - This enables both composite key lookup and O(1) is_main_chain check in a single DB operation
+///
+/// Operations:
+/// - insert_block(): Insert hash->(number, 0x00)
+/// - attach_block(): Insert number->hash, Update hash->(number, 0x01)
+/// - detach_block(): Delete number->hash, Update hash->(number, 0x00)
+/// - delete_block(): Delete hash->(number, flag)
+/// - is_main_chain(): Read hash->value, check flag == 0x01
+/// - get_block_key(): Read hash->value, extract number, build composite key
 pub const COLUMN_INDEX: Col = "0";
-
-/// Column store block number mapping for ALL blocks
-///
-/// Key format: `Byte32` (block_hash) -> Value: `Uint64` (block_number)
-///
-/// Note: This column stores hash->number for ALL blocks (main chain + forks),
-/// enabling composite key lookup. For main chain check, use COLUMN_INDEX.
-pub const COLUMN_BLOCK_NUMBER: Col = "19";
 
 /// Column store block's header
 ///

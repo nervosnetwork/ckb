@@ -7,11 +7,11 @@ use ckb_db::{
 };
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_NUMBER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
-    COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
-    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
+    COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY,
+    META_TIP_HEADER_KEY,
 };
 use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
@@ -152,20 +152,20 @@ impl StoreTransaction {
         }
     }
 
-    /// Helper: Gets block number from COLUMN_BLOCK_NUMBER and builds composite key.
+    /// Helper: Gets block number from COLUMN_INDEX and builds composite key.
     ///
     /// This is a convenience method that combines the two-step process of:
-    /// 1. Looking up block_number from block_hash in COLUMN_BLOCK_NUMBER
+    /// 1. Looking up block_number from block_hash in COLUMN_INDEX (hash->number+flag mapping)
     /// 2. Building the composite key (number + hash)
     ///
-    /// Returns an error if the block_hash is not found in COLUMN_BLOCK_NUMBER.
+    /// Returns an error if the block_hash is not found in COLUMN_INDEX.
     fn get_block_key(&self, block_hash: &packed::Byte32) -> Result<Vec<u8>, Error> {
-        let number: u64 = self
-            .get(COLUMN_BLOCK_NUMBER, block_hash.as_slice())
-            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
+        let number = self
+            .get(COLUMN_INDEX, block_hash.as_slice())
+            .and_then(|raw| packed::Byte32::number_from_index_value(raw.as_ref()))
             .ok_or_else(|| {
                 InternalErrorKind::DataCorrupted
-                    .other("block number not found for hash in COLUMN_BLOCK_NUMBER")
+                    .other("block number not found for hash in COLUMN_INDEX")
             })?;
         Ok(block_hash.to_block_key(number))
     }
@@ -212,13 +212,10 @@ impl StoreTransaction {
             self.insert_raw(COLUMN_BLOCK_BODY, &tx_key, tx_data.as_slice())?;
         }
 
-        // Index hash -> number for ALL blocks (needed for composite key lookup)
-        let number_packed: packed::Uint64 = number.into();
-        self.insert_raw(
-            COLUMN_BLOCK_NUMBER,
-            hash.as_slice(),
-            number_packed.as_slice(),
-        )?;
+        // Index hash -> (number + is_main_chain=false) for ALL blocks (needed for composite key lookup)
+        // Initially marked as NOT on main chain; attach_block() will update the flag to true
+        let index_value = packed::Byte32::to_index_value(number, false);
+        self.insert_raw(COLUMN_INDEX, hash.as_slice(), &index_value)?;
 
         Ok(())
     }
@@ -246,8 +243,8 @@ impl StoreTransaction {
             self.delete(COLUMN_BLOCK_BODY, &tx_key)?;
         }
 
-        // Delete hash -> number mapping (for all blocks)
-        self.delete(COLUMN_BLOCK_NUMBER, hash.as_slice())?;
+        // Delete hash -> (number + flag) mapping from COLUMN_INDEX
+        self.delete(COLUMN_INDEX, hash.as_slice())?;
 
         Ok(())
     }
@@ -265,24 +262,25 @@ impl StoreTransaction {
 
     /// Attaches a block to the main chain, indexing its transactions and uncles.
     ///
-    /// Marks this block as canonical by adding bidirectional mapping to COLUMN_INDEX.
+    /// Marks this block as canonical by:
+    /// 1. Adding number -> hash mapping to COLUMN_INDEX
+    /// 2. Updating hash -> (number, is_main_chain=true) in COLUMN_INDEX
     pub fn attach_block(&self, block: &BlockView) -> Result<(), Error> {
         let header = block.data().header();
         let block_hash = block.hash();
         let block_number = block.number();
         let number_packed: packed::Uint64 = block_number.into();
 
-        // Mark as canonical: bidirectional mapping in COLUMN_INDEX (main chain only)
+        // Mark as canonical:
+        // 1. Add number -> hash mapping (main chain only)
         self.insert_raw(
             COLUMN_INDEX,
             number_packed.as_slice(),
             block_hash.as_slice(),
         )?;
-        self.insert_raw(
-            COLUMN_INDEX,
-            block_hash.as_slice(),
-            number_packed.as_slice(),
-        )?;
+        // 2. Update hash -> (number, is_main_chain=true)
+        let index_value = packed::Byte32::to_index_value(block_number, true);
+        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), &index_value)?;
 
         // Index transactions (main chain only)
         for (index, tx_hash) in block.tx_hashes().iter().enumerate() {
@@ -312,16 +310,22 @@ impl StoreTransaction {
 
     /// Detaches a block from the main chain, removing its transaction and uncle indices.
     ///
-    /// Removes bidirectional mapping from COLUMN_INDEX to unmark this block as canonical.
-    /// The hash->number mapping in COLUMN_BLOCK_NUMBER is kept for future reorgs.
+    /// Unmarks this block as canonical by:
+    /// 1. Removing number -> hash mapping from COLUMN_INDEX
+    /// 2. Updating hash -> (number, is_main_chain=false) in COLUMN_INDEX
+    ///
+    /// The hash->number mapping is kept (with is_main_chain=false) for future reorgs.
     pub fn detach_block(&self, block: &BlockView) -> Result<(), Error> {
         let block_hash = block.hash();
         let block_number = block.number();
         let number_packed: packed::Uint64 = block_number.into();
 
-        // Remove canonical marker: bidirectional mapping from COLUMN_INDEX
+        // Remove canonical marker:
+        // 1. Delete number -> hash mapping
         self.delete(COLUMN_INDEX, number_packed.as_slice())?;
-        self.delete(COLUMN_INDEX, block_hash.as_slice())?;
+        // 2. Update hash -> (number, is_main_chain=false)
+        let index_value = packed::Byte32::to_index_value(block_number, false);
+        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), &index_value)?;
 
         // Unindex transactions
         for tx_hash in block.tx_hashes().iter() {
@@ -332,8 +336,6 @@ impl StoreTransaction {
         for uncle in block.uncles().into_iter() {
             self.delete(COLUMN_UNCLES, uncle.hash().as_slice())?;
         }
-
-        // NOTE: hash->number mapping in COLUMN_BLOCK_NUMBER stays (needed for composite key lookup)
 
         Ok(())
     }
