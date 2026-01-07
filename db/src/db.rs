@@ -86,11 +86,13 @@ impl RocksDB {
                 }
                 None => block_opts.disable_cache(),
             }
-            // only COLUMN_BLOCK_BODY column family use prefix seek
+            // COLUMN_BLOCK_BODY uses prefix seek for iterating transactions within a block.
+            // Key format: block_number (8 bytes) + block_hash (32 bytes) + tx_index (4 bytes) = 44 bytes
+            // Prefix is block_key (40 bytes) to group transactions by block.
             if cf.name() == "2" {
                 block_opts.set_whole_key_filtering(false);
                 cf.options
-                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
+                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
             }
             cf.options.set_block_based_table_factory(&block_opts);
         }

@@ -87,6 +87,16 @@ impl packed::OutPoint {
     }
 }
 
+/// Block key size: 8 (block_number) + 32 (block_hash) = 40 bytes
+pub const BLOCK_KEY_SIZE: usize = 40;
+/// Transaction key size: 8 (block_number) + 32 (block_hash) + 4 (tx_index) = 44 bytes
+pub const TX_KEY_SIZE: usize = 44;
+
+/// Type alias for stack-allocated block key
+pub type BlockKey = [u8; BLOCK_KEY_SIZE];
+/// Type alias for stack-allocated transaction key
+pub type TxKey = [u8; TX_KEY_SIZE];
+
 impl packed::Byte32 {
     /// Creates a composite block key (number + hash) for RocksDB storage.
     ///
@@ -95,10 +105,12 @@ impl packed::Byte32 {
     ///
     /// The big-endian encoding of block_number ensures sequential storage in RocksDB,
     /// while the hash suffix allows multiple blocks (forks) at the same height.
-    pub fn to_block_key(&self, number: BlockNumber) -> Vec<u8> {
-        let mut key = Vec::with_capacity(40);
-        key.extend_from_slice(&number.to_be_bytes());
-        key.extend_from_slice(self.as_slice());
+    ///
+    /// Returns a stack-allocated array to avoid heap allocation.
+    pub fn to_block_key(&self, number: BlockNumber) -> BlockKey {
+        let mut key = [0u8; BLOCK_KEY_SIZE];
+        key[0..8].copy_from_slice(&number.to_be_bytes());
+        key[8..40].copy_from_slice(self.as_slice());
         key
     }
 
@@ -106,11 +118,13 @@ impl packed::Byte32 {
     ///
     /// Format: `Uint64 (block_number, big-endian) + Byte32 (block_hash) + Uint32 (tx_index, big-endian)`
     /// Total size: 44 bytes (8 + 32 + 4)
-    pub fn to_tx_key(&self, number: BlockNumber, index: u32) -> Vec<u8> {
-        let mut key = Vec::with_capacity(44);
-        key.extend_from_slice(&number.to_be_bytes());
-        key.extend_from_slice(self.as_slice());
-        key.extend_from_slice(&index.to_be_bytes());
+    ///
+    /// Returns a stack-allocated array to avoid heap allocation.
+    pub fn to_tx_key(&self, number: BlockNumber, index: u32) -> TxKey {
+        let mut key = [0u8; TX_KEY_SIZE];
+        key[0..8].copy_from_slice(&number.to_be_bytes());
+        key[8..40].copy_from_slice(self.as_slice());
+        key[40..44].copy_from_slice(&index.to_be_bytes());
         key
     }
 

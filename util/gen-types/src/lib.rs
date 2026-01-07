@@ -15,6 +15,10 @@ pub use generated::packed;
 //re-exports
 pub use molecule::bytes;
 
+// Re-export block key types for RocksDB composite keys
+#[cfg(any(feature = "calc-hash", feature = "std"))]
+pub use extension::shortcut::{BlockKey, TxKey, BLOCK_KEY_SIZE, TX_KEY_SIZE};
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "std")] {
         #[allow(unused_imports)]

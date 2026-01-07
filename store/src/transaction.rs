@@ -17,6 +17,7 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
+    BlockKey,
     core::{
         BlockExt, BlockView, EpochExt, HeaderView, TransactionView,
         cell::{CellChecker, CellProvider, CellStatus},
@@ -152,14 +153,31 @@ impl StoreTransaction {
         }
     }
 
-    /// Helper: Gets block number from COLUMN_INDEX and builds composite key.
+    /// Helper: Gets block number from cache or COLUMN_INDEX and builds composite key.
     ///
     /// This is a convenience method that combines the two-step process of:
-    /// 1. Looking up block_number from block_hash in COLUMN_INDEX (hash->number+flag mapping)
+    /// 1. Looking up block_number from block_hash (first from cache, then from COLUMN_INDEX)
     /// 2. Building the composite key (number + hash)
     ///
-    /// Returns an error if the block_hash is not found in COLUMN_INDEX.
-    fn get_block_key(&self, block_hash: &packed::Byte32) -> Result<Vec<u8>, Error> {
+    /// Returns a stack-allocated BlockKey to avoid heap allocation.
+    /// Returns an error if the block_hash is not found.
+    fn get_block_key(&self, block_hash: &packed::Byte32) -> Result<BlockKey, Error> {
+        // Check block_numbers cache first
+        if let Some(&number) = self.cache.block_numbers.lock().get(block_hash) {
+            return Ok(block_hash.to_block_key(number));
+        }
+
+        // Check headers cache - header contains block number
+        if let Some(header) = self.cache.headers.lock().get(block_hash) {
+            let number = header.number();
+            self.cache
+                .block_numbers
+                .lock()
+                .put(block_hash.clone(), number);
+            return Ok(block_hash.to_block_key(number));
+        }
+
+        // Fall back to COLUMN_INDEX lookup
         let number = self
             .get(COLUMN_INDEX, block_hash.as_slice())
             .and_then(|raw| packed::Byte32::number_from_index_value(raw.as_ref()))
@@ -167,6 +185,13 @@ impl StoreTransaction {
                 InternalErrorKind::DataCorrupted
                     .other("block number not found for hash in COLUMN_INDEX")
             })?;
+
+        // Populate cache for future lookups
+        self.cache
+            .block_numbers
+            .lock()
+            .put(block_hash.clone(), number);
+
         Ok(block_hash.to_block_key(number))
     }
 
@@ -217,6 +242,9 @@ impl StoreTransaction {
         let index_value = packed::Byte32::to_index_value(number, false);
         self.insert_raw(COLUMN_INDEX, hash.as_slice(), &index_value)?;
 
+        // Populate block_numbers cache to avoid subsequent COLUMN_INDEX lookups
+        self.cache.block_numbers.lock().put(hash, number);
+
         Ok(())
     }
 
@@ -245,6 +273,9 @@ impl StoreTransaction {
 
         // Delete hash -> (number + flag) mapping from COLUMN_INDEX
         self.delete(COLUMN_INDEX, hash.as_slice())?;
+
+        // Invalidate block_numbers cache
+        self.cache.block_numbers.lock().pop(&hash);
 
         Ok(())
     }
