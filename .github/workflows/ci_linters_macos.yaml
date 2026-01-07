@@ -1,7 +1,7 @@
 name: ci_linters_macos
 concurrency:
   group: ci_linters_macos-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened]
