@@ -19,21 +19,6 @@ Each CI workflow follows a consistent pattern:
 2. **Runner Selection**: Linux workflows use self-hosted runners for nervosnetwork, GitHub-hosted runners for forks. Windows and macOS workflows use GitHub-hosted runners.
 3. **Test/Check Jobs**: Execute the actual tests or checks
 
-### Concurrency Control
-
-Each workflow uses GitHub Actions concurrency groups to prevent duplicate runs:
-
-```yaml
-concurrency:
-  group: <workflow_name>-${{ github.ref }}
-  cancel-in-progress: true
-```
-
-This ensures that:
-- Only one workflow run per branch/PR is active at a time
-- New pushes/PR updates cancel in-progress runs
-- The same workflow won't run simultaneously on both PR and push events for the same commit
-
 ## Runner Selection
 
 Runner selection varies by platform:
