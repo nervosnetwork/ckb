@@ -14,6 +14,15 @@ jobs:
       contents: write
       id-token: write
     steps:
+      - &free-up-disk-space
+        name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
       - &checkout
         name: Checkout repository
         uses: actions/checkout@v6
@@ -51,6 +60,7 @@ jobs:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
+      - *free-up-disk-space
       - *checkout
       - *install-rust
       - *generate-token
