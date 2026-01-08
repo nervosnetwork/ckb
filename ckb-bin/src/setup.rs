@@ -1,14 +1,15 @@
 #[cfg(not(target_os = "windows"))]
 use ckb_app_config::DaemonArgs;
 use ckb_app_config::{
-    AppConfig, CustomizeSpec, ExitCode, ExportArgs, ImportArgs, InitArgs, MigrateArgs, MinerArgs,
-    PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs, StatsArgs, generate_random_key,
-    read_secret_key, write_secret_to_file,
+    AppConfig, CustomizeSpec, ExitCode, ExportArgs, ExportTarget, ImportArgs, ImportSource,
+    InitArgs, MigrateArgs, MinerArgs, PeerIDArgs, ReplayArgs, ResetDataArgs, RunArgs, StatsArgs,
+    generate_random_key, read_secret_key, write_secret_to_file,
 };
 use ckb_chain_spec::{ChainSpec, consensus::Consensus};
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{Either, ScriptHashType};
 use ckb_logger::{error, info};
 use ckb_types::{H256, U256, u256};
+use ckb_verification_traits::Switch;
 use clap::ArgMatches;
 use std::{path::PathBuf, str::FromStr};
 
@@ -212,18 +213,48 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     pub fn import(self, matches: &ArgMatches) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let source = matches
-            .get_one::<PathBuf>(cli::ARG_SOURCE)
-            .ok_or_else(|| {
-                eprintln!("Args Error: {:?} no found", cli::ARG_SOURCE);
-                ExitCode::Cli
-            })?
-            .clone();
+        let num_threads = matches
+            .get_one::<usize>(cli::ARG_NUM_THREADS)
+            .cloned()
+            .unwrap_or(0);
+        let source = {
+            let source = matches
+                .get_one::<String>(cli::ARG_SOURCE)
+                .ok_or_else(|| {
+                    eprintln!("Args Error: {:?} no found", cli::ARG_SOURCE);
+                    ExitCode::Cli
+                })?
+                .clone();
+            if source.eq("-") {
+                ImportSource::Stdin
+            } else {
+                let source_path = PathBuf::from_str(&source).map_err(|err| {
+                    eprintln!(
+                        "Args Error: failed to convert {} to PathBuf: {}",
+                        source, err
+                    );
+                    ExitCode::Cli
+                })?;
+                ImportSource::Path(source_path)
+            }
+        };
+
+        let switch = {
+            if matches.get_flag(cli::ARG_SKIP_ALL_VERIFY) {
+                Switch::DISABLE_ALL
+            } else if matches.get_flag(cli::ARG_SKIP_SCRIPT_VERIFY) {
+                Switch::DISABLE_SCRIPT
+            } else {
+                Switch::NONE
+            }
+        };
 
         Ok(ImportArgs {
             config,
             consensus,
             source,
+            switch,
+            num_threads,
         })
     }
 
@@ -231,15 +262,48 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     pub fn export(self, matches: &ArgMatches) -> Result<ExportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let target = matches
-            .get_one::<PathBuf>(cli::ARG_TARGET)
-            .ok_or_else(|| {
-                eprintln!("Args Error: {:?} no found", cli::ARG_TARGET);
-                ExitCode::Cli
-            })?
-            .clone();
+        let target = {
+            let target = matches
+                .get_one::<String>(cli::ARG_TARGET)
+                .ok_or_else(|| {
+                    eprintln!("Args Error: {:?} no found", cli::ARG_TARGET);
+                    ExitCode::Cli
+                })?
+                .clone();
+            if target.eq("-") {
+                ExportTarget::Stdout
+            } else {
+                let target_path = PathBuf::from_str(&target).map_err(|err| {
+                    eprintln!(
+                        "Args Error: failed to convert {} to PathBuf: {}",
+                        target, err
+                    );
+                    ExitCode::Cli
+                })?;
+                ExportTarget::Path(target_path)
+            }
+        };
+
+        fn parse_either(arg: String) -> Either<u64, String> {
+            match arg.parse::<u64>() {
+                Ok(n) => Either::Left(n),
+                Err(_) => Either::Right(arg),
+            }
+        }
+
+        let from: Option<Either<u64, String>> = matches
+            .get_one::<String>(cli::ARG_FROM)
+            .cloned()
+            .map(parse_either);
+
+        let to: Option<Either<u64, String>> = matches
+            .get_one::<String>(cli::ARG_TO)
+            .cloned()
+            .map(parse_either);
 
         Ok(ExportArgs {
+            from,
+            to,
             config,
             consensus,
             target,

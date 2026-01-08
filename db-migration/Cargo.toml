@@ -19,7 +19,6 @@ ckb-db-schema.workspace = true
 ckb-channel.workspace = true
 ckb-stop-handler.workspace = true
 indicatif.workspace = true
-console.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

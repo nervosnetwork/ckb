@@ -8,7 +8,7 @@ _ckb_graceful_shutdown() {
   sleep 10
   kill ${PID}
 
-  while kill -0 ${PID}; do
+  while kill -0 ${PID} &>/dev/null; do
       sleep 1
   done
 

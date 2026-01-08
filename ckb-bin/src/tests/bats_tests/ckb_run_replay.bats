@@ -8,7 +8,7 @@ _ckb_run() {
   sleep 5
   kill ${PID}
 
-  while kill -0 ${PID}; do
+  while kill -0 ${PID} &>/dev/null; do
       echo "waiting for ckb to exit"
       sleep 1
   done
