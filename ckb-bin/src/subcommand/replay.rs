@@ -75,14 +75,7 @@ fn profile(shared: Shared, chain_controller: ChainController, from: Option<u64>,
     let now = std::time::Instant::now();
     let tx_count = process_range_block(&shared, chain_controller, from..=to);
     let duration = std::time::Instant::now().saturating_duration_since(now);
-    if duration.as_secs() >= MIN_PROFILING_TIME {
-        println!(
-            "\n----------------------------\nEnd profiling, duration:{:?}, txs:{}, tps:{}\n----------------------------",
-            duration,
-            tx_count,
-            tx_count as u64 / duration.as_secs()
-        );
-    } else {
+    if duration.as_secs() < MIN_PROFILING_TIME {
         println!(
             concat!(
                 "----------------------------\n",
@@ -94,6 +87,12 @@ fn profile(shared: Shared, chain_controller: ChainController, from: Option<u64>,
             duration, MIN_PROFILING_TIME
         );
     }
+    println!(
+        "\n----------------------------\nEnd profiling, duration:{:?}, txs:{}, tps:{}\n----------------------------",
+        duration,
+        tx_count,
+        tx_count as u64 / duration.as_secs()
+    );
 }
 
 fn process_range_block(

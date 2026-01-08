@@ -1,11 +1,20 @@
 use crate::{CKBAppConfig, MemoryTrackerConfig, MinerConfig};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_jsonrpc_types::ScriptHashType;
+use ckb_jsonrpc_types::{Either, ScriptHashType};
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::packed::Byte32;
+use ckb_verification_traits::Switch;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// The target directory to save the exported file or stdout.
+pub enum ExportTarget {
+    /// The path to the file to be exported.
+    Path(PathBuf),
+    /// Export to stdout.
+    Stdout,
+}
 
 /// Parsed command line arguments for `ckb export`.
 pub struct ExportArgs {
@@ -14,7 +23,11 @@ pub struct ExportArgs {
     /// Loaded consensus.
     pub consensus: Consensus,
     /// The target directory to save the exported file.
-    pub target: PathBuf,
+    pub target: ExportTarget,
+    /// The range start block number or block hash.
+    pub from: Option<Either<u64, String>>,
+    /// The range end block number or block hash.
+    pub to: Option<Either<u64, String>>,
 }
 
 #[derive(Debug)]
@@ -28,6 +41,14 @@ pub struct DaemonArgs {
     pub pid_file: PathBuf,
 }
 
+/// The source of the file to be imported.
+pub enum ImportSource {
+    /// The path to the file to be imported.
+    Path(PathBuf),
+    /// Import from stdin, the file content must be encoded by base64.
+    Stdin,
+}
+
 /// Parsed command line arguments for `ckb import`.
 pub struct ImportArgs {
     /// Parsed `ckb.toml`.
@@ -35,7 +56,11 @@ pub struct ImportArgs {
     /// Loaded consensus.
     pub consensus: Consensus,
     /// The path to the file to be imported.
-    pub source: PathBuf,
+    pub source: ImportSource,
+    /// The switch to control the verification behavior.
+    pub switch: Switch,
+    /// The number of threads to use for parallel processing.
+    pub num_threads: usize,
 }
 
 /// Parsed command line arguments for `ckb run`.
