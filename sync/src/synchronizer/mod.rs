@@ -166,13 +166,26 @@ impl BlockFetchCMD {
     }
 
     fn reaming_headers_sync_log(&self) -> String {
-        if let Some(remaining_headers_needed) = self.calc_time_need_to_reach_latest_tip_header() {
-            format!(
-                "Need {} minutes to sync to the latest Header.",
-                remaining_headers_needed.as_secs() / 60
-            )
-        } else {
-            "".to_string()
+        match self.calc_time_need_to_reach_latest_tip_header() {
+            Some(remaining) => {
+                let secs = remaining.as_secs();
+                match secs {
+                    0 => "Almost synced.".to_string(),
+                    1..=59 => format!("Need {} seconds to sync to the latest Header.", secs),
+                    60..=3599 => {
+                        format!("Need {} minutes to sync to the latest Header.", secs / 60)
+                    }
+                    _ => {
+                        let hours = secs / 3600;
+                        let minutes = (secs % 3600) / 60;
+                        format!(
+                            "Need {} hours {} minutes to sync to the latest Header.",
+                            hours, minutes
+                        )
+                    }
+                }
+            }
+            None => "".to_string(),
         }
     }
 
@@ -200,20 +213,24 @@ impl BlockFetchCMD {
 
         let now_timestamp = unix_time_as_millis();
 
-        let ckb_chain_age = now_timestamp.checked_sub(genesis_timestamp)?;
+        // Use floating point to avoid integer division precision loss
+        let ckb_chain_age = now_timestamp.checked_sub(genesis_timestamp)? as f64;
+        let ckb_process_age = now_timestamp.checked_sub(ckb_process_start_timestamp)? as f64;
+        let has_synced_headers_age = shared_best_timestamp.checked_sub(genesis_timestamp)? as f64;
 
-        let ckb_process_age = now_timestamp.checked_sub(ckb_process_start_timestamp)?;
+        if ckb_process_age <= 0.0 || has_synced_headers_age <= 0.0 {
+            return None;
+        }
 
-        let has_synced_headers_age = shared_best_timestamp.checked_sub(genesis_timestamp)?;
+        let ckb_sync_header_speed = has_synced_headers_age / ckb_process_age;
+        let sync_all_headers_timecost = ckb_chain_age / ckb_sync_header_speed;
+        let sync_remaining_headers_needed = sync_all_headers_timecost - ckb_process_age;
 
-        let ckb_sync_header_speed = has_synced_headers_age.checked_div(ckb_process_age)?;
-
-        let sync_all_headers_timecost = ckb_chain_age.checked_div(ckb_sync_header_speed)?;
-
-        let sync_remaining_headers_needed =
-            sync_all_headers_timecost.checked_sub(ckb_process_age)?;
-
-        Some(Duration::from_millis(sync_remaining_headers_needed))
+        if sync_remaining_headers_needed <= 0.0 {
+            Some(Duration::from_millis(0))
+        } else {
+            Some(Duration::from_millis(sync_remaining_headers_needed as u64))
+        }
     }
 
     fn run(&mut self, stop_signal: Receiver<()>) {
