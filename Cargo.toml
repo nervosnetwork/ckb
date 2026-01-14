@@ -11,6 +11,9 @@ repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.92.0"
 default-run = "ckb"
 
+[package.metadata.binstall]
+bin-dir = "{ name }_v{ version }_{ target }/{ bin }{ binary-ext }"
+
 [[bin]]
 name = "ckb"
 path = "src/main.rs"
