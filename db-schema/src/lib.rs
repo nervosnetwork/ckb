@@ -11,6 +11,9 @@ pub const COLUMNS: u32 = 19;
 /// - `Uint64` (block_number) -> Value: `Byte32` (block_hash) [main chain only]
 /// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) + `u8` (is_main_chain flag) [ALL blocks]
 ///
+/// Note: This column mixes 8-byte number keys and 32-byte hash keys.
+/// Any iteration over this column must filter by key length or prefix.
+///
 /// The hash->number mapping stores ALL blocks (main chain + forks) with a flag byte:
 /// - Value format: 9 bytes = 8 bytes (number, big-endian) + 1 byte (0x01 if main chain, 0x00 if fork)
 /// - This enables both composite key lookup and O(1) is_main_chain check in a single DB operation

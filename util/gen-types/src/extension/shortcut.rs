@@ -154,10 +154,12 @@ impl packed::Byte32 {
     ///
     /// Format: `Uint64 (block_number, big-endian) + u8 (is_main_chain: 0x01 or 0x00)`
     /// Total size: 9 bytes (8 + 1)
-    pub fn to_index_value(number: BlockNumber, is_main_chain: bool) -> Vec<u8> {
-        let mut value = Vec::with_capacity(9);
-        value.extend_from_slice(&number.to_be_bytes());
-        value.push(if is_main_chain { 0x01 } else { 0x00 });
+    ///
+    /// Returns a stack-allocated array to avoid heap allocation.
+    pub fn to_index_value(number: BlockNumber, is_main_chain: bool) -> [u8; 9] {
+        let mut value = [0u8; 9];
+        value[0..8].copy_from_slice(&number.to_be_bytes());
+        value[8] = if is_main_chain { 0x01 } else { 0x00 };
         value
     }
 
