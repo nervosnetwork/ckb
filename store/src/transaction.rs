@@ -9,7 +9,8 @@ use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMN_META,
+    COLUMN_TRANSACTION_INFO,
     COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY,
     META_TIP_HEADER_KEY,
 };
@@ -153,10 +154,10 @@ impl StoreTransaction {
         }
     }
 
-    /// Helper: Gets block number from cache or COLUMN_INDEX and builds composite key.
+    /// Helper: Gets block number from cache or COLUMN_HASH_INDEX and builds composite key.
     ///
     /// This is a convenience method that combines the two-step process of:
-    /// 1. Looking up block_number from block_hash (first from cache, then from COLUMN_INDEX)
+    /// 1. Looking up block_number from block_hash (first from cache, then from COLUMN_HASH_INDEX)
     /// 2. Building the composite key (number + hash)
     ///
     /// Returns a stack-allocated BlockKey to avoid heap allocation.
@@ -177,13 +178,13 @@ impl StoreTransaction {
             return Ok(block_hash.to_block_key(number));
         }
 
-        // Fall back to COLUMN_INDEX lookup
+        // Fall back to COLUMN_HASH_INDEX lookup
         let number = self
-            .get(COLUMN_INDEX, block_hash.as_slice())
+            .get(COLUMN_HASH_INDEX, block_hash.as_slice())
             .and_then(|raw| packed::Byte32::number_from_index_value(raw.as_ref()))
             .ok_or_else(|| {
                 InternalErrorKind::DataCorrupted
-                    .other("block number not found for hash in COLUMN_INDEX")
+                    .other("block number not found for hash in COLUMN_HASH_INDEX")
             })?;
 
         // Populate cache for future lookups
@@ -240,9 +241,9 @@ impl StoreTransaction {
         // Index hash -> (number + is_main_chain=false) for ALL blocks (needed for composite key lookup)
         // Initially marked as NOT on main chain; attach_block() will update the flag to true
         let index_value = packed::Byte32::to_index_value(number, false);
-        self.insert_raw(COLUMN_INDEX, hash.as_slice(), &index_value)?;
+        self.insert_raw(COLUMN_HASH_INDEX, hash.as_slice(), &index_value)?;
 
-        // Populate block_numbers cache to avoid subsequent COLUMN_INDEX lookups
+        // Populate block_numbers cache to avoid subsequent COLUMN_HASH_INDEX lookups
         self.cache.block_numbers.lock().put(hash, number);
 
         Ok(())
@@ -271,8 +272,8 @@ impl StoreTransaction {
             self.delete(COLUMN_BLOCK_BODY, &tx_key)?;
         }
 
-        // Delete hash -> (number + flag) mapping from COLUMN_INDEX
-        self.delete(COLUMN_INDEX, hash.as_slice())?;
+        // Delete hash -> (number + flag) mapping from COLUMN_HASH_INDEX
+        self.delete(COLUMN_HASH_INDEX, hash.as_slice())?;
 
         // Invalidate block_numbers cache
         self.cache.block_numbers.lock().pop(&hash);
@@ -295,7 +296,7 @@ impl StoreTransaction {
     ///
     /// Marks this block as canonical by:
     /// 1. Adding number -> hash mapping to COLUMN_INDEX
-    /// 2. Updating hash -> (number, is_main_chain=true) in COLUMN_INDEX
+    /// 2. Updating hash -> (number, is_main_chain=true) in COLUMN_HASH_INDEX
     pub fn attach_block(&self, block: &BlockView) -> Result<(), Error> {
         let header = block.data().header();
         let block_hash = block.hash();
@@ -311,7 +312,7 @@ impl StoreTransaction {
         )?;
         // 2. Update hash -> (number, is_main_chain=true)
         let index_value = packed::Byte32::to_index_value(block_number, true);
-        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), &index_value)?;
+        self.insert_raw(COLUMN_HASH_INDEX, block_hash.as_slice(), &index_value)?;
 
         // Index transactions (main chain only)
         for (index, tx_hash) in block.tx_hashes().iter().enumerate() {
@@ -343,7 +344,7 @@ impl StoreTransaction {
     ///
     /// Unmarks this block as canonical by:
     /// 1. Removing number -> hash mapping from COLUMN_INDEX
-    /// 2. Updating hash -> (number, is_main_chain=false) in COLUMN_INDEX
+    /// 2. Updating hash -> (number, is_main_chain=false) in COLUMN_HASH_INDEX
     ///
     /// The hash->number mapping is kept (with is_main_chain=false) for future reorgs.
     pub fn detach_block(&self, block: &BlockView) -> Result<(), Error> {
@@ -356,7 +357,7 @@ impl StoreTransaction {
         self.delete(COLUMN_INDEX, number_packed.as_slice())?;
         // 2. Update hash -> (number, is_main_chain=false)
         let index_value = packed::Byte32::to_index_value(block_number, false);
-        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), &index_value)?;
+        self.insert_raw(COLUMN_HASH_INDEX, block_hash.as_slice(), &index_value)?;
 
         // Unindex transactions
         for tx_hash in block.tx_hashes().iter() {

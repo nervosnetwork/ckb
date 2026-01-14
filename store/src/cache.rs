@@ -24,7 +24,7 @@ pub struct StoreCache {
     /// The cache of block extension sections.
     pub block_extensions: Mutex<LruCache<Byte32, Option<packed::Bytes>>>,
     /// The cache of block hash to block number mappings.
-    /// This reduces COLUMN_INDEX lookups when using composite keys.
+    /// This reduces COLUMN_HASH_INDEX lookups when using composite keys.
     pub block_numbers: Mutex<LruCache<Byte32, BlockNumber>>,
 }
 

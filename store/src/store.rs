@@ -8,7 +8,8 @@ use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
     COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
+    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMN_META,
+    COLUMN_TRANSACTION_INFO,
     COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY,
     META_TIP_HEADER_KEY,
 };
@@ -39,16 +40,16 @@ pub trait ChainStore: Send + Sync + Sized {
         BorrowedDataLoaderWrapper::new(self)
     }
 
-    /// Helper: Gets block number from cache or COLUMN_INDEX and builds composite key.
+    /// Helper: Gets block number from cache or COLUMN_HASH_INDEX and builds composite key.
     ///
     /// This is a convenience method that combines the two-step process of:
-    /// 1. Looking up block_number from block_hash (first from cache, then from COLUMN_INDEX)
+    /// 1. Looking up block_number from block_hash (first from cache, then from COLUMN_HASH_INDEX)
     /// 2. Building the composite key (number + hash)
     ///
     /// The lookup order is:
     /// 1. block_numbers cache (hash -> number mapping)
     /// 2. headers cache (header contains number)
-    /// 3. COLUMN_INDEX in DB (hash -> number+flag mapping)
+    /// 3. COLUMN_HASH_INDEX in DB (hash -> number+flag mapping)
     ///
     /// Returns a stack-allocated BlockKey to avoid heap allocation.
     /// Returns None if the block_hash is not found.
@@ -67,9 +68,9 @@ pub trait ChainStore: Send + Sync + Sized {
             }
         }
 
-        // 3. Fall back to COLUMN_INDEX lookup
+        // 3. Fall back to COLUMN_HASH_INDEX lookup
         let number = self
-            .get(COLUMN_INDEX, block_hash.as_slice())
+            .get(COLUMN_HASH_INDEX, block_hash.as_slice())
             .and_then(|raw| packed::Byte32::number_from_index_value(raw.as_ref()))?;
 
         // Populate block_numbers cache for future lookups
@@ -135,7 +136,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Get block body by block header hash
     fn get_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = match self.get_block_key(hash) {
             Some(key) => key,
             None => return vec![],
@@ -156,7 +157,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Get unfrozen block from ky-store with given hash
     fn get_unfrozen_block(&self, hash: &packed::Byte32) -> Option<BlockView> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         let header = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
@@ -215,7 +216,7 @@ pub trait ChainStore: Send + Sync + Sized {
             return hashes.clone();
         };
 
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = match self.get_block_key(hash) {
             Some(key) => key,
             None => return vec![],
@@ -251,7 +252,7 @@ pub trait ChainStore: Send + Sync + Sized {
             return Some(data.clone());
         };
 
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         let ret = self
@@ -278,7 +279,7 @@ pub trait ChainStore: Send + Sync + Sized {
             return Some(data.clone());
         };
 
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         let ret = self.get(COLUMN_BLOCK_UNCLE, &block_key).map(|slice| {
@@ -303,7 +304,7 @@ pub trait ChainStore: Send + Sync + Sized {
             return data.clone();
         };
 
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         let ret = self
@@ -320,7 +321,7 @@ pub trait ChainStore: Send + Sync + Sized {
     ///
     /// Since v0.106, `BlockExt` added two option fields, so we have to use compatibility mode to read
     fn get_block_ext(&self, block_hash: &packed::Byte32) -> Option<BlockExt> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(block_hash)?;
 
         self.get(COLUMN_BLOCK_EXT, &block_key).map(|slice| {
@@ -348,7 +349,7 @@ pub trait ChainStore: Send + Sync + Sized {
     /// Get block number by block header hash
     ///
     /// Returns block number for blocks on both main chain and fork chains.
-    /// Uses cache to avoid COLUMN_INDEX lookup when possible.
+    /// Uses cache to avoid COLUMN_HASH_INDEX lookup when possible.
     fn get_block_number(&self, hash: &packed::Byte32) -> Option<BlockNumber> {
         // Check block_numbers cache first
         if let Some(cache) = self.cache() {
@@ -363,9 +364,9 @@ pub trait ChainStore: Send + Sync + Sized {
             }
         }
 
-        // Fall back to COLUMN_INDEX lookup
+        // Fall back to COLUMN_HASH_INDEX lookup
         let number = self
-            .get(COLUMN_INDEX, hash.as_slice())
+            .get(COLUMN_HASH_INDEX, hash.as_slice())
             .and_then(|raw| packed::Byte32::number_from_index_value(raw.as_ref()))?;
 
         // Populate cache for future lookups
@@ -378,9 +379,9 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Returns true if the block is on the main chain.
     ///
-    /// Checks the is_main_chain flag in the COLUMN_INDEX value (9th byte).
+    /// Checks the is_main_chain flag in the COLUMN_HASH_INDEX value (9th byte).
     fn is_main_chain(&self, hash: &packed::Byte32) -> bool {
-        self.get(COLUMN_INDEX, hash.as_slice())
+        self.get(COLUMN_HASH_INDEX, hash.as_slice())
             .and_then(|raw| packed::Byte32::is_main_chain_from_index_value(raw.as_ref()))
             .unwrap_or(false)
     }
@@ -533,7 +534,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets epoch index by block hash
     fn get_block_epoch_index(&self, block_hash: &packed::Byte32) -> Option<packed::Byte32> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(block_hash)?;
 
         self.get(COLUMN_BLOCK_EPOCH, &block_key)
@@ -566,13 +567,13 @@ pub trait ChainStore: Send + Sync + Sized {
         {
             return true;
         };
-        // Check if block exists in COLUMN_INDEX (hash -> number+flag mapping)
-        self.get(COLUMN_INDEX, hash.as_slice()).is_some()
+        // Check if block exists in COLUMN_HASH_INDEX (hash -> number+flag mapping)
+        self.get(COLUMN_HASH_INDEX, hash.as_slice()).is_some()
     }
 
     /// Gets cellbase by block hash
     fn get_cellbase(&self, hash: &packed::Byte32) -> Option<TransactionView> {
-        // Use cached get_block_number() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_number() to avoid redundant COLUMN_HASH_INDEX lookups
         let number = self.get_block_number(hash)?;
 
         // Build composite transaction key for index 0 (cellbase is always first)
@@ -592,7 +593,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block filter data by block hash
     fn get_block_filter(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         self.get(COLUMN_BLOCK_FILTER, &block_key)
@@ -601,7 +602,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block filter hash by block hash
     fn get_block_filter_hash(&self, hash: &packed::Byte32) -> Option<packed::Byte32> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         self.get(COLUMN_BLOCK_FILTER_HASH, &block_key)
@@ -610,7 +611,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block bytes by block hash
     fn get_packed_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         let header = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
@@ -659,7 +660,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block header bytes by block hash
     fn get_packed_block_header(&self, hash: &packed::Byte32) -> Option<packed::Header> {
-        // Use cached get_block_key() to avoid redundant COLUMN_INDEX lookups
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
         let block_key = self.get_block_key(hash)?;
 
         self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {

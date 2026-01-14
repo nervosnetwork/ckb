@@ -3,29 +3,35 @@
 /// Column families alias type
 pub type Col = &'static str;
 /// Total column number
-pub const COLUMNS: u32 = 19;
+pub const COLUMNS: u32 = 20;
 
-/// Column store chain index and block number mapping
+/// Column store main chain block number to block hash mapping
 ///
 /// Key formats:
 /// - `Uint64` (block_number) -> Value: `Byte32` (block_hash) [main chain only]
-/// - `Byte32` (block_hash) -> Value: `Uint64` (block_number) + `u8` (is_main_chain flag) [ALL blocks]
 ///
-/// Note: This column mixes 8-byte number keys and 32-byte hash keys.
-/// Any iteration over this column must filter by key length or prefix.
+/// Operations:
+/// - attach_block(): Insert number->hash
+/// - detach_block(): Delete number->hash
+/// - get_block_hash(): Read number->hash
+pub const COLUMN_INDEX: Col = "0";
+
+/// Column store block hash to number mapping with is_main_chain flag
+///
+/// Key format: `Byte32` (block_hash)
+/// Value format: 9 bytes = 8 bytes (number, big-endian) + 1 byte (0x01 if main chain, 0x00 if fork)
 ///
 /// The hash->number mapping stores ALL blocks (main chain + forks) with a flag byte:
-/// - Value format: 9 bytes = 8 bytes (number, big-endian) + 1 byte (0x01 if main chain, 0x00 if fork)
 /// - This enables both composite key lookup and O(1) is_main_chain check in a single DB operation
 ///
 /// Operations:
 /// - insert_block(): Insert hash->(number, 0x00)
-/// - attach_block(): Insert number->hash, Update hash->(number, 0x01)
-/// - detach_block(): Delete number->hash, Update hash->(number, 0x00)
+/// - attach_block(): Update hash->(number, 0x01)
+/// - detach_block(): Update hash->(number, 0x00)
 /// - delete_block(): Delete hash->(number, flag)
 /// - is_main_chain(): Read hash->value, check flag == 0x01
 /// - get_block_key(): Read hash->value, extract number, build composite key
-pub const COLUMN_INDEX: Col = "0";
+pub const COLUMN_HASH_INDEX: Col = "19";
 
 /// Column store block's header
 ///

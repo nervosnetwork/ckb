@@ -150,7 +150,7 @@ impl packed::Byte32 {
         Some(BlockNumber::from_be_bytes(key[0..8].try_into().ok()?))
     }
 
-    /// Creates a COLUMN_INDEX value for hash->number mapping with is_main_chain flag.
+    /// Creates a COLUMN_HASH_INDEX value for hash->number mapping with is_main_chain flag.
     ///
     /// Format: `Uint64 (block_number, big-endian) + u8 (is_main_chain: 0x01 or 0x00)`
     /// Total size: 9 bytes (8 + 1)
@@ -163,7 +163,7 @@ impl packed::Byte32 {
         value
     }
 
-    /// Extracts block_number from a COLUMN_INDEX value (hash->number mapping).
+    /// Extracts block_number from a COLUMN_HASH_INDEX value (hash->number mapping).
     ///
     /// Expects value format: `Uint64 (8 bytes) + u8 (1 byte)`
     /// Returns None if value length is invalid.
@@ -174,7 +174,7 @@ impl packed::Byte32 {
         Some(BlockNumber::from_be_bytes(value[0..8].try_into().ok()?))
     }
 
-    /// Checks if block is on main chain from a COLUMN_INDEX value.
+    /// Checks if block is on main chain from a COLUMN_HASH_INDEX value.
     ///
     /// Expects value format: `Uint64 (8 bytes) + u8 (1 byte)`
     /// Returns None if value length is invalid, otherwise returns is_main_chain flag.
