@@ -80,6 +80,10 @@ impl RocksDB {
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
 
+            // Larger block size (8KB) for sequential key patterns
+            // Default is 4KB; larger blocks reduce index size and improve sequential read
+            block_opts.set_block_size(8 * 1024);
+
             match cache {
                 Some(ref cache) => {
                     block_opts.set_block_cache(cache);
@@ -94,7 +98,7 @@ impl RocksDB {
             if cf.name() == "2" {
                 block_opts.set_whole_key_filtering(false);
                 cf.options
-                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
+                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
             }
             cf.options.set_block_based_table_factory(&block_opts);
         }

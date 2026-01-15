@@ -22,7 +22,7 @@ level_compaction_dynamic_level_bytes=true
 # === Write Buffer (MemTable) Settings ===
 # Larger memtable (64MB) batches more sequential writes before flush
 # This reduces write amplification for sequential key patterns
-write_buffer_size=33554432
+write_buffer_size=67108864
 # Merge memtables before flush to reduce L0 files
 min_write_buffer_number_to_merge=2
 # Allow more concurrent memtables (one flushing, others accepting writes)
@@ -42,7 +42,7 @@ level0_stop_writes_trigger=36
 # === Target File Size ===
 # Larger SST files (64MB) reduce file count and metadata overhead
 # Good for sequential access patterns
-target_file_size_base=33554432
+target_file_size_base=67108864
 # Multiplier for file sizes at higher levels
 target_file_size_multiplier=1
 

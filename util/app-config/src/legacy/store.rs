@@ -22,7 +22,7 @@ const fn default_block_extensions_cache_size() -> usize {
 }
 
 const fn default_block_number_cache_size() -> usize {
-    4096
+    200_000
 }
 
 const fn default_freezer_enable() -> bool {
