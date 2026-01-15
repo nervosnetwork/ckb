@@ -80,12 +80,6 @@ impl RocksDB {
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
 
-            // Use default 4KB block size to avoid cache pressure and latency regressions.
-            block_opts.set_block_size(4 * 1024);
-
-            // Use latest SST format for better compression and features
-            block_opts.set_format_version(5);
-
             match cache {
                 Some(ref cache) => {
                     block_opts.set_block_cache(cache);
@@ -100,7 +94,7 @@ impl RocksDB {
             if cf.name() == "2" {
                 block_opts.set_whole_key_filtering(false);
                 cf.options
-                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
+                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
             }
             cf.options.set_block_based_table_factory(&block_opts);
         }
