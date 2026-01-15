@@ -6,6 +6,8 @@
 # Optimized for sequential key patterns (block_number prefix).
 
 [DBOptions]
+# Dump RocksDB stats every 60 seconds for benchmark analysis
+stats_dump_period_sec=60
 # Sync data to disk every 1MB to prevent data loss
 bytes_per_sync=1048576
 # Background threads for flush and compaction (adjust based on CPU cores)
