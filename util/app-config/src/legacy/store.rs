@@ -38,7 +38,7 @@ impl Default for crate::StoreConfig {
 impl Default for StoreConfig {
     fn default() -> Self {
         Self {
-            header_cache_size: 4096,
+            header_cache_size: 100_000,
             cell_data_cache_size: 128,
             block_proposals_cache_size: 30,
             block_tx_hashes_cache_size: 30,
