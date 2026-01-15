@@ -75,15 +75,13 @@ impl RocksDB {
             let mut block_opts = BlockBasedOptions::default();
             // Ribbon filter: space-efficient bloom filter alternative
             block_opts.set_ribbon_filter(10.0);
-            // Two-level index for large datasets (reduces memory usage)
-            block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
+            // Default index type performs better for typical read patterns here.
             block_opts.set_partition_filters(true);
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
 
-            // Larger block size (16KB) for sequential key patterns
-            // Default is 4KB; larger blocks reduce index size and improve sequential read
-            block_opts.set_block_size(16 * 1024);
+            // Use default 4KB block size to avoid cache pressure and latency regressions.
+            block_opts.set_block_size(4 * 1024);
 
             // Use latest SST format for better compression and features
             block_opts.set_format_version(5);
