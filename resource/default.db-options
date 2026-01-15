@@ -22,9 +22,9 @@ level_compaction_dynamic_level_bytes=true
 # === Write Buffer (MemTable) Settings ===
 # Larger memtable (64MB) batches more sequential writes before flush
 # This reduces write amplification for sequential key patterns
-write_buffer_size=67108864
+write_buffer_size=8388608
 # Merge memtables before flush to reduce L0 files
-min_write_buffer_number_to_merge=2
+min_write_buffer_number_to_merge=1
 # Allow more concurrent memtables (one flushing, others accepting writes)
 max_write_buffer_number=4
 # Maintain write buffer memory for transactions
