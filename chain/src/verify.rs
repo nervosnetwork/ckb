@@ -626,11 +626,12 @@ impl ConsumeUnverifiedBlockProcessor {
             .iter()
             .zip(fork.attached_blocks.iter().skip(verified_len))
         {
+            let block_start = minstant::Instant::now();
             if !switch.disable_all() {
                 if found_error.is_none() {
                     let log_now = std::time::Instant::now();
                     let resolved = self.resolve_block_transactions(&txn, b, &verify_context);
-                    debug!(
+                    info!(
                         "resolve_block_transactions {} cost: {:?}",
                         b.hash(),
                         log_now.elapsed()
@@ -647,7 +648,7 @@ impl ConsumeUnverifiedBlockProcessor {
                                 );
                                 let log_now = std::time::Instant::now();
                                 let verify_result = contextual_block_verifier.verify(&resolved, b);
-                                debug!(
+                                info!(
                                     "contextual_block_verifier {} cost: {:?}",
                                     b.hash(),
                                     log_now.elapsed()
@@ -656,6 +657,7 @@ impl ConsumeUnverifiedBlockProcessor {
                             };
                             match verified {
                                 Ok((cycles, cache_entries)) => {
+                                    let attach_start = minstant::Instant::now();
                                     let txs_sizes = resolved
                                         .iter()
                                         .map(|rtx| {
@@ -674,6 +676,11 @@ impl ConsumeUnverifiedBlockProcessor {
                                         Some(&cache_entries),
                                         Some(txs_sizes),
                                     )?;
+                                    info!(
+                                        "attach_block+mmr+insert_ext {} cost: {:?}",
+                                        b.hash(),
+                                        attach_start.elapsed()
+                                    );
 
                                     if !switch.disable_script() && b.transactions().len() > 1 {
                                         self.monitor_block_txs_verified(
@@ -700,12 +707,23 @@ impl ConsumeUnverifiedBlockProcessor {
                     self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
                 }
             } else {
+                let attach_start = minstant::Instant::now();
                 txn.attach_block(b)?;
                 attach_block_cell(&txn, b)?;
                 mmr.push(b.digest())
                     .map_err(|e| InternalErrorKind::MMR.other(e))?;
                 self.insert_ok_ext(&txn, &b.header().hash(), ext.clone(), None, None)?;
+                info!(
+                    "attach_block+mmr+insert_ext {} cost: {:?}",
+                    b.hash(),
+                    attach_start.elapsed()
+                );
             }
+            info!(
+                "reconcile_main_chain per-block {} total cost: {:?}",
+                b.hash(),
+                block_start.elapsed()
+            );
         }
 
         if let Some(err) = found_error {
