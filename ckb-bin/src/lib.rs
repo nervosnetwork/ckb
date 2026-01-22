@@ -128,12 +128,21 @@ fn run_app_inner(
     let is_silent_logging = is_silent_logging(cmd);
     let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime(None);
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
-    let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
+    let (_guard, log_config) = if cmd == cli::CMD_RUN {
+        SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging, false)?
+    } else {
+        SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging, true)?
+    };
 
     raise_fd_limit();
 
     let ret = match cmd {
-        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone()),
+        cli::CMD_RUN => subcommand::run(
+            setup.run(matches)?,
+            version,
+            handle.clone(),
+            log_config.unwrap(),
+        ),
         cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle.clone()),
         cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle.clone()),
         cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle.clone()),

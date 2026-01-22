@@ -22,6 +22,7 @@ ckb-tx-pool.workspace = true
 ckb-verification.workspace = true
 ckb-notify.workspace = true
 ckb-logger.workspace = true
+ckb-logger-service.workspace = true
 ckb-db-schema.workspace = true
 ckb-async-runtime.workspace = true
 ckb-stop-handler.workspace = true

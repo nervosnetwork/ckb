@@ -3,7 +3,7 @@ use broadcast::error::RecvError;
 use ckb_async_runtime::Handle;
 use ckb_jsonrpc_types::Topic;
 use ckb_logger::error;
-use ckb_notify::NOTIFY_CHANNEL_SIZE;
+use ckb_notify::{LogEntry, NOTIFY_CHANNEL_SIZE};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::new_tokio_exit_rx;
 use futures_util::{Stream, stream::BoxStream};
@@ -60,7 +60,7 @@ pub trait SubscriptionRpc {
     ///
     /// ###### Params
     ///
-    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
+    /// * `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction | logs)
     ///
     /// ###### Returns
     ///
@@ -119,6 +119,12 @@ pub trait SubscriptionRpc {
     ///
     /// -   the first item type is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html), and
     /// -   the second item type is [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
+    ///
+    /// ###### `log`
+    ///
+    /// Subscribers will get notified when a new log message is generated.
+    ///
+    /// The type of the `params.result` in the push message is [`LogEntry`](../../ckb_jsonrpc_types/struct.LogEntry.html).
     ///
     /// ###### Examples
     ///
@@ -191,6 +197,7 @@ pub struct SubscriptionRpcImpl {
     pub new_transaction_sender: broadcast::Sender<PublishMsg<String>>,
     pub proposed_transaction_sender: broadcast::Sender<PublishMsg<String>>,
     pub new_reject_transaction_sender: broadcast::Sender<PublishMsg<String>>,
+    pub log_sender: broadcast::Sender<PublishMsg<String>>,
 }
 
 macro_rules! publiser_send {
@@ -211,6 +218,7 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
             Topic::NewTransaction => self.new_transaction_sender.clone(),
             Topic::ProposedTransaction => self.proposed_transaction_sender.clone(),
             Topic::RejectedTransaction => self.new_reject_transaction_sender.clone(),
+            Topic::Log => self.log_sender.clone(),
         };
         let mut rx = tx.subscribe();
         Ok(Box::pin(async_stream::stream! {
@@ -231,6 +239,21 @@ impl SubscriptionRpc for SubscriptionRpcImpl {
     }
 }
 
+fn convert_log_entry(entry: LogEntry) -> ckb_jsonrpc_types::LogEntry {
+    use ckb_logger::Level;
+    let level = match entry.level {
+        Level::Error => ckb_jsonrpc_types::LogLevel::Error,
+        Level::Warn => ckb_jsonrpc_types::LogLevel::Warn,
+        Level::Info => ckb_jsonrpc_types::LogLevel::Info,
+        Level::Debug => ckb_jsonrpc_types::LogLevel::Debug,
+        Level::Trace => ckb_jsonrpc_types::LogLevel::Trace,
+    };
+    ckb_jsonrpc_types::LogEntry {
+        message: entry.message,
+        level,
+    }
+}
+
 impl SubscriptionRpcImpl {
     pub fn new(notify_controller: NotifyController, handle: Handle) -> Self {
         const SUBSCRIBER_NAME: &str = "TcpSubscription";
@@ -244,12 +267,15 @@ impl SubscriptionRpcImpl {
         );
         let mut reject_transaction_receiver = handle
             .block_on(notify_controller.subscribe_reject_transaction(SUBSCRIBER_NAME.to_string()));
+        let mut log_receiver =
+            handle.block_on(notify_controller.subscribe_log(SUBSCRIBER_NAME.to_string()));
 
         let (new_tip_header_sender, _) = broadcast::channel(NOTIFY_CHANNEL_SIZE);
         let (new_tip_block_sender, _) = broadcast::channel(NOTIFY_CHANNEL_SIZE);
         let (proposed_transaction_sender, _) = broadcast::channel(NOTIFY_CHANNEL_SIZE);
         let (new_transaction_sender, _) = broadcast::channel(NOTIFY_CHANNEL_SIZE);
         let (new_reject_transaction_sender, _) = broadcast::channel(NOTIFY_CHANNEL_SIZE);
+        let (log_sender, _) = broadcast::channel(NOTIFY_CHANNEL_SIZE);
 
         let stop_rx = new_tokio_exit_rx();
         handle.spawn({
@@ -258,6 +284,7 @@ impl SubscriptionRpcImpl {
             let new_transaction_sender = new_transaction_sender.clone();
             let proposed_transaction_sender = proposed_transaction_sender.clone();
             let new_reject_transaction_sender = new_reject_transaction_sender.clone();
+            let log_sender = log_sender.clone();
             async move {
                 loop {
                     tokio::select! {
@@ -275,7 +302,10 @@ impl SubscriptionRpcImpl {
                             publiser_send!((ckb_jsonrpc_types::PoolTransactionEntry, ckb_jsonrpc_types::PoolTransactionReject),
                                             (tx_entry.into(), reject.into()),
                                             new_reject_transaction_sender);
-                        }
+                        },
+                        Some(log_entry) = log_receiver.recv() => {
+                            publiser_send!(ckb_jsonrpc_types::LogEntry, convert_log_entry(log_entry), log_sender);
+                        },
                         _ = stop_rx.cancelled() => {
                             break;
                         },
@@ -294,6 +324,7 @@ impl SubscriptionRpcImpl {
             new_transaction_sender,
             proposed_transaction_sender,
             new_reject_transaction_sender,
+            log_sender,
         }
     }
 }
