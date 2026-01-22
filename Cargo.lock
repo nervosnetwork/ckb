@@ -1701,7 +1701,6 @@ dependencies = [
  "ckb-error",
  "ckb-fee-estimator",
  "ckb-logger",
- "ckb-logger-service",
  "ckb-metrics",
  "ckb-migrate",
  "ckb-notify",
