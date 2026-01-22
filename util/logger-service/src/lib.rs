@@ -220,13 +220,13 @@ impl Logger {
                             } else {
                                 "".to_owned()
                             };
-                            if let Some(notifier) = &notifier {
-                                notifier.notify_log(LogEntry {
-                                    level,
-                                    message: removed_color.clone(),
-                                });
-                            }
                             if is_match {
+                                if let Some(notifier) = &notifier {
+                                    notifier.notify_log(LogEntry {
+                                        level,
+                                        message: removed_color.clone(),
+                                    });
+                                }
                                 if main_logger.to_stdout {
                                     let output = if main_logger.color {
                                         data.as_str()
