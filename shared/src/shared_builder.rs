@@ -15,7 +15,7 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_fee_estimator::FeeEstimator;
 use ckb_logger::{error, info};
 use ckb_migrate::migrate::Migrate;
-use ckb_notify::{ NotifyController, NotifyService};
+use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
@@ -522,9 +522,7 @@ impl SharedPackage {
 }
 
 fn start_notify_service(notify_config: NotifyConfig, handle: Handle) -> NotifyController {
-    let notify_controller = NotifyService::new(notify_config, handle).start();
-
-    notify_controller
+    NotifyService::new(notify_config, handle).start()
 }
 
 fn build_store(

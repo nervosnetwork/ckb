@@ -188,7 +188,7 @@ impl NotifyService {
         let (log_register, mut log_register_receiver) = mpsc::channel(REGISTER_CHANNEL_SIZE);
         let (log_sender, mut log_receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
 
-        let stop_token_clone = stop_token.clone();
+        let stop_token_clone = stop_token;
         handle.spawn(async move {
             loop {
                 tokio::select! {

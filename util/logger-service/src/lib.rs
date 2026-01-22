@@ -222,7 +222,7 @@ impl Logger {
                             };
                             if let Some(notifier) = &notifier {
                                 notifier.notify_log(LogEntry {
-                                    level: level.clone(),
+                                    level,
                                     message: removed_color.clone(),
                                 });
                             }

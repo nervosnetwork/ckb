@@ -128,6 +128,7 @@ fn run_app_inner(
     let is_silent_logging = is_silent_logging(cmd);
     let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime(None);
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
+    // Disable logging here if the user is executing `ckb run`. Logs subscription of RPC service requires access to `struct Shared`, so logger of `ckb run` will be initialized in `subcommand::run`.
     let (_guard, log_config) = if cmd == cli::CMD_RUN {
         SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging, false)?
     } else {
