@@ -26,17 +26,6 @@ mod tests;
 static CONTROL_HANDLE: OnceLock<ckb_channel::Sender<Message>> = OnceLock::new();
 static FORMAT: OnceLock<Vec<FormatItem<'static>>> = OnceLock::new();
 static RE: OnceLock<regex::Regex> = OnceLock::new();
-// static LOG_CALLBACK: OnceLock<Option<Box<dyn Fn(String, Level) + Sync + Send>>> = OnceLock::new();
-
-// /**
-//  * Set a global callback function for logs.
-//  * When there is a new piece of log, the callback will be called
-//  */
-// pub fn set_global_log_callback(
-//     cb: Box<dyn Fn(String, Level) + Sync + Send>,
-// ) -> Result<(), Option<Box<dyn Fn(String, Level) + Send + Sync + 'static>>> {
-//     LOG_CALLBACK.set(Some(cb))
-// }
 
 enum Message {
     Record {
