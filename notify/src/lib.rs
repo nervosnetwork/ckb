@@ -584,6 +584,5 @@ impl NotifyController {
         let log_notifier = self.log_notifier.clone();
         // Ignore failures
         log_notifier.try_send(log_entry).ok();
-
     }
 }
