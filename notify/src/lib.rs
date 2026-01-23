@@ -449,15 +449,11 @@ impl NotifyService {
     }
 
     fn handle_notify_log(&self, log_entry: LogEntry) {
-        trace!("Log event {:?}", log_entry);
         for subscriber in self.log_subscribers.values() {
             let log_entry = log_entry.clone();
             let subscriber = subscriber.clone();
-            self.handle.spawn(async move {
-                // Silently ignore send errors to avoid potential infinite loops
-                // during shutdown when the log subscriber channel is closed.
-                let _ = subscriber.send(log_entry).await;
-            });
+            // Ignore failures
+            subscriber.try_send(log_entry).ok();
         }
     }
 }
@@ -585,17 +581,9 @@ impl NotifyController {
 
     /// Notifies all subscribers of a log entry.
     pub fn notify_log(&self, log_entry: LogEntry) {
-        // Don't spawn new tasks after the service has stopped.
-        // This prevents blocking tokio runtime shutdown.
-        // if self.stop_token.is_cancelled() {
-        //     return;
-        // }
         let log_notifier = self.log_notifier.clone();
-        self.handle.spawn(async move {
-            // Silently ignore channel closed errors during shutdown.
-            // This is expected because the log callback may still be triggered
-            // after NotifyService has stopped.
-            let _ = log_notifier.send(log_entry).await;
-        });
+        // Ignore failures
+        log_notifier.try_send(log_entry).ok();
+
     }
 }
