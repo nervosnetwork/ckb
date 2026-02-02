@@ -128,22 +128,21 @@ fn run_app_inner(
     let is_silent_logging = is_silent_logging(cmd);
     let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime(None);
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
-    // Disable logging here if the user is executing `ckb run`. Logs subscription of RPC service requires access to `struct Shared`, so logger of `ckb run` will be initialized in `subcommand::run`.
-    let (_guard, log_config) = if cmd == cli::CMD_RUN {
-        SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging, false)?
-    } else {
-        SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging, true)?
-    };
+    // Disable logging here if the user is executing `ckb run`.
+    // Logs subscription of RPC service requires access to `struct Shared`,
+    // so logger of `ckb run` will be initialized in `subcommand::run`.
+    let (_guard, log_config) = SetupGuard::from_setup(
+        &setup,
+        &version,
+        handle.clone(),
+        is_silent_logging,
+        cmd != cli::CMD_RUN,
+    )?;
 
     raise_fd_limit();
 
     let ret = match cmd {
-        cli::CMD_RUN => subcommand::run(
-            setup.run(matches)?,
-            version,
-            handle.clone(),
-            log_config.unwrap(),
-        ),
+        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone(), log_config),
         cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle.clone()),
         cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle.clone()),
         cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle.clone()),

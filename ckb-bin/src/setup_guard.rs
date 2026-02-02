@@ -23,7 +23,7 @@ impl SetupGuard {
         async_handle: Handle,
         silent_logging: bool,
         enable_logging: bool,
-    ) -> Result<(Self, Option<ckb_logger_config::Config>), ExitCode> {
+    ) -> Result<(Self, ckb_logger_config::Config), ExitCode> {
         // Initialization of logger must do before sentry, since `logger::init()` and
         // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
         // replaces all hooks previously registered.
@@ -78,7 +78,7 @@ impl SetupGuard {
                 _sentry_guard: sentry_guard,
                 _metrics_guard: metrics_guard,
             },
-            Some(setup.config.logger().to_owned()),
+            setup.config.logger().to_owned(),
         ))
     }
 
@@ -90,7 +90,7 @@ impl SetupGuard {
         silent_logging: bool,
         // For ckb run, logging can be disabled here, since it requires `Shared` to create a logger that will be used for `ckb run`
         enable_logging: bool,
-    ) -> Result<(Self, Option<ckb_logger_config::Config>), ExitCode> {
+    ) -> Result<(Self, ckb_logger_config::Config), ExitCode> {
         let logger_guard = if enable_logging {
             Some(if silent_logging {
                 ckb_logger_service::init_silent()?
@@ -114,7 +114,7 @@ impl SetupGuard {
                 _logger_guard: logger_guard,
                 _metrics_guard: metrics_guard,
             },
-            Some(setup.config.logger().to_owned()),
+            setup.config.logger().to_owned(),
         ))
     }
 }
