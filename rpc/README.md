@@ -5267,7 +5267,7 @@ Subscribes to a topic.
 
 ###### Params
 
-* `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction)
+* `topic` - Subscription topic (enum: new_tip_header | new_tip_block | new_transaction | proposed_transaction | rejected_transaction | logs)
 
 ###### Returns
 
@@ -5326,6 +5326,12 @@ The type of the `params.result` in the push message is a two-elements array, whe
 
 -   the first item type is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html), and
 -   the second item type is [`PoolTransactionReject`](../../ckb_jsonrpc_types/struct.PoolTransactionReject.html).
+
+###### `log`
+
+Subscribers will get notified when a new log message is generated.
+
+The type of the `params.result` in the push message is [`LogEntry`](../../ckb_jsonrpc_types/struct.LogEntry.html).
 
 ###### Examples
 
