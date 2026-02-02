@@ -2,8 +2,15 @@ use ckb_app_config::{ExitCode, ImportArgs};
 use ckb_async_runtime::Handle;
 use ckb_instrument::Import;
 use ckb_shared::SharedBuilder;
+use ckb_stop_handler::broadcast_exit_signals;
 
 pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
+    ctrlc::set_handler(|| {
+        eprintln!("Trapped exit signal, exiting...");
+        broadcast_exit_signals();
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let builder = SharedBuilder::new(
         &args.config.bin_name,
         args.config.root_dir.as_path(),
