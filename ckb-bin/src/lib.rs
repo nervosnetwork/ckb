@@ -18,6 +18,7 @@ use clap::ArgMatches;
 use helper::raise_fd_limit;
 use setup::Setup;
 use setup_guard::SetupGuard;
+use time::OffsetDateTime;
 
 #[cfg(not(target_os = "windows"))]
 use colored::Colorize;
@@ -27,6 +28,26 @@ use daemonize_me::Daemon;
 use subcommand::check_process;
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
+
+/// Print a log-like message to stderr.
+/// Format: `YYYY-MM-DD HH:MM:SS.mmm +00:00 thread_name INFO module  message`
+fn log_println(message: &str) {
+    let now = OffsetDateTime::now_utc();
+    let thread = std::thread::current();
+    let thread_name = thread.name().unwrap_or("main");
+    eprintln!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} +00:00 {} INFO ckb_bin  {}",
+        now.year(),
+        now.month() as u8,
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second(),
+        now.millisecond(),
+        thread_name,
+        message
+    );
+}
 
 /// The executable main entry.
 ///
@@ -159,9 +180,18 @@ fn run_app_inner(
         handle.drop_guard();
 
         tokio::task::block_in_place(|| {
-            info!("Waiting for all tokio tasks to exit...");
+            // Here we use `log_println` instead of `info!` because the Logger has already been
+            // shut down when `subcommand::run()` returned (LoggerGuard was dropped there).
+            //
+            // We cannot simply extend the LoggerGuard's lifetime to here because it would cause
+            // a deadlock: NotifyController (held by Logger's background thread) contains a clone
+            // of Handle, which holds a clone of `guard` (Sender). If LoggerGuard is not dropped
+            // before `handle_stop_rx.blocking_recv()`, the Logger thread won't terminate, and
+            // the Sender inside NotifyController won't be dropped, causing blocking_recv() to
+            // wait forever.
+            log_println("Waiting for all tokio tasks to exit...");
             handle_stop_rx.blocking_recv();
-            info!("All tokio tasks and threads have exited. CKB shutdown");
+            log_println("All tokio tasks and threads have exited. CKB shutdown");
         });
     }
 
