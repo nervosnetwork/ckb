@@ -17,7 +17,7 @@ use ckb_types::{
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 // always_failure, as the name implies, so it doesn't matter what the cycles are
 const ALWAYS_FAILURE_SCRIPT_CYCLE: u64 = 1000;
-// Timeout for waiting for transactions to be processed into tx pool
+// Timeout in seconds for waiting for transactions to be processed into tx pool
 const ORPHAN_TX_WAIT_TIMEOUT: u64 = 10;
 
 pub struct OrphanTxAccepted;
