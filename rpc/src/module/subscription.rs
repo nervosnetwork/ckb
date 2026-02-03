@@ -251,6 +251,8 @@ fn convert_log_entry(entry: LogEntry) -> ckb_jsonrpc_types::LogEntry {
     ckb_jsonrpc_types::LogEntry {
         message: entry.message,
         level,
+        date: entry.date,
+        target: entry.target,
     }
 }
 

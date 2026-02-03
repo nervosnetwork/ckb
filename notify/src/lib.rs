@@ -30,6 +30,10 @@ pub struct LogEntry {
     pub message: String,
     /// The log level.
     pub level: Level,
+    /// The log target
+    pub target: String,
+    /// The date
+    pub date: String,
 }
 
 /// Asynchronous request sent to the service.

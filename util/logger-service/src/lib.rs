@@ -33,6 +33,9 @@ enum Message {
         extras: Vec<String>,
         data: String,
         level: log::Level,
+        target: String,
+        date: String,
+        original_message: String,
     },
     UpdateMainLogger {
         filter: Option<Filter>,
@@ -200,6 +203,9 @@ impl Logger {
                             extras,
                             data,
                             level,
+                            target,
+                            date,
+                            original_message,
                         }) => {
                             let removed_color = if (is_match
                                 && (!main_logger.color || main_logger.to_file))
@@ -213,7 +219,9 @@ impl Logger {
                                 if let Some(notifier) = &notifier {
                                     notifier.notify_log(LogEntry {
                                         level,
-                                        message: removed_color.clone(),
+                                        message: original_message,
+                                        date,
+                                        target,
                                     });
                                 }
                                 if main_logger.to_stdout {
@@ -432,7 +440,7 @@ impl Log for Logger {
             if let Ok(dt) = utc.format(&fmt) {
                 let with_color = {
                     let thread_name = format!("{}", Paint::blue(thread_name).bold());
-                    let date = format!("{}", Paint::rgb(47, 79, 79, dt).bold()); // darkslategrey
+                    let date = format!("{}", Paint::rgb(47, 79, 79, &dt).bold()); // darkslategrey
                     format!(
                         "{} {} {} {}  {}",
                         date,
@@ -447,6 +455,9 @@ impl Log for Logger {
                     extras,
                     data: with_color,
                     level: record.level(),
+                    target: record.target().to_string(),
+                    date: dt,
+                    original_message: format!("{}", record.args()),
                 });
             }
         }

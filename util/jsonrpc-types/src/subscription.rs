@@ -25,6 +25,10 @@ pub struct LogEntry {
     pub message: String,
     /// The log level.
     pub level: LogLevel,
+    /// The log target
+    pub target: String,
+    /// The date
+    pub date: String,
 }
 
 /// Log level for log subscription.
