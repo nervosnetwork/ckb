@@ -807,6 +807,7 @@ dependencies = [
  "ckb-jsonrpc-types",
  "ckb-launcher",
  "ckb-logger",
+ "ckb-logger-config",
  "ckb-logger-service",
  "ckb-memory-tracker",
  "ckb-metrics-service",
@@ -833,6 +834,7 @@ dependencies = [
  "serde_json",
  "serde_plain",
  "tempfile",
+ "time",
  "tokio",
  "toml",
 ]
@@ -1248,6 +1250,7 @@ dependencies = [
  "ckb-channel",
  "ckb-logger",
  "ckb-logger-config",
+ "ckb-notify",
  "ckb-util",
  "env_logger",
  "log",

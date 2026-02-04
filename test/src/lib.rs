@@ -127,7 +127,7 @@ pub fn main_test() {
         } else {
             logger_config.log_to_file = false;
         }
-        ckb_logger_service::init(None, logger_config)
+        ckb_logger_service::init(None, logger_config, None)
             .unwrap_or_else(|err| panic!("failed to init the logger service since {err}"))
     };
 

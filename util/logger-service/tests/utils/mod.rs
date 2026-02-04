@@ -56,7 +56,7 @@ pub fn do_tests<F>(config: Config, func: F)
 where
     F: Fn(),
 {
-    let guard = ckb_logger_service::init(None, config).unwrap();
+    let guard = ckb_logger_service::init(None, config, None).unwrap();
     func();
     drop(guard);
 }
@@ -68,7 +68,7 @@ where
     unsafe {
         std::env::set_var(DEFAULT_LOG_ENV, env_filter);
     }
-    let guard = ckb_logger_service::init(Some(DEFAULT_LOG_ENV), config).unwrap();
+    let guard = ckb_logger_service::init(Some(DEFAULT_LOG_ENV), config, None).unwrap();
     func();
     drop(guard);
 }

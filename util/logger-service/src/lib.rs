@@ -2,6 +2,7 @@
 
 use backtrace::Backtrace;
 use ckb_channel::{self, unbounded};
+use ckb_notify::{LogEntry, NotifyController};
 use env_logger::filter::{Builder, Filter};
 use log::{LevelFilter, Log, Metadata, Record, SetLoggerError};
 use regex::Regex;
@@ -31,6 +32,10 @@ enum Message {
         is_match: bool,
         extras: Vec<String>,
         data: String,
+        level: log::Level,
+        target: String,
+        date: String,
+        original_message: String,
     },
     UpdateMainLogger {
         filter: Option<Filter>,
@@ -101,7 +106,7 @@ pub(crate) fn convert_compatible_crate_name(spec: &str) -> String {
 }
 
 impl Logger {
-    fn new(env_opt: Option<&str>, config: Config) -> Logger {
+    fn new(env_opt: Option<&str>, config: Config, notifier: Option<NotifyController>) -> Logger {
         for name in config.extra.keys() {
             if let Err(err) = Self::check_extra_logger_name(name) {
                 eprintln!("Error: {err}");
@@ -197,6 +202,10 @@ impl Logger {
                             is_match,
                             extras,
                             data,
+                            level,
+                            target,
+                            date,
+                            original_message,
                         }) => {
                             let removed_color = if (is_match
                                 && (!main_logger.color || main_logger.to_file))
@@ -207,6 +216,14 @@ impl Logger {
                                 "".to_owned()
                             };
                             if is_match {
+                                if let Some(notifier) = &notifier {
+                                    notifier.notify_log(LogEntry {
+                                        level,
+                                        message: original_message,
+                                        date,
+                                        target,
+                                    });
+                                }
                                 if main_logger.to_stdout {
                                     let output = if main_logger.color {
                                         data.as_str()
@@ -423,7 +440,7 @@ impl Log for Logger {
             if let Ok(dt) = utc.format(&fmt) {
                 let with_color = {
                     let thread_name = format!("{}", Paint::blue(thread_name).bold());
-                    let date = format!("{}", Paint::rgb(47, 79, 79, dt).bold()); // darkslategrey
+                    let date = format!("{}", Paint::rgb(47, 79, 79, &dt).bold()); // darkslategrey
                     format!(
                         "{} {} {} {}  {}",
                         date,
@@ -437,6 +454,10 @@ impl Log for Logger {
                     is_match,
                     extras,
                     data: with_color,
+                    level: record.level(),
+                    target: record.target().to_string(),
+                    date: dt,
+                    original_message: format!("{}", record.args()),
                 });
             }
         }
@@ -478,14 +499,18 @@ fn modify_logger_filter(filter: String) -> String {
 }
 
 /// Initializes the [Logger](struct.Logger.html) and run the logging service.
-pub fn init(env_opt: Option<&str>, config: Config) -> Result<LoggerInitGuard, SetLoggerError> {
+pub fn init(
+    env_opt: Option<&str>,
+    config: Config,
+    notifier: Option<NotifyController>,
+) -> Result<LoggerInitGuard, SetLoggerError> {
     setup_panic_logger();
     let mut config = config;
     if let Some(filter) = config.filter {
         config.filter = Some(modify_logger_filter(filter));
     };
 
-    let logger = Logger::new(env_opt, config);
+    let logger = Logger::new(env_opt, config, notifier);
     let filter = logger.filter();
     log::set_boxed_logger(Box::new(logger)).map(|_| {
         log::set_max_level(filter);
@@ -562,7 +587,7 @@ pub fn init_for_test(filter: &str) -> Result<LoggerInitGuard, SetLoggerError> {
         extra: Default::default(),
     };
 
-    let logger = Logger::new(None, config);
+    let logger = Logger::new(None, config, None);
     let filter = logger.filter();
     log::set_boxed_logger(Box::new(logger)).map(|_| {
         log::set_max_level(filter);

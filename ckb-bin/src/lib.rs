@@ -12,12 +12,13 @@ mod tests;
 use ckb_app_config::ExitCode;
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
-use ckb_logger::{debug, info};
+use ckb_logger::debug;
 use ckb_network::tokio;
 use clap::ArgMatches;
 use helper::raise_fd_limit;
 use setup::Setup;
 use setup_guard::SetupGuard;
+use time::OffsetDateTime;
 
 #[cfg(not(target_os = "windows"))]
 use colored::Colorize;
@@ -27,6 +28,26 @@ use daemonize_me::Daemon;
 use subcommand::check_process;
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
+
+/// Print a log-like message to stderr.
+/// Format: `YYYY-MM-DD HH:MM:SS.mmm +00:00 thread_name INFO module  message`
+fn log_println(message: &str) {
+    let now = OffsetDateTime::now_utc();
+    let thread = std::thread::current();
+    let thread_name = thread.name().unwrap_or("main");
+    eprintln!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} +00:00 {} INFO ckb_bin  {}",
+        now.year(),
+        now.month() as u8,
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second(),
+        now.millisecond(),
+        thread_name,
+        message
+    );
+}
 
 /// The executable main entry.
 ///
@@ -109,11 +130,11 @@ fn run_app_in_daemon(
 
     match daemon.start() {
         Ok(_) => {
-            info!("Success, daemonized ...");
+            ckb_logger::info!("Success, daemonized ...");
             run_app_inner(version, bin_name, cmd, matches)
         }
         Err(e) => {
-            info!("daemonize error: {}", e);
+            ckb_logger::info!("daemonize error: {}", e);
             Err(ExitCode::Failure)
         }
     }
@@ -128,12 +149,21 @@ fn run_app_inner(
     let is_silent_logging = is_silent_logging(cmd);
     let (mut handle, mut handle_stop_rx, _runtime) = new_global_runtime(None);
     let setup = Setup::from_matches(bin_name, cmd, matches)?;
-    let _guard = SetupGuard::from_setup(&setup, &version, handle.clone(), is_silent_logging)?;
+    // Disable logging here if the user is executing `ckb run`.
+    // Logs subscription of RPC service requires access to `struct Shared`,
+    // so logger of `ckb run` will be initialized in `subcommand::run`.
+    let (_guard, log_config) = SetupGuard::from_setup(
+        &setup,
+        &version,
+        handle.clone(),
+        is_silent_logging,
+        cmd != cli::CMD_RUN,
+    )?;
 
     raise_fd_limit();
 
     let ret = match cmd {
-        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone()),
+        cli::CMD_RUN => subcommand::run(setup.run(matches)?, version, handle.clone(), log_config),
         cli::CMD_MINER => subcommand::miner(setup.miner(matches)?, handle.clone()),
         cli::CMD_REPLAY => subcommand::replay(setup.replay(matches)?, handle.clone()),
         cli::CMD_EXPORT => subcommand::export(setup.export(matches)?, handle.clone()),
@@ -150,9 +180,18 @@ fn run_app_inner(
         handle.drop_guard();
 
         tokio::task::block_in_place(|| {
-            info!("Waiting for all tokio tasks to exit...");
+            // Here we use `log_println` instead of `info!` because the Logger has already been
+            // shut down when `subcommand::run()` returned (LoggerGuard was dropped there).
+            //
+            // We cannot simply extend the LoggerGuard's lifetime to here because it would cause
+            // a deadlock: NotifyController (held by Logger's background thread) contains a clone
+            // of Handle, which holds a clone of `guard` (Sender). If LoggerGuard is not dropped
+            // before `handle_stop_rx.blocking_recv()`, the Logger thread won't terminate, and
+            // the Sender inside NotifyController won't be dropped, causing blocking_recv() to
+            // wait forever.
+            log_println("Waiting for all tokio tasks to exit...");
             handle_stop_rx.blocking_recv();
-            info!("All tokio tasks and threads have exited. CKB shutdown");
+            log_println("All tokio tasks and threads have exited. CKB shutdown");
         });
     }
 

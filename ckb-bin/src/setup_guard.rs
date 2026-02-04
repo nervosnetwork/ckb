@@ -6,10 +6,10 @@ use ckb_metrics_service::{self, Guard as MetricsInitGuard};
 
 use crate::setup::Setup;
 
-const CKB_LOG_ENV: &str = "CKB_LOG";
+pub const CKB_LOG_ENV: &str = "CKB_LOG";
 
 pub struct SetupGuard {
-    _logger_guard: LoggerInitGuard,
+    _logger_guard: Option<LoggerInitGuard>,
     #[cfg(feature = "with_sentry")]
     _sentry_guard: Option<sentry::ClientInitGuard>,
     _metrics_guard: MetricsInitGuard,
@@ -22,18 +22,23 @@ impl SetupGuard {
         version: &Version,
         async_handle: Handle,
         silent_logging: bool,
-    ) -> Result<Self, ExitCode> {
+        enable_logging: bool,
+    ) -> Result<(Self, ckb_logger_config::Config), ExitCode> {
         // Initialization of logger must do before sentry, since `logger::init()` and
         // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
         // replaces all hooks previously registered.
-        let logger_guard = if silent_logging {
-            ckb_logger_service::init_silent()?
+        let logger_guard = if enable_logging {
+            Some(if silent_logging {
+                ckb_logger_service::init_silent()?
+            } else {
+                let mut logger_config = setup.config.logger().to_owned();
+                if logger_config.emit_sentry_breadcrumbs.is_none() {
+                    logger_config.emit_sentry_breadcrumbs = Some(setup.is_sentry_enabled);
+                }
+                ckb_logger_service::init(Some(CKB_LOG_ENV), logger_config, None)?
+            })
         } else {
-            let mut logger_config = setup.config.logger().to_owned();
-            if logger_config.emit_sentry_breadcrumbs.is_none() {
-                logger_config.emit_sentry_breadcrumbs = Some(setup.is_sentry_enabled);
-            }
-            ckb_logger_service::init(Some(CKB_LOG_ENV), logger_config)?
+            None
         };
 
         let sentry_guard = if setup.is_sentry_enabled {
@@ -67,11 +72,14 @@ impl SetupGuard {
                 ExitCode::Config
             })?;
 
-        Ok(Self {
-            _logger_guard: logger_guard,
-            _sentry_guard: sentry_guard,
-            _metrics_guard: metrics_guard,
-        })
+        Ok((
+            Self {
+                _logger_guard: logger_guard,
+                _sentry_guard: sentry_guard,
+                _metrics_guard: metrics_guard,
+            },
+            setup.config.logger().to_owned(),
+        ))
     }
 
     #[cfg(not(feature = "with_sentry"))]
@@ -80,12 +88,18 @@ impl SetupGuard {
         _version: &Version,
         async_handle: Handle,
         silent_logging: bool,
-    ) -> Result<Self, ExitCode> {
-        let logger_guard = if silent_logging {
-            ckb_logger_service::init_silent()?
+        // For ckb run, logging can be disabled here, since it requires `Shared` to create a logger that will be used for `ckb run`
+        enable_logging: bool,
+    ) -> Result<(Self, ckb_logger_config::Config), ExitCode> {
+        let logger_guard = if enable_logging {
+            Some(if silent_logging {
+                ckb_logger_service::init_silent()?
+            } else {
+                let logger_config = setup.config.logger().to_owned();
+                ckb_logger_service::init(Some(CKB_LOG_ENV), logger_config, None)?
+            })
         } else {
-            let logger_config = setup.config.logger().to_owned();
-            ckb_logger_service::init(Some(CKB_LOG_ENV), logger_config)?
+            None
         };
 
         let metrics_config = setup.config.metrics().to_owned();
@@ -95,9 +109,12 @@ impl SetupGuard {
                 ExitCode::Config
             })?;
 
-        Ok(Self {
-            _logger_guard: logger_guard,
-            _metrics_guard: metrics_guard,
-        })
+        Ok((
+            Self {
+                _logger_guard: logger_guard,
+                _metrics_guard: metrics_guard,
+            },
+            setup.config.logger().to_owned(),
+        ))
     }
 }

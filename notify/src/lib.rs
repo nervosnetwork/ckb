@@ -5,7 +5,7 @@
 //! notifications about these events asynchronously.
 use ckb_app_config::NotifyConfig;
 use ckb_async_runtime::Handle;
-use ckb_logger::{debug, error, info, trace};
+use ckb_logger::{Level, debug, error, info, trace};
 use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_types::packed::Byte32;
 use ckb_types::{
@@ -22,6 +22,19 @@ use tokio::sync::{
 use tokio::time::timeout;
 
 pub use ckb_types::core::tx_pool::PoolTransactionEntry;
+
+/// A log entry containing the message and log level.
+#[derive(Clone, Debug)]
+pub struct LogEntry {
+    /// The log message.
+    pub message: String,
+    /// The log level.
+    pub level: Level,
+    /// The log target
+    pub target: String,
+    /// The date
+    pub date: String,
+}
 
 /// Asynchronous request sent to the service.
 pub struct Request<A, R> {
@@ -106,6 +119,8 @@ pub struct NotifyController {
     reject_transaction_notifier: Sender<(PoolTransactionEntry, Reject)>,
     network_alert_register: NotifyRegister<Alert>,
     network_alert_notifier: Sender<Alert>,
+    log_register: NotifyRegister<LogEntry>,
+    log_notifier: Sender<LogEntry>,
     handle: Handle,
 }
 
@@ -120,6 +135,7 @@ pub struct NotifyService {
     proposed_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
     reject_transaction_subscribers: HashMap<String, Sender<(PoolTransactionEntry, Reject)>>,
     network_alert_subscribers: HashMap<String, Sender<Alert>>,
+    log_subscribers: HashMap<String, Sender<LogEntry>>,
     timeout: NotifyTimeout,
     handle: Handle,
 }
@@ -137,6 +153,7 @@ impl NotifyService {
             proposed_transaction_subscribers: HashMap::default(),
             reject_transaction_subscribers: HashMap::default(),
             network_alert_subscribers: HashMap::default(),
+            log_subscribers: HashMap::default(),
             timeout,
             handle,
         }
@@ -144,7 +161,7 @@ impl NotifyService {
 
     /// start background tokio spawned task.
     pub fn start(mut self) -> NotifyController {
-        let signal_receiver: CancellationToken = new_tokio_exit_rx();
+        let stop_token: CancellationToken = new_tokio_exit_rx();
         let handle = self.handle.clone();
 
         let (new_block_register, mut new_block_register_receiver) =
@@ -172,6 +189,10 @@ impl NotifyService {
             mpsc::channel(REGISTER_CHANNEL_SIZE);
         let (network_alert_sender, mut network_alert_receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
 
+        let (log_register, mut log_register_receiver) = mpsc::channel(REGISTER_CHANNEL_SIZE);
+        let (log_sender, mut log_receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
+
+        let stop_token_clone = stop_token;
         handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -186,7 +207,9 @@ impl NotifyService {
                     Some(msg) = reject_transaction_receiver.recv() => { self.handle_notify_reject_transaction(msg) },
                     Some(msg) = network_alert_register_receiver.recv() => { self.handle_register_network_alert(msg) },
                     Some(msg) = network_alert_receiver.recv() => { self.handle_notify_network_alert(msg) },
-                    _ = signal_receiver.cancelled() => {
+                    Some(msg) = log_register_receiver.recv() => { self.handle_register_log(msg) },
+                    Some(msg) = log_receiver.recv() => { self.handle_notify_log(msg) },
+                    _ = stop_token_clone.cancelled() => {
                         info!("NotifyService received exit signal, exit now");
                         break;
                     }
@@ -207,6 +230,8 @@ impl NotifyService {
             reject_transaction_notifier: reject_transaction_sender,
             network_alert_register,
             network_alert_notifier: network_alert_sender,
+            log_register,
+            log_notifier: log_sender,
             handle,
         }
     }
@@ -415,6 +440,26 @@ impl NotifyService {
             });
         }
     }
+
+    fn handle_register_log(&mut self, msg: Request<String, Receiver<LogEntry>>) {
+        let Request {
+            responder,
+            arguments: name,
+        } = msg;
+        debug!("Register log {:?}", name);
+        let (sender, receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
+        self.log_subscribers.insert(name, sender);
+        let _ = responder.send(receiver);
+    }
+
+    fn handle_notify_log(&self, log_entry: LogEntry) {
+        for subscriber in self.log_subscribers.values() {
+            let log_entry = log_entry.clone();
+            let subscriber = subscriber.clone();
+            // Ignore failures
+            subscriber.try_send(log_entry).ok();
+        }
+    }
 }
 
 impl NotifyController {
@@ -527,5 +572,21 @@ impl NotifyController {
                 error!("notify_network_alert channel is closed: {}", e);
             }
         });
+    }
+
+    /// Subscribes to log notifications with the given name.
+    ///
+    /// Returns a receiver channel that will receive log events.
+    pub async fn subscribe_log<S: ToString>(&self, name: S) -> Receiver<LogEntry> {
+        Request::call(&self.log_register, name.to_string())
+            .await
+            .expect("Subscribe log should be OK")
+    }
+
+    /// Notifies all subscribers of a log entry.
+    pub fn notify_log(&self, log_entry: LogEntry) {
+        let log_notifier = self.log_notifier.clone();
+        // Ignore failures
+        log_notifier.try_send(log_entry).ok();
     }
 }

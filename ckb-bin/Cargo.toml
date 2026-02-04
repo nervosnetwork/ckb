@@ -40,6 +40,7 @@ ckb-async-runtime.workspace = true
 ckb-migrate.workspace = true
 ckb-launcher.workspace = true
 ckb-constant.workspace = true
+ckb-logger-config.workspace = true
 base64.workspace = true
 tempfile.workspace = true
 rayon.workspace = true
@@ -48,6 +49,7 @@ is-terminal.workspace = true
 fdlimit.workspace = true
 ckb-stop-handler.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+time = { workspace = true }
 
 [target.'cfg(not(target_os="windows"))'.dependencies]
 daemonize-me = { version = "2" }
