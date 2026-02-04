@@ -12,7 +12,7 @@ mod tests;
 use ckb_app_config::ExitCode;
 use ckb_async_runtime::new_global_runtime;
 use ckb_build_info::Version;
-use ckb_logger::{debug, info};
+use ckb_logger::debug;
 use ckb_network::tokio;
 use clap::ArgMatches;
 use helper::raise_fd_limit;
@@ -130,11 +130,11 @@ fn run_app_in_daemon(
 
     match daemon.start() {
         Ok(_) => {
-            info!("Success, daemonized ...");
+            ckb_logger::info!("Success, daemonized ...");
             run_app_inner(version, bin_name, cmd, matches)
         }
         Err(e) => {
-            info!("daemonize error: {}", e);
+            ckb_logger::info!("daemonize error: {}", e);
             Err(ExitCode::Failure)
         }
     }
