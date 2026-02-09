@@ -2,9 +2,12 @@ use ckb_types::{H256, U256};
 use multiaddr::Multiaddr;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::{Error, ErrorKind, Read, Write};
-use std::path::PathBuf;
+use std::{
+    fs,
+    io::{Error, ErrorKind, Read, Write},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    path::PathBuf,
+};
 use ubyte::ByteUnit;
 
 // Max data size in send buffer: 24MB (a little larger than max frame length)
@@ -91,6 +94,9 @@ pub struct Config {
     pub disable_block_relay_only_connection: bool,
     /// Tentacle inner channel_size.
     pub channel_size: Option<usize>,
+    /// A list of trusted proxies' IP addresses.
+    #[serde(default = "default_trusted_proxies")]
+    pub trusted_proxies: Vec<IpAddr>,
     #[cfg(target_family = "wasm")]
     #[serde(skip)]
     pub secret_key: [u8; 32],
@@ -156,6 +162,13 @@ fn default_tor_controller() -> String {
 /// By default, use port 8115 for onion service
 fn default_onion_external_port() -> u16 {
     8115
+}
+
+fn default_trusted_proxies() -> Vec<IpAddr> {
+    vec![
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+    ]
 }
 
 /// Chain synchronization config options.

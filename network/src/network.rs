@@ -977,7 +977,8 @@ impl NetworkService {
             .set_send_buffer_size(config.max_send_buffer())
             .set_channel_size(config.channel_size())
             .timeout(Duration::from_secs(5))
-            .onion_timeout(Duration::from_secs(120));
+            .onion_timeout(Duration::from_secs(120))
+            .trusted_proxies(config.trusted_proxies.clone());
 
         #[cfg(not(target_family = "wasm"))]
         {
