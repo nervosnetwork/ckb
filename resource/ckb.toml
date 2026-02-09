@@ -111,6 +111,11 @@ bootnode_mode = false
 # Supported protocols list, only "Sync" and "Identify" are mandatory, others are optional
 support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "Alert", "LightClient", "Filter", "HolePunching"]
 
+### A list of trusted proxies' IP addresses.
+### When a peer connects through a trusted proxy, the proxy's IP address will be parsed by haproxy protocol and used
+### default use with [IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)]
+# trusted_proxies = []
+
 # [network.sync.header_map]
 # memory_limit = "256MB"
 
