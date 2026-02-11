@@ -8,8 +8,14 @@ use ckb_types::{
     core::{EpochNumberWithFraction, HeaderBuilder},
     packed::Header,
 };
+use std::sync::Mutex;
 
 use super::BuilderBaseOnBlockNumber;
+
+// `ckb_systemtime::faketime()` manipulates global statics (`FAKETIME` / `FAKETIME_ENABLED`).
+// When a `FaketimeGuard` is dropped it disables faketime **process-wide**, which causes
+// data races when multiple timestamp tests run in parallel.  Serialise them with a mutex.
+static FAKETIME_LOCK: Mutex<()> = Mutex::new(());
 
 fn mock_median_time_context() -> MockMedianTime {
     let now = unix_time_as_millis();
@@ -19,6 +25,7 @@ fn mock_median_time_context() -> MockMedianTime {
 
 #[test]
 fn test_timestamp() {
+    let _lock = FAKETIME_LOCK.lock().unwrap();
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
@@ -39,6 +46,7 @@ fn test_timestamp() {
 
 #[test]
 fn test_timestamp_too_old() {
+    let _lock = FAKETIME_LOCK.lock().unwrap();
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
@@ -67,6 +75,7 @@ fn test_timestamp_too_old() {
 
 #[test]
 fn test_timestamp_too_new() {
+    let _lock = FAKETIME_LOCK.lock().unwrap();
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
@@ -214,4 +223,35 @@ fn test_pow_verifier() {
     let verifier = PowVerifier::new(&header, fake_pow_engine);
 
     assert_error_eq!(verifier.verify().unwrap_err(), PowError::InvalidNonce);
+}
+
+#[test]
+fn test_timestamp_at_boundary() {
+    let _lock = FAKETIME_LOCK.lock().unwrap();
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(100_000);
+    let fake_block_median_time_context = mock_median_time_context();
+    let parent_hash = fake_block_median_time_context.get_block_hash(99);
+
+    // Exactly at the allowed future blocktime boundary should pass
+    let timestamp = unix_time_as_millis() + ALLOWED_FUTURE_BLOCKTIME;
+    let header = HeaderBuilder::new_with_number(100)
+        .parent_hash(parent_hash)
+        .timestamp(timestamp)
+        .build();
+    let timestamp_verifier = TimestampVerifier::new(
+        &fake_block_median_time_context,
+        &header,
+        MOCK_MEDIAN_TIME_COUNT,
+    );
+
+    assert!(timestamp_verifier.verify().is_ok());
+}
+
+#[test]
+fn test_correct_number() {
+    let header = HeaderBuilder::new_with_number(11).build();
+
+    let verifier = NumberVerifier::new(10, &header);
+    assert!(verifier.verify().is_ok());
 }

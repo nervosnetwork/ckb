@@ -523,3 +523,90 @@ pub fn test_max_proposals_limit_verifier() {
         );
     }
 }
+
+#[test]
+pub fn test_block_with_only_cellbase() {
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(create_cellbase_transaction())
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert!(verifier.verify(&block).is_ok());
+}
+
+#[test]
+pub fn test_proposals_hash_mismatch() {
+    // Build a block normally to get the correct transactions_root
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(create_cellbase_transaction())
+        .proposal(ProposalShortId::zero())
+        .build();
+
+    // Now rebuild with correct transactions_root but wrong proposals_hash
+    let header = block
+        .header()
+        .as_advanced_builder()
+        .proposals_hash(h256!("0x1"))
+        .build();
+    let block = block
+        .as_advanced_builder()
+        .header(header)
+        .build_unchecked();
+
+    let verifier = MerkleRootVerifier::new();
+    assert_error_eq!(
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::ProposalTransactionsHash,
+    );
+}
+
+#[test]
+pub fn test_cellbase_with_type_script() {
+    let cellbase = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(MOCK_BLOCK_NUMBER))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100))
+                .type_(
+                    Some(Script::default()).pack(),
+                )
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .witness(Script::default().into_witness())
+        .build();
+
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(cellbase)
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert_error_eq!(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidTypeScript,
+    );
+}
+
+#[test]
+pub fn test_block_no_duplicated_transactions() {
+    let cellbase = create_cellbase_transaction();
+    let tx = create_normal_transaction();
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .transaction(cellbase)
+        .transaction(tx)
+        .build();
+
+    let verifier = DuplicateVerifier::new();
+    assert!(verifier.verify(&block).is_ok());
+}
+
+#[test]
+pub fn test_block_no_duplicated_proposals() {
+    let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
+        .proposal(ProposalShortId::zero())
+        .proposal([1u8; 10])
+        .build();
+
+    let verifier = DuplicateVerifier::new();
+    assert!(verifier.verify(&block).is_ok());
+}
