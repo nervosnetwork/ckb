@@ -187,9 +187,9 @@ listen_address = "127.0.0.1:8114" # {{
 max_request_body_size = 10485760
 
 # List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Indexer", "RichIndexer", "Terminal"]
-modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment"] # {{
-# dev => modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug"]
-# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest"]
+modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Terminal"] # {{
+# dev => modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Subscription", "Experiment", "Debug", "Terminal"]
+# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest", "Terminal"]
 # }}
 
 # By default RPC only binds to HTTP service, you can bind it to TCP and WebSocket.

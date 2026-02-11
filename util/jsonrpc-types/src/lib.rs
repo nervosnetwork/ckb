@@ -55,7 +55,8 @@ pub use self::pool::{
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::subscription::{LogEntry, LogLevel, Topic};
 pub use self::terminal::{
-    CellsInfo, Disk, DiskUsage, Global, MiningInfo, Network, Overview, SysInfo, TerminalPoolInfo,
+    CellsInfo, Disk, DiskUsage, Global, MiningInfo, Network, NetworkInfo, Overview, PeerInfo,
+    SysInfo, TerminalPoolInfo,
 };
 pub use self::uints::{Uint32, Uint64, Uint128};
 pub use ckb_types::core::RationalU256;

@@ -57,6 +57,7 @@ ckb-async-runtime.workspace = true
 schemars.workspace = true
 sysinfo.workspace = true
 bitflags.workspace = true
+lru.workspace = true
 
 
 [dev-dependencies]

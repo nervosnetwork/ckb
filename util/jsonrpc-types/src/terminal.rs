@@ -15,6 +15,8 @@ pub struct Overview {
     pub pool: TerminalPoolInfo,
     /// Cells information.
     pub cells: CellsInfo,
+    /// Network peer latency information.
+    pub network: NetworkInfo,
     /// CKB node version.
     ///
     /// Example: "version": "0.34.0 (f37f598 2020-07-17)"
@@ -64,7 +66,7 @@ pub struct Disk {
 }
 
 /// Struct containing read and written bytes.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Default)]
 pub struct DiskUsage {
     /// Total number of written bytes.
     pub total_written_bytes: u64,
@@ -137,6 +139,32 @@ pub struct TerminalPoolInfo {
     pub last_txs_updated_at: Timestamp,
 }
 
+/// Individual peer connection information.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct PeerInfo {
+    /// Unique identifier for peer
+    pub peer_id: usize,
+    /// Whether this is an outbound connection
+    pub is_outbound: bool,
+    /// Round-trip time in milliseconds for this peer (0 if not available)
+    pub latency_ms: Uint64,
+    /// Peer address
+    pub address: String,
+}
+
+/// Network peer latency information.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct NetworkInfo {
+    /// Total number of connected peers
+    pub connected_peers: Uint64,
+    /// Number of outbound connections
+    pub outbound_peers: Uint64,
+    /// Number of inbound connections
+    pub inbound_peers: Uint64,
+    /// List of individual peer information with their latencies
+    pub peers: Vec<PeerInfo>,
+}
+
 /// Cells information.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CellsInfo {
@@ -144,4 +172,84 @@ pub struct CellsInfo {
     pub estimate_live_cells_num: Uint64,
     ///  The total occupied capacities currently in the CKB
     pub total_occupied_capacities: Capacity,
+}
+
+impl Default for CellsInfo {
+    fn default() -> Self {
+        Self {
+            estimate_live_cells_num: 0u64.into(),
+            total_occupied_capacities: 0u64.into(),
+        }
+    }
+}
+
+impl Default for TerminalPoolInfo {
+    fn default() -> Self {
+        Self {
+            pending: 0u64.into(),
+            proposed: 0u64.into(),
+            orphan: 0u64.into(),
+            committing: 0u64.into(),
+            total_recent_reject_num: 0u64.into(),
+            total_tx_size: 0u64.into(),
+            total_tx_cycles: 0u64.into(),
+            max_tx_pool_size: 0u64.into(),
+            last_txs_updated_at: 0u64.into(),
+        }
+    }
+}
+
+impl Default for MiningInfo {
+    fn default() -> Self {
+        Self {
+            difficulty: U256::zero(),
+            hash_rate: U256::zero(),
+        }
+    }
+}
+
+impl Default for SysInfo {
+    fn default() -> Self {
+        Self {
+            global: Global::default(),
+            cpu_usage: 0.0,
+            memory: 0,
+            virtual_memory: 0,
+            disk_usage: DiskUsage::default(),
+        }
+    }
+}
+
+impl Default for Global {
+    fn default() -> Self {
+        Self {
+            total_memory: 0,
+            used_memory: 0,
+            global_cpu_usage: 0.0,
+            disks: Vec::new(),
+            networks: Vec::new(),
+        }
+    }
+}
+
+impl Default for PeerInfo {
+    fn default() -> Self {
+        Self {
+            peer_id: 0,
+            is_outbound: false,
+            latency_ms: 0u64.into(),
+            address: String::new(),
+        }
+    }
+}
+
+impl Default for NetworkInfo {
+    fn default() -> Self {
+        Self {
+            connected_peers: 0u64.into(),
+            outbound_peers: 0u64.into(),
+            inbound_peers: 0u64.into(),
+            peers: Vec::new(),
+        }
+    }
 }

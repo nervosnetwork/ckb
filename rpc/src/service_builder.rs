@@ -204,6 +204,7 @@ impl<'a> ServiceBuilder<'a> {
         let methods = TerminalRpcImpl {
             shared,
             network_controller,
+            cache: crate::module::TerminalCache::new(),
         };
         set_rpc_module_methods!(
             self,

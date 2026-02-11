@@ -128,6 +128,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
         * [Method `subscribe`](#subscription-subscribe)
         * [Method `unsubscribe`](#subscription-unsubscribe)
+    * [Module Terminal](#module-terminal) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Terminal&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/terminal_rpc_doc.json)
+
+        * [Method `get_overview`](#terminal-get_overview)
 * [RPC Types](#rpc-types)
 
     * [Type `Alert`](#type-alert)
@@ -157,6 +160,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `CellOutput`](#type-celloutput)
     * [Type `CellWithStatus`](#type-cellwithstatus)
     * [Type `CellbaseTemplate`](#type-cellbasetemplate)
+    * [Type `CellsInfo`](#type-cellsinfo)
     * [Type `ChainInfo`](#type-chaininfo)
     * [Type `Consensus`](#type-consensus)
     * [Type `Cycle`](#type-cycle)
@@ -166,6 +170,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `DeploymentInfo`](#type-deploymentinfo)
     * [Type `DeploymentState`](#type-deploymentstate)
     * [Type `DeploymentsInfo`](#type-deploymentsinfo)
+    * [Type `Disk`](#type-disk)
+    * [Type `DiskUsage`](#type-diskusage)
     * [Type `EntryCompleted`](#type-entrycompleted)
     * [Type `EpochNumber`](#type-epochnumber)
     * [Type `EpochNumber`](#type-epochnumber)
@@ -175,6 +181,7 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `EstimateMode`](#type-estimatemode)
     * [Type `ExtraLoggerConfig`](#type-extraloggerconfig)
     * [Type `FeeRateStatistics`](#type-feeratestatistics)
+    * [Type `Global`](#type-global)
     * [Type `H256`](#type-h256)
     * [Type `HardForkFeature`](#type-hardforkfeature)
     * [Type `HardForks`](#type-hardforks)
@@ -201,9 +208,14 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `MainLoggerConfig`](#type-mainloggerconfig)
     * [Type `MerkleProof`](#type-merkleproof)
     * [Type `MinerReward`](#type-minerreward)
+    * [Type `MiningInfo`](#type-mininginfo)
+    * [Type `Network`](#type-network)
+    * [Type `NetworkInfo`](#type-networkinfo)
     * [Type `NodeAddress`](#type-nodeaddress)
     * [Type `OutPoint`](#type-outpoint)
     * [Type `OutputsValidator`](#type-outputsvalidator)
+    * [Type `Overview`](#type-overview)
+    * [Type `PeerInfo`](#type-peerinfo)
     * [Type `PeerSyncState`](#type-peersyncstate)
     * [Type `PoolTransactionReject`](#type-pooltransactionreject)
     * [Type `PoolTxDetailInfo`](#type-pooltxdetailinfo)
@@ -226,6 +238,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `SoftForkStatus`](#type-softforkstatus)
     * [Type `Status`](#type-status)
     * [Type `SyncState`](#type-syncstate)
+    * [Type `SysInfo`](#type-sysinfo)
+    * [Type `TerminalPoolInfo`](#type-terminalpoolinfo)
     * [Type `Timestamp`](#type-timestamp)
     * [Type `Transaction`](#type-transaction)
     * [Type `TransactionAndWitnessProof`](#type-transactionandwitnessproof)
@@ -5394,6 +5408,187 @@ Unsubscribe Response
 ```
 
 
+### Module `Terminal`
+- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Terminal&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/terminal_rpc_doc.json)
+
+
+RPC Terminal Module, specifically designed for TUI (Terminal User Interface) applications.
+
+This module provides optimized endpoints for terminal-based monitoring tools and dashboards,
+with intelligent caching to minimize performance impact while providing real-time insights.
+
+# Intended Use Cases
+
+- **TUI Monitoring Dashboards**: Real-time node status displays in terminal environments
+- **System Administration**: Command-line tools for node health monitoring
+- **Resource Monitoring**: Tracking system resource usage over time
+- **Network Diagnostics**: Monitoring peer connectivity and performance
+
+# Performance Considerations
+
+The module uses a multi-tiered caching strategy with TTLs optimized for different data
+change frequencies. For frequent monitoring calls, use cached data (refresh: null) to
+minimize system load. Force refresh only when real-time accuracy is critical.
+
+# Refresh Flags Guide
+
+Use RefreshKind bit flags strategically:
+- **Monitoring Mode**: Use `null` or `0` for cached data (recommended)
+- **Diagnostics Mode**: Use specific flags to refresh relevant data only
+- **Full Sync**: Use `EVERYTHING` (31) for complete data refresh
+
+<a id="terminal-get_overview"></a>
+#### Method `get_overview`
+* `get_overview(refresh)`
+    * `refresh`: `integer` `|` `null`
+* result: [`Overview`](#type-overview)
+
+Returns a comprehensive overview of CKB node status for TUI applications.
+
+This method aggregates system metrics, mining information, transaction pool status,
+cells statistics, and network peer information into a single response, optimized
+for terminal-based monitoring interfaces.
+
+###### Params
+
+* `refresh` - Optional bit flags to force refresh specific cached data types.
+  Use `RefreshKind` bit flags to control which data to refresh:
+  - `0x1` (SYSTEM_INFO): Force refresh system information (CPU, memory, disk, network)
+  - `0x2` (MINING_INFO): Force refresh mining information (difficulty, hash rate)
+  - `0x4` (TX_POOL_INFO): Force refresh transaction pool information
+  - `0x8` (CELLS_INFO): Force refresh cells information
+  - `0x10` (NETWORK_INFO): Force refresh network peer latency information
+  - `0x1F` (EVERYTHING): Force refresh all cached data
+  - `null` or `0`: Use cached data when available (recommended for frequent calls)
+
+###### Returns
+
+Returns an `Overview` structure containing:
+- System information (CPU, memory, disk, network metrics)
+- Mining information (network difficulty and hash rate)
+- Transaction pool statistics
+- Blockchain cells information
+- Network peer connectivity and latency data
+- CKB node version
+
+###### Cache Behavior
+
+Data is cached with different TTL values to balance freshness with performance:
+- System info: 5 seconds (changes frequently)
+- Mining info: 10 seconds (moderate change frequency)
+- Transaction pool: 2 seconds (highly dynamic)
+- Cells info: 30 seconds (relatively static)
+- Network info: 10 seconds (moderate change frequency)
+
+###### Examples
+
+Get overview using cached data:
+
+Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "get_overview",
+  "params": [null],
+  "id": 1
+}
+```
+
+Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "sys": {
+      "cpu_usage": 25.5,
+      "memory": 134217728,
+      "virtual_memory": 268435456,
+      "disk_usage": {
+        "read_bytes": 1048576,
+        "total_read_bytes": 1073741824,
+        "written_bytes": 524288,
+        "total_written_bytes": 536870912
+      },
+      "global": {
+        "total_memory": 8589934592,
+        "used_memory": 4294967296,
+        "global_cpu_usage": 150.0,
+        "disks": [
+          {
+            "total_space": 1000000000000,
+            "available_space": 500000000000,
+            "is_removable": false
+          }
+        ],
+        "networks": [
+          {
+            "interface_name": "eth0",
+            "received": 1048576,
+            "total_received": 1073741824,
+            "transmitted": 524288,
+            "total_transmitted": 536870912
+          }
+        ]
+      }
+    },
+    "mining": {
+      "difficulty": "0x1e083126",
+      "hash_rate": "0x174876e800"
+    },
+    "pool": {
+      "pending": "0x64",
+      "proposed": "0x32",
+      "orphan": "0x5",
+      "committing": "0x1f",
+      "total_recent_reject_num": "0x3",
+      "total_tx_size": "0x100000",
+      "total_tx_cycles": "0x2dc6c",
+      "last_txs_updated_at": "0x187b3d137a1",
+      "max_tx_pool_size": "0x20000000"
+    },
+    "cells": {
+      "total_occupied_capacities": "0x15f1e59b76c000",
+      "estimate_live_cells_num": "0x989680"
+    },
+   "network": {
+   "connected_peers": "0x33",
+   "outbound_peers": "0x1f",
+   "inbound_peers": "0x14",
+   "peers": [
+       {
+       "peer_id": 0,
+       "is_outbound": true,
+       "latency_ms": "0x98",
+        "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN"
+       },
+       {
+       "peer_id": 1,
+       "is_outbound": false,
+       "latency_ms": "0xa5",
+        "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN"
+       },
+       {
+       "peer_id": 2,
+       "is_outbound": true,
+       "latency_ms": "0x0",
+        "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN"
+       },
+       {
+       "peer_id": 3,
+       "is_outbound": true,
+       "latency_ms": "0x8c",
+        "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN"
+       }
+    ]
+   },
+    "version": "0.100.0 (abc123def 2023-12-01)"
+  },
+  "id": 1
+ }
+```
+
 
 ## RPC Types
 
@@ -5870,6 +6065,17 @@ The cellbase transaction template of the new block for miners.
 
 * `hash`: [`H256`](#type-h256) - The cellbase transaction hash.
 
+### Type `CellsInfo`
+Cells information.
+
+#### Fields
+
+`CellsInfo` is a JSON object with the following fields.
+
+* `estimate_live_cells_num`: [`Uint64`](#type-uint64) - estimate live cells total num
+
+* `total_occupied_capacities`: [`Uint64`](#type-uint64) - The total occupied capacities currently in the CKB
+
 ### Type `ChainInfo`
 Chain information.
 
@@ -6047,6 +6253,34 @@ Chain information.
 
 * `hash`: [`H256`](#type-h256) - requested block hash
 
+### Type `Disk`
+Struct containing a disk information.
+
+#### Fields
+
+`Disk` is a JSON object with the following fields.
+
+* `available_space`: `integer` - Returns the available disk size, in bytes.
+
+* `is_removable`: `boolean` - Returns true if the disk is removable.
+
+* `total_space`: `integer` - Returns the total disk size, in bytes.
+
+### Type `DiskUsage`
+Struct containing read and written bytes.
+
+#### Fields
+
+`DiskUsage` is a JSON object with the following fields.
+
+* `read_bytes`: `integer` - Number of read bytes since the last refresh.
+
+* `total_read_bytes`: `integer` - Total number of read bytes.
+
+* `total_written_bytes`: `integer` - Total number of written bytes.
+
+* `written_bytes`: `integer` - Number of written bytes since the last refresh.
+
 ### Type `EntryCompleted`
 Transaction's verify result by test_tx_pool_accept
 
@@ -6170,6 +6404,23 @@ The fee_rate statistics information, includes mean and median, unit: shannons pe
 * `mean`: [`Uint64`](#type-uint64) - mean
 
 * `median`: [`Uint64`](#type-uint64) - median
+
+### Type `Global`
+Global system information
+
+#### Fields
+
+`Global` is a JSON object with the following fields.
+
+* `disks`: `Array<` [`Disk`](#type-disk) `>` - Returns disks information.
+
+* `global_cpu_usage`: `number` - Returns “global” CPUs usage (aka the addition of all the CPUs).
+
+* `networks`: `Array<` [`Network`](#type-network) `>` - Returns networks information.
+
+* `total_memory`: `integer` - Returns the RAM size in bytes.
+
+* `used_memory`: `integer` - Returns the amount of used RAM in bytes.
 
 ### Type `H256`
 The 256-bit binary data encoded as a 0x-prefixed hex string in JSON.
@@ -6654,6 +6905,49 @@ Block rewards for miners.
 
 * `secondary`: [`Uint64`](#type-uint64) - The secondary base block reward allocated to miners.
 
+### Type `MiningInfo`
+Mining information structure for the CKB-TUI Terminal module.
+
+#### Fields
+
+`MiningInfo` is a JSON object with the following fields.
+
+* `difficulty`: `string` - Current network difficulty, represented as a U256 integer.
+
+* `hash_rate`: `string` - Current network hash rate, represented as a U256 integer (in hashes per second). This approximates the total computational power of the mining network.
+
+### Type `Network`
+Getting volume of received and transmitted data.
+
+#### Fields
+
+`Network` is a JSON object with the following fields.
+
+* `interface_name`: `string` - Returns network interface name
+
+* `received`: `integer` - Returns the number of received bytes since the last refresh.
+
+* `total_received`: `integer` - Returns the total number of received bytes.
+
+* `total_transmitted`: `integer` - Returns the total number of transmitted bytes.
+
+* `transmitted`: `integer` - Returns the number of transmitted bytes since the last refresh.
+
+### Type `NetworkInfo`
+Network peer latency information.
+
+#### Fields
+
+`NetworkInfo` is a JSON object with the following fields.
+
+* `connected_peers`: [`Uint64`](#type-uint64) - Total number of connected peers
+
+* `inbound_peers`: [`Uint64`](#type-uint64) - Number of inbound connections
+
+* `outbound_peers`: [`Uint64`](#type-uint64) - Number of outbound connections
+
+* `peers`: `Array<` [`PeerInfo`](#type-peerinfo) `>` - List of individual peer information with their latencies
+
 ### Type `NodeAddress`
 Node P2P address and score.
 
@@ -6697,6 +6991,42 @@ Transaction output validators that prevent common mistakes.
 It's an enum value from one of:
   - passthrough : the default validator, bypass output checking, thus allow any kind of transaction outputs.
   - well_known_scripts_only : restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>
+
+### Type `Overview`
+Overview data structure aggregating system and mining information for the CKB-TUI Terminal module.
+
+#### Fields
+
+`Overview` is a JSON object with the following fields.
+
+* `cells`: [`CellsInfo`](#type-cellsinfo) - Cells information.
+
+* `mining`: [`MiningInfo`](#type-mininginfo) - Mining information, covering hash power, difficulty.
+
+* `network`: [`NetworkInfo`](#type-networkinfo) - Network peer latency information.
+
+* `pool`: [`TerminalPoolInfo`](#type-terminalpoolinfo) - Transaction pool information.
+
+* `sys`: [`SysInfo`](#type-sysinfo) - System information, including hardware and OS metrics.
+
+* `version`: `string` - CKB node version.
+
+    Example: "version": "0.34.0 (f37f598 2020-07-17)"
+
+### Type `PeerInfo`
+Individual peer connection information.
+
+#### Fields
+
+`PeerInfo` is a JSON object with the following fields.
+
+* `address`: `string` - Peer address
+
+* `is_outbound`: `boolean` - Whether this is an outbound connection
+
+* `latency_ms`: [`Uint64`](#type-uint64) - Round-trip time in milliseconds for this peer (0 if not available)
+
+* `peer_id`: `integer` - Unique identifier for peer
 
 ### Type `PeerSyncState`
 The chain synchronization state between the local node and a remote node.
@@ -7082,6 +7412,56 @@ The overall chain synchronization state of this local node.
 
 * `unverified_tip_number`: [`Uint64`](#type-uint64) - The block number of current unverified tip block
 
+### Type `SysInfo`
+System’s information.
+
+#### Fields
+
+`SysInfo` is a JSON object with the following fields.
+
+* `cpu_usage`: `number` - Returns the total ckb CPU usage (in %). Notice that it might be bigger than 100 if run on a multi-core machine.
+
+* `disk_usage`: [`DiskUsage`](#type-diskusage) - Returns number of bytes ckb read and written to disk.
+
+* `global`: [`Global`](#type-global) - global system information
+
+* `memory`: `integer` - Returns the memory ckb usage (in bytes).
+
+* `virtual_memory`: `integer` - Returns the virtual memory usage (in bytes).
+
+### Type `TerminalPoolInfo`
+Transaction pool information.
+
+#### Fields
+
+`TerminalPoolInfo` is a JSON object with the following fields.
+
+* `committing`: [`Uint64`](#type-uint64) - Count of committing transactions.
+
+    The Committing transactions refer to transactions that have been packaged into the block_template and are awaiting mining into a block.
+
+* `last_txs_updated_at`: [`Uint64`](#type-uint64) - Last updated time. This is the Unix timestamp in milliseconds.
+
+* `max_tx_pool_size`: [`Uint64`](#type-uint64) - Total limit on the size of transactions in the tx-pool
+
+* `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
+
+    An orphan transaction has an input cell from the transaction which is neither in the chain nor in the transaction pool.
+
+* `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
+
+    The pending transactions must be proposed in a new block first.
+
+* `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
+
+    The proposed transactions are ready to be committed in the new block after the block `tip_hash`.
+
+* `total_recent_reject_num`: [`Uint64`](#type-uint64) - Total count of recent reject transactions by pool
+
+* `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
+
+* `total_tx_size`: [`Uint64`](#type-uint64) - Total size of transactions bytes in the pool of all the different kinds of states (excluding orphan transactions).
+
 ### Type `Timestamp`
 
 The Unix timestamp in milliseconds (1 second is 1000 milliseconds).
@@ -7352,7 +7732,7 @@ Transaction pool information.
 
 * `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
 
-* `total_tx_size`: [`Uint64`](#type-uint64) - Total count of transactions in the pool of all the different kinds of states (excluding orphan transactions).
+* `total_tx_size`: [`Uint64`](#type-uint64) - Total size of transactions bytes in the pool of all the different kinds of states (excluding orphan transactions).
 
 * `tx_size_limit`: [`Uint64`](#type-uint64) - Limiting transactions to tx_size_limit
 
