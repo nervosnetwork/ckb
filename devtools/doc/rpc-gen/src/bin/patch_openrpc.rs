@@ -131,6 +131,28 @@ fn ensure_subscription_tag(doc: &mut Value) {
     }
 }
 
+fn patch_document(doc: &mut Value) {
+    ensure_subscription_tag(doc);
+
+    if !doc.get("methods").and_then(|v| v.as_array()).is_some() {
+        doc["methods"] = Value::Array(vec![]);
+    }
+
+    let methods = doc["methods"].as_array_mut().unwrap();
+    let names: HashSet<String> = methods
+        .iter()
+        .filter_map(|m| m.get("name").and_then(Value::as_str))
+        .map(ToString::to_string)
+        .collect();
+
+    if !names.contains("subscribe") {
+        methods.push(subscribe_method());
+    }
+    if !names.contains("unsubscribe") {
+        methods.push(unsubscribe_method());
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = env::args()
         .nth(1)
@@ -140,25 +162,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let raw = fs::read_to_string(&path)?;
     let mut doc: Value = serde_json::from_str(&raw)?;
 
-    ensure_subscription_tag(&mut doc);
-
-    if !doc.get("methods").and_then(|v| v.as_array()).is_some() {
-        doc["methods"] = Value::Array(vec![]);
-    }
-
-    let methods = doc["methods"].as_array_mut().unwrap();
-    let names: HashSet<&str> = methods
-        .iter()
-        .filter_map(|m| m.get("name").and_then(Value::as_str))
-        .collect();
-
-    if !names.contains("subscribe") {
-        methods.push(subscribe_method());
-    }
-    if !names.contains("unsubscribe") {
-        methods.push(unsubscribe_method());
-    }
+    patch_document(&mut doc);
 
     fs::write(&path, serde_json::to_string_pretty(&doc)? + "\n")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adds_subscription_methods_when_missing() {
+        let mut doc = json!({
+            "methods": [],
+            "tags": []
+        });
+
+        patch_document(&mut doc);
+
+        let methods = doc["methods"].as_array().expect("methods should be array");
+        let names: HashSet<&str> = methods
+            .iter()
+            .filter_map(|m| m.get("name").and_then(Value::as_str))
+            .collect();
+
+        assert!(names.contains("subscribe"));
+        assert!(names.contains("unsubscribe"));
+
+        let tags = doc["tags"].as_array().expect("tags should be array");
+        let has_subscription_tag = tags
+            .iter()
+            .any(|tag| tag.get("name").and_then(Value::as_str) == Some("Subscription"));
+        assert!(has_subscription_tag);
+    }
+
+    #[test]
+    fn does_not_duplicate_existing_subscription_methods() {
+        let mut doc = json!({
+            "methods": [subscribe_method(), unsubscribe_method()],
+            "tags": []
+        });
+
+        patch_document(&mut doc);
+
+        let methods = doc["methods"].as_array().expect("methods should be array");
+        let subscribe_count = methods
+            .iter()
+            .filter(|m| m.get("name").and_then(Value::as_str) == Some("subscribe"))
+            .count();
+        let unsubscribe_count = methods
+            .iter()
+            .filter(|m| m.get("name").and_then(Value::as_str) == Some("unsubscribe"))
+            .count();
+
+        assert_eq!(subscribe_count, 1);
+        assert_eq!(unsubscribe_count, 1);
+    }
 }
