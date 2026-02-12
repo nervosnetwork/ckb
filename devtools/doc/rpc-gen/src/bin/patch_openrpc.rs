@@ -1,3 +1,5 @@
+//! Post-processes generated OpenRPC JSON with subscription metadata and methods.
+
 use serde_json::{Value, json};
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
@@ -119,7 +121,7 @@ fn unsubscribe_method() -> Value {
 }
 
 fn ensure_subscription_tag(doc: &mut Value) {
-    if !doc.get("tags").and_then(|v| v.as_array()).is_some() {
+    if doc.get("tags").and_then(|v| v.as_array()).is_none() {
         doc["tags"] = Value::Array(vec![]);
     }
     let tags = doc["tags"].as_array_mut().unwrap();
@@ -134,7 +136,7 @@ fn ensure_subscription_tag(doc: &mut Value) {
 fn patch_document(doc: &mut Value) {
     ensure_subscription_tag(doc);
 
-    if !doc.get("methods").and_then(|v| v.as_array()).is_some() {
+    if doc.get("methods").and_then(|v| v.as_array()).is_none() {
         doc["methods"] = Value::Array(vec![]);
     }
 
