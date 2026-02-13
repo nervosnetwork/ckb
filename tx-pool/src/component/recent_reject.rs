@@ -77,17 +77,25 @@ impl RecentReject {
         Ok(ret.map(|bytes| unsafe { String::from_utf8_unchecked(bytes.to_vec()) }))
     }
 
+    pub fn get_estimate_total_keys_num(&self) -> u64 {
+        self.total_keys_num
+    }
+
+    fn estimate_total_keys_num(&self) -> Result<u64, AnyError> {
+        let estimate_keys_num = (0..self.shard_num)
+            .map(|num| self.db.estimate_num_keys_cf(&num.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(estimate_keys_num.iter().map(|num| num.unwrap_or(0)).sum())
+    }
+
     fn shrink(&mut self) -> Result<u64, AnyError> {
         let mut rng = thread_rng();
         let shard = rng.sample(Uniform::new(0, self.shard_num)).to_string();
         self.db.drop_cf(&shard)?;
         self.db.create_cf_with_ttl(&shard, self.ttl)?;
 
-        let estimate_keys_num = (0..self.shard_num)
-            .map(|num| self.db.estimate_num_keys_cf(&num.to_string()))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let total_keys_num = estimate_keys_num.iter().map(|num| num.unwrap_or(0)).sum();
+        let total_keys_num = self.estimate_total_keys_num()?;
         self.total_keys_num = total_keys_num;
         Ok(total_keys_num)
     }

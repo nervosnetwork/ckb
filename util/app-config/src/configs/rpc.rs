@@ -17,6 +17,7 @@ pub enum Module {
     Debug,
     Indexer,
     RichIndexer,
+    Terminal,
 }
 
 /// RPC config options.
@@ -108,6 +109,11 @@ impl Config {
     /// Checks whether the Debug module is enabled.
     pub fn debug_enable(&self) -> bool {
         self.modules.contains(&Module::Debug)
+    }
+
+    /// Checks whether the Terminal module is enabled.
+    pub fn terminal_enable(&self) -> bool {
+        self.modules.contains(&Module::Terminal)
     }
 
     /// Checks whether the Indexer module is enabled.

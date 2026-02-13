@@ -3,6 +3,7 @@ use super::{
     setup::{always_success_consensus, setup_rpc_test_suite},
 };
 use crate::tests::always_success_transaction;
+use ckb_jsonrpc_types::Overview;
 use ckb_test_chain_utils::always_success_cell;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use serde::de::DeserializeOwned;
@@ -343,6 +344,7 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "get_peers" => replace_rpc_response::<Vec<RemoteNode>>(example, response),
         "get_banned_addresses" => replace_rpc_response::<Vec<BannedAddr>>(example, response),
         "calculate_dao_maximum_withdraw" => replace_rpc_response::<Capacity>(example, response),
+        "get_overview" => replace_rpc_response::<Overview>(example, response),
         "subscribe" => replace_rpc_response::<Uint64>(example, response),
         "unsubscribe" => replace_rpc_response::<bool>(example, response),
         "send_transaction" => replace_rpc_response::<H256>(example, response),
