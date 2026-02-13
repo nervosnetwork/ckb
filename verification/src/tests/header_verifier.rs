@@ -8,14 +8,8 @@ use ckb_types::{
     core::{EpochNumberWithFraction, HeaderBuilder},
     packed::Header,
 };
-use std::sync::Mutex;
 
 use super::BuilderBaseOnBlockNumber;
-
-// `ckb_systemtime::faketime()` manipulates global statics (`FAKETIME` / `FAKETIME_ENABLED`).
-// When a `FaketimeGuard` is dropped it disables faketime **process-wide**, which causes
-// data races when multiple timestamp tests run in parallel.  Serialise them with a mutex.
-static FAKETIME_LOCK: Mutex<()> = Mutex::new(());
 
 fn mock_median_time_context() -> MockMedianTime {
     let now = unix_time_as_millis();
@@ -25,7 +19,6 @@ fn mock_median_time_context() -> MockMedianTime {
 
 #[test]
 fn test_timestamp() {
-    let _lock = FAKETIME_LOCK.lock().unwrap();
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
@@ -46,7 +39,6 @@ fn test_timestamp() {
 
 #[test]
 fn test_timestamp_too_old() {
-    let _lock = FAKETIME_LOCK.lock().unwrap();
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
@@ -75,7 +67,6 @@ fn test_timestamp_too_old() {
 
 #[test]
 fn test_timestamp_too_new() {
-    let _lock = FAKETIME_LOCK.lock().unwrap();
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
@@ -227,7 +218,6 @@ fn test_pow_verifier() {
 
 #[test]
 fn test_timestamp_at_boundary() {
-    let _lock = FAKETIME_LOCK.lock().unwrap();
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(100_000);
     let fake_block_median_time_context = mock_median_time_context();
