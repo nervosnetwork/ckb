@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-channel-v1.1.1...ckb-channel-v1.2.0) - 2026-03-02
+
+### Added
+
+- bump crates MSRV to 1.92.0 ([#5076](https://github.com/nervosnetwork/ckb/pull/5076)) (by @doitian)
+
+### Contributors
+
+- @doitian
+
 ## [1.1.0](https://github.com/nervosnetwork/ckb/compare/ckb-channel-v1.0.0...ckb-channel-v1.1.0) - 2025-12-10
 
 ### Added
