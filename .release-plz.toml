@@ -4,6 +4,7 @@ git_release_latest = false
 git_release_draft = true
 git_release_enable = false
 features_always_increment_minor = true
+semver_check = false
 
 [changelog]
 body = """
