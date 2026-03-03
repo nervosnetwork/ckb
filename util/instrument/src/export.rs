@@ -134,11 +134,12 @@ impl Export {
                         .chunks(BLOCKS_COUNT_PER_CHUNK)
                         .into_iter()
                         .try_for_each(|chunk| -> Result<(), String> {
-                            chunk
+                            let iter = chunk
                                 .collect::<Vec<_>>()
-                                .into_par_iter()
-                                .progress_with(progress_bar_clone.clone())
-                                .try_for_each(|block_number| -> Result<(), String> {
+                                .into_par_iter();
+                            #[cfg(feature = "progress_bar")]
+                            let iter = iter.progress_with(progress_bar_clone.clone());
+                            iter.try_for_each(|block_number| -> Result<(), String> {
                                     let block_hash =
                                         snapshot.get_block_hash(block_number).ok_or_else(|| {
                                             format!("not found block hash for {}", block_number)
