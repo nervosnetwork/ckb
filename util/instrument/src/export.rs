@@ -134,28 +134,25 @@ impl Export {
                         .chunks(BLOCKS_COUNT_PER_CHUNK)
                         .into_iter()
                         .try_for_each(|chunk| -> Result<(), String> {
-                            let iter = chunk
-                                .collect::<Vec<_>>()
-                                .into_par_iter();
+                            let iter = chunk.collect::<Vec<_>>().into_par_iter();
                             #[cfg(feature = "progress_bar")]
                             let iter = iter.progress_with(progress_bar_clone.clone());
                             iter.try_for_each(|block_number| -> Result<(), String> {
-                                    let block_hash =
-                                        snapshot.get_block_hash(block_number).ok_or_else(|| {
-                                            format!("not found block hash for {}", block_number)
-                                        })?;
-                                    let block =
-                                        snapshot.get_block(&block_hash).ok_or_else(|| {
-                                            format!("not found block for {}", block_number)
-                                        })?;
-                                    let block: JsonBlock = block.into();
-                                    let encoded = serde_json::to_vec(&block).map_err(|err| {
-                                        format!("serializing block failed: {:?}", err)
+                                let block_hash =
+                                    snapshot.get_block_hash(block_number).ok_or_else(|| {
+                                        format!("not found block hash for {}", block_number)
                                     })?;
-                                    blocks_tx
-                                        .send((block_number, encoded))
-                                        .map_err(|err| format!("sending block failed: {:?}", err))
-                                })
+                                let block = snapshot.get_block(&block_hash).ok_or_else(|| {
+                                    format!("not found block for {}", block_number)
+                                })?;
+                                let block: JsonBlock = block.into();
+                                let encoded = serde_json::to_vec(&block).map_err(|err| {
+                                    format!("serializing block failed: {:?}", err)
+                                })?;
+                                blocks_tx
+                                    .send((block_number, encoded))
+                                    .map_err(|err| format!("sending block failed: {:?}", err))
+                            })
                         })?;
 
                     drop(blocks_tx);
