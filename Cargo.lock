@@ -1142,6 +1142,7 @@ dependencies = [
  "ckb-channel",
  "ckb-jsonrpc-types",
  "ckb-shared",
+ "ckb-stop-handler",
  "ckb-store",
  "ckb-types",
  "ckb-verification-traits",
