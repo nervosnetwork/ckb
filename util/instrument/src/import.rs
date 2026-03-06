@@ -69,7 +69,6 @@ impl Import {
     }
 
     /// Imports the chain from the JSON file.
-    #[cfg(feature = "progress_bar")]
     pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
         use std::io::Read;
 
@@ -134,6 +133,7 @@ impl Import {
             }
         }
 
+        #[cfg(feature = "progress_bar")]
         let progress_bar = {
             let bar = match &self.source {
                 ImportSource::Path(source) => {
@@ -191,14 +191,26 @@ impl Import {
 
                 largest_block_number = largest_block_number.max(block.number());
 
-                let progress_bar = progress_bar.clone();
-                let callback = Box::new(move |verify_result: VerifyResult| {
-                    if let Err(err) = verify_result {
-                        eprintln!("Error verifying block: {:?}", err);
-                    } else {
-                        progress_bar.inc(block_size as u64);
-                    }
-                });
+                #[cfg(feature = "progress_bar")]
+                let callback = {
+                    let progress_bar = progress_bar.clone();
+                    Box::new(move |verify_result: VerifyResult| {
+                        if let Err(err) = verify_result {
+                            eprintln!("Error verifying block: {:?}", err);
+                        } else {
+                            progress_bar.inc(block_size as u64);
+                        }
+                    })
+                };
+                #[cfg(not(feature = "progress_bar"))]
+                let callback = {
+                    let _ = block_size;
+                    Box::new(move |verify_result: VerifyResult| {
+                        if let Err(err) = verify_result {
+                            eprintln!("Error verifying block: {:?}", err);
+                        }
+                    })
+                };
 
                 let lonely_block = LonelyBlock {
                     block,
@@ -218,6 +230,7 @@ impl Import {
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
 
+        #[cfg(feature = "progress_bar")]
         progress_bar.finish_with_message("done!");
         Ok(())
     }
