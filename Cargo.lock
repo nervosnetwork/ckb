@@ -1037,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "faster-hex",
  "schemars",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-types",
  "faster-hex",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "async-stream",
  "async-trait",

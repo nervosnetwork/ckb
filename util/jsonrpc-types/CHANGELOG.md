@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-jsonrpc-types-v1.1.0...ckb-jsonrpc-types-v1.1.1) - 2026-03-08
+
+### Changed
+
+- update `schemars` to version 1 ([#5128](https://github.com/nervosnetwork/ckb/pull/5128)) (by @Officeyutong)
+
+### Contributors
+
+- @Officeyutong
+
 ## [1.1.0](https://github.com/nervosnetwork/ckb/compare/ckb-jsonrpc-types-v1.0.2...ckb-jsonrpc-types-v1.1.0) - 2026-03-02
 
 ### Added
