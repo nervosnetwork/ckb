@@ -1039,8 +1039,8 @@ dependencies = [
 name = "ckb-fixed-hash-core"
 version = "1.1.0"
 dependencies = [
- "ckb_schemars",
  "faster-hex",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -1156,10 +1156,10 @@ name = "ckb-jsonrpc-types"
 version = "1.1.0"
 dependencies = [
  "ckb-types",
- "ckb_schemars",
  "faster-hex",
  "proptest",
  "regex",
+ "schemars",
  "seq-macro",
  "serde",
  "serde_json",
@@ -1633,7 +1633,6 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-verification-traits",
- "ckb_schemars",
  "futures-util",
  "itertools 0.11.0",
  "jsonrpc-core",
@@ -1641,6 +1640,7 @@ dependencies = [
  "lru",
  "pretty_assertions",
  "reqwest",
+ "schemars",
  "serde",
  "serde_json",
  "sysinfo",
@@ -1655,8 +1655,8 @@ name = "ckb-rpc-gen"
 version = "1.0.0"
 dependencies = [
  "ckb-rpc",
- "ckb_schemars",
  "proc-macro2",
+ "schemars",
  "serde_json",
  "syn 2.0.108",
  "tera",
@@ -2058,30 +2058,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b436017fd6676bea413d54e07a5a9cc1d7c4b5c02e4ab07d3527225a5de6677"
 dependencies = [
  "paste",
-]
-
-[[package]]
-name = "ckb_schemars"
-version = "0.8.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c37520aaae28169f4b29cd754f414d01ef32b8209c85d4473bc89d760250b990"
-dependencies = [
- "ckb_schemars_derive",
- "dyn-clone",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "ckb_schemars_derive"
-version = "0.8.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1506d63311ded0645342c052b1eb21ba272177b32f55d8eb7e11255aed3e74c6"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_derive_internals",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -2776,7 +2752,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3607,7 +3583,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.2",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3932,7 +3908,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4017,9 +3993,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpc-utils"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d3bd452b1643d2fe047c054f626c336abebb197b41f966aafac51c5399d9819"
+checksum = "b077b223a88ebf36a6ce247d1ae152aa458752b282a3265f75a43327db4e00c1"
 dependencies = [
  "anyhow",
  "axum 0.8.6",
@@ -4036,9 +4012,9 @@ dependencies = [
 
 [[package]]
 name = "jsonrpc-utils-macros"
-version = "0.2.5"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e0e4f62c1f2205484a4738e8127fa84f7e498cf2b7fddc1cd7776fafdd0dac1"
+checksum = "aba1450fb7508e0ead519da63dd43af8c2ff02246eb9e78e89f0aeb6076ce367"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5455,6 +5431,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ref-cast"
+version = "1.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f354300ae66f76f1c85c5f84693f0ce81d747e2c3f21a45fef496d89c960bf7d"
+dependencies = [
+ "ref-cast-impl",
+]
+
+[[package]]
+name = "ref-cast-impl"
+version = "1.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7186006dcb21920990093f30e3dea63b7d6e977bf1256be20c3563a5db070da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.108",
+]
+
+[[package]]
 name = "reflink-copy"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5660,7 +5656,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5737,6 +5733,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "891d81b926048e76efe18581bf793546b4c0eaf8448d72be8de2bbee5fd166e1"
 dependencies = [
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "schemars"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "schemars_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d115b50f4aaeea07e79c1912f645c7513d81715d0420f8bc77a18c6260b307f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -5988,13 +6009,13 @@ dependencies = [
 
 [[package]]
 name = "serde_derive_internals"
-version = "0.26.0"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85bf8229e7920a9f636479437026331ce11aa132b4dde37d121944a44d6e5f3c"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.108",
 ]
 
 [[package]]
@@ -6636,7 +6657,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7661,7 +7682,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
