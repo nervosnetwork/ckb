@@ -29,9 +29,7 @@ fn resolve_type_name(name: &str) -> String {
 /// Convert a generic type name to an anchor-safe string
 /// e.g. "ResponseFormat<BlockView>" -> "responseformat_for_blockview"
 fn type_name_to_anchor(name: &str) -> String {
-    name.to_lowercase()
-        .replace('<', "_for_")
-        .replace('>', "")
+    name.to_lowercase().replace('<', "_for_").replace('>', "")
 }
 
 /// Build a mapping from numbered type names (e.g. "ResponseFormat2") to their
@@ -70,10 +68,7 @@ fn build_type_name_mapping(all_schemas: &[&Map<String, Value>]) -> HashMap<Strin
         for variant_name in variants {
             if let Some(schema) = combined.get(variant_name) {
                 if let Some(inner_type) = resolve_generic_inner_type(schema, &combined) {
-                    mapping.insert(
-                        variant_name.clone(),
-                        format!("{}<{}>", base, inner_type),
-                    );
+                    mapping.insert(variant_name.clone(), format!("{}<{}>", base, inner_type));
                 }
             }
         }
@@ -292,7 +287,8 @@ impl RpcDocGenerator {
                 // Skip Either* types (implementation detail of ResponseFormat)
                 // In v0.8: Either_for_X_and_JsonBytes, in v1: Either, Either2, Either3
                 let is_either = name == "Either"
-                    || (name.starts_with("Either") && name[6..].chars().all(|c| c.is_ascii_digit()))
+                    || (name.starts_with("Either")
+                        && name[6..].chars().all(|c| c.is_ascii_digit()))
                     || (name.starts_with("Either_for_") && name.ends_with("_JsonBytes"));
                 if !(all_types.iter().any(|(n, _)| *n == *name) || is_either) {
                     all_types.push((name.to_string(), ty.to_owned()));
@@ -398,10 +394,7 @@ impl RpcDocGenerator {
                 let fixed_name = fix_type_name(&mapped_name);
                 let anchor = type_name_to_anchor(&mapped_name);
                 let sub_title = if fixed_name != mapped_name {
-                    format!(
-                        "<a id=\"type-{}\"></a>\n### Type `{}`",
-                        anchor, fixed_name
-                    )
+                    format!("<a id=\"type-{}\"></a>\n### Type `{}`", anchor, fixed_name)
                 } else {
                     format!("### Type `{}`", fixed_name)
                 };
@@ -621,10 +614,7 @@ fn gen_type(ty: &Value) -> String {
                 if arr.len() == 1 {
                     gen_type(&arr[0])
                 } else {
-                    arr.iter()
-                        .map(gen_type)
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                    arr.iter().map(gen_type).collect::<Vec<_>>().join(" ")
                 }
             } else if let Some(arr) = map.get("anyOf") {
                 arr.as_array()
