@@ -66,10 +66,10 @@ fn build_type_name_mapping(all_schemas: &[&Map<String, Value>]) -> HashMap<Strin
     // For each group, resolve the inner type parameter
     for (base, variants) in &base_names {
         for variant_name in variants {
-            if let Some(schema) = combined.get(variant_name) {
-                if let Some(inner_type) = resolve_generic_inner_type(schema, &combined) {
-                    mapping.insert(variant_name.clone(), format!("{}<{}>", base, inner_type));
-                }
+            if let Some(schema) = combined.get(variant_name)
+                && let Some(inner_type) = resolve_generic_inner_type(schema, &combined)
+            {
+                mapping.insert(variant_name.clone(), format!("{}<{}>", base, inner_type));
             }
         }
     }
@@ -85,19 +85,18 @@ fn resolve_generic_inner_type(
     all_schemas: &HashMap<String, &Value>,
 ) -> Option<String> {
     // Case 1: ResponseFormat pattern - has allOf with a $ref to Either*
-    if let Some(all_of) = schema.get("allOf").and_then(|v| v.as_array()) {
-        if let Some(ref_val) = all_of.first().and_then(|v| v.get("$ref")) {
-            let ref_name = ref_val.as_str()?.split('/').next_back()?;
-            // Look up the referenced type (e.g. Either, Either2)
-            if let Some(either_schema) = all_schemas.get(ref_name) {
-                // Either has anyOf with allOf[$ref ConcreteType]
-                if let Some(any_of) = either_schema.get("anyOf").and_then(|v| v.as_array()) {
-                    if let Some(first) = any_of.first() {
-                        if let Some(inner_ref) = extract_ref_from_allof_or_direct(first) {
-                            return Some(inner_ref);
-                        }
-                    }
-                }
+    if let Some(all_of) = schema.get("allOf").and_then(|v| v.as_array())
+        && let Some(ref_val) = all_of.first().and_then(|v| v.get("$ref"))
+    {
+        let ref_name = ref_val.as_str()?.split('/').next_back()?;
+        // Look up the referenced type (e.g. Either, Either2)
+        if let Some(either_schema) = all_schemas.get(ref_name) {
+            // Either has anyOf with allOf[$ref ConcreteType]
+            if let Some(any_of) = either_schema.get("anyOf").and_then(|v| v.as_array())
+                && let Some(first) = any_of.first()
+                && let Some(inner_ref) = extract_ref_from_allof_or_direct(first)
+            {
+                return Some(inner_ref);
             }
         }
     }
@@ -123,12 +122,11 @@ fn extract_ref_from_allof_or_direct(val: &Value) -> Option<String> {
         return Some(r.as_str()?.split('/').next_back()?.to_string());
     }
     // allOf wrapper: {"allOf": [{"$ref": "..."}]}
-    if let Some(all_of) = val.get("allOf").and_then(|v| v.as_array()) {
-        if let Some(first) = all_of.first() {
-            if let Some(r) = first.get("$ref") {
-                return Some(r.as_str()?.split('/').next_back()?.to_string());
-            }
-        }
+    if let Some(all_of) = val.get("allOf").and_then(|v| v.as_array())
+        && let Some(first) = all_of.first()
+        && let Some(r) = first.get("$ref")
+    {
+        return Some(r.as_str()?.split('/').next_back()?.to_string());
     }
     None
 }
