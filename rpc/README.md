@@ -512,7 +512,7 @@ The RPC returns the block when `block_number` is less than or equal to the tip b
 number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
 null otherwise.
 
-Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+Because of [chain reorganization](#chain-reorganization), the RPC may return null or even
 different blocks in different invocations with the same `block_number`.
 
 When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
@@ -725,7 +725,7 @@ The RPC returns the block header when `block_number` is less than or equal to th
 number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
 null otherwise.
 
-Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+Because of [chain reorganization](#chain-reorganization), the RPC may return null or even
 different block headers in different invocations with the same `block_number`.
 
 When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView` for the
@@ -990,7 +990,7 @@ The RPC returns the block hash when `block_number` is less than or equal to the 
 number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
 null otherwise.
 
-Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+Because of [chain reorganization](#chain-reorganization), the RPC may return null or even
 different block hashes in different invocations with the same `block_number`.
 
 ###### Examples
