@@ -17,11 +17,11 @@ use std::fmt;
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct JsonBytes(Bytes);
 impl JsonSchema for JsonBytes {
-    fn schema_name() -> String {
-        String::from("JsonBytes")
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("JsonBytes")
     }
-    fn json_schema(generate: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
-        generate.subschema_for::<String>().into_object().into()
+    fn json_schema(generate: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        generate.subschema_for::<String>()
     }
 }
 
