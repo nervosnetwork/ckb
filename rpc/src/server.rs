@@ -204,7 +204,7 @@ async fn ping_handler() -> impl IntoResponse {
     "pong"
 }
 
-/// used for compatible with old RPC error response for GET
+/// Used for compatibility with the old RPC error response for GET requests.
 async fn get_error_handler() -> impl IntoResponse {
     (
         StatusCode::METHOD_NOT_ALLOWED,
