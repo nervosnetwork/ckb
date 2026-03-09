@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0](https://github.com/nervosnetwork/ckb/compare/ckb-instrument-v1.0.2...ckb-instrument-v1.1.0) - 2026-03-02
+
+### Added
+
+- bump crates MSRV to 1.92.0 ([#5076](https://github.com/nervosnetwork/ckb/pull/5076)) (by @doitian)
+
+### Changed
+
+- Enhance `ckb export/import` subcommand with range and verifier selection ([#4924](https://github.com/nervosnetwork/ckb/pull/4924)) (by @eval-exec)
+
+### Contributors
+
+- @eval-exec
+- @doitian
+
 ## [1.0.1](https://github.com/nervosnetwork/ckb/compare/ckb-instrument-v1.0.0...ckb-instrument-v1.0.1) - 2025-12-10
 
 ### Other

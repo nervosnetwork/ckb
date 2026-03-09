@@ -5600,19 +5600,19 @@ An alert is a message about critical problems to be broadcast to all nodes via t
 An example in JSON
 
 ```json
- {
-   "id": "0x1",
-   "cancel": "0x0",
-   "min_version": "0.1.0",
-   "max_version": "1.0.0",
-   "priority": "0x1",
-   "message": "An example alert message!",
-   "notice_until": "0x24bcca57c00",
-   "signatures": [
-     "0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0",
-     "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
-   ]
- }
+{
+  "id": "0x1",
+  "cancel": "0x0",
+  "min_version": "0.1.0",
+  "max_version": "1.0.0",
+  "priority": "0x1",
+  "message": "An example alert message!",
+  "notice_until": "0x24bcca57c00",
+  "signatures": [
+    "0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0",
+    "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
+  ]
+}
 ```
 
 #### Fields
@@ -5774,9 +5774,11 @@ Miners optional pick transactions and then assemble the final block.
 
 * `bytes_limit`: [`Uint64`](#type-uint64) - The block serialized size limit.
 
-    Miners must keep the block size below this limit, otherwise, the CKB node will reject the block submission.
+    Miners must keep the block size below this limit, otherwise, the CKB node will reject the block
+    submission.
 
-    It is guaranteed that the block does not exceed the limit if miners do not add new transaction commitments.
+    It is guaranteed that the block does not exceed the limit if miners do not add new
+    transaction commitments.
 
 * `cellbase`: [`CellbaseTemplate`](#type-cellbasetemplate) - Provided cellbase transaction template.
 
@@ -5794,13 +5796,16 @@ Miners optional pick transactions and then assemble the final block.
 
 * `cycles_limit`: [`Uint64`](#type-uint64) - The cycles limit.
 
-    Miners must keep the total cycles below this limit, otherwise, the CKB node will reject the block submission.
+    Miners must keep the total cycles below this limit, otherwise, the CKB node will reject the block
+    submission.
 
-    It is guaranteed that the block does not exceed the limit if miners do not add new transactions to the block.
+    It is guaranteed that the block does not exceed the limit if miners do not add new
+    transactions to the block.
 
 * `dao`: [`Byte32`](#type-byte32) - Reference DAO field.
 
-    This field is only valid when miners use all and only use the provided transactions in the template. Two fields must be updated when miners want to select transactions:
+    This field is only valid when miners use all and only use the provided transactions in the
+    template. Two fields must be updated when miners want to select transactions:
 
     * `S_i`, bytes 16 to 23
     * `U_i`, bytes 24 to 31
@@ -5831,7 +5836,8 @@ Miners optional pick transactions and then assemble the final block.
 
 * `uncles_count_limit`: [`Uint64`](#type-uint64) - The uncle count limit.
 
-    Miners must keep the uncles count below this limit, otherwise, the CKB node will reject the block submission.
+    Miners must keep the uncles count below this limit, otherwise, the CKB node will reject the
+    block submission.
 
 * `version`: [`Uint32`](#type-uint32) - Block version.
 
@@ -5864,7 +5870,8 @@ BlockResponse with cycles format wrapper
 * `block`: [`ResponseFormat<BlockView>`](#type-responseformat_for_blockview) - The block structure
 
 ### Type `Buried`
-Represent soft fork deployments where the activation epoch is hard-coded into the client implementation
+Represent soft fork deployments where the activation epoch is
+hard-coded into the client implementation
 
 #### Fields
 
@@ -5891,10 +5898,10 @@ The cell data content and hash.
 ###### Examples
 
 ```json
- {
-   "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
-   "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
- }
+{
+  "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
+  "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+}
 ```
 
 #### Fields
@@ -5911,13 +5918,13 @@ The cell dependency of a transaction.
 ###### Examples
 
 ```json
- {
-   "dep_type": "code",
-   "out_point": {
-     "index": "0x0",
-     "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-   }
- }
+{
+  "dep_type": "code",
+  "out_point": {
+    "index": "0x0",
+    "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+  }
+}
 ```
 
 #### Fields
@@ -5934,21 +5941,21 @@ The JSON view of a cell combining the fields in cell output and cell data.
 ###### Examples
 
 ```json
- {
-   "data": {
-     "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
-     "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
-   },
-   "output": {
-     "capacity": "0x802665800",
-     "lock": {
-       "args": "0x",
-       "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-       "hash_type": "data"
-     },
-     "type": null
-   }
- }
+{
+  "data": {
+    "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
+    "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+  },
+  "output": {
+    "capacity": "0x802665800",
+    "lock": {
+      "args": "0x",
+      "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "hash_type": "data"
+    },
+    "type": null
+  }
+}
 ```
 
 #### Fields
@@ -5963,13 +5970,13 @@ The input cell of a transaction.
 ###### Examples
 
 ```json
- {
-   "previous_output": {
-     "index": "0x0",
-     "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-   },
-   "since": "0x0"
- }
+{
+  "previous_output": {
+    "index": "0x0",
+    "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+  },
+  "since": "0x0"
+}
 ```
 
 #### Fields
@@ -5988,15 +5995,15 @@ The fields of an output cell except the cell data.
 ###### Examples
 
 ```json
- {
-   "capacity": "0x2540be400",
-   "lock": {
-     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-     "hash_type": "data",
-     "args": "0x"
-   },
-   "type": null
- }
+{
+  "capacity": "0x2540be400",
+  "lock": {
+    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+    "hash_type": "data",
+    "args": "0x"
+  },
+  "type": null
+}
 ```
 
 #### Fields
@@ -6005,7 +6012,8 @@ The fields of an output cell except the cell data.
 
 * `capacity`: [`Uint64`](#type-uint64) - The cell capacity.
 
-    The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
+    The capacity of a cell is the value of the cell in Shannons. It is also the upper limit of
+    the cell occupied storage size where every 100,000,000 Shannons give 1-byte storage.
 
 * `lock`: [`Script`](#type-script) - The lock script.
 
@@ -6015,31 +6023,31 @@ The JSON view of a cell with its status information.
 ###### Examples
 
 ```json
- {
-   "cell": {
-     "data": {
-       "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
-       "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
-     },
-     "output": {
-       "capacity": "0x802665800",
-       "lock": {
-         "args": "0x",
-         "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-         "hash_type": "data"
-       },
-       "type": null
-     }
-   },
-   "status": "live"
- }
+{
+  "cell": {
+    "data": {
+      "content": "0x7f454c460201010000000000000000000200f3000100000078000100000000004000000000000000980000000000000005000000400038000100400003000200010000000500000000000000000000000000010000000000000001000000000082000000000000008200000000000000001000000000000001459308d00573000000002e7368737472746162002e74657874000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b000000010000000600000000000000780001000000000078000000000000000a0000000000000000000000000000000200000000000000000000000000000001000000030000000000000000000000000000000000000082000000000000001100000000000000000000000000000001000000000000000000000000000000",
+      "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+    },
+    "output": {
+      "capacity": "0x802665800",
+      "lock": {
+        "args": "0x",
+        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "hash_type": "data"
+      },
+      "type": null
+    }
+  },
+  "status": "live"
+}
 ```
 
 ```
- {
-   "cell": null,
-   "status": "unknown"
- }
+{
+  "cell": null,
+  "status": "unknown"
+}
 ```
 
 #### Fields
@@ -6050,9 +6058,14 @@ The JSON view of a cell with its status information.
 
     Allowed values: "live", "dead", "unknown".
 
-    * `live` - The transaction creating this cell is in the chain, and there are no transactions found in the chain that uses this cell as an input.
-    * `dead` - (**Deprecated**: the dead status will be removed since 0.36.0, please do not rely on the logic that differentiates dead and unknown cells.) The transaction creating this cell is in the chain, and a transaction is found in the chain which uses this cell as an input.
-    * `unknown` - CKB does not know the status of the cell. Either the transaction creating this cell is not in the chain yet, or it is no longer live.
+    * `live` - The transaction creating this cell is in the chain, and there are no
+    transactions found in the chain that uses this cell as an input.
+    * `dead` - (**Deprecated**: the dead status will be removed since 0.36.0, please do not
+    rely on the logic that differentiates dead and unknown cells.) The transaction creating
+    this cell is in the chain, and a transaction is found in the chain which uses this cell as
+    an input.
+    * `unknown` - CKB does not know the status of the cell. Either the transaction creating
+    this cell is not in the chain yet, or it is no longer live.
 
 ### Type `CellbaseTemplate`
 The cellbase transaction template of the new block for miners.
@@ -6100,9 +6113,11 @@ Chain information.
 
 * `is_initial_block_download`: `boolean` - Whether the local node is in IBD, Initial Block Download.
 
-    When a node starts and its chain tip timestamp is far behind the wall clock, it will enter the IBD until it catches up the synchronization.
+    When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
+    the IBD until it catches up the synchronization.
 
-    During IBD, the local node only synchronizes the chain with one selected remote node and stops responding the most P2P requests.
+    During IBD, the local node only synchronizes the chain with one selected remote node and
+    stops responding the most P2P requests.
 
 * `median_time`: [`Uint64`](#type-uint64) - The median time of the last 37 blocks, including the tip block.
 
@@ -6164,7 +6179,8 @@ Count of cycles consumed by CKB VM to run scripts.
 This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint64](type.Uint64.html#examples).
 
 ### Type `DaoWithdrawingCalculationKind`
-An enum to represent the two kinds of dao withdrawal amount calculation option. `DaoWithdrawingCalculationKind` is equivalent to [`H256`] `|` [`OutPoint`].
+An enum to represent the two kinds of dao withdrawal amount calculation option.
+`DaoWithdrawingCalculationKind` is equivalent to [`H256`] `|` [`OutPoint`].
 
 [`H256`]: struct.H256.html
 [`OutPoint`]: struct.OutPoint.html
@@ -6178,9 +6194,11 @@ It's an enum value from one of:
 Use the cell itself as the dep cell.
   - dep_group : Type "dep_group".
 
-The cell is a dep group whose members are cells. These members are used as dep cells instead of the group itself.
+The cell is a dep group whose members are cells. These members are used as dep cells
+instead of the group itself.
 
-The dep group stores the array of `OutPoint`s serialized via molecule in the cell data. Each `OutPoint` points to one cell member.
+The dep group stores the array of `OutPoint`s serialized via molecule in the cell data.
+Each `OutPoint` points to one cell member.
 
 ### Type `Deployment`
 RFC0043 deployment params
@@ -6189,7 +6207,8 @@ RFC0043 deployment params
 
 `Deployment` is a JSON object with the following fields.
 
-* `bit`: `integer` - Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
+* `bit`: `integer` - Determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
+It is chosen from the set {0,1,2,...,28}.
 
 * `min_activation_epoch`: [`Uint64`](#type-uint64) - Specifies the epoch at which the softfork is allowed to become active.
 
@@ -6197,9 +6216,12 @@ RFC0043 deployment params
 
 * `start`: [`Uint64`](#type-uint64) - Specifies the first epoch in which the bit gains meaning.
 
-* `threshold`: [`Ratio`](#type-ratio) - Specifies the minimum ratio of block per `period`, which indicate the locked_in of the softfork during the `period`.
+* `threshold`: [`Ratio`](#type-ratio) - Specifies the minimum ratio of block per `period`,
+which indicate the locked_in of the softfork during the `period`.
 
-* `timeout`: [`Uint64`](#type-uint64) - Specifies an epoch at which the miner signaling ends. Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state), the deployment is considered failed on all descendants of the block.
+* `timeout`: [`Uint64`](#type-uint64) - Specifies an epoch at which the miner signaling ends.
+Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state),
+the deployment is considered failed on all descendants of the block.
 
 ### Type `DeploymentInfo`
 An object containing various state info regarding deployments of consensus changes
@@ -6208,7 +6230,8 @@ An object containing various state info regarding deployments of consensus chang
 
 `DeploymentInfo` is a JSON object with the following fields.
 
-* `bit`: `integer` - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation. It is chosen from the set {0,1,2,...,28}.
+* `bit`: `integer` - determines which bit in the `version` field of the block is to be used to signal the softfork lock-in and activation.
+It is chosen from the set {0,1,2,...,28}.
 
 * `min_activation_epoch`: [`Uint64`](#type-uint64) - specifies the epoch at which the softfork is allowed to become active.
 
@@ -6228,15 +6251,20 @@ An object containing various state info regarding deployments of consensus chang
 
 * `threshold`: [`Ratio`](#type-ratio) - the ratio of blocks with the version bit set required to activate the feature
 
-* `timeout`: [`Uint64`](#type-uint64) - specifies an epoch at which the miner signaling ends. Once this epoch has been reached, if the softfork has not yet locked_in (excluding this epoch block's bit state), the deployment is considered failed on all descendants of the block.
+* `timeout`: [`Uint64`](#type-uint64) - specifies an epoch at which the miner signaling ends.
+Once this epoch has been reached,
+if the softfork has not yet locked_in (excluding this epoch block's bit state),
+the deployment is considered failed on all descendants of the block.
 
 ### Type `DeploymentState`
 The possible softfork deployment state
 
 It's an enum value from one of:
-  - defined : First state that each softfork starts. The 0 epoch is by definition in this state for each deployment.
+  - defined : First state that each softfork starts.
+The 0 epoch is by definition in this state for each deployment.
   - started : For epochs past the `start` epoch.
-  - locked_in : For one epoch after the first epoch period with STARTED epochs of which at least `threshold` has the associated bit set in `version`.
+  - locked_in : For one epoch after the first epoch period with STARTED epochs of
+which at least `threshold` has the associated bit set in `version`.
   - active : For all epochs after the LOCKED_IN epoch.
   - failed : For one epoch period past the `timeout_epoch`, if LOCKED_IN was not reached.
 
@@ -6247,7 +6275,8 @@ Chain information.
 
 `DeploymentsInfo` is a JSON object with the following fields.
 
-* `deployments`:  - `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`DeploymentInfo`](#type-deploymentinfo) `}` deployments info
+* `deployments`:  - `{ [ key:` [`DeploymentPos`](#type-deploymentpos) `]: ` [`DeploymentInfo`](#type-deploymentinfo) `}`
+deployments info
 
 * `epoch`: [`Uint64`](#type-uint64) - requested block epoch
 
@@ -6331,12 +6360,12 @@ CKB adjusts difficulty based on epochs.
 ###### Examples
 
 ```json
- {
-   "compact_target": "0x1e083126",
-   "length": "0x708",
-   "number": "0x1",
-   "start_number": "0x3e8"
- }
+{
+  "compact_target": "0x1e083126",
+  "length": "0x708",
+  "number": "0x1",
+  "start_number": "0x3e8"
+}
 ```
 
 #### Fields
@@ -6351,7 +6380,8 @@ CKB adjusts difficulty based on epochs.
 
 * `start_number`: [`Uint64`](#type-uint64) - The block number of the first block in the epoch.
 
-    It also equals the total count of blocks in all the epochs whose epoch number is less than this epoch.
+    It also equals the total count of blocks in all the epochs whose epoch number is
+    less than this epoch.
 
 ### Type `EstimateCycles`
 Response result of the RPC method `estimate_cycles`.
@@ -6437,11 +6467,6 @@ The information about one hardfork feature.
 ### Type `HardForks`
 Hardfork information
 
-#### Fields
-
-`HardForks` is a JSON object with the following fields.
-
-* `inner`: `Array<` [`HardForkFeature`](#type-hardforkfeature) `>`
 ### Type `Header`
 The block header.
 
@@ -6453,7 +6478,8 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
 * `compact_target`: [`Uint32`](#type-uint32) - The block difficulty target.
 
-    It can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is within the target.
+    It can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is
+    within the target.
 
 * `dao`: [`Byte32`](#type-byte32) - DAO fields.
 
@@ -6465,15 +6491,19 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
 * `extra_hash`: [`H256`](#type-h256) - The hash on `uncles` and extension in the block body.
 
-    The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together. The extension hash is the hash of the extension. The extra hash is the hash on uncles hash and extension hash concatenated together.
+    The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    The extension hash is the hash of the extension.
+    The extra hash is the hash on uncles hash and extension hash concatenated together.
 
     **Notice**
 
-    This field is renamed from `uncles_hash` since 0.100.0. More details can be found in [CKB RFC 0031].
+    This field is renamed from `uncles_hash` since 0.100.0.
+    More details can be found in [CKB RFC 0031].
 
     [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
 
-* `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is within the target encoded from `compact_target`.
+* `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is
+within the target encoded from `compact_target`.
 
 * `number`: [`Uint64`](#type-uint64) - The consecutive block number starting from 0.
 
@@ -6487,7 +6517,8 @@ Refer to RFC [CKB Block Structure](https://github.com/nervosnetwork/rfcs/blob/ma
 
     It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
 
-    Miners should put the time when the block is created in the header, however, the precision is not guaranteed. A block with a higher block number may even have a smaller timestamp.
+    Miners should put the time when the block is created in the header, however, the precision
+    is not guaranteed. A block with a higher block number may even have a smaller timestamp.
 
 * `transactions_root`: [`H256`](#type-h256) - The commitment to all the transactions in the block.
 
@@ -6509,20 +6540,20 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 ###### Examples
 
 ```json
- {
-   "compact_target": "0x1e083126",
-   "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
-   "epoch": "0x7080018000001",
-   "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
-   "nonce": "0x0",
-   "number": "0x400",
-   "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
-   "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-   "timestamp": "0x5cd2b117",
-   "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
-   "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-   "version": "0x0"
- }
+{
+  "compact_target": "0x1e083126",
+  "dao": "0xb5a3e047474401001bc476b9ee573000c0c387962a38000000febffacf030000",
+  "epoch": "0x7080018000001",
+  "hash": "0xa5f5c85987a15de25661e5a214f2c1449cd803f071acc7999820f25246471f40",
+  "nonce": "0x0",
+  "number": "0x400",
+  "parent_hash": "0xae003585fa15309b30b31aed3dcf385e9472c3c3e93746a6c4540629a6a1ed2d",
+  "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "timestamp": "0x5cd2b117",
+  "transactions_root": "0xc47d5b78b3c4c4c853e2a32810818940d0ee403423bea9ec7b8e566d9595206c",
+  "extra_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "version": "0x0"
+}
 ```
 
 #### Fields
@@ -6531,7 +6562,8 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 
 * `compact_target`: [`Uint32`](#type-uint32) - The block difficulty target.
 
-    It can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is within the target.
+    It can be converted to a 256-bit target. Miners must ensure the Eaglesong of the header is
+    within the target.
 
 * `dao`: [`Byte32`](#type-byte32) - DAO fields.
 
@@ -6543,17 +6575,21 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 
 * `extra_hash`: [`H256`](#type-h256) - The hash on `uncles` and extension in the block body.
 
-    The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together. The extension hash is the hash of the extension. The extra hash is the hash on uncles hash and extension hash concatenated together.
+    The uncles hash is all zeros when `uncles` is empty, or the hash on all the uncle header hashes concatenated together.
+    The extension hash is the hash of the extension.
+    The extra hash is the hash on uncles hash and extension hash concatenated together.
 
     **Notice**
 
-    This field is renamed from `uncles_hash` since 0.100.0. More details can be found in [CKB RFC 0031].
+    This field is renamed from `uncles_hash` since 0.100.0.
+    More details can be found in [CKB RFC 0031].
 
     [CKB RFC 0031]: https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0031-variable-length-header-field/0031-variable-length-header-field.md
 
 * `hash`: [`H256`](#type-h256) - The header hash. It is also called the block hash.
 
-* `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is within the target encoded from `compact_target`.
+* `nonce`: [`Uint128`](#type-uint128) - Miner can modify this field to find a proper value such that the Eaglesong of the header is
+within the target encoded from `compact_target`.
 
 * `number`: [`Uint64`](#type-uint64) - The consecutive block number starting from 0.
 
@@ -6567,7 +6603,8 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 
     It is a Unix timestamp in milliseconds (1 second = 1000 milliseconds).
 
-    Miners should put the time when the block is created in the header, however, the precision is not guaranteed. A block with a higher block number may even have a smaller timestamp.
+    Miners should put the time when the block is created in the header, however, the precision
+    is not guaranteed. A block with a higher block number may even have a smaller timestamp.
 
 * `transactions_root`: [`H256`](#type-h256) - The commitment to all the transactions in the block.
 
@@ -6622,7 +6659,6 @@ It's an enum value from one of:
   - desc : Descending order
   - asc : Ascending order
 
-<a id="type-indexerpagination_for_indexercell"></a>
 ### Type `IndexerPagination<IndexerCell>`
 IndexerPagination wraps objects array and last_cursor to provide paging
 
@@ -6634,7 +6670,6 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 
 * `objects`: `Array<` [`IndexerCell`](#type-indexercell) `>` - objects collection
 
-<a id="type-indexerpagination_for_indexertx"></a>
 ### Type `IndexerPagination<IndexerTx>`
 IndexerPagination wraps objects array and last_cursor to provide paging
 
@@ -6765,38 +6800,38 @@ The information of the node itself.
 ###### Examples
 
 ```json
- {
-   "active": true,
-   "addresses": [
-     {
-       "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-       "score": "0xff"
-     },
-     {
-       "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-       "score": "0x1"
-     }
-   ],
-   "connections": "0xb",
-   "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-   "protocols": [
-     {
-       "id": "0x0",
-       "name": "/ckb/ping",
-       "support_versions": [
-         "0.0.1"
-       ]
-     },
-     {
-       "id": "0x1",
-       "name": "/ckb/discovery",
-       "support_versions": [
-         "0.0.1"
-       ]
-     }
-   ],
-   "version": "0.34.0 (f37f598 2020-07-17)"
- }
+{
+  "active": true,
+  "addresses": [
+    {
+      "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+      "score": "0xff"
+    },
+    {
+      "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+      "score": "0x1"
+    }
+  ],
+  "connections": "0xb",
+  "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+  "protocols": [
+    {
+      "id": "0x0",
+      "name": "/ckb/ping",
+      "support_versions": [
+        "0.0.1"
+      ]
+    },
+    {
+      "id": "0x1",
+      "name": "/ckb/discovery",
+      "support_versions": [
+        "0.0.1"
+      ]
+    }
+  ],
+  "version": "0.34.0 (f37f598 2020-07-17)"
+}
 ```
 
 #### Fields
@@ -6899,9 +6934,11 @@ Block rewards for miners.
 
 * `primary`: [`Uint64`](#type-uint64) - The primary base block reward allocated to miners.
 
-* `proposal`: [`Uint64`](#type-uint64) - The transaction fees that are rewarded to miners because the transaction is proposed in the block or its uncles.
+* `proposal`: [`Uint64`](#type-uint64) - The transaction fees that are rewarded to miners because the transaction is proposed in the block or
+its uncles.
 
-    Miners get 40% of the transaction fee for each transaction proposed in the block and committed later in its active commit window.
+    Miners get 40% of the transaction fee for each transaction proposed in the block and
+    committed later in its active commit window.
 
 * `secondary`: [`Uint64`](#type-uint64) - The secondary base block reward allocated to miners.
 
@@ -6914,7 +6951,8 @@ Mining information structure for the CKB-TUI Terminal module.
 
 * `difficulty`: `string` - Current network difficulty, represented as a U256 integer.
 
-* `hash_rate`: `string` - Current network hash rate, represented as a U256 integer (in hashes per second). This approximates the total computational power of the mining network.
+* `hash_rate`: `string` - Current network hash rate, represented as a U256 integer (in hashes per second).
+This approximates the total computational power of the mining network.
 
 ### Type `Network`
 Getting volume of received and transmitted data.
@@ -6971,10 +7009,10 @@ Reference to a cell via transaction hash and output index.
 ###### Examples
 
 ```json
- {
-   "index": "0x0",
-   "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
- }
+{
+  "index": "0x0",
+  "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+}
 ```
 
 #### Fields
@@ -6993,7 +7031,8 @@ It's an enum value from one of:
   - well_known_scripts_only : restricts the lock script and type script usage, see more information on <https://github.com/nervosnetwork/ckb/wiki/Transaction-%C2%BB-Default-Outputs-Validator>
 
 ### Type `Overview`
-Overview data structure aggregating system and mining information for the CKB-TUI Terminal module.
+Overview data structure aggregating system and mining information
+for the CKB-TUI Terminal module.
 
 #### Fields
 
@@ -7092,25 +7131,27 @@ The 10-byte fixed-length binary encoded as a 0x-prefixed hex string in JSON.
 ###### Example
 
 ```text
- 0xa0ef4eb5f4ceeb08a4c8
+0xa0ef4eb5f4ceeb08a4c8
 ```
 
 ### Type `ProposalWindow`
-Two protocol parameters `closest` and `farthest` define the closest and farthest on-chain distance between a transaction's proposal and commitment.
+Two protocol parameters `closest` and `farthest` define the closest
+and farthest on-chain distance between a transaction's proposal
+and commitment.
 
 A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
 2) it is in the commitment zone of the main chain block with height h_c ;
 
 ```text
-   ProposalWindow { closest: 2, farthest: 10 }
-       propose
+  ProposalWindow { closest: 2, farthest: 10 }
+      propose
+         \
           \
-           \
-           13 14 [15 16 17 18 19 20 21 22 23]
-                  \_______________________/
-                               \
-                             commit
+          13 14 [15 16 17 18 19 20 21 22 23]
+                 \_______________________/
+                              \
+                            commit
 ```
 
 #### Fields
@@ -7122,7 +7163,8 @@ A non-cellbase transaction is committed at height h_c if all of the following co
 * `farthest`: [`Uint64`](#type-uint64) - The farthest distance between the proposal and the commitment.
 
 ### Type `Ratio`
-Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both unsigned 64-bit integers.
+Represents the ratio `numerator / denominator`, where `numerator` and `denominator` are both
+unsigned 64-bit integers.
 
 #### Fields
 
@@ -7151,66 +7193,66 @@ A remote node connects to the local node via the P2P network. It is often called
 ###### Examples
 
 ```json
- {
-   "addresses": [
-     {
-       "address": "/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-       "score": "0x64"
-     },
-     {
-       "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-       "score": "0x64"
-     }
-   ],
-   "connected_duration": "0x2f",
-   "is_outbound": true,
-   "last_ping_duration": "0x1a",
-   "node_id": "QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
-   "protocols": [
-     {
-       "id": "0x4",
-       "version": "0.0.1"
-     },
-     {
-       "id": "0x2",
-       "version": "0.0.1"
-     },
-     {
-       "id": "0x1",
-       "version": "0.0.1"
-     },
-     {
-       "id": "0x64",
-       "version": "1"
-     },
-     {
-       "id": "0x6e",
-       "version": "1"
-     },
-     {
-       "id": "0x66",
-       "version": "1"
-     },
-     {
-       "id": "0x65",
-       "version": "1"
-     },
-     {
-       "id": "0x0",
-       "version": "0.0.1"
-     }
-   ],
-   "sync_state": {
-     "best_known_header_hash": null,
-     "best_known_header_number": null,
-     "can_fetch_count": "0x80",
-     "inflight_count": "0xa",
-     "last_common_header_hash": null,
-     "last_common_header_number": null,
-     "unknown_header_list_size": "0x20"
-   },
-   "version": "0.34.0 (f37f598 2020-07-17)"
- }
+{
+  "addresses": [
+    {
+      "address": "/ip6/::ffff:18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+      "score": "0x64"
+    },
+    {
+      "address": "/ip4/18.185.102.19/tcp/8115/p2p/QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+      "score": "0x64"
+    }
+  ],
+  "connected_duration": "0x2f",
+  "is_outbound": true,
+  "last_ping_duration": "0x1a",
+  "node_id": "QmXwUgF48ULy6hkgfqrEwEfuHW7WyWyWauueRDAYQHNDfN",
+  "protocols": [
+    {
+      "id": "0x4",
+      "version": "0.0.1"
+    },
+    {
+      "id": "0x2",
+      "version": "0.0.1"
+    },
+    {
+      "id": "0x1",
+      "version": "0.0.1"
+    },
+    {
+      "id": "0x64",
+      "version": "1"
+    },
+    {
+      "id": "0x6e",
+      "version": "1"
+    },
+    {
+      "id": "0x66",
+      "version": "1"
+    },
+    {
+      "id": "0x65",
+      "version": "1"
+    },
+    {
+      "id": "0x0",
+      "version": "0.0.1"
+    }
+  ],
+  "sync_state": {
+    "best_known_header_hash": null,
+    "best_known_header_number": null,
+    "can_fetch_count": "0x80",
+    "inflight_count": "0xa",
+    "last_common_header_hash": null,
+    "last_common_header_number": null,
+    "unknown_header_list_size": "0x20"
+  },
+  "version": "0.34.0 (f37f598 2020-07-17)"
+}
 ```
 
 #### Fields
@@ -7229,7 +7271,8 @@ A remote node connects to the local node via the P2P network. It is often called
 
 * `protocols`: `Array<` [`RemoteNodeProtocol`](#type-remotenodeprotocol) `>` - Active protocols.
 
-    CKB uses Tentacle multiplexed network framework. Multiple protocols are running simultaneously in the connection.
+    CKB uses Tentacle multiplexed network framework. Multiple protocols are running
+    simultaneously in the connection.
 
 * `version`: `string` - The remote node version.
 
@@ -7244,50 +7287,33 @@ The information about an active running protocol.
 
 * `version`: `string` - Active protocol version.
 
-<a id="type-responseformat_for_blockview"></a>
 ### Type `ResponseFormat<BlockView>`
 This is a wrapper for JSON serialization to select the format between Json and Hex.
 
 ###### Examples
 
-`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized
+Hex format.
 
-#### Fields
-
-`ResponseFormat<BlockView>` is a JSON object with the following fields.
-
-* `inner`: [`Either<BlockView | JsonBytes>`](#type-either_for_blockview_and_jsonbytes) - The inner value.
-
-<a id="type-responseformat_for_headerview"></a>
 ### Type `ResponseFormat<HeaderView>`
 This is a wrapper for JSON serialization to select the format between Json and Hex.
 
 ###### Examples
 
-`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized
+Hex format.
 
-#### Fields
-
-`ResponseFormat<HeaderView>` is a JSON object with the following fields.
-
-* `inner`: [`Either<HeaderView | JsonBytes>`](#type-either_for_headerview_and_jsonbytes) - The inner value.
-
-<a id="type-responseformat_for_transactionview"></a>
 ### Type `ResponseFormat<TransactionView>`
 This is a wrapper for JSON serialization to select the format between Json and Hex.
 
 ###### Examples
 
-`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized Hex format.
-
-#### Fields
-
-`ResponseFormat<TransactionView>` is a JSON object with the following fields.
-
-* `inner`: [`Either<TransactionView | JsonBytes>`](#type-either_for_transactionview_and_jsonbytes) - The inner value.
+`ResponseFormat<BlockView>` returns the block in its Json format or molecule serialized
+Hex format.
 
 ### Type `Rfc0043`
-Represent soft fork deployments where activation is controlled by rfc0043 signaling
+Represent soft fork deployments
+where activation is controlled by rfc0043 signaling
 
 #### Fields
 
@@ -7303,11 +7329,11 @@ Describes the lock script and type script for a cell.
 ###### Examples
 
 ```json
- {
-   "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-   "hash_type": "data",
-   "args": "0x"
- }
+{
+  "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+  "hash_type": "data",
+  "args": "0x"
+}
 ```
 
 #### Fields
@@ -7325,15 +7351,146 @@ Specifies how the script `code_hash` is used to match the script code and how to
 
 Allowed kinds: "data", "type", "data1" and "data2"
 
-Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating) and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script) in the RFC *CKB Transaction Structure*.
+Refer to the section [Code Locating](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#code-locating)
+and [Upgradable Script](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md#upgradable-script)
+in the RFC *CKB Transaction Structure*.
 
-The hash type is split into the high 7 bits and the low 1 bit, when the low 1 bit is 1, it indicates the type, when the low 1 bit is 0, it indicates the data, and then it relies on the high 7 bits to indicate that the data actually corresponds to the version.
+The hash type is split into the high 7 bits and the low 1 bit,
+when the low 1 bit is 1, it indicates the type,
+when the low 1 bit is 0, it indicates the data,
+and then it relies on the high 7 bits to indicate
+that the data actually corresponds to the version.
 
 It's an enum value from one of:
   - data : Type "data" matches script code via cell data hash, and runs the script code in v0 CKB VM
   - type : Type "type" matches script code via cell type script hash.
   - data1 : Type "data1" matches script code via cell data hash, and runs the script code in v1 CKB VM
   - data2 : Type "data2" matches script code via cell data hash, and runs the script code in v2 CKB VM
+  - data3 : Type "data3" matches script code via cell data hash, and runs the script code in v3 CKB VM.
+  - data4 : Type "data4" matches script code via cell data hash, and runs the script code in v4 CKB VM.
+  - data5 : Type "data5" matches script code via cell data hash, and runs the script code in v5 CKB VM.
+  - data6 : Type "data6" matches script code via cell data hash, and runs the script code in v6 CKB VM.
+  - data7 : Type "data7" matches script code via cell data hash, and runs the script code in v7 CKB VM.
+  - data8 : Type "data8" matches script code via cell data hash, and runs the script code in v8 CKB VM.
+  - data9 : Type "data9" matches script code via cell data hash, and runs the script code in v9 CKB VM.
+  - data10 : Type "data10" matches script code via cell data hash, and runs the script code in v10 CKB VM.
+  - data11 : Type "data11" matches script code via cell data hash, and runs the script code in v11 CKB VM.
+  - data12 : Type "data12" matches script code via cell data hash, and runs the script code in v12 CKB VM.
+  - data13 : Type "data13" matches script code via cell data hash, and runs the script code in v13 CKB VM.
+  - data14 : Type "data14" matches script code via cell data hash, and runs the script code in v14 CKB VM.
+  - data15 : Type "data15" matches script code via cell data hash, and runs the script code in v15 CKB VM.
+  - data16 : Type "data16" matches script code via cell data hash, and runs the script code in v16 CKB VM.
+  - data17 : Type "data17" matches script code via cell data hash, and runs the script code in v17 CKB VM.
+  - data18 : Type "data18" matches script code via cell data hash, and runs the script code in v18 CKB VM.
+  - data19 : Type "data19" matches script code via cell data hash, and runs the script code in v19 CKB VM.
+  - data20 : Type "data20" matches script code via cell data hash, and runs the script code in v20 CKB VM.
+  - data21 : Type "data21" matches script code via cell data hash, and runs the script code in v21 CKB VM.
+  - data22 : Type "data22" matches script code via cell data hash, and runs the script code in v22 CKB VM.
+  - data23 : Type "data23" matches script code via cell data hash, and runs the script code in v23 CKB VM.
+  - data24 : Type "data24" matches script code via cell data hash, and runs the script code in v24 CKB VM.
+  - data25 : Type "data25" matches script code via cell data hash, and runs the script code in v25 CKB VM.
+  - data26 : Type "data26" matches script code via cell data hash, and runs the script code in v26 CKB VM.
+  - data27 : Type "data27" matches script code via cell data hash, and runs the script code in v27 CKB VM.
+  - data28 : Type "data28" matches script code via cell data hash, and runs the script code in v28 CKB VM.
+  - data29 : Type "data29" matches script code via cell data hash, and runs the script code in v29 CKB VM.
+  - data30 : Type "data30" matches script code via cell data hash, and runs the script code in v30 CKB VM.
+  - data31 : Type "data31" matches script code via cell data hash, and runs the script code in v31 CKB VM.
+  - data32 : Type "data32" matches script code via cell data hash, and runs the script code in v32 CKB VM.
+  - data33 : Type "data33" matches script code via cell data hash, and runs the script code in v33 CKB VM.
+  - data34 : Type "data34" matches script code via cell data hash, and runs the script code in v34 CKB VM.
+  - data35 : Type "data35" matches script code via cell data hash, and runs the script code in v35 CKB VM.
+  - data36 : Type "data36" matches script code via cell data hash, and runs the script code in v36 CKB VM.
+  - data37 : Type "data37" matches script code via cell data hash, and runs the script code in v37 CKB VM.
+  - data38 : Type "data38" matches script code via cell data hash, and runs the script code in v38 CKB VM.
+  - data39 : Type "data39" matches script code via cell data hash, and runs the script code in v39 CKB VM.
+  - data40 : Type "data40" matches script code via cell data hash, and runs the script code in v40 CKB VM.
+  - data41 : Type "data41" matches script code via cell data hash, and runs the script code in v41 CKB VM.
+  - data42 : Type "data42" matches script code via cell data hash, and runs the script code in v42 CKB VM.
+  - data43 : Type "data43" matches script code via cell data hash, and runs the script code in v43 CKB VM.
+  - data44 : Type "data44" matches script code via cell data hash, and runs the script code in v44 CKB VM.
+  - data45 : Type "data45" matches script code via cell data hash, and runs the script code in v45 CKB VM.
+  - data46 : Type "data46" matches script code via cell data hash, and runs the script code in v46 CKB VM.
+  - data47 : Type "data47" matches script code via cell data hash, and runs the script code in v47 CKB VM.
+  - data48 : Type "data48" matches script code via cell data hash, and runs the script code in v48 CKB VM.
+  - data49 : Type "data49" matches script code via cell data hash, and runs the script code in v49 CKB VM.
+  - data50 : Type "data50" matches script code via cell data hash, and runs the script code in v50 CKB VM.
+  - data51 : Type "data51" matches script code via cell data hash, and runs the script code in v51 CKB VM.
+  - data52 : Type "data52" matches script code via cell data hash, and runs the script code in v52 CKB VM.
+  - data53 : Type "data53" matches script code via cell data hash, and runs the script code in v53 CKB VM.
+  - data54 : Type "data54" matches script code via cell data hash, and runs the script code in v54 CKB VM.
+  - data55 : Type "data55" matches script code via cell data hash, and runs the script code in v55 CKB VM.
+  - data56 : Type "data56" matches script code via cell data hash, and runs the script code in v56 CKB VM.
+  - data57 : Type "data57" matches script code via cell data hash, and runs the script code in v57 CKB VM.
+  - data58 : Type "data58" matches script code via cell data hash, and runs the script code in v58 CKB VM.
+  - data59 : Type "data59" matches script code via cell data hash, and runs the script code in v59 CKB VM.
+  - data60 : Type "data60" matches script code via cell data hash, and runs the script code in v60 CKB VM.
+  - data61 : Type "data61" matches script code via cell data hash, and runs the script code in v61 CKB VM.
+  - data62 : Type "data62" matches script code via cell data hash, and runs the script code in v62 CKB VM.
+  - data63 : Type "data63" matches script code via cell data hash, and runs the script code in v63 CKB VM.
+  - data64 : Type "data64" matches script code via cell data hash, and runs the script code in v64 CKB VM.
+  - data65 : Type "data65" matches script code via cell data hash, and runs the script code in v65 CKB VM.
+  - data66 : Type "data66" matches script code via cell data hash, and runs the script code in v66 CKB VM.
+  - data67 : Type "data67" matches script code via cell data hash, and runs the script code in v67 CKB VM.
+  - data68 : Type "data68" matches script code via cell data hash, and runs the script code in v68 CKB VM.
+  - data69 : Type "data69" matches script code via cell data hash, and runs the script code in v69 CKB VM.
+  - data70 : Type "data70" matches script code via cell data hash, and runs the script code in v70 CKB VM.
+  - data71 : Type "data71" matches script code via cell data hash, and runs the script code in v71 CKB VM.
+  - data72 : Type "data72" matches script code via cell data hash, and runs the script code in v72 CKB VM.
+  - data73 : Type "data73" matches script code via cell data hash, and runs the script code in v73 CKB VM.
+  - data74 : Type "data74" matches script code via cell data hash, and runs the script code in v74 CKB VM.
+  - data75 : Type "data75" matches script code via cell data hash, and runs the script code in v75 CKB VM.
+  - data76 : Type "data76" matches script code via cell data hash, and runs the script code in v76 CKB VM.
+  - data77 : Type "data77" matches script code via cell data hash, and runs the script code in v77 CKB VM.
+  - data78 : Type "data78" matches script code via cell data hash, and runs the script code in v78 CKB VM.
+  - data79 : Type "data79" matches script code via cell data hash, and runs the script code in v79 CKB VM.
+  - data80 : Type "data80" matches script code via cell data hash, and runs the script code in v80 CKB VM.
+  - data81 : Type "data81" matches script code via cell data hash, and runs the script code in v81 CKB VM.
+  - data82 : Type "data82" matches script code via cell data hash, and runs the script code in v82 CKB VM.
+  - data83 : Type "data83" matches script code via cell data hash, and runs the script code in v83 CKB VM.
+  - data84 : Type "data84" matches script code via cell data hash, and runs the script code in v84 CKB VM.
+  - data85 : Type "data85" matches script code via cell data hash, and runs the script code in v85 CKB VM.
+  - data86 : Type "data86" matches script code via cell data hash, and runs the script code in v86 CKB VM.
+  - data87 : Type "data87" matches script code via cell data hash, and runs the script code in v87 CKB VM.
+  - data88 : Type "data88" matches script code via cell data hash, and runs the script code in v88 CKB VM.
+  - data89 : Type "data89" matches script code via cell data hash, and runs the script code in v89 CKB VM.
+  - data90 : Type "data90" matches script code via cell data hash, and runs the script code in v90 CKB VM.
+  - data91 : Type "data91" matches script code via cell data hash, and runs the script code in v91 CKB VM.
+  - data92 : Type "data92" matches script code via cell data hash, and runs the script code in v92 CKB VM.
+  - data93 : Type "data93" matches script code via cell data hash, and runs the script code in v93 CKB VM.
+  - data94 : Type "data94" matches script code via cell data hash, and runs the script code in v94 CKB VM.
+  - data95 : Type "data95" matches script code via cell data hash, and runs the script code in v95 CKB VM.
+  - data96 : Type "data96" matches script code via cell data hash, and runs the script code in v96 CKB VM.
+  - data97 : Type "data97" matches script code via cell data hash, and runs the script code in v97 CKB VM.
+  - data98 : Type "data98" matches script code via cell data hash, and runs the script code in v98 CKB VM.
+  - data99 : Type "data99" matches script code via cell data hash, and runs the script code in v99 CKB VM.
+  - data100 : Type "data100" matches script code via cell data hash, and runs the script code in v100 CKB VM.
+  - data101 : Type "data101" matches script code via cell data hash, and runs the script code in v101 CKB VM.
+  - data102 : Type "data102" matches script code via cell data hash, and runs the script code in v102 CKB VM.
+  - data103 : Type "data103" matches script code via cell data hash, and runs the script code in v103 CKB VM.
+  - data104 : Type "data104" matches script code via cell data hash, and runs the script code in v104 CKB VM.
+  - data105 : Type "data105" matches script code via cell data hash, and runs the script code in v105 CKB VM.
+  - data106 : Type "data106" matches script code via cell data hash, and runs the script code in v106 CKB VM.
+  - data107 : Type "data107" matches script code via cell data hash, and runs the script code in v107 CKB VM.
+  - data108 : Type "data108" matches script code via cell data hash, and runs the script code in v108 CKB VM.
+  - data109 : Type "data109" matches script code via cell data hash, and runs the script code in v109 CKB VM.
+  - data110 : Type "data110" matches script code via cell data hash, and runs the script code in v110 CKB VM.
+  - data111 : Type "data111" matches script code via cell data hash, and runs the script code in v111 CKB VM.
+  - data112 : Type "data112" matches script code via cell data hash, and runs the script code in v112 CKB VM.
+  - data113 : Type "data113" matches script code via cell data hash, and runs the script code in v113 CKB VM.
+  - data114 : Type "data114" matches script code via cell data hash, and runs the script code in v114 CKB VM.
+  - data115 : Type "data115" matches script code via cell data hash, and runs the script code in v115 CKB VM.
+  - data116 : Type "data116" matches script code via cell data hash, and runs the script code in v116 CKB VM.
+  - data117 : Type "data117" matches script code via cell data hash, and runs the script code in v117 CKB VM.
+  - data118 : Type "data118" matches script code via cell data hash, and runs the script code in v118 CKB VM.
+  - data119 : Type "data119" matches script code via cell data hash, and runs the script code in v119 CKB VM.
+  - data120 : Type "data120" matches script code via cell data hash, and runs the script code in v120 CKB VM.
+  - data121 : Type "data121" matches script code via cell data hash, and runs the script code in v121 CKB VM.
+  - data122 : Type "data122" matches script code via cell data hash, and runs the script code in v122 CKB VM.
+  - data123 : Type "data123" matches script code via cell data hash, and runs the script code in v123 CKB VM.
+  - data124 : Type "data124" matches script code via cell data hash, and runs the script code in v124 CKB VM.
+  - data125 : Type "data125" matches script code via cell data hash, and runs the script code in v125 CKB VM.
+  - data126 : Type "data126" matches script code via cell data hash, and runs the script code in v126 CKB VM.
+  - data127 : Type "data127" matches script code via cell data hash, and runs the script code in v127 CKB VM.
 
 ### Type `SerializedBlock`
 This is a 0x-prefix hex string. It is the block serialized by molecule using the schema `table Block`.
@@ -7345,7 +7502,9 @@ This is a 0x-prefix hex string. It is the block header serialized by molecule us
 SoftFork information
 
 ### Type `SoftForkStatus`
-SoftForkStatus which is either `buried` (for soft fork deployments where the activation epoch is hard-coded into the client implementation), or `rfc0043` (for soft fork deployments where activation is controlled by rfc0043 signaling).
+SoftForkStatus which is either `buried` (for soft fork deployments where the activation epoch is
+hard-coded into the client implementation), or `rfc0043` (for soft fork deployments
+where activation is controlled by rfc0043 signaling).
 
 It's an enum value from one of:
   - buried : the activation epoch is hard-coded into the client implementation
@@ -7358,8 +7517,10 @@ It's an enum value from one of:
   - pending : Status "pending". The transaction is in the pool, and not proposed yet.
   - proposed : Status "proposed". The transaction is in the pool and has been proposed.
   - committed : Status "committed". The transaction has been committed to the canonical chain.
-  - unknown : Status "unknown". The node has not seen the transaction, or it should be rejected but was cleared due to storage limitations.
-  - rejected : Status "rejected". The transaction has been recently removed from the pool. Due to storage limitations, the node can only hold the most recently removed transactions.
+  - unknown : Status "unknown". The node has not seen the transaction,
+or it should be rejected but was cleared due to storage limitations.
+  - rejected : Status "rejected". The transaction has been recently removed from the pool.
+Due to storage limitations, the node can only hold the most recently removed transactions.
 
 ### Type `SyncState`
 The overall chain synchronization state of this local node.
@@ -7374,9 +7535,11 @@ The overall chain synchronization state of this local node.
 
 * `best_known_block_number`: [`Uint64`](#type-uint64) - This is the best known block number observed by the local node from the P2P network.
 
-    The best here means that the block leads a chain which has the best known accumulated difficulty.
+    The best here means that the block leads a chain which has the best known accumulated
+    difficulty.
 
-    This can be used to estimate the synchronization progress. If this RPC returns B, and the RPC `get_tip_block_number` returns T, the node has already synchronized T/B blocks.
+    This can be used to estimate the synchronization progress. If this RPC returns B, and the
+    RPC `get_tip_block_number` returns T, the node has already synchronized T/B blocks.
 
 * `best_known_block_timestamp`: [`Uint64`](#type-uint64) - This is timestamp of the same block described in `best_known_block_number`.
 
@@ -7384,15 +7547,21 @@ The overall chain synchronization state of this local node.
 
 * `ibd`: `boolean` - Whether the local node is in IBD, Initial Block Download.
 
-    When a node starts and its chain tip timestamp is far behind the wall clock, it will enter the IBD until it catches up the synchronization.
+    When a node starts and its chain tip timestamp is far behind the wall clock, it will enter
+    the IBD until it catches up the synchronization.
 
-    During IBD, the local node only synchronizes the chain with one selected remote node and stops responding to most P2P requests.
+    During IBD, the local node only synchronizes the chain with one selected remote node and
+    stops responding to most P2P requests.
 
 * `inflight_blocks_count`: [`Uint64`](#type-uint64) - Count of downloading blocks.
 
 * `low_time`: [`Uint64`](#type-uint64) - The download scheduler's time analysis data, the low is the 9/10 of the cut-off point, unit ms
 
-* `min_chain_work`: [`Uint128`](#type-uint128) - This field acts as a security measure to ensure that a node only synchronizes with other nodes that have a significant amount of computational work invested in them, thereby preventing certain types of attacks and ensuring network integrity. Only the mainnet uses a hardcoded value for this field.
+* `min_chain_work`: [`Uint128`](#type-uint128) - This field acts as a security measure to ensure that a node only
+synchronizes with other nodes that have a significant amount of
+computational work invested in them, thereby preventing certain types
+of attacks and ensuring network integrity. Only the mainnet uses a
+hardcoded value for this field.
 
 * `min_chain_work_reached`: `boolean` - Is ckb reached the min_chain_work?
 
@@ -7400,7 +7569,9 @@ The overall chain synchronization state of this local node.
 
 * `orphan_blocks_count`: [`Uint64`](#type-uint64) - Count of orphan blocks the local node has downloaded.
 
-    The local node downloads multiple blocks simultaneously but blocks must be connected consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan block.
+    The local node downloads multiple blocks simultaneously but blocks must be connected
+    consecutively. If a descendant is downloaded before its ancestors, it becomes an orphan
+    block.
 
     If this number is too high, it indicates that block download has stuck at some block.
 
@@ -7419,7 +7590,8 @@ System’s information.
 
 `SysInfo` is a JSON object with the following fields.
 
-* `cpu_usage`: `number` - Returns the total ckb CPU usage (in %). Notice that it might be bigger than 100 if run on a multi-core machine.
+* `cpu_usage`: `number` - Returns the total ckb CPU usage (in %).
+Notice that it might be bigger than 100 if run on a multi-core machine.
 
 * `disk_usage`: [`DiskUsage`](#type-diskusage) - Returns number of bytes ckb read and written to disk.
 
@@ -7438,7 +7610,8 @@ Transaction pool information.
 
 * `committing`: [`Uint64`](#type-uint64) - Count of committing transactions.
 
-    The Committing transactions refer to transactions that have been packaged into the block_template and are awaiting mining into a block.
+    The Committing transactions refer to transactions that have been packaged into the
+    block_template and are awaiting mining into a block.
 
 * `last_txs_updated_at`: [`Uint64`](#type-uint64) - Last updated time. This is the Unix timestamp in milliseconds.
 
@@ -7446,7 +7619,8 @@ Transaction pool information.
 
 * `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
-    An orphan transaction has an input cell from the transaction which is neither in the chain nor in the transaction pool.
+    An orphan transaction has an input cell from the transaction which is neither in the chain
+    nor in the transaction pool.
 
 * `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
 
@@ -7454,7 +7628,8 @@ Transaction pool information.
 
 * `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
 
-    The proposed transactions are ready to be committed in the new block after the block `tip_hash`.
+    The proposed transactions are ready to be committed in the new block after the block
+    `tip_hash`.
 
 * `total_recent_reject_num`: [`Uint64`](#type-uint64) - Total count of recent reject transactions by pool
 
@@ -7481,7 +7656,8 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
 * `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
-    CKB locates lock script and type script code via cell deps. The script also can use syscalls to read the cells here.
+    CKB locates lock script and type script code via cell deps. The script also can use syscalls
+    to read the cells here.
 
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
@@ -7499,7 +7675,8 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
 * `outputs_data`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - Output cells data.
 
-    This is a parallel array of outputs. The cell capacity, lock, and type of the output i is `outputs[i]` and its data is `outputs_data[i]`.
+    This is a parallel array of outputs. The cell capacity, lock, and type of the output i is
+    `outputs[i]` and its data is `outputs_data[i]`.
 
 * `version`: [`Uint32`](#type-uint32) - Reserved for future usage. It must equal 0 in current version.
 
@@ -7507,7 +7684,8 @@ Refer to RFC [CKB Transaction Structure](https://github.com/nervosnetwork/rfcs/b
 
     Lock script and type script can read data here to verify the transaction.
 
-    For example, the bundled secp256k1 lock script requires storing the signature in `witnesses`.
+    For example, the bundled secp256k1 lock script requires storing the signature in
+    `witnesses`.
 
 ### Type `TransactionAndWitnessProof`
 Merkle proof for transactions' witnesses in a block.
@@ -7559,46 +7737,46 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 ###### Examples
 
 ```json
- {
-   "cell_deps": [
-     {
-       "dep_type": "code",
-       "out_point": {
-         "index": "0x0",
-         "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
-       }
-     }
-   ],
-   "hash": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
-   "header_deps": [
-     "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
-   ],
-   "inputs": [
-     {
-       "previous_output": {
-         "index": "0x0",
-         "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
-       },
-       "since": "0x0"
-     }
-   ],
-   "outputs": [
-     {
-       "capacity": "0x2540be400",
-       "lock": {
-         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-         "hash_type": "data",
-         "args": "0x"
-       },
-       "type": null
-     }
-   ],
-   "outputs_data": [
-     "0x"
-   ],
-   "version": "0x0",
-   "witnesses": []
- }
+{
+  "cell_deps": [
+    {
+      "dep_type": "code",
+      "out_point": {
+        "index": "0x0",
+        "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
+      }
+    }
+  ],
+  "hash": "0xa0ef4eb5f4ceeb08a4c8524d84c5da95dce2f608e0ca2ec8091191b0f330c6e3",
+  "header_deps": [
+    "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
+  ],
+  "inputs": [
+    {
+      "previous_output": {
+        "index": "0x0",
+        "tx_hash": "0x365698b50ca0da75dca2c87f9e7b563811d3b5813736b8cc62cc3b106faceb17"
+      },
+      "since": "0x0"
+    }
+  ],
+  "outputs": [
+    {
+      "capacity": "0x2540be400",
+      "lock": {
+        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+        "hash_type": "data",
+        "args": "0x"
+      },
+      "type": null
+    }
+  ],
+  "outputs_data": [
+    "0x"
+  ],
+  "version": "0x0",
+  "witnesses": []
+}
 ```
 
 #### Fields
@@ -7607,7 +7785,8 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 
 * `cell_deps`: `Array<` [`CellDep`](#type-celldep) `>` - An array of cell deps.
 
-    CKB locates lock script and type script code via cell deps. The script also can use syscalls to read the cells here.
+    CKB locates lock script and type script code via cell deps. The script also can use syscalls
+    to read the cells here.
 
     Unlike inputs, the live cells can be used as cell deps in multiple transactions.
 
@@ -7627,7 +7806,8 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 
 * `outputs_data`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - Output cells data.
 
-    This is a parallel array of outputs. The cell capacity, lock, and type of the output i is `outputs[i]` and its data is `outputs_data[i]`.
+    This is a parallel array of outputs. The cell capacity, lock, and type of the output i is
+    `outputs[i]` and its data is `outputs_data[i]`.
 
 * `version`: [`Uint32`](#type-uint32) - Reserved for future usage. It must equal 0 in current version.
 
@@ -7635,7 +7815,8 @@ This structure is serialized into a JSON object with field `hash` and all the fi
 
     Lock script and type script can read data here to verify the transaction.
 
-    For example, the bundled secp256k1 lock script requires storing the signature in `witnesses`.
+    For example, the bundled secp256k1 lock script requires storing the signature in
+    `witnesses`.
 
 ### Type `TransactionWithStatusResponse`
 The JSON view of a transaction as well as its status.
@@ -7708,13 +7889,15 @@ Transaction pool information.
 
 * `min_rbf_rate`: [`Uint64`](#type-uint64) - RBF rate threshold.
 
-    The pool rejects to replace transactions whose fee rate is below this threshold. if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
+    The pool rejects to replace transactions whose fee rate is below this threshold.
+    if min_rbf_rate > min_fee_rate then RBF is enabled on the node.
 
     The unit is Shannons per 1000 bytes transaction serialization size in the block.
 
 * `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
-    An orphan transaction has an input cell from the transaction which is neither in the chain nor in the transaction pool.
+    An orphan transaction has an input cell from the transaction which is neither in the chain
+    nor in the transaction pool.
 
 * `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
 
@@ -7722,11 +7905,13 @@ Transaction pool information.
 
 * `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
 
-    The proposed transactions are ready to be committed in the new block after the block `tip_hash`.
+    The proposed transactions are ready to be committed in the new block after the block
+    `tip_hash`.
 
 * `tip_hash`: [`H256`](#type-h256) - The associated chain tip block hash.
 
-    The transaction pool is stateful. It manages the transactions which are valid to be committed after this block.
+    The transaction pool is stateful. It manages the transactions which are valid to be
+    committed after this block.
 
 * `tip_number`: [`Uint64`](#type-uint64) - The block number of the block `tip_hash`.
 
@@ -7736,7 +7921,9 @@ Transaction pool information.
 
 * `tx_size_limit`: [`Uint64`](#type-uint64) - Limiting transactions to tx_size_limit
 
-    Transactions with a large size close to the block size limit may not be packaged, because the block header and cellbase are occupied, so the tx-pool is limited to accepting transaction up to tx_size_limit.
+    Transactions with a large size close to the block size limit may not be packaged,
+    because the block header and cellbase are occupied,
+    so the tx-pool is limited to accepting transaction up to tx_size_limit.
 
 * `verify_queue_size`: [`Uint64`](#type-uint64) - verify_queue size
 
@@ -7764,7 +7951,9 @@ The 256-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON.
 ### Type `UncleBlock`
 The uncle block used as a parameter in the RPC.
 
-The chain stores only the uncle block header and proposal IDs. The header ensures the block is covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because a block can commit transactions proposed in an uncle.
+The chain stores only the uncle block header and proposal IDs. The header ensures the block is
+covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
+a block can commit transactions proposed in an uncle.
 
 A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
 
@@ -7784,7 +7973,9 @@ A block B1 is considered to be the uncle of another block B2 if all the followin
 ### Type `UncleBlockView`
 The uncle block.
 
-The chain stores only the uncle block header and proposal IDs. The header ensures the block is covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because a block can commit transactions proposed in an uncle.
+The chain stores only the uncle block header and proposal IDs. The header ensures the block is
+covered by PoW and can pass the consensus rules on uncle blocks. Proposal IDs are there because
+a block can commit transactions proposed in an uncle.
 
 A block B1 is considered to be the uncle of another block B2 if all the following conditions are met:
 
@@ -7848,16 +8039,20 @@ Here is a reference to the pre-defined errors:
 CKB application-defined errors follow some patterns to assign the codes:
 
 * -1 ~ -999 are general errors
-* -1000 ~ -2999 are module-specific errors. Each module generally gets 100 reserved error codes.
+* -1000 ~ -2999 are module-specific errors. Each module generally gets 100 reserved error
+  codes.
 
-Unless otherwise noted, all the errors return optional detailed information as `string` in the error object `data` field.
+Unless otherwise noted, all the errors return optional detailed information as `string` in the error
+object `data` field.
 
 ### ERROR `CKBInternalError`
-(-1): CKB internal errors are considered to never happen or only happen when the system resources are exhausted.
+(-1): CKB internal errors are considered to never happen or only happen when the system
+resources are exhausted.
 ### ERROR `Deprecated`
 (-2): The CKB method has been deprecated and disabled.
 
-Set `rpc.enable_deprecated_rpc` to `true` in the config file to enable all deprecated methods.
+Set `rpc.enable_deprecated_rpc` to `true` in the config file to enable all deprecated
+methods.
 ### ERROR `Invalid`
 (-3): Error code -3 is no longer used.
 
@@ -7866,7 +8061,8 @@ Before v0.35.0, CKB returns all RPC errors using the error code -3. CKB no longe
 ### ERROR `RPCModuleIsDisabled`
 (-4): The RPC method is not enabled.
 
-CKB groups RPC methods into modules, and a method is enabled only when the module is explicitly enabled in the config file.
+CKB groups RPC methods into modules, and a method is enabled only when the module is
+explicitly enabled in the config file.
 ### ERROR `DaoError`
 (-5): DAO related errors.
 ### ERROR `IntegerOverflow`
@@ -7880,19 +8076,24 @@ Users have to edit the config file to fix the error.
 ### ERROR `DatabaseError`
 (-200): Internal database error.
 
-The CKB node persists data to the database. This is the error from the underlying database module.
+The CKB node persists data to the database. This is the error from the underlying database
+module.
 ### ERROR `ChainIndexIsInconsistent`
 (-201): The chain index is inconsistent.
 
-An example of an inconsistent index is that the chain index says a block hash is in the chain but the block cannot be read from the database.
+An example of an inconsistent index is that the chain index says a block hash is in the chain
+but the block cannot be read from the database.
 
-This is a fatal error usually due to a serious bug. Please back up the data directory and re-sync the chain from scratch.
+This is a fatal error usually due to a serious bug. Please back up the data directory and
+re-sync the chain from scratch.
 ### ERROR `DatabaseIsCorrupt`
 (-202): The underlying database is corrupt.
 
-This is a fatal error usually caused by the underlying database used by CKB. Please back up the data directory and re-sync the chain from scratch.
+This is a fatal error usually caused by the underlying database used by CKB. Please back up
+the data directory and re-sync the chain from scratch.
 ### ERROR `TransactionFailedToResolve`
-(-301): Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
+(-301): Failed to resolve the referenced cells and headers used in the transaction, as inputs or
+dependencies.
 ### ERROR `TransactionFailedToVerify`
 (-302): Failed to verify the transaction.
 ### ERROR `AlertFailedToVerifySignatures`
@@ -7900,14 +8101,15 @@ This is a fatal error usually caused by the underlying database used by CKB. Ple
 ### ERROR `PoolRejectedTransactionByOutputsValidator`
 (-1102): The transaction is rejected by the outputs validator specified by the RPC parameter.
 ### ERROR `PoolRejectedTransactionByIllTransactionChecker`
-(-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue link in the error message for details.
+(-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue
+link in the error message for details.
 ### ERROR `PoolRejectedTransactionByMinFeeRate`
 (-1104): The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`
 
 The fee rate is calculated as:
 
 ```text
- fee / (1000 * tx_serialization_size_in_block_in_bytes)
+fee / (1000 * tx_serialization_size_in_block_in_bytes)
 ```
 ### ERROR `PoolRejectedTransactionByMaxAncestorsCountLimit`
 (-1105): The in-pool ancestors count must be less than or equal to the config option `tx_pool.max_ancestors_count`
