@@ -89,17 +89,39 @@ def get_last_release_tag(repo_root):
 
 
 def read_changelog(repo_root):
-    """Read changelog from .git/changes/out.md and adjust heading levels."""
-    changelog_file = repo_root / ".git/changes/out.md"
+    """Read the most recent release section from CHANGELOG.md (skipping [Unreleased])."""
+    changelog_file = repo_root / "CHANGELOG.md"
 
     if not changelog_file.exists():
         print(
             f"Warning: {changelog_file} not found. Changelog will be empty.",
             file=sys.stderr,
         )
-        return "*No changelog available. Please generate it using github-changelog.py*"
+        return "*No changelog available.*"
 
-    return changelog_file.read_text()
+    content = changelog_file.read_text()
+
+    # Find all ## [version] section headers (Keep a Changelog style)
+    section_pattern = re.compile(r"^##\s*\[([^\]]+)\]", re.MULTILINE)
+    sections = list(section_pattern.finditer(content))
+
+    if not sections:
+        return "*No release sections found in CHANGELOG.md.*"
+
+    # Skip [Unreleased], use the first versioned section
+    def section_content_start(match):
+        """Start body after the newline following the ## [version] header line."""
+        line_end = content.find("\n", match.end())
+        return (line_end + 1) if line_end != -1 else match.end()
+
+    index = 0
+    if sections[0].group(1).strip().lower() == "unreleased" and len(sections) > 1:
+        index = 1
+
+    start = section_content_start(sections[index])
+    end = sections[index + 1].start() if index + 1 < len(sections) else len(content)
+    body = content[start:end].strip()
+    return body if body else "*No changes listed.*"
 
 
 def get_current_branch(repo_root):
@@ -236,7 +258,7 @@ def main():
     # Get last release tag
     last_release = get_last_release_tag(repo_root)
 
-    # Read changelog
+    # Read changelog (most recent release section from CHANGELOG.md, skipping Unreleased)
     changelog = read_changelog(repo_root)
 
     # Get compare URL

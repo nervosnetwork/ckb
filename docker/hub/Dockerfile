@@ -1,11 +1,11 @@
-FROM nervos/ckb-docker-builder:bionic-rust-1.92.0 as ckb-docker-builder
+FROM nervos/ckb-docker-builder:focal-rust-1.92.0 as ckb-docker-builder
 
 WORKDIR /ckb
 COPY ./ .
 
 RUN make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/lib64 OPENSSL_INCLUDE_DIR=/usr/local/include prod-docker
 
-FROM ubuntu:bionic
+FROM ubuntu:focal
 LABEL description="Nervos CKB is a public permissionless blockchain, the common knowledge layer of Nervos network."
 LABEL maintainer="Nervos Core Dev <dev@nervos.org>"
 

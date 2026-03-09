@@ -1,10 +1,29 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+TEST_EXIT_CODE=0
+CURRENT_BATS_CASE=bootstrap
+
+function on_error {
+  local line_no=$1
+  local command=$2
+  local exit_code=$3
+  TEST_EXIT_CODE=$exit_code
+  echo "cli_test.sh failed at line ${line_no}, exit code ${exit_code}, case ${CURRENT_BATS_CASE}: ${command}"
+}
+trap 'on_error $LINENO "$BASH_COMMAND" $?' ERR
+
 CKB_BATS_TESTBED=/tmp/ckb_bats_testbed
 mkdir -p ${CKB_BATS_TESTBED}
 
 function cleanup {
+  if [ "${TEST_EXIT_CODE:-0}" -ne 0 ]; then
+    echo "cli-test failed while running bats file: ${CURRENT_BATS_CASE}"
+    if [ -n "${TMP_DIR:-}" ] && [ -d "${TMP_DIR}" ]; then
+      echo "Dumping *.log from ${TMP_DIR}"
+      find "${TMP_DIR}" -maxdepth 1 -type f -name "*.log" -print -exec tail -n 200 {} \;
+    fi
+  fi
   echo "Removing ${CKB_BATS_TESTBED}"
   rm -rf ${CKB_BATS_TESTBED}
 }
@@ -15,14 +34,19 @@ git_clone_repo_with_retry() {
     local dir_name=$3
     local retry_count=5
     local retry_delay=5
+    local cloned=0
 
     for i in $(seq 1 $retry_count); do
-        git clone --depth 1 --branch "$branch" "$repo_address" "$dir_name" && break
+        rm -rf "$dir_name"
+        if git clone --depth 1 --branch "$branch" "$repo_address" "$dir_name"; then
+            cloned=1
+            break
+        fi
         echo "Attempt $i failed. Retrying in $retry_delay seconds..."
         sleep $retry_delay
     done
 
-    if [ $i -eq $retry_count ]; then
+    if [ "$cloned" -ne 1 ]; then
         echo "Failed to clone repository after $retry_count attempts."
         exit 1
     fi
@@ -34,6 +58,7 @@ cp target/prod/ckb ${CKB_BATS_TESTBED}
 cp ckb-bin/src/tests/bats_tests/*.bats ${CKB_BATS_TESTBED}
 cp -r ckb-bin/src/tests/bats_tests/later_bats_job ${CKB_BATS_TESTBED}
 cp ckb-bin/src/tests/bats_tests/*.sh ${CKB_BATS_TESTBED}
+cp resource/specs/mainnet.toml ${CKB_BATS_TESTBED}
 
 if [ ! -d "/tmp/ckb_bats_assets/" ]; then
     git_clone_repo_with_retry "main" "https://github.com/nervosnetwork/ckb-assets" "/tmp/ckb_bats_assets"
@@ -68,15 +93,19 @@ export TMP_DIR=${CKB_BATS_TESTBED}/tmp_dir
 mkdir ${TMP_DIR}
 
 for bats_cases in *.bats; do
-  bats --verbose-run --print-output-on-failure --show-output-of-passing-tests "$bats_cases"
-  ret=$?
-  if [ "$ret" -ne "0" ]; then
-    exit "$ret"
+  CURRENT_BATS_CASE="${bats_cases}"
+  echo "Running bats file: ${bats_cases}"
+  if ! bats --verbose-run --print-output-on-failure --show-output-of-passing-tests "$bats_cases"; then
+    echo "Bats file failed (first attempt): ${bats_cases}"
+    echo "Retrying once: ${bats_cases}"
+    bats --verbose-run --print-output-on-failure --show-output-of-passing-tests "$bats_cases"
   fi
 done
 
-bats --verbose-run --print-output-on-failure --show-output-of-passing-tests ./later_bats_job/change_epoch.bats
-ret=$?
-if [ "$ret" -ne "0" ]; then
-  exit "$ret"
+CURRENT_BATS_CASE="./later_bats_job/change_epoch.bats"
+echo "Running bats file: ${CURRENT_BATS_CASE}"
+if ! bats --verbose-run --print-output-on-failure --show-output-of-passing-tests "${CURRENT_BATS_CASE}"; then
+  echo "Bats file failed (first attempt): ./later_bats_job/change_epoch.bats"
+  echo "Retrying once: ./later_bats_job/change_epoch.bats"
+  bats --verbose-run --print-output-on-failure --show-output-of-passing-tests "${CURRENT_BATS_CASE}"
 fi

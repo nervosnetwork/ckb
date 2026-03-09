@@ -18,3 +18,7 @@ tera.workspace = true
 syn = { workspace = true, features = ["extra-traits", "full", "parsing", "visit"] }
 walkdir.workspace = true
 proc-macro2.workspace = true
+
+[[bin]]
+name = "ckb-rpc-gen-patch"
+path = "src/bin/patch_openrpc.rs"

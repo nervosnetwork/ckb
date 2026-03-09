@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "1.1.1"
+version = "1.2.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -43,6 +43,8 @@ ckb-indexer.workspace = true
 ckb-indexer-sync.workspace = true
 ckb-rich-indexer.workspace = true
 ckb-stop-handler.workspace = true
+ckb-dao-utils.workspace = true
+ckb-db-schema.workspace = true
 itertools.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
@@ -53,6 +55,10 @@ tower-http = { workspace = true, features = ["timeout", "cors"] }
 async-stream.workspace = true
 ckb-async-runtime.workspace = true
 schemars.workspace = true
+sysinfo.workspace = true
+bitflags.workspace = true
+lru.workspace = true
+
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking", "json"] }

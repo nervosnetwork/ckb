@@ -75,7 +75,10 @@ function ckb_change_epoch_length_for_dumm_mode { #@test
 
   block_kill ${CKB_NODE_PID}
 
-  wget https://raw.githubusercontent.com/nervosnetwork/ckb/develop/resource/specs/mainnet.toml
+  if [ ! -f mainnet.toml ]; then
+    echo "mainnet.toml is missing in testbed"
+    return 1
+  fi
 
   ckb init -c dev --import-spec mainnet.toml --force
 

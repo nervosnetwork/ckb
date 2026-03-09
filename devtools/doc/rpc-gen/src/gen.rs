@@ -4,8 +4,132 @@ use ckb_rpc::RPCError;
 use schemars::schema_for;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::{fs, vec};
 use tera::Tera;
+
+/// Global type name mapping from schemars v1 numbered names to generic names
+static TYPE_NAME_MAPPING: OnceLock<HashMap<String, String>> = OnceLock::new();
+
+fn get_type_name_mapping() -> &'static HashMap<String, String> {
+    TYPE_NAME_MAPPING.get().unwrap_or_else(|| {
+        static EMPTY: OnceLock<HashMap<String, String>> = OnceLock::new();
+        EMPTY.get_or_init(HashMap::new)
+    })
+}
+
+/// Resolve a schema type name through the mapping
+fn resolve_type_name(name: &str) -> String {
+    get_type_name_mapping()
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// Convert a generic type name to an anchor-safe string
+/// e.g. "ResponseFormat<BlockView>" -> "responseformat_for_blockview"
+fn type_name_to_anchor(name: &str) -> String {
+    name.to_lowercase().replace('<', "_for_").replace('>', "")
+}
+
+/// Build a mapping from numbered type names (e.g. "ResponseFormat2") to their
+/// generic form (e.g. "ResponseFormat<HeaderView>") by inspecting the schema content.
+/// schemars v1 uses numbered suffixes instead of `_for_` convention for generic types.
+fn build_type_name_mapping(all_schemas: &[&Map<String, Value>]) -> HashMap<String, String> {
+    let mut mapping = HashMap::new();
+
+    // Collect all schemas into one map for lookup
+    let mut combined: HashMap<String, &Value> = HashMap::new();
+    for schemas in all_schemas {
+        for (name, val) in schemas.iter() {
+            combined.insert(name.clone(), val);
+        }
+    }
+
+    // Detect generic types: types that have a base name + numbered variants
+    // e.g. ResponseFormat, ResponseFormat2, ResponseFormat3
+    let mut base_names: HashMap<String, Vec<String>> = HashMap::new();
+    for name in combined.keys() {
+        let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
+        if base != name.as_str() && combined.contains_key(base) {
+            base_names
+                .entry(base.to_string())
+                .or_default()
+                .push(name.clone());
+        }
+    }
+    // Also add the base itself
+    for base in base_names.keys().cloned().collect::<Vec<_>>() {
+        base_names.get_mut(&base).unwrap().push(base.clone());
+    }
+
+    // For each group, resolve the inner type parameter
+    for (base, variants) in &base_names {
+        for variant_name in variants {
+            if let Some(schema) = combined.get(variant_name)
+                && let Some(inner_type) = resolve_generic_inner_type(schema, &combined)
+            {
+                mapping.insert(variant_name.clone(), format!("{}<{}>", base, inner_type));
+            }
+        }
+    }
+
+    mapping
+}
+
+/// Try to resolve what concrete type a generic wrapper contains.
+/// For ResponseFormat -> allOf[$ref Either] -> anyOf[allOf[$ref BlockView], ...]
+/// For IndexerPagination -> properties.objects.items.$ref -> IndexerCell
+fn resolve_generic_inner_type(
+    schema: &Value,
+    all_schemas: &HashMap<String, &Value>,
+) -> Option<String> {
+    // Case 1: ResponseFormat pattern - has allOf with a $ref to Either*
+    if let Some(all_of) = schema.get("allOf").and_then(|v| v.as_array())
+        && let Some(ref_val) = all_of.first().and_then(|v| v.get("$ref"))
+    {
+        let ref_name = ref_val.as_str()?.split('/').next_back()?;
+        // Look up the referenced type (e.g. Either, Either2)
+        if let Some(either_schema) = all_schemas.get(ref_name) {
+            // Either has anyOf with allOf[$ref ConcreteType]
+            if let Some(any_of) = either_schema.get("anyOf").and_then(|v| v.as_array())
+                && let Some(first) = any_of.first()
+                && let Some(inner_ref) = extract_ref_from_allof_or_direct(first)
+            {
+                return Some(inner_ref);
+            }
+        }
+    }
+
+    // Case 2: IndexerPagination pattern - has properties.objects.items.$ref
+    if let Some(items_ref) = schema
+        .get("properties")
+        .and_then(|p| p.get("objects"))
+        .and_then(|o| o.get("items"))
+        .and_then(|i| i.get("$ref"))
+    {
+        let ref_name = items_ref.as_str()?.split('/').next_back()?;
+        return Some(ref_name.to_string());
+    }
+
+    None
+}
+
+/// Extract a $ref type name from either a direct $ref or an allOf wrapper
+fn extract_ref_from_allof_or_direct(val: &Value) -> Option<String> {
+    // Direct $ref
+    if let Some(r) = val.get("$ref") {
+        return Some(r.as_str()?.split('/').next_back()?.to_string());
+    }
+    // allOf wrapper: {"allOf": [{"$ref": "..."}]}
+    if let Some(all_of) = val.get("allOf").and_then(|v| v.as_array())
+        && let Some(first) = all_of.first()
+        && let Some(r) = first.get("$ref")
+    {
+        return Some(r.as_str()?.split('/').next_back()?.to_string());
+    }
+    None
+}
 
 struct RpcModule {
     pub title: String,
@@ -105,6 +229,9 @@ pub(crate) struct RpcDocGenerator {
     rpc_methods: Vec<RpcModule>,
     types: Vec<(String, Value)>,
     file_path: String,
+    /// Mapping from schemars v1 numbered names to generic names
+    /// e.g. "ResponseFormat2" -> "ResponseFormat<HeaderView>"
+    type_name_mapping: HashMap<String, String>,
 }
 
 impl RpcDocGenerator {
@@ -145,25 +272,38 @@ impl RpcDocGenerator {
         // sort rpc_methods according to title
         rpc_methods.sort_by(|a, b| a.title.cmp(&b.title));
 
+        // Build type name mapping for schemars v1 numbered generic types
+        let type_name_mapping = build_type_name_mapping(&types);
+        let _ = TYPE_NAME_MAPPING.set(type_name_mapping.clone());
+
         let mut all_types: Vec<(String, Value)> = pre_defined
             .iter()
             .map(|(name, desc)| (name.clone(), Value::String(desc.clone())))
             .collect();
         for map in types {
             for (name, ty) in map.iter() {
-                if !(all_types.iter().any(|(n, _)| *n == *name)
-                    || (name.starts_with("Either_for_") && name.ends_with("_JsonBytes")))
-                {
+                // Skip Either* types (implementation detail of ResponseFormat)
+                // In v0.8: Either_for_X_and_JsonBytes, in v1: Either, Either2, Either3
+                let is_either = name == "Either"
+                    || (name.starts_with("Either")
+                        && name[6..].chars().all(|c| c.is_ascii_digit()))
+                    || (name.starts_with("Either_for_") && name.ends_with("_JsonBytes"));
+                if !(all_types.iter().any(|(n, _)| *n == *name) || is_either) {
                     all_types.push((name.to_string(), ty.to_owned()));
                 }
             }
         }
 
-        all_types.sort_by(|(name1, _), (name2, _)| name1.cmp(name2));
+        all_types.sort_by(|(name1, _), (name2, _)| {
+            let n1 = type_name_mapping.get(name1).unwrap_or(name1);
+            let n2 = type_name_mapping.get(name2).unwrap_or(name2);
+            n1.cmp(n2)
+        });
         Self {
             rpc_methods,
             types: all_types,
             file_path: readme_path,
+            type_name_mapping,
         }
     }
 
@@ -188,7 +328,16 @@ impl RpcDocGenerator {
         let type_menus: Value = self
             .types
             .iter()
-            .map(|(name, _)| vec![fix_type_name(name).into(), name.to_lowercase().into()])
+            .map(|(name, _)| {
+                let resolved = self
+                    .type_name_mapping
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone());
+                let display_name = fix_type_name(&resolved);
+                let anchor_name = type_name_to_anchor(&resolved);
+                vec![display_name.into(), anchor_name.into()]
+            })
             .collect::<Vec<Vec<Value>>>()
             .into();
 
@@ -233,16 +382,17 @@ impl RpcDocGenerator {
                     .join("\n");
 
                 // replace only the first code snippet ``` with ```json
-                let name = capitlize(name);
+                let mapped_name = self
+                    .type_name_mapping
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| capitlize(name));
                 let desc = desc.replacen("```\n", "```json\n", 1);
-                let fields = gen_type_fields(&name, ty);
-                let fixed_name = fix_type_name(&name);
-                let sub_title = if fixed_name != name {
-                    format!(
-                        "<a id=\"type-{}\"></a>\n### Type `{}`",
-                        name.to_lowercase(),
-                        fixed_name
-                    )
+                let fields = gen_type_fields(&mapped_name, ty);
+                let fixed_name = fix_type_name(&mapped_name);
+                let anchor = type_name_to_anchor(&mapped_name);
+                let sub_title = if fixed_name != mapped_name {
+                    format!("<a id=\"type-{}\"></a>\n### Type `{}`", anchor, fixed_name)
                 } else {
                     format!("### Type `{}`", fixed_name)
                 };
@@ -360,16 +510,22 @@ fn format_fields(name: &str, fields: &str) -> String {
 
 fn gen_type_fields(name: &str, ty: &Value) -> String {
     if let Some(fields) = ty.get("required") {
-        let res = fields
+        let mut field_names: Vec<&str> = fields
             .as_array()
             .unwrap()
             .iter()
+            .map(|f| f.as_str().unwrap())
+            .collect();
+        // Sort fields alphabetically to match schemars v0.8 behavior
+        field_names.sort();
+        let res = field_names
+            .iter()
             .map(|field| {
-                let field = field.as_str().unwrap();
-                let field_desc = ty["properties"][field]["description"]
+                let field_schema = &ty["properties"][*field];
+                let field_desc = field_schema["description"]
                     .as_str()
                     .map_or_else(|| "".to_string(), gen_type_desc);
-                let ty_ref = gen_type(&ty["properties"][field]);
+                let ty_ref = gen_type(field_schema);
                 format!("* `{}`: {}{}", field, ty_ref, field_desc)
             })
             .collect::<Vec<_>>()
@@ -422,7 +578,10 @@ fn gen_type(ty: &Value) -> String {
                 } else if ty.as_str() == Some("string") {
                     let mut enum_val = String::new();
                     let mut desc = String::new();
-                    if let Some(arr) = map.get("enum") {
+                    // schemars v1 uses "const" instead of "enum" for single-value enums
+                    if let Some(c) = map.get("const") {
+                        enum_val = c.as_str().unwrap().to_owned();
+                    } else if let Some(arr) = map.get("enum") {
                         enum_val = arr.as_array().unwrap()[0].as_str().unwrap().to_owned();
                     }
                     if let Some(val) = map.get("description") {
@@ -432,7 +591,7 @@ fn gen_type(ty: &Value) -> String {
                     if !enum_val.is_empty() && !desc.is_empty() {
                         format!("  - {} : {}", enum_val, desc)
                     } else {
-                        format!("`{}`", ty.as_str().unwrap())
+                        format!("`{}`", map.get("type").unwrap().as_str().unwrap())
                     }
                 } else if let Some(arr) = ty.as_array() {
                     arr.iter()
@@ -445,6 +604,15 @@ fn gen_type(ty: &Value) -> String {
                     "".to_string()
                 } else {
                     format!("`{}`", ty.as_str().unwrap())
+                }
+            } else if let Some(all_of) = map.get("allOf") {
+                // schemars v1 wraps $ref in allOf when there's also a description
+                // e.g. {"allOf": [{"$ref": "..."}], "description": "..."}
+                let arr = all_of.as_array().unwrap();
+                if arr.len() == 1 {
+                    gen_type(&arr[0])
+                } else {
+                    arr.iter().map(gen_type).collect::<Vec<_>>().join(" ")
                 }
             } else if let Some(arr) = map.get("anyOf") {
                 arr.as_array()
@@ -464,7 +632,10 @@ fn gen_type(ty: &Value) -> String {
                 format!("\nIt's an enum value from one of:\n{}\n", res.join("\n"))
             } else if let Some(link) = map.get("$ref") {
                 let link = link.as_str().unwrap().split('/').next_back().unwrap();
-                format!("[`{}`](#type-{})", fix_type_name(link), link.to_lowercase())
+                let resolved = resolve_type_name(link);
+                let display = fix_type_name(&resolved);
+                let anchor = type_name_to_anchor(&resolved);
+                format!("[`{}`](#type-{})", display, anchor)
             } else {
                 "".to_owned()
             }
@@ -489,7 +660,7 @@ fn gen_errors_contents() -> Value {
         .iter()
         .map(|error| {
             let desc = get_description(&error["description"]);
-            let enum_ty = error["enum"].as_array().unwrap()[0].as_str().unwrap();
+            let enum_ty = error["const"].as_str().unwrap();
             vec![enum_ty.to_string(), desc].into()
         })
         .collect::<Vec<_>>();

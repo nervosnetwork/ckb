@@ -558,6 +558,7 @@ impl Launcher {
                 network_controller.clone(),
                 shared.clone(),
             )
+            .enable_terminal(shared.clone(), network_controller.clone())
             .enable_indexer(
                 shared.clone(),
                 &self.args.config.db,
