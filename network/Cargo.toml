@@ -47,7 +47,7 @@ p2p = { workspace = true, default-features = false, features = [
     "tokio-timer",
     "ws",
 ] }
-socket2 = "0.5"
+socket2 = "0.6"
 governor.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
