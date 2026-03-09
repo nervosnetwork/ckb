@@ -48,6 +48,7 @@ commit_preprocessors = [
 commit_parsers = [
   { field = "author.name", pattern = "\\[bot\\]", skip = true },
   { message = "^release ", skip = true },
+  { message = "^release$", skip = true },
   { message = "no-changelog", skip = true },
   { message = "^ci[:(]", skip = true },
   { message = "^Merge branch 'develop'", skip = true },
