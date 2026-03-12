@@ -136,6 +136,8 @@ fn test_default_outputs_validator() {
 #[test]
 #[ignore]
 fn test_send_transaction_exceeded_maximum_ancestors_count() {
+    const MAX_ANCESTORS_COUNT: u64 = 1000;
+
     let suite = setup(always_success_consensus());
 
     let store = suite.shared.store();
@@ -144,7 +146,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
     let mut parent_tx_hash = tip_block.transactions().first().unwrap().hash();
 
     // generate 2000 child-spends-parent txs
-    for i in 0..2001 {
+    for i in 0..(MAX_ANCESTORS_COUNT + 1) {
         let input = CellInput::new(OutPoint::new(parent_tx_hash.clone(), 0), 0);
         let output = CellOutputBuilder::default()
             .capacity(
@@ -171,7 +173,7 @@ fn test_send_transaction_exceeded_maximum_ancestors_count() {
             method: "send_transaction".to_string(),
             params: vec![json!(new_tx), json!("passthrough")],
         });
-        if i != 2000 {
+        if i != MAX_ANCESTORS_COUNT {
             assert_eq!(response.error.to_string(), "null".to_string());
         } else {
             assert!(
