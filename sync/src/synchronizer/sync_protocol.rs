@@ -198,7 +198,7 @@ impl Synchronizer {
                 "Synchronizer process_new_block unexpected status {:?} {}",
                 status, block_hash,
             );
-            // TODO while error should we return?
+            // TODO which error should we return?
             Ok(false)
         }
     }
