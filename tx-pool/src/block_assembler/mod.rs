@@ -28,8 +28,8 @@ use ckb_types::{
         cell::{OverlayCellChecker, TransactionsChecker},
     },
     packed::{
-        self, Byte32, Bytes, CellInput, CellOutput, CellbaseWitness, ProposalShortId, Script,
-        Transaction,
+        self, Byte32, Bytes, CellInput, CellOutput, CellbaseWitness, OutPoint, ProposalShortId,
+        Script, Transaction,
     },
     prelude::*,
 };
@@ -50,6 +50,9 @@ use tokio::time::timeout;
 
 use crate::TxPool;
 pub(crate) use process::process;
+
+type FailedTxs = (ProposalShortId, Option<OutPoint>);
+type CalcDaoResult = Result<(Byte32, Vec<TxEntry>, Vec<FailedTxs>), AnyError>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct TemplateSize {
@@ -148,7 +151,6 @@ impl BlockAssembler {
             uncles: 0,
             total: basic_block_size,
         };
-
         let current = CurrentTemplate {
             template,
             size,
@@ -181,6 +183,7 @@ impl BlockAssembler {
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
                 return Ok(());
             }
+
             let proposals =
                 tx_pool_reader.package_proposals(consensus.max_block_proposals_limit(), uncles);
 
@@ -209,9 +212,17 @@ impl BlockAssembler {
             txs,
         )?;
         if !failed_txs.is_empty() {
-            let mut tx_pool_writer = tx_pool.write().await;
-            for id in failed_txs {
-                tx_pool_writer.remove_tx(&id);
+            for (id, out_point) in failed_txs {
+                //"The main reason why a proposed transaction here
+                // cannot pass the resolve check is very likely that
+                // its ancestor has not been proposed.
+                // Therefore, we don't handle it actively—instead,
+                // we wait for the ancestor to be re-proposed or
+                // to be removed on timeout.
+                debug!(
+                    "Committing tx {} resolving check failed, out_point {:?}",
+                    id, out_point
+                );
             }
         }
 
@@ -592,7 +603,7 @@ impl BlockAssembler {
         current_epoch: &EpochExt,
         cellbase: TransactionView,
         entries: Vec<TxEntry>,
-    ) -> Result<(Byte32, Vec<TxEntry>, Vec<ProposalShortId>), AnyError> {
+    ) -> CalcDaoResult {
         let tip_header = snapshot.tip_header();
         let consensus = snapshot.consensus();
         let mut seen_inputs = HashSet::new();
@@ -618,7 +629,9 @@ impl BlockAssembler {
                             entry.transaction().hash(),
                             err
                         );
-                        checked_failed_txs.push(entry.proposal_short_id());
+                        // Returning the out_point makes debugging easier and provides better logs.
+                        checked_failed_txs
+                            .push((entry.proposal_short_id(), err.out_point().cloned()));
                         None
                     } else {
                         transactions_checker.insert(entry.transaction());

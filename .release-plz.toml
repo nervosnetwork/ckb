@@ -40,6 +40,11 @@ body = """
 {% endmacro -%}
 """
 
+commit_preprocessors = [
+  { pattern = "^chore: update Cargo.toml dependencies$", replace = "chore: depedencies updated in the workspace root Cargo.toml" },
+  { pattern = "^chore: update Cargo.lock dependencies$", replace = "chore: depedencies updated in the workspace root Cargo.lock" },
+]
+
 commit_parsers = [
   { field = "author.name", pattern = "\\[bot\\]", skip = true },
   { message = "^release ", skip = true },

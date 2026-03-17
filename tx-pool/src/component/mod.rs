@@ -1,5 +1,5 @@
-pub mod commit_txs_scanner;
 pub mod entry;
+pub mod tx_selector;
 
 pub(crate) mod edges;
 pub(crate) mod links;
