@@ -130,7 +130,6 @@ CI workflows are organized by job type and OS:
 - `ci_quick_checks_ubuntu.yaml` / `ci_quick_checks_macos.yaml`
 - `ci_unit_tests_ubuntu.yaml` / `ci_unit_tests_macos.yaml`
 - `ci_integration_tests_ubuntu.yaml` / `ci_integration_tests_macos.yaml` / `ci_integration_tests_windows.yaml`
-- `ci_benchmarks_ubuntu.yaml` / `ci_benchmarks_macos.yaml`
 - `ci_linters_ubuntu.yaml` / `ci_linters_macos.yaml`
 - `ci_cargo_deny_ubuntu.yaml`
 - `ci_aarch64_build_ubuntu.yaml`
