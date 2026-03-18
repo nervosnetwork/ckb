@@ -50,6 +50,7 @@ commit_parsers = [
   { message = "^release ", skip = true },
   { message = "no-changelog", skip = true },
   { message = "^ci[:(]", skip = true },
+  { message = "^Merge branch 'develop'", skip = true },
   { message = "^feat", group = "Added" },
   { message = "^[aA]dd", group = "Added" },
   { message = "^[sS]upport", group = "Added" },
