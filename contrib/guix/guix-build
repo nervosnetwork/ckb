@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+export LC_ALL=C
+set -euo pipefail
+
+TOPLEVEL="$(git rev-parse --show-toplevel)"
+cd "$TOPLEVEL"
+
+git_head_version() {
+    local recent_tag
+
+    if recent_tag="$(git describe --exact-match HEAD 2>/dev/null)"; then
+        echo "${recent_tag#v}"
+    else
+        git rev-parse --short=12 HEAD
+    fi
+}
+
+check_source_date_epoch() {
+    if [[ -n "${SOURCE_DATE_EPOCH:-}" && -z "${FORCE_SOURCE_DATE_EPOCH:-}" ]]; then
+cat <<'EOF'
+ERR: Environment variable SOURCE_DATE_EPOCH is set which may break reproducibility.
+
+Unset SOURCE_DATE_EPOCH before rebuilding, or set FORCE_SOURCE_DATE_EPOCH=1 if
+you intentionally want to override the deterministic timestamp derived from
+HEAD.
+EOF
+        exit 1
+    fi
+}
+
+if ! git diff-index --quiet HEAD -- && [[ -z "${FORCE_DIRTY_WORKTREE:-}" ]]; then
+cat <<'EOF'
+ERR: The current git worktree is dirty.
+
+This Guix release builder is intended to run from a clean tree so the source
+archive, SOURCE_DATE_EPOCH, and packaged outputs stay deterministic.
+
+Set FORCE_DIRTY_WORKTREE=1 if you intentionally want to override this check.
+EOF
+    exit 1
+fi
+
+HOSTS="${HOSTS:-x86_64-unknown-linux-gnu}"
+if [[ "$HOSTS" != "x86_64-unknown-linux-gnu" ]]; then
+    echo "ERR: Only HOSTS=x86_64-unknown-linux-gnu is supported by this initial refactor." >&2
+    exit 1
+fi
+
+check_source_date_epoch
+
+VERSION="${VERSION:-$(git_head_version)}"
+JOBS="${JOBS:-$(nproc)}"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%ct -1)}"
+
+VERSION_BASE="${PWD}/guix-build-${VERSION}"
+DISTSRC_BASE="${VERSION_BASE}/distsrc"
+OUTDIR_BASE="${VERSION_BASE}/output"
+DIST_ARCHIVE_BASE="${OUTDIR_BASE}/dist-archive"
+SOURCE_ARCHIVE_ROOT="${VERSION_BASE}/source-archive"
+SOURCE_ARCHIVE="${DIST_ARCHIVE_BASE}/ckb-${VERSION}-src.tar.gz"
+
+mkdir -p "$DISTSRC_BASE" "$OUTDIR_BASE" "$DIST_ARCHIVE_BASE"
+
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+
+prepare_source_archive() {
+    local source_root="${SOURCE_ARCHIVE_ROOT}/ckb-${VERSION}"
+
+    rm -rf "$SOURCE_ARCHIVE_ROOT"
+    mkdir -p "$DIST_ARCHIVE_BASE" "$SOURCE_ARCHIVE_ROOT"
+
+    git archive --prefix="ckb-${VERSION}/" HEAD | tar -C "$SOURCE_ARCHIVE_ROOT" -xf -
+
+    GUIX_CHANNELS_FILE="${PWD}/contrib/guix/channels.scm" \
+    SOURCE_TREE="$source_root" \
+    bash "${PWD}/contrib/guix/libexec/vendor-rust-sources.sh"
+
+    find "$SOURCE_ARCHIVE_ROOT" -exec touch -h -d "@${SOURCE_DATE_EPOCH}" '{}' +
+
+    (
+        cd "$SOURCE_ARCHIVE_ROOT"
+        find "ckb-${VERSION}" -print0 \
+            | sort --zero-terminated \
+            | tar --create --no-recursion --mode='u+rw,go+r-w,a+X' \
+                  --null --files-from=- \
+                  --owner=0 --group=0 --numeric-owner \
+                  --mtime="@${SOURCE_DATE_EPOCH}" --sort=name \
+            | gzip -9n > "$SOURCE_ARCHIVE"
+    )
+
+    rm -rf "$SOURCE_ARCHIVE_ROOT"
+}
+
+if [[ ! -e "$SOURCE_ARCHIVE" || -n "${REBUILD_SOURCE_ARCHIVE:-}" ]]; then
+    prepare_source_archive
+fi
+
+for HOST in $HOSTS; do
+    DISTSRC="${DISTSRC_BASE}/distsrc-${VERSION}-${HOST}"
+    OUTDIR="${OUTDIR_BASE}/${HOST}"
+
+    rm -rf "$DISTSRC" "$OUTDIR"
+    mkdir -p "$DISTSRC" "$OUTDIR"
+
+    guix time-machine -C "${PWD}/contrib/guix/channels.scm" -- \
+        shell --manifest="${PWD}/contrib/guix/manifest.scm" \
+              --container \
+              --pure \
+              --no-cwd \
+              --share="${PWD}"=/ckb \
+              --share="$DISTSRC_BASE"=/distsrc-base \
+              --share="$OUTDIR_BASE"=/outdir-base \
+              --expose="$GIT_COMMON_DIR" \
+              --cores="$JOBS" \
+              -- env HOST="$HOST" \
+                     VERSION="$VERSION" \
+                     JOBS="$JOBS" \
+                     SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+                     DISTSRC="/distsrc-base/distsrc-${VERSION}-${HOST}" \
+                     OUTDIR="/outdir-base/${HOST}" \
+                     DIST_ARCHIVE_BASE="/outdir-base/dist-archive" \
+                     bash -c "cd /ckb && bash contrib/guix/libexec/build.sh"
+done
+
+echo
+echo "Finished. Output directory:"
+echo "  ${OUTDIR_BASE}"
