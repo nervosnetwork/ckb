@@ -12,7 +12,7 @@ CKB_BENCH_FEATURES ?= ci
 CKB_BUILD_TARGET ?=
 INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
 CARGO_TARGET_DIR ?= $(shell pwd)/target
-BINARY_NAME ?= "ckb"
+BINARY_NAME ?= ckb
 COV_PROFRAW_DIR = ${CARGO_TARGET_DIR}/cov
 GRCOV_OUTPUT ?= lcov.info
 GRCOV_EXCL_START = ^\s*(((log|ckg_logger)::)?(trace|debug|info|warn|error)|(debug_)?assert(_eq|_ne|_error_eq))!\($$

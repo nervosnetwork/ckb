@@ -347,12 +347,13 @@ impl ConsumeUnverifiedBlockProcessor {
         if new_best_block {
             let tip_header = block.header();
             info!(
-                "block: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
+                "block: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}, proposals: {}",
                 tip_header.number(),
                 tip_header.hash(),
                 tip_header.epoch(),
                 cannon_total_difficulty,
-                block.transactions().len()
+                block.transactions().len(),
+                block.data().proposals().len()
             );
 
             self.update_proposal_table(&fork);
@@ -394,12 +395,13 @@ impl ConsumeUnverifiedBlockProcessor {
         } else {
             self.shared.refresh_snapshot();
             info!(
-                "[verify block] uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}",
+                "[verify block] uncle: {}, hash: {:#x}, epoch: {:#}, total_diff: {:#x}, txs: {}, proposals: {}",
                 block.header().number(),
                 block.header().hash(),
                 block.header().epoch(),
                 cannon_total_difficulty,
-                block.transactions().len()
+                block.transactions().len(),
+                block.data().proposals().len()
             );
 
             let tx_pool_controller = self.shared.tx_pool_controller();

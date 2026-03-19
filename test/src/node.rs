@@ -992,10 +992,14 @@ pub fn disconnect_all<N: Borrow<Node>>(nodes: &[N]) {
 
 // TODO it will be removed out later, in another PR
 pub fn waiting_for_sync<N: Borrow<Node>>(nodes: &[N]) {
+    waiting_for_sync_with_timeout(nodes, 120);
+}
+
+// TODO it will be removed out later, in another PR
+pub fn waiting_for_sync_with_timeout<N: Borrow<Node>>(nodes: &[N], timeout_secs: u64) {
     let mut tip_headers: HashSet<ckb_jsonrpc_types::HeaderView> =
         HashSet::with_capacity(nodes.len());
-    // 60 seconds is a reasonable timeout to sync, even for poor CI server
-    let synced = wait_until(120, || {
+    let synced = wait_until(timeout_secs, || {
         tip_headers = nodes
             .as_ref()
             .iter()
