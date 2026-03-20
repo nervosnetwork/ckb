@@ -3,7 +3,7 @@ FROM nervos/ckb-docker-builder:focal-rust-1.92.0 as ckb-docker-builder
 WORKDIR /ckb
 COPY ./ .
 
-RUN make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/lib64 OPENSSL_INCLUDE_DIR=/usr/local/include prod-docker
+RUN make prod-docker
 
 FROM ubuntu:focal
 LABEL description="Nervos CKB is a public permissionless blockchain, the common knowledge layer of Nervos network."
@@ -15,12 +15,17 @@ RUN groupadd -g 1000 ckb \
 
 WORKDIR /var/lib/ckb
 
+COPY --from=ckb-docker-builder \
+     /usr/local/lib64/libssl.so.* \
+     /usr/local/lib64/libcrypto.so.* \
+     /usr/local/lib64/
 COPY --from=ckb-docker-builder /ckb/target/prod/ckb /ckb/docker/docker-entrypoint.sh /bin/
 RUN chown -R ckb:ckb /var/lib/ckb \
  && chmod 755 /var/lib/ckb
 
 USER ckb
 ENV CKB_CHAIN=mainnet
+ENV LD_LIBRARY_PATH=/usr/local/lib64
 
 EXPOSE 8114 8115
 VOLUME ["/var/lib/ckb"]
