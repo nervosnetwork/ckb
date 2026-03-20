@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-chain-v1.2.0...ckb-chain-v1.2.1) - 2026-03-20
+
+### Fixed
+
+- overhaul proposal selection and prioritization logic (#5023) (by @zhangsoledad)
+
+### Contributors
+
+- @zhangsoledad
+
 ## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-chain-v1.1.1...ckb-chain-v1.2.0) - 2026-03-02
 
 ### Added
