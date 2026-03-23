@@ -1,0 +1,24 @@
+Without -ffile-prefix-map, toolchain-generated debug info can retain Guix
+store paths. Rewrite the store root to a fixed prefix instead of enumerating
+host-specific store entries.
+
+--- a/libgcc/Makefile.in
++++ b/libgcc/Makefile.in
+@@ -857,7 +857,7 @@ endif
+ # libgcc_eh.a, only LIB2ADDEH matters.  If we do, only LIB2ADDEHSTATIC and
+ # LIB2ADDEHSHARED matter.  (Usually all three are identical.)
+ 
+-c_flags := -fexceptions
++c_flags := -fexceptions -ffile-prefix-map=/gnu/store=/usr
+ 
+ ifeq ($(enable_shared),yes)
+ 
+@@ -880,7 +880,7 @@ endif
+ # Build LIBUNWIND. Use -fno-exceptions so that the unwind library does
+ # not generate calls to __gcc_personality_v0.
+ 
+-c_flags := -fno-exceptions
++c_flags := -fno-exceptions -ffile-prefix-map=/gnu/store=/usr
+ 
+ libunwind-objects += $(addsuffix $(objext),$(basename $(notdir $(LIBUNWIND))))
+
