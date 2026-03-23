@@ -21,7 +21,11 @@ fn main() {
             .expect("add files to resource bundle");
     }
 
-    for entry in WalkDir::new("specs").follow_links(true).into_iter() {
+    for entry in WalkDir::new("specs")
+        .follow_links(true)
+        .sort_by_file_name()
+        .into_iter()
+    {
         match entry {
             Ok(ref e)
                 if !e.file_name().to_string_lossy().starts_with('.')
