@@ -112,6 +112,8 @@ if [[ "${runpath}" == *"/gnu/store/"* ]]; then
     exit 1
 fi
 
+python3 contrib/guix/symbol-check.py "${INSTALLPATH}/ckb"
+
 ( cd "$STAGING_BASE"
   find "${DISTNAME}" -print0 \
       | sort --zero-terminated \

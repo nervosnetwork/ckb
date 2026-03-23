@@ -21,6 +21,8 @@ From the top of a clean checkout:
 This flow:
 
 - enters a pinned Guix shell defined by `manifest.scm`
+- uses a CKB-local `glibc-2.31` toolchain path for Linux builds so the release
+  process can target an older glibc baseline than current Guix defaults
 - derives `VERSION` from an exact `HEAD` tag or a 12-character commit ID
 - derives `SOURCE_DATE_EPOCH` from the `HEAD` commit timestamp, and rejects an
   inherited ambient value unless `FORCE_SOURCE_DATE_EPOCH=1` is set
@@ -30,6 +32,8 @@ This flow:
   bypassing Guix substitute servers for those crate source fetches
 - builds `ckb` with deterministic environment settings
 - stages an install tree
+- runs `contrib/guix/symbol-check.py` to reject Linux binaries that exceed the
+  intended ABI floor or pull in unexpected shared libraries
 - emits a deterministic release tarball plus `SHA256SUMS`
 
 The initial refactor only supports `HOSTS=x86_64-unknown-linux-gnu`.

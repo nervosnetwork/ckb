@@ -1,0 +1,14 @@
+Without -ffile-prefix-map, glibc-generated debug info can retain Guix store
+paths. Rewrite the store root to a fixed prefix instead of enumerating
+host-specific store entries.
+
+--- a/Makeconfig
++++ b/Makeconfig
+@@ -1007,6 +1007,7 @@ object-suffixes :=
+ CPPFLAGS-.o = $(pic-default)
+ # libc.a must be compiled with -fPIE/-fpie for static PIE.
+ CFLAGS-.o = $(filter %frame-pointer,$(+cflags)) $(pie-default)
++CFLAGS-.o += -ffile-prefix-map=/gnu/store=/usr
+ libtype.o := lib%.a
+ object-suffixes += .o
+ ifeq (yes,$(build-shared))
