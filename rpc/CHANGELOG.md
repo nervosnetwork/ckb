@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.0...ckb-rpc-v1.2.1) - 2026-03-08
+## [2.0.0](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.1...ckb-rpc-v2.0.0)
+
+### Changed
+
+- **BREAKING**: switch from `ckb_schemars` to `schemars` ([#5128](https://github.com/nervosnetwork/ckb/pull/5128))
+
+## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.0...ckb-rpc-v1.2.1) - 2026-03-08 [YANKED]
 
 ### Changed
 

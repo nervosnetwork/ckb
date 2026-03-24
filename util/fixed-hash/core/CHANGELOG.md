@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-fixed-hash-core-v1.1.0...ckb-fixed-hash-core-v1.1.1) - 2026-03-08
+## [2.0.0](https://github.com/nervosnetwork/ckb/compare/ckb-fixed-hash-core-v1.1.1...ckb-fixed-hash-core-v2.0.0)
+
+### Changed
+
+- **BREAKING**: switch from `ckb_schemars` to `schemars` ([#5128](https://github.com/nervosnetwork/ckb/pull/5128))
+
+## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-fixed-hash-core-v1.1.0...ckb-fixed-hash-core-v1.1.1) - 2026-03-08 [YANKED]
 
 ### Changed
 

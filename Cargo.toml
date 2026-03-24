@@ -157,7 +157,7 @@ ckb-db-schema = { path = "db-schema", version = "1" }
 ckb-error = { path = "error", version = "1" }
 ckb-fee-estimator = { path = "util/fee-estimator", version = "1" }
 ckb-fixed-hash = { path = "util/fixed-hash", version = "1" }
-ckb-fixed-hash-core = { path = "util/fixed-hash/core", version = "1" }
+ckb-fixed-hash-core = { path = "util/fixed-hash/core", version = "2" }
 ckb-fixed-hash-macros = { path = "util/fixed-hash/macros", version = "1" }
 ckb-freezer = { path = "freezer", version = "1" }
 ckb-gen-types = { path = "util/gen-types", version = "1" }
@@ -165,7 +165,7 @@ ckb-hash = { path = "util/hash", default-features = false, version = "1" }
 ckb-indexer = { path = "util/indexer", version = "1" }
 ckb-indexer-sync = { path = "util/indexer-sync", version = "1" }
 ckb-instrument = { path = "util/instrument", version = "1" }
-ckb-jsonrpc-types = { path = "util/jsonrpc-types", version = "1" }
+ckb-jsonrpc-types = { path = "util/jsonrpc-types", version = "2" }
 ckb-launcher = { path = "util/launcher", version = "1" }
 ckb-light-client-protocol-server = { path = "util/light-client-protocol-server", version = "1" }
 ckb-logger = { path = "util/logger", version = "1" }
@@ -193,7 +193,7 @@ ckb-rational = { path = "util/rational", version = "1" }
 ckb-resource = { path = "resource", version = "1" }
 ckb-reward-calculator = { path = "util/reward-calculator", version = "1" }
 ckb-rich-indexer = { path = "util/rich-indexer", version = "1" }
-ckb-rpc = { path = "rpc", version = "1" }
+ckb-rpc = { path = "rpc", version = "2" }
 ckb-script = { path = "script", version = "1" }
 ckb-shared = { path = "shared", version = "1" }
 ckb-snapshot = { path = "util/snapshot", version = "1" }

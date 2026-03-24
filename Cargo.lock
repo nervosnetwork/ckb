@@ -1032,7 +1032,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "ckb-fixed-hash-core",
  "ckb-fixed-hash-macros",
@@ -1040,7 +1040,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "1.1.1"
+version = "2.0.0"
 dependencies = [
  "faster-hex",
  "schemars",
@@ -1051,7 +1051,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-macros"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro2",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "1.1.1"
+version = "2.0.0"
 dependencies = [
  "ckb-types",
  "faster-hex",
@@ -1596,7 +1596,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
-version = "1.2.1"
+version = "2.0.0"
 dependencies = [
  "async-stream",
  "async-trait",
