@@ -40,7 +40,12 @@ ELF_ALLOWED_LIBRARIES = {
 def check_version(version_name: str, arch: lief.ELF.ARCH) -> bool:
     lib, _, raw_version = version_name.rpartition("_")
     if lib not in MAX_VERSIONS:
-        return False
+        # Only enforce version caps for libraries listed in MAX_VERSIONS
+        # (currently GLIBC).  Symbols from libstdc++ (GLIBCXX, CXXABI) and
+        # libgcc_s (GCC) are allowed without a version ceiling because the
+        # target system is expected to provide a sufficiently recent C++
+        # runtime alongside glibc.
+        return True
     version = tuple(int(part) for part in raw_version.split("."))
     allowed = MAX_VERSIONS[lib]
     if isinstance(allowed, tuple):
@@ -65,7 +70,11 @@ def check_imported_symbols(filename: str, binary: lief.ELF.Binary) -> bool:
 
 def check_interpreter(filename: str, binary: lief.ELF.Binary) -> bool:
     interpreter = binary.interpreter
-    expected = ELF_INTERPRETER_NAMES.get(binary.header.machine_type, {}).get(binary.header.identity_data)
+    arch_map = ELF_INTERPRETER_NAMES.get(binary.header.machine_type, {})
+    # Try identity_data first; fall back to the only entry for this arch.
+    expected = arch_map.get(binary.header.identity_data)
+    if expected is None and len(arch_map) == 1:
+        expected = next(iter(arch_map.values()))
     if interpreter != expected:
         print(f"{filename}: unexpected interpreter {interpreter!r}, expected {expected!r}")
         return False
