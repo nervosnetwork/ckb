@@ -5,13 +5,71 @@ set -euo pipefail
 TOPLEVEL="$(git rev-parse --show-toplevel)"
 cd "$TOPLEVEL"
 
-git_head_version() {
+usage() {
+cat <<'EOF'
+Usage: ./contrib/guix/guix-build [REF]
+
+Build CKB reproducibly using Guix.
+
+  REF   A git tag, branch, or commit hash to build (e.g., v0.205.0).
+        When omitted, builds from the current HEAD (requires a clean
+        worktree unless FORCE_DIRTY_WORKTREE=1 is set).
+
+Environment variables:
+  HOSTS                  Target triples (default: x86_64-unknown-linux-gnu)
+  VERSION                Override the version string
+  JOBS                   Parallel jobs (default: nproc)
+  SOURCE_DATE_EPOCH      Override the deterministic timestamp
+  FORCE_DIRTY_WORKTREE   Set to 1 to allow building from a dirty worktree
+  FORCE_SOURCE_DATE_EPOCH  Set to 1 to allow a pre-set SOURCE_DATE_EPOCH
+  REBUILD_SOURCE_ARCHIVE Set to 1 to force re-creation of the source archive
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+# Determine the git ref to build from.
+# Mode 1: explicit ref (tag/branch/commit) — always clean, no worktree check.
+# Mode 2: HEAD (default) — requires clean worktree.
+BUILD_REF=""
+if [[ -n "${1:-}" ]]; then
+    BUILD_REF="$1"
+    # Verify the ref exists
+    if ! git rev-parse --verify "${BUILD_REF}^{commit}" >/dev/null 2>&1; then
+        echo "ERR: '${BUILD_REF}' is not a valid git ref in this repository." >&2
+        exit 1
+    fi
+else
+    BUILD_REF="HEAD"
+    if ! git diff-index --quiet HEAD -- && [[ -z "${FORCE_DIRTY_WORKTREE:-}" ]]; then
+cat <<'EOF'
+ERR: The current git worktree is dirty.
+
+This Guix release builder is intended to run from a clean tree so the source
+archive, SOURCE_DATE_EPOCH, and packaged outputs stay deterministic.
+
+Either:
+  - Pass a tag/commit:   ./contrib/guix/guix-build v0.205.0
+  - Or force from HEAD:  FORCE_DIRTY_WORKTREE=1 ./contrib/guix/guix-build
+EOF
+        exit 1
+    fi
+fi
+
+# Resolve the ref to a full commit hash for determinism.
+BUILD_COMMIT="$(git rev-parse "${BUILD_REF}^{commit}")"
+
+git_version_from_ref() {
+    local ref="$1"
     local recent_tag
 
-    if recent_tag="$(git describe --exact-match HEAD 2>/dev/null)"; then
+    if recent_tag="$(git describe --exact-match "$ref" 2>/dev/null)"; then
         echo "${recent_tag#v}"
     else
-        git rev-parse --short=12 HEAD
+        git rev-parse --short=12 "$ref"
     fi
 }
 
@@ -22,23 +80,11 @@ ERR: Environment variable SOURCE_DATE_EPOCH is set which may break reproducibili
 
 Unset SOURCE_DATE_EPOCH before rebuilding, or set FORCE_SOURCE_DATE_EPOCH=1 if
 you intentionally want to override the deterministic timestamp derived from
-HEAD.
+the build commit.
 EOF
         exit 1
     fi
 }
-
-if ! git diff-index --quiet HEAD -- && [[ -z "${FORCE_DIRTY_WORKTREE:-}" ]]; then
-cat <<'EOF'
-ERR: The current git worktree is dirty.
-
-This Guix release builder is intended to run from a clean tree so the source
-archive, SOURCE_DATE_EPOCH, and packaged outputs stay deterministic.
-
-Set FORCE_DIRTY_WORKTREE=1 if you intentionally want to override this check.
-EOF
-    exit 1
-fi
 
 HOSTS="${HOSTS:-x86_64-unknown-linux-gnu}"
 if [[ "$HOSTS" != "x86_64-unknown-linux-gnu" ]]; then
@@ -48,9 +94,11 @@ fi
 
 check_source_date_epoch
 
-VERSION="${VERSION:-$(git_head_version)}"
+VERSION="${VERSION:-$(git_version_from_ref "$BUILD_COMMIT")}"
 JOBS="${JOBS:-$(nproc)}"
-SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%ct -1)}"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%ct -1 "$BUILD_COMMIT")}"
+
+echo "Building CKB ${VERSION} from ${BUILD_REF} (${BUILD_COMMIT:0:12})"
 
 VERSION_BASE="${PWD}/guix-build-${VERSION}"
 DISTSRC_BASE="${VERSION_BASE}/distsrc"
@@ -69,7 +117,8 @@ prepare_source_archive() {
     rm -rf "$SOURCE_ARCHIVE_ROOT"
     mkdir -p "$DIST_ARCHIVE_BASE" "$SOURCE_ARCHIVE_ROOT"
 
-    git archive --prefix="ckb-${VERSION}/" HEAD | tar -C "$SOURCE_ARCHIVE_ROOT" -xf -
+    # Archive the exact commit, not the worktree.
+    git archive --prefix="ckb-${VERSION}/" "$BUILD_COMMIT" | tar -C "$SOURCE_ARCHIVE_ROOT" -xf -
 
     GUIX_CHANNELS_FILE="${PWD}/contrib/guix/channels.scm" \
     SOURCE_TREE="$source_root" \
