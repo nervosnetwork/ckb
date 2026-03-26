@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Build CKB reproducibly inside a Docker container using Guix.
 #
-# This script follows fanquake's approach (Bitcoin Core): the guix-daemon
-# runs as the container's main process (PID 1), and the build is executed
-# via `docker exec`.  Docker volumes persist the Guix store between builds
+# Follows fanquake's approach (Bitcoin Core): the guix-daemon runs as the
+# container's main process (PID 1), and the build is executed via `docker exec`.
+# Reference: https://github.com/fanquake/core-review/tree/master/guix  Docker volumes persist the Guix store between builds
 # so only the first run pays the full toolchain compilation cost.
 #
 # Usage:

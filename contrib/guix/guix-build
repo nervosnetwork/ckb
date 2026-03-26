@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Derived from Bitcoin Core's Guix reproducible build system.
+# Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/guix-build
 export LC_ALL=C
 set -euo pipefail
 

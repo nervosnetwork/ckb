@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Derived from Bitcoin Core's Guix container build script.
+# Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/libexec/build.sh
+#
+# Adapted for Rust/Cargo builds with a custom linker wrapper (rust-linker.sh)
+# and cross-compiled OpenSSL from the Guix manifest.
 export LC_ALL=C
 set -euo pipefail
 
