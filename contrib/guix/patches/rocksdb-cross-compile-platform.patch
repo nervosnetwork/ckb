@@ -1,0 +1,28 @@
+Fix ckb-librocksdb-sys cross-compilation platform detection.
+
+When cross-compiling from Linux to Windows, cfg!(target_os = "windows")
+evaluates on the BUILD host (Linux), not the TARGET.  This causes
+build_detect_platform (a Linux script) to run and set POSIX/Linux defines,
+while the TARGET-based check also adds Windows defines -- resulting in
+conflicting platform flags like -DROCKSDB_PLATFORM_POSIX and -DOS_WIN.
+
+Fix: check the Cargo TARGET env var instead of cfg!() for platform
+detection in build.rs, which correctly reflects the cross-compilation
+target.
+
+--- a/build.rs
++++ b/build.rs
+@@ -6,8 +6,11 @@ use std::path::PathBuf;
+ use std::process::Command;
+
+ fn get_flags_from_detect_platform_script() -> Option<Vec<String>> {
+-    if !cfg!(target_os = "windows") {
+-        let mut cmd = Command::new("bash");
++    // Use the Cargo TARGET env var (not cfg!()) to detect the target platform.
++    // cfg!(target_os) reflects the BUILD host, which is wrong when cross-compiling.
++    let target = env::var("TARGET").unwrap_or_default();
++    if !target.contains("windows") {
++        let mut cmd = std::process::Command::new("bash");
+
+         // if ROCKSDB_USE_IO_URING is not set, treat as enable
+         // we use pkg_config probe library, more friendly for rust.

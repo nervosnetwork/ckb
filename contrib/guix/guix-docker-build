@@ -88,32 +88,32 @@ echo "guix-daemon is ready."
 # 5. Run the build inside the container.
 # ---------------------------------------------------------------------------
 echo "Starting CKB Guix build${REF:+ for $REF}..."
+BUILD_EXIT=0
 "$DOCKER" exec "$CONTAINER_NAME" bash -c "
-    set -euo pipefail
     cp -a /ckb-repo /tmp/ckb-build
     cd /tmp/ckb-build
     git config --global --add safe.directory /tmp/ckb-build
     git config --global --add safe.directory '${GIT_COMMON_DIR}'
-    ./contrib/guix/guix-build ${REF}
-"
-BUILD_EXIT=$?
+    ${HOSTS:+HOSTS='${HOSTS}'} ./contrib/guix/guix-build ${REF}
+" || BUILD_EXIT=$?
 
 # ---------------------------------------------------------------------------
 # 6. Copy output from the container.
 # ---------------------------------------------------------------------------
-if [[ "$BUILD_EXIT" -eq 0 ]]; then
-    VERSION="$("$DOCKER" exec "$CONTAINER_NAME" bash -c "
-        cd /tmp/ckb-build
-        git config --global --add safe.directory /tmp/ckb-build 2>/dev/null
-        ls -d guix-build-*/ 2>/dev/null | head -1 | sed 's|guix-build-||;s|/||'
-    ")"
+# Always try to copy output — the inner guix time-machine may return
+# non-zero even when the build itself succeeded.
+VERSION="$("$DOCKER" exec "$CONTAINER_NAME" bash -c "
+    cd /tmp/ckb-build 2>/dev/null
+    git config --global --add safe.directory /tmp/ckb-build 2>/dev/null
+    ls -d guix-build-*/ 2>/dev/null | head -1 | sed 's|guix-build-||;s|/||'
+" 2>/dev/null || true)"
 
-    if [[ -n "$VERSION" ]]; then
-        OUTDIR="${TOPLEVEL}/guix-build-${VERSION}/output"
-        mkdir -p "$OUTDIR"
-        "$DOCKER" cp "$CONTAINER_NAME:/tmp/ckb-build/guix-build-${VERSION}/output/." "$OUTDIR/"
+if [[ -n "$VERSION" ]]; then
+    OUTDIR="${TOPLEVEL}/guix-build-${VERSION}/output"
+    mkdir -p "$OUTDIR"
+    if "$DOCKER" cp "$CONTAINER_NAME:/tmp/ckb-build/guix-build-${VERSION}/output/." "$OUTDIR/" 2>/dev/null; then
         echo
-        echo "Build succeeded. Output:"
+        echo "Build output copied to:"
         echo "  ${OUTDIR}"
         cat "${OUTDIR}"/x86_64-unknown-linux-gnu/SHA256SUMS 2>/dev/null || true
     fi

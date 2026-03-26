@@ -2,17 +2,18 @@
 ;; Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/manifest.scm
 ;;
 ;; Differences from Bitcoin: uses Rust/Cargo instead of C++/CMake, includes
-;; a cross-compiled OpenSSL package, and does not target Windows or macOS.
+;; cross-compiled OpenSSL packages, and does not target macOS.
 
 (use-modules ((gnu packages bash) #:select (bash-minimal))
-             ((gnu packages base) #:select (coreutils findutils gnu-make grep sed tar glibc))
-             ((gnu packages compression) #:select (gzip))
+             ((gnu packages base) #:select (coreutils findutils gnu-make grep patch sed tar glibc))
+             ((gnu packages compression) #:select (gzip zip))
              (gnu packages commencement)
              (gnu packages cross-base)
              ((gnu packages elf) #:select (patchelf))
              ((gnu packages gcc) #:select (gcc-14))
              ((gnu packages linux) #:select (linux-libre-headers-6.1))
              ((gnu packages llvm) #:select (clang))
+             (gnu packages mingw)
              ((gnu packages nss) #:select (nss-certs))
              ((gnu packages perl) #:select (perl))
              (gnu packages pkg-config)
@@ -195,6 +196,68 @@ FILE-NAME found in ./patches relative to the current file."
 (define-public x86_64-linux-gnu-toolchain
   (make-ckb-cross-toolchain "x86_64-linux-gnu"))
 
+;;;
+;;; Windows (MinGW-w64) cross-toolchain.
+;;; Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/manifest.scm
+;;;
+
+(define mingw-w64-base-gcc
+  (package
+    (inherit (package-with-extra-patches
+              gcc-14
+              (search-our-patches "gcc-fixed-store-remap.patch"
+                                  "gcc-ssa-generation.patch")))
+    (arguments
+     (substitute-keyword-arguments (package-arguments gcc-14)
+       ((#:configure-flags flags)
+        `(append ,flags
+                 (list "--enable-threads=posix"
+                       "--enable-default-ssp=yes"
+                       "--enable-host-bind-now=yes"
+                       "--disable-gcov"
+                       "--disable-libgomp"
+                       ,building-on)))))))
+
+(define (make-mingw-pthreads-cross-toolchain target)
+  "Create a MinGW-w64 cross-compilation toolchain with POSIX threads for TARGET."
+  (let* ((xbinutils (cross-binutils target))
+         (machine (substring target 0 (string-index target #\-)))
+         (pthreads-xlibc (make-mingw-w64 machine
+                           #:xgcc (cross-gcc target
+                                    #:xgcc (package-with-extra-patches
+                                             gcc-14
+                                             (search-our-patches
+                                              "gcc-fixed-store-remap.patch"
+                                              "gcc-ssa-generation.patch")))
+                           #:with-winpthreads? #t))
+         (pthreads-xgcc (cross-gcc target
+                           #:xgcc mingw-w64-base-gcc
+                           #:xbinutils xbinutils
+                           #:libc pthreads-xlibc)))
+    (package
+      (name (string-append target "-posix-toolchain"))
+      (version (package-version pthreads-xgcc))
+      (source #f)
+      (build-system trivial-build-system)
+      (arguments '(#:builder (begin (mkdir %output) #t)))
+      (propagated-inputs
+       (list xbinutils
+             pthreads-xlibc
+             pthreads-xgcc
+             `(,pthreads-xgcc "lib")))
+      (synopsis (string-append "Complete GCC tool chain for " target))
+      (description (string-append "This package provides a complete GCC tool "
+                                  "chain for " target " development."))
+      (home-page (package-home-page pthreads-xgcc))
+      (license (package-license pthreads-xgcc)))))
+
+(define-public x86_64-w64-mingw32-toolchain
+  (make-mingw-pthreads-cross-toolchain "x86_64-w64-mingw32"))
+
+;;;
+;;; Cross-compiled OpenSSL packages.
+;;;
+
 ;; Cross-compile OpenSSL using our existing x86_64-linux-gnu cross-toolchain
 ;; (which targets glibc-2.31).  The Guix-packaged openssl is compiled against
 ;; native glibc (2.39) and cannot be linked into the CKB release binary.
@@ -255,28 +318,80 @@ FILE-NAME found in ./patches relative to the current file."
           ;; This is expected; the final binary handles RUNPATH via patchelf.
           (delete 'validate-runpath))))))
 
+;; Cross-compiled OpenSSL for Windows using MinGW-w64 toolchain.
+;; On Windows there is no system OpenSSL, so we vendor it or cross-compile it.
+(define-public openssl-mingw-w64
+  (package
+    (inherit openssl)
+    (name "openssl-mingw-w64")
+    (native-inputs
+     `(("cross-toolchain" ,x86_64-w64-mingw32-toolchain)
+       ("perl" ,perl)))
+    (arguments
+     (list
+      #:tests? #f
+      #:configure-flags #~'()
+      #:phases
+      #~(modify-phases %standard-phases
+          (replace 'configure
+            (lambda* (#:key outputs #:allow-other-keys)
+              (let ((out (assoc-ref outputs "out")))
+                (invoke "perl" "./Configure"
+                        "mingw64"
+                        (string-append "--prefix=" out)
+                        "--cross-compile-prefix=x86_64-w64-mingw32-"
+                        "no-shared"
+                        "no-tests"))))
+          (delete 'check)
+          (delete 'validate-runpath))))))
+
+;;;
+;;; Final manifest — select packages based on the HOST environment variable.
+;;;
+
 (packages->manifest
- (list bash-minimal
-       coreutils
-       findutils
-       gawk
-       grep
-       gnu-make
-       sed
-       tar
-       gzip
-       git-minimal
-       gcc-toolchain-14
-       `(,gcc-toolchain-14 "static")
-       x86_64-linux-gnu-toolchain
-       clang
-       pkg-config
-       perl
-       python-minimal
-       python-lief
-       nss-certs
-       openssl-glibc-2.31
-       patchelf
-       sqlite
-       rust-1.92
-       `(,rust-1.92 "cargo")))
+ (append
+  ;; Common build tools.
+  (list bash-minimal
+        coreutils
+        findutils
+        gawk
+        grep
+        gnu-make
+        patch
+        sed
+        tar
+        gzip
+        git-minimal
+        gcc-toolchain-14
+        `(,gcc-toolchain-14 "static")
+        clang
+        pkg-config
+        perl
+        python-minimal
+        python-lief
+        nss-certs
+        sqlite
+        rust-1.92
+        `(,rust-1.92 "cargo"))
+  ;; Host-specific packages.  The HOST env var is preserved through
+  ;; guix shell --pure via --preserve='^HOST$' in guix-build.
+  (let ((target (or (getenv "HOST") "")))
+    (cond
+     ((string-contains target "-linux-")
+      (list x86_64-linux-gnu-toolchain
+            openssl-glibc-2.31
+            patchelf))
+     ((string-suffix? "-mingw32" target)
+      ;; Rust sysroot (libstd) for Windows, built from source via x.py.
+      ;; Must use the same Rust version as the compiler (rust-1.92) —
+      ;; make-rust-sysroot defaults to the latest `rust` which may differ.
+      ;; No cross-compiled OpenSSL — openssl-sys vendors and builds it
+      ;; from source using the cross-gcc (CC wrapper).
+      (let ((make-rust-sysroot/impl
+             (@@ (gnu packages rust) make-rust-sysroot/implementation)))
+        (list x86_64-w64-mingw32-toolchain
+              (make-rust-sysroot/impl "x86_64-w64-mingw32" rust-1.92)
+              linux-libre-headers-6.1
+              zip)))
+     (else '())))))

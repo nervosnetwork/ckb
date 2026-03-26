@@ -9,7 +9,7 @@
 # and target compilers are separate variables.
 set -euo pipefail
 
-if [[ -z "${CKB_RUST_HOST_LINKER:-}" || -z "${CKB_RUST_TARGET_LINKER:-}" || -z "${CKB_RUST_TARGET_TRIPLE:-}" || -z "${CKB_RUST_DYNAMIC_LINKER:-}" ]]; then
+if [[ -z "${CKB_RUST_HOST_LINKER:-}" || -z "${CKB_RUST_TARGET_LINKER:-}" || -z "${CKB_RUST_TARGET_TRIPLE:-}" ]]; then
     echo "ERR: Missing required CKB_RUST_* linker environment" >&2
     exit 1
 fi
@@ -26,12 +26,30 @@ if [[ "$is_target_link" -eq 1 ]]; then
     # Disable Guix's automatic rpath injection for the final target binary
     # so no /gnu/store paths leak into the release ELF.
     export GUIX_LD_WRAPPER_DISABLE_RPATH=yes
-    exec "${CKB_RUST_TARGET_LINKER}" "$@" \
-        -Wl,--as-needed \
-        "-Wl,--dynamic-linker=${CKB_RUST_DYNAMIC_LINKER}" \
-        -Wl,-O2 \
-        -static-libstdc++ \
-        -static-libgcc
+
+    case "${CKB_RUST_TARGET_TRIPLE}" in
+        *linux*)
+            exec "${CKB_RUST_TARGET_LINKER}" "$@" \
+                -Wl,--as-needed \
+                "-Wl,--dynamic-linker=${CKB_RUST_DYNAMIC_LINKER}" \
+                -Wl,-O2 \
+                -static-libstdc++ \
+                -static-libgcc
+            ;;
+        *windows*)
+            # Windows PE: no dynamic linker, no rpath.
+            # -Wl,--no-insert-timestamp for deterministic PE headers.
+            exec "${CKB_RUST_TARGET_LINKER}" "$@" \
+                -Wl,--no-insert-timestamp \
+                -static-libstdc++ \
+                -static-libgcc
+            ;;
+        *)
+            exec "${CKB_RUST_TARGET_LINKER}" "$@" \
+                -static-libstdc++ \
+                -static-libgcc
+            ;;
+    esac
 fi
 
 # Host link (build scripts, proc-macros).  Set LIBRARY_PATH to the native
