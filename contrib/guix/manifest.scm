@@ -1,3 +1,9 @@
+;; Derived from Bitcoin Core's Guix manifest for reproducible builds.
+;; Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/manifest.scm
+;;
+;; Differences from Bitcoin: uses Rust/Cargo instead of C++/CMake, includes
+;; a cross-compiled OpenSSL package, and does not target Windows or macOS.
+
 (use-modules ((gnu packages bash) #:select (bash-minimal))
              ((gnu packages base) #:select (coreutils findutils gnu-make grep sed tar glibc))
              ((gnu packages compression) #:select (gzip))

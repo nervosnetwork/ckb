@@ -1,3 +1,5 @@
+# Derived from fanquake's Guix Docker setup for Bitcoin Core.
+# Reference: https://github.com/fanquake/core-review/tree/master/guix
 FROM alpine:3.23
 
 RUN apk --no-cache add bash bzip2 ca-certificates curl git make shadow xz

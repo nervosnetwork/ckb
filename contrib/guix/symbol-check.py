@@ -2,6 +2,9 @@
 """
 Check that the Guix-built Linux release binary stays within the intended ABI
 baseline and only links against an allowed set of shared libraries.
+
+Derived from Bitcoin Core's symbol and security check scripts.
+Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/symbol-check.py
 """
 
 from __future__ import annotations

@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# Cargo linker wrapper for cross-compilation inside the Guix container.
+#
+# Rust/Cargo uses a single CARGO_TARGET_<triple>_LINKER for both build
+# scripts (host) and the final binary (target).  This wrapper routes
+# them to the correct linker with the correct flags.
+#
+# No direct Bitcoin Core equivalent — Bitcoin uses C++/CMake where host
+# and target compilers are separate variables.
 set -euo pipefail
 
 if [[ -z "${CKB_RUST_HOST_LINKER:-}" || -z "${CKB_RUST_TARGET_LINKER:-}" || -z "${CKB_RUST_TARGET_TRIPLE:-}" || -z "${CKB_RUST_DYNAMIC_LINKER:-}" ]]; then
