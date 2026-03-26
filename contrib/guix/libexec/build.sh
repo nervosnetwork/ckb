@@ -184,7 +184,7 @@ fi
 rm -rf "$DISTSRC/src" "$INSTALLPATH"
 mkdir -p "$DISTSRC/src" "$INSTALLPATH"
 
-tar -C "$DISTSRC/src" --strip-components=1 -xf "$GIT_ARCHIVE"
+tar -C "$DISTSRC/src" --strip-components=1 --no-same-owner -xf "$GIT_ARCHIVE"
 cd "$DISTSRC/src"
 
 cargo build \
