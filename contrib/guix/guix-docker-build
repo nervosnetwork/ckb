@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Build CKB reproducibly inside a Docker container using Guix.
+#
+# This script follows fanquake's approach (Bitcoin Core): the guix-daemon
+# runs as the container's main process (PID 1), and the build is executed
+# via `docker exec`.  Docker volumes persist the Guix store between builds
+# so only the first run pays the full toolchain compilation cost.
+#
+# Usage:
+#   ./contrib/guix/guix-docker-build [REF]
+#
+#   REF   A git tag, branch, or commit hash (e.g., v0.205.0).
+#         Passed through to guix-build inside the container.
+#
+# Requirements:
+#   - Docker (or Podman with the docker CLI shim)
+#   - The container runs with --privileged (required for guix-daemon)
+#
+# Environment variables:
+#   DOCKER            Docker binary (default: docker)
+#   CONTAINER_NAME    Name of the builder container (default: ckb-guix-builder)
+#   IMAGE_NAME        Docker image name (default: ckb-guix)
+#   JOBS              Parallel jobs (forwarded to guix-build)
+
+export LC_ALL=C
+set -euo pipefail
+
+TOPLEVEL="$(git rev-parse --show-toplevel)"
+cd "$TOPLEVEL"
+
+DOCKER="${DOCKER:-docker}"
+CONTAINER_NAME="${CONTAINER_NAME:-ckb-guix-builder}"
+IMAGE_NAME="${IMAGE_NAME:-ckb-guix}"
+REF="${1:-}"
+
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+
+# ---------------------------------------------------------------------------
+# 1. Build the Docker image if it doesn't exist.
+# ---------------------------------------------------------------------------
+if ! "$DOCKER" image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+    echo "Building Docker image '$IMAGE_NAME'..."
+    "$DOCKER" build -t "$IMAGE_NAME" contrib/guix
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Stop any previous builder container.
+# ---------------------------------------------------------------------------
+if "$DOCKER" inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+    echo "Removing previous container '$CONTAINER_NAME'..."
+    "$DOCKER" rm -f "$CONTAINER_NAME" >/dev/null
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Start guix-daemon as the container's main process.
+#    Docker volumes cache /gnu/store and /var/guix across builds.
+# ---------------------------------------------------------------------------
+echo "Starting guix-daemon in container '$CONTAINER_NAME'..."
+"$DOCKER" run -d \
+    --name "$CONTAINER_NAME" \
+    --privileged \
+    -v "${TOPLEVEL}":/ckb-repo:ro \
+    -v "${GIT_COMMON_DIR}":"${GIT_COMMON_DIR}":ro \
+    -v ckb-guix-store:/gnu/store \
+    -v ckb-guix-var:/var/guix \
+    "$IMAGE_NAME"
+
+# ---------------------------------------------------------------------------
+# 4. Wait for the daemon to be ready.
+# ---------------------------------------------------------------------------
+echo "Waiting for guix-daemon..."
+for i in $(seq 1 30); do
+    if "$DOCKER" exec "$CONTAINER_NAME" guix describe >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+if ! "$DOCKER" exec "$CONTAINER_NAME" guix describe >/dev/null 2>&1; then
+    echo "ERR: guix-daemon did not become ready in 30 seconds." >&2
+    "$DOCKER" logs "$CONTAINER_NAME" | tail -20
+    "$DOCKER" rm -f "$CONTAINER_NAME" >/dev/null
+    exit 1
+fi
+echo "guix-daemon is ready."
+
+# ---------------------------------------------------------------------------
+# 5. Run the build inside the container.
+# ---------------------------------------------------------------------------
+echo "Starting CKB Guix build${REF:+ for $REF}..."
+"$DOCKER" exec "$CONTAINER_NAME" bash -c "
+    set -euo pipefail
+    cp -a /ckb-repo /tmp/ckb-build
+    cd /tmp/ckb-build
+    git config --global --add safe.directory /tmp/ckb-build
+    git config --global --add safe.directory '${GIT_COMMON_DIR}'
+    ./contrib/guix/guix-build ${REF}
+"
+BUILD_EXIT=$?
+
+# ---------------------------------------------------------------------------
+# 6. Copy output from the container.
+# ---------------------------------------------------------------------------
+if [[ "$BUILD_EXIT" -eq 0 ]]; then
+    VERSION="$("$DOCKER" exec "$CONTAINER_NAME" bash -c "
+        cd /tmp/ckb-build
+        git config --global --add safe.directory /tmp/ckb-build 2>/dev/null
+        ls -d guix-build-*/ 2>/dev/null | head -1 | sed 's|guix-build-||;s|/||'
+    ")"
+
+    if [[ -n "$VERSION" ]]; then
+        OUTDIR="${TOPLEVEL}/guix-build-${VERSION}/output"
+        mkdir -p "$OUTDIR"
+        "$DOCKER" cp "$CONTAINER_NAME:/tmp/ckb-build/guix-build-${VERSION}/output/." "$OUTDIR/"
+        echo
+        echo "Build succeeded. Output:"
+        echo "  ${OUTDIR}"
+        cat "${OUTDIR}"/x86_64-unknown-linux-gnu/SHA256SUMS 2>/dev/null || true
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Cleanup the container (volumes are preserved).
+# ---------------------------------------------------------------------------
+"$DOCKER" rm -f "$CONTAINER_NAME" >/dev/null
+
+exit "$BUILD_EXIT"
