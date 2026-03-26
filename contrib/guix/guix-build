@@ -89,10 +89,13 @@ EOF
 }
 
 HOSTS="${HOSTS:-x86_64-unknown-linux-gnu}"
-if [[ "$HOSTS" != "x86_64-unknown-linux-gnu" ]]; then
-    echo "ERR: Only HOSTS=x86_64-unknown-linux-gnu is supported by this initial refactor." >&2
-    exit 1
-fi
+SUPPORTED_HOSTS="x86_64-unknown-linux-gnu x86_64-pc-windows-gnu"
+for host in $HOSTS; do
+    if ! echo "$SUPPORTED_HOSTS" | grep -qw "$host"; then
+        echo "ERR: Unsupported HOST '$host'. Supported: $SUPPORTED_HOSTS" >&2
+        exit 1
+    fi
+done
 
 check_source_date_epoch
 
@@ -147,11 +150,24 @@ if [[ ! -e "$SOURCE_ARCHIVE" || -n "${REBUILD_SOURCE_ARCHIVE:-}" ]]; then
 fi
 
 for HOST in $HOSTS; do
-    DISTSRC="${DISTSRC_BASE}/distsrc-${VERSION}-${HOST}"
-    OUTDIR="${OUTDIR_BASE}/${HOST}"
+    # Map Rust target triples to GNU triples for the Guix manifest.
+    case "$HOST" in
+        x86_64-unknown-linux-gnu)  MANIFEST_HOST="x86_64-linux-gnu" ;;
+        x86_64-pc-windows-gnu)     MANIFEST_HOST="x86_64-w64-mingw32" ;;
+        *)                         MANIFEST_HOST="$HOST" ;;
+    esac
+
+    RUST_TARGET="$HOST"
+    DISTSRC="${DISTSRC_BASE}/distsrc-${VERSION}-${RUST_TARGET}"
+    OUTDIR="${OUTDIR_BASE}/${RUST_TARGET}"
 
     rm -rf "$DISTSRC" "$OUTDIR"
     mkdir -p "$DISTSRC" "$OUTDIR"
+
+    # Export HOST as the GNU triple so the manifest can select the right
+    # cross-toolchain.  RUST_TARGET (the Rust triple) is passed separately
+    # into the container for build.sh.
+    export HOST="$MANIFEST_HOST"
 
     guix time-machine -C "${PWD}/contrib/guix/channels.scm" -- \
         shell --manifest="${PWD}/contrib/guix/manifest.scm" \
@@ -163,12 +179,13 @@ for HOST in $HOSTS; do
               --share="$OUTDIR_BASE"=/outdir-base \
               --expose="$GIT_COMMON_DIR" \
               --cores="$JOBS" \
-              -- env HOST="$HOST" \
+              -- env HOST="$MANIFEST_HOST" \
+                     RUST_TARGET="$RUST_TARGET" \
                      VERSION="$VERSION" \
                      JOBS="$JOBS" \
                      SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-                     DISTSRC="/distsrc-base/distsrc-${VERSION}-${HOST}" \
-                     OUTDIR="/outdir-base/${HOST}" \
+                     DISTSRC="/distsrc-base/distsrc-${VERSION}-${RUST_TARGET}" \
+                     OUTDIR="/outdir-base/${RUST_TARGET}" \
                      DIST_ARCHIVE_BASE="/outdir-base/dist-archive" \
                      bash -c "cd /ckb && bash contrib/guix/libexec/build.sh"
 done

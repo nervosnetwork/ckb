@@ -2,7 +2,7 @@
 # Reference: https://github.com/fanquake/core-review/tree/master/guix
 FROM alpine:3.23
 
-RUN apk --no-cache add bash bzip2 ca-certificates curl git make shadow xz
+RUN apk --no-cache add bash bzip2 ca-certificates coreutils curl git gzip make shadow tar xz
 
 # Install Guix 1.5.0 binary release.
 # Verify the SHA256 checksum to ensure integrity.
