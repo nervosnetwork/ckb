@@ -10,6 +10,7 @@
 set -euo pipefail
 
 if [[ -z "${CKB_RUST_HOST_LINKER:-}" || -z "${CKB_RUST_TARGET_LINKER:-}" || -z "${CKB_RUST_TARGET_TRIPLE:-}" ]]; then
+    # CKB_RUST_DYNAMIC_LINKER is optional (empty for Windows/macOS).
     echo "ERR: Missing required CKB_RUST_* linker environment" >&2
     exit 1
 fi
@@ -43,6 +44,16 @@ if [[ "$is_target_link" -eq 1 ]]; then
                 -Wl,--no-insert-timestamp \
                 -static-libstdc++ \
                 -static-libgcc
+            ;;
+        *darwin*)
+            # macOS Mach-O: use LLD, no ad-hoc codesign, no UUID.
+            # LC_UUID is non-deterministic even with --threads=1 due to
+            # LLD's parallel hash computation.  Remove it entirely.
+            exec "${CKB_RUST_TARGET_LINKER}" "$@" \
+                -fuse-ld=lld \
+                -Wl,-no_adhoc_codesign \
+                -Wl,-no_uuid \
+                -Wl,-platform_version,macos,14.0,14.0
             ;;
         *)
             exec "${CKB_RUST_TARGET_LINKER}" "$@" \

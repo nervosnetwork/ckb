@@ -94,7 +94,7 @@ BUILD_EXIT=0
     cd /tmp/ckb-build
     git config --global --add safe.directory /tmp/ckb-build
     git config --global --add safe.directory '${GIT_COMMON_DIR}'
-    ${HOSTS:+HOSTS='${HOSTS}'} ./contrib/guix/guix-build ${REF}
+    ${HOSTS:+HOSTS='${HOSTS}'} ${SDK_PATH:+SDK_PATH='${SDK_PATH}'} ./contrib/guix/guix-build ${REF}
 " || BUILD_EXIT=$?
 
 # ---------------------------------------------------------------------------

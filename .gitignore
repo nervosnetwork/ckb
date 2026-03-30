@@ -42,6 +42,7 @@ tags
 /ckb.toml
 /ckb-miner.toml
 /default.db-options
+/depends
 /data
 /specs
 /ckb-dev
@@ -68,3 +69,5 @@ cobertura.xml
 *.profraw
 lcov-unit-test.info
 lcov-integration-test.info
+# Guix build outputs
+guix-build-*/

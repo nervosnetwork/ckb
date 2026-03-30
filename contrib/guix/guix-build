@@ -89,7 +89,7 @@ EOF
 }
 
 HOSTS="${HOSTS:-x86_64-unknown-linux-gnu}"
-SUPPORTED_HOSTS="x86_64-unknown-linux-gnu x86_64-pc-windows-gnu"
+SUPPORTED_HOSTS="x86_64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin"
 for host in $HOSTS; do
     if ! echo "$SUPPORTED_HOSTS" | grep -qw "$host"; then
         echo "ERR: Unsupported HOST '$host'. Supported: $SUPPORTED_HOSTS" >&2
@@ -103,6 +103,27 @@ VERSION="${VERSION:-$(git_version_from_ref "$BUILD_COMMIT")}"
 JOBS="${JOBS:-$(nproc)}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%ct -1 "$BUILD_COMMIT")}"
 
+# Check for macOS SDK if building darwin targets.
+# Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/macdeploy/README.md
+# Resolve SDK_PATH to an absolute path.
+SDK_PATH="$(cd "${SDK_PATH:-${PWD}/depends/SDKs}" 2>/dev/null && pwd || echo "${PWD}/depends/SDKs")"
+for host in $HOSTS; do
+    case "$host" in
+        *apple-darwin*)
+            OSX_SDK="${SDK_PATH}/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers"
+            if [[ ! -d "$OSX_SDK" ]]; then
+                echo "ERR: macOS SDK not found at '${OSX_SDK}'."
+                echo "     Please extract the SDK from Xcode and place it there,"
+                echo "     or set SDK_PATH to the directory containing it."
+                echo "     See: https://github.com/bitcoin/bitcoin/blob/master/contrib/macdeploy/README.md"
+                exit 1
+            fi
+            echo "Found macOS SDK at '${OSX_SDK}'"
+            break
+            ;;
+    esac
+done
+
 echo "Building CKB ${VERSION} from ${BUILD_REF} (${BUILD_COMMIT:0:12})"
 
 VERSION_BASE="${PWD}/guix-build-${VERSION}"
@@ -115,6 +136,11 @@ SOURCE_ARCHIVE="${DIST_ARCHIVE_BASE}/ckb-${VERSION}-src.tar.gz"
 mkdir -p "$DISTSRC_BASE" "$OUTDIR_BASE" "$DIST_ARCHIVE_BASE"
 
 GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+
+# Note: For darwin targets, the Rust source tarball (needed to build
+# library/std from source) is found in /gnu/store inside the container.
+# Guix already downloaded and hash-verified it as part of the rust-1.92
+# package source.  No separate download needed.
 
 prepare_source_archive() {
     local source_root="${SOURCE_ARCHIVE_ROOT}/ckb-${VERSION}"
@@ -178,8 +204,10 @@ for HOST in $HOSTS; do
               --share="$DISTSRC_BASE"=/distsrc-base \
               --share="$OUTDIR_BASE"=/outdir-base \
               --expose="$GIT_COMMON_DIR" \
+              ${OSX_SDK:+--share="$OSX_SDK"} \
               --cores="$JOBS" \
               -- env HOST="$MANIFEST_HOST" \
+                     ${OSX_SDK:+OSX_SDK="$OSX_SDK"} \
                      RUST_TARGET="$RUST_TARGET" \
                      VERSION="$VERSION" \
                      JOBS="$JOBS" \
