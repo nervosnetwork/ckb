@@ -63,6 +63,12 @@ case "$HOST" in
         # Use JEMALLOC_SYS_WITH_LG_QUANTUM to ensure consistent alignment.
         export JEMALLOC_SYS_WITH_LG_QUANTUM=3
         ;;
+    *darwin*)
+        # Vendor OpenSSL from source — no system OpenSSL in the Apple SDK.
+        export OPENSSL_STATIC=1
+        # Deterministic archives.
+        export ZERO_AR_DATE=1
+        ;;
 esac
 # NOTE: We do NOT set GUIX_LD_WRAPPER_DISABLE_RPATH=yes globally.
 # Intermediate programs (autoconf test binaries, build scripts) need Guix's
@@ -90,14 +96,28 @@ case "$HOST" in
         DYNAMIC_LINKER=""
         TARGET_ENV_SUFFIX="X86_64_PC_WINDOWS_GNU"
         ;;
+    aarch64-apple-darwin)
+        GNU_HOST="aarch64-apple-darwin"
+        DYNAMIC_LINKER=""
+        TARGET_ENV_SUFFIX="AARCH64_APPLE_DARWIN"
+        ;;
     *)
         echo "ERR: Unsupported HOST '$HOST'" >&2
         exit 1
         ;;
 esac
 
-CROSS_GCC="$(store_path "gcc-cross-${GNU_HOST}")"
-CROSS_GCC_LIB_STORE="$(store_path "gcc-cross-${GNU_HOST}" lib)"
+# Darwin uses Clang/LLVM, not GCC cross-toolchain.
+case "$HOST" in
+    *darwin*)
+        CROSS_GCC=""
+        CROSS_GCC_LIB_STORE=""
+        ;;
+    *)
+        CROSS_GCC="$(store_path "gcc-cross-${GNU_HOST}")"
+        CROSS_GCC_LIB_STORE="$(store_path "gcc-cross-${GNU_HOST}" lib)"
+        ;;
+esac
 
 case "$HOST" in
     *linux*)
@@ -118,27 +138,73 @@ case "$HOST" in
             exit 1
         fi
         ;;
+    *darwin*)
+        # Darwin uses the Apple SDK as sysroot, not glibc.
+        CROSS_GLIBC=""
+        CROSS_GLIBC_STATIC=""
+        CROSS_KERNEL=""
+        if [[ -z "${OSX_SDK:-}" || ! -d "${OSX_SDK}" ]]; then
+            echo "ERR: OSX_SDK not set or not found at '${OSX_SDK:-}'" >&2
+            exit 1
+        fi
+        ;;
 esac
 
-if [[ -z "$CROSS_GCC" || -z "$CROSS_GCC_LIB_STORE" ]]; then
-    echo "ERR: Missing cross-gcc for ${GNU_HOST}" >&2
-    exit 1
-fi
-
-CROSS_GCC_LIBS=( "${CROSS_GCC_LIB_STORE}/lib/gcc/${GNU_HOST}"/* )
-CROSS_GCC_LIB="${CROSS_GCC_LIBS[0]}"
+case "$HOST" in
+    *darwin*)
+        # Darwin uses Clang/LLVM, no GCC cross-toolchain needed.
+        CROSS_GCC_LIB=""
+        ;;
+    *)
+        if [[ -z "$CROSS_GCC" || -z "$CROSS_GCC_LIB_STORE" ]]; then
+            echo "ERR: Missing cross-gcc for ${GNU_HOST}" >&2
+            exit 1
+        fi
+        CROSS_GCC_LIBS=( "${CROSS_GCC_LIB_STORE}/lib/gcc/${GNU_HOST}"/* )
+        CROSS_GCC_LIB="${CROSS_GCC_LIBS[0]}"
+        ;;
+esac
 
 # Resolve the native gcc-toolchain library paths for host (build-script) linking.
 NATIVE_GCC="$(store_path gcc-toolchain)"
 NATIVE_GCC_STATIC="$(store_path gcc-toolchain static)"
-unset LIBRARY_PATH
+case "$HOST" in
+    *darwin*)
+        # Darwin needs LIBRARY_PATH for zlib during x.py build (host stage1),
+        # but it must NOT be set globally — Linux libc.so would leak into the
+        # Mach-O linker.  Save it for use only during x.py invocation.
+        DARWIN_HOST_LIBRARY_PATH="${NATIVE_GCC}/lib:${NATIVE_GCC_STATIC}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}"
+        unset LIBRARY_PATH
+        # Set SDKROOT so rustc/lld can find the Apple SDK.
+        export SDKROOT="${OSX_SDK}"
+        ;;
+    *)
+        unset LIBRARY_PATH
+        ;;
+esac
 export CKB_RUST_HOST_LIBRARY_PATH="${NATIVE_GCC}/lib:${NATIVE_GCC_STATIC}/lib"
 
 # Create thin CC/CXX wrappers.  For Linux targets, inject -Wl,-rpath so
 # autoconf test programs can execute inside the container.  For Windows
-# targets, no rpath is needed (PE format doesn't use it).
-REAL_CC="$(command -v "${GNU_HOST}-gcc")"
-REAL_CXX="$(command -v "${GNU_HOST}-g++")"
+# targets, no rpath is needed (PE format doesn't use it).  For Darwin,
+# use Clang with -isysroot pointing to the Apple SDK.
+case "$HOST" in
+    *darwin*)
+        # Use clang from clang-toolchain-20 (not the profile's default
+        # clang-13 which can't parse the SDK's libc++ 20 headers).
+        CLANG_TOOLCHAIN="$(store_path clang-toolchain)"
+        REAL_CC="${CLANG_TOOLCHAIN}/bin/clang"
+        REAL_CXX="${CLANG_TOOLCHAIN}/bin/clang++"
+        if [[ ! -x "$REAL_CC" ]]; then
+            echo "ERR: clang not found at '${REAL_CC}'" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        REAL_CC="$(command -v "${GNU_HOST}-gcc")"
+        REAL_CXX="$(command -v "${GNU_HOST}-g++")"
+        ;;
+esac
 
 BASH_PATH="$(command -v bash)"
 CC_WRAPPER="${DISTSRC}/cross-cc"
@@ -172,19 +238,69 @@ CCEOF
 exec "${REAL_CXX}" "\$@"
 CXXEOF
         ;;
+    *darwin*)
+        # macOS: Clang with Apple SDK sysroot, LLD linker, no ad-hoc codesign.
+        # Reference: https://github.com/bitcoin/bitcoin/blob/master/depends/hosts/darwin.mk
+        OSX_MIN_VERSION="14.0"
+        OSX_SDK_VERSION="14.0"
+        LLD_VERSION="711"
+        DARWIN_TARGET="${RUST_TARGET}"
+        cat > "${CC_WRAPPER}" << CCEOF
+#!${BASH_PATH}
+# Clear LIBRARY_PATH to prevent Linux libc.so from leaking into lld.
+unset LIBRARY_PATH
+unset C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+exec "${REAL_CC}" --target=${DARWIN_TARGET} \
+    --sysroot="${OSX_SDK}" \
+    -nostdlibinc \
+    -iwithsysroot/usr/include \
+    -iframeworkwithsysroot/System/Library/Frameworks \
+    -mmacos-version-min=${OSX_MIN_VERSION} \
+    -mlinker-version=${LLD_VERSION} \
+    -fuse-ld=lld \
+    "\$@"
+CCEOF
+        cat > "${CXX_WRAPPER}" << CXXEOF
+#!${BASH_PATH}
+unset LIBRARY_PATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+exec "${REAL_CXX}" --target=${DARWIN_TARGET} \
+    --sysroot="${OSX_SDK}" \
+    -nostdlibinc \
+    -iwithsysroot/usr/include/c++/v1 \
+    -iwithsysroot/usr/include \
+    -iframeworkwithsysroot/System/Library/Frameworks \
+    -mmacos-version-min=${OSX_MIN_VERSION} \
+    -mlinker-version=${LLD_VERSION} \
+    -fuse-ld=lld \
+    "\$@"
+CXXEOF
+        ;;
 esac
 chmod +x "${CC_WRAPPER}" "${CXX_WRAPPER}"
 
-export CC="${CC_WRAPPER}"
-export CXX="${CXX_WRAPPER}"
-export AR="${GNU_HOST}-gcc-ar"
-export RANLIB="${GNU_HOST}-gcc-ranlib"
-export NM="${GNU_HOST}-gcc-nm"
-export STRIP="${GNU_HOST}-strip"
+case "$HOST" in
+    *darwin*)
+        # For darwin, do NOT set CC/CXX globally — it would make the cc crate
+        # use the darwin Clang for host build scripts too.  Only set the
+        # target-specific CC.
+        export AR="$(command -v llvm-ar)"
+        export RANLIB="$(command -v llvm-ranlib)"
+        export NM="$(command -v llvm-nm)"
+        export STRIP="$(command -v llvm-strip)"
+        ;;
+    *)
+        export CC="${CC_WRAPPER}"
+        export CXX="${CXX_WRAPPER}"
+        export AR="${GNU_HOST}-gcc-ar"
+        export RANLIB="${GNU_HOST}-gcc-ranlib"
+        export NM="${GNU_HOST}-gcc-nm"
+        export STRIP="${GNU_HOST}-strip"
+        ;;
+esac
 
 # Export CC/CXX for Cargo's cc crate, keyed by the RUST target triple.
-export "CC_${RUST_TARGET//-/_}=${CC}"
-export "CXX_${RUST_TARGET//-/_}=${CXX}"
+export "CC_${RUST_TARGET//-/_}=${CC:-${CC_WRAPPER}}"
+export "CXX_${RUST_TARGET//-/_}=${CXX:-${CXX_WRAPPER}}"
 export "AR_${RUST_TARGET//-/_}=${AR}"
 export "RANLIB_${RUST_TARGET//-/_}=${RANLIB}"
 
@@ -222,6 +338,24 @@ HOSTCXXEOF
         export AR_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/gcc-ar"
         export RANLIB_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/gcc-ranlib"
         ;;
+    *darwin*)
+        # Darwin CC wrapper uses Clang with Apple SDK — build scripts must
+        # use native GCC instead to compile host C code (e.g., SQLite).
+        # Also set HOST_CC for bindgen and set CFLAGS to avoid 32-bit stubs.
+        export CC_x86_64_unknown_linux_gnu="$(command -v gcc)"
+        export CXX_x86_64_unknown_linux_gnu="$(command -v g++)"
+        export HOST_CC="$(command -v gcc)"
+        export HOST_CXX="$(command -v g++)"
+        # Create an empty gnu/stubs-32.h stub to satisfy the profile's glibc
+        # stubs.h which conditionally includes it.  The 32-bit stubs are not
+        # installed on 64-bit-only systems, and libclang can't find them when
+        # targeting aarch64 (where __x86_64__ isn't defined).
+        mkdir -p "${DISTSRC}/include-fixup/gnu"
+        touch "${DISTSRC}/include-fixup/gnu/stubs-32.h"
+        export C_INCLUDE_PATH="${DISTSRC}/include-fixup${C_INCLUDE_PATH:+:${C_INCLUDE_PATH}}"
+        export AR_x86_64_unknown_linux_gnu="$(command -v gcc-ar)"
+        export RANLIB_x86_64_unknown_linux_gnu="$(command -v gcc-ranlib)"
+        ;;
 esac
 
 # Set cross-compilation search paths.
@@ -238,13 +372,16 @@ case "$HOST" in
         ;;
 esac
 
-IFS=':' read -r -a cross_paths <<< "${CROSS_C_INCLUDE_PATH}:${CROSS_CPLUS_INCLUDE_PATH}:${CROSS_LIBRARY_PATH}"
-for path in "${cross_paths[@]}"; do
-    if [[ -n "$path" && ! -d "$path" ]]; then
-        echo "ERR: Expected cross-toolchain path '$path' to exist" >&2
-        exit 1
-    fi
-done
+# Validate cross-toolchain paths (not applicable for darwin — uses -isysroot).
+if [[ -n "${CROSS_C_INCLUDE_PATH:-}" ]]; then
+    IFS=':' read -r -a cross_paths <<< "${CROSS_C_INCLUDE_PATH}:${CROSS_CPLUS_INCLUDE_PATH}:${CROSS_LIBRARY_PATH}"
+    for path in "${cross_paths[@]}"; do
+        if [[ -n "$path" && ! -d "$path" ]]; then
+            echo "ERR: Expected cross-toolchain path '$path' to exist" >&2
+            exit 1
+        fi
+    done
+fi
 
 clang_root="$(dirname "$(dirname "$(command -v clang)")")"
 export LIBCLANG_PATH="${clang_root}/lib"
@@ -255,39 +392,195 @@ native_libstdcpp_dir="$(dirname "$(g++ -print-file-name=libstdc++.so.6)")"
 export LD_LIBRARY_PATH="${native_libgcc_dir}:${native_libstdcpp_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 export CKB_RUST_HOST_LINKER="$(command -v gcc)"
-export CKB_RUST_TARGET_LINKER="${REAL_CC}"
+# For darwin, use the CC wrapper (which has --target and --sysroot) as linker.
+# For Linux/Windows, use REAL_CC (the cross-gcc, without the rpath wrapper).
+case "$HOST" in
+    *darwin*) export CKB_RUST_TARGET_LINKER="${CC_WRAPPER}" ;;
+    *)        export CKB_RUST_TARGET_LINKER="${REAL_CC}" ;;
+esac
 export CKB_RUST_TARGET_TRIPLE="${RUST_TARGET}"
 export CKB_RUST_DYNAMIC_LINKER="${DYNAMIC_LINKER}"
 export "CARGO_TARGET_${TARGET_ENV_SUFFIX}_LINKER=${runtime_linker}"
 
-bindgen_clang_args=(
-    "--target=${GNU_HOST}"
-    "-isystem${CROSS_GCC_LIB}/include"
-    "-isystem${CROSS_GCC_LIB}/include-fixed"
-    "-isystem${CROSS_GLIBC}/include"
-)
-if [[ -n "$CROSS_KERNEL" ]]; then
-    bindgen_clang_args+=("-isystem${CROSS_KERNEL}/include")
-fi
-bindgen_clang_args+=(
-    "-isystem${CROSS_GCC}/include/c++"
-    "-isystem${CROSS_GCC}/include/c++/${GNU_HOST}"
-    "-isystem${CROSS_GCC}/include/c++/backward"
-)
-export BINDGEN_EXTRA_CLANG_ARGS="${bindgen_clang_args[*]}"
-export "BINDGEN_EXTRA_CLANG_ARGS_${RUST_TARGET//-/_}=${bindgen_clang_args[*]}"
+case "$HOST" in
+    *darwin*)
+        bindgen_clang_args=(
+            "--target=${RUST_TARGET}"
+            "--sysroot=${OSX_SDK}"
+            "-iwithsysroot/usr/include"
+        )
+        ;;
+    *)
+        bindgen_clang_args=(
+            "--target=${GNU_HOST}"
+            "-isystem${CROSS_GCC_LIB}/include"
+            "-isystem${CROSS_GCC_LIB}/include-fixed"
+            "-isystem${CROSS_GLIBC}/include"
+        )
+        if [[ -n "$CROSS_KERNEL" ]]; then
+            bindgen_clang_args+=("-isystem${CROSS_KERNEL}/include")
+        fi
+        bindgen_clang_args+=(
+            "-isystem${CROSS_GCC}/include/c++"
+            "-isystem${CROSS_GCC}/include/c++/${GNU_HOST}"
+            "-isystem${CROSS_GCC}/include/c++/backward"
+        )
+        ;;
+esac
+case "$HOST" in
+    *darwin*)
+        # For darwin, only set the TARGET-specific bindgen args.
+        # The global BINDGEN_EXTRA_CLANG_ARGS must NOT be set because build
+        # scripts run bindgen on the HOST — darwin sysroot flags break HOST clang.
+        export "BINDGEN_EXTRA_CLANG_ARGS_${RUST_TARGET//-/_}=${bindgen_clang_args[*]}"
+        ;;
+    *)
+        export BINDGEN_EXTRA_CLANG_ARGS="${bindgen_clang_args[*]}"
+        export "BINDGEN_EXTRA_CLANG_ARGS_${RUST_TARGET//-/_}=${bindgen_clang_args[*]}"
+        ;;
+esac
 
 export CFLAGS="-O2 -g -ffile-prefix-map=/gnu/store=/usr -fdebug-prefix-map=${DISTSRC}=."
 export CXXFLAGS="${CFLAGS}"
 
 RUSTFLAGS="--remap-path-prefix=${DISTSRC}=. --remap-path-prefix=/gnu/store=/usr"
 
-# For cross-compilation targets with a Guix-built Rust sysroot, point rustc
-# to the GUIX_ENVIRONMENT profile which merges the host rustlib and the
-# cross-target rustlib (from make-rust-sysroot) into one lib/rustlib/.
+# For cross-compilation targets, set up the Rust sysroot.
 case "$HOST" in
     *mingw*)
+        # Windows: Guix's make-rust-sysroot built libstd; use the profile.
         RUSTFLAGS="${RUSTFLAGS} --sysroot=${GUIX_ENVIRONMENT}"
+        ;;
+    *darwin*)
+        # macOS: Build library/std from source using Guix's bootstrapped rustc
+        # and the Apple SDK.  Guix has no darwin platform definition so we
+        # can't use make-rust-sysroot — do it manually.
+        echo "Building Rust std library for ${RUST_TARGET} from source..."
+        RUST_SRC_VERSION="$(rustc --version | awk '{print $2}')"
+        RUST_SRC_DIR="${DISTSRC}/rustc-${RUST_SRC_VERSION}-src"
+        RUST_SYSROOT_OUT="${DISTSRC}/rust-darwin-sysroot"
+
+        # Find the Rust source from the rust-src package in the Guix profile.
+        # It's hash-verified by Guix (same origin as rust-1.92's source).
+        RUST_SRC_TARBALL="$(store_path rust-src)/rustc-src.tar.gz"
+        if [[ ! -e "$RUST_SRC_TARBALL" ]]; then
+            echo "ERR: Rust source not found at '${RUST_SRC_TARBALL}'" >&2
+            echo "     The rust-src package should be in the manifest for darwin targets." >&2
+            exit 1
+        fi
+        echo "  Using Rust source: ${RUST_SRC_TARBALL}"
+
+        if [[ ! -d "${RUST_SYSROOT_OUT}/lib/rustlib/${RUST_TARGET}" ]]; then
+            tar -C "${DISTSRC}" --no-same-owner -xf "$RUST_SRC_TARBALL"
+
+            cd "${RUST_SRC_DIR}"
+
+            # Unbundle xz to avoid macOS-specific __assert_rtn in vendored
+            # lzma-sys.  This forces lzma-sys to use the system liblzma.
+            # Same fix as Guix's make-rust-sysroot/implementation.
+            for lzma_dir in vendor/lzma-sys-*; do
+                rm -rf "$lzma_dir/xz-5.2"
+                sed -i 's/!want_static && //' "$lzma_dir/build.rs"
+                # Remove deleted files from cargo checksums and update build.rs hash.
+                python3 -c "
+import json, hashlib, os
+cksum_file = '$lzma_dir/.cargo-checksum.json'
+with open(cksum_file, 'r') as f:
+    data = json.load(f)
+# Remove entries for deleted xz-5.2/ files
+data['files'] = {k: v for k, v in data['files'].items() if not k.startswith('xz-5.2/')}
+# Update build.rs hash
+with open('$lzma_dir/build.rs', 'rb') as f:
+    data['files']['build.rs'] = hashlib.sha256(f.read()).hexdigest()
+with open(cksum_file, 'w') as f:
+    json.dump(data, f)
+"
+            done
+
+            # Regenerate cargo checksums for all vendored crates.
+            # Guix's origin snippet modifies some Cargo.toml files (e.g.,
+            # tempfile adding "use-libc"), but x.py's --frozen checks original
+            # checksums.  This updates them to match actual file contents.
+            for cksum in vendor/*/.cargo-checksum.json; do
+                crate_dir="$(dirname "$cksum")"
+                python3 -c "
+import json, hashlib, os
+with open('$cksum', 'r') as f:
+    data = json.load(f)
+new_files = {}
+for relpath in data.get('files', {}):
+    fpath = os.path.join('$crate_dir', relpath)
+    if os.path.exists(fpath):
+        with open(fpath, 'rb') as f:
+            new_files[relpath] = hashlib.sha256(f.read()).hexdigest()
+data['files'] = new_files
+with open('$cksum', 'w') as f:
+    json.dump(data, f)
+"
+            done
+
+            # Write config.toml for x.py
+            cat > config.toml << XPYCONF
+change-id = "ignore"
+
+[llvm]
+download-ci-llvm = false
+
+[build]
+cargo = "$(command -v cargo)"
+rustc = "$(command -v rustc)"
+docs = false
+python = "$(command -v python3)"
+vendor = true
+submodules = false
+# Use Rust-only compiler-builtins, not LLVM's compiler-rt (which was
+# deleted by Guix's origin snippet to reduce source size).
+optimized-compiler-builtins = false
+target = ["${RUST_TARGET}"]
+
+[install]
+prefix = "${RUST_SYSROOT_OUT}"
+sysconfdir = "etc"
+
+[rust]
+debug = false
+jemalloc = false
+default-linker = "${CC_WRAPPER}"
+channel = "stable"
+codegen-units = 1
+
+[target.x86_64-unknown-linux-gnu]
+# Native host tools
+llvm-config = "$(command -v llvm-config)"
+linker = "$(command -v gcc)"
+cc = "$(command -v gcc)"
+cxx = "$(command -v g++)"
+ar = "$(command -v ar)"
+
+[target.${RUST_TARGET}]
+llvm-config = "$(command -v llvm-config)"
+cc = "${CC_WRAPPER}"
+cxx = "${CXX_WRAPPER}"
+ar = "${AR}"
+ranlib = "${RANLIB}"
+linker = "${CC_WRAPPER}"
+XPYCONF
+
+            LIBRARY_PATH="${DARWIN_HOST_LIBRARY_PATH}" \
+                python3 x.py build library/std --target "${RUST_TARGET}"
+            LIBRARY_PATH="${DARWIN_HOST_LIBRARY_PATH}" \
+                python3 x.py install library/std --target "${RUST_TARGET}"
+        else
+            echo "  Sysroot already built at ${RUST_SYSROOT_OUT}"
+        fi
+
+        # Copy host rustlib into the sysroot (needed for build scripts/proc-macros)
+        HOST_RUSTLIB="$(dirname "$(dirname "$(command -v rustc)")")/lib/rustlib/x86_64-unknown-linux-gnu"
+        if [[ -d "$HOST_RUSTLIB" && ! -d "${RUST_SYSROOT_OUT}/lib/rustlib/x86_64-unknown-linux-gnu" ]]; then
+            cp -a "$HOST_RUSTLIB" "${RUST_SYSROOT_OUT}/lib/rustlib/"
+        fi
+
+        RUSTFLAGS="${RUSTFLAGS} --sysroot=${RUST_SYSROOT_OUT}"
         ;;
 esac
 
@@ -328,16 +621,23 @@ with open('$crate_dir/.cargo-checksum.json', 'w') as f:
 "
 }
 
+# Apply cross-compilation patches to vendored crate sources.
 case "$HOST" in
-    *mingw*)
+    *mingw*|*darwin*)
         # Fix ckb-librocksdb-sys: cfg!(target_os = "windows") checks the
-        # build HOST, not the cross-compilation TARGET.  Replace with a
-        # TARGET env var check so platform detection works when cross-compiling.
+        # build HOST, not the cross-compilation TARGET.  When cross-compiling,
+        # build_detect_platform runs on the HOST (Linux) and sets Linux-specific
+        # defines that conflict with the actual target (Windows or macOS).
         for rocksdb_dir in guix-vendor/*rocksdb-sys*; do
             patch_vendored_crate "$rocksdb_dir" "build.rs" \
                 'if !cfg!(target_os = "windows") {' \
-                'if !env::var("TARGET").unwrap_or_default().contains("windows") {'
+                'if env::var("TARGET").unwrap_or_default().contains("linux") {'
         done
+        ;;
+esac
+
+case "$HOST" in
+    *mingw*)
         # Exclude jemalloc and Linux-only memory tracking on Windows,
         # and fix check_msvc_version() cfg gate.
         echo "Applying ckb-disable-jemalloc-on-windows.patch..."
@@ -392,6 +692,10 @@ case "$HOST" in
         ;;
     *mingw*)
         # PE binaries: no patchelf, no ELF symbol check.
+        ;;
+    *darwin*)
+        # Mach-O binaries: strip with llvm-strip, no patchelf.
+        llvm-strip "${INSTALLPATH}/${BINARY_NAME}"
         ;;
 esac
 

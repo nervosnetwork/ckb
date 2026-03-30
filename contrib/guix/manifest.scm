@@ -2,17 +2,18 @@
 ;; Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/manifest.scm
 ;;
 ;; Differences from Bitcoin: uses Rust/Cargo instead of C++/CMake, includes
-;; cross-compiled OpenSSL packages, and does not target macOS.
+;; cross-compiled OpenSSL, and builds Rust sysroot from source for non-Linux.
 
 (use-modules ((gnu packages bash) #:select (bash-minimal))
              ((gnu packages base) #:select (coreutils findutils gnu-make grep patch sed tar glibc))
-             ((gnu packages compression) #:select (gzip zip))
+             ((gnu packages compression) #:select (gzip xz zip zlib zstd))
              (gnu packages commencement)
              (gnu packages cross-base)
+             ((gnu packages cmake) #:select (cmake-minimal))
              ((gnu packages elf) #:select (patchelf))
              ((gnu packages gcc) #:select (gcc-14))
              ((gnu packages linux) #:select (linux-libre-headers-6.1))
-             ((gnu packages llvm) #:select (clang))
+             ((gnu packages llvm) #:select (clang clang-toolchain-19 clang-toolchain-20 lld-19 lld-20 make-lld-wrapper))
              (gnu packages mingw)
              ((gnu packages nss) #:select (nss-certs))
              ((gnu packages perl) #:select (perl))
@@ -318,33 +319,6 @@ FILE-NAME found in ./patches relative to the current file."
           ;; This is expected; the final binary handles RUNPATH via patchelf.
           (delete 'validate-runpath))))))
 
-;; Cross-compiled OpenSSL for Windows using MinGW-w64 toolchain.
-;; On Windows there is no system OpenSSL, so we vendor it or cross-compile it.
-(define-public openssl-mingw-w64
-  (package
-    (inherit openssl)
-    (name "openssl-mingw-w64")
-    (native-inputs
-     `(("cross-toolchain" ,x86_64-w64-mingw32-toolchain)
-       ("perl" ,perl)))
-    (arguments
-     (list
-      #:tests? #f
-      #:configure-flags #~'()
-      #:phases
-      #~(modify-phases %standard-phases
-          (replace 'configure
-            (lambda* (#:key outputs #:allow-other-keys)
-              (let ((out (assoc-ref outputs "out")))
-                (invoke "perl" "./Configure"
-                        "mingw64"
-                        (string-append "--prefix=" out)
-                        "--cross-compile-prefix=x86_64-w64-mingw32-"
-                        "no-shared"
-                        "no-tests"))))
-          (delete 'check)
-          (delete 'validate-runpath))))))
-
 ;;;
 ;;; Final manifest — select packages based on the HOST environment variable.
 ;;;
@@ -362,7 +336,11 @@ FILE-NAME found in ./patches relative to the current file."
         sed
         tar
         gzip
+        xz
+        zlib
+        zstd
         git-minimal
+        cmake-minimal
         gcc-toolchain-14
         `(,gcc-toolchain-14 "static")
         clang
@@ -393,5 +371,35 @@ FILE-NAME found in ./patches relative to the current file."
         (list x86_64-w64-mingw32-toolchain
               (make-rust-sysroot/impl "x86_64-w64-mingw32" rust-1.92)
               linux-libre-headers-6.1
+              zip)))
+     ((string-contains target "-apple-darwin")
+      ;; macOS: Clang + LLD (not GCC), following Bitcoin Core's approach.
+      ;; Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/manifest.scm
+      ;; The Rust sysroot (library/std) is built from source in build.sh
+      ;; because Guix has no darwin platform definition for make-rust-sysroot.
+      ;; We include rust-1.92's source origin so it's in /gnu/store for
+      ;; build.sh to extract and run x.py on.
+      ;; OpenSSL is vendored (no system OpenSSL in the Apple SDK).
+      (let ((rust-src-pkg
+             (package
+               (name "rust-src")
+               (version (package-version rust-1.92))
+               (source (package-source rust-1.92))
+               (build-system trivial-build-system)
+               (arguments
+                (list #:builder
+                      #~(begin
+                          (mkdir #$output)
+                          (copy-file #$(package-source rust-1.92)
+                                     (string-append #$output "/rustc-src.tar.gz"))
+                          #t)))
+               (home-page "https://www.rust-lang.org")
+               (synopsis "Rust source (for building library/std for darwin)")
+               (description "Rust compiler source code for cross-compiling std.")
+               (license (package-license rust-1.92)))))
+        (list clang-toolchain-20
+              lld-20
+              (make-lld-wrapper lld-20 #:lld-as-ld? #t)
+              rust-src-pkg
               zip)))
      (else '())))))
