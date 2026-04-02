@@ -20,11 +20,12 @@ We ensure that these platforms will satisfy the following requirements:
 
 | OS | Arch | CKB VM Mode |
 | --- | --- | --- |
-| Ubuntu 18.04 | x64 | ASM |
+| Ubuntu 20.04 | x64 | ASM |
 | macOS | x64 | ASM |
+| macOS | AArch64 | ASM |
 | Windows | x64 | ASM |
 
-The Tier 1 requires CPU to support at least SSE4.2, and AVX is recommended.
+The Tier 1 x64 platforms require CPU to support at least SSE4.2, and AVX is recommended.
 
 ## Tier 2
 
@@ -34,15 +35,12 @@ The official binary releases are also provided for the Tier 2 platforms.
 
 | OS | Arch | CKB VM Mode |
 | --- | --- | --- |
-| Ubuntu 20.04 | x64 | ASM |
-| Debian Stretch | x64 | ASM |
-| Debian Buster | x64 | ASM |
-| Arch Linux | x64 | ASM |
+| Linux (glibc) | AArch64 | ASM |
 | CentOS 7 | x64 | ASM |
-| Ubuntu 20.04 | AArch64 | ASM |
-| macOS | AArch64 | ASM |
 
-The Tier 2 requires CPU to support following instructions: call (MODE64), cmovbe (CMOV), xorps (SSE1), movq (SSE2). The provided binaries cannot run on the platforms without these instructions.
+> **Note**: CentOS has reached its end of life. Binary releases for CentOS are deprecated and will be removed in a future version.
+
+The Tier 2 x64 platforms require CPU to support following instructions: call (MODE64), cmovbe (CMOV), xorps (SSE1), movq (SSE2). The provided binaries cannot run on the platforms without these instructions.
 
 ## Tier 3
 
@@ -50,4 +48,4 @@ Tier 3 platforms are those which the Rust code base has support for,  but which 
 
 | OS | Arch | CKB VM Mode |
 | --- | --- | --- |
-| Any OS in Tier 1 and 2 | AArch64 | Rust |
+| Any | Any | Rust |
