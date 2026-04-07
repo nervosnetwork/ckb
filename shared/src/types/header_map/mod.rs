@@ -1,5 +1,5 @@
 use ckb_async_runtime::Handle;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
 use ckb_types::packed::Byte32;
 use std::sync::Arc;
@@ -51,7 +51,7 @@ impl HeaderMap {
         }
         let size_limit = memory_limit / ITEM_BYTES_SIZE;
         let inner = Arc::new(HeaderMapKernel::new(tmpdir, size_limit, ibd_finished));
-        let map = Arc::clone(&inner);
+        let map_weak = Arc::downgrade(&inner);
         let stop_rx: CancellationToken = new_tokio_exit_rx();
 
         async_handle.spawn(async move {
@@ -60,7 +60,12 @@ impl HeaderMap {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        map.limit_memory();
+                        if let Some(map) = map_weak.upgrade() {
+                            map.limit_memory();
+                        } else {
+                            debug!("HeaderMap inner was dropped, exiting background task");
+                            break;
+                        }
                     }
                     _ = stop_rx.cancelled() => {
                         info!("HeaderMap limit_memory received exit signal, exit now");
