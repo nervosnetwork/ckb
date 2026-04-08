@@ -52,8 +52,6 @@ pub struct SharedBuilder {
     notify_config: Option<NotifyConfig>,
     async_handle: Handle,
     fee_estimator_config: Option<FeeEstimatorConfig>,
-
-    header_map_tmp_dir: Option<PathBuf>,
 }
 
 /// Open or create a rocksdb
@@ -159,7 +157,6 @@ impl SharedBuilder {
             block_assembler_config: None,
             async_handle,
             fee_estimator_config: None,
-            header_map_tmp_dir: None,
         })
     }
 
@@ -205,8 +202,6 @@ impl SharedBuilder {
             block_assembler_config: None,
             async_handle: runtime.get_or_init(new_background_runtime).clone(),
             fee_estimator_config: None,
-
-            header_map_tmp_dir: None,
         })
     }
 }
@@ -242,13 +237,6 @@ impl SharedBuilder {
         self
     }
 
-    /// Sets the temporary directory for header map storage.
-    pub fn header_map_tmp_dir(mut self, header_map_tmp_dir: Option<PathBuf>) -> Self {
-        self.header_map_tmp_dir = header_map_tmp_dir;
-        self
-    }
-
-    /// Sets the block assembler configuration for mining.
     pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
         self.block_assembler_config = config;
         self
@@ -364,7 +352,6 @@ impl SharedBuilder {
             notify_config,
             async_handle,
             fee_estimator_config,
-            header_map_tmp_dir,
         } = self;
 
         let tx_pool_config = tx_pool_config.unwrap_or_default();
@@ -373,16 +360,7 @@ impl SharedBuilder {
         let sync_config = sync_config.unwrap_or_default();
         let consensus = Arc::new(consensus);
 
-        let header_map_memory_limit = sync_config.header_map.memory_limit.as_u64() as usize;
-
         let ibd_finished = Arc::new(AtomicBool::new(false));
-
-        let header_map = Arc::new(HeaderMap::new(
-            header_map_tmp_dir,
-            header_map_memory_limit,
-            &async_handle,
-            Arc::clone(&ibd_finished),
-        ));
 
         let notify_controller = start_notify_service(notify_config, async_handle.clone());
 
@@ -390,6 +368,9 @@ impl SharedBuilder {
             eprintln!("build_store {e}");
             ExitCode::Failure
         })?;
+
+        // Create HeaderMap with reference to store (no longer needs tmpdir or memory_limit)
+        let header_map = Arc::new(HeaderMap::new(Arc::new(store.clone())));
 
         let txs_verify_cache = Arc::new(TokioRwLock::new(init_cache()));
 

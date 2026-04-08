@@ -3,14 +3,14 @@
 /// Column families alias type
 pub type Col = &'static str;
 /// Total column number
-pub const COLUMNS: u32 = 19;
+pub const COLUMNS: u32 = 20;
 /// Column store chain index
 pub const COLUMN_INDEX: Col = "0";
 /// Column store block's header
 pub const COLUMN_BLOCK_HEADER: Col = "1";
 /// Column store block's body
 pub const COLUMN_BLOCK_BODY: Col = "2";
-/// Column store block's uncle and uncles’ proposal zones
+/// Column store block's uncle and uncles' proposal zones
 pub const COLUMN_BLOCK_UNCLE: Col = "3";
 /// Column store meta data
 pub const COLUMN_META: Col = "4";
@@ -44,6 +44,8 @@ pub const COLUMN_CHAIN_ROOT_MMR: Col = "16";
 pub const COLUMN_BLOCK_FILTER: Col = "17";
 /// Column store filter data hash for client-side filtering
 pub const COLUMN_BLOCK_FILTER_HASH: Col = "18";
+/// Column store header number-hash index for fast ancestor lookup during IBD
+pub const COLUMN_HEADER_INDEX: Col = "19";
 
 /// META_TIP_HEADER_KEY tracks the latest known best block header
 pub const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
