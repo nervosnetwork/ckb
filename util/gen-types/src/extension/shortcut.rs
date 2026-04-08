@@ -87,6 +87,105 @@ impl packed::OutPoint {
     }
 }
 
+/// Block key size: 8 (block_number) + 32 (block_hash) = 40 bytes
+pub const BLOCK_KEY_SIZE: usize = 40;
+/// Transaction key size: 8 (block_number) + 32 (block_hash) + 4 (tx_index) = 44 bytes
+pub const TX_KEY_SIZE: usize = 44;
+
+/// Type alias for stack-allocated block key
+pub type BlockKey = [u8; BLOCK_KEY_SIZE];
+/// Type alias for stack-allocated transaction key
+pub type TxKey = [u8; TX_KEY_SIZE];
+
+impl packed::Byte32 {
+    /// Creates a composite block key (number + hash) for RocksDB storage.
+    ///
+    /// Format: `Uint64 (block_number, big-endian) + Byte32 (block_hash)`
+    /// Total size: 40 bytes (8 + 32)
+    ///
+    /// The big-endian encoding of block_number ensures sequential storage in RocksDB,
+    /// while the hash suffix allows multiple blocks (forks) at the same height.
+    ///
+    /// Returns a stack-allocated array to avoid heap allocation.
+    pub fn to_block_key(&self, number: BlockNumber) -> BlockKey {
+        let mut key = [0u8; BLOCK_KEY_SIZE];
+        key[0..8].copy_from_slice(&number.to_be_bytes());
+        key[8..40].copy_from_slice(self.as_slice());
+        key
+    }
+
+    /// Creates a composite transaction key (number + hash + tx_index) for RocksDB storage.
+    ///
+    /// Format: `Uint64 (block_number, big-endian) + Byte32 (block_hash) + Uint32 (tx_index, big-endian)`
+    /// Total size: 44 bytes (8 + 32 + 4)
+    ///
+    /// Returns a stack-allocated array to avoid heap allocation.
+    pub fn to_tx_key(&self, number: BlockNumber, index: u32) -> TxKey {
+        let mut key = [0u8; TX_KEY_SIZE];
+        key[0..8].copy_from_slice(&number.to_be_bytes());
+        key[8..40].copy_from_slice(self.as_slice());
+        key[40..44].copy_from_slice(&index.to_be_bytes());
+        key
+    }
+
+    /// Extracts block_hash from a composite block key.
+    ///
+    /// Expects key format: `Uint64 (8 bytes) + Byte32 (32 bytes)`
+    /// Returns None if key length is invalid.
+    pub fn from_block_key(key: &[u8]) -> Option<Self> {
+        if key.len() < 40 {
+            return None;
+        }
+        packed::Byte32::from_slice(&key[8..40]).ok()
+    }
+
+    /// Extracts block_number from a composite block key.
+    ///
+    /// Expects key format: `Uint64 (8 bytes) + Byte32 (32 bytes)`
+    /// Returns None if key length is invalid.
+    pub fn block_number_from_key(key: &[u8]) -> Option<BlockNumber> {
+        if key.len() < 8 {
+            return None;
+        }
+        Some(BlockNumber::from_be_bytes(key[0..8].try_into().ok()?))
+    }
+
+    /// Creates a COLUMN_HASH_INDEX value for hash->number mapping with is_main_chain flag.
+    ///
+    /// Format: `Uint64 (block_number, big-endian) + u8 (is_main_chain: 0x01 or 0x00)`
+    /// Total size: 9 bytes (8 + 1)
+    ///
+    /// Returns a stack-allocated array to avoid heap allocation.
+    pub fn to_index_value(number: BlockNumber, is_main_chain: bool) -> [u8; 9] {
+        let mut value = [0u8; 9];
+        value[0..8].copy_from_slice(&number.to_be_bytes());
+        value[8] = if is_main_chain { 0x01 } else { 0x00 };
+        value
+    }
+
+    /// Extracts block_number from a COLUMN_HASH_INDEX value (hash->number mapping).
+    ///
+    /// Expects value format: `Uint64 (8 bytes) + u8 (1 byte)`
+    /// Returns None if value length is invalid.
+    pub fn number_from_index_value(value: &[u8]) -> Option<BlockNumber> {
+        if value.len() < 8 {
+            return None;
+        }
+        Some(BlockNumber::from_be_bytes(value[0..8].try_into().ok()?))
+    }
+
+    /// Checks if block is on main chain from a COLUMN_HASH_INDEX value.
+    ///
+    /// Expects value format: `Uint64 (8 bytes) + u8 (1 byte)`
+    /// Returns None if value length is invalid, otherwise returns is_main_chain flag.
+    pub fn is_main_chain_from_index_value(value: &[u8]) -> Option<bool> {
+        if value.len() < 9 {
+            return None;
+        }
+        Some(value[8] == 0x01)
+    }
+}
+
 impl packed::CellInput {
     /// Creates a new `CellInput`.
     pub fn new(previous_output: packed::OutPoint, block_number: BlockNumber) -> Self {

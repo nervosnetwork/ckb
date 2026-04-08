@@ -2,14 +2,13 @@ use crate::utils::orphan_block_pool::EXPIRED_EPOCH;
 use crate::{ChainController, LonelyBlock};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_db::{Direction, IteratorMode};
-use ckb_db_schema::COLUMN_NUMBER_HASH;
+use ckb_db_schema::COLUMN_BLOCK_HEADER;
 use ckb_logger::info;
 use ckb_shared::Shared;
 use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockNumber, BlockView};
 use ckb_types::packed;
-use ckb_types::prelude::{Entity, FromSliceShouldBeOk, Reader};
 use std::cmp;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -34,24 +33,21 @@ impl InitLoadUnverified {
     }
 
     fn find_unverified_block_hashes(&self, check_unverified_number: u64) -> Vec<packed::Byte32> {
-        let pack_number: packed::Uint64 = check_unverified_number.into();
-        let prefix = pack_number.as_slice();
+        let prefix = check_unverified_number.to_be_bytes();
 
-        // If a block has `COLUMN_NUMBER_HASH` but not `BlockExt`,
+        // If a block has `COLUMN_BLOCK_HEADER` but not `BlockExt`,
         // it indicates an unverified block inserted during the last shutdown.
         let unverified_hashes: Vec<packed::Byte32> = self
             .shared
             .store()
             .get_iter(
-                COLUMN_NUMBER_HASH,
-                IteratorMode::From(prefix, Direction::Forward),
+                COLUMN_BLOCK_HEADER,
+                IteratorMode::From(&prefix, Direction::Forward),
             )
-            .take_while(|(key, _)| key.starts_with(prefix))
-            .map(|(key_number_hash, _v)| {
-                let reader =
-                    packed::NumberHashReader::from_slice_should_be_ok(key_number_hash.as_ref());
-
-                reader.block_hash().to_entity()
+            .take_while(|(key, _)| key.starts_with(&prefix))
+            .filter_map(|(key, _)| {
+                // Extract block_hash from composite key (number + hash)
+                packed::Byte32::from_block_key(key.as_ref())
             })
             .filter(|hash| self.shared.store().get_block_ext(hash).is_none())
             .collect::<Vec<packed::Byte32>>();
@@ -89,7 +85,7 @@ impl InitLoadUnverified {
                 return;
             }
 
-            // start checking `check_unverified_number` have COLUMN_NUMBER_HASH value in db?
+            // start checking `check_unverified_number` have COLUMN_BLOCK_HEADER value in db?
             let unverified_hashes: Vec<packed::Byte32> =
                 self.find_unverified_block_hashes(check_unverified_number);
 

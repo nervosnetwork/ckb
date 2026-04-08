@@ -73,11 +73,25 @@ impl RocksDB {
 
         for cf in cf_descriptors.iter_mut() {
             let mut block_opts = BlockBasedOptions::default();
-            block_opts.set_ribbon_filter(10.0);
+            // Bloom filter: standard performant filter
+            block_opts.set_bloom_filter(10.0, false);
+            // Two-level index for large datasets (reduces memory usage)
             block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
             block_opts.set_partition_filters(true);
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
+
+            // Per-column block size optimization
+            let block_size = match cf.name() {
+                "2" => 4 * 1024,       // COLUMN_BLOCK_BODY: 4KB to optimize random tx lookups & cache
+                "1" | "3" | "6" | "15" | "17" | "18" => 8 * 1024, // Block headers etc: 8KB
+                _ => 4 * 1024,         // Others: 4KB
+            };
+            block_opts.set_block_size(block_size);
+
+            // Use latest SST format for better compression and features
+            block_opts.set_format_version(5);
+
             match cache {
                 Some(ref cache) => {
                     block_opts.set_block_cache(cache);
@@ -86,11 +100,13 @@ impl RocksDB {
                 }
                 None => block_opts.disable_cache(),
             }
-            // only COLUMN_BLOCK_BODY column family use prefix seek
+            // COLUMN_BLOCK_BODY uses prefix seek for iterating transactions within a block.
+            // Key format: block_number (8 bytes) + block_hash (32 bytes) + tx_index (4 bytes) = 44 bytes
+            // Prefix is block_key (40 bytes) to group transactions by block.
             if cf.name() == "2" {
                 block_opts.set_whole_key_filtering(false);
                 cf.options
-                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
+                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
             }
             cf.options.set_block_based_table_factory(&block_opts);
         }
