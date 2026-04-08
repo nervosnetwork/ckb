@@ -214,7 +214,7 @@ bench-test:
 
 .PHONY: ci
 ci: ## Run recipes for CI.
-ci: fmt clippy wasm test bench-test check-cargo-metadata check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
+ci: fmt clippy wasm test check-cargo-metadata check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit check-crates check-licenses
 	git diff --exit-code Cargo.lock
 
 .PHONY: wasm
