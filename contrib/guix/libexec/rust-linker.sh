@@ -39,9 +39,14 @@ if [[ "$is_target_link" -eq 1 ]]; then
             ;;
         *windows*)
             # Windows PE: no dynamic linker, no rpath.
-            # -Wl,--no-insert-timestamp for deterministic PE headers.
+            # -Wl,--no-insert-timestamp: deterministic PE headers.
+            # -Wl,-s: strip the COFF symbol table.  Rustc embeds DLL
+            # import-lib symbols whose names contain its random temp
+            # directory (e.g. _head__tmp_rustc9s2NHV_kernel32_dll_imports_lib),
+            # which makes the final binary non-reproducible across runs.
             exec "${CKB_RUST_TARGET_LINKER}" "$@" \
                 -Wl,--no-insert-timestamp \
+                -Wl,-s \
                 -static-libstdc++ \
                 -static-libgcc
             ;;
