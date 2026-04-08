@@ -6,7 +6,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   push:
-    branches: ['**']
+    branches: ["**"]
   merge_group: {}
   workflow_dispatch: {}
 
@@ -20,7 +20,7 @@ jobs:
   build:
     name: Build and prepare test chunks
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-16vcpu-ubuntu-2204' || 'ubuntu-22.04' }}
     outputs:
       test_chunks: ${{ steps.chunk_tests.outputs.test_chunks }}
       chunk_indices: ${{ steps.chunk_tests.outputs.chunk_indices }}
@@ -130,7 +130,7 @@ jobs:
     name: Run tests (chunk ${{ matrix.chunk_index }})
     needs: build
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-16vcpu-ubuntu-2204' || 'ubuntu-22.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -194,7 +194,7 @@ jobs:
   ci_cli_bats_test:
     name: ci_cli_bats_test
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-16vcpu-ubuntu-2204' || 'ubuntu-22.04' }}
     steps:
       - name: Free up disk space
         if: github.repository_owner != 'nervosnetwork'
