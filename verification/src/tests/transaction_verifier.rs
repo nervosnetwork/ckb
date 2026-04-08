@@ -41,6 +41,37 @@ pub fn test_empty() {
 }
 
 #[test]
+pub fn test_empty_outputs() {
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(h256!("0x1").into(), 0), 0))
+        .build();
+    let verifier = EmptyVerifier::new(&transaction);
+
+    assert_error_eq!(
+        verifier.verify().unwrap_err(),
+        TransactionError::Empty {
+            inner: TransactionErrorSource::Outputs,
+        }
+    );
+}
+
+#[test]
+pub fn test_non_empty_transaction() {
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(h256!("0x1").into(), 0), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(capacity_bytes!(50))
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .build();
+    let verifier = EmptyVerifier::new(&transaction);
+
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
 pub fn test_version() {
     let transaction = TransactionBuilder::default()
         .version(TX_VERSION + 1)
@@ -54,6 +85,31 @@ pub fn test_version() {
             actual: 1
         },
     );
+}
+
+#[test]
+pub fn test_valid_version() {
+    let transaction = TransactionBuilder::default()
+        .version(TX_VERSION)
+        .build();
+    let verifier = VersionVerifier::new(&transaction, TX_VERSION);
+
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
+pub fn test_transaction_size_within_limit() {
+    let transaction = TransactionBuilder::default()
+        .output(
+            CellOutput::new_builder()
+                .capacity(capacity_bytes!(50))
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .build();
+    let verifier = SizeVerifier::new(&transaction, 10_000);
+
+    assert!(verifier.verify().is_ok());
 }
 
 #[test]

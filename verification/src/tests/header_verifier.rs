@@ -215,3 +215,33 @@ fn test_pow_verifier() {
 
     assert_error_eq!(verifier.verify().unwrap_err(), PowError::InvalidNonce);
 }
+
+#[test]
+fn test_timestamp_at_boundary() {
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(100_000);
+    let fake_block_median_time_context = mock_median_time_context();
+    let parent_hash = fake_block_median_time_context.get_block_hash(99);
+
+    // Exactly at the allowed future blocktime boundary should pass
+    let timestamp = unix_time_as_millis() + ALLOWED_FUTURE_BLOCKTIME;
+    let header = HeaderBuilder::new_with_number(100)
+        .parent_hash(parent_hash)
+        .timestamp(timestamp)
+        .build();
+    let timestamp_verifier = TimestampVerifier::new(
+        &fake_block_median_time_context,
+        &header,
+        MOCK_MEDIAN_TIME_COUNT,
+    );
+
+    assert!(timestamp_verifier.verify().is_ok());
+}
+
+#[test]
+fn test_correct_number() {
+    let header = HeaderBuilder::new_with_number(11).build();
+
+    let verifier = NumberVerifier::new(10, &header);
+    assert!(verifier.verify().is_ok());
+}
