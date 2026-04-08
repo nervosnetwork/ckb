@@ -199,6 +199,7 @@ for HOST in $HOSTS; do
         shell --manifest="${PWD}/contrib/guix/manifest.scm" \
               --container \
               --pure \
+              --preserve='^HOST$' \
               --no-cwd \
               --share="${PWD}"=/ckb \
               --share="$DISTSRC_BASE"=/distsrc-base \
