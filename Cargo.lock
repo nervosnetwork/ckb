@@ -1568,6 +1568,7 @@ dependencies = [
  "ckb-async-runtime",
  "ckb-indexer-sync",
  "ckb-jsonrpc-types",
+ "ckb-metrics",
  "ckb-notify",
  "ckb-types",
  "futures",
