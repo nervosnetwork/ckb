@@ -36,6 +36,12 @@ Please note we have a code of conduct, please follow it in all your interactions
 
 * Ensure the PR description clearly describes the problem and solution. Include the relevant issue number if applicable.
 
+* Run `make quick-test` before opening a PR.
+
+* Run `make test` before requesting final review.
+
+* `make quick-test` and `make test` use `nextest`: https://nexte.st/
+
 ### Propose new features
 
 See [Nervos Network RFCs Process](https://github.com/nervosnetwork/rfcs).
