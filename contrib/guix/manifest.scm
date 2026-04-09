@@ -197,6 +197,9 @@ FILE-NAME found in ./patches relative to the current file."
 (define-public x86_64-linux-gnu-toolchain
   (make-ckb-cross-toolchain "x86_64-linux-gnu"))
 
+(define-public aarch64-linux-gnu-toolchain
+  (make-ckb-cross-toolchain "aarch64-linux-gnu"))
+
 ;;;
 ;;; Windows (MinGW-w64) cross-toolchain.
 ;;; Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/manifest.scm
@@ -275,6 +278,14 @@ FILE-NAME found in ./patches relative to the current file."
                                           #:xbinutils (cross-binutils "x86_64-linux-gnu"))
                         #:xbinutils (cross-binutils "x86_64-linux-gnu")))
 
+(define aarch64-linux-gnu-kernel-headers
+  (cross-kernel-headers "aarch64-linux-gnu"
+                        #:linux-headers base-linux-kernel-headers
+                        #:xgcc (cross-gcc "aarch64-linux-gnu"
+                                          #:xgcc linux-base-gcc
+                                          #:xbinutils (cross-binutils "aarch64-linux-gnu"))
+                        #:xbinutils (cross-binutils "aarch64-linux-gnu")))
+
 (define-public openssl-glibc-2.31
   (package
     (inherit openssl)
@@ -319,6 +330,44 @@ FILE-NAME found in ./patches relative to the current file."
           ;; This is expected; the final binary handles RUNPATH via patchelf.
           (delete 'validate-runpath))))))
 
+(define-public openssl-aarch64-glibc-2.31
+  (package
+    (inherit openssl)
+    (name "openssl-aarch64-glibc-2.31")
+    (native-inputs
+     `(("cross-toolchain" ,aarch64-linux-gnu-toolchain)
+       ("cross-kernel-headers" ,aarch64-linux-gnu-kernel-headers)
+       ("perl" ,perl)))
+    (arguments
+     (list
+      #:tests? #f
+      #:configure-flags #~'()
+      #:phases
+      #~(modify-phases %standard-phases
+          (replace 'configure
+            (lambda* (#:key outputs #:allow-other-keys)
+              (let ((out (assoc-ref outputs "out")))
+                (invoke "perl" "./Configure"
+                        "linux-aarch64"
+                        (string-append "--prefix=" out)
+                        "--cross-compile-prefix=aarch64-linux-gnu-"
+                        "shared"
+                        "no-tests"))))
+          (replace 'build
+            (lambda* (#:key inputs parallel-build? #:allow-other-keys)
+              (let* ((kernel-headers
+                      (assoc-ref inputs "cross-kernel-headers"))
+                     (jobs (if parallel-build?
+                               (number->string (parallel-job-count))
+                               "1")))
+                (apply invoke "make" "-j" jobs
+                       (if kernel-headers
+                           (list (string-append
+                                  "CPPFLAGS=-I" kernel-headers "/include"))
+                           '())))))
+          (delete 'check)
+          (delete 'validate-runpath))))))
+
 ;;;
 ;;; Final manifest — select packages based on the HOST environment variable.
 ;;;
@@ -357,9 +406,23 @@ FILE-NAME found in ./patches relative to the current file."
   (let ((target (or (getenv "HOST") "")))
     (cond
      ((string-contains target "-linux-")
-      (list x86_64-linux-gnu-toolchain
-            openssl-glibc-2.31
-            patchelf))
+      (cond
+       ((string-prefix? "x86_64-" target)
+        (list x86_64-linux-gnu-toolchain
+              openssl-glibc-2.31
+              patchelf))
+       ((string-prefix? "aarch64-" target)
+        ;; aarch64 cross: rustc ships std for the build host only
+        ;; (x86_64-unknown-linux-gnu), so we need a Rust sysroot containing
+        ;; library/std for aarch64.  make-rust-sysroot/implementation builds
+        ;; it via x.py using the pinned rust-1.92 source.
+        (let ((make-rust-sysroot/impl
+               (@@ (gnu packages rust) make-rust-sysroot/implementation)))
+          (list aarch64-linux-gnu-toolchain
+                (make-rust-sysroot/impl "aarch64-linux-gnu" rust-1.92)
+                openssl-aarch64-glibc-2.31
+                patchelf)))
+       (else '())))
      ((string-suffix? "-mingw32" target)
       ;; Rust sysroot (libstd) for Windows, built from source via x.py.
       ;; Must use the same Rust version as the compiler (rust-1.92) —

@@ -89,7 +89,7 @@ EOF
 }
 
 HOSTS="${HOSTS:-x86_64-unknown-linux-gnu}"
-SUPPORTED_HOSTS="x86_64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin"
+SUPPORTED_HOSTS="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin"
 for host in $HOSTS; do
     if ! echo "$SUPPORTED_HOSTS" | grep -qw "$host"; then
         echo "ERR: Unsupported HOST '$host'. Supported: $SUPPORTED_HOSTS" >&2
@@ -179,6 +179,7 @@ for HOST in $HOSTS; do
     # Map Rust target triples to GNU triples for the Guix manifest.
     case "$HOST" in
         x86_64-unknown-linux-gnu)  MANIFEST_HOST="x86_64-linux-gnu" ;;
+        aarch64-unknown-linux-gnu) MANIFEST_HOST="aarch64-linux-gnu" ;;
         x86_64-pc-windows-gnu)     MANIFEST_HOST="x86_64-w64-mingw32" ;;
         *)                         MANIFEST_HOST="$HOST" ;;
     esac

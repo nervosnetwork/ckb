@@ -91,6 +91,11 @@ case "$HOST" in
         DYNAMIC_LINKER="/lib64/ld-linux-x86-64.so.2"
         TARGET_ENV_SUFFIX="X86_64_UNKNOWN_LINUX_GNU"
         ;;
+    aarch64-linux-gnu)
+        GNU_HOST="aarch64-linux-gnu"
+        DYNAMIC_LINKER="/lib/ld-linux-aarch64.so.1"
+        TARGET_ENV_SUFFIX="AARCH64_UNKNOWN_LINUX_GNU"
+        ;;
     x86_64-w64-mingw32)
         GNU_HOST="x86_64-w64-mingw32"
         DYNAMIC_LINKER=""
@@ -338,6 +343,23 @@ HOSTCXXEOF
         export AR_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/gcc-ar"
         export RANLIB_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/gcc-ranlib"
         ;;
+    aarch64-linux-gnu)
+        # Cross-compiling from x86_64 to aarch64: CC has been set to the
+        # aarch64 cross-wrapper, but build scripts (build.rs, proc-macros)
+        # still run on the x86_64 build host and must produce native x86_64
+        # objects.  Point the HOST-side CC at the native gcc.
+        export CC_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/gcc"
+        export CXX_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/g++"
+        export AR_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/gcc-ar"
+        export RANLIB_x86_64_unknown_linux_gnu="${NATIVE_GCC}/bin/gcc-ranlib"
+        export HOST_CC="${NATIVE_GCC}/bin/gcc"
+        export HOST_CXX="${NATIVE_GCC}/bin/g++"
+        # openssl-sys's host pkg-config would refuse to return paths when
+        # target arch differs from host arch.  Point it directly at the
+        # aarch64 openssl in the Guix profile via target-specific env vars.
+        export AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR="${GUIX_ENVIRONMENT}/include"
+        export AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR="${GUIX_ENVIRONMENT}/lib"
+        ;;
     *darwin*)
         # Darwin CC wrapper uses Clang with Apple SDK — build scripts must
         # use native GCC instead to compile host C code (e.g., SQLite).
@@ -447,8 +469,9 @@ RUSTFLAGS="--remap-path-prefix=${DISTSRC}=. --remap-path-prefix=/gnu/store=/usr"
 
 # For cross-compilation targets, set up the Rust sysroot.
 case "$HOST" in
-    *mingw*)
-        # Windows: Guix's make-rust-sysroot built libstd; use the profile.
+    *mingw*|aarch64-linux-gnu)
+        # Windows / aarch64 Linux: Guix's make-rust-sysroot built libstd;
+        # use the profile as the sysroot.
         RUSTFLAGS="${RUSTFLAGS} --sysroot=${GUIX_ENVIRONMENT}"
         ;;
     *darwin*)
@@ -674,7 +697,7 @@ cp "$binary" "${INSTALLPATH}/${BINARY_NAME}"
 
 case "$HOST" in
     *linux*)
-        patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 --remove-rpath "${INSTALLPATH}/${BINARY_NAME}"
+        patchelf --set-interpreter "${DYNAMIC_LINKER}" --remove-rpath "${INSTALLPATH}/${BINARY_NAME}"
 
         interp="$(readelf -l "${INSTALLPATH}/${BINARY_NAME}" | sed -n 's@.*Requesting program interpreter: \(.*\)]@\1@p')"
         runpath="$(readelf -d "${INSTALLPATH}/${BINARY_NAME}" | sed -n 's@.*Library runpath: \[\(.*\)\]@\1@p')"

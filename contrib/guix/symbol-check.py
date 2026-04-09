@@ -17,12 +17,16 @@ import lief
 MAX_VERSIONS = {
     "GLIBC": {
         lief.ELF.ARCH.X86_64: (2, 31),
+        lief.ELF.ARCH.AARCH64: (2, 31),
     },
 }
 
 ELF_INTERPRETER_NAMES = {
     lief.ELF.ARCH.X86_64: {
         lief.Header.ENDIANNESS.LITTLE: "/lib64/ld-linux-x86-64.so.2",
+    },
+    lief.ELF.ARCH.AARCH64: {
+        lief.Header.ENDIANNESS.LITTLE: "/lib/ld-linux-aarch64.so.1",
     },
 }
 
@@ -35,6 +39,7 @@ ELF_ALLOWED_LIBRARIES = {
     "libgcc_s.so.1",
     "libstdc++.so.6",
     "ld-linux-x86-64.so.2",
+    "ld-linux-aarch64.so.1",
     "libssl.so.3",
     "libcrypto.so.3",
 }
