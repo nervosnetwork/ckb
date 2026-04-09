@@ -1,0 +1,102 @@
+Exclude jemalloc and Linux-only memory tracking on all Windows targets.
+
+The original cfg `not(target_env = "msvc")` only excluded MSVC, allowing
+jemalloc on windows-gnu (MinGW).  However, the memory tracker uses
+Linux-only APIs (/proc/pid/statm, libc::sysconf, libc::pid_t) that do
+not exist on any Windows variant.  CKB's official Windows builds (MSVC)
+already excluded jemalloc; this extends the exclusion to windows-gnu.
+
+Additionally, check_msvc_version() uses `winreg` and `version-compare`
+crates which are gated behind cfg(target_env = "msvc"), but the function
+itself was gated with cfg(target_os = "windows") — causing unresolved
+imports on windows-gnu.  Fixed to cfg(target_env = "msvc").
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 5e5b98e..0fa7df4 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -30,7 +30,7 @@ console-subscriber = { workspace = true, optional = true }
+ winreg = "0.55"
+ version-compare = "0.2"
+ 
+-[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
++[target.'cfg(all(not(target_os = "windows"), not(target_os="macos")))'.dependencies]
+ tikv-jemallocator = { version = "0.5.0", features = [
+   "unprefixed_malloc_on_supported_platforms",
+ ] }
+diff --git a/src/main.rs b/src/main.rs
+index f0eb6f0..d5f8b2e 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -2,7 +2,7 @@
+ use ckb_bin::run_app;
+ use ckb_build_info::Version;
+ 
+-#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
++#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+ #[global_allocator]
+ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+ 
+@@ -10,7 +10,7 @@ fn main() {
+     #[cfg(feature = "tokio-trace")]
+     console_subscriber::init();
+ 
+-    #[cfg(target_os = "windows")]
++    #[cfg(target_env = "msvc")]
+     check_msvc_version();
+ 
+     let version = get_version();
+@@ -19,7 +19,7 @@ fn main() {
+     }
+ }
+ 
+-#[cfg(target_os = "windows")]
++#[cfg(target_env = "msvc")]
+ fn check_msvc_version() {
+     use winreg::RegKey;
+     use winreg::enums::*;
+diff --git a/util/memory-tracker/Cargo.toml b/util/memory-tracker/Cargo.toml
+index 141ca05..588373c 100644
+--- a/util/memory-tracker/Cargo.toml
++++ b/util/memory-tracker/Cargo.toml
+@@ -14,7 +14,7 @@ ckb-logger.workspace = true
+ ckb-metrics.workspace = true
+ ckb-db.workspace = true
+ 
+-[target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
++[target.'cfg(all(not(target_os = "windows"), not(target_os="macos")))'.dependencies]
+ jemalloc-ctl = { package = "tikv-jemalloc-ctl", version = "0.5.0" }
+ jemalloc-sys = { package = "tikv-jemalloc-sys", version = "0.5.0" }
+ libc = "0.2"
+diff --git a/util/memory-tracker/src/lib.rs b/util/memory-tracker/src/lib.rs
+index 1034b7c..b862a02 100644
+--- a/util/memory-tracker/src/lib.rs
++++ b/util/memory-tracker/src/lib.rs
+@@ -1,13 +1,13 @@
+ //! Track the memory usage of CKB.
+ 
+ #[cfg(all(
+-    not(target_env = "msvc"),
++    not(target_os = "windows"),
+     not(target_os = "macos"),
+     feature = "profiling"
+ ))]
+ mod jemalloc;
+ #[cfg(not(all(
+-    not(target_env = "msvc"),
++    not(target_os = "windows"),
+     not(target_os = "macos"),
+     feature = "profiling"
+ )))]
+@@ -20,9 +20,9 @@ mod jemalloc {
+     }
+ }
+ 
+-#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
++#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+ mod process;
+-#[cfg(not(all(not(target_env = "msvc"), not(target_os = "macos"))))]
++#[cfg(not(all(not(target_os = "windows"), not(target_os = "macos"))))]
+ mod process {
+     use std::sync;
+ 

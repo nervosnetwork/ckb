@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# Derived from Bitcoin Core's Guix reproducible build system.
+# Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/guix-build
+export LC_ALL=C
+set -euo pipefail
+
+TOPLEVEL="$(git rev-parse --show-toplevel)"
+cd "$TOPLEVEL"
+
+usage() {
+cat <<'EOF'
+Usage: ./contrib/guix/guix-build [REF]
+
+Build CKB reproducibly using Guix.
+
+  REF   A git tag, branch, or commit hash to build (e.g., v0.205.0).
+        When omitted, builds from the current HEAD (requires a clean
+        worktree unless FORCE_DIRTY_WORKTREE=1 is set).
+
+Environment variables:
+  HOSTS                  Target triples (default: x86_64-unknown-linux-gnu)
+  VERSION                Override the version string
+  JOBS                   Parallel jobs (default: nproc)
+  SOURCE_DATE_EPOCH      Override the deterministic timestamp
+  FORCE_DIRTY_WORKTREE   Set to 1 to allow building from a dirty worktree
+  FORCE_SOURCE_DATE_EPOCH  Set to 1 to allow a pre-set SOURCE_DATE_EPOCH
+  REBUILD_SOURCE_ARCHIVE Set to 1 to force re-creation of the source archive
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+# Determine the git ref to build from.
+# Mode 1: explicit ref (tag/branch/commit) — always clean, no worktree check.
+# Mode 2: HEAD (default) — requires clean worktree.
+BUILD_REF=""
+if [[ -n "${1:-}" ]]; then
+    BUILD_REF="$1"
+    # Verify the ref exists
+    if ! git rev-parse --verify "${BUILD_REF}^{commit}" >/dev/null 2>&1; then
+        echo "ERR: '${BUILD_REF}' is not a valid git ref in this repository." >&2
+        exit 1
+    fi
+else
+    BUILD_REF="HEAD"
+    if ! git diff-index --quiet HEAD -- && [[ -z "${FORCE_DIRTY_WORKTREE:-}" ]]; then
+cat <<'EOF'
+ERR: The current git worktree is dirty.
+
+This Guix release builder is intended to run from a clean tree so the source
+archive, SOURCE_DATE_EPOCH, and packaged outputs stay deterministic.
+
+Either:
+  - Pass a tag/commit:   ./contrib/guix/guix-build v0.205.0
+  - Or force from HEAD:  FORCE_DIRTY_WORKTREE=1 ./contrib/guix/guix-build
+EOF
+        exit 1
+    fi
+fi
+
+# Resolve the ref to a full commit hash for determinism.
+BUILD_COMMIT="$(git rev-parse "${BUILD_REF}^{commit}")"
+
+git_version_from_ref() {
+    local ref="$1"
+    local recent_tag
+
+    if recent_tag="$(git describe --exact-match "$ref" 2>/dev/null)"; then
+        echo "${recent_tag#v}"
+    else
+        git rev-parse --short=12 "$ref"
+    fi
+}
+
+check_source_date_epoch() {
+    if [[ -n "${SOURCE_DATE_EPOCH:-}" && -z "${FORCE_SOURCE_DATE_EPOCH:-}" ]]; then
+cat <<'EOF'
+ERR: Environment variable SOURCE_DATE_EPOCH is set which may break reproducibility.
+
+Unset SOURCE_DATE_EPOCH before rebuilding, or set FORCE_SOURCE_DATE_EPOCH=1 if
+you intentionally want to override the deterministic timestamp derived from
+the build commit.
+EOF
+        exit 1
+    fi
+}
+
+HOSTS="${HOSTS:-x86_64-unknown-linux-gnu}"
+SUPPORTED_HOSTS="x86_64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin"
+for host in $HOSTS; do
+    if ! echo "$SUPPORTED_HOSTS" | grep -qw "$host"; then
+        echo "ERR: Unsupported HOST '$host'. Supported: $SUPPORTED_HOSTS" >&2
+        exit 1
+    fi
+done
+
+check_source_date_epoch
+
+VERSION="${VERSION:-$(git_version_from_ref "$BUILD_COMMIT")}"
+JOBS="${JOBS:-$(nproc)}"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%ct -1 "$BUILD_COMMIT")}"
+
+# Check for macOS SDK if building darwin targets.
+# Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/macdeploy/README.md
+# Resolve SDK_PATH to an absolute path.
+SDK_PATH="$(cd "${SDK_PATH:-${PWD}/depends/SDKs}" 2>/dev/null && pwd || echo "${PWD}/depends/SDKs")"
+for host in $HOSTS; do
+    case "$host" in
+        *apple-darwin*)
+            OSX_SDK="${SDK_PATH}/Xcode-26.1.1-17B100-extracted-SDK-with-libcxx-headers"
+            if [[ ! -d "$OSX_SDK" ]]; then
+                echo "ERR: macOS SDK not found at '${OSX_SDK}'."
+                echo "     Please extract the SDK from Xcode and place it there,"
+                echo "     or set SDK_PATH to the directory containing it."
+                echo "     See: https://github.com/bitcoin/bitcoin/blob/master/contrib/macdeploy/README.md"
+                exit 1
+            fi
+            echo "Found macOS SDK at '${OSX_SDK}'"
+            break
+            ;;
+    esac
+done
+
+echo "Building CKB ${VERSION} from ${BUILD_REF} (${BUILD_COMMIT:0:12})"
+
+VERSION_BASE="${PWD}/guix-build-${VERSION}"
+DISTSRC_BASE="${VERSION_BASE}/distsrc"
+OUTDIR_BASE="${VERSION_BASE}/output"
+DIST_ARCHIVE_BASE="${OUTDIR_BASE}/dist-archive"
+SOURCE_ARCHIVE_ROOT="${VERSION_BASE}/source-archive"
+SOURCE_ARCHIVE="${DIST_ARCHIVE_BASE}/ckb-${VERSION}-src.tar.gz"
+
+mkdir -p "$DISTSRC_BASE" "$OUTDIR_BASE" "$DIST_ARCHIVE_BASE"
+
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+
+# Note: For darwin targets, the Rust source tarball (needed to build
+# library/std from source) is found in /gnu/store inside the container.
+# Guix already downloaded and hash-verified it as part of the rust-1.92
+# package source.  No separate download needed.
+
+prepare_source_archive() {
+    local source_root="${SOURCE_ARCHIVE_ROOT}/ckb-${VERSION}"
+
+    rm -rf "$SOURCE_ARCHIVE_ROOT"
+    mkdir -p "$DIST_ARCHIVE_BASE" "$SOURCE_ARCHIVE_ROOT"
+
+    # Archive the exact commit, not the worktree.
+    git archive --prefix="ckb-${VERSION}/" "$BUILD_COMMIT" | tar -C "$SOURCE_ARCHIVE_ROOT" -xf -
+
+    GUIX_CHANNELS_FILE="${PWD}/contrib/guix/channels.scm" \
+    SOURCE_TREE="$source_root" \
+    bash "${PWD}/contrib/guix/libexec/vendor-rust-sources.sh"
+
+    find "$SOURCE_ARCHIVE_ROOT" -exec touch -h -d "@${SOURCE_DATE_EPOCH}" '{}' +
+
+    (
+        cd "$SOURCE_ARCHIVE_ROOT"
+        find "ckb-${VERSION}" -print0 \
+            | sort --zero-terminated \
+            | tar --create --no-recursion --mode='u+rw,go+r-w,a+X' \
+                  --null --files-from=- \
+                  --owner=0 --group=0 --numeric-owner \
+                  --mtime="@${SOURCE_DATE_EPOCH}" --sort=name \
+            | gzip -9n > "$SOURCE_ARCHIVE"
+    )
+
+    rm -rf "$SOURCE_ARCHIVE_ROOT"
+}
+
+if [[ ! -e "$SOURCE_ARCHIVE" || -n "${REBUILD_SOURCE_ARCHIVE:-}" ]]; then
+    prepare_source_archive
+fi
+
+for HOST in $HOSTS; do
+    # Map Rust target triples to GNU triples for the Guix manifest.
+    case "$HOST" in
+        x86_64-unknown-linux-gnu)  MANIFEST_HOST="x86_64-linux-gnu" ;;
+        x86_64-pc-windows-gnu)     MANIFEST_HOST="x86_64-w64-mingw32" ;;
+        *)                         MANIFEST_HOST="$HOST" ;;
+    esac
+
+    RUST_TARGET="$HOST"
+    DISTSRC="${DISTSRC_BASE}/distsrc-${VERSION}-${RUST_TARGET}"
+    OUTDIR="${OUTDIR_BASE}/${RUST_TARGET}"
+
+    rm -rf "$DISTSRC" "$OUTDIR"
+    mkdir -p "$DISTSRC" "$OUTDIR"
+
+    # Export HOST as the GNU triple so the manifest can select the right
+    # cross-toolchain.  RUST_TARGET (the Rust triple) is passed separately
+    # into the container for build.sh.
+    export HOST="$MANIFEST_HOST"
+
+    guix time-machine -C "${PWD}/contrib/guix/channels.scm" -- \
+        shell --manifest="${PWD}/contrib/guix/manifest.scm" \
+              --container \
+              --pure \
+              --preserve='^HOST$' \
+              --no-cwd \
+              --share="${PWD}"=/ckb \
+              --share="$DISTSRC_BASE"=/distsrc-base \
+              --share="$OUTDIR_BASE"=/outdir-base \
+              --expose="$GIT_COMMON_DIR" \
+              ${OSX_SDK:+--share="$OSX_SDK"} \
+              --cores="$JOBS" \
+              -- env HOST="$MANIFEST_HOST" \
+                     ${OSX_SDK:+OSX_SDK="$OSX_SDK"} \
+                     RUST_TARGET="$RUST_TARGET" \
+                     VERSION="$VERSION" \
+                     JOBS="$JOBS" \
+                     SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+                     DISTSRC="/distsrc-base/distsrc-${VERSION}-${RUST_TARGET}" \
+                     OUTDIR="/outdir-base/${RUST_TARGET}" \
+                     DIST_ARCHIVE_BASE="/outdir-base/dist-archive" \
+                     bash -c "cd /ckb && bash contrib/guix/libexec/build.sh"
+done
+
+echo
+echo "Finished. Output directory:"
+echo "  ${OUTDIR_BASE}"
