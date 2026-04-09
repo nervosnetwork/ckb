@@ -330,6 +330,29 @@ FILE-NAME found in ./patches relative to the current file."
           ;; This is expected; the final binary handles RUNPATH via patchelf.
           (delete 'validate-runpath))))))
 
+;; Rust compiler source tarball, exposed as a Guix package so build.sh can
+;; read it from $GUIX_ENVIRONMENT (via store_path) when building library/std
+;; from source via x.py.  Used by both the darwin and windows-msvc branches
+;; because Guix has no cross-toolchain-backed sysroot for either target.
+(define rust-src-pkg
+  (package
+    (name "rust-src")
+    (version (package-version rust-1.92))
+    (source (package-source rust-1.92))
+    (build-system trivial-build-system)
+    (arguments
+     (list #:builder
+           #~(begin
+               (mkdir #$output)
+               (copy-file #$(package-source rust-1.92)
+                          (string-append #$output "/rustc-src.tar.gz"))
+               #t)))
+    (home-page "https://www.rust-lang.org")
+    (synopsis "Rust source (for cross-compiling library/std)")
+    (description "Rust compiler source code, exposed so build.sh can \
+extract it and run x.py against the target toolchain.")
+    (license (package-license rust-1.92))))
+
 (define-public openssl-aarch64-glibc-2.31
   (package
     (inherit openssl)
@@ -440,29 +463,21 @@ FILE-NAME found in ./patches relative to the current file."
       ;; Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/guix/manifest.scm
       ;; The Rust sysroot (library/std) is built from source in build.sh
       ;; because Guix has no darwin platform definition for make-rust-sysroot.
-      ;; We include rust-1.92's source origin so it's in /gnu/store for
-      ;; build.sh to extract and run x.py on.
       ;; OpenSSL is vendored (no system OpenSSL in the Apple SDK).
-      (let ((rust-src-pkg
-             (package
-               (name "rust-src")
-               (version (package-version rust-1.92))
-               (source (package-source rust-1.92))
-               (build-system trivial-build-system)
-               (arguments
-                (list #:builder
-                      #~(begin
-                          (mkdir #$output)
-                          (copy-file #$(package-source rust-1.92)
-                                     (string-append #$output "/rustc-src.tar.gz"))
-                          #t)))
-               (home-page "https://www.rust-lang.org")
-               (synopsis "Rust source (for building library/std for darwin)")
-               (description "Rust compiler source code for cross-compiling std.")
-               (license (package-license rust-1.92)))))
-        (list clang-toolchain-20
-              lld-20
-              (make-lld-wrapper lld-20 #:lld-as-ld? #t)
-              rust-src-pkg
-              zip)))
+      (list clang-toolchain-20
+            lld-20
+            (make-lld-wrapper lld-20 #:lld-as-ld? #t)
+            rust-src-pkg
+            zip))
+     ((string-suffix? "-pc-windows-msvc" target)
+      ;; Windows MSVC: clang-cl + lld-link, xwin-extracted MSVC SDK.
+      ;; Guix has no make-rust-sysroot for windows-msvc either (no GCC cross
+      ;; toolchain), so we build library/std from source via x.py — same
+      ;; approach as darwin.  The xwin SDK is user-provided at
+      ;; depends/SDKs/msvc-vs17-sdk10.0.22621 and mounted into the container
+      ;; by guix-build.
+      (list clang-toolchain-20
+            lld-20
+            rust-src-pkg
+            zip))
      (else '())))))

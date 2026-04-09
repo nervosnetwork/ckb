@@ -37,8 +37,15 @@ if [[ "$is_target_link" -eq 1 ]]; then
                 -static-libstdc++ \
                 -static-libgcc
             ;;
+        *-pc-windows-msvc)
+            # MSVC PE: linker is lld-link (MSVC-style flags).  /Brepro and
+            # /DEBUG:NONE are already passed via RUSTFLAGS, so nothing extra
+            # is needed here — just forward rustc's args verbatim.  Do NOT
+            # add GCC-style -Wl,... flags; lld-link would reject them.
+            exec "${CKB_RUST_TARGET_LINKER}" "$@"
+            ;;
         *windows*)
-            # Windows PE: no dynamic linker, no rpath.
+            # Windows MinGW PE: no dynamic linker, no rpath.
             # -Wl,--no-insert-timestamp: deterministic PE headers.
             # -Wl,-s: strip the COFF symbol table.  Rustc embeds DLL
             # import-lib symbols whose names contain its random temp

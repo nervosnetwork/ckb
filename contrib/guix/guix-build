@@ -89,7 +89,7 @@ EOF
 }
 
 HOSTS="${HOSTS:-x86_64-unknown-linux-gnu}"
-SUPPORTED_HOSTS="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin"
+SUPPORTED_HOSTS="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-pc-windows-gnu x86_64-pc-windows-msvc aarch64-apple-darwin"
 for host in $HOSTS; do
     if ! echo "$SUPPORTED_HOSTS" | grep -qw "$host"; then
         echo "ERR: Unsupported HOST '$host'. Supported: $SUPPORTED_HOSTS" >&2
@@ -119,7 +119,19 @@ for host in $HOSTS; do
                 exit 1
             fi
             echo "Found macOS SDK at '${OSX_SDK}'"
-            break
+            ;;
+        *pc-windows-msvc*)
+            MSVC_SDK="${SDK_PATH}/msvc-vs17-sdk10.0.22621"
+            if [[ ! -d "$MSVC_SDK" ]]; then
+                echo "ERR: MSVC SDK not found at '${MSVC_SDK}'."
+                echo "     Extract it via xwin, pinned to the same versions we verified reproducible:"
+                echo "       cargo install xwin"
+                echo "       xwin --accept-license --manifest-version 17 --sdk-version 10.0.22621 \\"
+                echo "            splat --output '${MSVC_SDK}'"
+                echo "     The resulting tree is governed by Microsoft's Visual Studio Build Tools EULA."
+                exit 1
+            fi
+            echo "Found MSVC SDK at '${MSVC_SDK}'"
             ;;
     esac
 done
@@ -207,9 +219,11 @@ for HOST in $HOSTS; do
               --share="$OUTDIR_BASE"=/outdir-base \
               --expose="$GIT_COMMON_DIR" \
               ${OSX_SDK:+--share="$OSX_SDK"} \
+              ${MSVC_SDK:+--share="$MSVC_SDK"} \
               --cores="$JOBS" \
               -- env HOST="$MANIFEST_HOST" \
                      ${OSX_SDK:+OSX_SDK="$OSX_SDK"} \
+                     ${MSVC_SDK:+MSVC_SDK="$MSVC_SDK"} \
                      RUST_TARGET="$RUST_TARGET" \
                      VERSION="$VERSION" \
                      JOBS="$JOBS" \

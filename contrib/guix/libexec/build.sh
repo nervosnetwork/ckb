@@ -101,6 +101,11 @@ case "$HOST" in
         DYNAMIC_LINKER=""
         TARGET_ENV_SUFFIX="X86_64_PC_WINDOWS_GNU"
         ;;
+    x86_64-pc-windows-msvc)
+        GNU_HOST="x86_64-pc-windows-msvc"
+        DYNAMIC_LINKER=""
+        TARGET_ENV_SUFFIX="X86_64_PC_WINDOWS_MSVC"
+        ;;
     aarch64-apple-darwin)
         GNU_HOST="aarch64-apple-darwin"
         DYNAMIC_LINKER=""
@@ -112,9 +117,9 @@ case "$HOST" in
         ;;
 esac
 
-# Darwin uses Clang/LLVM, not GCC cross-toolchain.
+# Darwin and windows-msvc use Clang/LLVM, not a GCC cross-toolchain.
 case "$HOST" in
-    *darwin*)
+    *darwin*|*-pc-windows-msvc)
         CROSS_GCC=""
         CROSS_GCC_LIB_STORE=""
         ;;
@@ -153,11 +158,22 @@ case "$HOST" in
             exit 1
         fi
         ;;
+    *-pc-windows-msvc)
+        # Windows MSVC uses the xwin-extracted Microsoft SDK as sysroot.
+        CROSS_GLIBC=""
+        CROSS_GLIBC_STATIC=""
+        CROSS_KERNEL=""
+        if [[ -z "${MSVC_SDK:-}" || ! -d "${MSVC_SDK}" ]]; then
+            echo "ERR: MSVC_SDK not set or not found at '${MSVC_SDK:-}'" >&2
+            exit 1
+        fi
+        ;;
 esac
 
 case "$HOST" in
-    *darwin*)
-        # Darwin uses Clang/LLVM, no GCC cross-toolchain needed.
+    *darwin*|*-pc-windows-msvc)
+        # Darwin and windows-msvc use Clang/LLVM; no GCC cross-toolchain
+        # lib directory to resolve.
         CROSS_GCC_LIB=""
         ;;
     *)
@@ -183,6 +199,12 @@ case "$HOST" in
         # Set SDKROOT so rustc/lld can find the Apple SDK.
         export SDKROOT="${OSX_SDK}"
         ;;
+    *-pc-windows-msvc)
+        # Same reasoning as darwin: x.py needs LIBRARY_PATH for host zlib,
+        # but Linux libc must NOT leak into the MSVC-format PE linker.
+        MSVC_HOST_LIBRARY_PATH="${NATIVE_GCC}/lib:${NATIVE_GCC_STATIC}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}"
+        unset LIBRARY_PATH
+        ;;
     *)
         unset LIBRARY_PATH
         ;;
@@ -202,6 +224,18 @@ case "$HOST" in
         REAL_CXX="${CLANG_TOOLCHAIN}/bin/clang++"
         if [[ ! -x "$REAL_CC" ]]; then
             echo "ERR: clang not found at '${REAL_CC}'" >&2
+            exit 1
+        fi
+        ;;
+    *-pc-windows-msvc)
+        # Use clang-cl from clang-toolchain-20.  clang-cl handles both C
+        # compilation (in MSVC driver mode) and assembly of GNU-syntax .S
+        # files (which rules out plain cl.exe/ml64.exe anyway).
+        CLANG_TOOLCHAIN="$(store_path clang-toolchain)"
+        REAL_CC="${CLANG_TOOLCHAIN}/bin/clang-cl"
+        REAL_CXX="${CLANG_TOOLCHAIN}/bin/clang-cl"
+        if [[ ! -x "$REAL_CC" ]]; then
+            echo "ERR: clang-cl not found at '${REAL_CC}'" >&2
             exit 1
         fi
         ;;
@@ -280,6 +314,44 @@ exec "${REAL_CXX}" --target=${DARWIN_TARGET} \
     "\$@"
 CXXEOF
         ;;
+    *-pc-windows-msvc)
+        # Windows MSVC: clang-cl with xwin-provided Microsoft SDK.
+        # /imsvc paths inject the xwin headers as MSVC-style system includes.
+        # LIBRARY_PATH/C_INCLUDE_PATH must be cleared so Linux libc / glibc
+        # headers don't leak into the MSVC compilation.
+        cat > "${CC_WRAPPER}" << CCEOF
+#!${BASH_PATH}
+unset LIBRARY_PATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+exec "${REAL_CC}" \
+    /imsvc${MSVC_SDK}/crt/include \
+    /imsvc${MSVC_SDK}/sdk/include/ucrt \
+    /imsvc${MSVC_SDK}/sdk/include/um \
+    /imsvc${MSVC_SDK}/sdk/include/shared \
+    "\$@"
+CCEOF
+        cat > "${CXX_WRAPPER}" << CXXEOF
+#!${BASH_PATH}
+unset LIBRARY_PATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+exec "${REAL_CXX}" \
+    /imsvc${MSVC_SDK}/crt/include \
+    /imsvc${MSVC_SDK}/sdk/include/ucrt \
+    /imsvc${MSVC_SDK}/sdk/include/um \
+    /imsvc${MSVC_SDK}/sdk/include/shared \
+    "\$@"
+CXXEOF
+        # lld-link wrapper: injects /LIBPATH: for the xwin SDK lib dirs so
+        # neither x.py nor rustc has to know about them.
+        MSVC_LD_WRAPPER="${DISTSRC}/cross-lld-link"
+        cat > "${MSVC_LD_WRAPPER}" << LDEOF
+#!${BASH_PATH}
+exec "$(command -v lld-link)" \
+    /LIBPATH:${MSVC_SDK}/crt/lib/x86_64 \
+    /LIBPATH:${MSVC_SDK}/sdk/lib/ucrt/x86_64 \
+    /LIBPATH:${MSVC_SDK}/sdk/lib/um/x86_64 \
+    "\$@"
+LDEOF
+        chmod +x "${MSVC_LD_WRAPPER}"
+        ;;
 esac
 chmod +x "${CC_WRAPPER}" "${CXX_WRAPPER}"
 
@@ -289,6 +361,14 @@ case "$HOST" in
         # use the darwin Clang for host build scripts too.  Only set the
         # target-specific CC.
         export AR="$(command -v llvm-ar)"
+        export RANLIB="$(command -v llvm-ranlib)"
+        export NM="$(command -v llvm-nm)"
+        export STRIP="$(command -v llvm-strip)"
+        ;;
+    *-pc-windows-msvc)
+        # Same reasoning as darwin: target-specific CC only.  Use llvm-lib
+        # (MSVC-style archiver) instead of gcc-ar for target object archives.
+        export AR="$(command -v llvm-lib)"
         export RANLIB="$(command -v llvm-ranlib)"
         export NM="$(command -v llvm-nm)"
         export STRIP="$(command -v llvm-strip)"
@@ -360,6 +440,17 @@ HOSTCXXEOF
         export AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR="${GUIX_ENVIRONMENT}/include"
         export AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR="${GUIX_ENVIRONMENT}/lib"
         ;;
+    *-pc-windows-msvc)
+        # Build scripts run on x86_64 Linux; route them to native gcc so
+        # they don't try to use clang-cl (which would produce PE objects
+        # that can't execute on the build machine).
+        export CC_x86_64_unknown_linux_gnu="$(command -v gcc)"
+        export CXX_x86_64_unknown_linux_gnu="$(command -v g++)"
+        export AR_x86_64_unknown_linux_gnu="$(command -v gcc-ar)"
+        export RANLIB_x86_64_unknown_linux_gnu="$(command -v gcc-ranlib)"
+        export HOST_CC="$(command -v gcc)"
+        export HOST_CXX="$(command -v g++)"
+        ;;
     *darwin*)
         # Darwin CC wrapper uses Clang with Apple SDK — build scripts must
         # use native GCC instead to compile host C code (e.g., SQLite).
@@ -415,10 +506,13 @@ export LD_LIBRARY_PATH="${native_libgcc_dir}:${native_libstdcpp_dir}${LD_LIBRARY
 
 export CKB_RUST_HOST_LINKER="$(command -v gcc)"
 # For darwin, use the CC wrapper (which has --target and --sysroot) as linker.
-# For Linux/Windows, use REAL_CC (the cross-gcc, without the rpath wrapper).
+# For windows-msvc, use lld-link directly — it speaks MSVC-style flags and
+# doesn't want a C compiler front-end in the middle.
+# For Linux/Windows-gnu, use REAL_CC (the cross-gcc, without the rpath wrapper).
 case "$HOST" in
-    *darwin*) export CKB_RUST_TARGET_LINKER="${CC_WRAPPER}" ;;
-    *)        export CKB_RUST_TARGET_LINKER="${REAL_CC}" ;;
+    *darwin*)            export CKB_RUST_TARGET_LINKER="${CC_WRAPPER}" ;;
+    *-pc-windows-msvc)   export CKB_RUST_TARGET_LINKER="${MSVC_LD_WRAPPER}" ;;
+    *)                   export CKB_RUST_TARGET_LINKER="${REAL_CC}" ;;
 esac
 export CKB_RUST_TARGET_TRIPLE="${RUST_TARGET}"
 export CKB_RUST_DYNAMIC_LINKER="${DYNAMIC_LINKER}"
@@ -430,6 +524,15 @@ case "$HOST" in
             "--target=${RUST_TARGET}"
             "--sysroot=${OSX_SDK}"
             "-iwithsysroot/usr/include"
+        )
+        ;;
+    *-pc-windows-msvc)
+        bindgen_clang_args=(
+            "--target=${RUST_TARGET}"
+            "-isystem${MSVC_SDK}/crt/include"
+            "-isystem${MSVC_SDK}/sdk/include/ucrt"
+            "-isystem${MSVC_SDK}/sdk/include/um"
+            "-isystem${MSVC_SDK}/sdk/include/shared"
         )
         ;;
     *)
@@ -450,10 +553,11 @@ case "$HOST" in
         ;;
 esac
 case "$HOST" in
-    *darwin*)
-        # For darwin, only set the TARGET-specific bindgen args.
-        # The global BINDGEN_EXTRA_CLANG_ARGS must NOT be set because build
-        # scripts run bindgen on the HOST — darwin sysroot flags break HOST clang.
+    *darwin*|*-pc-windows-msvc)
+        # Target-specific bindgen args only.  The global
+        # BINDGEN_EXTRA_CLANG_ARGS must NOT be set because build scripts
+        # run bindgen on the HOST (x86_64 Linux), and target-sysroot flags
+        # break host clang.
         export "BINDGEN_EXTRA_CLANG_ARGS_${RUST_TARGET//-/_}=${bindgen_clang_args[*]}"
         ;;
     *)
@@ -597,13 +701,132 @@ XPYCONF
             echo "  Sysroot already built at ${RUST_SYSROOT_OUT}"
         fi
 
-        # Copy host rustlib into the sysroot (needed for build scripts/proc-macros)
+        # Copy host rustlib into the sysroot (needed for build scripts/proc-macros).
+        # The source lives in /gnu/store and is read-only; chmod u+w on the
+        # copy so `rm -rf distsrc` can clean up on subsequent runs.
         HOST_RUSTLIB="$(dirname "$(dirname "$(command -v rustc)")")/lib/rustlib/x86_64-unknown-linux-gnu"
         if [[ -d "$HOST_RUSTLIB" && ! -d "${RUST_SYSROOT_OUT}/lib/rustlib/x86_64-unknown-linux-gnu" ]]; then
             cp -a "$HOST_RUSTLIB" "${RUST_SYSROOT_OUT}/lib/rustlib/"
+            chmod -R u+w "${RUST_SYSROOT_OUT}/lib/rustlib/x86_64-unknown-linux-gnu"
         fi
 
         RUSTFLAGS="${RUSTFLAGS} --sysroot=${RUST_SYSROOT_OUT}"
+        ;;
+    *-pc-windows-msvc)
+        # Windows MSVC: same story as darwin — Guix's make-rust-sysroot
+        # doesn't cover this target (no GCC cross toolchain), so we build
+        # library/std ourselves via x.py using clang-cl + lld-link + the
+        # xwin-provided MSVC SDK as sysroot.
+        echo "Building Rust std library for ${RUST_TARGET} from source..."
+        RUST_SRC_VERSION="$(rustc --version | awk '{print $2}')"
+        RUST_SRC_DIR="${DISTSRC}/rustc-${RUST_SRC_VERSION}-src"
+        RUST_SYSROOT_OUT="${DISTSRC}/rust-msvc-sysroot"
+
+        RUST_SRC_TARBALL="$(store_path rust-src)/rustc-src.tar.gz"
+        if [[ ! -e "$RUST_SRC_TARBALL" ]]; then
+            echo "ERR: Rust source not found at '${RUST_SRC_TARBALL}'" >&2
+            echo "     The rust-src package should be in the manifest for windows-msvc targets." >&2
+            exit 1
+        fi
+        echo "  Using Rust source: ${RUST_SRC_TARBALL}"
+
+        if [[ ! -d "${RUST_SYSROOT_OUT}/lib/rustlib/${RUST_TARGET}" ]]; then
+            tar -C "${DISTSRC}" --no-same-owner -xf "$RUST_SRC_TARBALL"
+
+            cd "${RUST_SRC_DIR}"
+
+            # Regenerate cargo checksums.  Guix's origin snippet on rust-1.92
+            # modifies some vendored Cargo.toml files (e.g., tempfile), and
+            # x.py's --frozen mode will otherwise reject them.
+            for cksum in vendor/*/.cargo-checksum.json; do
+                crate_dir="$(dirname "$cksum")"
+                python3 -c "
+import json, hashlib, os
+with open('$cksum', 'r') as f:
+    data = json.load(f)
+new_files = {}
+for relpath in data.get('files', {}):
+    fpath = os.path.join('$crate_dir', relpath)
+    if os.path.exists(fpath):
+        with open(fpath, 'rb') as f:
+            new_files[relpath] = hashlib.sha256(f.read()).hexdigest()
+data['files'] = new_files
+with open('$cksum', 'w') as f:
+    json.dump(data, f)
+"
+            done
+
+            # Write config.toml for x.py.  The target section points at
+            # clang-cl (with xwin /imsvc flags via CC_WRAPPER) for C
+            # compilation and at MSVC_LD_WRAPPER (lld-link with xwin
+            # /LIBPATH: injected) for linking.
+            cat > config.toml << XPYCONF
+change-id = "ignore"
+
+[llvm]
+download-ci-llvm = false
+
+[build]
+cargo = "$(command -v cargo)"
+rustc = "$(command -v rustc)"
+docs = false
+python = "$(command -v python3)"
+vendor = true
+submodules = false
+optimized-compiler-builtins = false
+target = ["${RUST_TARGET}"]
+
+[install]
+prefix = "${RUST_SYSROOT_OUT}"
+sysconfdir = "etc"
+
+[rust]
+debug = false
+jemalloc = false
+channel = "stable"
+codegen-units = 1
+
+[target.x86_64-unknown-linux-gnu]
+# Native host tools (used to build host stage0/stage1 components)
+llvm-config = "$(command -v llvm-config)"
+linker = "$(command -v gcc)"
+cc = "$(command -v gcc)"
+cxx = "$(command -v g++)"
+ar = "$(command -v ar)"
+
+[target.${RUST_TARGET}]
+llvm-config = "$(command -v llvm-config)"
+cc = "${CC_WRAPPER}"
+cxx = "${CXX_WRAPPER}"
+ar = "${AR}"
+ranlib = "${RANLIB}"
+linker = "${MSVC_LD_WRAPPER}"
+XPYCONF
+
+            LIBRARY_PATH="${MSVC_HOST_LIBRARY_PATH}" \
+                python3 x.py build library/std --target "${RUST_TARGET}"
+            LIBRARY_PATH="${MSVC_HOST_LIBRARY_PATH}" \
+                python3 x.py install library/std --target "${RUST_TARGET}"
+        else
+            echo "  Sysroot already built at ${RUST_SYSROOT_OUT}"
+        fi
+
+        # Copy host rustlib into the sysroot (needed for build scripts/proc-macros).
+        # The source lives in /gnu/store and is read-only; chmod u+w on the
+        # copy so `rm -rf distsrc` can clean up on subsequent runs.
+        HOST_RUSTLIB="$(dirname "$(dirname "$(command -v rustc)")")/lib/rustlib/x86_64-unknown-linux-gnu"
+        if [[ -d "$HOST_RUSTLIB" && ! -d "${RUST_SYSROOT_OUT}/lib/rustlib/x86_64-unknown-linux-gnu" ]]; then
+            cp -a "$HOST_RUSTLIB" "${RUST_SYSROOT_OUT}/lib/rustlib/"
+            chmod -R u+w "${RUST_SYSROOT_OUT}/lib/rustlib/x86_64-unknown-linux-gnu"
+        fi
+
+        RUSTFLAGS="${RUSTFLAGS} --sysroot=${RUST_SYSROOT_OUT}"
+        # Deterministic PE: /Brepro zeroes the timestamp and image debug
+        # directory; /DEBUG:NONE skips PDB generation entirely so the
+        # random PDB GUID doesn't leak into the final binary.  The xwin
+        # import-lib directories are injected by MSVC_LD_WRAPPER's
+        # /LIBPATH:, so rustc doesn't need -L native= for them.
+        RUSTFLAGS="${RUSTFLAGS} -C link-arg=/Brepro -C link-arg=/DEBUG:NONE"
         ;;
 esac
 
@@ -620,41 +843,61 @@ mkdir -p "$DISTSRC/src" "$INSTALLPATH"
 tar -C "$DISTSRC/src" --strip-components=1 --no-same-owner -xf "$GIT_ARCHIVE"
 cd "$DISTSRC/src"
 
-# Apply cross-compilation patches to vendored crate sources.
-# After patching, update the .cargo-checksum.json so cargo accepts the change.
-patch_vendored_crate() {
-    local crate_dir="$1" file="$2" old="$3" new="$4"
-    if [[ ! -f "$crate_dir/$file" ]]; then return; fi
-    echo "Patching $crate_dir/$file..."
-    if ! grep -qF "${old}" "$crate_dir/$file"; then
-        echo "ERR: pattern not found in $crate_dir/$file — patch may be outdated" >&2
+# Apply a .patch file to a vendored crate and refresh .cargo-checksum.json
+# so cargo --frozen accepts the modified file.  The patch file must sit
+# under /ckb/contrib/guix/patches/.
+apply_vendored_patch() {
+    local crate_dir="$1" patch_name="$2"
+    local patch_path="/ckb/contrib/guix/patches/${patch_name}"
+    if [[ ! -d "$crate_dir" ]]; then return; fi
+    if [[ ! -f "$patch_path" ]]; then
+        echo "ERR: Patch file '${patch_path}' not found" >&2
         exit 1
     fi
-    sed -i "s|${old}|${new}|" "$crate_dir/$file"
-    # Update the file's checksum in .cargo-checksum.json
-    local new_hash
-    new_hash="$(sha256sum "$crate_dir/$file" | cut -d' ' -f1)"
-    python3 -c "
-import json, sys
-with open('$crate_dir/.cargo-checksum.json', 'r') as f:
+    echo "Applying ${patch_name} to ${crate_dir}..."
+    patch -p1 --no-backup-if-mismatch -d "$crate_dir" < "$patch_path"
+    # Rehash every file the crate's .cargo-checksum.json tracks.
+    python3 - "$crate_dir" <<'PY'
+import json, hashlib, os, sys
+crate = sys.argv[1]
+cksum = os.path.join(crate, ".cargo-checksum.json")
+with open(cksum) as f:
     data = json.load(f)
-data['files']['$file'] = '$new_hash'
-with open('$crate_dir/.cargo-checksum.json', 'w') as f:
+new_files = {}
+for rel in data.get("files", {}):
+    p = os.path.join(crate, rel)
+    if os.path.exists(p):
+        with open(p, "rb") as fh:
+            new_files[rel] = hashlib.sha256(fh.read()).hexdigest()
+data["files"] = new_files
+with open(cksum, "w") as f:
     json.dump(data, f)
-"
+PY
 }
 
 # Apply cross-compilation patches to vendored crate sources.
 case "$HOST" in
-    *mingw*|*darwin*)
+    *mingw*|*darwin*|*-pc-windows-msvc)
         # Fix ckb-librocksdb-sys: cfg!(target_os = "windows") checks the
         # build HOST, not the cross-compilation TARGET.  When cross-compiling,
         # build_detect_platform runs on the HOST (Linux) and sets Linux-specific
         # defines that conflict with the actual target (Windows or macOS).
         for rocksdb_dir in guix-vendor/*rocksdb-sys*; do
-            patch_vendored_crate "$rocksdb_dir" "build.rs" \
-                'if !cfg!(target_os = "windows") {' \
-                'if env::var("TARGET").unwrap_or_default().contains("linux") {'
+            apply_vendored_patch "$rocksdb_dir" \
+                "ckb-librocksdb-sys-cross-compile.patch"
+        done
+        ;;
+esac
+
+case "$HOST" in
+    *-pc-windows-msvc)
+        # Honour the CKB_VM_ASM_CC env var in ckb-vm's MSVC asm branch,
+        # and point it at clang-cl so the GNU AT&T-syntax execute_x64.S
+        # assembles to MSVC COFF.  See patches/ckb-vm-msvc-cc-env.patch
+        # for the full rationale.
+        export CKB_VM_ASM_CC="$(store_path clang-toolchain)/bin/clang-cl"
+        for ckb_vm_dir in guix-vendor/*ckb-vm-[0-9]*; do
+            apply_vendored_patch "$ckb_vm_dir" "ckb-vm-msvc-cc-env.patch"
         done
         ;;
 esac
@@ -682,8 +925,8 @@ cargo build "${cargo_build_args[@]}"
 
 # Determine binary name and path.
 case "$HOST" in
-    *mingw*)  BINARY_NAME="ckb.exe" ;;
-    *)        BINARY_NAME="ckb" ;;
+    *mingw*|*-pc-windows-msvc)  BINARY_NAME="ckb.exe" ;;
+    *)                           BINARY_NAME="ckb" ;;
 esac
 
 binary="${CARGO_TARGET_DIR}/${RUST_TARGET}/prod/${BINARY_NAME}"
@@ -713,7 +956,7 @@ case "$HOST" in
 
         python3 /ckb/contrib/guix/symbol-check.py "${INSTALLPATH}/${BINARY_NAME}"
         ;;
-    *mingw*)
+    *mingw*|*-pc-windows-msvc)
         # PE binaries: no patchelf, no ELF symbol check.
         ;;
     *darwin*)
@@ -730,7 +973,7 @@ cp rpc/README.md "${INSTALLPATH}/docs/rpc.md"
 # Package the release archive.
 ( cd "$STAGING_BASE"
   case "$HOST" in
-      *mingw*)
+      *mingw*|*-pc-windows-msvc)
           # Windows: deterministic zip.
           find "${DISTNAME}" -print0 \
               | xargs -0r touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
