@@ -252,20 +252,21 @@ fn get_binary_upper_boundary(value: &[u8]) -> Vec<u8> {
     if value.is_empty() {
         return vec![0xFF; 32];
     }
-    let mut result = value.to_vec();
-    for i in (0..result.len()).rev() {
-        if result[i] < 0xFF {
-            result[i] += 1;
-            return result;
-        }
-        result[i] = 0x00;
+    // Compute the lexicographic successor: find the rightmost byte that is
+    // not 0xFF, increment it, then truncate everything after it. The result
+    // is the shortest byte string that is strictly greater than every possible
+    // extension of `value`, which is exactly what the prefix range query
+    // `args >= $prefix AND args < $upper` needs.
+    if let Some(i) = value.iter().rposition(|&b| b != 0xFF) {
+        let mut result = value[..=i].to_vec();
+        result[i] += 1;
+        result
+    } else {
+        // All bytes are 0xFF — no finite exclusive upper bound exists for
+        // this prefix. Return a sentinel one byte longer that is still
+        // lexicographically greater than any extension of the input.
+        vec![0xFF; value.len() + 1]
     }
-    // All bytes were 0xFF — incrementing overflows the original length.
-    // No same-length exclusive upper bound exists. Return a sentinel that
-    // is lexicographically greater than any practical args with this prefix:
-    // a vector of 0xFF bytes one byte longer than the input, which in bytea
-    // comparison is greater than any value of the original length.
-    vec![0xFF; value.len() + 1]
 }
 
 fn bytes_to_h256(input: &[u8]) -> H256 {
@@ -422,11 +423,10 @@ mod tests {
 
     #[test]
     fn test_get_binary_upper_boundary_trailing_ff_carry() {
-        // Carry propagates through trailing 0xFF bytes
+        // Trailing 0xFF bytes are truncated; only the incremented byte remains
         let input = vec![0x00, 0xFF, 0xFF];
         let result = get_binary_upper_boundary(&input);
-        assert_eq!(result, vec![0x01, 0x00, 0x00]);
-        assert_eq!(result.len(), input.len());
+        assert_eq!(result, vec![0x01]);
     }
 
     #[test]
