@@ -16,9 +16,12 @@ use std::convert::Into;
 use std::env;
 use std::fs::read_to_string;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
-use std::path::PathBuf;
+use std::ops::Deref;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tempfile::TempDir;
 
 pub const FLAG_SINCE_RELATIVE: u64 =
     0b1000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
@@ -199,23 +202,47 @@ pub fn assert_send_transaction_ok(node: &Node, transaction: &TransactionView) {
     assert!(result.is_ok(), "result: {:?}", result.unwrap_err());
 }
 
-/// Return a random path located on temp_dir
-///
-/// We use `tempdir` only for generating a random path, and expect the corresponding directory
-/// that `tempdir` creates be deleted when go out of this function.
-pub fn temp_path(case_name: &str, suffix: &str) -> PathBuf {
-    let mut builder = tempfile::Builder::new();
-    let prefix = ["ckb-it", case_name, suffix, ""].join("-");
-    builder.prefix(&prefix);
-    let tempdir = if let Ok(val) = env::var("CKB_INTEGRATION_TEST_TMP") {
-        builder.tempdir_in(val)
-    } else {
-        builder.tempdir()
+#[derive(Debug, Clone)]
+pub struct TempPathBuf {
+    path: PathBuf,
+    _tempdir: Arc<TempDir>,
+}
+
+impl TempPathBuf {
+    /// Return a random path located on temp_dir
+    pub fn new(case_name: &str, suffix: &str) -> Self {
+        let mut builder = tempfile::Builder::new();
+        let prefix = ["ckb-it", case_name, suffix, ""].join("-");
+        builder.prefix(&prefix);
+        let tempdir = if let Ok(val) = env::var("CKB_INTEGRATION_TEST_TMP") {
+            builder.tempdir_in(val)
+        } else {
+            builder.tempdir()
+        }
+        .expect("create tempdir failed");
+        let path = tempdir.path().to_owned();
+        Self {
+            path,
+            _tempdir: Arc::new(tempdir),
+        }
     }
-    .expect("create tempdir failed");
-    let path = tempdir.path().to_owned();
-    tempdir.close().expect("close tempdir failed");
-    path
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Deref for TempPathBuf {
+    type Target = PathBuf;
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for TempPathBuf {
+    fn as_ref(&self) -> &Path {
+        self.path.as_ref()
+    }
 }
 
 /// Generate new blocks and explode these cellbases into `n` live cells

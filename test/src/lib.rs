@@ -216,6 +216,9 @@ pub fn main_test() {
                 spec_name,
                 seconds,
                 node_log_paths,
+                // node_paths is ignored here to let TempPathBuf handle
+                // automatic directory cleanup when this scope ends.
+                ..
             } => {
                 test_results.push(TestResult {
                     spec_name: spec_name.clone(),
@@ -239,6 +242,8 @@ pub fn main_test() {
                 spec_name,
                 seconds,
                 node_log_paths,
+                // same as above
+                ..
             } => {
                 test_results.push(TestResult {
                     spec_name: spec_name.clone(),
