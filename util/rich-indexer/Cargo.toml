@@ -21,7 +21,6 @@ ckb-notify.workspace = true
 ckb-types.workspace = true
 futures.workspace = true
 log.workspace = true
-num-bigint.workspace = true
 sql-builder.workspace = true
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any", "sqlite", "postgres"] }
 include_dir.workspace = true

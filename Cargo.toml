@@ -264,7 +264,6 @@ minstant = "0.1.4"
 molecule = { version = "0.9.0", default-features = false }
 multi_index_map = "0.15.0"
 multiaddr = { version = "0.3.6", package = "tentacle-multiaddr" }
-num-bigint = "0.4"
 num_cpus = "1.16.0"
 numext-fixed-uint = "0.1"
 p2p = { version = "0.7.1", package = "tentacle", default-features = false }
