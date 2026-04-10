@@ -254,7 +254,17 @@ fn get_binary_upper_boundary(value: &[u8]) -> Vec<u8> {
     }
     let value_big = BigUint::from_bytes_be(value);
     let value_upper = value_big + 1usize;
-    value_upper.to_bytes_be()
+    let result = value_upper.to_bytes_be();
+    // Pad with leading zeros to preserve at least the original byte length.
+    // BigUint::to_bytes_be() strips leading zeros, which produces incorrect
+    // upper bounds for prefix range queries when the input starts with 0x00.
+    if result.len() < value.len() {
+        let mut padded = vec![0u8; value.len() - result.len()];
+        padded.extend(result);
+        padded
+    } else {
+        result
+    }
 }
 
 fn bytes_to_h256(input: &[u8]) -> H256 {
@@ -365,6 +375,56 @@ mod tests {
             hex::decode("b2a8500929d6a1294bf9bf1bf565f549fa4a5f1316a3306ad3d4783e64bcf627")
                 .expect("Decoding failed");
         let result = get_binary_upper_boundary(&input);
+        assert_eq!(result, expected);
+    }
+
+    // Regression test for https://github.com/nervosnetwork/ckb/issues/5165
+    // Verifies that leading zero bytes are preserved in the upper boundary.
+    #[test]
+    fn test_get_binary_upper_boundary_leading_zeros() {
+        // Real-world case from the bug report: 22-byte args starting with 0x00
+        let input =
+            hex::decode("00014cbca1cb3cd2b60550904f16c920cffa7c9f866e").expect("Decoding failed");
+        let expected =
+            hex::decode("00014cbca1cb3cd2b60550904f16c920cffa7c9f866f").expect("Decoding failed");
+        let result = get_binary_upper_boundary(&input);
+        assert_eq!(
+            result.len(),
+            input.len(),
+            "Upper boundary must preserve the original byte length"
+        );
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_multiple_leading_zeros() {
+        let input = hex::decode("0000000102").expect("Decoding failed");
+        let expected = hex::decode("0000000103").expect("Decoding failed");
+        let result = get_binary_upper_boundary(&input);
+        assert_eq!(result.len(), input.len());
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_single_zero_byte() {
+        let result = get_binary_upper_boundary(&[0x00]);
+        assert_eq!(result, vec![0x01]);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_all_ff_overflow() {
+        // When all bytes are 0xFF, incrementing overflows to a longer result
+        let result = get_binary_upper_boundary(&[0xFF, 0xFF]);
+        assert_eq!(result, vec![0x01, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_short_prefix_with_leading_zero() {
+        // Short prefix search case from the bug report: args "0x003d"
+        let input = hex::decode("003d").expect("Decoding failed");
+        let expected = hex::decode("003e").expect("Decoding failed");
+        let result = get_binary_upper_boundary(&input);
+        assert_eq!(result.len(), input.len());
         assert_eq!(result, expected);
     }
 }
