@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.1...ckb-rpc-v1.2.2) - 2026-04-10
+
+### Changed
+
+- *(rpc)* correct PRC typo in docs and comments (#5130) (by @eval-exec)
+
+### Fixed
+
+- generate GitHub-compatible RPC doc anchors (#5136) (by @eval-exec)
+- overhaul proposal selection and prioritization logic (#5023) (by @zhangsoledad)
+
+### Contributors
+
+- @eval-exec
+- @zhangsoledad
+
 ## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.0...ckb-rpc-v1.2.1) - 2026-03-08
 
 ### Changed

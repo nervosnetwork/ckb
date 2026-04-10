@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-network-v1.2.0...ckb-network-v1.2.1) - 2026-04-10
+
+### Changed
+
+- upgrade deps (#5132) (by @driftluo)
+
+### Contributors
+
+- @driftluo
+
 ## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-network-v1.1.1...ckb-network-v1.2.0) - 2026-03-02
 
 ### Added
