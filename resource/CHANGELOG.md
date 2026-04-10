@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-resource-v1.1.0...ckb-resource-v1.1.1) - 2026-04-10
+
+### Changed
+
+- sort WalkDir entries in resource bundling (#5156) (by @eval-exec)
+
+### Contributors
+
+- @eval-exec
+
 ## [1.1.0](https://github.com/nervosnetwork/ckb/compare/ckb-resource-v1.0.2...ckb-resource-v1.1.0) - 2026-03-02
 
 ### Added
