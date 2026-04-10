@@ -12,7 +12,7 @@ use ckb_jsonrpc_types::{
     IndexerTip, JsonBytes,
 };
 use ckb_types::H256;
-use num_bigint::BigUint;
+
 use sql_builder::SqlBuilder;
 use sqlx::Row;
 
@@ -250,23 +250,22 @@ fn build_cell_filter(
 
 fn get_binary_upper_boundary(value: &[u8]) -> Vec<u8> {
     if value.is_empty() {
-        return vec![255; 32];
+        return vec![0xFF; 32];
     }
-    let value_big = BigUint::from_bytes_be(value);
-    let value_upper = value_big + 1usize;
-    let result = value_upper.to_bytes_be();
-    // Pad with leading zeros to preserve at least the original byte length.
-    // BigUint::to_bytes_be() strips leading zeros, which produces incorrect
-    // upper bounds for prefix range queries when the input starts with 0x00.
-    if result.len() < value.len() {
-        let pad = value.len() - result.len();
-        let mut padded = Vec::with_capacity(value.len());
-        padded.resize(pad, 0u8);
-        padded.extend(result);
-        padded
-    } else {
-        result
+    let mut result = value.to_vec();
+    for i in (0..result.len()).rev() {
+        if result[i] < 0xFF {
+            result[i] += 1;
+            return result;
+        }
+        result[i] = 0x00;
     }
+    // All bytes were 0xFF — incrementing overflows the original length.
+    // No same-length exclusive upper bound exists. Return a sentinel that
+    // is lexicographically greater than any practical args with this prefix:
+    // a vector of 0xFF bytes one byte longer than the input, which in bytea
+    // comparison is greater than any value of the original length.
+    vec![0xFF; value.len() + 1]
 }
 
 fn bytes_to_h256(input: &[u8]) -> H256 {
@@ -415,9 +414,19 @@ mod tests {
 
     #[test]
     fn test_get_binary_upper_boundary_all_ff_overflow() {
-        // When all bytes are 0xFF, incrementing overflows to a longer result
+        // When all bytes are 0xFF, no same-length upper bound exists.
+        // The function returns a sentinel of 0xFF bytes one byte longer.
         let result = get_binary_upper_boundary(&[0xFF, 0xFF]);
+        assert_eq!(result, vec![0xFF; 3]);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_trailing_ff_carry() {
+        // Carry propagates through trailing 0xFF bytes
+        let input = vec![0x00, 0xFF, 0xFF];
+        let result = get_binary_upper_boundary(&input);
         assert_eq!(result, vec![0x01, 0x00, 0x00]);
+        assert_eq!(result.len(), input.len());
     }
 
     #[test]
