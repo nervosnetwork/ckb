@@ -259,7 +259,9 @@ fn get_binary_upper_boundary(value: &[u8]) -> Vec<u8> {
     // BigUint::to_bytes_be() strips leading zeros, which produces incorrect
     // upper bounds for prefix range queries when the input starts with 0x00.
     if result.len() < value.len() {
-        let mut padded = vec![0u8; value.len() - result.len()];
+        let pad = value.len() - result.len();
+        let mut padded = Vec::with_capacity(value.len());
+        padded.resize(pad, 0u8);
         padded.extend(result);
         padded
     } else {
