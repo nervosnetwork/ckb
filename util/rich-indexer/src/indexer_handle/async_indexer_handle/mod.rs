@@ -250,22 +250,22 @@ fn build_cell_filter(
 
 fn get_binary_upper_boundary(value: &[u8]) -> Vec<u8> {
     if value.is_empty() {
-        return vec![0xFF; 32];
+        return vec![u8::MAX; 32];
     }
     // Compute the lexicographic successor: find the rightmost byte that is
-    // not 0xFF, increment it, then truncate everything after it. The result
+    // not u8::MAX, increment it, then truncate everything after it. The result
     // is the shortest byte string that is strictly greater than every possible
     // extension of `value`, which is exactly what the prefix range query
     // `args >= $prefix AND args < $upper` needs.
-    if let Some(i) = value.iter().rposition(|&b| b != 0xFF) {
+    if let Some(i) = value.iter().rposition(|&b| b != u8::MAX) {
         let mut result = value[..=i].to_vec();
         result[i] += 1;
         result
     } else {
-        // All bytes are 0xFF — no finite exclusive upper bound exists for
+        // All bytes are u8::MAX — no finite exclusive upper bound exists for
         // this prefix. Return a sentinel one byte longer that is still
         // lexicographically greater than any extension of the input.
-        vec![0xFF; value.len() + 1]
+        vec![u8::MAX; value.len() + 1]
     }
 }
 
@@ -415,16 +415,16 @@ mod tests {
 
     #[test]
     fn test_get_binary_upper_boundary_all_ff_overflow() {
-        // When all bytes are 0xFF, no same-length upper bound exists.
-        // The function returns a sentinel of 0xFF bytes one byte longer.
-        let result = get_binary_upper_boundary(&[0xFF, 0xFF]);
-        assert_eq!(result, vec![0xFF; 3]);
+        // When all bytes are u8::MAX, no same-length upper bound exists.
+        // The function returns a sentinel of u8::MAX bytes one byte longer.
+        let result = get_binary_upper_boundary(&[u8::MAX, u8::MAX]);
+        assert_eq!(result, vec![u8::MAX; 3]);
     }
 
     #[test]
     fn test_get_binary_upper_boundary_trailing_ff_carry() {
-        // Trailing 0xFF bytes are truncated; only the incremented byte remains
-        let input = vec![0x00, 0xFF, 0xFF];
+        // Trailing u8::MAX bytes are truncated; only the incremented byte remains
+        let input = vec![0x00, u8::MAX, u8::MAX];
         let result = get_binary_upper_boundary(&input);
         assert_eq!(result, vec![0x01]);
     }
