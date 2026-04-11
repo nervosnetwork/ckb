@@ -104,7 +104,8 @@ impl OnionService {
         let tor_controller = self.config.tor_controller.to_string();
         let tor_password = self.config.tor_password.clone();
 
-        let mut tor_controller = TorController::new(tor_controller, tor_password, None).await?;
+        let mut tor_controller =
+            TorController::new(tor_controller, tor_password, None, self.handle.clone()).await?;
 
         tor_controller.wait_tor_server_bootstrap_done().await?;
 
@@ -128,22 +129,15 @@ impl OnionService {
         );
 
         self.handle.spawn(async move {
-            let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(3));
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        let uptime = tor_controller.get_uptime().await;
-                        if let Err(err) = uptime {
-                            error!("Failed to get tor server uptime: {:?}", err);
-                            drop(tor_server_alive_tx);
-                            return;
-                        }
-                    }
-                    _ = stop_rx.cancelled() => {
-                        info!("OnionService received stop signal, exiting...");
-                        drop(tor_server_alive_tx);
-                        return;
-                    }
+            tokio::select! {
+                _ = tor_controller.wait_for_disconnect() => {
+                    error!("not alive");
+                    drop(tor_server_alive_tx);
+
+                }
+                _ = stop_rx.cancelled() => {
+                    info!("OnionService received stop signal, exiting...");
+                    drop(tor_server_alive_tx);
                 }
             }
         });

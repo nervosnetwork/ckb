@@ -1,3 +1,4 @@
+use ckb_async_runtime::Handle;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info, warn};
 use futures::future::BoxFuture;
@@ -5,8 +6,9 @@ use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use tokio::io::{duplex, AsyncRead, AsyncReadExt, AsyncWrite, DuplexStream};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 use torut::control::{TorAuthData, TorAuthMethod, UnauthenticatedConn, COOKIE_LENGTH};
 use torut::{
     control::{AsyncEvent, AuthenticatedConn, ConnError},
@@ -15,12 +17,18 @@ use torut::{
 
 use crate::TorEventHandlerFn;
 
-type TorAuthenticatedConn =
-    AuthenticatedConn<TcpStream, fn(AsyncEvent<'_>) -> BoxFuture<'static, Result<(), ConnError>>>;
+type TorAuthenticatedConn = AuthenticatedConn<
+    DuplexStream,
+    fn(AsyncEvent<'_>) -> BoxFuture<'static, Result<(), ConnError>>,
+>;
 
 /// A controller for a Tor server.
 pub struct TorController {
     inner: TorAuthenticatedConn,
+    /// Notified when the underlying TCP connection to the Tor control port is
+    /// closed or encounters a fatal I/O error. Receiving a value indicates
+    /// the connection is dead.
+    _disconnect_rx: mpsc::UnboundedReceiver<()>,
 }
 
 impl TorController {
@@ -30,8 +38,13 @@ impl TorController {
         tor_controller_url: String,
         tor_password: Option<String>,
         event_handler: Option<TorEventHandlerFn>,
+        handle: Handle,
     ) -> Result<Self, Error> {
-        let s = TcpStream::connect(tor_controller_url.clone())
+        let (client, server) = duplex(1024);
+
+        let (disconnect_tx, disconnect_rx) = mpsc::unbounded_channel();
+
+        let raw_stream = TcpStream::connect(tor_controller_url.clone())
             .await
             .map_err(|err| {
                 InternalErrorKind::Other.other(format!(
@@ -40,7 +53,34 @@ impl TorController {
                 ))
             })?;
 
-        let mut utc: UnauthenticatedConn<TcpStream> = UnauthenticatedConn::new(s);
+        handle.spawn(async move {
+            let (mut tcp_read, mut tcp_write) = raw_stream.into_split();
+            let (mut server_read, mut server_write) = tokio::io::split(server);
+
+            tokio::select! {
+                // TCP -> Duplex
+                res = tokio::io::copy(&mut tcp_read, &mut server_write) => {
+                    match res {
+                        Ok(n) => debug!("Tor TCP connection closed after {} bytes", n),
+                        Err(e) => error!("Tor TCP read error: {}", e),
+                    }
+                    _ = disconnect_tx.send(());
+                }
+
+                // Duplex -> TCP
+                res = tokio::io::copy(&mut server_read, &mut tcp_write) => {
+                    match res {
+                        Ok(n) => debug!("Tor Duplex closed after {} bytes", n),
+                        Err(e) => error!("Tor TCP write error: {}", e),
+                    }
+                    _ = disconnect_tx.send(());
+                }
+            }
+
+            debug!("Tor DuplexStream exited.");
+        });
+
+        let mut utc: UnauthenticatedConn<_> = UnauthenticatedConn::new(client);
 
         authenticate(tor_password, &mut utc).await?;
 
@@ -48,7 +88,10 @@ impl TorController {
 
         ac.set_async_event_handler(event_handler);
 
-        Ok(TorController { inner: ac })
+        Ok(TorController {
+            inner: ac,
+            _disconnect_rx: disconnect_rx,
+        })
     }
 
     /// get tor server's status
@@ -112,6 +155,16 @@ impl TorController {
         Ok(())
     }
 
+    /// Waits asynchronously until the underlying TCP connection to the Tor
+    /// controller is severed (either cleanly closed or due to an I/O error).
+    ///
+    /// Returns `Some(())` when the connection is lost, or `None` if the internal
+    /// notification channel was closed unexpectedly (which should not occur during
+    /// normal operation).
+    pub async fn wait_for_disconnect(&mut self) -> Option<()> {
+        self._disconnect_rx.recv().await
+    }
+
     /// Add a new v3 onion service to the Tor server.
     pub async fn add_onion_v3(
         &mut self,
@@ -125,10 +178,13 @@ impl TorController {
 }
 
 /// Authenticates with the Tor controller using the given password or cookie.
-pub async fn authenticate(
+pub async fn authenticate<S>(
     tor_password: Option<String>,
-    utc: &mut UnauthenticatedConn<TcpStream>,
-) -> Result<(), Error> {
+    utc: &mut UnauthenticatedConn<S>,
+) -> Result<(), Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let proto_info = utc.load_protocol_info().await.map_err(|err| {
         InternalErrorKind::Other.other(format!("Failed to load protocol info: {:?}", err))
     })?;
