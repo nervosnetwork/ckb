@@ -278,7 +278,7 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
         }
         if let Some(us) = self.store.get_block_uncles(hash) {
             for u in us.data().into_iter() {
-                ids_set.extend(u.proposals().into_iter());
+                ids_set.extend(u.proposals());
             }
         }
         ids_set

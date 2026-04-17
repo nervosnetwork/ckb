@@ -81,7 +81,7 @@ fn test_bundled_specs() {
                 cellbase
                     .outputs()
                     .into_iter()
-                    .zip(cellbase.outputs_data().into_iter())
+                    .zip(cellbase.outputs_data())
                     .skip(1),
             )
             .enumerate()

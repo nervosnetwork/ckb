@@ -44,16 +44,8 @@ macro_rules! impl_hash {
                 };
                 let input_str = &input[2..];
                 let value = match &input_str[..1] {
-                    "0" => {
-                        if input_str.len() > 1 {
-                            ckb_fixed_hash_core::$type::from_str(input_str)
-                        } else {
-                            ckb_fixed_hash_core::$type::from_trimmed_str(input_str)
-                        }
-                    },
-                    _ => {
-                        ckb_fixed_hash_core::$type::from_trimmed_str(input_str)
-                    },
+                    "0" if input_str.len() > 1 => ckb_fixed_hash_core::$type::from_str(input_str),
+                    _ => ckb_fixed_hash_core::$type::from_trimmed_str(input_str),
                 }
                 .unwrap_or_else(|err| {
                     panic!("Failed to parse the input hexadecimal string: {}", err);

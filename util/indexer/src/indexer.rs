@@ -906,14 +906,11 @@ where
             .store
             .iter(&header_start_key, IteratorDirection::Forward)?;
         let block_hash = match iter.next() {
-            Some((key, _)) => {
-                if key.starts_with(&header_start_key) {
-                    let start = std::mem::size_of::<BlockNumber>() + 1;
-                    Byte32::from_slice(&key[start..start + 32]).expect("stored key header hash")
-                } else {
-                    return Ok(None);
-                }
+            Some((key, _)) if key.starts_with(&header_start_key) => {
+                let start = std::mem::size_of::<BlockNumber>() + 1;
+                Byte32::from_slice(&key[start..start + 32]).expect("stored key header hash")
             }
+            Some(_) => return Ok(None),
             None => return Ok(None),
         };
         Ok(Some(DetailedLiveCell {
