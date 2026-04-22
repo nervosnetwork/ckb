@@ -224,3 +224,11 @@ fn always_success_transaction() -> TransactionView {
 fn setup(consensus: Consensus) -> RpcTestSuite {
     setup_rpc_test_suite(20, Some(consensus))
 }
+
+// Shut down background tasks to release `Arc<Shared>` and allow temp dir cleanup.
+// It's should be safe in this test suite.
+impl Drop for RpcTestSuite {
+    fn drop(&mut self) {
+        ckb_stop_handler::broadcast_exit_signals();
+    }
+}

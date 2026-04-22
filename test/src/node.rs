@@ -1,6 +1,6 @@
 use crate::global::binary;
 use crate::rpc::RpcClient;
-use crate::utils::{find_available_port, temp_path, wait_until};
+use crate::utils::{TempPathBuf, find_available_port, wait_until};
 use crate::{SYSTEM_CELL_ALWAYS_FAILURE_INDEX, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
 use ckb_app_config::{AppConfig, CKBAppConfig, ExitCode};
 use ckb_chain_spec::ChainSpec;
@@ -69,7 +69,7 @@ pub struct Node {
 
 pub struct InnerNode {
     spec_node_name: String,
-    working_dir: PathBuf,
+    working_dir: TempPathBuf,
     consensus: Consensus,
     p2p_listen: String,
     rpc_client: RpcClient,
@@ -81,7 +81,7 @@ pub struct InnerNode {
 
 impl Node {
     pub fn new(spec_name: &str, node_name: &str) -> Self {
-        let working_dir = temp_path(spec_name, node_name);
+        let working_dir = TempPathBuf::new(spec_name, node_name);
 
         // Copy node template into node's working directory
         let cells_dir = working_dir.join("specs").join("cells");
@@ -126,7 +126,10 @@ impl Node {
         modifier(&mut app_config);
         fs::write(&app_config_path, toml::to_string(&app_config).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
+        *self = Self::init(
+            self.inner.working_dir.clone(),
+            self.inner.spec_node_name.clone(),
+        );
     }
 
     pub fn modify_chain_spec<M>(&mut self, modifier: M)
@@ -139,11 +142,14 @@ impl Node {
         modifier(&mut chain_spec);
         fs::write(&chain_spec_path, toml::to_string(&chain_spec).unwrap()).unwrap();
 
-        *self = Self::init(self.working_dir(), self.inner.spec_node_name.clone());
+        *self = Self::init(
+            self.inner.working_dir.clone(),
+            self.inner.spec_node_name.clone(),
+        );
     }
 
     // Initialize Node instance based on working directory
-    fn init(working_dir: PathBuf, spec_node_name: String) -> Self {
+    fn init(working_dir: TempPathBuf, spec_node_name: String) -> Self {
         let app_config = {
             let app_config_path = working_dir.join("ckb.toml");
             let toml = fs::read(app_config_path).unwrap();
@@ -189,6 +195,10 @@ impl Node {
     }
 
     pub fn working_dir(&self) -> PathBuf {
+        self.inner.working_dir.to_path_buf()
+    }
+
+    pub fn owned_working_dir(&self) -> TempPathBuf {
         self.inner.working_dir.clone()
     }
 
