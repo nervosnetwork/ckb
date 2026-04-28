@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-resource-v1.1.0...ckb-resource-v1.1.1) - 2026-04-24
+
+### Changed
+
+- update testnet bootnodes (#5176) (by @jiangxianliang007)
+- sort WalkDir entries in resource bundling (#5156) (by @eval-exec)
+
+### Contributors
+
+- @jiangxianliang007
+- @eval-exec
+
 ## [1.1.0](https://github.com/nervosnetwork/ckb/compare/ckb-resource-v1.0.2...ckb-resource-v1.1.0) - 2026-03-02
 
 ### Added
