@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.206.0-rc1](https://github.com/nervosnetwork/ckb/compare/v0.205.0...v0.206.0-rc1) - 2026-04-28
+
+### Added
+
+- add guide for running dev chain from existing data (#5125) (by @eval-exec)
+
+### Changed
+
+- bump rustls-webpki to 0.103.13 (#5186) (by @eval-exec)
+- update testnet bootnodes (#5176) (by @jiangxianliang007)
+- *(release)* reset version before changelog generation in bump.sh (#5131) (by @doitian)
+- update platform-support.md to reflect latest CI and build settings (#5142) (by @Copilot)
+- upgrade deps (#5132) (by @driftluo)
+
+### Fixed
+
+- preserve leading zero bytes and handle all-0xFF overflow in rich-indexer prefix search upper bound (#5166) (by @Copilot)
+- *(deps)* fix`make security-audit`: update keccak to 0.1.6 (#5158) (by @eval-exec)
+
+### Security
+
+- bump rustls-webpki to 0.103.12 (#5182) (by @eval-exec)
+- *(deps)* bump thin-vec from 0.2.14 to 0.2.16 (#5170) (by @dependabot[bot])
+- *(deps)* bump rustls-webpki from 0.103.7 to 0.103.10 (#5154) (by @dependabot[bot])
+
+### Contributors
+
+- @eval-exec
+- @jiangxianliang007
+- @doitian
+- @driftluo
+
 ## [0.205.0](https://github.com/nervosnetwork/ckb/compare/v0.204.0...v0.205.0) - 2026-03-17
 
 ### Added
