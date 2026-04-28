@@ -1130,7 +1130,7 @@ impl SyncShared {
         self.state
             .peers()
             .may_set_best_known_header(peer, header_view.as_header_index());
-        if header_view.number() % 10000 == 0 {
+        if header_view.number().is_multiple_of(10000) {
             info!(
                 "inserted valid header: header {}-{}",
                 header_view.number(),
