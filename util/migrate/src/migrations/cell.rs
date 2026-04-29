@@ -1,7 +1,7 @@
 use ckb_app_config::StoreConfig;
 use ckb_db::RocksDB;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::COLUMN_CELL;
+use ckb_db_schema::legacy::COLUMN_CELL;
 use ckb_error::Error;
 use ckb_migration_template::multi_thread_migration;
 use ckb_store::{ChainDB, ChainStore, StoreWriteBatch};

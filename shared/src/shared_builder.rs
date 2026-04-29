@@ -89,7 +89,7 @@ pub fn open_or_create_db(
                         If you prefer to stick with the older version, \n\
                         it's important to note that they may have unfixed vulnerabilities.\n\
                         Before migrating, we strongly recommend backuping your data directory.\n\
-                        To migrate, run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\".",
+                        To migrate this RocksDB key schema change, run `\"{}\" migrate -C \"{}\" --sst-rebuild --force`.",
                         bin_name,
                         root_dir.display()
                     );

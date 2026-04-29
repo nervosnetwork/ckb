@@ -7,5 +7,6 @@ extern crate num_cpus;
 
 pub mod migrate;
 mod migrations;
+pub mod sst_rebuild;
 #[cfg(test)]
 mod tests;
