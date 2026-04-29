@@ -58,6 +58,7 @@ colored = "2.0"
 
 [features]
 deadlock_detection = ["ckb-util/deadlock_detection"]
+jemalloc = ["ckb-memory-tracker/jemalloc"]
 profiling = ["ckb-memory-tracker/profiling", "ckb-shared/stats"]
 with_sentry = [
     "sentry",

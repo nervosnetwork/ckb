@@ -25,13 +25,14 @@ ckb-build-info.workspace = true
 ckb-build-info.workspace = true
 ckb-bin.workspace = true
 console-subscriber = { workspace = true, optional = true }
+mimalloc = { version = "0.1", optional = true }
 
 [target.'cfg(target_env = "msvc")'.dependencies]
 winreg = "0.55"
 version-compare = "0.2"
 
 [target.'cfg(all(not(target_env = "msvc"), not(target_os="macos")))'.dependencies]
-tikv-jemallocator = { version = "0.5.0", features = [
+tikv-jemallocator = { version = "0.5.0", optional = true, features = [
   "unprefixed_malloc_on_supported_platforms",
 ] }
 
@@ -330,11 +331,13 @@ lto = true
 codegen-units = 1
 
 [features]
-default = []
+default = ["mimalloc"]
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 with_sentry = ["ckb-bin/with_sentry"]
 with_dns_seeding = ["ckb-bin/with_dns_seeding"]
-profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
+mimalloc = ["dep:mimalloc"]
+jemalloc = ["dep:tikv-jemallocator", "ckb-bin/jemalloc"]
+profiling = ["jemalloc", "tikv-jemallocator/profiling", "ckb-bin/profiling"]
 portable = ["ckb-bin/portable"]
 march-native = ["ckb-bin/march-native"]
 tokio-trace = ["console-subscriber"]

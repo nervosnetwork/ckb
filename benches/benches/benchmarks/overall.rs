@@ -169,6 +169,51 @@ pub fn gen_txs_from_block(block: &BlockView) -> Vec<TransactionView> {
     }
 }
 
+pub fn run_overall_rounds(shared: &Shared, chain: &ChainController, rounds: usize) {
+    let mut remaining = rounds;
+    while remaining > 0 {
+        let snapshot = Arc::clone(&shared.snapshot());
+        let tip_hash = snapshot.tip_hash();
+        let block = snapshot.get_block(&tip_hash).expect("tip exist");
+        let txs = gen_txs_from_block(&block);
+        let tx_pool = shared.tx_pool_controller();
+        if !txs.is_empty() {
+            for tx in txs {
+                tx_pool.submit_local_tx(tx).unwrap().expect("submit_tx");
+            }
+        }
+
+        let mut block_template = tx_pool
+            .get_block_template(None, None, None)
+            .unwrap()
+            .expect("get_block_template");
+
+        while block_template.number != (snapshot.tip_number() + 1).into() {
+            block_template = tx_pool
+                .get_block_template(None, None, None)
+                .unwrap()
+                .expect("get_block_template");
+        }
+        let raw_block: Block = block_template.into();
+        let raw_header = raw_block.header().raw();
+        let header = Header::new_builder()
+            .raw(raw_header)
+            .nonce(random::<u128>())
+            .build();
+        let block = raw_block.as_builder().header(header).build().into_view();
+
+        let header_verifier = HeaderVerifier::new(snapshot.as_ref(), shared.consensus());
+        header_verifier
+            .verify(&block.header())
+            .expect("header verified");
+
+        chain
+            .blocking_process_block_with_switch(Arc::new(block), Switch::DISABLE_EXTENSION)
+            .expect("process_block");
+        remaining -= 1;
+    }
+}
+
 fn bench(c: &mut Criterion) {
     let mut group = c.benchmark_group("overall");
 
@@ -180,52 +225,7 @@ fn bench(c: &mut Criterion) {
                 b.iter_batched(
                     || setup_chain(*txs_size),
                     |(shared, chain)| {
-                        let mut i = 10;
-                        while i > 0 {
-                            let snapshot = Arc::clone(&shared.snapshot());
-                            let tip_hash = snapshot.tip_hash();
-                            let block = snapshot.get_block(&tip_hash).expect("tip exist");
-                            let txs = gen_txs_from_block(&block);
-                            let tx_pool = shared.tx_pool_controller();
-                            if !txs.is_empty() {
-                                for tx in txs {
-                                    tx_pool.submit_local_tx(tx).unwrap().expect("submit_tx");
-                                }
-                            }
-
-                            let mut block_template = tx_pool
-                                .get_block_template(None, None, None)
-                                .unwrap()
-                                .expect("get_block_template");
-
-                            while block_template.number != (snapshot.tip_number() + 1).into() {
-                                block_template = tx_pool
-                                    .get_block_template(None, None, None)
-                                    .unwrap()
-                                    .expect("get_block_template");
-                            }
-                            let raw_block: Block = block_template.into();
-                            let raw_header = raw_block.header().raw();
-                            let header = Header::new_builder()
-                                .raw(raw_header)
-                                .nonce(random::<u128>())
-                                .build();
-                            let block = raw_block.as_builder().header(header).build().into_view();
-
-                            let header_verifier =
-                                HeaderVerifier::new(snapshot.as_ref(), shared.consensus());
-                            header_verifier
-                                .verify(&block.header())
-                                .expect("header verified");
-
-                            chain
-                                .blocking_process_block_with_switch(
-                                    Arc::new(block),
-                                    Switch::DISABLE_EXTENSION,
-                                )
-                                .expect("process_block");
-                            i -= 1;
-                        }
+                        run_overall_rounds(&shared, &chain, 10);
                     },
                     BatchSize::PerIteration,
                 )
