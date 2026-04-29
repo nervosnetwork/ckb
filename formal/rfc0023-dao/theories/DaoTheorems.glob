@@ -1,0 +1,160 @@
+DIGEST 53cb1376e6ebe9e9c4900e4811f62ac3
+FRfc0023Dao.DaoTheorems
+R129:133 Coq.Arith.Arith <> <> lib
+R151:153 Coq.micromega.Lia <> <> lib
+R171:178 Rfc0023Dao.DaoTypes <> <> lib
+R196:206 Rfc0023Dao.DaoEncoding <> <> lib
+R224:230 Rfc0023Dao.DaoCell <> <> lib
+R248:261 Rfc0023Dao.DaoTransaction <> <> lib
+R279:286 Rfc0023Dao.DaoSince <> <> lib
+R304:318 Rfc0023Dao.DaoCompensation <> <> lib
+R336:344 Rfc0023Dao.DaoHeader <> <> lib
+R362:374 Rfc0023Dao.DaoTransition <> <> lib
+prf 824:848 <> deposit_cell_has_dao_type
+binder 861:861 <> c:1
+R885:892 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R868:882 Rfc0023Dao.DaoCell <> is_deposit_cell def
+R884:884 Rfc0023Dao.DaoTheorems <> c:1 var
+R906:908 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R893:903 Rfc0023Dao.DaoTypes <> type_script proj
+R905:905 Rfc0023Dao.DaoTheorems <> c:1 var
+R909:912 Coq.Init.Datatypes <> Some constr
+R914:935 Rfc0023Dao.DaoCell <> nervos_dao_type_script defax
+R968:982 Rfc0023Dao.DaoCell <> is_deposit_cell def
+R1025:1035 Rfc0023Dao.DaoCell <> is_dao_type def
+prf 1291:1315 <> deposit_cell_data_is_zero
+binder 1328:1328 <> c:2
+R1352:1359 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R1335:1349 Rfc0023Dao.DaoCell <> is_deposit_cell def
+R1351:1351 Rfc0023Dao.DaoTheorems <> c:2 var
+R1366:1368 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R1360:1363 Rfc0023Dao.DaoTypes <> data proj
+R1365:1365 Rfc0023Dao.DaoTheorems <> c:2 var
+R1369:1384 Rfc0023Dao.DaoEncoding <> eight_zero_bytes def
+R1417:1431 Rfc0023Dao.DaoCell <> is_deposit_cell def
+prf 1958:1982 <> phase1_preserves_capacity
+binder 1995:2001 <> deposit:3
+binder 2003:2013 <> withdrawing:4
+binder 2015:2020 <> header:5
+R2071:2078 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R2027:2043 Rfc0023Dao.DaoTransition <> valid_phase1_pair def
+R2045:2051 Rfc0023Dao.DaoTheorems <> deposit:3 var
+R2053:2063 Rfc0023Dao.DaoTheorems <> withdrawing:4 var
+R2065:2070 Rfc0023Dao.DaoTheorems <> header:5 var
+R2099:2101 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R2079:2086 Rfc0023Dao.DaoTypes <> capacity proj
+R2088:2098 Rfc0023Dao.DaoTheorems <> withdrawing:4 var
+R2102:2109 Rfc0023Dao.DaoTypes <> capacity proj
+R2111:2117 Rfc0023Dao.DaoTheorems <> deposit:3 var
+R2175:2191 Rfc0023Dao.DaoTransition <> valid_phase1_pair def
+prf 2550:2584 <> phase1_records_deposit_block_number
+binder 2597:2603 <> deposit:6
+binder 2605:2615 <> withdrawing:7
+binder 2617:2622 <> header:8
+R2673:2680 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R2629:2645 Rfc0023Dao.DaoTransition <> valid_phase1_pair def
+R2647:2653 Rfc0023Dao.DaoTheorems <> deposit:6 var
+R2655:2665 Rfc0023Dao.DaoTheorems <> withdrawing:7 var
+R2667:2672 Rfc0023Dao.DaoTheorems <> header:8 var
+R2697:2699 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R2681:2684 Rfc0023Dao.DaoTypes <> data proj
+R2686:2696 Rfc0023Dao.DaoTheorems <> withdrawing:7 var
+R2700:2712 Rfc0023Dao.DaoEncoding <> encode_u64_le defax
+R2715:2726 Rfc0023Dao.DaoTypes <> block_number proj
+R2728:2733 Rfc0023Dao.DaoTheorems <> header:8 var
+R2792:2808 Rfc0023Dao.DaoTransition <> valid_phase1_pair def
+prf 3389:3415 <> phase2_requires_valid_since
+binder 3428:3432 <> input:9
+binder 3434:3447 <> deposit_header:10
+binder 3449:3466 <> withdrawing_header:11
+R3531:3538 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R3473:3490 Rfc0023Dao.DaoTransition <> valid_phase2_input def
+R3492:3496 Rfc0023Dao.DaoTheorems <> input:9 var
+R3498:3511 Rfc0023Dao.DaoTheorems <> deposit_header:10 var
+R3513:3530 Rfc0023Dao.DaoTheorems <> withdrawing_header:11 var
+R3539:3553 Rfc0023Dao.DaoSince <> valid_dao_since def
+R3562:3566 Rfc0023Dao.DaoTypes <> since proj
+R3568:3572 Rfc0023Dao.DaoTheorems <> input:9 var
+R3582:3593 Rfc0023Dao.DaoTypes <> epoch_number proj
+R3595:3608 Rfc0023Dao.DaoTheorems <> deposit_header:10 var
+R3618:3629 Rfc0023Dao.DaoTypes <> epoch_number proj
+R3631:3648 Rfc0023Dao.DaoTheorems <> withdrawing_header:11 var
+R3720:3737 Rfc0023Dao.DaoTransition <> valid_phase2_input def
+prf 4306:4332 <> max_withdrawable_definition
+binder 4345:4346 <> ct:12
+binder 4348:4349 <> co:13
+binder 4351:4354 <> ar_m:14
+binder 4356:4359 <> ar_n:15
+R4407:4413 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R4366:4390 Rfc0023Dao.DaoCompensation <> max_withdrawable_capacity def
+R4392:4393 Rfc0023Dao.DaoTheorems <> ct:12 var
+R4395:4396 Rfc0023Dao.DaoTheorems <> co:13 var
+R4398:4401 Rfc0023Dao.DaoTheorems <> ar_m:14 var
+R4403:4406 Rfc0023Dao.DaoTheorems <> ar_n:15 var
+R4455:4457 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R4414:4438 Rfc0023Dao.DaoCompensation <> compensated_capacity_base def
+R4440:4441 Rfc0023Dao.DaoTheorems <> ct:12 var
+R4443:4444 Rfc0023Dao.DaoTheorems <> co:13 var
+R4446:4449 Rfc0023Dao.DaoTheorems <> ar_m:14 var
+R4451:4454 Rfc0023Dao.DaoTheorems <> ar_n:15 var
+R4458:4459 Rfc0023Dao.DaoTheorems <> co:13 var
+R4504:4528 Rfc0023Dao.DaoCompensation <> max_withdrawable_capacity def
+prf 4924:4947 <> compensation_nonnegative
+binder 4960:4961 <> ct:16
+binder 4963:4964 <> co:17
+binder 4966:4969 <> ar_m:18
+binder 4971:4974 <> ar_n:19
+R5022:5029 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R4981:5005 Rfc0023Dao.DaoCompensation <> valid_compensation_inputs def
+R5007:5008 Rfc0023Dao.DaoTheorems <> ct:16 var
+R5010:5011 Rfc0023Dao.DaoTheorems <> co:17 var
+R5013:5016 Rfc0023Dao.DaoTheorems <> ar_m:18 var
+R5018:5021 Rfc0023Dao.DaoTheorems <> ar_n:19 var
+R5062:5065 Coq.Init.Peano <> ::nat_scope:x_'>='_x not
+R5030:5045 Rfc0023Dao.DaoCompensation <> dao_compensation def
+R5047:5048 Rfc0023Dao.DaoTheorems <> ct:16 var
+R5050:5051 Rfc0023Dao.DaoTheorems <> co:17 var
+R5053:5056 Rfc0023Dao.DaoTheorems <> ar_m:18 var
+R5058:5061 Rfc0023Dao.DaoTheorems <> ar_n:19 var
+R5113:5128 Rfc0023Dao.DaoCompensation <> dao_compensation def
+R5139:5148 Coq.Arith.PeanoNat Nat le_0_l thm
+R5139:5148 Coq.Arith.PeanoNat Nat le_0_l thm
+prf 5748:5773 <> accumulated_rate_monotonic
+binder 5786:5789 <> prev:20
+binder 5791:5792 <> bi:21
+R5834:5841 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R5799:5825 Rfc0023Dao.DaoHeader <> valid_dao_step_precondition def
+R5827:5830 Rfc0023Dao.DaoTheorems <> prev:20 var
+R5832:5833 Rfc0023Dao.DaoTheorems <> bi:21 var
+R5883:5886 Coq.Init.Peano <> ::nat_scope:x_'>='_x not
+R5842:5857 Rfc0023Dao.DaoTypes <> accumulated_rate proj
+R5860:5873 Rfc0023Dao.DaoHeader <> next_dao_field def
+R5875:5878 Rfc0023Dao.DaoTheorems <> prev:20 var
+R5880:5881 Rfc0023Dao.DaoTheorems <> bi:21 var
+R5887:5902 Rfc0023Dao.DaoTypes <> accumulated_rate proj
+R5904:5907 Rfc0023Dao.DaoTheorems <> prev:20 var
+R5946:5959 Rfc0023Dao.DaoHeader <> next_dao_field def
+R5980:6006 Rfc0023Dao.DaoHeader <> valid_dao_step_precondition def
+R6048:6059 Coq.Arith.PeanoNat Nat le_add_r thm
+R6048:6059 Coq.Arith.PeanoNat Nat le_add_r thm
+prf 6391:6418 <> max_withdrawable_ge_occupied
+binder 6431:6432 <> ct:22
+binder 6434:6435 <> co:23
+binder 6437:6440 <> ar_m:24
+binder 6442:6445 <> ar_n:25
+R6493:6500 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R6452:6476 Rfc0023Dao.DaoCompensation <> valid_compensation_inputs def
+R6478:6479 Rfc0023Dao.DaoTheorems <> ct:22 var
+R6481:6482 Rfc0023Dao.DaoTheorems <> co:23 var
+R6484:6487 Rfc0023Dao.DaoTheorems <> ar_m:24 var
+R6489:6492 Rfc0023Dao.DaoTheorems <> ar_n:25 var
+R6542:6545 Coq.Init.Peano <> ::nat_scope:x_'>='_x not
+R6501:6525 Rfc0023Dao.DaoCompensation <> max_withdrawable_capacity def
+R6527:6528 Rfc0023Dao.DaoTheorems <> ct:22 var
+R6530:6531 Rfc0023Dao.DaoTheorems <> co:23 var
+R6533:6536 Rfc0023Dao.DaoTheorems <> ar_m:24 var
+R6538:6541 Rfc0023Dao.DaoTheorems <> ar_n:25 var
+R6546:6547 Rfc0023Dao.DaoTheorems <> co:23 var
+R6594:6618 Rfc0023Dao.DaoCompensation <> max_withdrawable_capacity def
+R6629:6640 Coq.Arith.PeanoNat Nat le_add_l thm
+R6629:6640 Coq.Arith.PeanoNat Nat le_add_l thm

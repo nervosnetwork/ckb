@@ -1,0 +1,56 @@
+[
+  {
+    "name": "no_compensation_when_ar_equal",
+    "ct": 100000000000,
+    "co": 6100000000,
+    "ar_m": 10000000000000000,
+    "ar_n": 10000000000000000,
+    "expected_compensation": 0,
+    "expected_max_withdrawable": 100000000000
+  },
+  {
+    "name": "compensation_when_ar_grows",
+    "ct": 100000000000,
+    "co": 6100000000,
+    "ar_m": 10000000000000000,
+    "ar_n": 11000000000000000,
+    "expected_compensation": 9290000000,
+    "expected_max_withdrawable": 109290000000
+  },
+  {
+    "name": "occupied_equals_total",
+    "ct": 100000000000,
+    "co": 100000000000,
+    "ar_m": 10000000000000000,
+    "ar_n": 11000000000000000,
+    "expected_compensation": 0,
+    "expected_max_withdrawable": 100000000000
+  },
+  {
+    "name": "zero_occupied",
+    "ct": 100000000000,
+    "co": 0,
+    "ar_m": 10000000000000000,
+    "ar_n": 11000000000000000,
+    "expected_compensation": 10000000000,
+    "expected_max_withdrawable": 110000000000
+  },
+  {
+    "name": "integer_division_boundary",
+    "ct": 100000000001,
+    "co": 6100000000,
+    "ar_m": 10000000000000000,
+    "ar_n": 10000000000000001,
+    "expected_compensation": 0,
+    "expected_max_withdrawable": 100000000001
+  },
+  {
+    "name": "large_numbers",
+    "ct": 100000000000000,
+    "co": 6100000000000,
+    "ar_m": 10000000000000000,
+    "ar_n": 20000000000000000,
+    "expected_compensation": 187800000000000,
+    "expected_max_withdrawable": 187800000000000000
+  }
+]

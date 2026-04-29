@@ -1,0 +1,38 @@
+[
+  {
+    "name": "basic_phase1_transition",
+    "deposit_capacity": 100000000000,
+    "deposit_data": "0x0000000000000000",
+    "deposit_block_number": 1000,
+    "withdrawing_capacity": 100000000000,
+    "withdrawing_data": "0xe803000000000000",
+    "valid": true
+  },
+  {
+    "name": "capacity_changed_invalid",
+    "deposit_capacity": 100000000000,
+    "deposit_data": "0x0000000000000000",
+    "deposit_block_number": 1000,
+    "withdrawing_capacity": 99999999999,
+    "withdrawing_data": "0xe803000000000000",
+    "valid": false
+  },
+  {
+    "name": "data_changed_invalid",
+    "deposit_capacity": 100000000000,
+    "deposit_data": "0x0000000000000000",
+    "deposit_block_number": 1000,
+    "withdrawing_capacity": 100000000000,
+    "withdrawing_data": "0xd007000000000000",
+    "valid": false
+  },
+  {
+    "name": "large_block_number",
+    "deposit_capacity": 5000000000000,
+    "deposit_data": "0x0000000000000000",
+    "deposit_block_number": 10000000,
+    "withdrawing_capacity": 5000000000000,
+    "withdrawing_data": "0x8096980000000000",
+    "valid": true
+  }
+]

@@ -1,0 +1,54 @@
+DIGEST 6de7ddfbcbc7425a04d8b4ca860cedee
+FRfc0023Dao.DaoTransition
+R180:187 Rfc0023Dao.DaoTypes <> <> lib
+R205:211 Rfc0023Dao.DaoCell <> <> lib
+R229:239 Rfc0023Dao.DaoEncoding <> <> lib
+R257:264 Rfc0023Dao.DaoSince <> <> lib
+def 852:868 <> valid_phase1_pair
+R883:886 Rfc0023Dao.DaoTypes <> Cell rec
+binder 873:879 <> deposit:1
+R906:909 Rfc0023Dao.DaoTypes <> Cell rec
+binder 892:902 <> withdrawing:2
+R932:937 Rfc0023Dao.DaoTypes <> Header rec
+binder 915:928 <> deposit_header:3
+R975:980 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R952:966 Rfc0023Dao.DaoCell <> is_deposit_cell def
+R968:974 Rfc0023Dao.DaoTransition <> deposit:1 var
+R1026:1031 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R1004:1006 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R981:991 Rfc0023Dao.DaoTypes <> type_script proj
+R993:1003 Rfc0023Dao.DaoTransition <> withdrawing:2 var
+R1007:1017 Rfc0023Dao.DaoTypes <> type_script proj
+R1019:1025 Rfc0023Dao.DaoTransition <> deposit:1 var
+R1071:1076 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R1052:1054 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R1032:1039 Rfc0023Dao.DaoTypes <> capacity proj
+R1041:1051 Rfc0023Dao.DaoTransition <> withdrawing:2 var
+R1055:1062 Rfc0023Dao.DaoTypes <> capacity proj
+R1064:1070 Rfc0023Dao.DaoTransition <> deposit:1 var
+R1093:1095 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R1077:1080 Rfc0023Dao.DaoTypes <> data proj
+R1082:1092 Rfc0023Dao.DaoTransition <> withdrawing:2 var
+R1096:1108 Rfc0023Dao.DaoEncoding <> encode_u64_le defax
+R1111:1122 Rfc0023Dao.DaoTypes <> block_number proj
+R1124:1137 Rfc0023Dao.DaoTransition <> deposit_header:3 var
+def 1581:1598 <> valid_phase2_input
+R1611:1619 Rfc0023Dao.DaoTypes <> CellInput rec
+binder 1603:1607 <> input:4
+R1642:1647 Rfc0023Dao.DaoTypes <> Header rec
+binder 1625:1638 <> deposit_header:5
+R1674:1679 Rfc0023Dao.DaoTypes <> Header rec
+binder 1653:1670 <> withdrawing_header:6
+R1773:1778 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R1694:1712 Rfc0023Dao.DaoCell <> is_withdrawing_cell def
+R1719:1731 Rfc0023Dao.DaoTypes <> previous_cell proj
+R1733:1737 Rfc0023Dao.DaoTransition <> input:4 var
+R1745:1756 Rfc0023Dao.DaoTypes <> block_number proj
+R1758:1771 Rfc0023Dao.DaoTransition <> deposit_header:5 var
+R1779:1793 Rfc0023Dao.DaoSince <> valid_dao_since def
+R1800:1804 Rfc0023Dao.DaoTypes <> since proj
+R1806:1810 Rfc0023Dao.DaoTransition <> input:4 var
+R1818:1829 Rfc0023Dao.DaoTypes <> epoch_number proj
+R1831:1844 Rfc0023Dao.DaoTransition <> deposit_header:5 var
+R1852:1863 Rfc0023Dao.DaoTypes <> epoch_number proj
+R1865:1882 Rfc0023Dao.DaoTransition <> withdrawing_header:6 var

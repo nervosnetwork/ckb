@@ -1,0 +1,51 @@
+[
+  {
+    "name": "deposit_5_phase1_100_unlock_185",
+    "deposit_epoch": 5,
+    "phase1_epoch": 100,
+    "since_epoch": 185,
+    "valid": true
+  },
+  {
+    "name": "deposit_5_phase1_100_unlock_365",
+    "deposit_epoch": 5,
+    "phase1_epoch": 100,
+    "since_epoch": 365,
+    "valid": true
+  },
+  {
+    "name": "deposit_5_phase1_100_unlock_545",
+    "deposit_epoch": 5,
+    "phase1_epoch": 100,
+    "since_epoch": 545,
+    "valid": true
+  },
+  {
+    "name": "deposit_5_phase1_100_unlock_184_invalid",
+    "deposit_epoch": 5,
+    "phase1_epoch": 100,
+    "since_epoch": 184,
+    "valid": false
+  },
+  {
+    "name": "deposit_5_phase1_100_unlock_100_invalid",
+    "deposit_epoch": 5,
+    "phase1_epoch": 100,
+    "since_epoch": 100,
+    "valid": false
+  },
+  {
+    "name": "deposit_0_phase1_180_unlock_180",
+    "deposit_epoch": 0,
+    "phase1_epoch": 180,
+    "since_epoch": 180,
+    "valid": true
+  },
+  {
+    "name": "deposit_100_phase1_200_unlock_280",
+    "deposit_epoch": 100,
+    "phase1_epoch": 200,
+    "since_epoch": 280,
+    "valid": true
+  }
+]

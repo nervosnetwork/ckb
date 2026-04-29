@@ -1,0 +1,38 @@
+DIGEST 3e4a323984cf42fc9fa5fc1b9f0b2138
+FRfc0023Dao.DaoEncoding
+R299:302 Coq.Lists.List <> <> lib
+R312:324 Coq.Lists.List ListNotations <> mod
+R342:349 Rfc0023Dao.DaoTypes <> <> lib
+ax 610:622 <> encode_u64_le
+R629:632 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R626:628 Coq.Init.Datatypes <> nat ind
+R633:637 Rfc0023Dao.DaoTypes <> Bytes def
+ax 786:805 <> encode_u64_le_length
+binder 818:818 <> n:2
+R845:847 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R821:826 Coq.Init.Datatypes <> length def
+R829:841 Rfc0023Dao.DaoEncoding <> encode_u64_le defax
+R843:843 Rfc0023Dao.DaoEncoding <> n:2 var
+ax 1001:1023 <> encode_u64_le_injective
+binder 1036:1036 <> a:4
+binder 1038:1038 <> b:5
+R1078:1085 Coq.Init.Logic <> ::type_scope:x_'->'_x not
+R1060:1062 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R1045:1057 Rfc0023Dao.DaoEncoding <> encode_u64_le defax
+R1059:1059 Rfc0023Dao.DaoEncoding <> a:4 var
+R1063:1075 Rfc0023Dao.DaoEncoding <> encode_u64_le defax
+R1077:1077 Rfc0023Dao.DaoEncoding <> b:5 var
+R1087:1089 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R1086:1086 Rfc0023Dao.DaoEncoding <> a:4 var
+R1090:1090 Rfc0023Dao.DaoEncoding <> b:5 var
+def 1256:1271 <> eight_zero_bytes
+R1275:1279 Rfc0023Dao.DaoTypes <> Bytes def
+R1286:1286 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1288:1289 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1291:1292 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1294:1295 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1297:1298 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1300:1301 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1303:1304 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1306:1307 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not
+R1309:1309 Coq.Lists.List ListNotations ::list_scope:'['_x_';'_x_';'_'..'_';'_x_']' not

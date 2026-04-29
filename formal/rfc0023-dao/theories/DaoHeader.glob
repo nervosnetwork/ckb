@@ -1,0 +1,96 @@
+DIGEST 80a7b8c23f20195851838b2b5013114e
+FRfc0023Dao.DaoHeader
+R188:192 Coq.Arith.Arith <> <> lib
+R210:212 Coq.micromega.Lia <> <> lib
+R230:237 Rfc0023Dao.DaoTypes <> <> lib
+rec 697:709 <> BlockIssuance
+proj 718:733 <> primary_issuance
+proj 746:763 <> secondary_issuance
+proj 774:788 <> occupied_inputs
+proj 802:817 <> occupied_outputs
+proj 830:843 <> completed_comp
+R739:741 Coq.Init.Datatypes <> nat ind
+R767:769 Coq.Init.Datatypes <> nat ind
+R795:797 Coq.Init.Datatypes <> nat ind
+R823:825 Coq.Init.Datatypes <> nat ind
+R851:853 Coq.Init.Datatypes <> nat ind
+def 1294:1307 <> next_dao_field
+R1319:1326 Rfc0023Dao.DaoTypes <> DaoField rec
+binder 1312:1315 <> prev:7
+R1337:1349 Rfc0023Dao.DaoHeader <> BlockIssuance rec
+binder 1332:1333 <> bi:8
+R1354:1361 Rfc0023Dao.DaoTypes <> DaoField rec
+R1375:1388 Rfc0023Dao.DaoTypes <> total_issuance proj
+R1375:1388 Rfc0023Dao.DaoTypes <> total_issuance proj
+R1375:1388 Rfc0023Dao.DaoTypes <> total_issuance proj
+R1483:1505 Rfc0023Dao.DaoTypes <> total_occupied_capacity proj
+R1483:1505 Rfc0023Dao.DaoTypes <> total_occupied_capacity proj
+R1606:1629 Rfc0023Dao.DaoTypes <> total_unissued_secondary proj
+R1606:1629 Rfc0023Dao.DaoTypes <> total_unissued_secondary proj
+R1829:1844 Rfc0023Dao.DaoTypes <> accumulated_rate proj
+R1829:1844 Rfc0023Dao.DaoTypes <> accumulated_rate proj
+R1446:1454 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1418:1426 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1399:1412 Rfc0023Dao.DaoTypes <> total_issuance proj
+R1414:1417 Rfc0023Dao.DaoHeader <> prev:7 var
+R1427:1442 Rfc0023Dao.DaoHeader <> primary_issuance proj
+R1444:1445 Rfc0023Dao.DaoHeader <> bi:8 var
+R1455:1472 Rfc0023Dao.DaoHeader <> secondary_issuance proj
+R1474:1475 Rfc0023Dao.DaoHeader <> bi:8 var
+R1876:1885 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1965:1965 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1855:1870 Rfc0023Dao.DaoTypes <> accumulated_rate proj
+R1872:1875 Rfc0023Dao.DaoHeader <> prev:7 var
+R1886:1886 Coq.Arith.PeanoNat <> ::nat_scope:x_'/'_x not
+R1932:1945 Coq.Arith.PeanoNat <> ::nat_scope:x_'/'_x not
+R1908:1910 Coq.Init.Peano <> ::nat_scope:x_'*'_x not
+R1887:1902 Rfc0023Dao.DaoTypes <> accumulated_rate proj
+R1904:1907 Rfc0023Dao.DaoHeader <> prev:7 var
+R1911:1928 Rfc0023Dao.DaoHeader <> secondary_issuance proj
+R1930:1931 Rfc0023Dao.DaoHeader <> bi:8 var
+R1946:1959 Rfc0023Dao.DaoTypes <> total_issuance proj
+R1961:1964 Rfc0023Dao.DaoHeader <> prev:7 var
+R1725:1734 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R1821:1821 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R1695:1703 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1669:1677 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R1640:1663 Rfc0023Dao.DaoTypes <> total_unissued_secondary proj
+R1665:1668 Rfc0023Dao.DaoHeader <> prev:7 var
+R1678:1691 Rfc0023Dao.DaoHeader <> completed_comp proj
+R1693:1694 Rfc0023Dao.DaoHeader <> bi:8 var
+R1704:1721 Rfc0023Dao.DaoHeader <> secondary_issuance proj
+R1723:1724 Rfc0023Dao.DaoHeader <> bi:8 var
+R1735:1735 Coq.Arith.PeanoNat <> ::nat_scope:x_'/'_x not
+R1788:1801 Coq.Arith.PeanoNat <> ::nat_scope:x_'/'_x not
+R1757:1759 Coq.Init.Peano <> ::nat_scope:x_'*'_x not
+R1736:1753 Rfc0023Dao.DaoHeader <> secondary_issuance proj
+R1755:1756 Rfc0023Dao.DaoHeader <> bi:8 var
+R1760:1782 Rfc0023Dao.DaoTypes <> total_occupied_capacity proj
+R1784:1787 Rfc0023Dao.DaoHeader <> prev:7 var
+R1802:1815 Rfc0023Dao.DaoTypes <> total_issuance proj
+R1817:1820 Rfc0023Dao.DaoHeader <> prev:7 var
+R1572:1580 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R1544:1552 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1516:1538 Rfc0023Dao.DaoTypes <> total_occupied_capacity proj
+R1540:1543 Rfc0023Dao.DaoHeader <> prev:7 var
+R1553:1568 Rfc0023Dao.DaoHeader <> occupied_outputs proj
+R1570:1571 Rfc0023Dao.DaoHeader <> bi:8 var
+R1581:1595 Rfc0023Dao.DaoHeader <> occupied_inputs proj
+R1597:1598 Rfc0023Dao.DaoHeader <> bi:8 var
+def 2309:2335 <> valid_dao_step_precondition
+R2347:2354 Rfc0023Dao.DaoTypes <> DaoField rec
+binder 2340:2343 <> prev:9
+R2365:2377 Rfc0023Dao.DaoHeader <> BlockIssuance rec
+binder 2360:2361 <> bi:10
+R2415:2420 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R2411:2413 Coq.Init.Peano <> ::nat_scope:x_'>'_x not
+R2392:2405 Rfc0023Dao.DaoTypes <> total_issuance proj
+R2407:2410 Rfc0023Dao.DaoHeader <> prev:9 var
+R2439:2442 Coq.Init.Peano <> ::nat_scope:x_'<='_x not
+R2421:2435 Rfc0023Dao.DaoHeader <> occupied_inputs proj
+R2437:2438 Rfc0023Dao.DaoHeader <> bi:10 var
+R2471:2473 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R2443:2465 Rfc0023Dao.DaoTypes <> total_occupied_capacity proj
+R2467:2470 Rfc0023Dao.DaoHeader <> prev:9 var
+R2474:2489 Rfc0023Dao.DaoHeader <> occupied_outputs proj
+R2491:2492 Rfc0023Dao.DaoHeader <> bi:10 var

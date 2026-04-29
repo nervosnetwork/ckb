@@ -1,0 +1,69 @@
+DIGEST c4dfb0779bfcf0cc0825b15f70da86fc
+FRfc0023Dao.DaoTypes
+R152:155 Coq.Lists.List <> <> lib
+R165:177 Coq.Lists.List ListNotations <> mod
+def 390:397 <> Capacity
+R402:404 Coq.Init.Datatypes <> nat ind
+def 418:428 <> BlockNumber
+R433:435 Coq.Init.Datatypes <> nat ind
+def 449:459 <> EpochNumber
+R464:466 Coq.Init.Datatypes <> nat ind
+def 480:490 <> HeaderIndex
+R495:497 Coq.Init.Datatypes <> nat ind
+def 511:515 <> Bytes
+R520:523 Coq.Init.Datatypes <> list ind
+R525:527 Coq.Init.Datatypes <> nat ind
+rec 642:647 <> Script
+proj 656:664 <> code_hash
+proj 675:683 <> hash_type
+proj 694:697 <> args
+R668:670 Coq.Init.Datatypes <> nat ind
+R687:689 Coq.Init.Datatypes <> nat ind
+R706:710 Rfc0023Dao.DaoTypes <> Bytes def
+rec 818:821 <> Cell
+proj 830:837 <> capacity
+proj 856:866 <> lock_script
+proj 880:890 <> type_script
+proj 911:914 <> data
+R844:851 Rfc0023Dao.DaoTypes <> Capacity def
+R870:875 Rfc0023Dao.DaoTypes <> Script rec
+R894:899 Coq.Init.Datatypes <> option ind
+R901:906 Rfc0023Dao.DaoTypes <> Script rec
+R925:929 Rfc0023Dao.DaoTypes <> Bytes def
+rec 1312:1319 <> DaoField
+proj 1328:1341 <> total_issuance
+proj 1362:1377 <> accumulated_rate
+proj 1396:1419 <> total_unissued_secondary
+proj 1430:1452 <> total_occupied_capacity
+R1355:1357 Coq.Init.Datatypes <> nat ind
+R1389:1391 Coq.Init.Datatypes <> nat ind
+R1423:1425 Coq.Init.Datatypes <> nat ind
+R1457:1459 Coq.Init.Datatypes <> nat ind
+rec 1589:1594 <> Header
+proj 1603:1614 <> block_number
+proj 1633:1644 <> epoch_number
+proj 1663:1665 <> dao
+R1618:1628 Rfc0023Dao.DaoTypes <> BlockNumber def
+R1648:1658 Rfc0023Dao.DaoTypes <> EpochNumber def
+R1678:1685 Rfc0023Dao.DaoTypes <> DaoField rec
+rec 1831:1839 <> CellInput
+proj 1848:1860 <> previous_cell
+proj 1872:1876 <> since
+R1864:1867 Rfc0023Dao.DaoTypes <> Cell rec
+R1888:1890 Coq.Init.Datatypes <> nat ind
+rec 2052:2062 <> Transaction
+proj 2071:2076 <> inputs
+proj 2103:2109 <> outputs
+proj 2130:2138 <> cell_deps
+proj 2159:2169 <> header_deps
+proj 2188:2196 <> witnesses
+R2085:2088 Coq.Init.Datatypes <> list ind
+R2090:2098 Rfc0023Dao.DaoTypes <> CellInput rec
+R2117:2120 Coq.Init.Datatypes <> list ind
+R2122:2125 Rfc0023Dao.DaoTypes <> Cell rec
+R2144:2147 Coq.Init.Datatypes <> list ind
+R2149:2154 Rfc0023Dao.DaoTypes <> Script rec
+R2173:2176 Coq.Init.Datatypes <> list ind
+R2178:2183 Rfc0023Dao.DaoTypes <> Header rec
+R2202:2205 Coq.Init.Datatypes <> list ind
+R2207:2211 Rfc0023Dao.DaoTypes <> Bytes def

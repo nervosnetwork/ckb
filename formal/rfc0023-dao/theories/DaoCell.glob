@@ -1,0 +1,37 @@
+DIGEST 91afa7a39ecfcba5eb6bf6cb627662b0
+FRfc0023Dao.DaoCell
+R153:160 Rfc0023Dao.DaoTypes <> <> lib
+R178:188 Rfc0023Dao.DaoEncoding <> <> lib
+ax 355:376 <> nervos_dao_type_script
+R380:385 Rfc0023Dao.DaoTypes <> Script rec
+def 540:550 <> is_dao_type
+R557:560 Rfc0023Dao.DaoTypes <> Cell rec
+binder 553:553 <> c:2
+R588:590 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R575:585 Rfc0023Dao.DaoTypes <> type_script proj
+R587:587 Rfc0023Dao.DaoCell <> c:2 var
+R591:594 Coq.Init.Datatypes <> Some constr
+R596:617 Rfc0023Dao.DaoCell <> nervos_dao_type_script defax
+def 794:808 <> is_deposit_cell
+R815:818 Rfc0023Dao.DaoTypes <> Cell rec
+binder 811:811 <> c:3
+R846:851 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R833:843 Rfc0023Dao.DaoCell <> is_dao_type def
+R845:845 Rfc0023Dao.DaoCell <> c:3 var
+R858:860 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R852:855 Rfc0023Dao.DaoTypes <> data proj
+R857:857 Rfc0023Dao.DaoCell <> c:3 var
+R861:876 Rfc0023Dao.DaoEncoding <> eight_zero_bytes def
+def 1255:1273 <> is_withdrawing_cell
+R1282:1285 Rfc0023Dao.DaoTypes <> Cell rec
+binder 1278:1278 <> c:4
+R1314:1324 Rfc0023Dao.DaoTypes <> BlockNumber def
+binder 1291:1310 <> deposit_block_number:5
+R1352:1357 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R1339:1349 Rfc0023Dao.DaoCell <> is_dao_type def
+R1351:1351 Rfc0023Dao.DaoCell <> c:4 var
+R1364:1366 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R1358:1361 Rfc0023Dao.DaoTypes <> data proj
+R1363:1363 Rfc0023Dao.DaoCell <> c:4 var
+R1367:1379 Rfc0023Dao.DaoEncoding <> encode_u64_le defax
+R1381:1400 Rfc0023Dao.DaoCell <> deposit_block_number:5 var

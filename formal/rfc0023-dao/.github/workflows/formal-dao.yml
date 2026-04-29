@@ -1,0 +1,21 @@
+name: Formal DAO Check
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  formal-dao:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: coq-community/docker-coq-action@v1
+        with:
+          opam_file: false
+          custom_script: |
+            cd formal/rfc0023-dao
+            coq_makefile -f _CoqProject -o Makefile
+            make -j2
+            ./scripts/check-no-admitted.sh

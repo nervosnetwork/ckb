@@ -1,0 +1,42 @@
+DIGEST feb0b188f2d570f9ccbf255d17cf2bd4
+FRfc0023Dao.DaoSince
+R184:188 Coq.Arith.Arith <> <> lib
+R206:208 Coq.micromega.Lia <> <> lib
+R226:233 Rfc0023Dao.DaoTypes <> <> lib
+def 340:354 <> dao_lock_period
+R358:360 Coq.Init.Datatypes <> nat ind
+def 999:1020 <> valid_dao_unlock_epoch
+R1041:1051 Rfc0023Dao.DaoTypes <> EpochNumber def
+binder 1025:1037 <> deposit_epoch:1
+R1074:1084 Rfc0023Dao.DaoTypes <> EpochNumber def
+binder 1057:1070 <> withdraw_epoch:2
+R1105:1115 Rfc0023Dao.DaoTypes <> EpochNumber def
+binder 1090:1101 <> unlock_epoch:3
+R1160:1165 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R1142:1145 Coq.Init.Peano <> ::nat_scope:x_'>='_x not
+R1130:1141 Rfc0023Dao.DaoSince <> unlock_epoch:3 var
+R1146:1159 Rfc0023Dao.DaoSince <> withdraw_epoch:2 var
+R1166:1172 Coq.Init.Logic <> ::type_scope:'exists'_x_'..'_x_','_x not
+R1174:1179 Coq.Init.Logic <> ::type_scope:'exists'_x_'..'_x_','_x not
+binder 1173:1173 <> k:4
+R1185:1192 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R1181:1183 Coq.Init.Peano <> ::nat_scope:x_'>'_x not
+R1180:1180 Rfc0023Dao.DaoSince <> k:4 var
+R1205:1207 Coq.Init.Logic <> ::type_scope:x_'='_x not
+R1193:1204 Rfc0023Dao.DaoSince <> unlock_epoch:3 var
+R1221:1223 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1208:1220 Rfc0023Dao.DaoSince <> deposit_epoch:1 var
+R1225:1227 Coq.Init.Peano <> ::nat_scope:x_'*'_x not
+R1224:1224 Rfc0023Dao.DaoSince <> k:4 var
+R1228:1242 Rfc0023Dao.DaoSince <> dao_lock_period def
+def 1692:1706 <> valid_dao_since
+R1725:1727 Coq.Init.Datatypes <> nat ind
+binder 1711:1721 <> since_value:5
+R1749:1759 Rfc0023Dao.DaoTypes <> EpochNumber def
+binder 1733:1745 <> deposit_epoch:6
+R1782:1792 Rfc0023Dao.DaoTypes <> EpochNumber def
+binder 1765:1778 <> withdraw_epoch:7
+R1807:1828 Rfc0023Dao.DaoSince <> valid_dao_unlock_epoch def
+R1830:1842 Rfc0023Dao.DaoSince <> deposit_epoch:6 var
+R1844:1857 Rfc0023Dao.DaoSince <> withdraw_epoch:7 var
+R1859:1869 Rfc0023Dao.DaoSince <> since_value:5 var

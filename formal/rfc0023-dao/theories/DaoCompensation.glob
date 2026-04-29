@@ -1,0 +1,68 @@
+DIGEST 649050e9cfcccdb7d42557d1b5625eb4
+FRfc0023Dao.DaoCompensation
+R439:443 Coq.Arith.Arith <> <> lib
+R461:463 Coq.micromega.Lia <> <> lib
+R481:488 Rfc0023Dao.DaoTypes <> <> lib
+def 822:846 <> compensated_capacity_base
+R869:871 Coq.Init.Datatypes <> nat ind
+binder 851:852 <> ct:1
+binder 854:855 <> co:2
+binder 857:860 <> ar_m:3
+binder 862:865 <> ar_n:4
+R876:878 Coq.Init.Datatypes <> nat ind
+R885:885 Coq.Arith.PeanoNat <> ::nat_scope:x_'/'_x not
+R902:905 Coq.Arith.PeanoNat <> ::nat_scope:x_'/'_x not
+R886:886 Coq.Init.Peano <> ::nat_scope:x_'*'_x not
+R894:897 Coq.Init.Peano <> ::nat_scope:x_'*'_x not
+R889:891 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R887:888 Rfc0023Dao.DaoCompensation <> ct:1 var
+R892:893 Rfc0023Dao.DaoCompensation <> co:2 var
+R898:901 Rfc0023Dao.DaoCompensation <> ar_n:4 var
+R906:909 Rfc0023Dao.DaoCompensation <> ar_m:3 var
+def 1261:1276 <> dao_compensation
+R1299:1301 Coq.Init.Datatypes <> nat ind
+binder 1281:1282 <> ct:5
+binder 1284:1285 <> co:6
+binder 1287:1290 <> ar_m:7
+binder 1292:1295 <> ar_n:8
+R1306:1308 Coq.Init.Datatypes <> nat ind
+R1356:1359 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R1367:1367 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R1315:1339 Rfc0023Dao.DaoCompensation <> compensated_capacity_base def
+R1341:1342 Rfc0023Dao.DaoCompensation <> ct:5 var
+R1344:1345 Rfc0023Dao.DaoCompensation <> co:6 var
+R1347:1350 Rfc0023Dao.DaoCompensation <> ar_m:7 var
+R1352:1355 Rfc0023Dao.DaoCompensation <> ar_n:8 var
+R1362:1364 Coq.Init.Peano <> ::nat_scope:x_'-'_x not
+R1360:1361 Rfc0023Dao.DaoCompensation <> ct:5 var
+R1365:1366 Rfc0023Dao.DaoCompensation <> co:6 var
+def 1739:1763 <> max_withdrawable_capacity
+R1786:1788 Coq.Init.Datatypes <> nat ind
+binder 1768:1769 <> ct:9
+binder 1771:1772 <> co:10
+binder 1774:1777 <> ar_m:11
+binder 1779:1782 <> ar_n:12
+R1793:1795 Coq.Init.Datatypes <> nat ind
+R1843:1845 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R1802:1826 Rfc0023Dao.DaoCompensation <> compensated_capacity_base def
+R1828:1829 Rfc0023Dao.DaoCompensation <> ct:9 var
+R1831:1832 Rfc0023Dao.DaoCompensation <> co:10 var
+R1834:1837 Rfc0023Dao.DaoCompensation <> ar_m:11 var
+R1839:1842 Rfc0023Dao.DaoCompensation <> ar_n:12 var
+R1846:1847 Rfc0023Dao.DaoCompensation <> co:10 var
+def 2254:2278 <> valid_compensation_inputs
+R2301:2303 Coq.Init.Datatypes <> nat ind
+binder 2283:2284 <> ct:13
+binder 2286:2287 <> co:14
+binder 2289:2292 <> ar_m:15
+binder 2294:2297 <> ar_n:16
+R2326:2331 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R2320:2323 Coq.Init.Peano <> ::nat_scope:x_'<='_x not
+R2318:2319 Rfc0023Dao.DaoCompensation <> co:14 var
+R2324:2325 Rfc0023Dao.DaoCompensation <> ct:13 var
+R2340:2345 Coq.Init.Logic <> ::type_scope:x_'/\'_x not
+R2336:2338 Coq.Init.Peano <> ::nat_scope:x_'>'_x not
+R2332:2335 Rfc0023Dao.DaoCompensation <> ar_m:15 var
+R2350:2353 Coq.Init.Peano <> ::nat_scope:x_'>='_x not
+R2346:2349 Rfc0023Dao.DaoCompensation <> ar_n:16 var
+R2354:2357 Rfc0023Dao.DaoCompensation <> ar_m:15 var

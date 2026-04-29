@@ -1,0 +1,11 @@
+-R theories Rfc0023Dao
+
+theories/DaoTypes.v
+theories/DaoEncoding.v
+theories/DaoCell.v
+theories/DaoTransaction.v
+theories/DaoSince.v
+theories/DaoCompensation.v
+theories/DaoHeader.v
+theories/DaoTransition.v
+theories/DaoTheorems.v

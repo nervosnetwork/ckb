@@ -1,0 +1,65 @@
+DIGEST f9361ded2a2c679b6c9477df17c73858
+FRfc0023Dao.DaoTransaction
+R200:203 Coq.Lists.List <> <> lib
+R213:225 Coq.Lists.List ListNotations <> mod
+R243:247 Coq.Arith.Arith <> <> lib
+R265:267 Coq.micromega.Lia <> <> lib
+R285:292 Rfc0023Dao.DaoTypes <> <> lib
+def 349:365 <> cell_capacity_sum
+R376:379 Coq.Init.Datatypes <> list ind
+R381:384 Rfc0023Dao.DaoTypes <> Cell rec
+binder 368:372 <> cells:1
+R389:391 Coq.Init.Datatypes <> nat ind
+R404:408 Rfc0023Dao.DaoTransaction <> cells:1 var
+R419:420 Coq.Lists.List ListNotations ::list_scope:'['_']' not
+R432:435 Coq.Init.Datatypes <> ::list_scope:x_'::'_x not
+R452:454 Coq.Init.Peano <> ::nat_scope:x_'+'_x not
+R442:449 Rfc0023Dao.DaoTypes <> capacity proj
+R455:471 Rfc0023Dao.DaoTransaction <> cell_capacity_sum:2 def
+def 540:557 <> input_capacity_sum
+R565:575 Rfc0023Dao.DaoTypes <> Transaction rec
+binder 560:561 <> tx:4
+R580:582 Coq.Init.Datatypes <> nat ind
+R589:605 Rfc0023Dao.DaoTransaction <> cell_capacity_sum def
+R608:610 Coq.Lists.List <> map def
+R627:632 Rfc0023Dao.DaoTypes <> inputs proj
+R634:635 Rfc0023Dao.DaoTransaction <> tx:4 var
+R612:624 Rfc0023Dao.DaoTypes <> previous_cell proj
+def 698:716 <> output_capacity_sum
+R724:734 Rfc0023Dao.DaoTypes <> Transaction rec
+binder 719:720 <> tx:5
+R739:741 Coq.Init.Datatypes <> nat ind
+R748:764 Rfc0023Dao.DaoTransaction <> cell_capacity_sum def
+R767:773 Rfc0023Dao.DaoTypes <> outputs proj
+R775:776 Rfc0023Dao.DaoTransaction <> tx:5 var
+def 848:860 <> header_dep_at
+R868:878 Rfc0023Dao.DaoTypes <> Transaction rec
+binder 863:864 <> tx:6
+R886:888 Coq.Init.Datatypes <> nat ind
+binder 882:882 <> i:7
+R893:898 Coq.Init.Datatypes <> option ind
+R900:905 Rfc0023Dao.DaoTypes <> Header rec
+R912:920 Coq.Lists.List <> nth_error def
+R939:939 Rfc0023Dao.DaoTransaction <> i:7 var
+R923:933 Rfc0023Dao.DaoTypes <> header_deps proj
+R935:936 Rfc0023Dao.DaoTransaction <> tx:6 var
+def 1009:1018 <> witness_at
+R1026:1036 Rfc0023Dao.DaoTypes <> Transaction rec
+binder 1021:1022 <> tx:8
+R1044:1046 Coq.Init.Datatypes <> nat ind
+binder 1040:1040 <> i:9
+R1051:1056 Coq.Init.Datatypes <> option ind
+R1058:1062 Rfc0023Dao.DaoTypes <> Bytes def
+R1069:1077 Coq.Lists.List <> nth_error def
+R1094:1094 Rfc0023Dao.DaoTransaction <> i:9 var
+R1080:1088 Rfc0023Dao.DaoTypes <> witnesses proj
+R1090:1091 Rfc0023Dao.DaoTransaction <> tx:8 var
+def 1150:1161 <> has_cell_dep
+R1169:1179 Rfc0023Dao.DaoTypes <> Transaction rec
+binder 1164:1165 <> tx:10
+R1187:1192 Rfc0023Dao.DaoTypes <> Script rec
+binder 1183:1183 <> s:11
+R1207:1208 Coq.Lists.List <> In def
+R1213:1221 Rfc0023Dao.DaoTypes <> cell_deps proj
+R1223:1224 Rfc0023Dao.DaoTransaction <> tx:10 var
+R1210:1210 Rfc0023Dao.DaoTransaction <> s:11 var
