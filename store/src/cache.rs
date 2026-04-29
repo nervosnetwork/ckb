@@ -1,7 +1,7 @@
 use ckb_app_config::StoreConfig;
 use ckb_types::{
     bytes::Bytes,
-    core::{HeaderView, UncleBlockVecView},
+    core::{BlockNumber, HeaderView, UncleBlockVecView},
     packed::{self, Byte32, ProposalShortIdVec},
 };
 use ckb_util::Mutex;
@@ -23,6 +23,9 @@ pub struct StoreCache {
     pub block_uncles: Mutex<LruCache<Byte32, UncleBlockVecView>>,
     /// The cache of block extension sections.
     pub block_extensions: Mutex<LruCache<Byte32, Option<packed::Bytes>>>,
+    /// The cache of block hash to block number mappings.
+    /// This reduces COLUMN_HASH_INDEX lookups when using composite keys.
+    pub block_numbers: Mutex<LruCache<Byte32, BlockNumber>>,
 }
 
 impl Default for StoreCache {
@@ -42,6 +45,7 @@ impl StoreCache {
             block_tx_hashes: Mutex::new(LruCache::new(config.block_tx_hashes_cache_size)),
             block_uncles: Mutex::new(LruCache::new(config.block_uncles_cache_size)),
             block_extensions: Mutex::new(LruCache::new(config.block_extensions_cache_size)),
+            block_numbers: Mutex::new(LruCache::new(config.block_number_cache_size)),
         }
     }
 }

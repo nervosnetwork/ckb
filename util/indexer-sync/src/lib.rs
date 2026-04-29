@@ -17,7 +17,7 @@ use ckb_async_runtime::{
 };
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_INDEX, COLUMN_META,
+    COLUMN_BLOCK_UNCLE, COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMN_META,
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
@@ -55,6 +55,7 @@ pub trait IndexerSync {
 pub fn new_secondary_db(ckb_db_config: &DBConfig, config: &IndexerSyncConfig) -> SecondaryDB {
     let cf_names = vec![
         COLUMN_INDEX,
+        COLUMN_HASH_INDEX,
         COLUMN_META,
         COLUMN_BLOCK_HEADER,
         COLUMN_BLOCK_BODY,

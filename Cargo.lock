@@ -1310,11 +1310,13 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-hash",
+ "ckb-logger",
  "ckb-migration-template",
  "ckb-store",
  "ckb-systemtime",
  "ckb-types",
  "num_cpus",
+ "rayon",
  "tempfile",
 ]
 

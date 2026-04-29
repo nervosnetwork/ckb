@@ -1,7 +1,7 @@
 use ckb_app_config::StoreConfig;
 use ckb_db::{Direction, IteratorMode, Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_NUMBER_HASH};
+use ckb_db_schema::legacy::{COLUMN_BLOCK_BODY, COLUMN_INDEX, COLUMN_NUMBER_HASH};
 use ckb_migration_template::multi_thread_migration;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{molecule::io::Write, packed, prelude::*};

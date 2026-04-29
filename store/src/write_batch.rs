@@ -1,8 +1,7 @@
 use ckb_db::RocksDBWriteBatch;
 use ckb_db_schema::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_NUMBER_HASH,
-    Col,
+    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, Col,
 };
 use ckb_error::Error;
 use ckb_types::{core::BlockNumber, packed, prelude::*};
@@ -94,27 +93,18 @@ impl StoreWriteBatch {
         hash: &packed::Byte32,
         txs_len: u32,
     ) -> Result<(), Error> {
-        self.inner.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
-        self.inner.delete(COLUMN_BLOCK_EXTENSION, hash.as_slice())?;
-        self.inner
-            .delete(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())?;
-        self.inner.delete(
-            COLUMN_NUMBER_HASH,
-            packed::NumberHash::new_builder()
-                .number(number)
-                .block_hash(hash.clone())
-                .build()
-                .as_slice(),
-        )?;
+        // Build composite key: (number + hash)
+        let block_key = hash.to_block_key(number);
 
-        let key_range = (0u32..txs_len).map(|i| {
-            packed::TransactionKey::new_builder()
-                .block_hash(hash.clone())
-                .index(i)
-                .build()
-        });
+        // Delete block data using composite keys
+        self.inner.delete(COLUMN_BLOCK_UNCLE, &block_key)?;
+        self.inner.delete(COLUMN_BLOCK_EXTENSION, &block_key)?;
+        self.inner.delete(COLUMN_BLOCK_PROPOSAL_IDS, &block_key)?;
 
-        self.inner.delete_range(COLUMN_BLOCK_BODY, key_range)?;
+        // Delete transactions using composite keys: (number + hash + tx_index)
+        let tx_keys = (0u32..txs_len).map(|i| hash.to_tx_key(number, i));
+
+        self.inner.delete_range(COLUMN_BLOCK_BODY, tx_keys)?;
         Ok(())
     }
 
@@ -125,7 +115,10 @@ impl StoreWriteBatch {
         hash: &packed::Byte32,
         txs_len: u32,
     ) -> Result<(), Error> {
-        self.inner.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
+        // Build composite key: (number + hash)
+        let block_key = hash.to_block_key(number);
+
+        self.inner.delete(COLUMN_BLOCK_HEADER, &block_key)?;
         self.delete_block_body(number, hash, txs_len)
     }
 }

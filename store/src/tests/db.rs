@@ -90,6 +90,24 @@ fn index_store() {
 }
 
 #[test]
+fn get_transaction_from_initialized_store() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let store = ChainDB::new(db, Default::default());
+    let consensus = ConsensusBuilder::default().build();
+    let block = consensus.genesis_block();
+    let block_hash = block.hash();
+    let tx = block.transactions()[0].clone();
+    let tx_hash = tx.hash();
+
+    store.init(&consensus).unwrap();
+
+    let (found_tx, found_block_hash) = store.get_transaction(&tx_hash).unwrap();
+    assert_eq!(found_block_hash, block_hash);
+    assert_eq!(found_tx, tx);
+}
+
+#[test]
 fn freeze_blockv0() {
     let tmp_dir = TempDir::new().unwrap();
     let db = RocksDB::open_in(&tmp_dir, COLUMNS);

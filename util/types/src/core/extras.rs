@@ -1,5 +1,5 @@
 use crate::{
-    U256,
+    TxKey, U256,
     core::{BlockNumber, Capacity, CapacityResult, Cycle, EpochNumber},
     packed,
     prelude::*,
@@ -56,12 +56,18 @@ pub struct TransactionInfo {
 }
 
 impl TransactionInfo {
-    /// Returns the transaction key for database lookups.
+    /// Returns the legacy packed transaction key embedded in serialized `TransactionInfo`.
     pub fn key(&self) -> packed::TransactionKey {
         packed::TransactionKey::new_builder()
             .block_hash(self.block_hash.clone())
             .index(self.index)
             .build()
+    }
+
+    /// Returns the composite key used by `COLUMN_BLOCK_BODY`.
+    pub fn body_key(&self) -> TxKey {
+        self.block_hash
+            .to_tx_key(self.block_number, self.index as u32)
     }
 
     /// Creates a new transaction info with the given parameters.

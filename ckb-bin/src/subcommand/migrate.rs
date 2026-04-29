@@ -8,6 +8,36 @@ use crate::helper::prompt;
 pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
     let migrate = Migrate::new(&args.config.db.path, args.consensus.hardfork_switch);
 
+    if args.sst_rebuild {
+        if !args.force {
+            if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                let input = prompt(
+                    "\
+                    \n\
+                    SST rebuild migration will create a new RocksDB database beside the current one,\n\
+                    ingest generated SST files, validate the result, and then move the current DB to a backup path.\n\
+                    \n\
+                    CKB must be stopped while this runs. We strongly recommend backing up the data directory first.\n\
+                    \nIf you want to rebuild the data, please input YES, otherwise, the current process will exit.\n\
+                    > ",
+                );
+                if input.trim().to_lowercase() != "yes" {
+                    eprintln!("Migration was declined since the user didn't confirm.");
+                    return Err(ExitCode::Failure);
+                }
+            } else {
+                eprintln!("Run error: use --force with --sst-rebuild without interactive prompt");
+                return Err(ExitCode::Failure);
+            }
+        }
+
+        migrate.sst_rebuild().map_err(|err| {
+            eprintln!("Run error: {err:?}");
+            ExitCode::Failure
+        })?;
+        return Ok(());
+    }
+
     {
         let read_only_db = migrate.open_read_only_db().map_err(|e| {
             eprintln!("Migration error {e}");
@@ -41,6 +71,14 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
 
             if matches!(db_status, Ordering::Equal) {
                 return Ok(());
+            }
+
+            if matches!(db_status, Ordering::Less) {
+                eprintln!(
+                    "Run error: this RocksDB key schema change requires offline SST rebuild. \
+                     Run `ckb migrate --sst-rebuild --force` while CKB is stopped."
+                );
+                return Err(ExitCode::Failure);
             }
 
             if migrate.require_expensive(&db, args.include_background) && !args.force {

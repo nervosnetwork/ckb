@@ -1,6 +1,6 @@
 use ckb_app_config::StoreConfig;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::COLUMN_EPOCH;
+use ckb_db_schema::legacy::COLUMN_EPOCH;
 use ckb_error::InternalErrorKind;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
