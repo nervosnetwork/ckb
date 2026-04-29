@@ -4,15 +4,19 @@ use crate::transaction::RocksDBTransaction;
 use crate::write_batch::RocksDBWriteBatch;
 use crate::{Result, internal_error};
 use ckb_app_config::DBConfig;
-use ckb_db_schema::Col;
+use ckb_db_schema::{
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER,
+    COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_UNCLE, COLUMN_FAMILIES, COLUMNS,
+    Col, legacy,
+};
 use ckb_logger::info;
 use rocksdb::ops::{
     CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, GetPropertyCF,
-    IterateCF, OpenCF, Put, SetOptions, WriteOps,
+    IngestExternalFileCF, IterateCF, OpenCF, Put, SetOptions, WriteOps,
 };
 use rocksdb::{
     BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
-    DBPinnableSlice, FullOptions, IteratorMode, OptimisticTransactionDB,
+    DBPinnableSlice, FullOptions, IngestExternalFileOptions, IteratorMode, OptimisticTransactionDB,
     OptimisticTransactionOptions, Options, SliceTransform, WriteBatch, WriteOptions, ffi,
 };
 use std::path::Path;
@@ -33,7 +37,7 @@ const DEFAULT_CACHE_ENTRY_CHARGE_SIZE: usize = 4096;
 
 impl RocksDB {
     pub(crate) fn open_with_check(config: &DBConfig, columns: u32) -> Result<Self> {
-        let cf_names: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
+        let cf_names = column_family_names(columns);
         let mut cache = None;
 
         let (mut opts, mut cf_descriptors) = if let Some(ref file) = config.options_file {
@@ -73,11 +77,27 @@ impl RocksDB {
 
         for cf in cf_descriptors.iter_mut() {
             let mut block_opts = BlockBasedOptions::default();
-            block_opts.set_ribbon_filter(10.0);
+            // Bloom filter: standard performant filter
+            block_opts.set_bloom_filter(10.0, false);
+            // Two-level index for large datasets (reduces memory usage)
             block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
             block_opts.set_partition_filters(true);
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
+
+            // Per-column block size optimization
+            let block_size = if is_block_body_column(cf.name()) {
+                4 * 1024 // COLUMN_BLOCK_BODY: 4KB to optimize random tx lookups & cache
+            } else if is_block_column(cf.name()) {
+                8 * 1024 // Block headers etc: 8KB
+            } else {
+                4 * 1024 // Others: 4KB
+            };
+            block_opts.set_block_size(block_size);
+
+            // Use latest SST format for better compression and features
+            block_opts.set_format_version(5);
+
             match cache {
                 Some(ref cache) => {
                     block_opts.set_block_cache(cache);
@@ -86,11 +106,13 @@ impl RocksDB {
                 }
                 None => block_opts.disable_cache(),
             }
-            // only COLUMN_BLOCK_BODY column family use prefix seek
-            if cf.name() == "2" {
+            // COLUMN_BLOCK_BODY uses prefix seek for iterating transactions within a block.
+            // Key format: block_number (8 bytes) + block_hash (32 bytes) + tx_index (4 bytes) = 44 bytes
+            // Prefix is block_key (40 bytes) to group transactions by block.
+            if is_block_body_column(cf.name()) {
                 block_opts.set_whole_key_filtering(false);
                 cf.options
-                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
+                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
             }
             cf.options.set_block_based_table_factory(&block_opts);
         }
@@ -138,10 +160,11 @@ impl RocksDB {
     ) -> Result<Option<Self>> {
         let mut opts = Options::default();
 
+        opts.create_if_missing(true);
         opts.create_missing_column_families(true);
         opts.set_prepare_for_bulk_load();
 
-        let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
+        let cfnames = column_family_names(columns);
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
 
         OptimisticTransactionDB::open_cf(&opts, path, cf_options).map_or_else(
@@ -304,6 +327,24 @@ impl RocksDB {
         Ok(())
     }
 
+    /// Ingest external SST files into the given column family.
+    ///
+    /// The caller is responsible for creating SSTs with keys sorted according to RocksDB's
+    /// comparator and for ensuring the ingested files do not contain conflicting ranges.
+    pub fn ingest_external_files<P: AsRef<Path>>(&self, col: Col, paths: Vec<P>) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+
+        let cf = cf_handle(&self.inner, col)?;
+        let mut opts = IngestExternalFileOptions::default();
+        opts.set_move_files(true);
+        opts.set_snapshot_consistency(false);
+        self.inner
+            .ingest_external_file_opts(cf, paths, &opts)
+            .map_err(internal_error)
+    }
+
     /// Return `RocksDBSnapshot`.
     pub fn get_snapshot(&self) -> RocksDBSnapshot {
         unsafe {
@@ -340,6 +381,38 @@ impl RocksDB {
             .property_int_value_cf(cf, PROPERTY_NUM_KEYS)
             .map_err(internal_error)
     }
+}
+
+fn column_family_names(columns: u32) -> Vec<String> {
+    if columns == COLUMNS {
+        COLUMN_FAMILIES.iter().map(|col| col.to_string()).collect()
+    } else {
+        (0..columns).map(|c| c.to_string()).collect()
+    }
+}
+
+fn is_block_body_column(name: &str) -> bool {
+    name == COLUMN_BLOCK_BODY || name == legacy::COLUMN_BLOCK_BODY
+}
+
+fn is_block_column(name: &str) -> bool {
+    matches!(
+        name,
+        COLUMN_BLOCK_HEADER
+            | COLUMN_BLOCK_UNCLE
+            | COLUMN_BLOCK_EXT
+            | COLUMN_BLOCK_EXTENSION
+            | COLUMN_BLOCK_FILTER
+            | COLUMN_BLOCK_FILTER_HASH
+    ) || matches!(
+        name,
+        legacy::COLUMN_BLOCK_HEADER
+            | legacy::COLUMN_BLOCK_UNCLE
+            | legacy::COLUMN_BLOCK_EXT
+            | legacy::COLUMN_BLOCK_EXTENSION
+            | legacy::COLUMN_BLOCK_FILTER
+            | legacy::COLUMN_BLOCK_FILTER_HASH
+    )
 }
 
 #[inline]

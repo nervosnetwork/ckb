@@ -1,9 +1,10 @@
 //! migrate helper
 
 use crate::migrations;
+use crate::sst_rebuild::SstRebuild;
 use ckb_db::{ReadOnlyDB, RocksDB};
 use ckb_db_migration::{DefaultMigration, Migrations};
-use ckb_db_schema::{COLUMN_META, COLUMNS};
+use ckb_db_schema::{COLUMN_META, COLUMNS, legacy};
 use ckb_error::Error;
 use ckb_types::core::hardfork::HardForks;
 use std::cmp::Ordering;
@@ -32,6 +33,7 @@ impl Migrate {
         migrations.add_migration(Arc::new(migrations::AddBlockFilterColumnFamily)); // since v0.105.0
         migrations.add_migration(Arc::new(migrations::AddBlockFilterHash)); // since v0.108.0
         migrations.add_migration(Arc::new(migrations::BlockExt2019ToZero::new(hardforks))); // since v0.111.1
+        migrations.add_migration(Arc::new(migrations::SstRebuildRequired));
 
         Migrate {
             migrations,
@@ -43,6 +45,7 @@ impl Migrate {
     pub fn open_read_only_db(&self) -> Result<Option<ReadOnlyDB>, Error> {
         // open cf meta column for empty check
         ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META])
+            .or_else(|_| ReadOnlyDB::open_cf(&self.path, vec![legacy::COLUMN_META]))
     }
 
     /// Check if database's version is matched with the executable binary version.
@@ -69,7 +72,11 @@ impl Migrate {
 
     /// Open bulk load db.
     pub fn open_bulk_load_db(&self) -> Result<Option<RocksDB>, Error> {
-        RocksDB::prepare_for_bulk_load_open(&self.path, COLUMNS)
+        let columns = match ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META]) {
+            Ok(_) => COLUMNS,
+            Err(_) => legacy::COLUMNS,
+        };
+        RocksDB::prepare_for_bulk_load_open(&self.path, columns)
     }
 
     /// Perform migrate.
@@ -80,5 +87,10 @@ impl Migrate {
     /// Perform init_db_version.
     pub fn init_db_version(self, db: &RocksDB) -> Result<(), Error> {
         self.migrations.init_db_version(db)
+    }
+
+    /// Rebuild the database into the new RocksDB key schema using external SST ingestion.
+    pub fn sst_rebuild(self) -> Result<(), Error> {
+        SstRebuild::new(self.path)?.run()
     }
 }

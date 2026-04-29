@@ -8,7 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
-use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
+use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER};
 use ckb_error::{AnyError, Error};
 use ckb_logger::debug;
 use ckb_notify::NotifyController;
@@ -225,21 +225,31 @@ impl Shared {
                     e
                 })?;
 
-                let pack_number: packed::Uint64 = number.into();
-                let prefix = pack_number.as_slice();
-                for (key, value) in snapshot
+                // Find all blocks at this height by scanning COLUMN_BLOCK_HEADER with number prefix
+                let prefix = number.to_be_bytes();
+                for (key, _) in snapshot
                     .get_iter(
-                        COLUMN_NUMBER_HASH,
-                        IteratorMode::From(prefix, Direction::Forward),
+                        COLUMN_BLOCK_HEADER,
+                        IteratorMode::From(&prefix, Direction::Forward),
                     )
-                    .take_while(|(key, _)| key.starts_with(prefix))
+                    .take_while(|(key, _)| key.starts_with(&prefix))
                 {
-                    let reader = packed::NumberHashReader::from_slice_should_be_ok(key.as_ref());
-                    let block_hash = reader.block_hash().to_entity();
-                    if &block_hash != hash {
-                        let txs =
-                            packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).into();
-                        side.insert(block_hash, (reader.number().to_entity(), txs));
+                    // Extract block_hash from composite key (number + hash)
+                    if let Some(block_hash) = packed::Byte32::from_block_key(key.as_ref()) {
+                        if &block_hash != hash {
+                            // This is a fork block at the same height
+                            // Count transactions by iterating COLUMN_BLOCK_BODY
+                            let block_key = block_hash.to_block_key(*number);
+                            let txs = snapshot
+                                .get_iter(
+                                    COLUMN_BLOCK_BODY,
+                                    IteratorMode::From(&block_key, Direction::Forward),
+                                )
+                                .take_while(|(key, _)| key.starts_with(&block_key))
+                                .count() as u32;
+
+                            side.insert(block_hash, (*number, txs));
+                        }
                     }
                 }
             }
@@ -250,16 +260,14 @@ impl Shared {
             batch.clear()?;
 
             if !stopped {
-                let start = frozen.keys().min().expect("frozen empty checked");
-                let end = frozen.keys().max().expect("frozen empty checked");
-                self.compact_block_body(start, end);
+                self.compact_block_body(&frozen);
             }
         }
 
         if !side.is_empty() {
             // Wipe out side chain
             for (hash, (number, txs)) in &side {
-                batch.delete_block(number.into(), hash, *txs).map_err(|e| {
+                batch.delete_block(*number, hash, *txs).map_err(|e| {
                     ckb_logger::error!("Freezer delete_block_body failed {}", e);
                     e
                 })?;
@@ -271,31 +279,62 @@ impl Shared {
             })?;
 
             if !stopped {
-                let start = side.keys().min().expect("side empty checked");
-                let end = side.keys().max().expect("side empty checked");
-                self.compact_block_body(start, end);
+                self.compact_block_body(&side);
             }
         }
         Ok(())
     }
 
-    fn compact_block_body(&self, start: &packed::Byte32, end: &packed::Byte32) {
-        let start_t = packed::TransactionKey::new_builder()
-            .block_hash(start.clone())
-            .index(0u32)
-            .build();
+    fn compact_block_body(&self, blocks: &BTreeMap<packed::Byte32, (BlockNumber, u32)>) {
+        let mut start: Option<(BlockNumber, packed::Byte32)> = None;
+        let mut end: Option<(BlockNumber, packed::Byte32)> = None;
 
-        let end_t = packed::TransactionKey::new_builder()
-            .block_hash(end.clone())
-            .index(TX_INDEX_UPPER_BOUND)
-            .build();
+        for (hash, (number, _)) in blocks {
+            match &start {
+                None => start = Some((*number, hash.clone())),
+                Some((start_number, start_hash))
+                    if number < start_number
+                        || (number == start_number && hash.as_slice() < start_hash.as_slice()) =>
+                {
+                    start = Some((*number, hash.clone()));
+                }
+                Some(_) => {}
+            }
 
-        if let Err(e) = self.store.compact_range(
-            COLUMN_BLOCK_BODY,
-            Some(start_t.as_slice()),
-            Some(end_t.as_slice()),
-        ) {
-            ckb_logger::error!("Freezer compact_range {}-{} error {}", start, end, e);
+            match &end {
+                None => end = Some((*number, hash.clone())),
+                Some((end_number, end_hash))
+                    if number > end_number
+                        || (number == end_number && hash.as_slice() > end_hash.as_slice()) =>
+                {
+                    end = Some((*number, hash.clone()));
+                }
+                Some(_) => {}
+            }
+        }
+
+        let Some((start_number, start_hash)) = start else {
+            return;
+        };
+        let Some((end_number, end_hash)) = end else {
+            return;
+        };
+
+        let start_t = start_hash.to_tx_key(start_number, 0);
+        let end_t = end_hash.to_tx_key(end_number, TX_INDEX_UPPER_BOUND);
+
+        if let Err(e) = self
+            .store
+            .compact_range(COLUMN_BLOCK_BODY, Some(&start_t), Some(&end_t))
+        {
+            ckb_logger::error!(
+                "Freezer compact_range {}:{}-{}:{} error {}",
+                start_number,
+                start_hash,
+                end_number,
+                end_hash,
+                e
+            );
         }
     }
 

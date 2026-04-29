@@ -1,7 +1,7 @@
 use ckb_app_config::StoreConfig;
 use ckb_db::RocksDB;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::COLUMN_BLOCK_FILTER_HASH;
+use ckb_db_schema::legacy::COLUMN_BLOCK_FILTER_HASH;
 use ckb_error::Error;
 use ckb_hash::blake2b_256;
 use ckb_store::{ChainDB, ChainStore};
