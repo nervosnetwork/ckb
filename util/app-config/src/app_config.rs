@@ -312,7 +312,9 @@ impl CKBAppConfig {
         }
         if self.logger.log_to_file {
             mkdir(self.logger.log_dir.clone())?;
-            touch(self.logger.log_dir.join(&self.logger.file))?;
+            if !self.logger.log_file_split.is_enabled() {
+                touch(self.logger.log_dir.join(&self.logger.file))?;
+            }
         }
         self.chain.spec.absolutize(root_dir);
 
@@ -341,7 +343,9 @@ impl MinerAppConfig {
         self.logger.file = Path::new("miner.log").to_path_buf();
         if self.logger.log_to_file {
             mkdir(self.logger.log_dir.clone())?;
-            touch(self.logger.log_dir.join(&self.logger.file))?;
+            if !self.logger.log_file_split.is_enabled() {
+                touch(self.logger.log_dir.join(&self.logger.file))?;
+            }
         }
         self.chain.spec.absolutize(root_dir);
 
