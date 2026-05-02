@@ -98,7 +98,7 @@ impl DnsSeedingService {
                                         }
                                     }
                                     Err(err) => {
-                                        debug!("DNS txt record retrivial error: {:?}", err);
+                                        debug!("DNS txt record retrieval error: {:?}", err);
                                     }
                                 }
                             }
