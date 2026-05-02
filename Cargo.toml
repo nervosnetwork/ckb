@@ -239,7 +239,7 @@ governor = { version = "0.10", default-features = false, features = [
   "quanta",
 ] }
 hex = "0.4"
-hickory-resolver = "0.24.2"
+hickory-resolver = "0.26.1"
 http-body-util = "0.1"
 hyper = "1"
 hyper-tls = "0.6"
