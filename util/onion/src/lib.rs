@@ -1,19 +1,26 @@
 //! Onion service module
 
-use std::net::SocketAddr;
-
 use futures::future::BoxFuture;
-use torut::control::{AsyncEvent, ConnError};
+use std::net::SocketAddr;
 
 /// Onion service module
 pub mod onion_service;
 /// Tor controller module
 pub mod tor_controller;
+mod tor_key;
 
 pub use tor_controller::TorController;
+pub use tor_key::TorSecretKeyV3;
+
+/// Tor asynchronous event placeholder.
+///
+/// The hand-rolled controller currently does not subscribe to Tor async events,
+/// but the handler type is kept to avoid changing call sites that pass `None`.
+pub struct TorControlEvent;
 
 /// Tor event handler function
-pub type TorEventHandlerFn = fn(AsyncEvent<'_>) -> BoxFuture<'static, Result<(), ConnError>>;
+pub type TorEventHandlerFn =
+    fn(TorControlEvent) -> BoxFuture<'static, Result<(), tor_controller::ConnError>>;
 
 /// Configuration for onion service
 pub struct OnionServiceConfig {

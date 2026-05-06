@@ -11,10 +11,9 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use torut::onion::TorSecretKeyV3;
 
 use crate::tor_controller::TorController;
-use crate::OnionServiceConfig;
+use crate::{OnionServiceConfig, TorSecretKeyV3};
 
 /// Onion service.
 pub struct OnionService {
@@ -32,10 +31,7 @@ impl OnionService {
         let key: TorSecretKeyV3 =
             load_or_create_tor_secret_key(config.onion_private_key_path.clone())?;
 
-        let tor_address_without_dot_onion = key
-            .public()
-            .get_onion_address()
-            .get_address_without_dot_onion();
+        let tor_address_without_dot_onion = key.onion_address_without_dot_onion();
 
         let onion_external_port = config.onion_external_port;
         let onion_multi_addr_str = format!(
@@ -161,10 +157,10 @@ fn load_or_create_tor_secret_key(onion_private_key_path: String) -> Result<TorSe
 }
 
 fn create_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV3, Error> {
-    let key = torut::onion::TorSecretKeyV3::generate();
+    let key = TorSecretKeyV3::generate();
     info!(
         "Generated new onion service v3 key for address: {}",
-        key.public().get_onion_address()
+        key.onion_address_without_dot_onion()
     );
 
     #[cfg_attr(not(unix), allow(unused_mut))]
@@ -219,5 +215,5 @@ fn load_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV3,
     }
     let mut buf = [0u8; TOR_SECRET_KEY_LENGTH];
     buf.copy_from_slice(raw);
-    Ok(TorSecretKeyV3::from(buf))
+    Ok(TorSecretKeyV3::from_bytes(buf))
 }

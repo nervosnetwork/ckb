@@ -11,8 +11,13 @@ rust-version = "1.92.0"
 
 [dependencies]
 base64.workspace = true
+curve25519-dalek.workspace = true
+hex.workspace = true
+hmac.workspace = true
+rand.workspace = true
+sha2.workspace = true
+sha3.workspace = true
 tokio = { workspace = true, features = [ "full", "macros" ]}
-torut.workspace = true
 ckb-error.workspace = true
 ckb-async-runtime.workspace = true
 ckb-logger.workspace = true
