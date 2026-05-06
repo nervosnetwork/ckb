@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.206.0-rc1](https://github.com/nervosnetwork/ckb/compare/v0.205.0...v0.206.0-rc1) - 2026-04-28
+## [0.206.0](https://github.com/nervosnetwork/ckb/compare/v0.205.0...v0.206.0) - 2026-05-06
 
 ### Added
 
@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - preserve leading zero bytes and handle all-0xFF overflow in rich-indexer prefix search upper bound (#5166) (by @Copilot)
-- *(deps)* fix`make security-audit`: update keccak to 0.1.6 (#5158) (by @eval-exec)
+- *(deps)* fix `make security-audit`: update keccak to 0.1.6 (#5158) (by @eval-exec)
 
 ### Security
 

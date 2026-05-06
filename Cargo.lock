@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.206.0-rc1"
+version = "0.206.0"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
