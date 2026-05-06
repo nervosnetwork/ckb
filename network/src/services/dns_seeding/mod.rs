@@ -69,10 +69,10 @@ impl DnsSeedingService {
             .map_err(|err| format!("create PublicKey failed: {err:?}"))?;
 
         let resolver = hickory_resolver::Resolver::builder_tokio()
-            .map_err(|err| format!("Failed to create DNS resolver: {err}"))?;
+            .map_err(|err| format!("Failed to create DNS resolver builder: {err}"))?;
         let resolver = resolver
             .build()
-            .map_err(|err| format!("Failed to create DNS resolver: {err}"))?;
+            .map_err(|err| format!("Failed to build DNS resolver: {err}"))?;
 
         let mut addrs = Vec::new();
         for seed in &self.seeds {
