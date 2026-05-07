@@ -1,7 +1,9 @@
 use ckb_db::RocksDBWriteBatch;
 use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, Col,
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
+    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
+    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_HASH_INDEX,
+    Col, block_body_key, block_key, out_point_key,
 };
 use ckb_error::Error;
 use ckb_types::{core::BlockNumber, packed, prelude::*};
@@ -9,9 +11,14 @@ use ckb_types::{core::BlockNumber, packed, prelude::*};
 /// Wrapper of `RocksDBWriteBatch`, provides atomic batch of write operations.
 pub struct StoreWriteBatch {
     pub(crate) inner: RocksDBWriteBatch,
+    pub(crate) deleted_block_hashes: Vec<packed::Byte32>,
 }
 
 impl StoreWriteBatch {
+    pub(crate) fn deleted_block_hashes(&self) -> &[packed::Byte32] {
+        &self.deleted_block_hashes
+    }
+
     /// Write the bytes into the given column with associated key.
     pub fn put(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.inner.put(col, key, value)
@@ -39,6 +46,7 @@ impl StoreWriteBatch {
 
     /// Clear all updates buffered in this batch.
     pub fn clear(&mut self) -> Result<(), Error> {
+        self.deleted_block_hashes.clear();
         self.inner.clear()
     }
 
@@ -54,7 +62,7 @@ impl StoreWriteBatch {
         >,
     ) -> Result<(), Error> {
         for (out_point, cell, cell_data) in cells {
-            let key = out_point.to_cell_key();
+            let key = out_point_key(&out_point);
             self.put(COLUMN_CELL, &key, cell.as_slice())?;
             if let Some(data) = cell_data {
                 self.put(COLUMN_CELL_DATA, &key, data.as_slice())?;
@@ -77,7 +85,7 @@ impl StoreWriteBatch {
         out_points: impl Iterator<Item = packed::OutPoint>,
     ) -> Result<(), Error> {
         for out_point in out_points {
-            let key = out_point.to_cell_key();
+            let key = out_point_key(&out_point);
             self.delete(COLUMN_CELL, &key)?;
             self.delete(COLUMN_CELL_DATA, &key)?;
             self.delete(COLUMN_CELL_DATA_HASH, &key)?;
@@ -94,7 +102,7 @@ impl StoreWriteBatch {
         txs_len: u32,
     ) -> Result<(), Error> {
         // Build composite key: (number + hash)
-        let block_key = hash.to_block_key(number);
+        let block_key = block_key(number, hash);
 
         // Delete block data using composite keys
         self.inner.delete(COLUMN_BLOCK_UNCLE, &block_key)?;
@@ -102,7 +110,7 @@ impl StoreWriteBatch {
         self.inner.delete(COLUMN_BLOCK_PROPOSAL_IDS, &block_key)?;
 
         // Delete transactions using composite keys: (number + hash + tx_index)
-        let tx_keys = (0u32..txs_len).map(|i| hash.to_tx_key(number, i));
+        let tx_keys = (0u32..txs_len).map(|i| block_body_key(number, hash, i));
 
         self.inner.delete_range(COLUMN_BLOCK_BODY, tx_keys)?;
         Ok(())
@@ -116,9 +124,15 @@ impl StoreWriteBatch {
         txs_len: u32,
     ) -> Result<(), Error> {
         // Build composite key: (number + hash)
-        let block_key = hash.to_block_key(number);
+        let block_key = block_key(number, hash);
 
         self.inner.delete(COLUMN_BLOCK_HEADER, &block_key)?;
+        self.inner.delete(COLUMN_BLOCK_EXT, &block_key)?;
+        self.inner.delete(COLUMN_BLOCK_EPOCH, &block_key)?;
+        self.inner.delete(COLUMN_BLOCK_FILTER, &block_key)?;
+        self.inner.delete(COLUMN_BLOCK_FILTER_HASH, &block_key)?;
+        self.inner.delete(COLUMN_HASH_INDEX, hash.as_slice())?;
+        self.deleted_block_hashes.push(hash.clone());
         self.delete_block_body(number, hash, txs_len)
     }
 }

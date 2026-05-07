@@ -3,7 +3,7 @@
 use crate::Col;
 
 /// Total current column family number.
-pub const COLUMNS: u32 = 20;
+pub const COLUMNS: u32 = 19;
 
 /// Current column family names in creation/open order.
 pub const COLUMN_FAMILIES: &[Col] = &[
@@ -20,7 +20,6 @@ pub const COLUMN_FAMILIES: &[Col] = &[
     COLUMN_CELL,
     COLUMN_UNCLES,
     COLUMN_CELL_DATA,
-    COLUMN_NUMBER_HASH,
     COLUMN_CELL_DATA_HASH,
     COLUMN_BLOCK_EXTENSION,
     COLUMN_CHAIN_ROOT_MMR,
@@ -154,16 +153,6 @@ pub const COLUMN_UNCLES: Col = "uncles";
 /// Key format: `OutPoint` = `Byte32` (tx_hash) + `Uint32` (index, big-endian)
 /// Value format: `CellDataEntry` (output_data + output_data_hash) or empty
 pub const COLUMN_CELL_DATA: Col = "cell_data";
-
-/// Column store block number-hash pair with transaction count
-///
-/// DEPRECATED: This column is no longer needed with composite keys.
-/// The composite key (number + hash) is now used directly in block columns.
-/// This column will be removed in a future version.
-///
-/// Key format: `NumberHash` = `Uint64` (block_number, big-endian) + `Byte32` (block_hash)
-/// Value format: `Uint32` (transaction count)
-pub const COLUMN_NUMBER_HASH: Col = "number_hash";
 
 /// Column store cell data hash
 ///

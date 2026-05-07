@@ -48,4 +48,14 @@ impl StoreCache {
             block_numbers: Mutex::new(LruCache::new(config.block_number_cache_size)),
         }
     }
+
+    /// Removes cached data for a block after the block is deleted from storage.
+    pub fn invalidate_block(&self, hash: &Byte32) {
+        self.headers.lock().pop(hash);
+        self.block_proposals.lock().pop(hash);
+        self.block_tx_hashes.lock().pop(hash);
+        self.block_uncles.lock().pop(hash);
+        self.block_extensions.lock().pop(hash);
+        self.block_numbers.lock().pop(hash);
+    }
 }

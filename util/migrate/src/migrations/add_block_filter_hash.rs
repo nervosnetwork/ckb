@@ -1,10 +1,9 @@
-use ckb_app_config::StoreConfig;
+use crate::legacy_store::LegacyChainDB;
 use ckb_db::RocksDB;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
 use ckb_db_schema::legacy::COLUMN_BLOCK_FILTER_HASH;
 use ckb_error::Error;
 use ckb_hash::blake2b_256;
-use ckb_store::{ChainDB, ChainStore};
 use ckb_types::prelude::Entity;
 use std::sync::Arc;
 
@@ -18,7 +17,7 @@ impl Migration for AddBlockFilterHash {
         db: RocksDB,
         pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<RocksDB, Error> {
-        let chain_db = ChainDB::new(db, StoreConfig::default());
+        let chain_db = LegacyChainDB::new(db);
         if let Some(block_hash) = chain_db.get_latest_built_filter_data_block_hash() {
             let latest_built_filter_data_block_number = if chain_db.is_main_chain(&block_hash) {
                 chain_db
