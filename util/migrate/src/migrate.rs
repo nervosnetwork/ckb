@@ -2,9 +2,9 @@
 
 use crate::migrations;
 use crate::sst_rebuild::SstRebuild;
-use ckb_db::{ReadOnlyDB, RocksDB};
+use ckb_db::{ReadOnlyDB, RocksDB, Schema};
 use ckb_db_migration::{DefaultMigration, Migrations};
-use ckb_db_schema::{COLUMN_META, COLUMNS, legacy};
+use ckb_db_schema::{COLUMN_META, legacy};
 use ckb_error::Error;
 use ckb_types::core::hardfork::HardForks;
 use std::cmp::Ordering;
@@ -72,11 +72,11 @@ impl Migrate {
 
     /// Open bulk load db.
     pub fn open_bulk_load_db(&self) -> Result<Option<RocksDB>, Error> {
-        let columns = match ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META]) {
-            Ok(_) => COLUMNS,
-            Err(_) => legacy::COLUMNS,
+        let schema = match ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META]) {
+            Ok(_) => Schema::V1,
+            Err(_) => Schema::Legacy,
         };
-        RocksDB::prepare_for_bulk_load_open(&self.path, columns)
+        RocksDB::prepare_for_bulk_load_open(&self.path, schema)
     }
 
     /// Perform migrate.

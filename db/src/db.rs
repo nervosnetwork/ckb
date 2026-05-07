@@ -4,11 +4,7 @@ use crate::transaction::RocksDBTransaction;
 use crate::write_batch::RocksDBWriteBatch;
 use crate::{Result, internal_error};
 use ckb_app_config::DBConfig;
-use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER,
-    COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_UNCLE, COLUMN_FAMILIES, COLUMNS,
-    Col, legacy,
-};
+use ckb_db_schema::{Col, legacy, v1};
 use ckb_logger::info;
 use rocksdb::ops::{
     CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, GetPropertyCF,
@@ -24,6 +20,24 @@ use std::sync::Arc;
 
 const PROPERTY_NUM_KEYS: &str = "rocksdb.estimate-num-keys";
 
+/// RocksDB column-family schema.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Schema {
+    /// Current CKB column-family schema.
+    V1,
+    /// Legacy numeric column-family schema used by databases before the v1 rebuild.
+    Legacy,
+}
+
+impl Schema {
+    fn column_families(self) -> &'static [Col] {
+        match self {
+            Schema::V1 => v1::COLUMN_FAMILIES,
+            Schema::Legacy => legacy::COLUMN_FAMILIES,
+        }
+    }
+}
+
 /// RocksDB wrapper base on OptimisticTransactionDB
 ///
 /// <https://github.com/facebook/rocksdb/wiki/Transactions#optimistictransactiondb>
@@ -35,9 +49,134 @@ pub struct RocksDB {
 const DEFAULT_CACHE_SIZE: usize = 256 << 20;
 const DEFAULT_CACHE_ENTRY_CHARGE_SIZE: usize = 4096;
 
+const LEGACY_COLUMN_FAMILY_OPTION_MAPPINGS: &[(Col, Option<Col>, &str)] = &[
+    (legacy::COLUMN_INDEX, Some(v1::COLUMN_INDEX), "rename"),
+    (
+        legacy::COLUMN_BLOCK_HEADER,
+        Some(v1::COLUMN_BLOCK_HEADER),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_BODY,
+        Some(v1::COLUMN_BLOCK_BODY),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_UNCLE,
+        Some(v1::COLUMN_BLOCK_UNCLE),
+        "rename",
+    ),
+    (legacy::COLUMN_META, Some(v1::COLUMN_META), "rename"),
+    (
+        legacy::COLUMN_TRANSACTION_INFO,
+        Some(v1::COLUMN_TRANSACTION_INFO),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_EXT,
+        Some(v1::COLUMN_BLOCK_EXT),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_PROPOSAL_IDS,
+        Some(v1::COLUMN_BLOCK_PROPOSAL_IDS),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_EPOCH,
+        Some(v1::COLUMN_BLOCK_EPOCH),
+        "rename",
+    ),
+    (legacy::COLUMN_EPOCH, Some(v1::COLUMN_EPOCH), "rename"),
+    (legacy::COLUMN_CELL, Some(v1::COLUMN_CELL), "rename"),
+    (legacy::COLUMN_UNCLES, Some(v1::COLUMN_UNCLES), "rename"),
+    (
+        legacy::COLUMN_CELL_DATA,
+        Some(v1::COLUMN_CELL_DATA),
+        "rename",
+    ),
+    (legacy::COLUMN_NUMBER_HASH, None, "removed"),
+    (
+        legacy::COLUMN_CELL_DATA_HASH,
+        Some(v1::COLUMN_CELL_DATA_HASH),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_EXTENSION,
+        Some(v1::COLUMN_BLOCK_EXTENSION),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_CHAIN_ROOT_MMR,
+        Some(v1::COLUMN_CHAIN_ROOT_MMR),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_FILTER,
+        Some(v1::COLUMN_BLOCK_FILTER),
+        "rename",
+    ),
+    (
+        legacy::COLUMN_BLOCK_FILTER_HASH,
+        Some(v1::COLUMN_BLOCK_FILTER_HASH),
+        "rename",
+    ),
+];
+
+fn legacy_column_family_option_hint(name: &str) -> Option<String> {
+    let (_, new_name, note) = LEGACY_COLUMN_FAMILY_OPTION_MAPPINGS
+        .iter()
+        .find(|(old_name, _, _)| *old_name == name)?;
+    Some(match new_name {
+        Some(new_name) => format!("[CFOptions \"{name}\"] -> [CFOptions \"{new_name}\"]"),
+        None => format!("[CFOptions \"{name}\"] has no direct current column family; {note}"),
+    })
+}
+
+fn legacy_column_family_options_table() -> String {
+    let mut table = String::from(
+        "Legacy-to-current column-family options mapping:\n  old CF | current CF           | note\n  ------ | -------------------- | ----",
+    );
+    for (old_name, new_name, note) in LEGACY_COLUMN_FAMILY_OPTION_MAPPINGS {
+        let old_name = format!("\"{old_name}\"");
+        let new_name = new_name
+            .map(|name| format!("\"{name}\""))
+            .unwrap_or_else(|| "(removed)".to_string());
+        table.push_str(&format!("\n  {old_name:<6} | {new_name:<20} | {note}"));
+    }
+    table.push_str(&format!(
+        "\n  (new)  | \"{}\"         | new hash-to-block index column; configure separately if needed",
+        v1::COLUMN_HASH_INDEX
+    ));
+    table
+}
+
+fn legacy_column_family_options_hint(unknown_cf_names: &[&str]) -> Option<String> {
+    let hints: Vec<_> = unknown_cf_names
+        .iter()
+        .filter_map(|name| legacy_column_family_option_hint(name))
+        .collect();
+    if hints.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "If you keep per-column-family tuning, rename the reported legacy sections as: {}.\n{}",
+            hints.join("; "),
+            legacy_column_family_options_table()
+        ))
+    }
+}
+
 impl RocksDB {
-    pub(crate) fn open_with_check(config: &DBConfig, columns: u32) -> Result<Self> {
-        let cf_names = column_family_names(columns);
+    pub(crate) fn open_with_check(config: &DBConfig, schema: Schema) -> Result<Self> {
+        Self::open_with_column_family_names(config, schema_column_family_names(schema))
+    }
+
+    pub(crate) fn open_with_check_columns(config: &DBConfig, columns: u32) -> Result<Self> {
+        Self::open_with_column_family_names(config, numeric_column_family_names(columns))
+    }
+
+    fn open_with_column_family_names(config: &DBConfig, cf_names: Vec<String>) -> Result<Self> {
         let mut cache = None;
 
         let (mut opts, mut cf_descriptors) = if let Some(ref file) = config.options_file {
@@ -56,10 +195,42 @@ impl RocksDB {
             let mut full_opts = FullOptions::load_from_file_with_cache(file, cache.clone(), false)
                 .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
             let cf_names_str: Vec<&str> = cf_names.iter().map(|s| s.as_str()).collect();
+            let loaded_cf_names: Vec<_> = full_opts
+                .cf_descriptors
+                .iter()
+                .map(|cf| cf.name().to_string())
+                .collect();
+            let unknown_cf_names: Vec<_> = loaded_cf_names
+                .iter()
+                .map(String::as_str)
+                .filter(|name| {
+                    *name != "default" && !cf_names.iter().any(|cf_name| cf_name.as_str() == *name)
+                })
+                .collect();
             full_opts
                 .complete_column_families(&cf_names_str, false)
                 .map_err(|err| {
-                    internal_error(format!("failed to check all column families: {err}"))
+                    let unknown_cf_hint = if unknown_cf_names.is_empty() {
+                        "no unknown column family was detected before validation".to_string()
+                    } else {
+                        format!("unknown column families: {unknown_cf_names:?}")
+                    };
+                    let legacy_cf_hint =
+                        legacy_column_family_options_hint(&unknown_cf_names).unwrap_or_else(
+                            || {
+                                "Check that every [CFOptions \"...\"] section uses a current column-family name"
+                                    .to_string()
+                            },
+                        );
+                    internal_error(format!(
+                        "RocksDB options file {} is incompatible with the current CKB DB schema.\n\n\
+Problem:\n  {unknown_cf_hint}\n\n\
+Likely cause:\n  The options file was generated by an older CKB version with numeric column-family names, such as [CFOptions \"1\"].\n\n\
+How to update column-family options:\n{legacy_cf_hint}\n\n\
+How to fix:\n  Update the column-family names in the RocksDB options file, for example default.db-options, or remove legacy numeric [CFOptions \"...\"] sections you do not need.\n\n\
+RocksDB error:\n  {err}",
+                        file.display(),
+                    ))
                 })?;
             let FullOptions {
                 db_opts,
@@ -77,27 +248,11 @@ impl RocksDB {
 
         for cf in cf_descriptors.iter_mut() {
             let mut block_opts = BlockBasedOptions::default();
-            // Bloom filter: standard performant filter
-            block_opts.set_bloom_filter(10.0, false);
-            // Two-level index for large datasets (reduces memory usage)
+            block_opts.set_ribbon_filter(10.0);
             block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
             block_opts.set_partition_filters(true);
             block_opts.set_metadata_block_size(4096);
             block_opts.set_pin_top_level_index_and_filter(true);
-
-            // Per-column block size optimization
-            let block_size = if is_block_body_column(cf.name()) {
-                4 * 1024 // COLUMN_BLOCK_BODY: 4KB to optimize random tx lookups & cache
-            } else if is_block_column(cf.name()) {
-                8 * 1024 // Block headers etc: 8KB
-            } else {
-                4 * 1024 // Others: 4KB
-            };
-            block_opts.set_block_size(block_size);
-
-            // Use latest SST format for better compression and features
-            block_opts.set_format_version(5);
-
             match cache {
                 Some(ref cache) => {
                     block_opts.set_block_cache(cache);
@@ -106,13 +261,17 @@ impl RocksDB {
                 }
                 None => block_opts.disable_cache(),
             }
-            // COLUMN_BLOCK_BODY uses prefix seek for iterating transactions within a block.
-            // Key format: block_number (8 bytes) + block_hash (32 bytes) + tx_index (4 bytes) = 44 bytes
-            // Prefix is block_key (40 bytes) to group transactions by block.
-            if is_block_body_column(cf.name()) {
+            if cf.name() == v1::COLUMN_BLOCK_BODY {
+                // V1 block-body key: block_number (8) + block_hash (32) + tx_index (4).
+                // Prefix is block_key (40 bytes) to group transactions by block.
                 block_opts.set_whole_key_filtering(false);
                 cf.options
                     .set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
+            } else if cf.name() == legacy::COLUMN_BLOCK_BODY {
+                // Legacy block-body key: block_hash (32) + tx_index (4).
+                block_opts.set_whole_key_filtering(false);
+                cf.options
+                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
             }
             cf.options.set_block_based_table_factory(&block_opts);
         }
@@ -139,32 +298,61 @@ impl RocksDB {
         })
     }
 
-    /// Open a database with the given configuration and columns count.
-    pub fn open(config: &DBConfig, columns: u32) -> Self {
-        Self::open_with_check(config, columns).unwrap_or_else(|err| panic!("{err}"))
+    /// Open a database with the given configuration and schema.
+    pub fn open(config: &DBConfig, schema: Schema) -> Self {
+        Self::open_with_check(config, schema).unwrap_or_else(|err| panic!("{err}"))
     }
 
-    /// Open a database in the given directory with the default configuration and columns count.
-    pub fn open_in<P: AsRef<Path>>(path: P, columns: u32) -> Self {
+    /// Open a database with numeric column-family names `0..columns`.
+    pub fn open_with_columns(config: &DBConfig, columns: u32) -> Self {
+        Self::open_with_check_columns(config, columns).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Open a database in the given directory with the default configuration and schema.
+    pub fn open_in<P: AsRef<Path>>(path: P, schema: Schema) -> Self {
         let config = DBConfig {
             path: path.as_ref().to_path_buf(),
             ..Default::default()
         };
-        Self::open_with_check(&config, columns).unwrap_or_else(|err| panic!("{err}"))
+        Self::open_with_check(&config, schema).unwrap_or_else(|err| panic!("{err}"))
     }
 
     /// Set appropriate parameters for bulk loading.
     pub fn prepare_for_bulk_load_open<P: AsRef<Path>>(
         path: P,
-        columns: u32,
+        schema: Schema,
     ) -> Result<Option<Self>> {
+        Self::bulk_load_open(path, schema, false)
+    }
+
+    /// Create a database with appropriate parameters for bulk loading.
+    pub fn create_for_bulk_load_open<P: AsRef<Path>>(path: P, schema: Schema) -> Result<Self> {
+        let path = path.as_ref();
+        Self::bulk_load_open(path, schema, true)?.ok_or_else(|| {
+            internal_error(format!(
+                "failed to create bulk-load database {}",
+                path.display()
+            ))
+        })
+    }
+
+    fn bulk_load_open<P: AsRef<Path>>(
+        path: P,
+        schema: Schema,
+        create_if_missing: bool,
+    ) -> Result<Option<Self>> {
+        let path = path.as_ref();
+        if !create_if_missing && !path.exists() {
+            return Ok(None);
+        }
+
         let mut opts = Options::default();
 
-        opts.create_if_missing(true);
+        opts.create_if_missing(create_if_missing);
         opts.create_missing_column_families(true);
         opts.set_prepare_for_bulk_load();
 
-        let cfnames = column_family_names(columns);
+        let cfnames = schema_column_family_names(schema);
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
 
         OptimisticTransactionDB::open_cf(&opts, path, cf_options).map_or_else(
@@ -383,36 +571,16 @@ impl RocksDB {
     }
 }
 
-fn column_family_names(columns: u32) -> Vec<String> {
-    if columns == COLUMNS {
-        COLUMN_FAMILIES.iter().map(|col| col.to_string()).collect()
-    } else {
-        (0..columns).map(|c| c.to_string()).collect()
-    }
+fn schema_column_family_names(schema: Schema) -> Vec<String> {
+    schema
+        .column_families()
+        .iter()
+        .map(|col| col.to_string())
+        .collect()
 }
 
-fn is_block_body_column(name: &str) -> bool {
-    name == COLUMN_BLOCK_BODY || name == legacy::COLUMN_BLOCK_BODY
-}
-
-fn is_block_column(name: &str) -> bool {
-    matches!(
-        name,
-        COLUMN_BLOCK_HEADER
-            | COLUMN_BLOCK_UNCLE
-            | COLUMN_BLOCK_EXT
-            | COLUMN_BLOCK_EXTENSION
-            | COLUMN_BLOCK_FILTER
-            | COLUMN_BLOCK_FILTER_HASH
-    ) || matches!(
-        name,
-        legacy::COLUMN_BLOCK_HEADER
-            | legacy::COLUMN_BLOCK_UNCLE
-            | legacy::COLUMN_BLOCK_EXT
-            | legacy::COLUMN_BLOCK_EXTENSION
-            | legacy::COLUMN_BLOCK_FILTER
-            | legacy::COLUMN_BLOCK_FILTER_HASH
-    )
+fn numeric_column_family_names(columns: u32) -> Vec<String> {
+    (0..columns).map(|c| c.to_string()).collect()
 }
 
 #[inline]

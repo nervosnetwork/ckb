@@ -2,7 +2,7 @@ use crate::utils::orphan_block_pool::EXPIRED_EPOCH;
 use crate::{ChainController, LonelyBlock};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_db::{Direction, IteratorMode};
-use ckb_db_schema::COLUMN_BLOCK_HEADER;
+use ckb_db_schema::{COLUMN_BLOCK_HEADER, decode_block_key};
 use ckb_logger::{error, info};
 use ckb_shared::Shared;
 use ckb_stop_handler::has_received_stop_signal;
@@ -47,7 +47,7 @@ impl InitLoadUnverified {
             .take_while(|(key, _)| key.starts_with(&prefix))
             .filter_map(|(key, _)| {
                 // Extract block_hash from composite key (number + hash)
-                packed::Byte32::from_block_key(key.as_ref())
+                decode_block_key(key.as_ref()).map(|(_, hash)| hash)
             })
             .filter(|hash| self.shared.store().get_block_ext(hash).is_none())
             .collect::<Vec<packed::Byte32>>();

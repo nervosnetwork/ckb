@@ -8,7 +8,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
 use ckb_db::{Direction, IteratorMode};
-use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER};
+use ckb_db_schema::{
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, block_body_key, block_key, decode_block_key,
+};
 use ckb_error::{AnyError, Error};
 use ckb_logger::debug;
 use ckb_notify::NotifyController;
@@ -235,21 +237,21 @@ impl Shared {
                     .take_while(|(key, _)| key.starts_with(&prefix))
                 {
                     // Extract block_hash from composite key (number + hash)
-                    if let Some(block_hash) = packed::Byte32::from_block_key(key.as_ref()) {
-                        if &block_hash != hash {
-                            // This is a fork block at the same height
-                            // Count transactions by iterating COLUMN_BLOCK_BODY
-                            let block_key = block_hash.to_block_key(*number);
-                            let txs = snapshot
-                                .get_iter(
-                                    COLUMN_BLOCK_BODY,
-                                    IteratorMode::From(&block_key, Direction::Forward),
-                                )
-                                .take_while(|(key, _)| key.starts_with(&block_key))
-                                .count() as u32;
+                    if let Some((_, block_hash)) = decode_block_key(key.as_ref())
+                        && &block_hash != hash
+                    {
+                        // This is a fork block at the same height
+                        // Count transactions by iterating COLUMN_BLOCK_BODY
+                        let block_key = block_key(*number, &block_hash);
+                        let txs = snapshot
+                            .get_iter(
+                                COLUMN_BLOCK_BODY,
+                                IteratorMode::From(&block_key, Direction::Forward),
+                            )
+                            .take_while(|(key, _)| key.starts_with(&block_key))
+                            .count() as u32;
 
-                            side.insert(block_hash, (*number, txs));
-                        }
+                        side.insert(block_hash, (*number, txs));
                     }
                 }
             }
@@ -320,8 +322,8 @@ impl Shared {
             return;
         };
 
-        let start_t = start_hash.to_tx_key(start_number, 0);
-        let end_t = end_hash.to_tx_key(end_number, TX_INDEX_UPPER_BOUND);
+        let start_t = block_body_key(start_number, &start_hash, 0);
+        let end_t = block_body_key(end_number, &end_hash, TX_INDEX_UPPER_BOUND);
 
         if let Err(e) = self
             .store

@@ -1,6 +1,9 @@
 use ckb_chain_spec::consensus::ConsensusBuilder;
-use ckb_db::RocksDB;
-use ckb_db_schema::{COLUMN_BLOCK_HEADER, COLUMNS};
+use ckb_db::{RocksDB, Schema};
+use ckb_db_schema::{
+    COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH,
+    COLUMN_HASH_INDEX, block_key,
+};
 use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
 use tempfile::TempDir;
@@ -10,7 +13,7 @@ use crate::{db::ChainDB, store::ChainStore};
 #[test]
 fn save_and_get_block() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let consensus = ConsensusBuilder::default().build();
     let block = consensus.genesis_block();
@@ -25,7 +28,7 @@ fn save_and_get_block() {
 #[test]
 fn save_and_get_block_with_transactions() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let block = packed::Block::new_builder()
         .transactions(
@@ -46,7 +49,7 @@ fn save_and_get_block_with_transactions() {
 #[test]
 fn save_and_get_block_ext() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let consensus = ConsensusBuilder::default().build();
     let block = consensus.genesis_block();
@@ -63,7 +66,8 @@ fn save_and_get_block_ext() {
 
     let hash = block.hash();
     let txn = store.begin_transaction();
-    txn.insert_block_ext(&hash, &ext).unwrap();
+    txn.insert_block(block).unwrap();
+    txn.insert_block_ext(block.number(), &hash, &ext).unwrap();
     txn.commit().unwrap();
     assert_eq!(ext, store.get_block_ext(&hash).unwrap());
 }
@@ -71,7 +75,7 @@ fn save_and_get_block_ext() {
 #[test]
 fn index_store() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let consensus = ConsensusBuilder::default().build();
     let block = consensus.genesis_block();
@@ -90,9 +94,115 @@ fn index_store() {
 }
 
 #[test]
+fn get_block_number_returns_only_main_chain_blocks() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
+    let store = ChainDB::new(db, Default::default());
+    let consensus = ConsensusBuilder::default().build();
+    let genesis_hash = consensus.genesis_block().hash();
+
+    store.init(&consensus).unwrap();
+
+    let raw = packed::RawHeader::new_builder()
+        .parent_hash(genesis_hash.clone())
+        .number(1u64)
+        .build();
+    let fork = packed::Block::new_builder()
+        .header(packed::Header::new_builder().raw(raw).build())
+        .transactions(vec![packed::Transaction::new_builder().build()])
+        .build()
+        .into_view();
+    let fork_hash = fork.hash();
+
+    let txn = store.begin_transaction();
+    txn.insert_block(&fork).unwrap();
+    txn.commit().unwrap();
+
+    assert_eq!(store.get_block_number(&genesis_hash), Some(0));
+    assert_eq!(store.get_block_number(&fork_hash), None);
+    assert_eq!(store.get_block_header(&fork_hash), Some(fork.header()));
+    assert_eq!(
+        store.get_cellbase(&fork_hash),
+        Some(fork.transactions()[0].clone())
+    );
+    assert!(store.block_exists(&fork_hash));
+}
+
+#[test]
+fn delete_block_removes_hash_index_and_block_keyed_metadata() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
+    let store = ChainDB::new(db, Default::default());
+    let consensus = ConsensusBuilder::default().build();
+    let genesis_hash = consensus.genesis_block().hash();
+
+    store.init(&consensus).unwrap();
+
+    let raw = packed::RawHeader::new_builder()
+        .parent_hash(genesis_hash)
+        .number(1u64)
+        .build();
+    let block = packed::Block::new_builder()
+        .header(packed::Header::new_builder().raw(raw).build())
+        .build()
+        .into_view();
+    let block_hash = block.hash();
+    let block_key = block_key(block.number(), &block_hash);
+    let ext = BlockExt {
+        received_at: block.timestamp(),
+        total_difficulty: block.difficulty(),
+        total_uncles_count: block.data().uncles().len() as u64,
+        verified: Some(false),
+        txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
+    };
+
+    let txn = store.begin_transaction();
+    txn.insert_block(&block).unwrap();
+    txn.attach_block(&block).unwrap();
+    txn.insert_block_ext(block.number(), &block_hash, &ext)
+        .unwrap();
+    txn.insert_raw(COLUMN_BLOCK_EPOCH, &block_key, b"epoch")
+        .unwrap();
+    txn.insert_raw(COLUMN_BLOCK_FILTER, &block_key, b"filter")
+        .unwrap();
+    txn.insert_raw(COLUMN_BLOCK_FILTER_HASH, &block_key, b"filter_hash")
+        .unwrap();
+    txn.commit().unwrap();
+
+    assert!(store.block_exists(&block_hash));
+    assert_eq!(store.get_block_number(&block_hash), Some(block.number()));
+    assert_eq!(
+        store.get_block_hash(block.number()),
+        Some(block_hash.clone())
+    );
+    assert_eq!(store.get_block_ext(&block_hash), Some(ext));
+
+    let txn = store.begin_transaction();
+    txn.delete_block(&block).unwrap();
+    txn.commit().unwrap();
+
+    assert!(!store.block_exists(&block_hash));
+    assert_eq!(store.get_block(&block_hash), None);
+    assert_eq!(store.get_block_number(&block_hash), None);
+    assert_eq!(store.get_block_hash(block.number()), None);
+    assert_eq!(store.get_block_ext(&block_hash), None);
+    assert!(
+        store
+            .get(COLUMN_HASH_INDEX, block_hash.as_slice())
+            .is_none()
+    );
+    assert!(store.get(COLUMN_BLOCK_EXT, &block_key).is_none());
+    assert!(store.get(COLUMN_BLOCK_EPOCH, &block_key).is_none());
+    assert!(store.get(COLUMN_BLOCK_FILTER, &block_key).is_none());
+    assert!(store.get(COLUMN_BLOCK_FILTER_HASH, &block_key).is_none());
+}
+
+#[test]
 fn get_transaction_from_initialized_store() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let consensus = ConsensusBuilder::default().build();
     let block = consensus.genesis_block();
@@ -110,7 +220,7 @@ fn get_transaction_from_initialized_store() {
 #[test]
 fn freeze_blockv0() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
@@ -122,15 +232,9 @@ fn freeze_blockv0() {
         .into_view();
 
     let block_hash = block.hash();
-    let header = block.header();
 
     let txn = store.begin_transaction();
-    txn.insert_raw(
-        COLUMN_BLOCK_HEADER,
-        block_hash.as_slice(),
-        Into::<packed::HeaderView>::into(header).as_slice(),
-    )
-    .expect("insert header");
+    txn.insert_block(&block).expect("insert block");
     txn.commit().expect("commit");
 
     freezer
@@ -143,7 +247,7 @@ fn freeze_blockv0() {
 #[test]
 fn freeze_blockv1_with_extension() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
@@ -158,15 +262,9 @@ fn freeze_blockv1_with_extension() {
         .into_view();
 
     let block_hash = block.hash();
-    let header = block.header();
 
     let txn = store.begin_transaction();
-    txn.insert_raw(
-        COLUMN_BLOCK_HEADER,
-        block_hash.as_slice(),
-        Into::<packed::HeaderView>::into(header).as_slice(),
-    )
-    .expect("insert header");
+    txn.insert_block(&block).expect("insert block");
     txn.commit().expect("commit");
 
     freezer
@@ -180,7 +278,7 @@ fn freeze_blockv1_with_extension() {
 #[test]
 fn freezer_get_block_keeps_hash_lookup_contract_for_same_height_side_block() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
@@ -221,7 +319,7 @@ fn freezer_get_block_keeps_hash_lookup_contract_for_same_height_side_block() {
 #[test]
 fn freezer_get_transaction_keeps_hash_lookup_contract_for_same_height_side_tx() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
     let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());

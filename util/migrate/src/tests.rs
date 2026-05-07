@@ -2,17 +2,17 @@ use crate::migrate::Migrate;
 use crate::sst_rebuild::SstRebuild;
 use ckb_app_config::DBConfig;
 use ckb_chain_spec::consensus::build_genesis_epoch_ext;
-use ckb_db::RocksDB;
+use ckb_db::{RocksDB, Schema};
 use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMNS,
-    META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY, legacy,
+    BlockHashIndexValue, BlockIndexFlag, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
+    COLUMN_HASH_INDEX, COLUMN_INDEX, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
+    MIGRATION_VERSION_KEY, block_body_key, block_key, block_number_key, legacy,
 };
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
-    block_number_to_key,
     core::{
-        BlockBuilder, BlockExt, Capacity, HeaderBuilder, TransactionBuilder, capacity_bytes,
-        hardfork::HardForks,
+        BlockBuilder, BlockExt, Capacity, EpochNumberWithFraction, HeaderBuilder,
+        TransactionBuilder, capacity_bytes, hardfork::HardForks,
     },
     packed::{self, Bytes},
     prelude::*,
@@ -30,7 +30,7 @@ fn test_mock_migration_requires_sst_rebuild() {
         ..Default::default()
     };
     // 0.25-0.34 ckb's columns is 12
-    let db = RocksDB::open(&config, 12);
+    let db = RocksDB::open_with_columns(&config, 12);
     let cellbase = TransactionBuilder::default()
         .witness(Bytes::default())
         .build();
@@ -183,7 +183,7 @@ fn test_sst_rebuild_migrates_old_block_keys() {
         path: db_path.clone(),
         ..Default::default()
     };
-    let db = RocksDB::open(&config, legacy::COLUMNS);
+    let db = RocksDB::open(&config, Schema::Legacy);
 
     let genesis = BlockBuilder::default()
         .transaction(
@@ -197,6 +197,7 @@ fn test_sst_rebuild_migrates_old_block_keys() {
             HeaderBuilder::default()
                 .parent_hash(genesis.hash())
                 .number(1)
+                .epoch(EpochNumberWithFraction::new(0, 1, 10))
                 .nonce(1)
                 .build(),
         )
@@ -216,6 +217,7 @@ fn test_sst_rebuild_migrates_old_block_keys() {
             HeaderBuilder::default()
                 .parent_hash(genesis.hash())
                 .number(1)
+                .epoch(EpochNumberWithFraction::new(0, 1, 10))
                 .nonce(2)
                 .build(),
         )
@@ -230,6 +232,57 @@ fn test_sst_rebuild_migrates_old_block_keys() {
     insert_old_layout_block(&db_txn, &genesis);
     insert_old_layout_block(&db_txn, &block1);
     insert_old_layout_block(&db_txn, &fork1);
+
+    let orphan_hash = packed::Byte32::new([42; 32]);
+    let orphan_ext = BlockExt {
+        received_at: unix_time_as_millis(),
+        total_difficulty: block1.difficulty(),
+        total_uncles_count: 0,
+        verified: Some(false),
+        txs_fees: vec![],
+        cycles: None,
+        txs_sizes: None,
+    };
+    let orphan_tx_key = packed::TransactionKey::new_builder()
+        .block_hash(orphan_hash.clone())
+        .index(0u32)
+        .build();
+    let orphan_tx = Into::<packed::TransactionView>::into(TransactionBuilder::default().build());
+    db_txn
+        .put(
+            legacy::COLUMN_BLOCK_EXT,
+            orphan_hash.as_slice(),
+            Into::<packed::BlockExtV1>::into(orphan_ext).as_slice(),
+        )
+        .unwrap();
+    db_txn
+        .put(
+            legacy::COLUMN_BLOCK_EPOCH,
+            orphan_hash.as_slice(),
+            block1.hash().as_slice(),
+        )
+        .unwrap();
+    db_txn
+        .put(
+            legacy::COLUMN_BLOCK_FILTER,
+            orphan_hash.as_slice(),
+            b"filter",
+        )
+        .unwrap();
+    db_txn
+        .put(
+            legacy::COLUMN_BLOCK_FILTER_HASH,
+            orphan_hash.as_slice(),
+            b"filter_hash",
+        )
+        .unwrap();
+    db_txn
+        .put(
+            legacy::COLUMN_BLOCK_BODY,
+            orphan_tx_key.as_slice(),
+            orphan_tx.as_slice(),
+        )
+        .unwrap();
 
     for block in [&genesis, &block1] {
         let number: packed::Uint64 = block.number().into();
@@ -255,9 +308,16 @@ fn test_sst_rebuild_migrates_old_block_keys() {
     drop(db);
 
     SstRebuild::new(db_path.clone()).unwrap().run().unwrap();
+    let rerun_error = SstRebuild::new(db_path.clone()).unwrap().run().unwrap_err();
+    assert!(
+        rerun_error
+            .to_string()
+            .contains("database already has the SST rebuild migration version"),
+        "{rerun_error}"
+    );
 
-    let migrated = RocksDB::open_in(&db_path, COLUMNS);
-    let block1_key = block1.hash().to_block_key(1);
+    let migrated = RocksDB::open_in(&db_path, Schema::V1);
+    let block1_key = block_key(1, &block1.hash());
     assert!(
         migrated
             .get_pinned(COLUMN_BLOCK_HEADER, &block1_key)
@@ -271,7 +331,7 @@ fn test_sst_rebuild_migrates_old_block_keys() {
             .is_none()
     );
 
-    let fork1_key = fork1.hash().to_block_key(1);
+    let fork1_key = block_key(1, &fork1.hash());
     assert!(
         migrated
             .get_pinned(COLUMN_BLOCK_HEADER, &fork1_key)
@@ -279,16 +339,34 @@ fn test_sst_rebuild_migrates_old_block_keys() {
             .is_some()
     );
 
-    let tx_key = block1.hash().to_tx_key(1, 1);
+    let tx_key = block_body_key(1, &block1.hash(), 1);
     assert!(
         migrated
             .get_pinned(COLUMN_BLOCK_BODY, &tx_key)
             .unwrap()
             .is_some()
     );
+    assert!(
+        migrated
+            .get_pinned(COLUMN_BLOCK_BODY, orphan_tx_key.as_slice())
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        migrated
+            .get_pinned(COLUMN_BLOCK_EXT, orphan_hash.as_slice())
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        migrated
+            .get_pinned(COLUMN_HASH_INDEX, orphan_hash.as_slice())
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         migrated
-            .get_pinned(COLUMN_INDEX, &block_number_to_key(1))
+            .get_pinned(COLUMN_INDEX, &block_number_key(1))
             .unwrap()
             .as_deref(),
         Some(block1.hash().as_slice())
@@ -306,12 +384,11 @@ fn test_sst_rebuild_migrates_old_block_keys() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        packed::Byte32::number_from_index_value(canonical_index.as_ref()),
-        Some(1)
-    );
-    assert_eq!(
-        packed::Byte32::is_main_chain_from_index_value(canonical_index.as_ref()),
-        Some(true)
+        BlockHashIndexValue::decode(canonical_index.as_ref()),
+        Some(BlockHashIndexValue {
+            number: 1,
+            flag: BlockIndexFlag::MainChain,
+        })
     );
 
     let fork_index = migrated
@@ -319,12 +396,11 @@ fn test_sst_rebuild_migrates_old_block_keys() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        packed::Byte32::number_from_index_value(fork_index.as_ref()),
-        Some(1)
-    );
-    assert_eq!(
-        packed::Byte32::is_main_chain_from_index_value(fork_index.as_ref()),
-        Some(false)
+        BlockHashIndexValue::decode(fork_index.as_ref()),
+        Some(BlockHashIndexValue {
+            number: 1,
+            flag: BlockIndexFlag::Fork,
+        })
     );
 }
 

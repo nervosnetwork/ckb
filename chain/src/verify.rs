@@ -320,6 +320,7 @@ impl ConsumeUnverifiedBlockProcessor {
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
 
         db_txn.insert_block_epoch_index(
+            block.number(),
             &block.header().hash(),
             &epoch.last_block_hash_in_previous_epoch(),
         )?;
@@ -354,7 +355,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 db_txn.insert_current_epoch_ext(&epoch)?;
             }
         } else {
-            db_txn.insert_block_ext(&block.header().hash(), &ext)?;
+            db_txn.insert_block_ext(block.number(), &block.header().hash(), &ext)?;
         }
         db_txn.commit()?;
 
@@ -642,12 +643,11 @@ impl ConsumeUnverifiedBlockProcessor {
             .iter()
             .zip(fork.attached_blocks.iter().skip(verified_len))
         {
-            let block_start = minstant::Instant::now();
             if !switch.disable_all() {
                 if found_error.is_none() {
                     let log_now = std::time::Instant::now();
                     let resolved = self.resolve_block_transactions(&txn, b, &verify_context);
-                    info!(
+                    debug!(
                         "resolve_block_transactions {} cost: {:?}",
                         b.hash(),
                         log_now.elapsed()
@@ -664,7 +664,7 @@ impl ConsumeUnverifiedBlockProcessor {
                                 );
                                 let log_now = std::time::Instant::now();
                                 let verify_result = contextual_block_verifier.verify(&resolved, b);
-                                info!(
+                                debug!(
                                     "contextual_block_verifier {} cost: {:?}",
                                     b.hash(),
                                     log_now.elapsed()
@@ -673,7 +673,6 @@ impl ConsumeUnverifiedBlockProcessor {
                             };
                             match verified {
                                 Ok((cycles, cache_entries)) => {
-                                    let attach_start = minstant::Instant::now();
                                     let txs_sizes = resolved
                                         .iter()
                                         .map(|rtx| {
@@ -687,16 +686,12 @@ impl ConsumeUnverifiedBlockProcessor {
 
                                     self.insert_ok_ext(
                                         &txn,
-                                        &b.header().hash(),
+                                        b.number(),
+                                        &b.hash(),
                                         ext.clone(),
                                         Some(&cache_entries),
                                         Some(txs_sizes),
                                     )?;
-                                    info!(
-                                        "attach_block+mmr+insert_ext {} cost: {:?}",
-                                        b.hash(),
-                                        attach_start.elapsed()
-                                    );
 
                                     if !switch.disable_script() && b.transactions().len() > 1 {
                                         self.monitor_block_txs_verified(
@@ -710,36 +705,30 @@ impl ConsumeUnverifiedBlockProcessor {
                                 Err(err) => {
                                     self.print_error(b, &err);
                                     found_error = Some(err);
-                                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                                    self.insert_failure_ext(
+                                        &txn,
+                                        b.number(),
+                                        &b.hash(),
+                                        ext.clone(),
+                                    )?;
                                 }
                             }
                         }
                         Err(err) => {
                             found_error = Some(err);
-                            self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                            self.insert_failure_ext(&txn, b.number(), &b.hash(), ext.clone())?;
                         }
                     }
                 } else {
-                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                    self.insert_failure_ext(&txn, b.number(), &b.hash(), ext.clone())?;
                 }
             } else {
-                let attach_start = minstant::Instant::now();
                 txn.attach_block(b)?;
                 attach_block_cell(&txn, b)?;
                 mmr.push(b.digest())
                     .map_err(|e| InternalErrorKind::MMR.other(e))?;
-                self.insert_ok_ext(&txn, &b.header().hash(), ext.clone(), None, None)?;
-                info!(
-                    "attach_block+mmr+insert_ext {} cost: {:?}",
-                    b.hash(),
-                    attach_start.elapsed()
-                );
+                self.insert_ok_ext(&txn, b.number(), &b.hash(), ext.clone(), None, None)?;
             }
-            info!(
-                "reconcile_main_chain per-block {} total cost: {:?}",
-                b.hash(),
-                block_start.elapsed()
-            );
         }
 
         if let Some(err) = found_error {
@@ -776,6 +765,7 @@ impl ConsumeUnverifiedBlockProcessor {
     fn insert_ok_ext(
         &self,
         txn: &StoreTransaction,
+        number: BlockNumber,
         hash: &Byte32,
         mut ext: BlockExt,
         cache_entries: Option<&[Completed]>,
@@ -791,17 +781,18 @@ impl ConsumeUnverifiedBlockProcessor {
             ext.cycles = Some(cycles);
         }
         ext.txs_sizes = txs_sizes;
-        txn.insert_block_ext(hash, &ext)
+        txn.insert_block_ext(number, hash, &ext)
     }
 
     fn insert_failure_ext(
         &self,
         txn: &StoreTransaction,
+        number: BlockNumber,
         hash: &Byte32,
         mut ext: BlockExt,
     ) -> Result<(), Error> {
         ext.verified = Some(false);
-        txn.insert_block_ext(hash, &ext)
+        txn.insert_block_ext(number, hash, &ext)
     }
 
     fn monitor_block_txs_verified(

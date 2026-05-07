@@ -1,5 +1,5 @@
 use crate::{
-    TxKey, U256,
+    U256,
     core::{BlockNumber, Capacity, CapacityResult, Cycle, EpochNumber},
     packed,
     prelude::*,
@@ -62,12 +62,6 @@ impl TransactionInfo {
             .block_hash(self.block_hash.clone())
             .index(self.index)
             .build()
-    }
-
-    /// Returns the composite key used by `COLUMN_BLOCK_BODY`.
-    pub fn body_key(&self) -> TxKey {
-        self.block_hash
-            .to_tx_key(self.block_number, self.index as u32)
     }
 
     /// Creates a new transaction info with the given parameters.

@@ -6,18 +6,18 @@ use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
 };
 use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMN_META,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
-    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
+    BlockHashIndexValue, BlockIndexFlag, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
+    COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_HASH_INDEX, COLUMN_INDEX,
+    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
+    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY, block_body_key, block_key,
+    block_number_key, out_point_key,
 };
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::Error;
 use ckb_freezer::Freezer;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
-    BlockKey, block_number_to_key,
     core::{
         BlockExt, BlockView, EpochExt, HeaderView, TransactionView,
         cell::{CellChecker, CellProvider, CellStatus},
@@ -153,48 +153,6 @@ impl StoreTransaction {
         }
     }
 
-    /// Helper: Gets block number from cache or COLUMN_HASH_INDEX and builds composite key.
-    ///
-    /// This is a convenience method that combines the two-step process of:
-    /// 1. Looking up block_number from block_hash (first from cache, then from COLUMN_HASH_INDEX)
-    /// 2. Building the composite key (number + hash)
-    ///
-    /// Returns a stack-allocated BlockKey to avoid heap allocation.
-    /// Returns an error if the block_hash is not found.
-    fn get_block_key(&self, block_hash: &packed::Byte32) -> Result<BlockKey, Error> {
-        // Check block_numbers cache first
-        if let Some(&number) = self.cache.block_numbers.lock().get(block_hash) {
-            return Ok(block_hash.to_block_key(number));
-        }
-
-        // Check headers cache - header contains block number
-        if let Some(header) = self.cache.headers.lock().get(block_hash) {
-            let number = header.number();
-            self.cache
-                .block_numbers
-                .lock()
-                .put(block_hash.clone(), number);
-            return Ok(block_hash.to_block_key(number));
-        }
-
-        // Fall back to COLUMN_HASH_INDEX lookup
-        let number = self
-            .get(COLUMN_HASH_INDEX, block_hash.as_slice())
-            .and_then(|raw| packed::Byte32::number_from_index_value(raw.as_ref()))
-            .ok_or_else(|| {
-                InternalErrorKind::DataCorrupted
-                    .other("block number not found for hash in COLUMN_HASH_INDEX")
-            })?;
-
-        // Populate cache for future lookups
-        self.cache
-            .block_numbers
-            .lock()
-            .put(block_hash.clone(), number);
-
-        Ok(block_hash.to_block_key(number))
-    }
-
     /// Gets the tip header hash for update, locking the row in the transaction.
     pub fn get_update_for_tip_hash(
         &self,
@@ -220,7 +178,7 @@ impl StoreTransaction {
         let proposals = block.data().proposals();
 
         // Build composite key: (number + hash)
-        let block_key = hash.to_block_key(number);
+        let block_key = block_key(number, &hash);
 
         // Store block data with composite keys
         self.insert_raw(COLUMN_BLOCK_HEADER, &block_key, header.as_slice())?;
@@ -232,14 +190,19 @@ impl StoreTransaction {
 
         // Store transactions with composite keys: (number + hash + tx_index)
         for (index, tx) in block.transactions().into_iter().enumerate() {
-            let tx_key = hash.to_tx_key(number, index as u32);
+            let tx_key = block_body_key(number, &hash, index as u32);
             let tx_data = Into::<packed::TransactionView>::into(tx);
             self.insert_raw(COLUMN_BLOCK_BODY, &tx_key, tx_data.as_slice())?;
         }
 
-        // Index hash -> (number + is_main_chain=false) for ALL blocks (needed for composite key lookup)
-        // Initially marked as NOT on main chain; attach_block() will update the flag to true
-        let index_value = packed::Byte32::to_index_value(number, false);
+        // Index hash -> (number + is_main_chain) for ALL blocks (needed for composite key lookup).
+        // Preserve an existing canonical marker when a duplicate main-chain block is inserted again.
+        let flag = self
+            .get(COLUMN_HASH_INDEX, hash.as_slice())
+            .and_then(|raw| BlockHashIndexValue::decode(raw.as_ref()))
+            .map(|value| value.flag)
+            .unwrap_or(BlockIndexFlag::Fork);
+        let index_value = BlockHashIndexValue { number, flag }.encode();
         self.insert_raw(COLUMN_HASH_INDEX, hash.as_slice(), &index_value)?;
 
         // Populate block_numbers cache to avoid subsequent COLUMN_HASH_INDEX lookups
@@ -255,27 +218,37 @@ impl StoreTransaction {
         let txs_len = block.transactions().len();
 
         // Build composite key: (number + hash)
-        let block_key = hash.to_block_key(number);
+        let block_key = block_key(number, &hash);
+        let number_key = block_number_key(number);
 
         // Delete block data with composite keys
         self.delete(COLUMN_BLOCK_HEADER, &block_key)?;
         self.delete(COLUMN_BLOCK_UNCLE, &block_key)?;
+        self.delete(COLUMN_BLOCK_EXT, &block_key)?;
         self.delete(COLUMN_BLOCK_EXTENSION, &block_key)?;
         self.delete(COLUMN_BLOCK_PROPOSAL_IDS, &block_key)?;
+        self.delete(COLUMN_BLOCK_EPOCH, &block_key)?;
+        self.delete(COLUMN_BLOCK_FILTER, &block_key)?;
+        self.delete(COLUMN_BLOCK_FILTER_HASH, &block_key)?;
 
         // Delete transactions with composite keys: (number + hash + tx_index)
         // currently rocksdb transaction do not support `DeleteRange`
         // https://github.com/facebook/rocksdb/issues/4812
         for index in 0..txs_len {
-            let tx_key = hash.to_tx_key(number, index as u32);
+            let tx_key = block_body_key(number, &hash, index as u32);
             self.delete(COLUMN_BLOCK_BODY, &tx_key)?;
         }
 
         // Delete hash -> (number + flag) mapping from COLUMN_HASH_INDEX
         self.delete(COLUMN_HASH_INDEX, hash.as_slice())?;
+        if self
+            .get(COLUMN_INDEX, &number_key)
+            .is_some_and(|indexed_hash| indexed_hash.as_ref() == hash.as_slice())
+        {
+            self.delete(COLUMN_INDEX, &number_key)?;
+        }
 
-        // Invalidate block_numbers cache
-        self.cache.block_numbers.lock().pop(&hash);
+        self.cache.invalidate_block(&hash);
 
         Ok(())
     }
@@ -283,10 +256,11 @@ impl StoreTransaction {
     /// Inserts block extension data.
     pub fn insert_block_ext(
         &self,
+        number: u64,
         block_hash: &packed::Byte32,
         ext: &BlockExt,
     ) -> Result<(), Error> {
-        let block_key = self.get_block_key(block_hash)?;
+        let block_key = block_key(number, block_hash);
         let packed_ext: packed::BlockExtV1 = ext.into();
         self.insert_raw(COLUMN_BLOCK_EXT, &block_key, packed_ext.as_slice())
     }
@@ -305,11 +279,15 @@ impl StoreTransaction {
         // 1. Add number -> hash mapping (main chain only)
         self.insert_raw(
             COLUMN_INDEX,
-            &block_number_to_key(block_number),
+            &block_number_key(block_number),
             block_hash.as_slice(),
         )?;
         // 2. Update hash -> (number, is_main_chain=true)
-        let index_value = packed::Byte32::to_index_value(block_number, true);
+        let index_value = BlockHashIndexValue {
+            number: block_number,
+            flag: BlockIndexFlag::MainChain,
+        }
+        .encode();
         self.insert_raw(COLUMN_HASH_INDEX, block_hash.as_slice(), &index_value)?;
 
         // Index transactions (main chain only)
@@ -351,9 +329,13 @@ impl StoreTransaction {
 
         // Remove canonical marker:
         // 1. Delete number -> hash mapping
-        self.delete(COLUMN_INDEX, &block_number_to_key(block_number))?;
+        self.delete(COLUMN_INDEX, &block_number_key(block_number))?;
         // 2. Update hash -> (number, is_main_chain=false)
-        let index_value = packed::Byte32::to_index_value(block_number, false);
+        let index_value = BlockHashIndexValue {
+            number: block_number,
+            flag: BlockIndexFlag::Fork,
+        }
+        .encode();
         self.insert_raw(COLUMN_HASH_INDEX, block_hash.as_slice(), &index_value)?;
 
         // Unindex transactions
@@ -372,10 +354,11 @@ impl StoreTransaction {
     /// Inserts the block-to-epoch index mapping.
     pub fn insert_block_epoch_index(
         &self,
+        number: u64,
         block_hash: &packed::Byte32,
         epoch_hash: &packed::Byte32,
     ) -> Result<(), Error> {
-        let block_key = self.get_block_key(block_hash)?;
+        let block_key = block_key(number, block_hash);
         self.insert_raw(COLUMN_BLOCK_EPOCH, &block_key, epoch_hash.as_slice())
     }
 
@@ -411,7 +394,7 @@ impl StoreTransaction {
         >,
     ) -> Result<(), Error> {
         for (out_point, cell, cell_data) in cells {
-            let key = out_point.to_cell_key();
+            let key = out_point_key(&out_point);
             self.insert_raw(COLUMN_CELL, &key, cell.as_slice())?;
             if let Some(data) = cell_data {
                 self.insert_raw(COLUMN_CELL_DATA, &key, data.as_slice())?;
@@ -434,7 +417,7 @@ impl StoreTransaction {
         out_points: impl Iterator<Item = packed::OutPoint>,
     ) -> Result<(), Error> {
         for out_point in out_points {
-            let key = out_point.to_cell_key();
+            let key = out_point_key(&out_point);
             self.delete(COLUMN_CELL, &key)?;
             self.delete(COLUMN_CELL_DATA, &key)?;
             self.delete(COLUMN_CELL_DATA_HASH, &key)?;
@@ -465,11 +448,12 @@ impl StoreTransaction {
     /// insert block filter data
     pub fn insert_block_filter(
         &self,
+        number: u64,
         block_hash: &packed::Byte32,
         filter_data: &packed::Bytes,
         parent_block_filter_hash: &packed::Byte32,
     ) -> Result<(), Error> {
-        let block_key = self.get_block_key(block_hash)?;
+        let block_key = block_key(number, block_hash);
 
         self.insert_raw(COLUMN_BLOCK_FILTER, &block_key, filter_data.as_slice())?;
         let current_block_filter_hash = calc_filter_hash(parent_block_filter_hash, filter_data);

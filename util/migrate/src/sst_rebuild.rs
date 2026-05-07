@@ -1,35 +1,40 @@
 use crate::migrations::SST_REBUILD_VERSION;
-use ckb_db::internal::{Options, SstFileWriter};
-use ckb_db::{DBIterator, IteratorMode, ReadOnlyDB, RocksDB};
+use ckb_db::internal::{
+    BlockBasedIndexType, BlockBasedOptions, Options, SliceTransform, SstFileWriter,
+};
+use ckb_db::{DBIterator, IteratorMode, ReadOnlyDB, RocksDB, Schema};
 use ckb_db_schema::{
-    CHAIN_SPEC_HASH_KEY, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
-    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
-    COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_HASH_INDEX, COLUMN_INDEX,
-    COLUMN_META, COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, COLUMNS, Col,
-    META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY, legacy,
+    BlockHashIndexValue, BlockIndexFlag, CHAIN_SPEC_HASH_KEY, COLUMN_BLOCK_BODY,
+    COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER,
+    COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
+    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH,
+    COLUMN_FAMILIES, COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
+    COLUMN_UNCLES, Col, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY, block_body_key, block_key,
+    block_number_key, legacy,
 };
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info;
-use ckb_types::{block_number_to_key, core::BlockNumber, packed, prelude::*};
+use ckb_types::{core::BlockNumber, packed, prelude::*};
 use rayon::prelude::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+    atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RANGE_BLOCKS: u64 = 50_000;
 const REWRITE_SPILL_FLUSH_BYTES: usize = 256 * 1024 * 1024;
 const COPY_SST_ENTRY_LIMIT: u64 = 1_000_000;
-const COPY_SST_BYTES_LIMIT: usize = 256 * 1024 * 1024;
+const COPY_SST_BYTES_LIMIT: usize = 128 * 1024 * 1024;
 const COPY_COLUMN_PARALLELISM: usize = 4;
+const SPILL_RECORD_HEADER_BYTES: usize = 8;
+const MIN_LEGACY_REBUILD_VERSION: &str = "20231101000000";
 
 #[derive(Copy, Clone)]
 struct ColumnMapping {
@@ -111,6 +116,22 @@ fn internal_error(reason: impl fmt::Display) -> Error {
     InternalErrorKind::Database.other(reason.to_string()).into()
 }
 
+fn apply_sst_table_options(col: Col, opts: &mut Options) {
+    let mut block_opts = BlockBasedOptions::default();
+    block_opts.set_ribbon_filter(10.0);
+    block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
+    block_opts.set_partition_filters(true);
+    block_opts.set_metadata_block_size(4096);
+    block_opts.set_pin_top_level_index_and_filter(true);
+
+    if col == COLUMN_BLOCK_BODY {
+        block_opts.set_whole_key_filtering(false);
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
+    }
+
+    opts.set_block_based_table_factory(&block_opts);
+}
+
 #[derive(Clone)]
 struct RebuildPlan {
     canonical_hashes: Vec<packed::Byte32>,
@@ -127,12 +148,9 @@ impl RebuildPlan {
             .ok_or_else(|| internal_error(format!("missing canonical hash at height {number}")))
     }
 
-    fn block_number_by_hash(&self, hash: &[u8]) -> Result<BlockNumber, Error> {
+    fn block_number_by_hash_opt(&self, hash: &[u8]) -> Result<Option<BlockNumber>, Error> {
         let key = hash_key_from_slice(hash, "block hash")?;
-        self.block_numbers
-            .get(&key)
-            .copied()
-            .ok_or_else(|| internal_error("missing block number for block hash"))
+        Ok(self.block_numbers.get(&key).copied())
     }
 }
 
@@ -142,21 +160,155 @@ struct GeneratedSst {
     entries: u64,
 }
 
-#[derive(Eq, PartialEq)]
+struct SstIngestor<'a> {
+    target: &'a RocksDB,
+    lock: Mutex<()>,
+    files: AtomicUsize,
+    entries: AtomicU64,
+    stats: Mutex<BTreeMap<Col, ColumnIngestStats>>,
+}
+
+struct SstWriterOptions {
+    by_col: BTreeMap<Col, Options>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ColumnIngestStats {
+    files: usize,
+    entries: u64,
+}
+
+struct SstGenerator<'a> {
+    source: &'a ReadOnlyDB,
+    plan: &'a RebuildPlan,
+    sst_root: &'a Path,
+    pool: &'a rayon::ThreadPool,
+    ingestor: &'a SstIngestor<'a>,
+    sst_options: &'a SstWriterOptions,
+}
+
+impl<'a> SstIngestor<'a> {
+    fn new(target: &'a RocksDB) -> Self {
+        Self {
+            target,
+            lock: Mutex::new(()),
+            files: AtomicUsize::new(0),
+            entries: AtomicU64::new(0),
+            stats: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    fn ingest(&self, sst: GeneratedSst) -> Result<(), Error> {
+        if sst.entries == 0 {
+            return Ok(());
+        }
+
+        let col = sst.col;
+        let path = sst.path;
+        let entries = sst.entries;
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| internal_error("SST ingest lock is poisoned"))?;
+        self.target
+            .ingest_external_files(col, vec![path.clone()])
+            .map_err(|err| {
+                internal_error(format!(
+                    "failed to ingest SST {} for column {col}: {err}",
+                    path.display()
+                ))
+            })?;
+        self.files.fetch_add(1, Ordering::SeqCst);
+        self.entries.fetch_add(entries, Ordering::SeqCst);
+        let mut stats = self
+            .stats
+            .lock()
+            .map_err(|_| internal_error("SST ingest stats lock is poisoned"))?;
+        let stat = stats.entry(col).or_default();
+        stat.files += 1;
+        stat.entries += entries;
+        Ok(())
+    }
+
+    fn files(&self) -> usize {
+        self.files.load(Ordering::SeqCst)
+    }
+
+    fn entries(&self) -> u64 {
+        self.entries.load(Ordering::SeqCst)
+    }
+
+    fn stats(&self) -> Result<BTreeMap<Col, ColumnIngestStats>, Error> {
+        self.stats
+            .lock()
+            .map(|stats| stats.clone())
+            .map_err(|_| internal_error("SST ingest stats lock is poisoned"))
+    }
+}
+
+impl SstWriterOptions {
+    fn load() -> Self {
+        let mut by_col = BTreeMap::new();
+        for col in COLUMN_FAMILIES {
+            let mut opts = Options::default();
+            apply_sst_table_options(col, &mut opts);
+            by_col.insert(*col, opts);
+        }
+
+        Self { by_col }
+    }
+
+    fn for_col(&self, col: Col) -> Result<&Options, Error> {
+        self.by_col
+            .get(col)
+            .ok_or_else(|| internal_error(format!("missing SST writer options for column {col}")))
+    }
+}
+
 struct BufferedEntry {
     key: Vec<u8>,
     value: Vec<u8>,
 }
 
+impl PartialEq for BufferedEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Eq for BufferedEntry {}
+
 impl Ord for BufferedEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.key
-            .cmp(&other.key)
-            .then_with(|| self.value.cmp(&other.value))
+        self.key.cmp(&other.key)
     }
 }
 
 impl PartialOrd for BufferedEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.entry.key == other.entry.key && self.run == other.run
+    }
+}
+
+impl Eq for HeapEntry {}
+
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .entry
+            .key
+            .cmp(&self.entry.key)
+            .then_with(|| other.run.cmp(&self.run))
+    }
+}
+
+impl PartialOrd for HeapEntry {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
@@ -169,14 +321,16 @@ struct SpillBuffer {
 
 struct SpillShard {
     start: BlockNumber,
-    path: PathBuf,
+    paths: Vec<PathBuf>,
 }
 
-struct RewriteSpill {
+struct RewriteSpill<'a> {
+    pool: &'a rayon::ThreadPool,
     col: Col,
     dir: PathBuf,
     buffers: BTreeMap<BlockNumber, SpillBuffer>,
-    paths: BTreeMap<BlockNumber, PathBuf>,
+    paths: BTreeMap<BlockNumber, Vec<PathBuf>>,
+    run_indexes: BTreeMap<BlockNumber, u64>,
     buffered_bytes: usize,
 }
 
@@ -185,6 +339,26 @@ struct SpillRecordIter {
     reader: BufReader<File>,
 }
 
+struct SplitSstWriter<'a> {
+    opts: &'a Options,
+    col: Col,
+    sst_root: &'a Path,
+    name_prefix: String,
+    file_index: u64,
+    writer: Option<SstFileWriter<'a>>,
+    path: PathBuf,
+    last_key: Option<Vec<u8>>,
+    entries: u64,
+    bytes: usize,
+    generated: Vec<GeneratedSst>,
+}
+
+struct HeapEntry {
+    entry: BufferedEntry,
+    run: usize,
+}
+
+/// Offline migration that rebuilds RocksDB data into the new column schema via SST ingestion.
 pub struct SstRebuild {
     old_path: PathBuf,
     migrating_path: PathBuf,
@@ -194,6 +368,7 @@ pub struct SstRebuild {
 }
 
 impl SstRebuild {
+    /// Creates an SST rebuild migration plan rooted at the existing database path.
     pub fn new(old_path: PathBuf) -> Result<Self, Error> {
         let parent = old_path.parent().unwrap_or_else(|| Path::new("."));
         let db_name = old_path.file_name().unwrap_or_else(|| OsStr::new("db"));
@@ -201,7 +376,7 @@ impl SstRebuild {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|err| internal_error(format!("system time error: {err}")))?
-            .as_secs();
+            .as_nanos();
 
         Ok(Self {
             migrating_path: parent.join(format!("{db_name}.migrating")),
@@ -212,6 +387,7 @@ impl SstRebuild {
         })
     }
 
+    /// Runs the offline SST rebuild and atomically promotes the rebuilt database on success.
     pub fn run(self) -> Result<(), Error> {
         self.prepare_paths()?;
 
@@ -227,6 +403,7 @@ impl SstRebuild {
         info!("SST rebuild: opening old database read-only");
         let source = open_old_db(&self.old_path)?;
         ensure_not_already_rebuilt(&source)?;
+        ensure_legacy_migrations_complete(&source)?;
 
         info!("SST rebuild: building migration plan");
         let plan = Arc::new(build_plan(&source)?);
@@ -246,27 +423,34 @@ impl SstRebuild {
                 internal_error(format!("failed to create rebuild thread pool: {err}"))
             })?;
 
-        let generated = generate_ssts(&source, &plan, &self.sst_path, &pool)?;
-        info!(
-            "SST rebuild: generated {} SST files with {} entries",
-            generated.len(),
-            generated.iter().map(|sst| sst.entries).sum::<u64>(),
-        );
-
         info!("SST rebuild: opening target database for bulk load");
-        let target = RocksDB::prepare_for_bulk_load_open(&self.migrating_path, COLUMNS)?
-            .ok_or_else(|| {
-                internal_error(format!(
-                    "failed to create target DB {}",
-                    self.migrating_path.display()
-                ))
-            })?;
-        info!("SST rebuild: ingesting generated SST files");
-        ingest_ssts(&target, generated)?;
+        let target = RocksDB::create_for_bulk_load_open(&self.migrating_path, Schema::V1)?;
+        let (expected_entries, ingested_stats) = {
+            let ingestor = SstIngestor::new(&target);
+            let sst_options = SstWriterOptions::load();
+
+            let expected_entries = SstGenerator {
+                source: &source,
+                plan: &plan,
+                sst_root: &self.sst_path,
+                pool: &pool,
+                ingestor: &ingestor,
+                sst_options: &sst_options,
+            }
+            .generate()?;
+            let ingested_stats = ingestor.stats()?;
+            info!(
+                "SST rebuild: generated {} SST files with {} entries",
+                ingestor.files(),
+                ingestor.entries(),
+            );
+            (expected_entries, ingested_stats)
+        };
+
         info!("SST rebuild: copying default-column metadata");
         copy_default_keys(&source, &target)?;
         info!("SST rebuild: validating migrated database");
-        validate_target(&source, &target, &plan)?;
+        validate_target(&source, &target, &plan, &expected_entries, &ingested_stats)?;
         info!("SST rebuild: writing migration version {SST_REBUILD_VERSION}");
         target
             .put_default(MIGRATION_VERSION_KEY, SST_REBUILD_VERSION)
@@ -322,8 +506,28 @@ impl SstRebuild {
 }
 
 fn open_old_db(path: &Path) -> Result<ReadOnlyDB, Error> {
-    ReadOnlyDB::open_cf(path, legacy::COLUMN_FAMILIES)?
-        .ok_or_else(|| internal_error(format!("database path {} does not exist", path.display())))
+    match ReadOnlyDB::open_cf(path, legacy::COLUMN_FAMILIES) {
+        Ok(Some(db)) => Ok(db),
+        Ok(None) => Err(internal_error(format!(
+            "database path {} does not exist",
+            path.display()
+        ))),
+        Err(legacy_err) => {
+            if let Ok(Some(current_db)) = ReadOnlyDB::open_cf(path, COLUMN_FAMILIES) {
+                if let Some(version) = current_db.get_pinned_default(MIGRATION_VERSION_KEY)?
+                    && version.as_ref() >= SST_REBUILD_VERSION.as_bytes()
+                {
+                    return Err(internal_error(
+                        "database already has the SST rebuild migration version",
+                    ));
+                }
+                return Err(internal_error(format!(
+                    "database uses the current column-family schema and cannot run the legacy SST rebuild migration; original legacy open error: {legacy_err}"
+                )));
+            }
+            Err(legacy_err)
+        }
+    }
 }
 
 fn ensure_not_already_rebuilt(source: &ReadOnlyDB) -> Result<(), Error> {
@@ -333,6 +537,21 @@ fn ensure_not_already_rebuilt(source: &ReadOnlyDB) -> Result<(), Error> {
         return Err(internal_error(
             "database already has the SST rebuild migration version",
         ));
+    }
+    Ok(())
+}
+
+fn ensure_legacy_migrations_complete(source: &ReadOnlyDB) -> Result<(), Error> {
+    let Some(version) = source.get_pinned_default(MIGRATION_VERSION_KEY)? else {
+        return Err(internal_error(
+            "database must run normal legacy migrations before SST rebuild",
+        ));
+    };
+    if version.as_ref() < MIN_LEGACY_REBUILD_VERSION.as_bytes() {
+        let version = String::from_utf8_lossy(version.as_ref());
+        return Err(internal_error(format!(
+            "database migration version {version} is older than {MIN_LEGACY_REBUILD_VERSION}; run `ckb migrate --force` before `ckb migrate --sst-rebuild`"
+        )));
     }
     Ok(())
 }
@@ -377,7 +596,7 @@ fn build_plan(source: &ReadOnlyDB) -> Result<RebuildPlan, Error> {
         canonical_hashes[index] = hash;
         seen_canonical_hashes[index] = true;
         scanned_index_entries += 1;
-        if scanned_index_entries % 1_000_000 == 0 {
+        if scanned_index_entries.is_multiple_of(1_000_000) {
             info!("SST rebuild: scanned {scanned_index_entries} COLUMN_INDEX entries");
         }
     }
@@ -411,7 +630,7 @@ fn build_plan(source: &ReadOnlyDB) -> Result<RebuildPlan, Error> {
             forks_by_height.entry(number).or_default().push(hash);
         }
         scanned_headers += 1;
-        if scanned_headers % 1_000_000 == 0 {
+        if scanned_headers.is_multiple_of(1_000_000) {
             info!("SST rebuild: scanned {scanned_headers} block headers");
         }
     }
@@ -438,296 +657,256 @@ fn is_legacy_hash_index_key(key: &[u8]) -> bool {
     key.len() == 32
 }
 
-fn generate_ssts(
-    source: &ReadOnlyDB,
-    plan: &RebuildPlan,
-    sst_root: &Path,
-    pool: &rayon::ThreadPool,
-) -> Result<Vec<GeneratedSst>, Error> {
-    info!("SST rebuild: generating sorted SST files");
-    let mut generated = Vec::new();
+impl SstGenerator<'_> {
+    fn generate(&self) -> Result<BTreeMap<Col, u64>, Error> {
+        info!("SST rebuild: generating sorted SST files");
+        let mut expected_entries = BTreeMap::new();
 
-    for col in BLOCK_KEY_COLUMNS {
-        generated.extend(rewrite_block_column(source, plan, sst_root, pool, *col)?);
+        for col in BLOCK_KEY_COLUMNS {
+            let entries = self.rewrite_block_column(*col)?;
+            expected_entries.insert(col.new, entries);
+        }
+
+        expected_entries.insert(COLUMN_BLOCK_BODY, self.rewrite_block_body()?);
+        expected_entries.insert(COLUMN_HASH_INDEX, self.build_hash_index()?);
+        expected_entries.insert(COLUMN_INDEX, self.copy_canonical_index()?);
+        for (col, entries) in self.copy_columns()? {
+            expected_entries.insert(col, entries);
+        }
+
+        Ok(expected_entries)
     }
 
-    generated.extend(rewrite_block_body(source, plan, sst_root, pool)?);
-    generated.extend(rewrite_number_hash(source, sst_root, pool)?);
-    generated.extend(build_hash_index(source, plan, sst_root)?);
-    generated.extend(copy_canonical_index(plan, sst_root)?);
+    fn rewrite_block_column(&self, col: ColumnMapping) -> Result<u64, Error> {
+        info!(
+            "SST rebuild: scanning old column {} sequentially for block-key rewrite into {}",
+            col.old, col.new
+        );
+        let mut spill = RewriteSpill::new(self.sst_root, col.new, self.pool)?;
+        let iter = self.source.iter(col.old, IteratorMode::Start)?;
+        let mut scanned = 0u64;
+        let mut migrated = 0u64;
+        let mut skipped_orphans = 0u64;
 
-    generated.extend(copy_columns(source, sst_root, pool)?);
-
-    Ok(generated)
-}
-
-fn rewrite_block_column(
-    source: &ReadOnlyDB,
-    plan: &RebuildPlan,
-    sst_root: &Path,
-    pool: &rayon::ThreadPool,
-    col: ColumnMapping,
-) -> Result<Vec<GeneratedSst>, Error> {
-    info!(
-        "SST rebuild: scanning old column {} sequentially for block-key rewrite into {}",
-        col.old, col.new
-    );
-    let mut spill = RewriteSpill::new(sst_root, col.new)?;
-    let iter = source.iter(col.old, IteratorMode::Start)?;
-    let mut scanned = 0u64;
-
-    for (key, value) in iter {
-        let hash = byte32_from_slice(&key, "block column key")?;
-        let number = plan.block_number_by_hash(hash.as_slice())?;
-        spill.push(number, hash.to_block_key(number).to_vec(), value.to_vec())?;
-        scanned += 1;
-        if scanned % 1_000_000 == 0 {
-            info!(
-                "SST rebuild: scanned {scanned} entries from old column {}",
-                col.old
-            );
+        for (key, value) in iter {
+            let hash = byte32_from_slice(&key, "block column key")?;
+            let number = if col.old == legacy::COLUMN_BLOCK_HEADER {
+                header_number(&value)
+            } else {
+                match self.plan.block_number_by_hash_opt(hash.as_slice())? {
+                    Some(number) => number,
+                    None => {
+                        skipped_orphans += 1;
+                        scanned += 1;
+                        if scanned.is_multiple_of(1_000_000) {
+                            info!(
+                                "SST rebuild: scanned {scanned} entries from old column {}",
+                                col.old
+                            );
+                        }
+                        continue;
+                    }
+                }
+            };
+            spill.push(number, block_key(number, &hash).to_vec(), value.to_vec())?;
+            scanned += 1;
+            migrated += 1;
+            if scanned.is_multiple_of(1_000_000) {
+                info!(
+                    "SST rebuild: scanned {scanned} entries from old column {}",
+                    col.old
+                );
+            }
         }
-    }
 
-    let shards = spill.finish()?;
-    info!(
-        "SST rebuild: old column {} scan complete, entries={scanned}, shards={}",
-        col.old,
-        shards.len()
-    );
-    write_spilled_shards(pool, col.new, sst_root, shards)
-}
-
-fn rewrite_block_body(
-    source: &ReadOnlyDB,
-    plan: &RebuildPlan,
-    sst_root: &Path,
-    pool: &rayon::ThreadPool,
-) -> Result<Vec<GeneratedSst>, Error> {
-    info!(
-        "SST rebuild: scanning old column {} sequentially for tx-key rewrite into {}",
-        legacy::COLUMN_BLOCK_BODY,
-        COLUMN_BLOCK_BODY
-    );
-    let mut spill = RewriteSpill::new(sst_root, COLUMN_BLOCK_BODY)?;
-    let iter = source.iter(legacy::COLUMN_BLOCK_BODY, IteratorMode::Start)?;
-    let mut scanned = 0u64;
-
-    for (old_key, value) in iter {
-        if old_key.len() < 36 {
-            return Err(internal_error(format!(
-                "old transaction key is too short: {} bytes",
-                old_key.len()
-            )));
-        }
-        let hash = byte32_from_slice(&old_key[..32], "transaction key block hash")?;
-        let number = plan.block_number_by_hash(hash.as_slice())?;
-        let index = tx_index_from_old_key(&old_key)?;
-        spill.push(
-            number,
-            hash.to_tx_key(number, index).to_vec(),
-            value.to_vec(),
+        let shards = spill.finish()?;
+        info!(
+            "SST rebuild: old column {} scan complete, scanned={scanned}, migrated={migrated}, skipped_orphans={skipped_orphans}, shards={}",
+            col.old,
+            shards.len()
+        );
+        write_spilled_shards(
+            self.pool,
+            col.new,
+            self.sst_root,
+            shards,
+            self.ingestor,
+            self.sst_options,
         )?;
-        scanned += 1;
-        if scanned % 1_000_000 == 0 {
-            info!(
-                "SST rebuild: scanned {scanned} entries from old column {}",
-                legacy::COLUMN_BLOCK_BODY
-            );
-        }
+        Ok(migrated)
     }
 
-    let shards = spill.finish()?;
-    info!(
-        "SST rebuild: old column {} scan complete, entries={scanned}, shards={}",
-        legacy::COLUMN_BLOCK_BODY,
-        shards.len()
-    );
-    write_spilled_shards(pool, COLUMN_BLOCK_BODY, sst_root, shards)
-}
+    fn rewrite_block_body(&self) -> Result<u64, Error> {
+        info!(
+            "SST rebuild: scanning old column {} sequentially for tx-key rewrite into {}",
+            legacy::COLUMN_BLOCK_BODY,
+            COLUMN_BLOCK_BODY
+        );
+        let mut spill = RewriteSpill::new(self.sst_root, COLUMN_BLOCK_BODY, self.pool)?;
+        let iter = self
+            .source
+            .iter(legacy::COLUMN_BLOCK_BODY, IteratorMode::Start)?;
+        let mut scanned = 0u64;
+        let mut migrated = 0u64;
+        let mut skipped_orphans = 0u64;
 
-fn rewrite_number_hash(
-    source: &ReadOnlyDB,
-    sst_root: &Path,
-    pool: &rayon::ThreadPool,
-) -> Result<Vec<GeneratedSst>, Error> {
-    info!(
-        "SST rebuild: scanning old column {} sequentially for number-hash rewrite into {}",
-        legacy::COLUMN_NUMBER_HASH,
-        COLUMN_NUMBER_HASH,
-    );
-    let mut spill = RewriteSpill::new(sst_root, COLUMN_NUMBER_HASH)?;
-    let iter = source.iter(legacy::COLUMN_NUMBER_HASH, IteratorMode::Start)?;
-    let mut scanned = 0u64;
+        for (old_key, value) in iter {
+            if old_key.len() < 36 {
+                return Err(internal_error(format!(
+                    "old transaction key is too short: {} bytes",
+                    old_key.len()
+                )));
+            }
+            let hash = byte32_from_slice(&old_key[..32], "transaction key block hash")?;
+            let Some(number) = self.plan.block_number_by_hash_opt(hash.as_slice())? else {
+                skipped_orphans += 1;
+                scanned += 1;
+                if scanned.is_multiple_of(1_000_000) {
+                    info!(
+                        "SST rebuild: scanned {scanned} entries from old column {}",
+                        legacy::COLUMN_BLOCK_BODY
+                    );
+                }
+                continue;
+            };
+            let index = tx_index_from_old_key(&old_key)?;
+            spill.push(
+                number,
+                block_body_key(number, &hash, index).to_vec(),
+                value.to_vec(),
+            )?;
+            scanned += 1;
+            migrated += 1;
+            if scanned.is_multiple_of(1_000_000) {
+                info!(
+                    "SST rebuild: scanned {scanned} entries from old column {}",
+                    legacy::COLUMN_BLOCK_BODY
+                );
+            }
+        }
 
-    for (old_key, value) in iter {
-        if old_key.len() != 40 {
-            return Err(internal_error(format!(
-                "old number-hash key has invalid length: {} bytes",
-                old_key.len()
-            )));
-        }
-        let number = block_number_from_index_key(&old_key[..8])?;
-        let mut new_key = Vec::with_capacity(40);
-        new_key.extend_from_slice(&block_number_to_key(number));
-        new_key.extend_from_slice(&old_key[8..40]);
-        spill.push(number, new_key, value.to_vec())?;
-        scanned += 1;
-        if scanned % 1_000_000 == 0 {
-            info!(
-                "SST rebuild: scanned {scanned} entries from old column {}",
-                legacy::COLUMN_NUMBER_HASH
-            );
-        }
+        let shards = spill.finish()?;
+        info!(
+            "SST rebuild: old column {} scan complete, scanned={scanned}, migrated={migrated}, skipped_orphans={skipped_orphans}, shards={}",
+            legacy::COLUMN_BLOCK_BODY,
+            shards.len()
+        );
+        write_spilled_shards(
+            self.pool,
+            COLUMN_BLOCK_BODY,
+            self.sst_root,
+            shards,
+            self.ingestor,
+            self.sst_options,
+        )?;
+        Ok(migrated)
     }
 
-    let shards = spill.finish()?;
-    info!(
-        "SST rebuild: old column {} scan complete, entries={scanned}, shards={}",
-        legacy::COLUMN_NUMBER_HASH,
-        shards.len()
-    );
-    write_spilled_shards(pool, COLUMN_NUMBER_HASH, sst_root, shards)
-}
-
-fn build_hash_index(
-    source: &ReadOnlyDB,
-    plan: &RebuildPlan,
-    sst_root: &Path,
-) -> Result<Option<GeneratedSst>, Error> {
-    let path = sst_file_path(sst_root, COLUMN_HASH_INDEX, "all")?;
-    write_sst_file(COLUMN_HASH_INDEX, path, |writer, last_key| {
-        let mut entries = 0;
-        let iter = source.iter(legacy::COLUMN_BLOCK_HEADER, IteratorMode::Start)?;
+    fn build_hash_index(&self) -> Result<u64, Error> {
+        let mut writer =
+            SplitSstWriter::new(self.sst_options, COLUMN_HASH_INDEX, self.sst_root, "all")?;
+        let iter = self
+            .source
+            .iter(legacy::COLUMN_BLOCK_HEADER, IteratorMode::Start)?;
+        let mut total_entries = 0u64;
         for (key, value) in iter {
             let hash = byte32_from_slice(&key, "block header key")?;
             let number = header_number(&value);
-            let is_main_chain = plan
+            let flag = if self
+                .plan
                 .canonical_hashes
                 .get(number as usize)
                 .map(|canonical| canonical.as_slice() == hash.as_slice())
-                .unwrap_or(false);
-            let index_value = packed::Byte32::to_index_value(number, is_main_chain);
-            put_sorted(writer, last_key, hash.as_slice(), &index_value)?;
-            entries += 1;
+                .unwrap_or(false)
+            {
+                BlockIndexFlag::MainChain
+            } else {
+                BlockIndexFlag::Fork
+            };
+            let index_value = BlockHashIndexValue { number, flag }.encode();
+            writer.put(hash.as_slice(), &index_value)?;
+            total_entries += 1;
         }
-        Ok(entries)
-    })
-    .map(Some)
-}
-
-fn copy_column(
-    source: &ReadOnlyDB,
-    sst_root: &Path,
-    col: ColumnMapping,
-) -> Result<Vec<GeneratedSst>, Error> {
-    info!(
-        "SST rebuild: copying old column {} into {}",
-        col.old, col.new
-    );
-    let opts = Options::default();
-    let mut generated = Vec::new();
-    let mut writer = None;
-    let mut path = PathBuf::new();
-    let mut last_key = None;
-    let mut file_index = 0u64;
-    let mut entries = 0u64;
-    let mut bytes = 0usize;
-    let mut total_entries = 0u64;
-
-    let iter = source.iter(col.old, IteratorMode::Start)?;
-    for (key, value) in iter {
-        if writer.is_some() && (entries >= COPY_SST_ENTRY_LIMIT || bytes >= COPY_SST_BYTES_LIMIT) {
-            let finished =
-                finish_sst_writer(writer.take().unwrap(), col.new, path.clone(), entries)?;
-            generated.push(finished);
-            file_index += 1;
-            entries = 0;
-            bytes = 0;
-            last_key = None;
+        for sst in writer.finish()? {
+            self.ingestor.ingest(sst)?;
         }
-
-        if writer.is_none() {
-            path = sst_file_path(sst_root, col.new, &format!("copy-{file_index:06}"))?;
-            let new_writer = SstFileWriter::create(&opts);
-            new_writer.open(&path).map_err(|err| {
-                internal_error(format!("failed to open SST {}: {err}", path.display()))
-            })?;
-            writer = Some(new_writer);
-        }
-
-        put_sorted(writer.as_mut().unwrap(), &mut last_key, &key, &value)?;
-        entries += 1;
-        bytes += key.len() + value.len();
-        total_entries += 1;
-        if total_entries % 1_000_000 == 0 {
-            info!(
-                "SST rebuild: copied {total_entries} entries from old column {}",
-                col.old
-            );
-        }
+        Ok(total_entries)
     }
 
-    if let Some(writer) = writer {
-        generated.push(finish_sst_writer(writer, col.new, path, entries)?);
+    fn copy_column(&self, col: ColumnMapping) -> Result<(Col, u64), Error> {
+        info!(
+            "SST rebuild: copying old column {} into {}",
+            col.old, col.new
+        );
+        let mut generated_files = 0usize;
+        let mut total_entries = 0u64;
+        let mut writer = SplitSstWriter::new(self.sst_options, col.new, self.sst_root, "copy")?;
+
+        let iter = self.source.iter(col.old, IteratorMode::Start)?;
+        for (key, value) in iter {
+            writer.put(&key, &value)?;
+            total_entries += 1;
+            if total_entries.is_multiple_of(1_000_000) {
+                info!(
+                    "SST rebuild: copied {total_entries} entries from old column {}",
+                    col.old
+                );
+            }
+        }
+
+        for sst in writer.finish()? {
+            self.ingestor.ingest(sst)?;
+            generated_files += 1;
+        }
+
+        info!(
+            "SST rebuild: copied old column {}, entries={total_entries}, files={}",
+            col.old, generated_files
+        );
+        Ok((col.new, total_entries))
     }
 
-    info!(
-        "SST rebuild: copied old column {}, entries={total_entries}, files={}",
-        col.old,
-        generated.len()
-    );
-    Ok(generated)
-}
+    fn copy_columns(&self) -> Result<Vec<(Col, u64)>, Error> {
+        info!(
+            "SST rebuild: copying {} old columns with up to {} concurrent scans",
+            COPY_COLUMNS.len(),
+            COPY_COLUMN_PARALLELISM
+        );
 
-fn copy_columns(
-    source: &ReadOnlyDB,
-    sst_root: &Path,
-    pool: &rayon::ThreadPool,
-) -> Result<Vec<GeneratedSst>, Error> {
-    info!(
-        "SST rebuild: copying {} old columns with up to {} concurrent scans",
-        COPY_COLUMNS.len(),
-        COPY_COLUMN_PARALLELISM
-    );
+        let mut copied = Vec::with_capacity(COPY_COLUMNS.len());
+        for batch in COPY_COLUMNS.chunks(COPY_COLUMN_PARALLELISM) {
+            let results: Vec<Result<(Col, u64), Error>> = self.pool.install(|| {
+                batch
+                    .par_iter()
+                    .copied()
+                    .map(|col| self.copy_column(col))
+                    .collect()
+            });
 
-    let mut generated = Vec::new();
-    for batch in COPY_COLUMNS.chunks(COPY_COLUMN_PARALLELISM) {
-        let results: Vec<Result<Vec<GeneratedSst>, Error>> = pool.install(|| {
-            batch
-                .par_iter()
-                .copied()
-                .map(|col| copy_column(source, sst_root, col))
-                .collect()
-        });
-
-        for result in results {
-            generated.extend(result?);
+            for result in results {
+                copied.push(result?);
+            }
         }
+
+        Ok(copied)
     }
 
-    Ok(generated)
-}
-
-fn copy_canonical_index(
-    plan: &RebuildPlan,
-    sst_root: &Path,
-) -> Result<Option<GeneratedSst>, Error> {
-    let path = sst_file_path(sst_root, COLUMN_INDEX, "canonical")?;
-    write_sst_file(COLUMN_INDEX, path, |writer, last_key| {
-        let mut entries = 0;
-        for (number, hash) in plan.canonical_hashes.iter().enumerate() {
-            let key = block_number_to_key(number as BlockNumber);
-            put_sorted(writer, last_key, &key, hash.as_slice())?;
-            entries += 1;
+    fn copy_canonical_index(&self) -> Result<u64, Error> {
+        let mut writer =
+            SplitSstWriter::new(self.sst_options, COLUMN_INDEX, self.sst_root, "canonical")?;
+        for (number, hash) in self.plan.canonical_hashes.iter().enumerate() {
+            let key = block_number_key(number as BlockNumber);
+            writer.put(&key, hash.as_slice())?;
         }
-        Ok(entries)
-    })
-    .map(Some)
+        for sst in writer.finish()? {
+            self.ingestor.ingest(sst)?;
+        }
+        Ok(self.plan.canonical_hashes.len() as u64)
+    }
 }
 
-impl RewriteSpill {
-    fn new(sst_root: &Path, col: Col) -> Result<Self, Error> {
+impl<'a> RewriteSpill<'a> {
+    fn new(sst_root: &Path, col: Col, pool: &'a rayon::ThreadPool) -> Result<Self, Error> {
         let dir = sst_root.join("spill").join(col);
         fs::create_dir_all(&dir).map_err(|err| {
             internal_error(format!(
@@ -736,17 +915,19 @@ impl RewriteSpill {
             ))
         })?;
         Ok(Self {
+            pool,
             col,
             dir,
             buffers: BTreeMap::new(),
             paths: BTreeMap::new(),
+            run_indexes: BTreeMap::new(),
             buffered_bytes: 0,
         })
     }
 
     fn push(&mut self, number: BlockNumber, key: Vec<u8>, value: Vec<u8>) -> Result<(), Error> {
         let start = number / RANGE_BLOCKS * RANGE_BLOCKS;
-        let entry_bytes = key.len() + value.len() + 8;
+        let entry_bytes = key.len() + value.len() + SPILL_RECORD_HEADER_BYTES;
         let buffer = self.buffers.entry(start).or_insert_with(|| SpillBuffer {
             entries: Vec::new(),
             bytes: 0,
@@ -766,7 +947,7 @@ impl RewriteSpill {
         Ok(self
             .paths
             .into_iter()
-            .map(|(start, path)| SpillShard { start, path })
+            .map(|(start, paths)| SpillShard { start, paths })
             .collect())
     }
 
@@ -776,11 +957,13 @@ impl RewriteSpill {
         }
 
         let buffers = std::mem::take(&mut self.buffers);
-        for (start, buffer) in buffers {
+        for (start, mut buffer) in buffers {
+            self.pool.install(|| buffer.entries.par_sort_unstable());
             let path = self.spill_path(start);
             let file = OpenOptions::new()
                 .create(true)
-                .append(true)
+                .write(true)
+                .truncate(true)
                 .open(&path)
                 .map_err(|err| {
                     internal_error(format!(
@@ -798,7 +981,7 @@ impl RewriteSpill {
                     path.display()
                 ))
             })?;
-            self.paths.insert(start, path);
+            self.paths.entry(start).or_default().push(path);
         }
 
         info!("SST rebuild: flushed spill buffers for column {}", self.col);
@@ -806,8 +989,10 @@ impl RewriteSpill {
         Ok(())
     }
 
-    fn spill_path(&self, start: BlockNumber) -> PathBuf {
-        self.dir.join(format!("{start:016x}.spill"))
+    fn spill_path(&mut self, start: BlockNumber) -> PathBuf {
+        let run = self.run_indexes.get(&start).copied().unwrap_or(0);
+        self.run_indexes.insert(start, run + 1);
+        self.dir.join(format!("{start:016x}-{run:06}.spill"))
     }
 }
 
@@ -841,14 +1026,96 @@ impl Iterator for SpillRecordIter {
     }
 }
 
+impl<'a> SplitSstWriter<'a> {
+    fn new(
+        sst_options: &'a SstWriterOptions,
+        col: Col,
+        sst_root: &'a Path,
+        name_prefix: impl Into<String>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            opts: sst_options.for_col(col)?,
+            col,
+            sst_root,
+            name_prefix: name_prefix.into(),
+            file_index: 0,
+            writer: None,
+            path: PathBuf::new(),
+            last_key: None,
+            entries: 0,
+            bytes: 0,
+            generated: Vec::new(),
+        })
+    }
+
+    fn put(&mut self, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        if self.writer.is_some()
+            && self.entries > 0
+            && (self.entries >= COPY_SST_ENTRY_LIMIT || self.bytes >= COPY_SST_BYTES_LIMIT)
+        {
+            self.finish_current()?;
+        }
+
+        if self.writer.is_none() {
+            self.open_next()?;
+        }
+
+        put_sorted(
+            self.writer.as_mut().expect("writer opened"),
+            &mut self.last_key,
+            key,
+            value,
+        )?;
+        self.entries += 1;
+        self.bytes += key.len() + value.len();
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<Vec<GeneratedSst>, Error> {
+        self.finish_current()?;
+        Ok(self.generated)
+    }
+
+    fn open_next(&mut self) -> Result<(), Error> {
+        self.path = sst_file_path(
+            self.sst_root,
+            self.col,
+            &format!("{}-{:06}", self.name_prefix, self.file_index),
+        )?;
+        let writer = SstFileWriter::create(self.opts);
+        writer.open(&self.path).map_err(|err| {
+            internal_error(format!("failed to open SST {}: {err}", self.path.display()))
+        })?;
+        self.writer = Some(writer);
+        Ok(())
+    }
+
+    fn finish_current(&mut self) -> Result<(), Error> {
+        if let Some(writer) = self.writer.take() {
+            let generated = finish_sst_writer(writer, self.col, self.path.clone(), self.entries)?;
+            if generated.entries > 0 {
+                self.generated.push(generated);
+            }
+            self.file_index += 1;
+            self.path = PathBuf::new();
+            self.last_key = None;
+            self.entries = 0;
+            self.bytes = 0;
+        }
+        Ok(())
+    }
+}
+
 fn write_spilled_shards(
     pool: &rayon::ThreadPool,
     col: Col,
     sst_root: &Path,
     shards: Vec<SpillShard>,
-) -> Result<Vec<GeneratedSst>, Error> {
+    ingestor: &SstIngestor<'_>,
+    sst_options: &SstWriterOptions,
+) -> Result<(), Error> {
     if shards.is_empty() {
-        return Ok(Vec::new());
+        return Ok(());
     }
 
     let total = shards.len();
@@ -856,54 +1123,73 @@ fn write_spilled_shards(
     let progress_interval = (total / 20).max(1);
     info!("SST rebuild: writing {total} sorted SST shards for column {col}");
 
-    let results: Vec<Result<GeneratedSst, Error>> = pool.install(|| {
+    let results: Vec<Result<(), Error>> = pool.install(|| {
         shards
             .into_par_iter()
             .map(|shard| {
-                let result = write_spilled_shard(col, sst_root, shard);
-                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                if done == total || done % progress_interval == 0 {
-                    info!("SST rebuild: wrote sorted shards {done}/{total} for column {col}");
+                let result = write_spilled_shard(col, sst_root, shard, sst_options)
+                    .and_then(|ssts| {
+                        for sst in ssts {
+                            ingestor.ingest(sst)?;
+                        }
+                        Ok(())
+                    });
+                let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                if done == total || done.is_multiple_of(progress_interval) {
+                    info!(
+                        "SST rebuild: wrote and ingested sorted shards {done}/{total} for column {col}"
+                    );
                 }
                 result
             })
             .collect()
     });
 
-    let mut generated = Vec::with_capacity(results.len());
     for result in results {
-        generated.push(result?);
+        result?;
     }
-    Ok(generated)
+    Ok(())
 }
 
 fn write_spilled_shard(
     col: Col,
     sst_root: &Path,
     shard: SpillShard,
-) -> Result<GeneratedSst, Error> {
-    let mut entries = SpillRecordIter::open(&shard.path)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| {
-            internal_error(format!(
-                "failed to read spill file {}: {err}",
-                shard.path.display()
-            ))
-        })?;
-    entries.par_sort_unstable();
-
+    sst_options: &SstWriterOptions,
+) -> Result<Vec<GeneratedSst>, Error> {
     let end = shard.start + RANGE_BLOCKS;
-    let path = sst_file_path(sst_root, col, &format!("{:016x}-{end:016x}", shard.start))?;
-    let generated = write_sst_file(col, path, |writer, last_key| {
-        let count = entries.len() as u64;
-        for entry in entries {
-            put_sorted(writer, last_key, &entry.key, &entry.value)?;
-        }
-        Ok(count)
-    })?;
+    let mut writer = SplitSstWriter::new(
+        sst_options,
+        col,
+        sst_root,
+        format!("{:016x}-{end:016x}", shard.start),
+    )?;
+    let mut runs = Vec::with_capacity(shard.paths.len());
+    let mut heap = BinaryHeap::new();
 
-    let _ = fs::remove_file(&shard.path);
-    Ok(generated)
+    for path in &shard.paths {
+        let mut run = SpillRecordIter::open(path)?;
+        if let Some(entry) = read_next_spill_entry(&mut run)? {
+            heap.push(HeapEntry {
+                entry,
+                run: runs.len(),
+            });
+        }
+        runs.push(run);
+    }
+
+    while let Some(HeapEntry { entry, run }) = heap.pop() {
+        writer.put(&entry.key, &entry.value)?;
+        if let Some(next) = read_next_spill_entry(&mut runs[run])? {
+            heap.push(HeapEntry { entry: next, run });
+        }
+    }
+
+    for path in &shard.paths {
+        let _ = fs::remove_file(path);
+    }
+
+    writer.finish()
 }
 
 fn write_spill_record(writer: &mut BufWriter<File>, key: &[u8], value: &[u8]) -> Result<(), Error> {
@@ -911,11 +1197,18 @@ fn write_spill_record(writer: &mut BufWriter<File>, key: &[u8], value: &[u8]) ->
         .map_err(|err| internal_error(format!("failed to write spill record: {err}")))
 }
 
+fn read_next_spill_entry(run: &mut SpillRecordIter) -> Result<Option<BufferedEntry>, Error> {
+    run.next()
+        .transpose()
+        .map_err(|err| internal_error(format!("{err}")))
+}
+
 fn write_spill_record_io(writer: &mut impl Write, key: &[u8], value: &[u8]) -> io::Result<()> {
     let key_len = u32::try_from(key.len())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "spill key too large"))?;
     let value_len = u32::try_from(value.len())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "spill value too large"))?;
+
     writer
         .write_all(&key_len.to_le_bytes())
         .and_then(|_| writer.write_all(&value_len.to_le_bytes()))
@@ -933,30 +1226,15 @@ fn read_spill_record_io(reader: &mut impl Read) -> io::Result<Option<BufferedEnt
 
     let mut value_len_bytes = [0u8; 4];
     reader.read_exact(&mut value_len_bytes)?;
+
     let key_len = u32::from_le_bytes(key_len_bytes) as usize;
     let value_len = u32::from_le_bytes(value_len_bytes) as usize;
     let mut key = vec![0u8; key_len];
     let mut value = vec![0u8; value_len];
     reader.read_exact(&mut key)?;
     reader.read_exact(&mut value)?;
-    Ok(Some(BufferedEntry { key, value }))
-}
 
-fn write_sst_file<F>(col: Col, path: PathBuf, write_entries: F) -> Result<GeneratedSst, Error>
-where
-    F: FnOnce(&mut SstFileWriter<'_>, &mut Option<Vec<u8>>) -> Result<u64, Error>,
-{
-    let opts = Options::default();
-    let mut writer = SstFileWriter::create(&opts);
-    writer
-        .open(&path)
-        .map_err(|err| internal_error(format!("failed to open SST {}: {err}", path.display())))?;
-    let mut last_key = None;
-    let entries = write_entries(&mut writer, &mut last_key)?;
-    writer
-        .finish()
-        .map_err(|err| internal_error(format!("failed to finish SST {}: {err}", path.display())))?;
-    Ok(GeneratedSst { col, path, entries })
+    Ok(Some(BufferedEntry { key, value }))
 }
 
 fn finish_sst_writer(
@@ -991,25 +1269,6 @@ fn put_sorted(
     Ok(())
 }
 
-fn ingest_ssts(target: &RocksDB, generated: Vec<GeneratedSst>) -> Result<(), Error> {
-    let mut by_col: BTreeMap<Col, Vec<PathBuf>> = BTreeMap::new();
-    for sst in generated {
-        if sst.entries > 0 {
-            by_col.entry(sst.col).or_default().push(sst.path);
-        }
-    }
-
-    for (col, mut paths) in by_col {
-        paths.sort();
-        info!("SST rebuild: ingesting column {col}, files={}", paths.len());
-        target.ingest_external_files(col, paths).map_err(|err| {
-            internal_error(format!("failed to ingest SSTs for column {col}: {err}"))
-        })?;
-        info!("SST rebuild: finished ingesting column {col}");
-    }
-    Ok(())
-}
-
 fn copy_default_keys(source: &ReadOnlyDB, target: &RocksDB) -> Result<(), Error> {
     if let Some(value) = source.get_pinned_default(CHAIN_SPEC_HASH_KEY)? {
         target
@@ -1019,7 +1278,15 @@ fn copy_default_keys(source: &ReadOnlyDB, target: &RocksDB) -> Result<(), Error>
     Ok(())
 }
 
-fn validate_target(source: &ReadOnlyDB, target: &RocksDB, plan: &RebuildPlan) -> Result<(), Error> {
+fn validate_target(
+    source: &ReadOnlyDB,
+    target: &RocksDB,
+    plan: &RebuildPlan,
+    expected_entries: &BTreeMap<Col, u64>,
+    ingested_stats: &BTreeMap<Col, ColumnIngestStats>,
+) -> Result<(), Error> {
+    validate_ingest_counts(plan, expected_entries, ingested_stats)?;
+
     let old_tip = get_required(source, legacy::COLUMN_META, META_TIP_HEADER_KEY)?;
     let new_tip = target
         .get_pinned(COLUMN_META, META_TIP_HEADER_KEY)?
@@ -1030,7 +1297,7 @@ fn validate_target(source: &ReadOnlyDB, target: &RocksDB, plan: &RebuildPlan) ->
 
     for number in sample_heights(plan.tip_number) {
         let hash = plan.canonical_hash(number)?;
-        let block_key = hash.to_block_key(number);
+        let block_key = block_key(number, hash);
         if target
             .get_pinned(COLUMN_BLOCK_HEADER, &block_key)?
             .is_none()
@@ -1040,7 +1307,7 @@ fn validate_target(source: &ReadOnlyDB, target: &RocksDB, plan: &RebuildPlan) ->
             )));
         }
         let indexed_hash = target
-            .get_pinned(COLUMN_INDEX, &block_number_to_key(number))?
+            .get_pinned(COLUMN_INDEX, &block_number_key(number))?
             .ok_or_else(|| internal_error("migrated DB is missing canonical number index"))?;
         if indexed_hash.as_ref() != hash.as_slice() {
             return Err(internal_error(format!(
@@ -1050,8 +1317,11 @@ fn validate_target(source: &ReadOnlyDB, target: &RocksDB, plan: &RebuildPlan) ->
         let index_value = target
             .get_pinned(COLUMN_HASH_INDEX, hash.as_slice())?
             .ok_or_else(|| internal_error("migrated DB is missing hash index entry"))?;
-        if packed::Byte32::number_from_index_value(index_value.as_ref()) != Some(number)
-            || packed::Byte32::is_main_chain_from_index_value(index_value.as_ref()) != Some(true)
+        if BlockHashIndexValue::decode(index_value.as_ref())
+            != Some(BlockHashIndexValue {
+                number,
+                flag: BlockIndexFlag::MainChain,
+            })
         {
             return Err(internal_error(format!(
                 "migrated DB has invalid hash index entry at height {number}"
@@ -1059,9 +1329,83 @@ fn validate_target(source: &ReadOnlyDB, target: &RocksDB, plan: &RebuildPlan) ->
         }
     }
 
-    let tip_key = plan.tip_hash.to_block_key(plan.tip_number);
+    let tip_key = block_key(plan.tip_number, &plan.tip_hash);
     if target.get_pinned(COLUMN_BLOCK_HEADER, &tip_key)?.is_none() {
         return Err(internal_error("migrated DB is missing tip header"));
+    }
+    validate_fork_hash_index(target, plan)?;
+    Ok(())
+}
+
+fn validate_ingest_counts(
+    plan: &RebuildPlan,
+    expected_entries: &BTreeMap<Col, u64>,
+    ingested_stats: &BTreeMap<Col, ColumnIngestStats>,
+) -> Result<(), Error> {
+    for col in COLUMN_FAMILIES {
+        let expected = expected_entries.get(col).copied().unwrap_or(0);
+        let ingested = ingested_stats.get(col).copied().unwrap_or_default();
+        if ingested.entries != expected {
+            return Err(internal_error(format!(
+                "migrated DB column {col} ingested {} entries, expected {expected}",
+                ingested.entries
+            )));
+        }
+        if expected > 0 && ingested.files == 0 {
+            return Err(internal_error(format!(
+                "migrated DB column {col} ingested entries without SST files"
+            )));
+        }
+    }
+
+    let block_count = plan.block_numbers.len() as u64;
+    let canonical_count = plan.canonical_hashes.len() as u64;
+    validate_expected_count(expected_entries, COLUMN_BLOCK_HEADER, block_count)?;
+    validate_expected_count(expected_entries, COLUMN_HASH_INDEX, block_count)?;
+    validate_expected_count(expected_entries, COLUMN_INDEX, canonical_count)?;
+    Ok(())
+}
+
+fn validate_expected_count(
+    expected_entries: &BTreeMap<Col, u64>,
+    col: Col,
+    expected: u64,
+) -> Result<(), Error> {
+    let actual = expected_entries.get(col).copied().unwrap_or(0);
+    if actual != expected {
+        return Err(internal_error(format!(
+            "migration generated {actual} entries for column {col}, expected {expected}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_fork_hash_index(target: &RocksDB, plan: &RebuildPlan) -> Result<(), Error> {
+    for (number, hashes) in &plan.forks_by_height {
+        for hash in hashes {
+            let block_key = block_key(*number, hash);
+            if target
+                .get_pinned(COLUMN_BLOCK_HEADER, &block_key)?
+                .is_none()
+            {
+                return Err(internal_error(format!(
+                    "migrated DB is missing fork header at height {number}"
+                )));
+            }
+            let index_value = target
+                .get_pinned(COLUMN_HASH_INDEX, hash.as_slice())?
+                .ok_or_else(|| internal_error("migrated DB is missing fork hash index entry"))?;
+            if BlockHashIndexValue::decode(index_value.as_ref())
+                != Some(BlockHashIndexValue {
+                    number: *number,
+                    flag: BlockIndexFlag::Fork,
+                })
+            {
+                return Err(internal_error(format!(
+                    "migrated DB has invalid fork hash index entry at height {number}"
+                )));
+            }
+        }
     }
     Ok(())
 }
@@ -1134,4 +1478,21 @@ fn tx_index_from_old_key(key: &[u8]) -> Result<u32, Error> {
     Ok(u32::from_be_bytes(
         key[32..36].try_into().expect("slice len checked"),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spill_record_roundtrips_raw_value() {
+        let mut bytes = Vec::new();
+        write_spill_record_io(&mut bytes, b"key", b"small-value").unwrap();
+
+        let mut cursor = io::Cursor::new(bytes);
+        let entry = read_spill_record_io(&mut cursor).unwrap().unwrap();
+        assert_eq!(entry.key, b"key");
+        assert_eq!(entry.value, b"small-value");
+        assert!(read_spill_record_io(&mut cursor).unwrap().is_none());
+    }
 }

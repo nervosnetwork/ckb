@@ -14,7 +14,7 @@ impl Migration for SstRebuildRequired {
         _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<RocksDB, Error> {
         Err(InternalErrorKind::Database
-            .other("RocksDB key schema migration requires `ckb migrate --sst-rebuild --force`")
+            .other("RocksDB key schema migration requires `ckb migrate --sst-rebuild`")
             .into())
     }
 

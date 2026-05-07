@@ -1,8 +1,17 @@
 //! The schema include constants define the low level database column families.
 
+pub mod hash_index;
+pub mod keys;
 pub mod legacy;
 pub mod v1;
 
+pub use hash_index::{BlockHashIndexValue, BlockIndexFlag};
+pub use keys::{
+    BLOCK_BODY_KEY_SIZE, BLOCK_HASH_SIZE, BLOCK_KEY_SIZE, BLOCK_NUMBER_KEY_SIZE, BlockBodyKey,
+    BlockHash, BlockKey, BlockNumberKey, CELL_KEY_SIZE, CellKey, OutPoint, TxHash, block_body_key,
+    block_key, block_number_key, cell_key, decode_block_key, decode_block_number_key,
+    out_point_key,
+};
 pub use v1::*;
 
 /// Column families alias type.
