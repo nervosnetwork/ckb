@@ -1,7 +1,7 @@
 use crate::util::transaction::{relay_tx, send_tx};
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
-use ckb_jsonrpc_types::Status;
+use ckb_jsonrpc_types::{Status, TxPoolInfo};
 use ckb_network::SupportProtocols;
 use ckb_types::packed::CellOutputBuilder;
 use ckb_types::{
@@ -17,6 +17,7 @@ use ckb_types::{
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 // always_failure, as the name implies, so it doesn't matter what the cycles are
 const ALWAYS_FAILURE_SCRIPT_CYCLE: u64 = 1000;
+const TX_POOL_COUNT_TIMEOUT_SECS: u64 = 30;
 
 pub struct OrphanTxAccepted;
 
@@ -38,23 +39,19 @@ impl Spec for OrphanTxAccepted {
         let child_tx = node0.new_transaction(parent_tx.hash());
 
         relay_tx(&net, node0, child_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
-        let result = wait_until(5, || {
-            let tx_pool_info = node0.get_tip_tx_pool_info();
-            tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0
-        });
-        assert!(
-            result,
-            "Send child tx first, it will be added to orphan tx pool"
+        assert_tx_pool_counts(
+            node0,
+            1,
+            0,
+            "Send child tx first, it will be added to orphan tx pool",
         );
 
         relay_tx(&net, node0, parent_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
-        let result = wait_until(5, || {
-            let tx_pool_info = node0.get_tip_tx_pool_info();
-            tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 2
-        });
-        assert!(
-            result,
-            "Send parent tx, the child tx will be moved from orphan tx pool to pending tx pool"
+        assert_tx_pool_counts(
+            node0,
+            0,
+            2,
+            "Send parent tx, the child tx will be moved from orphan tx pool to pending tx pool",
         );
     }
 }
@@ -80,23 +77,19 @@ impl Spec for OrphanTxRejected {
         let child_hash = child_tx.hash();
 
         relay_tx(&net, node0, child_tx, ALWAYS_FAILURE_SCRIPT_CYCLE);
-        let result = wait_until(5, || {
-            let tx_pool_info = node0.get_tip_tx_pool_info();
-            tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0
-        });
-        assert!(
-            result,
-            "Send child tx first, it will be added to orphan tx pool"
+        assert_tx_pool_counts(
+            node0,
+            1,
+            0,
+            "Send child tx first, it will be added to orphan tx pool",
         );
 
         relay_tx(&net, node0, parent_tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
-        let result = wait_until(5, || {
-            let tx_pool_info = node0.get_tip_tx_pool_info();
-            tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 1
-        });
-        assert!(
-            result,
-            "Send parent tx, the child tx will be moved from orphan tx pool because of always_failure"
+        assert_tx_pool_counts(
+            node0,
+            0,
+            1,
+            "Send parent tx, the child tx will be moved from orphan tx pool because of always_failure",
         );
         wait_until(20, || node0.rpc_client().get_banned_addresses().len() == 1);
 
@@ -189,12 +182,16 @@ fn run_replay_tx(
     orphan_tx_cnt: u64,
     pending_cnt: u64,
 ) -> bool {
+    let tx_hash = tx.hash();
     relay_tx(net, node0, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
 
-    wait_until(5, || {
-        let tx_pool_info = node0.get_tip_tx_pool_info();
-        tx_pool_info.orphan.value() == orphan_tx_cnt && tx_pool_info.pending.value() == pending_cnt
-    })
+    assert_tx_pool_counts(
+        node0,
+        orphan_tx_cnt,
+        pending_cnt,
+        &format!("after relaying tx {tx_hash}"),
+    );
+    true
 }
 
 fn run_send_tx(
@@ -204,12 +201,36 @@ fn run_send_tx(
     orphan_tx_cnt: u64,
     pending_cnt: u64,
 ) -> bool {
+    let tx_hash = tx.hash();
     send_tx(net, node0, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
 
-    wait_until(5, || {
-        let tx_pool_info = node0.get_tip_tx_pool_info();
-        tx_pool_info.orphan.value() == orphan_tx_cnt && tx_pool_info.pending.value() == pending_cnt
-    })
+    assert_tx_pool_counts(
+        node0,
+        orphan_tx_cnt,
+        pending_cnt,
+        &format!("after sending tx {tx_hash}"),
+    );
+    true
+}
+
+fn assert_tx_pool_counts(node0: &Node, orphan_tx_cnt: u64, pending_cnt: u64, assert_message: &str) {
+    let mut last = TxPoolInfo::default();
+    let result = wait_until(TX_POOL_COUNT_TIMEOUT_SECS, || {
+        last = node0.get_tip_tx_pool_info();
+        last.orphan.value() == orphan_tx_cnt && last.pending.value() == pending_cnt
+    });
+    assert!(
+        result,
+        "{}: expected orphan={}, pending={} within {}s, got orphan={}, pending={}, proposed={}, verify_queue_size={}",
+        assert_message,
+        orphan_tx_cnt,
+        pending_cnt,
+        TX_POOL_COUNT_TIMEOUT_SECS,
+        last.orphan.value(),
+        last.pending.value(),
+        last.proposed.value(),
+        last.verify_queue_size.value(),
+    );
 }
 
 fn should_receive_get_relay_transactions(net: &Net, node0: &Node, assert_message: &str) {

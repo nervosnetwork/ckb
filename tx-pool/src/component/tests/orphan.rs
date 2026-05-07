@@ -26,6 +26,24 @@ fn test_orphan() {
 }
 
 #[test]
+fn test_orphan_allows_double_spends_of_unknown_input() {
+    let parent = build_tx(vec![(&Byte32::zero(), 1)], 1);
+    let parent_hash = parent.hash();
+    let tx1 = build_tx(vec![(&parent_hash, 0)], 1);
+    let tx2 = build_tx(vec![(&parent_hash, 0)], 2);
+    let mut orphan = OrphanPool::new();
+
+    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0);
+    orphan.add_orphan_tx(tx2.clone(), 0.into(), 0);
+
+    assert_eq!(orphan.len(), 2);
+    let txs = orphan.find_by_previous(&parent);
+    assert_eq!(txs.len(), 2);
+    assert!(txs.contains(&&tx1.proposal_short_id()));
+    assert!(txs.contains(&&tx2.proposal_short_id()));
+}
+
+#[test]
 fn test_orphan_duplicated() {
     let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&Byte32::zero(), 2)], 3);
     let mut orphan = OrphanPool::new();
