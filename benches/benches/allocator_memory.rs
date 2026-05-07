@@ -3,7 +3,10 @@
 mod benchmarks;
 
 use benchmarks::overall::{run_overall_rounds, setup_chain};
-use std::{fs, thread, time::Duration};
+use std::{
+    fs, thread,
+    time::{Duration, Instant},
+};
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -96,6 +99,7 @@ fn main() {
     println!("txs_size={txs_size}");
     println!("rounds={rounds}");
 
+    let started_at = Instant::now();
     let before = read_memory_snapshot();
     let after_setup;
     let after_workload;
@@ -109,9 +113,26 @@ fn main() {
 
     thread::sleep(Duration::from_millis(250));
     let after_drop = read_memory_snapshot();
+    let elapsed_ms = started_at.elapsed().as_millis();
 
     print_snapshot("before", before);
     print_snapshot("after_setup", after_setup);
     print_snapshot("after_workload", after_workload);
     print_snapshot("after_drop", after_drop);
+    println!(
+        "result_csv,allocator,txs_size,rounds,elapsed_ms,before_rss_bytes,after_setup_rss_bytes,after_workload_rss_bytes,after_drop_rss_bytes,peak_rss_bytes,virtual_memory_bytes"
+    );
+    println!(
+        "result_csv,{},{},{},{},{},{},{},{},{},{}",
+        allocator_name(),
+        txs_size,
+        rounds,
+        elapsed_ms,
+        before.rss_bytes,
+        after_setup.rss_bytes,
+        after_workload.rss_bytes,
+        after_drop.rss_bytes,
+        after_drop.peak_rss_bytes,
+        after_drop.virtual_memory_bytes
+    );
 }

@@ -7,6 +7,6 @@
 //! Compare allocator memory behavior with:
 //!
 //! ```console
-//! cargo bench --bench allocator_memory --features ci
+//! cargo bench --bench allocator_memory --no-default-features --features "ci mimalloc"
 //! cargo bench --bench allocator_memory --no-default-features --features "ci jemalloc"
 //! ```

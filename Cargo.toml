@@ -331,7 +331,7 @@ lto = true
 codegen-units = 1
 
 [features]
-default = ["mimalloc"]
+default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 with_sentry = ["ckb-bin/with_sentry"]
 with_dns_seeding = ["ckb-bin/with_dns_seeding"]

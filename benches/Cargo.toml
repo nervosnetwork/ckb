@@ -47,7 +47,7 @@ name = "allocator_memory"
 harness = false
 
 [features]
-default = ["mimalloc"]
+default = []
 ci = []
 mimalloc = ["dep:mimalloc"]
 jemalloc = ["dep:tikv-jemallocator"]
