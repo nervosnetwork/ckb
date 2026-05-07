@@ -1,10 +1,12 @@
 use std::{fs, io, str::FromStr, sync, thread, time};
 
 use ckb_logger::{error, info};
+#[cfg(feature = "jemalloc")]
 use jemalloc_ctl::{epoch, stats};
 
 use crate::rocksdb::TrackRocksDBMemory;
 
+#[cfg(feature = "jemalloc")]
 macro_rules! je_mib {
     ($key:ty) => {
         if let Ok(value) = <$key>::mib() {
@@ -16,6 +18,7 @@ macro_rules! je_mib {
     };
 }
 
+#[cfg(feature = "jemalloc")]
 macro_rules! mib_read {
     ($mib:ident) => {
         if let Ok(value) = $mib.read() {
@@ -27,7 +30,8 @@ macro_rules! mib_read {
     };
 }
 
-/// Track the memory usage of the CKB process, Jemalloc and RocksDB through [ckb-metrics](../../ckb_metrics/index.html).
+/// Track the memory usage of the CKB process, allocator-specific stats and RocksDB through
+/// [ckb-metrics](../../ckb_metrics/index.html).
 pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send>(
     interval: u64,
     tracker_opt: Option<sync::Arc<Tracker>>,
@@ -38,18 +42,25 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
         info!("track current process: enable");
         let wait_secs = time::Duration::from_secs(interval);
 
+        #[cfg(feature = "jemalloc")]
         let je_epoch = je_mib!(epoch);
+        #[cfg(feature = "jemalloc")]
         // Bytes allocated by the application.
         let allocated = je_mib!(stats::allocated);
+        #[cfg(feature = "jemalloc")]
         // Bytes in physically resident data pages mapped by the allocator.
         let resident = je_mib!(stats::resident);
+        #[cfg(feature = "jemalloc")]
         // Bytes in active pages allocated by the application.
         let active = je_mib!(stats::active);
+        #[cfg(feature = "jemalloc")]
         // Bytes in active extents mapped by the allocator.
         let mapped = je_mib!(stats::mapped);
+        #[cfg(feature = "jemalloc")]
         // Bytes in virtual memory mappings that were retained
         // rather than being returned to the operating system
         let retained = je_mib!(stats::retained);
+        #[cfg(feature = "jemalloc")]
         // Bytes dedicated to jemalloc metadata.
         let metadata = je_mib!(stats::metadata);
 
@@ -57,6 +68,7 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
             .name("MemoryTracker".to_string())
             .spawn(move || {
                 loop {
+                    #[cfg(feature = "jemalloc")]
                     if je_epoch.advance().is_err() {
                         error!("Failed to refresh the jemalloc stats");
                         return;
@@ -72,20 +84,25 @@ pub fn track_current_process<Tracker: 'static + TrackRocksDBMemory + Sync + Send
                             metrics.ckb_sys_mem_process.vms.set(vms);
                         }
 
-                        let allocated = mib_read!(allocated);
-                        let resident = mib_read!(resident);
-                        let active = mib_read!(active);
-                        let mapped = mib_read!(mapped);
-                        let retained = mib_read!(retained);
-                        let metadata = mib_read!(metadata);
-                        if let Some(metrics) = ckb_metrics::handle() {
-                            metrics.ckb_sys_mem_jemalloc.allocated.set(allocated);
-                            metrics.ckb_sys_mem_jemalloc.resident.set(resident);
-                            metrics.ckb_sys_mem_jemalloc.active.set(active);
-                            metrics.ckb_sys_mem_jemalloc.mapped.set(mapped);
-                            metrics.ckb_sys_mem_jemalloc.retained.set(retained);
-                            metrics.ckb_sys_mem_jemalloc.metadata.set(metadata);
+                        #[cfg(feature = "jemalloc")]
+                        {
+                            let allocated = mib_read!(allocated);
+                            let resident = mib_read!(resident);
+                            let active = mib_read!(active);
+                            let mapped = mib_read!(mapped);
+                            let retained = mib_read!(retained);
+                            let metadata = mib_read!(metadata);
+                            if let Some(metrics) = ckb_metrics::handle() {
+                                metrics.ckb_sys_mem_jemalloc.allocated.set(allocated);
+                                metrics.ckb_sys_mem_jemalloc.resident.set(resident);
+                                metrics.ckb_sys_mem_jemalloc.active.set(active);
+                                metrics.ckb_sys_mem_jemalloc.mapped.set(mapped);
+                                metrics.ckb_sys_mem_jemalloc.retained.set(retained);
+                                metrics.ckb_sys_mem_jemalloc.metadata.set(metadata);
+                            }
+                        }
 
+                        if ckb_metrics::handle().is_some() {
                             if let Some(tracker) = tracker_opt.clone() {
                                 tracker.gather_memory_stats();
                             }

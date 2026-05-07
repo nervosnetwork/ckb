@@ -2,9 +2,13 @@
 use ckb_bin::run_app;
 use ckb_build_info::Version;
 
-#[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
+#[cfg(feature = "jemalloc")]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(all(not(feature = "jemalloc"), feature = "mimalloc"))]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() {
     #[cfg(feature = "tokio-trace")]
