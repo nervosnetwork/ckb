@@ -1,8 +1,7 @@
-use ckb_app_config::StoreConfig;
+use crate::legacy_store::LegacyChainDB;
 use ckb_db::{Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
 use ckb_error::InternalErrorKind;
-use ckb_store::{ChainDB, ChainStore};
 use ckb_types::utilities::merkle_mountain_range::ChainRootMMR;
 use std::sync::Arc;
 
@@ -16,7 +15,7 @@ impl Migration for AddChainRootMMR {
         db: RocksDB,
         pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<RocksDB> {
-        let chain_db = ChainDB::new(db, StoreConfig::default());
+        let chain_db = LegacyChainDB::new(db);
         let tip = chain_db
             .get_tip_header()
             .ok_or_else(|| InternalErrorKind::MMR.other("tip block is not found"))?;
