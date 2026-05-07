@@ -68,8 +68,13 @@ run_one() {
 }
 
 for run in $(seq 1 "$REPEAT"); do
-  run_one jemalloc "$run"
-  run_one mimalloc "$run"
+  if (( run % 2 == 1 )); then
+    run_one jemalloc "$run"
+    run_one mimalloc "$run"
+  else
+    run_one mimalloc "$run"
+    run_one jemalloc "$run"
+  fi
 done
 
 "$ROOT/devtools/bench-allocator/report.py" summarize --csv "$CSV" --output "$OUT_DIR/summary.md"

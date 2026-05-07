@@ -103,8 +103,31 @@ def append(args):
 def as_number(value):
     try:
         return float(value)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
+
+
+def metric_values(rows, allocator, metric):
+    values = [
+        as_number(row.get(metric))
+        for row in rows
+        if row.get("allocator") == allocator and row.get(metric)
+    ]
+    return [value for value in values if value is not None]
+
+
+def metric_stats(rows, allocator, metric):
+    values = metric_values(rows, allocator, metric)
+    if not values:
+        return None
+    stdev = statistics.stdev(values) if len(values) > 1 else 0.0
+    return {
+        "count": len(values),
+        "mean": statistics.mean(values),
+        "stdev": stdev,
+        "min": min(values),
+        "max": max(values),
+    }
 
 
 def summarize(args):
@@ -128,16 +151,30 @@ def summarize(args):
     lines.append("| allocator | metric | mean | stdev | min | max |")
     lines.append("| --- | --- | ---: | ---: | ---: | ---: |")
     for allocator in allocators:
-        allocator_rows = [row for row in rows if row["allocator"] == allocator]
         for metric in metrics:
-            values = [as_number(row[metric]) for row in allocator_rows if row.get(metric)]
-            values = [value for value in values if value is not None]
-            if not values:
+            stats = metric_stats(rows, allocator, metric)
+            if stats is None:
                 continue
-            stdev = statistics.stdev(values) if len(values) > 1 else 0.0
             lines.append(
-                f"| {allocator} | {metric} | {statistics.mean(values):.2f} | "
-                f"{stdev:.2f} | {min(values):.2f} | {max(values):.2f} |"
+                f"| {allocator} | {metric} | {stats['mean']:.2f} | "
+                f"{stats['stdev']:.2f} | {stats['min']:.2f} | {stats['max']:.2f} |"
+            )
+    if {"jemalloc", "mimalloc"}.issubset(set(allocators)):
+        lines.append("")
+        lines.append("## Mimalloc Delta")
+        lines.append("")
+        lines.append("| metric | jemalloc mean | mimalloc mean | delta | delta % |")
+        lines.append("| --- | ---: | ---: | ---: | ---: |")
+        for metric in metrics:
+            jemalloc = metric_stats(rows, "jemalloc", metric)
+            mimalloc = metric_stats(rows, "mimalloc", metric)
+            if jemalloc is None or mimalloc is None or jemalloc["mean"] == 0:
+                continue
+            delta = mimalloc["mean"] - jemalloc["mean"]
+            delta_percent = delta / jemalloc["mean"] * 100
+            lines.append(
+                f"| {metric} | {jemalloc['mean']:.2f} | {mimalloc['mean']:.2f} | "
+                f"{delta:.2f} | {delta_percent:.2f}% |"
             )
     Path(args.output).write_text("\n".join(lines) + "\n")
 

@@ -21,6 +21,7 @@ The script writes raw logs, a CSV file, and a Markdown summary under
 When GNU `time` is available as `/usr/bin/time` or `gtime`, the CSV also
 includes CPU time, max RSS, and page fault counters from the process wrapper.
 Without GNU `time`, the benchmark still runs and those fields are left empty.
+Allocator order alternates by run to reduce fixed-order bias.
 
 For a production decision, also collect node-level profiles for both allocator
 builds:
