@@ -26,6 +26,21 @@ FIELDS = [
 ]
 
 
+SUMMARY_METRICS = [
+    ("elapsed_ms", "elapsed_s", 1000.0),
+    ("after_workload_rss_bytes", "workload_rss_mib", 1024.0 * 1024.0),
+    ("after_drop_rss_bytes", "drop_rss_mib", 1024.0 * 1024.0),
+    ("peak_rss_bytes", "peak_rss_mib", 1024.0 * 1024.0),
+    ("virtual_memory_bytes", "vms_mib", 1024.0 * 1024.0),
+    ("time_elapsed_seconds", "time_elapsed_s", 1.0),
+    ("time_user_seconds", "time_user_s", 1.0),
+    ("time_system_seconds", "time_system_s", 1.0),
+    ("time_max_rss_kb", "time_max_rss_mib", 1024.0),
+    ("time_minor_faults", "minor_faults", 1.0),
+    ("time_major_faults", "major_faults", 1.0),
+]
+
+
 def parse_elapsed(value):
     parts = value.strip().split(":")
     if len(parts) == 2:
@@ -116,65 +131,93 @@ def metric_values(rows, allocator, metric):
     return [value for value in values if value is not None]
 
 
-def metric_stats(rows, allocator, metric):
-    values = metric_values(rows, allocator, metric)
+def scaled_metric_values(rows, allocator, metric, scale):
+    return [value / scale for value in metric_values(rows, allocator, metric)]
+
+
+def metric_stats(rows, allocator, metric, scale=1.0):
+    values = scaled_metric_values(rows, allocator, metric, scale)
     if not values:
         return None
     stdev = statistics.stdev(values) if len(values) > 1 else 0.0
     return {
         "count": len(values),
         "mean": statistics.mean(values),
+        "median": statistics.median(values),
         "stdev": stdev,
         "min": min(values),
         "max": max(values),
     }
 
 
+def paired_deltas(rows, metric, scale):
+    by_run = {}
+    for row in rows:
+        allocator = row.get("allocator")
+        run = row.get("run")
+        value = as_number(row.get(metric))
+        if allocator not in {"jemalloc", "mimalloc"} or run is None or value is None:
+            continue
+        by_run.setdefault(run, {})[allocator] = value / scale
+
+    deltas = []
+    for run, values in by_run.items():
+        if "jemalloc" in values and "mimalloc" in values:
+            deltas.append(values["mimalloc"] - values["jemalloc"])
+    return deltas
+
+
+def fmt(value):
+    if abs(value) >= 1000:
+        return f"{value:,.1f}"
+    return f"{value:.2f}"
+
+
 def summarize(args):
     rows = list(csv.DictReader(Path(args.csv).open()))
-    metrics = [
-        "elapsed_ms",
-        "after_workload_rss_bytes",
-        "after_drop_rss_bytes",
-        "peak_rss_bytes",
-        "time_elapsed_seconds",
-        "time_user_seconds",
-        "time_system_seconds",
-        "time_max_rss_kb",
-        "time_minor_faults",
-        "time_major_faults",
-    ]
     allocators = sorted({row["allocator"] for row in rows})
     lines = ["# Allocator Benchmark Summary", ""]
-    lines.append(f"runs={len(rows)}")
+    lines.append(f"Rows: {len(rows)}")
+    for key in ("txs_size", "rounds"):
+        values = sorted({row.get(key, "") for row in rows if row.get(key)})
+        if len(values) == 1:
+            lines.append(f"{key}: {values[0]}")
     lines.append("")
-    lines.append("| allocator | metric | mean | stdev | min | max |")
-    lines.append("| --- | --- | ---: | ---: | ---: | ---: |")
+    lines.append("## Summary")
+    lines.append("")
+    lines.append("| Allocator | Metric | Mean | Median | Stddev | Min | Max |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: |")
     for allocator in allocators:
-        for metric in metrics:
-            stats = metric_stats(rows, allocator, metric)
+        for metric, label, scale in SUMMARY_METRICS:
+            stats = metric_stats(rows, allocator, metric, scale)
             if stats is None:
                 continue
             lines.append(
-                f"| {allocator} | {metric} | {stats['mean']:.2f} | "
-                f"{stats['stdev']:.2f} | {stats['min']:.2f} | {stats['max']:.2f} |"
+                f"| {allocator} | {label} | {fmt(stats['mean'])} | "
+                f"{fmt(stats['median'])} | {fmt(stats['stdev'])} | "
+                f"{fmt(stats['min'])} | {fmt(stats['max'])} |"
             )
     if {"jemalloc", "mimalloc"}.issubset(set(allocators)):
         lines.append("")
         lines.append("## Mimalloc Delta")
         lines.append("")
-        lines.append("| metric | jemalloc mean | mimalloc mean | delta | delta % |")
-        lines.append("| --- | ---: | ---: | ---: | ---: |")
-        for metric in metrics:
-            jemalloc = metric_stats(rows, "jemalloc", metric)
-            mimalloc = metric_stats(rows, "mimalloc", metric)
+        lines.append(
+            "| Metric | Jemalloc Mean | Mimalloc Mean | Delta | Delta % | Paired Median Delta |"
+        )
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for metric, label, scale in SUMMARY_METRICS:
+            jemalloc = metric_stats(rows, "jemalloc", metric, scale)
+            mimalloc = metric_stats(rows, "mimalloc", metric, scale)
             if jemalloc is None or mimalloc is None or jemalloc["mean"] == 0:
                 continue
             delta = mimalloc["mean"] - jemalloc["mean"]
             delta_percent = delta / jemalloc["mean"] * 100
+            pair_values = paired_deltas(rows, metric, scale)
+            pair_median = statistics.median(pair_values) if pair_values else None
             lines.append(
-                f"| {metric} | {jemalloc['mean']:.2f} | {mimalloc['mean']:.2f} | "
-                f"{delta:.2f} | {delta_percent:.2f}% |"
+                f"| {label} | {fmt(jemalloc['mean'])} | {fmt(mimalloc['mean'])} | "
+                f"{fmt(delta)} | {delta_percent:.2f}% | "
+                f"{fmt(pair_median) if pair_median is not None else ''} |"
             )
     Path(args.output).write_text("\n".join(lines) + "\n")
 

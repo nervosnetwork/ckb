@@ -17,6 +17,8 @@ REPEAT=5 TXS_SIZE=500 ROUNDS=10 devtools/bench-allocator/run-allocator-memory.sh
 
 The script writes raw logs, a CSV file, and a Markdown summary under
 `target/allocator-bench/<timestamp>/`.
+The Markdown report uses seconds and MiB for readability and includes mean,
+median, standard deviation, min/max, and mimalloc-vs-jemalloc deltas.
 
 When GNU `time` is available as `/usr/bin/time` or `gtime`, the CSV also
 includes CPU time, max RSS, and page fault counters from the process wrapper.
