@@ -171,28 +171,16 @@ impl TxPoolService {
 
     pub(crate) async fn notify_block_assembler(&self, status: TxStatus) {
         if self.should_notify_block_assembler() {
-            match status {
-                TxStatus::Fresh => {
-                    if self
-                        .block_assembler_sender
-                        .send(BlockAssemblerMessage::Pending)
-                        .await
-                        .is_err()
-                    {
-                        error!("block_assembler receiver dropped");
-                    }
-                }
-                TxStatus::Proposed => {
-                    if self
-                        .block_assembler_sender
-                        .send(BlockAssemblerMessage::Proposed)
-                        .await
-                        .is_err()
-                    {
-                        error!("block_assembler receiver dropped");
-                    }
-                }
-                _ => {}
+            let message = match status {
+                TxStatus::Fresh => Some(BlockAssemblerMessage::Pending),
+                TxStatus::Proposed => Some(BlockAssemblerMessage::Proposed),
+                _ => None,
+            };
+
+            if let Some(message) = message
+                && self.block_assembler_sender.send(message).await.is_err()
+            {
+                error!("block_assembler receiver dropped");
             }
         }
     }
