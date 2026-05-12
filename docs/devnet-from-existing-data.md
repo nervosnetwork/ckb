@@ -40,22 +40,54 @@ If you copied testnet data, replace `mainnet.toml` with `testnet.toml`.
 
 ## 4. Update `specs/dev.toml`
 
-Set `Dummy` PoW for local development and keep `genesis_epoch_length` unchanged:
+Set `Dummy` PoW for local development. The `[params]` section differs between
+mainnet and testnet — pick the matching block below.
+
+> Why this matters: `genesis_epoch_length` (together with the epoch reward
+> fields) participates in the genesis cellbase reward calculation, which
+> determines the genesis block hash. If the value here does not match the
+> value the source chain was launched with, the node will refuse to start with
+> `chainspec error: ChainSpec: genesis hash mismatch`.
+
+### Mainnet
+
+Mainnet was launched with `genesis_epoch_length = 1743`, so this value must be
+preserved:
 
 ```toml
 [params]
 genesis_epoch_length = 1743
-initial_primary_epoch_reward = 1_917_808_21917808
-secondary_epoch_reward = 613_698_63013698
-max_block_cycles = 10_000_000_000
 cellbase_maturity = 0
-primary_epoch_reward_halving_interval = 8760
-epoch_duration_target = 14400
 permanent_difficulty_in_dummy = true
 
 [pow]
 func = "Dummy"
 ```
+
+### Testnet
+
+The bundled testnet spec has no `[params]` section and was launched with the
+default `genesis_epoch_length = 1000`. Do **not** add `genesis_epoch_length`
+here — leaving it unset lets it fall back to the default and keeps the genesis
+hash consistent:
+
+```toml
+[params]
+cellbase_maturity = 0
+permanent_difficulty_in_dummy = true
+
+[pow]
+func = "Dummy"
+```
+
+`cellbase_maturity = 0` makes locally mined cellbase outputs immediately
+spendable, which is convenient for development.
+
+`permanent_difficulty_in_dummy = true` keeps the difficulty constant when
+running with `Dummy` PoW. Its default is `false`, which would let difficulty be
+recalculated from the dummy block timestamps and swing wildly once you start
+mining locally; the bundled `resource/specs/dev.toml` therefore enables it by
+default and the same is recommended here.
 
 ## 5. First Run Requires Spec-Check Flags
 
