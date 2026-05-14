@@ -142,7 +142,7 @@ impl DAOVerifier {
         let satoshi_pubkey_hash = &self.consensus.satoshi_pubkey_hash;
         let mut sum = 0u64;
         for (tx_index, tx) in self.blocks[i as usize].transactions().iter().enumerate() {
-            for (out_point, output) in tx.output_pts().iter().zip(tx.outputs().into_iter()) {
+            for (out_point, output) in tx.output_pts().iter().zip(tx.outputs()) {
                 if i == 0
                     && tx_index == 0
                     && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
