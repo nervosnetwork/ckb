@@ -90,7 +90,8 @@ echo "guix-daemon is ready."
 echo "Starting CKB Guix build${REF:+ for $REF}..."
 BUILD_EXIT=0
 "$DOCKER" exec "$CONTAINER_NAME" bash -c "
-    cp -a /ckb-repo /tmp/ckb-build
+    mkdir -p /tmp/ckb-build
+    tar --exclude='./target' -C /ckb-repo -cf - . | tar -C /tmp/ckb-build -xf -
     cd /tmp/ckb-build
     git config --global --add safe.directory /tmp/ckb-build
     git config --global --add safe.directory '${GIT_COMMON_DIR}'
@@ -105,13 +106,13 @@ BUILD_EXIT=0
 VERSION="$("$DOCKER" exec "$CONTAINER_NAME" bash -c "
     cd /tmp/ckb-build 2>/dev/null
     git config --global --add safe.directory /tmp/ckb-build 2>/dev/null
-    ls -d guix-build-*/ 2>/dev/null | head -1 | sed 's|guix-build-||;s|/||'
+    ls -d target/guix-build-*/ 2>/dev/null | head -1 | sed 's|target/guix-build-||;s|/||'
 " 2>/dev/null || true)"
 
 if [[ -n "$VERSION" ]]; then
-    OUTDIR="${TOPLEVEL}/guix-build-${VERSION}/output"
+    OUTDIR="${TOPLEVEL}/target/guix-build-${VERSION}/output"
     mkdir -p "$OUTDIR"
-    if "$DOCKER" cp "$CONTAINER_NAME:/tmp/ckb-build/guix-build-${VERSION}/output/." "$OUTDIR/" 2>/dev/null; then
+    if "$DOCKER" cp "$CONTAINER_NAME:/tmp/ckb-build/target/guix-build-${VERSION}/output/." "$OUTDIR/" 2>/dev/null; then
         echo
         echo "Build output copied to:"
         echo "  ${OUTDIR}"

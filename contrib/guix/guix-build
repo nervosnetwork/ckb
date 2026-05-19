@@ -138,7 +138,7 @@ done
 
 echo "Building CKB ${VERSION} from ${BUILD_REF} (${BUILD_COMMIT:0:12})"
 
-VERSION_BASE="${PWD}/guix-build-${VERSION}"
+VERSION_BASE="${PWD}/target/guix-build-${VERSION}"
 DISTSRC_BASE="${VERSION_BASE}/distsrc"
 OUTDIR_BASE="${VERSION_BASE}/output"
 DIST_ARCHIVE_BASE="${OUTDIR_BASE}/dist-archive"
@@ -210,6 +210,7 @@ for HOST in $HOSTS; do
 
     guix time-machine -C "${PWD}/contrib/guix/channels.scm" -- \
         shell --manifest="${PWD}/contrib/guix/manifest.scm" \
+              --rebuild-cache \
               --container \
               --pure \
               --preserve='^HOST$' \

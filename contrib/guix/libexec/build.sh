@@ -82,7 +82,8 @@ store_path() {
         | head --lines=1 \
         | sed --expression='s|\x29*$||' \
               --expression='s|^[[:space:]]*"||' \
-              --expression='s|"[[:space:]]*$||'
+              --expression='s|"[[:space:]]*$||' \
+        || true
 }
 
 case "$HOST" in

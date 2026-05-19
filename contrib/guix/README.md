@@ -41,7 +41,7 @@ The initial refactor only supports `HOSTS=x86_64-unknown-linux-gnu`.
 Build outputs are written under:
 
 ```text
-guix-build-<version>/output/x86_64-unknown-linux-gnu/
+target/guix-build-<version>/output/x86_64-unknown-linux-gnu/
 ```
 
 ## Package Recipe
