@@ -102,6 +102,8 @@ check_source_date_epoch
 VERSION="${VERSION:-$(git_version_from_ref "$BUILD_COMMIT")}"
 JOBS="${JOBS:-$(nproc)}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%ct -1 "$BUILD_COMMIT")}"
+COMMIT_DESCRIBE="$(git describe --always --match __EXCLUDE__ --abbrev=7 "$BUILD_COMMIT")"
+COMMIT_DATE="$(TZ=UTC git -c log.showSignature=false log --date=format:%Y-%m-%d --pretty=format:%cd -1 "$BUILD_COMMIT")"
 
 # Check for macOS SDK if building darwin targets.
 # Reference: https://github.com/bitcoin/bitcoin/blob/master/contrib/macdeploy/README.md
@@ -229,6 +231,8 @@ for HOST in $HOSTS; do
                      VERSION="$VERSION" \
                      JOBS="$JOBS" \
                      SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+                     COMMIT_DESCRIBE="$COMMIT_DESCRIBE" \
+                     COMMIT_DATE="$COMMIT_DATE" \
                      DISTSRC="/distsrc-base/distsrc-${VERSION}-${RUST_TARGET}" \
                      OUTDIR="/outdir-base/${RUST_TARGET}" \
                      DIST_ARCHIVE_BASE="/outdir-base/dist-archive" \

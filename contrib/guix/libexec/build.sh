@@ -20,10 +20,15 @@ Required environment variables inside container:
   VERSION=${VERSION:?not set}
   JOBS=${JOBS:?not set}
   SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:?not set}
+  COMMIT_DESCRIBE=${COMMIT_DESCRIBE:?not set}
+  COMMIT_DATE=${COMMIT_DATE:?not set}
   DISTSRC=${DISTSRC:?not set}
   OUTDIR=${OUTDIR:?not set}
   DIST_ARCHIVE_BASE=${DIST_ARCHIVE_BASE:?not set}
 EOF
+
+export COMMIT_DESCRIBE
+export COMMIT_DATE
 
 mkdir -p "$DIST_ARCHIVE_BASE" "$OUTDIR"
 
@@ -843,6 +848,11 @@ mkdir -p "$DISTSRC/src" "$INSTALLPATH"
 
 tar -C "$DISTSRC/src" --strip-components=1 --no-same-owner -xf "$GIT_ARCHIVE"
 cd "$DISTSRC/src"
+
+if ! grep -q "fn env_var_non_empty" build.rs; then
+    echo "Applying ckb-build-rs-env-metadata.patch..."
+    patch -p1 --no-backup-if-mismatch < /ckb/contrib/guix/patches/ckb-build-rs-env-metadata.patch
+fi
 
 # Apply a .patch file to a vendored crate and refresh .cargo-checksum.json
 # so cargo --frozen accepts the modified file.  The patch file must sit
