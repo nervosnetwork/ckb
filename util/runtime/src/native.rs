@@ -98,7 +98,7 @@ fn new_runtime(worker_num: Option<usize>) -> Runtime {
                     // this number should have 6 digits at most,
                     // since the prefix uses 9 characters in below code.
                     //
-                    // There still has a issue:
+                    // There is still an issue:
                     // When id wraps around, we couldn't know whether the old id
                     // is released or not.
                     // But we can ignore this, because it's almost impossible.

@@ -6683,7 +6683,7 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 
 ### Type `IndexerRange`
 
-A array represent (half-open) range bounded inclusively below and exclusively above [start, end).
+An array representing (half-open) range bounded inclusively below and exclusively above [start, end).
 
 ###### Examples
 
