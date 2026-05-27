@@ -1,6 +1,6 @@
 use crate::benchmarks::util::create_2out_transaction;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::{ChainSpec, IssuedCell};
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::Resource;
@@ -25,6 +25,11 @@ const SIZE: usize = 500;
 
 #[cfg(feature = "ci")]
 const SIZE: usize = 10;
+
+struct ChainSetup {
+    _chain_scope: ChainServiceScope,
+    shared: Shared,
+}
 
 const PUBKEY_HASH: H160 = h160!("0x779e5930892a0a9bf2fedfe048f685466c7d0396");
 const DEFAULT_CODE_HASH: H256 =
@@ -67,7 +72,7 @@ fn block_assembler_config() -> BlockAssemblerConfig {
     }
 }
 
-pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
+fn setup_chain(txs_size: usize) -> ChainSetup {
     let secp_script = script();
 
     let mut spec =
@@ -94,7 +99,7 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         .tx_pool_config(tx_pool_config)
         .build()
         .unwrap();
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
 
     // FIXME: global cache !!!
     let _ret = setup_system_cell_cache(
@@ -102,7 +107,10 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
         shared.snapshot().as_ref(),
     );
 
-    (shared, chain_controller)
+    ChainSetup {
+        _chain_scope: chain_scope,
+        shared,
+    }
 }
 
 pub fn gen_txs_from_genesis(block: &BlockView) -> Vec<TransactionView> {
@@ -129,8 +137,9 @@ fn bench(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("resolve", SIZE), &SIZE, |b, txs_size| {
         b.iter_batched(
             || setup_chain(*txs_size),
-            |(shared, _)| {
+            |setup| {
                 let mut i = 100;
+                let shared = &setup.shared;
                 let snapshot: &Snapshot = &shared.snapshot();
                 let txs = gen_txs_from_genesis(shared.consensus().genesis_block());
 
@@ -154,8 +163,9 @@ fn bench(c: &mut Criterion) {
         |b, txs_size| {
             b.iter_batched(
                 || setup_chain(*txs_size),
-                |(shared, _)| {
+                |setup| {
                     let mut i = 1;
+                    let shared = &setup.shared;
                     let snapshot: &Snapshot = &shared.snapshot();
                     let txs = gen_txs_from_genesis(shared.consensus().genesis_block());
 
