@@ -5,7 +5,7 @@ use crate::{
 use ckb_app_config::{
     BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
 };
-use ckb_chain::start_chain_services;
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
@@ -88,10 +88,10 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         }))
         .build()
         .unwrap();
-    // Most of CKB will be started as part of RpcTestSuite, using ChainServiceScope
-    // to simplify chain termination actually brings more issues. We will keep this line
-    // as it is till we run into pthread issues in RPC tests for real.
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    // Keep the chain service scoped to the RPC test process so Windows does not
+    // abort while tearing down still-running background threads after a test exits.
+    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain_controller = chain_scope.chain_controller().clone();
 
     // Start network services
     let temp_dir = tempfile::tempdir().expect("create tmp_dir failed");
@@ -252,6 +252,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
     let suite = RpcTestSuite {
         shared,
         chain_controller: chain_controller.clone(),
+        _chain_scope: chain_scope,
         rpc_uri,
         tcp_uri,
         rpc_client,
