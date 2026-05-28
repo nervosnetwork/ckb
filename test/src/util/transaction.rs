@@ -68,21 +68,27 @@ pub fn send_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
 }
 
 pub fn relay_tx(net: &Net, node: &Node, tx: TransactionView, cycles: u64) {
+    let tx_hash = tx.hash();
     let tx_hashes_msg = packed::RelayMessage::new_builder()
         .set(
             packed::RelayTransactionHashes::new_builder()
-                .tx_hashes(vec![tx.hash()])
+                .tx_hashes(vec![tx_hash.clone()])
                 .build(),
         )
         .build();
     net.send(node, SupportProtocols::RelayV3, tx_hashes_msg.as_bytes());
 
-    let ret = net.should_receive(node, |data: &Bytes| {
-        packed::RelayMessage::from_slice(data)
-            .map(|message| message.to_enum().item_name() == packed::GetRelayTransactions::NAME)
-            .unwrap_or(false)
-    });
-    assert!(ret, "node should ask for tx");
+    let ret = net.should_receive(
+        node,
+        |data: &Bytes| match packed::RelayMessage::from_slice(data).map(|message| message.to_enum())
+        {
+            Ok(packed::RelayMessageUnion::GetRelayTransactions(get_txs)) => {
+                get_txs.tx_hashes().into_iter().any(|hash| hash == tx_hash)
+            }
+            _ => false,
+        },
+    );
+    assert!(ret, "node should ask for tx {tx_hash}");
 
     let relay_tx = packed::RelayTransaction::new_builder()
         .cycles(cycles)
