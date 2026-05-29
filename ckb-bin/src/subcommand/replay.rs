@@ -87,11 +87,14 @@ fn profile(shared: Shared, chain_controller: ChainController, from: Option<u64>,
             duration, MIN_PROFILING_TIME
         );
     }
+    let tps = if duration.as_secs() == 0 {
+        0
+    } else {
+        tx_count as u64 / duration.as_secs()
+    };
     println!(
         "\n----------------------------\nEnd profiling, duration:{:?}, txs:{}, tps:{}\n----------------------------",
-        duration,
-        tx_count,
-        tx_count as u64 / duration.as_secs()
+        duration, tx_count, tps
     );
 }
 
