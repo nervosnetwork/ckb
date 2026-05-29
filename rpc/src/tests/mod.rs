@@ -1,4 +1,4 @@
-use ckb_chain::ChainController;
+use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
@@ -77,6 +77,7 @@ pub(crate) struct RpcTestSuite {
     tcp_uri: Option<String>,
     shared: Shared,
     chain_controller: ChainController,
+    _chain_scope: ChainServiceScope,
     _tmp_dir: tempfile::TempDir,
 }
 
