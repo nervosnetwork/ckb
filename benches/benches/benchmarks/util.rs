@@ -1,4 +1,4 @@
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
@@ -26,10 +26,10 @@ use rand::random;
 use std::collections::HashSet;
 
 #[derive(Default)]
-pub struct Chains(pub Vec<(ChainController, Shared)>);
+pub struct Chains(pub Vec<(ChainServiceScope, Shared)>);
 
 impl Chains {
-    pub fn push(&mut self, chain: (ChainController, Shared)) {
+    pub fn push(&mut self, chain: (ChainServiceScope, Shared)) {
         self.0.push(chain);
     }
 }
@@ -76,9 +76,9 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_controller = start_chain_services(pack.take_chain_services_builder());
+        let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
 
-        chains.push((chain_controller, shared));
+        chains.push((chain_scope, shared));
     }
 
     chains
@@ -293,9 +293,9 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let chain_controller = start_chain_services(pack.take_chain_services_builder());
+        let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
 
-        chains.push((chain_controller, shared));
+        chains.push((chain_scope, shared));
     }
 
     chains

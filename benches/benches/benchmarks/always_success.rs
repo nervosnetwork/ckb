@@ -22,8 +22,8 @@ fn bench(c: &mut Criterion) {
                 b.iter_batched(
                     || {
                         let chains = new_always_success_chain(*i, 2);
-                        let (ref chain1, ref shared1) = chains.0[0];
-                        let (ref chain2, ref shared2) = chains.0[1];
+                        let (_, shared1) = &chains.0[0];
+                        let (chain2, shared2) = &chains.0[1];
                         let mut blocks = vec![
                             shared1
                                 .snapshot()
@@ -34,6 +34,7 @@ fn bench(c: &mut Criterion) {
                         (0..20).for_each(|_| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared2);
                             chain2
+                                .chain_controller()
                                 .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
@@ -41,9 +42,10 @@ fn bench(c: &mut Criterion) {
                                 .expect("process block OK");
                             parent = block;
                         });
-                        (chain1.clone(), blocks)
+                        (chains, blocks)
                     },
-                    |(chain, blocks)| {
+                    |(chains, blocks)| {
+                        let chain = chains.0[0].0.chain_controller();
                         blocks.into_iter().skip(1).for_each(|block| {
                             chain
                                 .blocking_process_block_with_switch(
@@ -71,9 +73,9 @@ fn bench(c: &mut Criterion) {
                 b.iter_batched(
                     || {
                         let chains = new_always_success_chain(*i, 3);
-                        let (ref chain1, ref shared1) = chains.0[0];
-                        let (ref chain2, ref shared2) = chains.0[1];
-                        let (ref chain3, ref shared3) = chains.0[2];
+                        let (chain1, shared1) = &chains.0[0];
+                        let (chain2, shared2) = &chains.0[1];
+                        let (chain3, shared3) = &chains.0[2];
                         let mut blocks = vec![
                             shared1
                                 .snapshot()
@@ -84,6 +86,7 @@ fn bench(c: &mut Criterion) {
                         (0..5).for_each(|i| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared2);
                             chain2
+                                .chain_controller()
                                 .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
@@ -91,6 +94,7 @@ fn bench(c: &mut Criterion) {
                                 .expect("process block OK");
                             if i < 2 {
                                 chain3
+                                    .chain_controller()
                                     .blocking_process_block_with_switch(
                                         Arc::new(block.clone()),
                                         Switch::DISABLE_ALL,
@@ -103,6 +107,7 @@ fn bench(c: &mut Criterion) {
                         (0..2).for_each(|_| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared3);
                             chain3
+                                .chain_controller()
                                 .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
@@ -117,15 +122,17 @@ fn bench(c: &mut Criterion) {
                             .take(5)
                             .for_each(|block| {
                                 chain1
+                                    .chain_controller()
                                     .blocking_process_block_with_switch(
                                         Arc::new(block),
                                         Switch::DISABLE_ALL,
                                     )
                                     .expect("process block OK");
                             });
-                        (chain1.clone(), blocks)
+                        (chains, blocks)
                     },
-                    |(chain, blocks)| {
+                    |(chains, blocks)| {
+                        let chain = chains.0[0].0.chain_controller();
                         blocks.into_iter().skip(6).for_each(|block| {
                             chain
                                 .blocking_process_block(Arc::new(block))
@@ -150,9 +157,9 @@ fn bench(c: &mut Criterion) {
                 b.iter_batched(
                     || {
                         let chains = new_always_success_chain(*i, 3);
-                        let (ref chain1, ref shared1) = chains.0[0];
-                        let (ref chain2, ref shared2) = chains.0[1];
-                        let (ref chain3, ref shared3) = chains.0[2];
+                        let (chain1, shared1) = &chains.0[0];
+                        let (chain2, shared2) = &chains.0[1];
+                        let (chain3, shared3) = &chains.0[2];
                         let mut blocks = vec![
                             shared1
                                 .snapshot()
@@ -164,6 +171,7 @@ fn bench(c: &mut Criterion) {
                             let block = gen_always_success_block(&mut blocks, &parent, shared2);
                             let arc_block = Arc::new(block.clone());
                             chain2
+                                .chain_controller()
                                 .blocking_process_block_with_switch(
                                     Arc::clone(&arc_block),
                                     Switch::DISABLE_ALL,
@@ -171,6 +179,7 @@ fn bench(c: &mut Criterion) {
                                 .expect("process block OK");
                             if i < 2 {
                                 chain3
+                                    .chain_controller()
                                     .blocking_process_block_with_switch(
                                         arc_block,
                                         Switch::DISABLE_ALL,
@@ -183,6 +192,7 @@ fn bench(c: &mut Criterion) {
                         (0..4).for_each(|_| {
                             let block = gen_always_success_block(&mut blocks, &parent, shared3);
                             chain3
+                                .chain_controller()
                                 .blocking_process_block_with_switch(
                                     Arc::new(block.clone()),
                                     Switch::DISABLE_ALL,
@@ -197,15 +207,17 @@ fn bench(c: &mut Criterion) {
                             .take(7)
                             .for_each(|block| {
                                 chain1
+                                    .chain_controller()
                                     .blocking_process_block_with_switch(
                                         Arc::new(block),
                                         Switch::DISABLE_ALL,
                                     )
                                     .expect("process block OK");
                             });
-                        (chain1.clone(), blocks)
+                        (chains, blocks)
                     },
-                    |(chain, blocks)| {
+                    |(chains, blocks)| {
+                        let chain = chains.0[0].0.chain_controller();
                         blocks.into_iter().skip(8).for_each(|block| {
                             chain
                                 .blocking_process_block_with_switch(
