@@ -669,7 +669,11 @@ impl Consensus {
     /// [token-issuance](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0015-ckb-cryptoeconomics/0015-ckb-cryptoeconomics.md#token-issuance)
     pub fn primary_epoch_reward(&self, epoch_number: u64) -> Capacity {
         let halvings = epoch_number / self.primary_epoch_reward_halving_interval();
-        Capacity::shannons(self.initial_primary_epoch_reward.as_u64() >> halvings)
+        if halvings > 63 {
+            Capacity::shannons(0)
+        } else {
+            Capacity::shannons(self.initial_primary_epoch_reward.as_u64() >> halvings)
+        }
     }
 
     /// Primary reward is cut in half every halving_interval epoch
