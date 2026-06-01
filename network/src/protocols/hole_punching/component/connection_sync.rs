@@ -50,7 +50,7 @@ impl TryFrom<&packed::ConnectionSyncReader<'_>> for SyncContent {
 
 pub(crate) struct ConnectionSyncProcess<'a> {
     message: packed::ConnectionSyncReader<'a>,
-    protocol: &'a HolePunching,
+    protocol: &'a mut HolePunching,
     p2p_control: &'a ServiceAsyncControl,
     bind_addr: Option<SocketAddr>,
     msg_item_id: u32,
@@ -59,7 +59,7 @@ pub(crate) struct ConnectionSyncProcess<'a> {
 impl<'a> ConnectionSyncProcess<'a> {
     pub(crate) fn new(
         message: packed::ConnectionSyncReader<'a>,
-        protocol: &'a HolePunching,
+        protocol: &'a mut HolePunching,
         p2p_control: &'a ServiceAsyncControl,
         bind_addr: Option<SocketAddr>,
         msg_item_id: u32,
@@ -82,11 +82,9 @@ impl<'a> ConnectionSyncProcess<'a> {
         if content.route.len() > MAX_HOPS as usize {
             return StatusCode::InvalidRoute.with_context("the route length is too long");
         }
-        if self
+        if !self
             .protocol
-            .forward_rate_limiter
-            .check_key(&(content.from.clone(), content.to.clone(), self.msg_item_id))
-            .is_err()
+            .check_forward_rate_limit(&content.from, &content.to, self.msg_item_id)
         {
             debug!(
                 "from: {}, to {}, item_name: {}, rate limit is reached",
