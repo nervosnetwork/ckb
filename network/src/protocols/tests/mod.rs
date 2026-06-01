@@ -2,7 +2,7 @@ use super::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
-    identify::{Flags, IdentifyCallback, IdentifyProtocol},
+    identify::{Flags, IdentifyCallback, IdentifyProtocol, is_remote_listen_addr_allowed},
     ping::PingHandler,
 };
 
@@ -292,6 +292,20 @@ fn wait_discovery(node: &Node, assert: impl Fn(usize) -> bool) {
     }) {
         panic!("discovery can't find other node")
     }
+}
+
+#[test]
+fn test_identify_rejects_dns_loopback_listen_addr() {
+    let addr: Multiaddr = format!(
+        "/dns4/localhost/tcp/{}/p2p/{}",
+        rand::random::<u16>(),
+        crate::PeerId::random().to_base58()
+    )
+    .parse()
+    .unwrap();
+
+    assert!(!is_remote_listen_addr_allowed(&addr, true));
+    assert!(!is_remote_listen_addr_allowed(&addr, false));
 }
 
 #[test]
