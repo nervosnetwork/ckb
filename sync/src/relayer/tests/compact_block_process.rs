@@ -192,14 +192,14 @@ fn test_accept_not_a_better_block() {
     let uncle_block: BlockView = gen_block(
         &second_to_last_header,
         relayer.shared().shared(),
-        1,
+        0,
         1,
         None,
     );
     //uncle_block's block_hash must not equal to tip's block_hash
     assert_ne!(uncle_block.header().hash(), tip_header.hash());
-    // uncle_block's difficulty must less than tip's difficulty
-    assert!(uncle_block.difficulty().lt(&tip_header.difficulty()));
+    // uncle_block's difficulty is equal to tip's difficulty but it is not a better block
+    assert_eq!(uncle_block.difficulty(), tip_header.difficulty());
 
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
@@ -376,6 +376,79 @@ fn test_send_missing_indexes() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     // send proposal request
     assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
+}
+
+#[test]
+fn test_invalid_difficulty_compact_block_does_not_enter_pending() {
+    let (_chain, relayer, _) = build_chain(5);
+    let parent = {
+        let active_chain = relayer.shared.active_chain();
+        active_chain.tip_header()
+    };
+
+    let invalid_difficulty_block = gen_block(&parent, relayer.shared().shared(), 1, 1, None);
+    let header = invalid_difficulty_block.header();
+    let block = BlockBuilder::default()
+        .header(header)
+        .transaction(TransactionBuilder::default().build())
+        .transaction(
+            TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
+                .build(),
+        )
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
+    let nc = Arc::new(mock_protocol_context);
+    let peer_index: PeerIndex = 100.into();
+    let block_hash = block.header().hash();
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert_eq!(
+        rt.block_on(compact_block_process.execute()),
+        StatusCode::CompactBlockHasInvalidHeader.into()
+    );
+
+    assert_eq!(
+        relayer
+            .shared()
+            .active_chain()
+            .get_block_status(&block_hash),
+        BlockStatus::BLOCK_INVALID
+    );
+    let pending_compact_blocks = rt.block_on(relayer.shared.state().pending_compact_blocks());
+    assert!(pending_compact_blocks.get(&block_hash).is_none());
+
+    let content = packed::GetBlockTransactions::new_builder()
+        .block_hash(block_hash)
+        .indexes([1u32])
+        .uncle_indexes(Vec::<u32>::new())
+        .build();
+    let message = packed::RelayMessage::new_builder().set(content).build();
+    let data = message.as_bytes();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 }
 
 #[test]

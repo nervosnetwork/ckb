@@ -9,6 +9,7 @@ use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::types::HeaderIndex;
+use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
 use ckb_types::{
@@ -336,6 +337,41 @@ async fn contextual_check(
             return StatusCode::CompactBlockHasInvalidHeader
                 .with_context(format!("{block_hash} {err}"));
         }
+    }
+
+    let parent_hash = compact_block_header.parent_hash();
+    let parent = match shared.store().get_block_header(&parent_hash) {
+        Some(parent) => parent,
+        None => {
+            return StatusCode::CompactBlockRequiresParent
+                .with_context(format!("{block_hash} parent: {parent_hash}"));
+        }
+    };
+    let epoch = match shared
+        .consensus()
+        .next_epoch_ext(&parent, &shared.store().borrow_as_data_loader())
+    {
+        Some(next_epoch) => next_epoch.epoch(),
+        None => {
+            shared
+                .shared()
+                .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+            return StatusCode::CompactBlockHasInvalidHeader.with_context(format!(
+                "{block_hash} failed to get next epoch from parent {parent_hash}"
+            ));
+        }
+    };
+    let expected_epoch = epoch.number_with_fraction(compact_block_header.number());
+    let actual_epoch = compact_block_header.epoch();
+    let expected_compact_target = epoch.compact_target();
+    let actual_compact_target = compact_block_header.compact_target();
+    if actual_epoch != expected_epoch || actual_compact_target != expected_compact_target {
+        shared
+            .shared()
+            .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+        return StatusCode::CompactBlockHasInvalidHeader.with_context(format!(
+            "{block_hash} invalid epoch, expected epoch {expected_epoch:#}, actual epoch {actual_epoch:#}, expected compact target {expected_compact_target:#x}, actual compact target {actual_compact_target:#x}"
+        ));
     }
 
     Status::ok()
