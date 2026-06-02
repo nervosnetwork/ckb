@@ -46,10 +46,11 @@ pub trait ChainStore: Send + Sync + Sized {
             && header.number() < freezer.number()
         {
             let raw_block = freezer.retrieve(header.number()).expect("block frozen")?;
-            let raw_block = packed::BlockReader::from_compatible_slice(&raw_block)
-                .expect("checked data")
-                .to_entity();
-            return Some(raw_block.into_view());
+            let raw_block_reader =
+                packed::BlockReader::from_compatible_slice(&raw_block).expect("checked data");
+            if raw_block_reader.calc_header_hash().as_slice() == h.as_slice() {
+                return Some(raw_block_reader.to_entity().into_view());
+            }
         }
         let body = self.get_block_body(h);
         let uncles = self
@@ -326,8 +327,12 @@ pub trait ChainStore: Send + Sync + Sized {
                 .expect("block frozen")?;
             let raw_block_reader =
                 packed::BlockReader::from_compatible_slice(&raw_block).expect("checked data");
-            let tx_reader = raw_block_reader.transactions().get(tx_info.index)?;
-            return Some((tx_reader.to_entity().into_view(), tx_info));
+            if raw_block_reader.calc_header_hash().as_slice() == tx_info.block_hash.as_slice()
+                && let Some(tx_reader) = raw_block_reader.transactions().get(tx_info.index)
+                && tx_reader.calc_tx_hash().as_slice() == hash.as_slice()
+            {
+                return Some((tx_reader.to_entity().into_view(), tx_info));
+            }
         }
         self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
             .map(|slice| {
