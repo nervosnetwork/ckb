@@ -125,13 +125,12 @@ impl<'a> GetTransactionsProofProcess<'a> {
             positions.push(leaf_index_to_pos(block.number()));
             filtered_blocks.push(filtered_block);
 
-            let uncles = snapshot
-                .get_block_uncles(&block_hash)
-                .expect("block uncles must be stored");
-            let extension = snapshot.get_block_extension(&block_hash);
-
-            uncles_hash.push(uncles.data().calc_uncles_hash());
-            extensions.push(packed::BytesOpt::new_builder().set(extension).build());
+            uncles_hash.push(block.calc_uncles_hash());
+            extensions.push(
+                packed::BytesOpt::new_builder()
+                    .set(block.extension())
+                    .build(),
+            );
         }
 
         let proved_items = (
