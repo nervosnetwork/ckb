@@ -7,7 +7,7 @@ use std::time;
 /// RPC Module Debug for internal RPC methods.
 ///
 /// **This module is for CKB developers and will not guarantee compatibility.** The methods here
-/// will be changed or removed without advanced notification.
+/// will be changed or removed without advance notice.
 #[rpc(openrpc)]
 #[async_trait]
 pub trait DebugRpc {

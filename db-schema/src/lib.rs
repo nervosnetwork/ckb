@@ -1,4 +1,4 @@
-//! The schema include constants define the low level database column families.
+//! The schema includes constants defining the low level database column families.
 
 /// Column families alias type
 pub type Col = &'static str;
@@ -26,7 +26,7 @@ pub const COLUMN_BLOCK_EPOCH: Col = "8";
 pub const COLUMN_EPOCH: Col = "9";
 /// Column store cell
 pub const COLUMN_CELL: Col = "10";
-/// Column store main chain consensus include uncles
+/// Column store main chain consensus including uncles
 ///
 /// <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#specification>
 pub const COLUMN_UNCLES: Col = "11";
@@ -52,7 +52,7 @@ pub const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
 /// META_FILTER_DATA_KEY tracks the latest built filter data block hash
 pub const META_LATEST_BUILT_FILTER_DATA_KEY: &[u8] = b"LATEST_BUILT_FILTER_DATA";
 
-/// CHAIN_SPEC_HASH_KEY tracks the hash of chain spec which created current database
+/// CHAIN_SPEC_HASH_KEY tracks the hash of the chain spec which created the current database
 pub const CHAIN_SPEC_HASH_KEY: &[u8] = b"chain-spec-hash";
 /// MIGRATION_VERSION_KEY tracks the current database version.
 pub const MIGRATION_VERSION_KEY: &[u8] = b"db-version";
