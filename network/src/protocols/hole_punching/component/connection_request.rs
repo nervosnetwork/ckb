@@ -112,6 +112,19 @@ impl<'a> ConnectionRequestProcess<'a> {
             Ok(content) => content,
             Err(status) => return status,
         };
+        if content.route.is_empty() {
+            let authenticated_peer_id = self
+                .protocol
+                .network_state
+                .peer_registry
+                .read()
+                .get_peer(self.peer)
+                .and_then(|peer| extract_peer_id(&peer.connected_addr));
+            if authenticated_peer_id.as_ref() != Some(&content.from) {
+                return StatusCode::InvalidFromPeerId
+                    .with_context("the from peer id does not match the session peer id");
+            }
+        }
         if content.listen_addrs.len() > ADDRS_COUNT_LIMIT || content.listen_addrs.is_empty() {
             return StatusCode::InvalidListenAddrLen
                 .with_context("the listen address count is too large or empty");
@@ -304,5 +317,102 @@ impl<'a> ConnectionRequestProcess<'a> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{borrow::Cow, sync::Arc};
+
+    use ckb_app_config::NetworkConfig;
+    use p2p::{
+        builder::ServiceBuilder,
+        multiaddr::{Multiaddr, Protocol},
+        secio::NoopKeyProvider,
+        service::SessionType,
+    };
+
+    use crate::{
+        NetworkState,
+        peer_store::PeerStore,
+        protocols::hole_punching::{
+            HolePunching,
+            status::{BAD_MESSAGE_BAN_TIME, StatusCode},
+        },
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn rejects_forged_from_for_listen_address_without_peer_id() {
+        let forged_from = PeerId::random();
+        let authenticated_peer = PeerId::random();
+        let target = PeerId::random();
+        let session_id = 1.into();
+        let tmp_dir = tempfile::tempdir().expect("create tempdir");
+        let remote_addr: Multiaddr = format!(
+            "/ip4/127.0.0.1/tcp/42/p2p/{}",
+            authenticated_peer.to_base58()
+        )
+        .parse()
+        .unwrap();
+        let listen_addr: Multiaddr = "/ip4/192.0.2.1/tcp/8333".parse().unwrap();
+
+        let network_state = Arc::new(
+            NetworkState::from_config(NetworkConfig {
+                max_peers: 4,
+                max_outbound_peers: 1,
+                path: tmp_dir.path().to_path_buf(),
+                public_addresses: vec![{
+                    let mut addr: Multiaddr = "/ip4/127.0.0.1/tcp/8115".parse().unwrap();
+                    addr.push(Protocol::P2P(Cow::Borrowed(target.as_bytes())));
+                    addr
+                }],
+                ..Default::default()
+            })
+            .expect("init network state"),
+        );
+        network_state
+            .peer_registry
+            .write()
+            .accept_peer(
+                remote_addr,
+                session_id,
+                SessionType::Inbound,
+                &mut PeerStore::default(),
+            )
+            .expect("accept peer");
+
+        let mut protocol = HolePunching::new(Arc::clone(&network_state));
+        let service = ServiceBuilder::<NoopKeyProvider>::default().build(());
+        let p2p_control = service.control().clone().into();
+
+        let listen_addrs = packed::AddressVec::new_builder()
+            .push(
+                packed::Address::new_builder()
+                    .bytes(listen_addr.to_vec())
+                    .build(),
+            )
+            .build();
+        let request = packed::ConnectionRequest::new_builder()
+            .from(forged_from.as_bytes())
+            .to(network_state.local_peer_id().as_bytes())
+            .max_hops(MAX_HOPS)
+            .listen_addrs(listen_addrs)
+            .build();
+
+        let status = ConnectionRequestProcess::new(
+            request.as_reader(),
+            &mut protocol,
+            session_id,
+            &p2p_control,
+            0,
+        )
+        .execute()
+        .await;
+
+        assert_eq!(status.code(), StatusCode::InvalidFromPeerId);
+        assert_eq!(status.should_ban(), Some(BAD_MESSAGE_BAN_TIME));
+        assert!(!protocol.pending_delivered.contains_key(&forged_from));
     }
 }
