@@ -1,0 +1,60 @@
+name: ci_offckb_dao_devnet
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: ['**']
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTFLAGS: -D warnings -g
+
+jobs:
+  offckb_dao_devnet:
+    name: OffCKB DAO devnet integration test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'self-hosted-ci-ubuntu-20.04' || 'ubuntu-22.04' }}
+    steps:
+      - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: devtools/offckb-dao-test/package-lock.json
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential
+      - name: Cache cargo target
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ci-${{ runner.os }}-cargo-offckb-dao-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ci-${{ runner.os }}-cargo-offckb-dao-
+      - name: Build ckb
+        run: |
+          make submodule-init
+          cargo build --locked --bin ckb --verbose --release
+        shell: bash
+      - name: Run OffCKB DAO devnet integration test
+        run: devtools/offckb-dao-test/run.sh
+        shell: bash
+      - name: Upload OffCKB logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offckb-dao-devnet-logs
+          path: devtools/offckb-dao-test/offckb-devnet.log
