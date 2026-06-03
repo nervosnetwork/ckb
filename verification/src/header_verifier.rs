@@ -1,5 +1,6 @@
 use crate::{
-    ALLOWED_FUTURE_BLOCKTIME, EpochError, NumberError, PowError, TimestampError, UnknownParentError,
+    ALLOWED_FUTURE_BLOCKTIME, BlockVersionError, EpochError, NumberError, PowError, TimestampError,
+    UnknownParentError,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
@@ -30,6 +31,13 @@ impl<'a, DL: HeaderFieldsProvider> HeaderVerifier<'a, DL> {
 impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
     type Target = HeaderView;
     fn verify(&self, header: &Self::Target) -> Result<(), Error> {
+        if header.version() != self.consensus.block_version() {
+            return Err(BlockVersionError {
+                expected: self.consensus.block_version(),
+                actual: header.version(),
+            }
+            .into());
+        }
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
         let parent_fields = self

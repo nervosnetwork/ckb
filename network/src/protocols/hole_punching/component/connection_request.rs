@@ -385,7 +385,7 @@ mod tests {
 
         let mut protocol = HolePunching::new(Arc::clone(&network_state));
         let service = ServiceBuilder::<NoopKeyProvider>::default().build(());
-        let p2p_control = service.control().clone().into();
+        let p2p_control = service.control().clone();
 
         let listen_addrs = packed::AddressVec::new_builder()
             .push(

@@ -1,4 +1,4 @@
-use crate::{Status, StatusCode, attempt};
+use crate::{Status, StatusCode, attempt, relayer::MAX_RELAY_TXS_NUM_PER_BATCH};
 use ckb_types::packed;
 use std::collections::HashSet;
 
@@ -63,6 +63,14 @@ impl ShortIdsVerifier {
     pub(crate) fn verify(block: &packed::CompactBlock) -> Status {
         let prefilled_transactions = block.prefilled_transactions();
         let short_ids = &block.short_ids();
+        if short_ids.len() > MAX_RELAY_TXS_NUM_PER_BATCH {
+            return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                "ShortIds count({}) > MAX_RELAY_TXS_NUM_PER_BATCH({})",
+                short_ids.len(),
+                MAX_RELAY_TXS_NUM_PER_BATCH,
+            ));
+        }
+
         let short_ids_set: HashSet<packed::ProposalShortId> =
             short_ids.clone().into_iter().collect();
 

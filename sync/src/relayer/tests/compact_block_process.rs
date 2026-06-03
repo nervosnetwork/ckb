@@ -379,6 +379,79 @@ fn test_send_missing_indexes() {
 }
 
 #[test]
+fn test_compact_block_accepts_parent_from_header_map() {
+    let (_chain, relayer, _) = build_chain(5);
+    let stored_parent = relayer.shared.active_chain().tip_header();
+    let header_map_parent = new_header_builder(relayer.shared.shared(), &stored_parent).build();
+    let parent_epoch = header_map_parent.epoch();
+    let child_epoch = if parent_epoch.index() + 1 == parent_epoch.length() {
+        EpochNumberWithFraction::new(parent_epoch.number() + 1, 0, parent_epoch.length())
+    } else {
+        EpochNumberWithFraction::new(
+            parent_epoch.number(),
+            parent_epoch.index() + 1,
+            parent_epoch.length(),
+        )
+    };
+    let child_header = HeaderBuilder::default()
+        .parent_hash(header_map_parent.hash())
+        .number(header_map_parent.number() + 1)
+        .timestamp(header_map_parent.timestamp() + 1)
+        .epoch(child_epoch)
+        .compact_target(header_map_parent.compact_target())
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let peer_index: PeerIndex = 100.into();
+    relayer
+        .shared()
+        .insert_valid_header(peer_index, &header_map_parent);
+    assert!(
+        relayer
+            .shared()
+            .store()
+            .get_block_header(&header_map_parent.hash())
+            .is_none()
+    );
+
+    let block = BlockBuilder::default()
+        .header(child_header)
+        .transaction(TransactionBuilder::default().build())
+        .transaction(
+            TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
+                .build(),
+        )
+        .build();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
+    let nc = Arc::new(mock_protocol_context);
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert_eq!(
+        rt.block_on(compact_block_process.execute()),
+        StatusCode::CompactBlockRequiresFreshTransactions.into()
+    );
+}
+
+#[test]
 fn test_invalid_difficulty_compact_block_does_not_enter_pending() {
     let (_chain, relayer, _) = build_chain(5);
     let parent = {

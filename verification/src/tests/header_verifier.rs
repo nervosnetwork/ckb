@@ -1,5 +1,9 @@
 use crate::header_verifier::{EpochVerifier, NumberVerifier, PowVerifier, TimestampVerifier};
-use crate::{ALLOWED_FUTURE_BLOCKTIME, EpochError, NumberError, PowError, TimestampError};
+use crate::{
+    ALLOWED_FUTURE_BLOCKTIME, BlockVersionError, EpochError, HeaderVerifier, NumberError, PowError,
+    TimestampError,
+};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
@@ -8,6 +12,7 @@ use ckb_types::{
     core::{EpochNumberWithFraction, HeaderBuilder},
     packed::Header,
 };
+use ckb_verification_traits::Verifier;
 
 use super::BuilderBaseOnBlockNumber;
 
@@ -35,6 +40,21 @@ fn test_timestamp() {
     );
 
     assert!(timestamp_verifier.verify().is_ok());
+}
+
+#[test]
+fn test_header_version() {
+    let context = mock_median_time_context();
+    let consensus = Consensus::default();
+    let expected = consensus.block_version();
+    let actual = expected + 1;
+    let header = HeaderBuilder::default().version(actual).build();
+    let verifier = HeaderVerifier::new(&context, &consensus);
+
+    assert_error_eq!(
+        verifier.verify(&header).unwrap_err(),
+        BlockVersionError { expected, actual },
+    );
 }
 
 #[test]
