@@ -44,6 +44,25 @@ fn test_samples_collect() {
     assert_eq!(ntc.check().unwrap_err(), -(TOLERANT_OFFSET as i64) - 1);
 }
 
+#[test]
+fn test_median_offset_overflows_for_large_even_samples() {
+    let large_offset = (i64::MAX / 2) + 1;
+    let mut ntc = NetTimeChecker::new(6, 6, TOLERANT_OFFSET);
+
+    for offset in [
+        1,
+        2,
+        large_offset,
+        large_offset,
+        large_offset + 1,
+        large_offset + 2,
+    ] {
+        ntc.add_sample(offset);
+    }
+
+    assert_eq!(ntc.check().unwrap_err(), large_offset);
+}
+
 struct Node {
     listen_addr: Multiaddr,
     control: ServiceControl,
