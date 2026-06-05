@@ -401,14 +401,13 @@ mod tests {
 
     fn listen_addrs_without_peer_id() -> packed::AddressVec {
         let listen_addr: Multiaddr = "/ip4/192.0.2.1/tcp/8333".parse().unwrap();
-        let listen_addrs = packed::AddressVec::new_builder()
+        packed::AddressVec::new_builder()
             .push(
                 packed::Address::new_builder()
                     .bytes(listen_addr.to_vec())
                     .build(),
             )
-            .build();
-        listen_addrs
+            .build()
     }
 
     #[tokio::test]
