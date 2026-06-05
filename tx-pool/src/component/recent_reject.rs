@@ -59,13 +59,8 @@ impl RecentReject {
         let json_string = serde_json::to_string(&reject)?;
         self.db.put(&shard, hash_slice, json_string)?;
 
-        if let Some(total_keys_num) = self.total_keys_num.checked_add(1) {
-            self.total_keys_num = total_keys_num;
-            if total_keys_num > self.count_limit {
-                self.shrink()?;
-            }
-        } else {
-            // overflow occurred, try shrink
+        self.total_keys_num = self.total_keys_num.saturating_add(1);
+        if self.total_keys_num > self.count_limit {
             self.shrink()?;
         }
         Ok(())
