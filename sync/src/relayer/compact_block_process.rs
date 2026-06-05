@@ -358,10 +358,7 @@ async fn contextual_check(
     };
 
     let Some(epoch) = maybe_epoch else {
-        shared
-            .shared()
-            .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
-        return StatusCode::CompactBlockHasInvalidHeader.with_context(format!(
+        return StatusCode::CompactBlockRequiresParent.with_context(format!(
             "{block_hash} failed to derive expected epoch from parent {parent_hash}"
         ));
     };
