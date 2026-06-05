@@ -27,13 +27,13 @@ impl From<&bool> for packed::Bool {
 
 impl<'r> From<packed::BoolReader<'r>> for bool {
     fn from(value: packed::BoolReader<'r>) -> bool {
-        !matches!(value.as_slice()[0], 0)
+        value.as_slice()[0] != 0
     }
 }
 impl_conversion_for_entity_from!(bool, Bool);
 impl<'r> Unpack<bool> for packed::BoolReader<'r> {
     fn unpack(&self) -> bool {
-        !matches!(self.as_slice()[0], 0)
+        self.as_slice()[0] != 0
     }
 }
 impl_conversion_for_entity_unpack!(bool, Bool);
