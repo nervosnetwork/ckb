@@ -175,12 +175,10 @@ impl packed::Block {
 
     /// Gets the extension field if it existed.
     ///
-    /// # Panics
-    ///
-    /// Panics if the first extra field exists but not a valid [`Bytes`](struct.Bytes.html).
+    /// Returns [`None`] if the first extra field exists but is not a valid [`Bytes`](struct.Bytes.html).
     pub fn extension(&self) -> Option<packed::Bytes> {
         self.extra_field(0)
-            .map(|data| packed::Bytes::from_slice(&data).unwrap())
+            .and_then(|data| packed::Bytes::from_slice(&data).ok())
     }
 }
 
@@ -211,12 +209,10 @@ impl packed::CompactBlock {
 
     /// Gets the extension field if it existed.
     ///
-    /// # Panics
-    ///
-    /// Panics if the first extra field exists but not a valid [`Bytes`](struct.Bytes.html).
+    /// Returns [`None`] if the first extra field exists but is not a valid [`Bytes`](struct.Bytes.html).
     pub fn extension(&self) -> Option<packed::Bytes> {
         self.extra_field(0)
-            .map(|data| packed::Bytes::from_slice(&data).unwrap())
+            .and_then(|data| packed::Bytes::from_slice(&data).ok())
     }
 }
 

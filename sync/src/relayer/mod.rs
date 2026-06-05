@@ -124,9 +124,13 @@ impl Relayer {
 
         match message {
             packed::RelayMessageUnionReader::CompactBlock(reader) => {
-                CompactBlockProcess::new(reader, self, nc, peer)
-                    .execute()
-                    .await
+                if reader.check_data() {
+                    CompactBlockProcess::new(reader, self, nc, peer)
+                        .execute()
+                        .await
+                } else {
+                    StatusCode::ProtocolMessageIsMalformed.with_context("CompactBlock is invalid")
+                }
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
                 if reader.check_data() {
