@@ -29,8 +29,7 @@ impl<'r> From<packed::BoolReader<'r>> for bool {
     fn from(value: packed::BoolReader<'r>) -> bool {
         match value.as_slice()[0] {
             0 => false,
-            1 => true,
-            _ => unreachable!(),
+            _ => true,
         }
     }
 }
@@ -39,8 +38,7 @@ impl<'r> Unpack<bool> for packed::BoolReader<'r> {
     fn unpack(&self) -> bool {
         match self.as_slice()[0] {
             0 => false,
-            1 => true,
-            _ => unreachable!(),
+            _ => true,
         }
     }
 }

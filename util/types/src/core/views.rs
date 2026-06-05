@@ -663,9 +663,7 @@ impl BlockView {
 
     /// Gets `extension`.
     ///
-    /// # Panics
-    ///
-    /// Panics if the extension exists but not a valid [`Bytes`](../packed/struct.Bytes.html).
+    /// Returns [`None`] if the extension exists but is not a valid [`Bytes`](../packed/struct.Bytes.html).
     pub fn extension(&self) -> Option<packed::Bytes> {
         self.data.extension()
     }

@@ -89,6 +89,11 @@ impl VerifyQueue {
         self.total_tx_size
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_total_tx_size_for_test(&mut self, total_tx_size: usize) {
+        self.total_tx_size = total_tx_size;
+    }
+
     /// Returns true if the queue is full.
     pub fn is_full(&self, add_tx_size: usize) -> bool {
         add_tx_size >= DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE - self.total_tx_size
