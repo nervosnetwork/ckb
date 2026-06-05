@@ -14,7 +14,7 @@ use ckb_error::{AnyError, InternalErrorKind};
 use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
-use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
+use ckb_logger::{debug, error, info, log_enabled_target, trace_target, warn};
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -570,10 +570,27 @@ impl TxPoolService {
                         orphan.tx.hash(),
                         tx.hash(),
                     );
-                    self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    self.enqueue_verify_queue(orphan.tx, false, Some((orphan.cycle, orphan.peer)))
+                    let orphan_id = orphan.tx.proposal_short_id();
+                    match self
+                        .enqueue_verify_queue(
+                            orphan.tx.clone(),
+                            false,
+                            Some((orphan.cycle, orphan.peer)),
+                        )
                         .await
-                        .expect("enqueue suspended tx");
+                    {
+                        Ok(_) => {
+                            self.remove_orphan_tx(&orphan_id).await;
+                        }
+                        Err(reject) => {
+                            warn!(
+                                "process_orphan {} failed to enqueue verify queue: {}; keep orphan from {}",
+                                orphan.tx.hash(),
+                                reject,
+                                tx.hash(),
+                            );
+                        }
+                    }
                 } else if let Some((ret, _snapshot)) = self
                     ._process_tx(orphan.tx.clone(), Some(orphan.cycle), None)
                     .await
