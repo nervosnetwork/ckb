@@ -8,7 +8,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::block_status::BlockStatus;
 use ckb_traits::HeaderFieldsProvider;
 use ckb_types::{core, packed, prelude::*};
-use ckb_verification::{HeaderError, HeaderVerifier};
+use ckb_verification::{BlockError, BlockErrorKind, HeaderError, HeaderVerifier};
 use ckb_verification_traits::Verifier;
 use std::sync::Arc;
 
@@ -259,8 +259,16 @@ impl<'a, DL: HeaderFieldsProvider> HeaderAcceptor<'a, DL> {
                 self.header.number(),
                 error
             );
-            // HeaderVerifier return HeaderError or UnknownParentError
-            if let Some(header_error) = error.downcast_ref::<HeaderError>() {
+            // UnknownParentError surfaces as BlockError(UnknownParent), not
+            // HeaderError.  Missing parent is a recoverable ordering/context
+            // issue, not proof that this header is invalid.
+            if error
+                .downcast_ref::<BlockError>()
+                .is_some_and(|e| e.kind() == BlockErrorKind::UnknownParent)
+            {
+                state.temporary_invalid(Some(ValidationError::Verify(error)));
+                false
+            } else if let Some(header_error) = error.downcast_ref::<HeaderError>() {
                 if header_error.is_too_new() {
                     state.temporary_invalid(Some(ValidationError::Verify(error)));
                     false
