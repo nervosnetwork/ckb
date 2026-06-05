@@ -30,9 +30,12 @@ const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
 
 pub(super) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
-    multiaddr_to_socketaddr(addr)
-        .map(|socket_addr| !global_ip_only || is_reachable(socket_addr.ip()))
-        .unwrap_or(false)
+    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+        !global_ip_only || is_reachable(socket_addr.ip())
+    } else {
+        addr.iter()
+            .any(|protocol| matches!(protocol, Protocol::Onion3(_)))
+    }
 }
 
 /// The misbehavior to report to underlying peer storage
@@ -622,5 +625,16 @@ mod tests {
         assert!(is_remote_listen_addr_allowed(&global_addr, true));
         assert!(!is_remote_listen_addr_allowed(&loopback_addr, true));
         assert!(is_remote_listen_addr_allowed(&loopback_addr, false));
+    }
+
+    #[test]
+    fn test_identify_remote_listen_addr_allows_onion3() {
+        let onion_addr: Multiaddr =
+            "/onion3/vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd:1234"
+                .parse()
+                .unwrap();
+
+        assert!(is_remote_listen_addr_allowed(&onion_addr, true));
+        assert!(is_remote_listen_addr_allowed(&onion_addr, false));
     }
 }
