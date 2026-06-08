@@ -769,8 +769,11 @@ fn test_load_header_missing_transaction_info() {
             Source::Group(SourceEntry::Input),
         ] {
             let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
-            machine.set_register(A0, 100);
-            machine.set_register(A1, 0);
+            let size_addr: u64 = 0;
+            let addr: u64 = 100;
+
+            machine.set_register(A0, addr);
+            machine.set_register(A1, size_addr);
             machine.set_register(A2, 0);
             machine.set_register(A3, 0);
             machine.set_register(A4, u64::from(source));
