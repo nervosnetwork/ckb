@@ -380,7 +380,7 @@ fn build_dao_withdraw_tx(
     let witness = WitnessArgs::new_builder()
         .input_type(Some(Bytes::from(0u64.to_le_bytes().to_vec())))
         .build();
-    let witness_bytes: Bytes = witness.as_bytes().into();
+    let witness_bytes: Bytes = witness.as_bytes();
 
     let tx = TransactionBuilder::default()
         .header_dep(deposit_block.hash())
@@ -513,7 +513,7 @@ fn check_dao_withdraw_header_dep_index_exceeds_u8() {
     let witness = WitnessArgs::new_builder()
         .input_type(Some(Bytes::from(257u64.to_le_bytes().to_vec())))
         .build();
-    let witness_bytes: Bytes = witness.as_bytes().into();
+    let witness_bytes: Bytes = witness.as_bytes();
 
     let tx = TransactionBuilder::default()
         .set_header_deps(header_deps)
