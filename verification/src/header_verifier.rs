@@ -31,13 +31,6 @@ impl<'a, DL: HeaderFieldsProvider> HeaderVerifier<'a, DL> {
 impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
     type Target = HeaderView;
     fn verify(&self, header: &Self::Target) -> Result<(), Error> {
-        if header.version() != self.consensus.block_version() {
-            return Err(BlockVersionError {
-                expected: self.consensus.block_version(),
-                actual: header.version(),
-            }
-            .into());
-        }
         // POW check first
         PowVerifier::new(header, self.consensus.pow_engine().as_ref()).verify()?;
         let parent_fields = self
@@ -48,6 +41,19 @@ impl<'a, DL: HeaderFieldsProvider> Verifier for HeaderVerifier<'a, DL> {
             })?;
         NumberVerifier::new(parent_fields.number, header).verify()?;
         EpochVerifier::new(parent_fields.epoch, header).verify()?;
+        if !self
+            .consensus
+            .hardfork_switch()
+            .ckb2023
+            .is_remove_header_version_reservation_rule_enabled(header.epoch().number())
+            && header.version() != self.consensus.block_version()
+        {
+            return Err(BlockVersionError {
+                expected: self.consensus.block_version(),
+                actual: header.version(),
+            }
+            .into());
+        }
         TimestampVerifier::new(
             self.data_loader,
             header,

@@ -3,13 +3,16 @@ use crate::{
     ALLOWED_FUTURE_BLOCKTIME, BlockVersionError, EpochError, HeaderVerifier, NumberError, PowError,
     TimestampError,
 };
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_test_chain_utils::{MOCK_MEDIAN_TIME_COUNT, MockMedianTime};
 use ckb_types::{
-    core::{EpochNumberWithFraction, HeaderBuilder},
+    core::{
+        EpochNumberWithFraction, HeaderBuilder,
+        hardfork::{CKB2023, HardForks},
+    },
     packed::Header,
 };
 use ckb_verification_traits::Verifier;
@@ -43,18 +46,48 @@ fn test_timestamp() {
 }
 
 #[test]
-fn test_header_version() {
+fn test_header_version_before_rfc0048() {
     let context = mock_median_time_context();
-    let consensus = Consensus::default();
+    let consensus = consensus_with_rfc0048_epoch(100);
     let expected = consensus.block_version();
     let actual = expected + 1;
-    let header = HeaderBuilder::default().version(actual).build();
+    let header = HeaderBuilder::new_with_number(100)
+        .parent_hash(context.get_block_hash(99))
+        .epoch(EpochNumberWithFraction::new(99, 1, 1000))
+        .timestamp(unix_time_as_millis() + 1)
+        .version(actual)
+        .build();
     let verifier = HeaderVerifier::new(&context, &consensus);
 
     assert_error_eq!(
         verifier.verify(&header).unwrap_err(),
         BlockVersionError { expected, actual },
     );
+}
+
+#[test]
+fn test_header_version_after_rfc0048() {
+    let context = mock_median_time_context();
+    let consensus = consensus_with_rfc0048_epoch(99);
+    let header = HeaderBuilder::new_with_number(100)
+        .parent_hash(context.get_block_hash(99))
+        .epoch(EpochNumberWithFraction::new(99, 1, 1000))
+        .timestamp(unix_time_as_millis() + 1)
+        .version(consensus.block_version() + 1)
+        .build();
+    let verifier = HeaderVerifier::new(&context, &consensus);
+
+    assert!(verifier.verify(&header).is_ok());
+}
+
+fn consensus_with_rfc0048_epoch(rfc0048_epoch: u64) -> Consensus {
+    let hardfork_switch = HardForks {
+        ckb2021: HardForks::new_mirana().ckb2021,
+        ckb2023: CKB2023::new_with_specified(rfc0048_epoch),
+    };
+    ConsensusBuilder::default()
+        .hardfork_switch(hardfork_switch)
+        .build()
 }
 
 #[test]
