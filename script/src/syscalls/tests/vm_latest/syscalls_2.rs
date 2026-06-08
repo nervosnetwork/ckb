@@ -185,3 +185,42 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn test_load_extension_missing_transaction_info() {
+    for source in [
+        Source::Transaction(SourceEntry::Input),
+        Source::Transaction(SourceEntry::CellDep),
+        Source::Group(SourceEntry::Input),
+    ] {
+        let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
+        machine.set_register(A0, 100);
+        machine.set_register(A1, 0);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, u64::from(source));
+        machine.set_register(A7, LOAD_BLOCK_EXTENSION);
+
+        let header = HeaderBuilder::default().build();
+        let cell = build_cell_meta(100, Bytes::new());
+        let mut extensions = HashMap::default();
+        extensions.insert(header.hash(), Bytes::from_static(b"extension").into());
+        let data_loader = MockDataLoader {
+            extensions,
+            ..Default::default()
+        };
+        let rtx = Arc::new(ResolvedTransaction {
+            transaction: TransactionBuilder::default()
+                .header_dep(header.hash())
+                .build(),
+            resolved_cell_deps: vec![cell.clone()],
+            resolved_inputs: vec![cell],
+            resolved_dep_groups: vec![],
+        });
+        let sg_data = build_sg_data_with_loader(rtx, data_loader, vec![0], vec![]);
+        let mut load_block_extension = LoadBlockExtension::new(&sg_data);
+
+        assert!(load_block_extension.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
+    }
+}

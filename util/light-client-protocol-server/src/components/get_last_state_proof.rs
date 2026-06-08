@@ -228,6 +228,11 @@ impl<'a> GetLastStateProofProcess<'a> {
             .collect::<Vec<_>>();
 
         let last_block_number = last_block.number();
+        if start_block_number > last_block_number {
+            return StatusCode::InvalidRequest.with_context(format!(
+                "the start block number ({start_block_number}) should not be greater than the last block number ({last_block_number})"
+            ));
+        }
 
         let reorg_last_n_numbers = if start_block_number == 0
             || snapshot
