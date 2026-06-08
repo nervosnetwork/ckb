@@ -44,11 +44,7 @@ impl<DL: ExtensionProvider + Clone> LoadBlockExtension<DL> {
     }
 
     fn load_block_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
-        let block_hash = &cell_meta
-            .transaction_info
-            .as_ref()
-            .expect("block_info of CellMeta should exists when load_block_extension in syscall")
-            .block_hash;
+        let block_hash = &cell_meta.transaction_info.as_ref()?.block_hash;
         if self
             .header_deps()
             .into_iter()

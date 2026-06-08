@@ -54,11 +54,7 @@ impl<DL: HeaderProvider + Clone> LoadHeader<DL> {
     }
 
     fn load_header(&self, cell_meta: &CellMeta) -> Option<HeaderView> {
-        let block_hash = &cell_meta
-            .transaction_info
-            .as_ref()
-            .expect("block_info of CellMeta should exists when load_header in syscall")
-            .block_hash;
+        let block_hash = &cell_meta.transaction_info.as_ref()?.block_hash;
         if self
             .header_deps()
             .into_iter()

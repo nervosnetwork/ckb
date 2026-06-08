@@ -49,7 +49,8 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
                 packed::Byte32::zero()
             };
 
-            for block_number in start_number..start_number + BATCH_SIZE {
+            let mut block_number = start_number;
+            for _ in 0..BATCH_SIZE {
                 if let Some(block_filter_hash) = active_chain
                     .get_block_hash(block_number)
                     .and_then(|block_hash| active_chain.get_block_filter_hash(&block_hash))
@@ -58,6 +59,10 @@ impl<'a> GetBlockFilterHashesProcess<'a> {
                 } else {
                     break;
                 }
+                let Some(next_block_number) = block_number.checked_add(1) else {
+                    break;
+                };
+                block_number = next_block_number;
             }
             let content = packed::BlockFilterHashes::new_builder()
                 .start_number(start_number)
