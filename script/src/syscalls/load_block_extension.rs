@@ -44,6 +44,9 @@ impl<DL: ExtensionProvider + Clone> LoadBlockExtension<DL> {
     }
 
     fn load_block_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
+        // `transaction_info` is absent for unconfirmed cells provided by the
+        // tx-pool (e.g. `PoolCell`). Treat them as missing instead of panicking,
+        // so the syscall surfaces `ITEM_MISSING` to the script VM.
         let block_hash = &cell_meta.transaction_info.as_ref()?.block_hash;
         if self
             .header_deps()
