@@ -1,6 +1,6 @@
 use crate::syscalls::{
     INDEX_OUT_OF_BOUND, SLICE_OUT_OF_BOUND, SOURCE_ENTRY_MASK, SOURCE_GROUP_FLAG, SPAWN,
-    SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE, Source,
+    SPAWN_EXTRA_CYCLES_BASE, SPAWN_YIELD_CYCLES_BASE, Source, utils::checked_add_addr,
 };
 use crate::types::{DataLocation, DataPieceId, Fd, Message, SgData, SpawnArgs, VmContext, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -74,16 +74,16 @@ where
         let argc = machine
             .memory_mut()
             .load64(&Mac::REG::from_u64(argc_addr))?;
-        let argv_addr = spgs_addr.wrapping_add(8);
+        let argv_addr = checked_add_addr(spgs_addr, 8)?;
         let argv = machine
             .memory_mut()
             .load64(&Mac::REG::from_u64(argv_addr))?;
-        let process_id_addr_addr = spgs_addr.wrapping_add(16);
+        let process_id_addr_addr = checked_add_addr(spgs_addr, 16)?;
         let process_id_addr = machine
             .memory_mut()
             .load64(&Mac::REG::from_u64(process_id_addr_addr))?
             .to_u64();
-        let fds_addr_addr = spgs_addr.wrapping_add(24);
+        let fds_addr_addr = checked_add_addr(spgs_addr, 24)?;
         let mut fds_addr = machine
             .memory_mut()
             .load64(&Mac::REG::from_u64(fds_addr_addr))?
@@ -100,7 +100,7 @@ where
                     break;
                 }
                 fds.push(Fd(fd));
-                fds_addr += 8;
+                fds_addr = checked_add_addr(fds_addr, 8)?;
             }
         }
 

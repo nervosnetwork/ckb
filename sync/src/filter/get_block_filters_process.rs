@@ -41,7 +41,8 @@ impl<'a> GetBlockFiltersProcess<'a> {
             let mut current_content_size = 0;
             current_content_size += 8; // Size of start_number
             current_content_size += 4 * 2; // Size of the header field `full-size` of `block_hash` and `block_filter`
-            for block_number in start_number..start_number + BATCH_SIZE {
+            let mut block_number = start_number;
+            for _ in 0..BATCH_SIZE {
                 if let Some(block_hash) = active_chain.get_block_hash(block_number) {
                     if let Some(block_filter) = active_chain.get_block_filter(&block_hash) {
                         if current_content_size
@@ -64,6 +65,10 @@ impl<'a> GetBlockFiltersProcess<'a> {
                 } else {
                     break;
                 }
+                let Some(next_block_number) = block_number.checked_add(1) else {
+                    break;
+                };
+                block_number = next_block_number;
             }
             let content = packed::BlockFilters::new_builder()
                 .start_number(start_number)

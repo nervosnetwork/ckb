@@ -12,8 +12,9 @@ fn is_even(n: u64) -> bool {
 }
 
 fn mean(numbers: &[u64]) -> u64 {
-    let sum: u64 = numbers.iter().sum();
-    sum / numbers.len() as u64
+    // The average of u64 values fits in u64, but the intermediate sum may not.
+    let sum: u128 = numbers.iter().map(|number| u128::from(*number)).sum();
+    (sum / numbers.len() as u128) as u64
 }
 
 fn median(numbers: &mut [u64]) -> u64 {

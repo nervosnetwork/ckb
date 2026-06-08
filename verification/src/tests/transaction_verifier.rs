@@ -521,6 +521,26 @@ fn test_invalid_since_verify() {
 }
 
 #[test]
+fn test_timestamp_since_millis_overflow_is_invalid() {
+    for flag in &[
+        0x4000_0000_0000_0000u64, // absolute & time
+        0xc000_0000_0000_0000u64, // relative & time
+    ] {
+        let tx = create_tx_with_lock(*flag | (u64::MAX / 1000 + 1));
+        let median_time_context = MockMedianTime::new(vec![0; 11]);
+        let rtx = create_resolve_tx_with_transaction_info(
+            &tx,
+            median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+        );
+
+        assert_error_eq!(
+            verify_since(rtx, median_time_context, 5, 1).unwrap_err(),
+            TransactionError::InvalidSince { index: 0 },
+        );
+    }
+}
+
+#[test]
 fn test_valid_zero_length_since() {
     // use remain flags
     let tx = create_tx_with_lock(0xa000_0000_0000_0000);
@@ -786,6 +806,41 @@ fn test_since_overflow() {
             TransactionError::InvalidSince { index: 0 },
         );
     }
+}
+
+#[test]
+fn test_since_timestamp_metric_overflow() {
+    for since in [
+        0x40ff_ffff_ffff_ffffu64, // absolute timestamp with max 56-bit value
+        0xc0ff_ffff_ffff_ffffu64, // relative timestamp with max 56-bit value
+    ] {
+        let tx = create_tx_with_lock(since);
+        let median_time_context = MockMedianTime::new(vec![0; 11]);
+        let rtx = create_resolve_tx_with_transaction_info(
+            &tx,
+            median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+        );
+
+        assert_error_eq!(
+            verify_since(rtx, median_time_context, 5, 1).unwrap_err(),
+            TransactionError::InvalidSince { index: 0 },
+        );
+    }
+}
+
+#[test]
+fn test_relative_since_timestamp_add_overflow() {
+    let tx = create_tx_with_lock(0xc000_0000_0000_0000 | (u64::MAX / 1000));
+    let median_time_context = MockMedianTime::new(vec![1000; 11]);
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        median_time_context.get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
+
+    assert_error_eq!(
+        verify_since(rtx, median_time_context, 5, 1).unwrap_err(),
+        TransactionError::InvalidSince { index: 0 },
+    );
 }
 
 #[test]

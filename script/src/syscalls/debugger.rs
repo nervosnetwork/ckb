@@ -1,7 +1,10 @@
 use crate::types::{
     DebugPrinter, {SgData, SgInfo},
 };
-use crate::{cost_model::transferred_byte_cycles, syscalls::DEBUG_PRINT_SYSCALL_NUMBER};
+use crate::{
+    cost_model::transferred_byte_cycles,
+    syscalls::{DEBUG_PRINT_SYSCALL_NUMBER, utils::checked_add_addr},
+};
 use ckb_vm::{
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
     registers::{A0, A7},
@@ -45,7 +48,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Debugger {
                 break;
             }
             buffer.push(byte);
-            addr += 1;
+            addr = checked_add_addr(addr, 1)?;
         }
 
         machine.add_cycles_no_checking(transferred_byte_cycles(buffer.len() as u64))?;

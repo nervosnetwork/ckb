@@ -523,8 +523,11 @@ impl TxPoolServiceBuilder {
             started: Arc::clone(&started),
         };
 
-        let block_assembler =
-            block_assembler_config.map(|config| BlockAssembler::new(config, Arc::clone(&snapshot)));
+        let block_assembler = block_assembler_config.and_then(|config| {
+            BlockAssembler::new(config, Arc::clone(&snapshot))
+                .inspect_err(|err| error!("failed to initialize block assembler: {}", err))
+                .ok()
+        });
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
             tx_pool_controller: controller.clone(),
