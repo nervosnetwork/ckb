@@ -645,6 +645,23 @@ impl TxPoolService {
         }
     }
 
+    pub(crate) async fn submit_remote_tx(
+        &self,
+        tx: TransactionView,
+        declared_cycles: Cycle,
+        peer: PeerIndex,
+    ) {
+        let tx_hash = tx.hash();
+        let result = self
+            .resumeble_process_tx(tx, false, Some((declared_cycles, peer)))
+            .await;
+        if matches!(result, Err(Reject::Full(_))) {
+            // The relayer already marked this hash as known, but a full verify
+            // queue means the tx was not retained locally.
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+        }
+    }
+
     async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
         const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
