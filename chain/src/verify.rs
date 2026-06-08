@@ -24,8 +24,10 @@ use ckb_verification::cache::Completed;
 use ckb_verification_contextual::{ContextualBlockVerifier, VerifyContext};
 use ckb_verification_traits::Switch;
 use dashmap::DashSet;
+use std::any::Any;
 use std::cmp;
 use std::collections::HashSet;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 pub(crate) struct ConsumeUnverifiedBlockProcessor {
@@ -79,7 +81,19 @@ impl ConsumeUnverifiedBlocks {
                         let _ = self.tx_pool_controller.suspend_chunk_process();
 
                         let _trace_now = minstant::Instant::now();
-                        self.processor.consume_unverified_blocks(unverified_task);
+                        let block_hash = unverified_task.block.hash();
+                        let block_number = unverified_task.block.number();
+                        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+                            self.processor.consume_unverified_blocks(unverified_task);
+                        })) {
+                            error!(
+                                "consume unverified block {}-{} panicked: {}",
+                                block_number,
+                                block_hash,
+                                panic_payload_to_string(payload.as_ref())
+                            );
+                            self.processor.is_pending_verify.remove(&block_hash);
+                        }
                         if let Some(handle) = ckb_metrics::handle() {
                             handle.ckb_chain_consume_unverified_block_duration.observe(_trace_now.elapsed().as_secs_f64())
                         }
@@ -890,6 +904,16 @@ impl ConsumeUnverifiedBlockProcessor {
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
         Ok(())
+    }
+}
+
+fn panic_payload_to_string(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_owned()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_owned()
     }
 }
 

@@ -35,6 +35,7 @@ ckb-network.workspace = true
 ckb-channel.workspace = true
 ckb-db.workspace = true
 ckb-script.workspace = true
+futures-util.workspace = true
 sentry = { workspace = true, optional = true }
 serde_json.workspace = true
 rand.workspace = true

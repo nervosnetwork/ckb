@@ -93,3 +93,37 @@ async fn get_last_state_proof_with_the_genesis_block() {
     let verifiable_header: VerifiableHeader = content.headers().get(0).unwrap().into();
     assert!(verifiable_header.header().is_genesis());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_last_state_proof_panics_when_start_number_exceeds_last_block() {
+    let chain = MockChain::new();
+    let nc = MockNetworkContext::new(SupportProtocols::LightClient);
+
+    chain.mine_to(1);
+
+    let snapshot = chain.shared().snapshot();
+    let tip_header = snapshot.get_header_by_number(1).unwrap();
+    let genesis_header = snapshot.get_header_by_number(0).unwrap();
+
+    let mut protocol = chain.create_light_client_protocol();
+
+    let data = {
+        let content = packed::GetLastStateProof::new_builder()
+            .last_hash(tip_header.hash())
+            .start_hash(genesis_header.hash())
+            .start_number(tip_header.number() + 1)
+            .last_n_blocks(0u64)
+            .difficulty_boundary(genesis_header.difficulty())
+            .build();
+        packed::LightClientMessage::new_builder()
+            .set(content)
+            .build()
+    }
+    .as_bytes();
+
+    let peer_index = PeerIndex::new(1);
+    protocol.received(nc.context(), peer_index, data).await;
+
+    assert!(nc.sent_messages().borrow().is_empty());
+    assert!(!nc.not_banned(peer_index));
+}

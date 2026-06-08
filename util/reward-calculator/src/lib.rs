@@ -6,7 +6,7 @@ use ckb_dao_utils::DaoError;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockReward, Capacity, CapacityResult, HeaderView},
+    core::{BlockReward, Capacity, CapacityError, CapacityResult, HeaderView},
     packed::{Byte32, CellbaseWitness, ProposalShortId, Script},
     prelude::*,
 };
@@ -46,7 +46,7 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
         &self,
         parent: &HeaderView,
     ) -> Result<(Script, BlockReward), DaoError> {
-        let block_number = parent.number() + 1;
+        let block_number = parent.number().checked_add(1).ok_or(DaoError::Overflow)?;
         let target_number = self
             .consensus
             .finalize_target(block_number)
@@ -64,8 +64,11 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
         &self,
         target: &HeaderView,
     ) -> Result<(Script, BlockReward), DaoError> {
-        let finalization_parent_number =
-            target.number() + self.consensus.finalization_delay_length() - 1;
+        let finalization_parent_number = target
+            .number()
+            .checked_add(self.consensus.finalization_delay_length())
+            .and_then(|number| number.checked_sub(1))
+            .ok_or(DaoError::Overflow)?;
         let parent = self
             .store
             .get_block_hash(finalization_parent_number)
@@ -176,15 +179,21 @@ impl<'a, CS: ChainStore> RewardCalculator<'a, CS> {
 
         let proposal_window = self.consensus.tx_proposal_window();
         let proposer_ratio = self.consensus.proposer_reward_ratio();
-        let block_number = parent.number() + 1;
+        let block_number = parent
+            .number()
+            .checked_add(1)
+            .ok_or(CapacityError::Overflow)?;
         let store = self.store;
 
         let mut reward = Capacity::zero();
+        let closest_start = 1u64
+            .checked_add(proposal_window.closest())
+            .ok_or(CapacityError::Overflow)?;
 
         // Transaction can be committed at height H(c): H(c) > H(w_close)
         let competing_commit_start = cmp::max(
             block_number.saturating_sub(proposal_window.length()),
-            1 + proposal_window.closest(),
+            closest_start,
         );
 
         let mut proposed: HashSet<ProposalShortId> = HashSet::new();
