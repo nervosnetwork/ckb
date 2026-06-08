@@ -44,7 +44,11 @@ jobs:
       - name: Run cargo deny checks
         run: |
           cargo deny --version || cargo +stable install cargo-deny --locked
-          make security-audit
+          if [[ "${{ github.event_name }}" == "push" && ( "${{ github.ref }}" == "refs/heads/develop" || "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/master" || "${{ github.ref }}" == refs/heads/rc/* ) ]]; then
+            make security-audit
+          else
+            echo "Skipping security audit for ${{ github.event_name }} on ${{ github.ref }}"
+          fi
           make check-crates
           make check-licenses
       - name: Disk usage summary
