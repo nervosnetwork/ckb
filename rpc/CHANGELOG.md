@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.2...ckb-rpc-v1.2.3) - 2026-06-08
+
+### Changed
+
+- [rust-toolchain] Upgrade Rust toolchain to 1.95.0 (#5175) (by @eval-exec)
+
+### Fixed
+
+- fix overflows (by @chenyukang)
+- Fix RPC test chain service teardown on Windows (#5213) (by @chenyukang)
+- fix some comments to improve readability (#5209) (by @caltechustc)
+
+### Contributors
+
+- @chenyukang
+- @caltechustc
+- @eval-exec
+
 ## [1.2.2](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.1...ckb-rpc-v1.2.2) - 2026-04-24
 
 ### Changed
