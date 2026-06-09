@@ -7,12 +7,13 @@ use ckb_types::{
     U256,
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, Capacity, EpochExt, EpochNumberWithFraction, HeaderBuilder,
-        HeaderView, TransactionBuilder, capacity_bytes,
+        BlockBuilder, BlockNumber, BlockView, Capacity, EpochExt, EpochNumberWithFraction,
+        HeaderBuilder, HeaderView, ScriptHashType, TransactionBuilder, TransactionInfo,
+        capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
     },
     h256,
-    packed::CellOutput,
+    packed::{CellOutput, Script, WitnessArgs},
     prelude::*,
     utilities::DIFF_TWO,
 };
@@ -346,4 +347,191 @@ fn check_withdraw_calculation_overflows() {
         &withdrawing_block.hash(),
     );
     assert!(result.is_err());
+}
+
+fn build_dao_withdraw_tx(
+    deposit_block: &BlockView,
+    withdraw_block: &BlockView,
+    deposited_block_number: u64,
+) -> ResolvedTransaction {
+    let consensus = Consensus::default();
+
+    let dao_type_script = Script::new_builder()
+        .code_hash(consensus.dao_type_hash())
+        .hash_type(ScriptHashType::Type)
+        .build();
+
+    let cell_data = Bytes::from(deposited_block_number.to_le_bytes().to_vec());
+    let input_cell = CellOutput::new_builder()
+        .capacity(capacity_bytes!(1000000))
+        .type_(Some(dao_type_script).pack())
+        .build();
+
+    let tx_info = TransactionInfo::new(
+        withdraw_block.number(),
+        withdraw_block.epoch(),
+        withdraw_block.hash(),
+        0,
+    );
+    let cell_meta = CellMetaBuilder::from_cell_output(input_cell, cell_data)
+        .transaction_info(tx_info)
+        .build();
+
+    let witness = WitnessArgs::new_builder()
+        .input_type(Some(Bytes::from(0u64.to_le_bytes().to_vec())))
+        .build();
+    let witness_bytes: Bytes = witness.as_bytes();
+
+    let tx = TransactionBuilder::default()
+        .header_dep(deposit_block.hash())
+        .header_dep(withdraw_block.hash())
+        .witness(witness_bytes)
+        .build();
+
+    ResolvedTransaction {
+        transaction: tx,
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![cell_meta],
+        resolved_dep_groups: vec![],
+    }
+}
+
+fn setup_store_with_headers(
+    deposit_number: u64,
+    withdraw_number: u64,
+) -> (TempDir, ChainDB, BlockView, BlockView) {
+    let epoch = EpochNumberWithFraction::new(1, deposit_number % 1000, 1000);
+
+    let deposit_header = HeaderBuilder::default()
+        .number(deposit_number)
+        .epoch(epoch)
+        .dao(pack_dao_data(
+            10_000_000_000_123_456,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ))
+        .build();
+    let deposit_block = BlockBuilder::default().header(deposit_header).build();
+
+    let withdraw_epoch = EpochNumberWithFraction::new(1, withdraw_number % 1000, 1000);
+    let withdraw_header = HeaderBuilder::default()
+        .number(withdraw_number)
+        .epoch(withdraw_epoch)
+        .dao(pack_dao_data(
+            10_000_000_001_123_456,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ))
+        .build();
+    let withdraw_block = BlockBuilder::default().header(withdraw_header).build();
+
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let store = ChainDB::new(db, Default::default());
+    let txn = store.begin_transaction();
+    txn.insert_block(&deposit_block).unwrap();
+    txn.attach_block(&deposit_block).unwrap();
+    txn.insert_block(&withdraw_block).unwrap();
+    txn.attach_block(&withdraw_block).unwrap();
+    txn.commit().unwrap();
+
+    (tmp_dir, store, deposit_block, withdraw_block)
+}
+
+#[test]
+fn check_dao_withdraw_block_number_mismatch() {
+    let (_tmp_dir, store, deposit_block, withdraw_block) = setup_store_with_headers(100, 200);
+
+    // Cell data says block 99, but the resolved deposit header is block 100
+    let rtx = build_dao_withdraw_tx(&deposit_block, &withdraw_block, 99);
+
+    let consensus = Consensus::default();
+    let data_loader = store.borrow_as_data_loader();
+    let calculator = DaoCalculator::new(&consensus, &data_loader);
+    let result = calculator.transaction_fee(&rtx);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn check_dao_withdraw_block_number_match() {
+    let deposit_number = 100u64;
+    let (_tmp_dir, store, deposit_block, withdraw_block) =
+        setup_store_with_headers(deposit_number, 200);
+
+    // Cell data matches deposit header block number
+    let rtx = build_dao_withdraw_tx(&deposit_block, &withdraw_block, deposit_number);
+
+    let consensus = Consensus::default();
+    let data_loader = store.borrow_as_data_loader();
+    let calculator = DaoCalculator::new(&consensus, &data_loader);
+    let result = calculator.transaction_fee(&rtx);
+
+    assert!(result.is_ok(), "expected Ok, got {result:?}");
+}
+
+#[test]
+fn check_dao_withdraw_header_dep_index_exceeds_u8() {
+    let deposit_number = 100u64;
+    let withdraw_number = 200u64;
+
+    let (_tmp_dir, store, deposit_block, withdraw_block) =
+        setup_store_with_headers(deposit_number, withdraw_number);
+
+    let consensus = Consensus::default();
+    let dao_type_script = Script::new_builder()
+        .code_hash(consensus.dao_type_hash())
+        .hash_type(ScriptHashType::Type)
+        .build();
+
+    // Pad header_deps to 258 entries so index 257 is valid.
+    // Position 1: correct deposit block (what C VM resolves via lowest byte).
+    // Position 257: withdraw block (wrong — Rust resolves this with full u64).
+    let dummy = h256!("0x1").into();
+    let mut header_deps = vec![dummy; 258];
+    header_deps[1] = deposit_block.hash();
+    header_deps[257] = withdraw_block.hash();
+
+    let cell_data = Bytes::from(deposit_number.to_le_bytes().to_vec());
+    let input_cell = CellOutput::new_builder()
+        .capacity(capacity_bytes!(1000000))
+        .type_(Some(dao_type_script).pack())
+        .build();
+    let tx_info = TransactionInfo::new(
+        withdraw_block.number(),
+        withdraw_block.epoch(),
+        withdraw_block.hash(),
+        0,
+    );
+    let cell_meta = CellMetaBuilder::from_cell_output(input_cell, cell_data)
+        .transaction_info(tx_info)
+        .build();
+
+    // input_type = 257, lowest byte = 1
+    let witness = WitnessArgs::new_builder()
+        .input_type(Some(Bytes::from(257u64.to_le_bytes().to_vec())))
+        .build();
+    let witness_bytes: Bytes = witness.as_bytes();
+
+    let tx = TransactionBuilder::default()
+        .set_header_deps(header_deps)
+        .witness(witness_bytes)
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction: tx,
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![cell_meta],
+        resolved_dep_groups: vec![],
+    };
+
+    let data_loader = store.borrow_as_data_loader();
+    let calculator = DaoCalculator::new(&consensus, &data_loader);
+    let result = calculator.transaction_fee(&rtx);
+
+    // Rust resolves index 257 → withdraw block (number 200), but cell data
+    // says deposited at block 100. Block number check catches the mismatch.
+    assert!(result.is_err(), "expected Err, got {result:?}");
 }

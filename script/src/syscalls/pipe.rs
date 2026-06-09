@@ -1,4 +1,4 @@
-use crate::syscalls::{PIPE, SPAWN_YIELD_CYCLES_BASE};
+use crate::syscalls::{PIPE, SPAWN_YIELD_CYCLES_BASE, utils::checked_add_addr};
 use crate::types::{Message, PipeArgs, VmContext, VmId};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{
@@ -35,7 +35,7 @@ impl<Mac: SupportMachine> Syscalls<Mac> for Pipe {
             return Ok(false);
         }
         let fd1_addr = machine.registers()[A0].to_u64();
-        let fd2_addr = fd1_addr.wrapping_add(8);
+        let fd2_addr = checked_add_addr(fd1_addr, 8)?;
         machine.add_cycles_no_checking(SPAWN_YIELD_CYCLES_BASE)?;
         self.message_box
             .lock()

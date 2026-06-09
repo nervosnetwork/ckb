@@ -1,7 +1,7 @@
 use crate::cost_model::transferred_byte_cycles;
 use crate::syscalls::{
     EXEC, INDEX_OUT_OF_BOUND, MAX_ARGV_LENGTH, Place, SLICE_OUT_OF_BOUND, Source, SourceEntry,
-    WRONG_FORMAT,
+    WRONG_FORMAT, utils::checked_add_addr,
 };
 use crate::types::SgData;
 use ckb_traits::CellDataProvider;
@@ -169,7 +169,7 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync + Clone> Syscalls<M
                 return Err(VMError::Unexpected(ARGV_TOO_LONG_TEXT.to_string()));
             }
 
-            addr += 8;
+            addr = checked_add_addr(addr, 8)?;
         }
 
         let cycles = machine.cycles();

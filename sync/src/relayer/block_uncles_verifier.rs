@@ -16,11 +16,13 @@ impl BlockUnclesVerifier {
             .collect();
 
         if expected_ids.len() != uncles.len() {
-            StatusCode::BlockUnclesLengthIsUnmatchedWithPendingCompactBlock.with_context(format!(
-                "Expected({}) != actual({})",
-                expected_ids.len(),
-                uncles.len(),
-            ));
+            return StatusCode::BlockUnclesLengthIsUnmatchedWithPendingCompactBlock.with_context(
+                format!(
+                    "Expected({}) != actual({})",
+                    expected_ids.len(),
+                    uncles.len(),
+                ),
+            );
         }
 
         for (expected_id, uncle) in expected_ids.into_iter().zip(uncles) {

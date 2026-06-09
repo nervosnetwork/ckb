@@ -3,7 +3,7 @@ use crate::{ChainController, LonelyBlock};
 use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::COLUMN_NUMBER_HASH;
-use ckb_logger::info;
+use ckb_logger::{error, info};
 use ckb_shared::Shared;
 use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;
@@ -81,7 +81,14 @@ impl InitLoadUnverified {
             1,
             tip_number.saturating_sub(EXPIRED_EPOCH * self.shared.consensus().max_epoch_length()),
         );
-        let end_check_number = tip_number + BLOCK_DOWNLOAD_WINDOW * 10;
+        let Some(end_check_number) = tip_number.checked_add(BLOCK_DOWNLOAD_WINDOW * 10) else {
+            error!(
+                "unverified block scan end overflows: tip_number {}, window {}",
+                tip_number,
+                BLOCK_DOWNLOAD_WINDOW * 10
+            );
+            return;
+        };
 
         for check_unverified_number in start_check_number..=end_check_number {
             if has_received_stop_signal() {

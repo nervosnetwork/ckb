@@ -5,6 +5,10 @@ use ckb_vm::{
 };
 use std::cmp;
 
+pub(crate) fn checked_add_addr(addr: u64, offset: u64) -> Result<u64, VMError> {
+    addr.checked_add(offset).ok_or(VMError::MemOutOfBound)
+}
+
 pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result<u64, VMError> {
     let addr = machine.registers()[A0].to_u64();
     let size_addr = machine.registers()[A1].clone();

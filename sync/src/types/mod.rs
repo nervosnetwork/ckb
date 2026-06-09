@@ -1908,11 +1908,12 @@ impl ActiveChain {
         hash_stop: &Byte32,
     ) -> Vec<core::HeaderView> {
         let tip_number = self.tip_header().number();
-        let max_height = cmp::min(
-            block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
-            tip_number + 1,
-        );
-        (block_number + 1..max_height)
+        let Some(start_number) = block_number.checked_add(1) else {
+            return Vec::new();
+        };
+        std::iter::successors(Some(start_number), |number| number.checked_add(1))
+            .take_while(|number| *number <= tip_number)
+            .take(MAX_HEADERS_LEN)
             .filter_map(|block_number| self.snapshot.get_block_hash(block_number))
             .take_while(|block_hash| block_hash != hash_stop)
             .filter_map(|block_hash| self.sync_shared.store().get_block_header(&block_hash))

@@ -75,6 +75,12 @@ impl VerifyQueue {
         }
     }
 
+    fn recompute_total_tx_size(&self) -> Option<usize> {
+        self.inner.iter().try_fold(0usize, |total, (_, entry)| {
+            total.checked_add(entry.inner.tx.data().serialized_size_in_block())
+        })
+    }
+
     /// Returns true if the queue contains no txs.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
@@ -123,13 +129,20 @@ impl VerifyQueue {
     pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
         self.inner.remove_by_id(id).map(|e| {
             let tx_size = e.inner.tx.data().serialized_size_in_block();
-            self.total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
+            if let Some(total_tx_size) = self.total_tx_size.checked_sub(tx_size) {
+                self.total_tx_size = total_tx_size;
+            } else if let Some(total_tx_size) = self.recompute_total_tx_size() {
                 error!(
-                    "verify_queue total_tx_size {} overflown by sub {}",
+                    "verify_queue total_tx_size {} underflowed by sub {}, recomputed {}",
+                    self.total_tx_size, tx_size, total_tx_size
+                );
+                self.total_tx_size = total_tx_size;
+            } else {
+                error!(
+                    "verify_queue total_tx_size {} underflowed by sub {}, and recomputing overflowed",
                     self.total_tx_size, tx_size
                 );
-                0
-            });
+            }
             self.shrink_to_fit();
             e.inner
         })
@@ -205,6 +218,12 @@ impl VerifyQueue {
                 tx.hash()
             )));
         }
+        let total_tx_size = self.total_tx_size.checked_add(tx_size).ok_or_else(|| {
+            Reject::Full(format!(
+                "verify_queue total_tx_size overflowed, failed to add tx: {:#x}",
+                tx.hash()
+            ))
+        })?;
         self.inner.insert(VerifyEntry {
             id: tx.proposal_short_id(),
             added_time: unix_time_as_millis(),
@@ -212,13 +231,7 @@ impl VerifyQueue {
             is_large_cycle,
             is_proposal_tx,
         });
-        self.total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
-            error!(
-                "verify_queue total_tx_size {} overflown by add {}",
-                self.total_tx_size, tx_size
-            );
-            self.total_tx_size
-        });
+        self.total_tx_size = total_tx_size;
         self.ready_rx.notify_one();
         Ok(true)
     }
