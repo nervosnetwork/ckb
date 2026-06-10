@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.207.0-rc1](https://github.com/nervosnetwork/ckb/compare/v0.206.0...v0.207.0-rc1) - 2026-06-09
+## [0.207.0](https://github.com/nervosnetwork/ckb/compare/v0.206.0...v0.207.0) - 2026-06-10
 
 ### Changed
 
@@ -24,7 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Contributors
 
-- @nervos-bot[bot]
 - @chenyukang
 - @sunchengzhu
 - @eval-exec
@@ -1952,7 +1951,7 @@ Embed lina chain spec
 
 - #1609: Use DAO type script hash in DAO transaction (@TheWaWaR)
 
-    DAO deposite must use *type* as the `hash_type` to reference the DAO system script.
+    DAO deposite must use _type_ as the `hash_type` to reference the DAO system script.
 
 - #1617: Setup issuance schedule (@doitian)
 
@@ -3240,7 +3239,7 @@ This version requires Rust 1.33.0.
 - **p2p framework**: try evict inbound peers when inbound slots is full ([d0db77e](https://github.com/nervosnetwork/ckb/commit/d0db77e))
 - **peripheral**: jsonrpc API modules ([f87d9a1](https://github.com/nervosnetwork/ckb/commit/f87d9a1))
 - **peripheral**: use crate faketime to fake time ([#111](https://github.com/nervosnetwork/ckb/issues/111)) ([5adfd82](https://github.com/nervosnetwork/ckb/commit/5adfd82))
-- **scripting**: add `DATA_HASH` field type in syscall *Load Cell By Field* ([2d0a378](https://github.com/nervosnetwork/ckb/commit/2d0a378))
+- **scripting**: add `DATA_HASH` field type in syscall _Load Cell By Field_ ([2d0a378](https://github.com/nervosnetwork/ckb/commit/2d0a378))
 - **scripting**: add dep cell loading support in syscalls ([cae937f](https://github.com/nervosnetwork/ckb/commit/cae937f))
 - **scripting**: assign numeric numbers for syscall parameters ([3af9535](https://github.com/nervosnetwork/ckb/commit/3af9535))
 - **scripting**: use serialized flatbuffer format in referenced cell ([49fc513](https://github.com/nervosnetwork/ckb/commit/49fc513))
