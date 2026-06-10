@@ -99,32 +99,44 @@ pub(crate) async fn verify_rtx(
             .map(|_| *completed)
             .map_err(Reject::Verification)
     } else if let Some(command_rx) = command_rx {
-        ContextualTransactionVerifier::new(
+        let verifier = ContextualTransactionVerifier::new(
             Arc::clone(&rtx),
             consensus,
             data_loader,
             Arc::clone(&tx_env),
+        );
+        verifier
+            .verify(max_tx_verify_cycles, true)
+            .map_err(Reject::Verification)?;
+        DaoScriptSizeVerifier::new(
+            Arc::clone(&rtx),
+            snapshot.cloned_consensus(),
+            snapshot.as_data_loader(),
         )
-        .verify_with_pause(max_tx_verify_cycles, command_rx)
-        .await
-        .and_then(|result| {
-            DaoScriptSizeVerifier::new(rtx, snapshot.cloned_consensus(), snapshot.as_data_loader())
-                .verify()?;
-            Ok(result)
-        })
-        .map_err(Reject::Verification)
+        .verify()
+        .map_err(Reject::Verification)?;
+        verifier
+            .verify_with_pause(max_tx_verify_cycles, command_rx)
+            .await
+            .map_err(Reject::Verification)
     } else {
         block_in_place(|| {
-            ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
-                .verify(max_tx_verify_cycles, false)
-                .and_then(|result| {
+            let verifier = ContextualTransactionVerifier::new(
+                Arc::clone(&rtx),
+                consensus,
+                data_loader,
+                tx_env,
+            );
+            verifier
+                .verify(max_tx_verify_cycles, true)
+                .and_then(|_| {
                     DaoScriptSizeVerifier::new(
-                        rtx,
+                        Arc::clone(&rtx),
                         snapshot.cloned_consensus(),
                         snapshot.as_data_loader(),
                     )
                     .verify()?;
-                    Ok(result)
+                    verifier.verify(max_tx_verify_cycles, false)
                 })
                 .map_err(Reject::Verification)
         })
