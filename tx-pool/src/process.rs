@@ -352,22 +352,35 @@ impl TxPoolService {
         self.enqueue_verify_queue(tx, is_proposal_tx, remote).await
     }
 
-    pub(crate) async fn submit_remote_tx(
+    async fn resumeble_process_tx_and_notify_full_reject(
         &self,
         tx: TransactionView,
-        declared_cycles: Cycle,
-        peer: PeerIndex,
+        is_proposal_tx: bool,
+        remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         let tx_hash = tx.hash();
-        let ret = self
-            .resumeble_process_tx(tx, false, Some((declared_cycles, peer)))
-            .await;
+        let ret = self.resumeble_process_tx(tx, is_proposal_tx, remote).await;
 
         if matches!(ret, Err(Reject::Full(_))) {
             self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
         }
 
         ret
+    }
+
+    pub(crate) async fn submit_remote_tx(
+        &self,
+        tx: TransactionView,
+        declared_cycles: Cycle,
+        peer: PeerIndex,
+    ) -> Result<bool, Reject> {
+        self.resumeble_process_tx_and_notify_full_reject(tx, false, Some((declared_cycles, peer)))
+            .await
+    }
+
+    pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
+        self.resumeble_process_tx_and_notify_full_reject(tx, true, None)
+            .await
     }
 
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {

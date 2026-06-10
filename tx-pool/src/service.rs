@@ -852,7 +852,7 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::NotifyTxs(Notify { arguments: txs }) => {
             for tx in txs {
-                let _ret = service.resumeble_process_tx(tx, true, None).await;
+                let _ret = service.notify_tx(tx).await;
             }
         }
         Message::FreshProposalsFilter(AsyncRequest {

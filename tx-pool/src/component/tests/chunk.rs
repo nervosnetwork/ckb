@@ -400,3 +400,29 @@ async fn submit_remote_tx_notifies_relayer_when_verify_queue_is_full() {
         _ => panic!("expected reject notification"),
     }
 }
+
+#[tokio::test]
+async fn notify_tx_notifies_relayer_when_verify_queue_is_full() {
+    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    let tx_hash = tx.hash();
+
+    service
+        .verify_queue
+        .write()
+        .await
+        .set_total_tx_size_for_test(256_000_000 - 1);
+
+    let ret = service.notify_tx(tx).await;
+
+    assert!(matches!(ret, Err(crate::error::Reject::Full(_))));
+    match tx_relay_receiver
+        .try_recv()
+        .expect("expected reject notification")
+    {
+        TxVerificationResult::Reject { tx_hash: rejected } => {
+            assert_eq!(rejected, tx_hash);
+        }
+        _ => panic!("expected reject notification"),
+    }
+}
