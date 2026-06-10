@@ -99,15 +99,6 @@ pub(crate) async fn verify_rtx(
             .map(|_| *completed)
             .map_err(Reject::Verification)
     } else if let Some(command_rx) = command_rx {
-        let verifier = ContextualTransactionVerifier::new(
-            Arc::clone(&rtx),
-            consensus,
-            data_loader,
-            Arc::clone(&tx_env),
-        );
-        verifier
-            .verify(max_tx_verify_cycles, true)
-            .map_err(Reject::Verification)?;
         DaoScriptSizeVerifier::new(
             Arc::clone(&rtx),
             snapshot.cloned_consensus(),
@@ -115,29 +106,26 @@ pub(crate) async fn verify_rtx(
         )
         .verify()
         .map_err(Reject::Verification)?;
-        verifier
-            .verify_with_pause(max_tx_verify_cycles, command_rx)
-            .await
-            .map_err(Reject::Verification)
+        ContextualTransactionVerifier::new(
+            Arc::clone(&rtx),
+            consensus,
+            data_loader,
+            Arc::clone(&tx_env),
+        )
+        .verify_with_pause(max_tx_verify_cycles, command_rx)
+        .await
+        .map_err(Reject::Verification)
     } else {
         block_in_place(|| {
-            let verifier = ContextualTransactionVerifier::new(
+            DaoScriptSizeVerifier::new(
                 Arc::clone(&rtx),
-                consensus,
-                data_loader,
-                tx_env,
-            );
-            verifier
-                .verify(max_tx_verify_cycles, true)
-                .and_then(|_| {
-                    DaoScriptSizeVerifier::new(
-                        Arc::clone(&rtx),
-                        snapshot.cloned_consensus(),
-                        snapshot.as_data_loader(),
-                    )
-                    .verify()?;
-                    verifier.verify(max_tx_verify_cycles, false)
-                })
+                snapshot.cloned_consensus(),
+                snapshot.as_data_loader(),
+            )
+            .verify()
+            .map_err(Reject::Verification)?;
+            ContextualTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+                .verify(max_tx_verify_cycles, false)
                 .map_err(Reject::Verification)
         })
     }
