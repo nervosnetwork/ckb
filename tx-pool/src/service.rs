@@ -293,10 +293,9 @@ impl TxPoolController {
     pub async fn notify_txs_async(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
         let notify = Notify::new(txs);
         self.sender
-            .send(Message::NotifyTxs(notify))
-            .await
+            .try_send(Message::NotifyTxs(notify))
             .map_err(|e| {
-                let e = ckb_error::OtherError::new(format!("SendError {e}"));
+                let (_m, e) = handle_try_send_error(e);
                 e.into()
             })
     }
@@ -323,8 +322,11 @@ impl TxPoolController {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(proposals, responder);
         self.sender
-            .send(Message::FreshProposalsFilter(request))
-            .await?;
+            .try_send(Message::FreshProposalsFilter(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -349,7 +351,12 @@ impl TxPoolController {
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(short_ids, responder);
-        self.sender.send(Message::FetchTxs(request)).await?;
+        self.sender
+            .try_send(Message::FetchTxs(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -362,8 +369,11 @@ impl TxPoolController {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(short_ids, responder);
         self.sender
-            .send(Message::FetchTxsWithCycles(request))
-            .await?;
+            .try_send(Message::FetchTxsWithCycles(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -472,6 +482,53 @@ impl TxPoolController {
     /// get total recent reject num
     pub fn get_total_recent_reject_num(&self) -> Result<Option<u64>, AnyError> {
         send_message!(self, GetTotalRecentRejectNum, ())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ckb_async_runtime::new_background_runtime;
+    use std::future::Future;
+
+    fn full_controller() -> TxPoolController {
+        let (sender, _receiver) = mpsc::channel(1);
+        let (reorg_sender, _reorg_receiver) = mpsc::channel(1);
+        let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+
+        assert!(
+            sender
+                .try_send(Message::NotifyTxs(Notify::new(Vec::new())))
+                .is_ok()
+        );
+
+        TxPoolController {
+            sender,
+            reorg_sender,
+            chunk_tx: Arc::new(chunk_tx),
+            handle: new_background_runtime(),
+            started: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    async fn assert_fast_error<F, T>(future: F)
+    where
+        F: Future<Output = Result<T, AnyError>>,
+    {
+        let result = tokio::time::timeout(Duration::from_millis(100), future)
+            .await
+            .expect("tx-pool controller call should not wait for channel capacity");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn async_network_controller_calls_fail_fast_when_channel_is_full() {
+        let controller = full_controller();
+
+        assert_fast_error(controller.notify_txs_async(Vec::new())).await;
+        assert_fast_error(controller.fresh_proposals_filter(Vec::new())).await;
+        assert_fast_error(controller.fetch_txs(HashSet::new())).await;
+        assert_fast_error(controller.fetch_txs_with_cycles(HashSet::new())).await;
     }
 }
 
