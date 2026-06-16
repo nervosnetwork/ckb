@@ -181,6 +181,30 @@ async fn test_verify_different_cycles() {
 }
 
 #[tokio::test]
+async fn verify_queue_renotify_does_not_store_permit() {
+    let queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let queue_rx = queue.subscribe();
+
+    queue.re_notify();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(10), queue_rx.notified())
+            .await
+            .is_err()
+    );
+
+    let queue_rx = queue.subscribe();
+    let waiter = tokio::spawn(async move {
+        tokio::time::timeout(std::time::Duration::from_millis(500), queue_rx.notified())
+            .await
+            .is_ok()
+    });
+    sleep(std::time::Duration::from_millis(10)).await;
+
+    queue.re_notify();
+    assert!(waiter.await.unwrap());
+}
+
+#[tokio::test]
 async fn verify_queue_remove() {
     let entry1 = Entry {
         tx: TransactionBuilder::default()

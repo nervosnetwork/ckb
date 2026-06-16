@@ -238,7 +238,7 @@ impl VerifyQueue {
 
     /// When OnlySmallCycleTx Worker is wakeup, but found the tx is large cycle tx, notify other workers.
     pub fn re_notify(&self) {
-        self.ready_rx.notify_one();
+        self.ready_rx.notify_waiters();
     }
 
     /// Clears the map, removing all elements.
