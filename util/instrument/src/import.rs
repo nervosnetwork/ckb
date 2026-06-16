@@ -88,19 +88,17 @@ impl Import {
         };
 
         let reader = io::BufReader::new(f);
-        let mut lines = reader.lines().peekable();
-        let first_block = if let Some(Ok(first_line)) = lines.peek() {
-            let first_block: JsonBlock =
-                serde_json::from_str(first_line).expect("parse first block from json");
-
-            let first_block: core::BlockView = first_block.into();
-            Ok(first_block)
-        } else {
-            Err(Box::new(io::Error::new(
+        let mut lines = reader.lines();
+        let first_line = lines.next().transpose()?.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "The source file is empty.")
+        })?;
+        let first_block: JsonBlock = serde_json::from_str(&first_line).map_err(|err| {
+            io::Error::new(
                 io::ErrorKind::InvalidData,
-                "The source file is empty or malformed.",
-            )))
-        }?;
+                format!("parse first block from json failed: {err}"),
+            )
+        })?;
+        let first_block: core::BlockView = first_block.into();
 
         if !first_block.is_genesis() {
             let first_block_parent = first_block.parent_hash();
@@ -150,64 +148,94 @@ impl Import {
             bar
         };
 
-        let mut largest_block_number = 0;
         const BLOCKS_COUNT_PER_CHUNK: usize = 1024 * 6;
         let (blocks_tx, blocks_rx) =
             ckb_channel::bounded::<(Arc<BlockView>, usize)>(BLOCKS_COUNT_PER_CHUNK);
-        std::thread::spawn({
+        let parser_jh = std::thread::spawn({
             let num_threads = self.num_threads;
-            move || {
+            move || -> Result<(), String> {
+                let mut first_line = Some(first_line);
                 let pool = rayon::ThreadPoolBuilder::new()
                     .num_threads(num_threads)
                     .build()
-                    .expect("rayon thread pool must build");
+                    .map_err(|err| format!("rayon thread pool build failed: {err:?}"))?;
                 pool.install(|| {
                     loop {
-                        let batch: Vec<String> = lines
-                            .by_ref()
-                            .take(BLOCKS_COUNT_PER_CHUNK)
-                            .filter_map(Result::ok)
-                            .collect();
+                        let mut batch = Vec::with_capacity(BLOCKS_COUNT_PER_CHUNK);
+                        if let Some(line) = first_line.take() {
+                            batch.push(line);
+                        }
+                        for line in lines.by_ref().take(BLOCKS_COUNT_PER_CHUNK - batch.len()) {
+                            batch.push(
+                                line.map_err(|err| format!("read jsonl line failed: {err}"))?,
+                            );
+                        }
                         if batch.is_empty() {
                             break;
                         }
-                        batch.par_iter().for_each(|line| {
-                            let block: JsonBlock =
-                                serde_json::from_str(line).expect("parse block from json");
-                            let block: Arc<core::BlockView> = Arc::new(block.into());
-                            blocks_tx
-                                .send((block, line.len()))
-                                .expect("send block to channel");
-                        });
+                        batch
+                            .par_iter()
+                            .try_for_each(|line| -> Result<(), String> {
+                                let block: JsonBlock =
+                                    serde_json::from_str(line).map_err(|err| {
+                                        format!("parse block from json failed: {err}")
+                                    })?;
+                                let block: Arc<core::BlockView> = Arc::new(block.into());
+                                blocks_tx
+                                    .send((block, line.len()))
+                                    .map_err(|err| format!("send block to channel failed: {err:?}"))
+                            })?;
                     }
                     drop(blocks_tx);
-                });
+                    Ok(())
+                })
             }
         });
 
+        let (verify_tx, verify_rx) = ckb_channel::unbounded();
+        let mut submitted_blocks = 0;
         for (block, block_size) in blocks_rx {
             if !block.is_genesis() {
                 use ckb_chain::LonelyBlock;
 
-                largest_block_number = largest_block_number.max(block.number());
-
                 #[cfg(feature = "progress_bar")]
                 let callback = {
                     let progress_bar = progress_bar.clone();
-                    Box::new(move |verify_result: VerifyResult| {
-                        if let Err(err) = verify_result {
-                            eprintln!("Error verifying block: {:?}", err);
-                        } else {
+                    let verify_tx = verify_tx.clone();
+                    let block_number = block.number();
+                    Box::new(move |verify_result: VerifyResult| match verify_result {
+                        Ok(true) => {
                             progress_bar.inc(block_size as u64);
+                            let _ = verify_tx.send(Ok(block_number));
+                        }
+                        Ok(false) => {
+                            let _ = verify_tx
+                                .send(Err(format!("block {block_number} was not verified")));
+                        }
+                        Err(err) => {
+                            eprintln!("Error verifying block: {:?}", err);
+                            let _ = verify_tx
+                                .send(Err(format!("verify block {block_number} failed: {err:?}")));
                         }
                     })
                 };
                 #[cfg(not(feature = "progress_bar"))]
                 let callback = {
                     let _ = block_size;
-                    Box::new(move |verify_result: VerifyResult| {
-                        if let Err(err) = verify_result {
+                    let verify_tx = verify_tx.clone();
+                    let block_number = block.number();
+                    Box::new(move |verify_result: VerifyResult| match verify_result {
+                        Ok(true) => {
+                            let _ = verify_tx.send(Ok(block_number));
+                        }
+                        Ok(false) => {
+                            let _ = verify_tx
+                                .send(Err(format!("block {block_number} was not verified")));
+                        }
+                        Err(err) => {
                             eprintln!("Error verifying block: {:?}", err);
+                            let _ = verify_tx
+                                .send(Err(format!("verify block {block_number} failed: {err:?}")));
                         }
                     })
                 };
@@ -218,16 +246,31 @@ impl Import {
                     verify_callback: Some(callback),
                 };
                 self.chain.asynchronous_process_lonely_block(lonely_block);
+                submitted_blocks += 1;
             }
         }
 
-        while self
-            .shared
-            .snapshot()
-            .get_block_hash(largest_block_number)
-            .is_none()
-        {
-            std::thread::sleep(std::time::Duration::from_secs(1));
+        match parser_jh.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                return Err(Box::new(io::Error::new(io::ErrorKind::InvalidData, err)));
+            }
+            Err(_) => {
+                return Err(Box::new(io::Error::other("jsonl parser thread panicked")));
+            }
+        }
+
+        drop(verify_tx);
+        for _ in 0..submitted_blocks {
+            match verify_rx.recv() {
+                Ok(Ok(_block_number)) => {}
+                Ok(Err(err)) => return Err(Box::new(io::Error::other(err))),
+                Err(err) => {
+                    return Err(Box::new(io::Error::other(format!(
+                        "verify result channel closed unexpectedly: {err}"
+                    ))));
+                }
+            }
         }
 
         #[cfg(feature = "progress_bar")]
