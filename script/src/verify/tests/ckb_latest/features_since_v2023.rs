@@ -1578,5 +1578,5 @@ fn spawn_create_17_spawn() {
         .verify_without_limit(script_version, &rtx)
         .expect("verify");
 
-    assert_eq!(cycles, 36445673);
+    assert_eq!(cycles, 36445782);
 }

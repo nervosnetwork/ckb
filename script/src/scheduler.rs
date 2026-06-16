@@ -420,12 +420,6 @@ where
         limit_cycles: Cycle,
     ) -> Result<(VmId, Cycle), Error> {
         let iterate_return = self.iterate_inner(pause.clone(), limit_cycles);
-        self.consume_cycles(self.iteration_cycles)?;
-        let remaining_cycles = limit_cycles
-            .checked_sub(self.iteration_cycles)
-            .ok_or(Error::CyclesExceeded)?;
-        // Clear iteration cycles intentionally after each run
-        self.iteration_cycles = 0;
         // Process all pending VM reads & writes. Notice ideally, this invocation
         // should be put at the end of `iterate_inner` function. However, 2 things
         // prevent this:
@@ -450,7 +444,13 @@ where
         // after the whole scheduler terminates, and not called at the very beginning
         // when no VM is executing. But since no VMs will be in IO states at this 2 timeslot,
         // we should be fine here.
-        self.process_io()?;
+        self.process_io(limit_cycles)?;
+        self.consume_cycles(self.iteration_cycles)?;
+        let remaining_cycles = limit_cycles
+            .checked_sub(self.iteration_cycles)
+            .ok_or(Error::CyclesExceeded)?;
+        // Clear iteration cycles intentionally after each run
+        self.iteration_cycles = 0;
         let id = iterate_return?;
         Ok((id, remaining_cycles))
     }
@@ -726,7 +726,23 @@ where
         Ok(())
     }
 
-    fn process_io(&mut self) -> Result<(), Error> {
+    fn add_iteration_cycles(
+        &mut self,
+        cycles: Cycle,
+        current_limit_cycles: Cycle,
+    ) -> Result<(), Error> {
+        let iteration_cycles = self
+            .iteration_cycles
+            .checked_add(cycles)
+            .ok_or(Error::CyclesExceeded)?;
+        if iteration_cycles > current_limit_cycles {
+            return Err(Error::CyclesExceeded);
+        }
+        self.iteration_cycles = iteration_cycles;
+        Ok(())
+    }
+
+    fn process_io(&mut self, current_limit_cycles: Cycle) -> Result<(), Error> {
         let mut reads: HashMap<Fd, (VmId, ReadState)> = HashMap::default();
         let mut closed_fds: Vec<VmId> = Vec::new();
 
@@ -804,15 +820,17 @@ where
                 let fillable = read_length;
                 let consumable = write_length - consumed;
                 let copiable = std::cmp::min(fillable, consumable);
+                let transfer_cycles = transferred_byte_cycles(copiable);
+                let io_cycles = transfer_cycles
+                    .checked_add(transfer_cycles)
+                    .ok_or(Error::CyclesExceeded)?;
+                self.add_iteration_cycles(io_cycles, current_limit_cycles)?;
 
                 // Actual data copying
                 let (_, write_machine) = self
                     .instantiated
                     .get_mut(&write_vm_id)
                     .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                write_machine
-                    .inner_mut()
-                    .add_cycles_no_checking(transferred_byte_cycles(copiable))?;
                 let data = write_machine.inner_mut().memory_mut().load_bytes(
                     write_buffer_addr
                         .checked_add(consumed)
@@ -823,9 +841,6 @@ where
                     .instantiated
                     .get_mut(&read_vm_id)
                     .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-                read_machine
-                    .inner_mut()
-                    .add_cycles_no_checking(transferred_byte_cycles(copiable))?;
                 read_machine
                     .inner_mut()
                     .memory_mut()
