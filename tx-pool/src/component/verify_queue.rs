@@ -36,23 +36,22 @@ struct VerifyEntry {
     /// The transaction id
     #[multi_index(hashed_unique)]
     id: ProposalShortId,
-    /// The unix timestamp when entering the Txpool, unit: Millisecond
-    /// This field is used to sort the txs in the queue
-    /// We may add more other sort keys in the future
-    #[multi_index(ordered_non_unique)]
-    added_time: u64,
 
     /// whether the tx is a large cycle tx
     #[multi_index(hashed_non_unique)]
     is_large_cycle: bool,
-    /// whether the tx is a proposal tx
-    is_proposal_tx: bool,
     /// Orders proposal txs before non-proposal txs, preserving arrival order within each group.
     #[multi_index(ordered_non_unique)]
-    proposal_order: (bool, u64),
+    priority_order: (VerifyPriority, u64),
 
     /// other sort key
     inner: Entry,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+enum VerifyPriority {
+    Proposal,
+    Normal,
 }
 
 /// The verify queue is a priority queue of transactions to verify.
@@ -181,19 +180,19 @@ impl VerifyQueue {
 
     /// Returns the first entry in the queue
     pub fn peek(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
-        if let Some(proposal_entry) = self
-            .inner
-            .iter_by_proposal_order()
-            .next()
-            .filter(|entry| entry.is_proposal_tx)
+        let first_entry = self.inner.iter_by_priority_order().next();
+        if let Some(entry) = first_entry
+            && matches!(entry.priority_order.0, VerifyPriority::Proposal)
         {
-            return Some(proposal_entry.inner.tx.proposal_short_id());
+            return Some(entry.inner.tx.proposal_short_id());
         }
 
         let entry = if only_small_cycle {
-            self.inner.iter_by_added_time().find(|e| !e.is_large_cycle)
+            self.inner
+                .iter_by_priority_order()
+                .find(|e| !e.is_large_cycle)
         } else {
-            self.inner.iter_by_added_time().next()
+            first_entry
         };
 
         entry.map(|e| e.inner.tx.proposal_short_id())
@@ -219,6 +218,11 @@ impl VerifyQueue {
             .map(|(cycles, _)| cycles > self.large_cycle_threshold)
             .unwrap_or(false);
         let added_time = unix_time_as_millis();
+        let priority = if is_proposal_tx {
+            VerifyPriority::Proposal
+        } else {
+            VerifyPriority::Normal
+        };
         if self.is_full(tx_size) {
             return Err(Reject::Full(format!(
                 "verify_queue total_tx_size exceeded, failed to add tx: {:#x}",
@@ -233,11 +237,9 @@ impl VerifyQueue {
         })?;
         self.inner.insert(VerifyEntry {
             id: tx.proposal_short_id(),
-            added_time,
             inner: Entry { tx, remote },
             is_large_cycle,
-            is_proposal_tx,
-            proposal_order: (!is_proposal_tx, added_time),
+            priority_order: (priority, added_time),
         });
         self.total_tx_size = total_tx_size;
         self.ready_rx.notify_one();
