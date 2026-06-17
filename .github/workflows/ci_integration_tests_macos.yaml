@@ -179,8 +179,13 @@ jobs:
   ci_integration_tests_macos:
     name: ci_integration_tests_macos
     needs: test
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ubuntu-latest
     steps:
-      - name: All tests passed
-        run: echo "All test chunks completed successfully"
+      - name: Check test chunks result
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Integration test chunks did not complete successfully: ${{ needs.test.result }}"
+            exit 1
+          fi
+          echo "All test chunks completed successfully"
