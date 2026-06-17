@@ -63,6 +63,11 @@ use ckb_types::core::{
 use crate::{Error, constants};
 
 const FEE_RATE_UNIT: u64 = 1000;
+const MAX_BUCKET_FEE_RATE: u64 = 2_000_000;
+// Bucket 135 is the last explicitly defined bucket in
+// `lowest_fee_rate_by_bucket_index`: 116 starts at 1_050_000 and each following
+// bucket adds 50_000, so bucket 135 starts at 2_000_000 shannons/KW.
+const MAX_BUCKET_INDEX: usize = 135;
 
 #[derive(Clone)]
 pub struct Algorithm {
@@ -347,14 +352,18 @@ impl Algorithm {
 
     fn max_bucket_index_by_fee_rate(fee_rate: FeeRate) -> usize {
         let t = FEE_RATE_UNIT;
-        let index = match fee_rate.as_u64() {
+        let fee_rate = fee_rate.as_u64();
+        if fee_rate >= MAX_BUCKET_FEE_RATE {
+            return MAX_BUCKET_INDEX;
+        }
+        let index = match fee_rate {
             x if x <= 10_000 => x / t,
             x if x <= 50_000 => (x + t * 10) / (2 * t),
             x if x <= 200_000 => (x + t * 100) / (5 * t),
             x if x <= 500_000 => (x + t * 400) / (10 * t),
             x if x <= 1_000_000 => (x + t * 1_300) / (20 * t),
             x if x <= 2_000_000 => (x + t * 4_750) / (50 * t),
-            x => (x + t * 11_500) / (100 * t),
+            _ => unreachable!("fee rates above the cap returned earlier"),
         };
         index as usize
     }
@@ -362,7 +371,8 @@ impl Algorithm {
 
 #[cfg(test)]
 mod tests {
-    use super::Algorithm;
+    use super::{Algorithm, MAX_BUCKET_FEE_RATE, MAX_BUCKET_INDEX, TxStatus};
+    use crate::constants;
     use ckb_types::core::FeeRate;
 
     #[test]
@@ -387,8 +397,6 @@ mod tests {
             (116, 1_050_000),
             (117, 1_100_000),
             (135, 2_000_000),
-            (136, 2_100_000),
-            (137, 2_200_000),
         ];
         for (bucket_index, fee_rate) in &testdata[..] {
             let expected_fee_rate =
@@ -402,7 +410,7 @@ mod tests {
 
     #[test]
     fn test_bucket_index_and_fee_rate_continuous() {
-        for fee_rate in 0..3_000_000 {
+        for fee_rate in 0..=MAX_BUCKET_FEE_RATE {
             let bucket_index = Algorithm::max_bucket_index_by_fee_rate(FeeRate::from_u64(fee_rate));
             let fee_rate_le = Algorithm::lowest_fee_rate_by_bucket_index(bucket_index).as_u64();
             let fee_rate_gt = Algorithm::lowest_fee_rate_by_bucket_index(bucket_index + 1).as_u64();
@@ -415,5 +423,39 @@ mod tests {
                 fee_rate_gt,
             );
         }
+    }
+
+    #[test]
+    fn test_bucket_index_is_capped_for_large_fee_rates() {
+        assert_eq!(
+            Algorithm::max_bucket_index_by_fee_rate(FeeRate::from_u64(MAX_BUCKET_FEE_RATE)),
+            MAX_BUCKET_INDEX
+        );
+        assert_eq!(
+            Algorithm::max_bucket_index_by_fee_rate(FeeRate::from_u64(MAX_BUCKET_FEE_RATE + 1)),
+            MAX_BUCKET_INDEX
+        );
+        assert_eq!(
+            Algorithm::max_bucket_index_by_fee_rate(FeeRate::from_u64(u64::MAX)),
+            MAX_BUCKET_INDEX
+        );
+    }
+
+    #[test]
+    fn test_estimate_caps_large_fee_rate_bucket_allocation() {
+        let mut algorithm = Algorithm::new();
+        algorithm.update_ibd_state(false);
+        algorithm.boot_tip = 1;
+        algorithm.current_tip = constants::MIN_TARGET * 2 + 1;
+
+        let txs = [TxStatus {
+            weight: 1,
+            fee_rate: FeeRate::from_u64(u64::MAX),
+        }];
+        let estimate = algorithm
+            .do_estimate(constants::MIN_TARGET, &txs)
+            .expect("large fee rates should be clamped to the highest bucket");
+
+        assert_eq!(estimate, constants::LOWEST_FEE_RATE);
     }
 }
