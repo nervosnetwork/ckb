@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-jsonrpc-types-v1.1.1...ckb-jsonrpc-types-v1.1.2) - 2026-06-08
+
+### Changed
+
+- [rust-toolchain] Upgrade Rust toolchain to 1.95.0 (#5175) (by @eval-exec)
+
+### Fixed
+
+- fix some comments to improve readability (#5209) (by @caltechustc)
+
+### Contributors
+
+- @caltechustc
+- @eval-exec
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-jsonrpc-types-v1.1.0...ckb-jsonrpc-types-v1.1.1) - 2026-03-08
 
 ### Changed
