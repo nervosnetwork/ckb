@@ -108,11 +108,11 @@ impl Worker {
 
     async fn process_inner(&mut self) {
         loop {
-            self.refresh_status();
             if self.exit_signal.is_cancelled() {
                 info!("Verify worker::process_inner exit_signal is cancelled");
                 return;
             }
+            self.refresh_status();
             if self.status != ChunkCommand::Resume {
                 return;
             }
