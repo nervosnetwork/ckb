@@ -64,9 +64,10 @@ use crate::{Error, constants};
 
 const FEE_RATE_UNIT: u64 = 1000;
 const MAX_BUCKET_FEE_RATE: u64 = 2_000_000;
-// Bucket 135 is the last explicitly defined bucket in
-// `lowest_fee_rate_by_bucket_index`: 116 starts at 1_050_000 and each following
-// bucket adds 50_000, so bucket 135 starts at 2_000_000 shannons/KW.
+// Bucket 135 starts at 2_000_000 shannons/KW: bucket 116 starts at
+// 1_050_000 and each following bucket adds 50_000. Higher buckets are still
+// mathematically defined by `lowest_fee_rate_by_bucket_index`, but we cap
+// `WeightUnitsFlow` here to keep bucket allocation bounded.
 const MAX_BUCKET_INDEX: usize = 135;
 
 #[derive(Clone)]
@@ -352,20 +353,16 @@ impl Algorithm {
 
     fn max_bucket_index_by_fee_rate(fee_rate: FeeRate) -> usize {
         let t = FEE_RATE_UNIT;
-        let fee_rate = fee_rate.as_u64();
-        if fee_rate >= MAX_BUCKET_FEE_RATE {
-            return MAX_BUCKET_INDEX;
-        }
+        let fee_rate = fee_rate.as_u64().min(MAX_BUCKET_FEE_RATE);
         let index = match fee_rate {
             x if x <= 10_000 => x / t,
             x if x <= 50_000 => (x + t * 10) / (2 * t),
             x if x <= 200_000 => (x + t * 100) / (5 * t),
             x if x <= 500_000 => (x + t * 400) / (10 * t),
             x if x <= 1_000_000 => (x + t * 1_300) / (20 * t),
-            x if x <= 2_000_000 => (x + t * 4_750) / (50 * t),
-            _ => unreachable!("fee rates above the cap returned earlier"),
+            x => (x + t * 4_750) / (50 * t),
         };
-        index as usize
+        (index as usize).min(MAX_BUCKET_INDEX)
     }
 }
 
