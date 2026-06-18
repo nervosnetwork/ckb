@@ -845,16 +845,14 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: (tx, declared_cycles, peer),
         }) => {
-            let _result = service
-                .resumeble_process_tx(tx, false, Some((declared_cycles, peer)))
-                .await;
+            let _result = service.submit_remote_tx(tx, declared_cycles, peer).await;
             if let Err(e) = responder.send(()) {
                 error!("Responder sending submit_tx result failed {:?}", e);
             };
         }
         Message::NotifyTxs(Notify { arguments: txs }) => {
             for tx in txs {
-                let _ret = service.resumeble_process_tx(tx, true, None).await;
+                let _ret = service.notify_tx(tx).await;
             }
         }
         Message::FreshProposalsFilter(AsyncRequest {
