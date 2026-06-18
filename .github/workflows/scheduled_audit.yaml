@@ -16,6 +16,8 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-checks: write
       - uses: yangby-cryptape/cargo-audit-check-action@customized-for-ckb
         with:
           token: ${{ steps.generate-token.outputs.token }}
