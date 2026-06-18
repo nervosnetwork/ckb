@@ -192,7 +192,9 @@ impl LightClientProtocol {
         <T as Entity>::Builder: ProverMessageBuilder,
         <<T as Entity>::Builder as Builder>::Entity: Into<packed::LightClientMessageUnion>,
     {
-        let (parent_chain_root, proof) = {
+        let (parent_chain_root, proof) = if last_block.is_genesis() {
+            (Default::default(), Default::default())
+        } else {
             let snapshot = self.shared.snapshot();
             let mmr = snapshot.chain_root_mmr(last_block.number() - 1);
             let parent_chain_root = match mmr.get_root() {
