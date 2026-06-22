@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use ckb_merkle_mountain_range::leaf_index_to_pos;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -38,6 +41,23 @@ impl<'a> GetTransactionsProofProcess<'a> {
             return StatusCode::MalformedProtocolMessage.with_context("too many transactions");
         }
 
+        let tx_count = self.message.tx_hashes().len();
+
+        // Reject duplicate tx hashes to prevent response amplification.
+        // Collecting into a HashSet naturally deduplicates — if the set is
+        // smaller than the original list, at least one hash was repeated.
+        let tx_hashes: HashSet<_> = self
+            .message
+            .tx_hashes()
+            .to_entity()
+            .into_iter()
+            .collect();
+
+        if tx_hashes.len() < tx_count {
+            return StatusCode::MalformedProtocolMessage
+                .with_context("duplicate tx hash exists");
+        }
+
         let snapshot = self.protocol.shared.snapshot();
 
         let last_block_hash = self.message.last_hash().to_entity();
@@ -51,10 +71,7 @@ impl<'a> GetTransactionsProofProcess<'a> {
             .get_block(&last_block_hash)
             .expect("block should be in store");
 
-        let (found, missing): (Vec<_>, Vec<_>) = self
-            .message
-            .tx_hashes()
-            .to_entity()
+        let (found, missing): (Vec<_>, Vec<_>) = tx_hashes
             .into_iter()
             .partition(|tx_hash| {
                 snapshot
