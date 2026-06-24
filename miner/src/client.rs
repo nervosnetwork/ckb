@@ -14,7 +14,7 @@ use futures::prelude::*;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
     Error as HyperError, Request, Response, Uri,
-    body::{Buf, Bytes},
+    body::{Body, Buf, Bytes},
     header::{CONTENT_TYPE, HeaderValue},
     service::service_fn,
 };
@@ -219,6 +219,16 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
 "#,
                 addr
             );
+            if client.config.auth_token.is_none() {
+                ckb_logger::warn!(
+                    r#"
+ckb-miner notify mode is enabled without an auth_token. \
+Any client that can reach {} can submit a BlockTemplate and redirect mining rewards. \
+Set miner.client.auth_token and block_assembler.notify_auth_token to the same value to authenticate notifications.
+"#,
+                    addr
+                );
+            }
             self.handle.spawn(async move {
                 client.listen_block_template_notify(addr).await;
             });
@@ -355,10 +365,37 @@ Otherwise ckb-miner will malfunction and stop submitting valid blocks after a ce
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
-async fn handle(
+async fn handle<B>(
     client: Client,
-    req: Request<hyper::body::Incoming>,
-) -> Result<Response<Empty<Bytes>>, Error> {
+    req: Request<B>,
+) -> Result<Response<Empty<Bytes>>, Error>
+where
+    B: Body + Send,
+    B::Data: Send,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    if req.method() != hyper::Method::POST {
+        return Ok(Response::builder()
+            .status(hyper::StatusCode::METHOD_NOT_ALLOWED)
+            .body(Empty::new())?);
+    }
+
+    if let Some(expected_token) = &client.config.auth_token {
+        let authorized = req
+            .headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(|token| token.trim())
+            == Some(expected_token.as_str());
+
+        if !authorized {
+            return Ok(Response::builder()
+                .status(hyper::StatusCode::UNAUTHORIZED)
+                .body(Empty::new())?);
+        }
+    }
+
     let body = BodyExt::collect(req).await?.aggregate();
 
     if let Ok(template) = serde_json::from_reader(body.reader()) {
@@ -390,5 +427,98 @@ fn parse_authorization(url: &Uri) -> Option<HeaderValue> {
         Some(header)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ckb_async_runtime::new_background_runtime;
+    use ckb_channel::bounded;
+    use ckb_jsonrpc_types::BlockTemplate;
+    use http_body_util::Full;
+    use hyper::body::Bytes;
+
+    fn test_client(auth_token: Option<String>) -> (Client, ckb_channel::Receiver<Works>) {
+        let runtime = new_background_runtime();
+        let (new_work_tx, new_work_rx) = bounded::<Works>(16);
+        let config = MinerClientConfig {
+            rpc_url: "http://127.0.0.1:8114/".to_string(),
+            poll_interval: 1000,
+            block_on_submit: false,
+            listen: None,
+            auth_token,
+        };
+        let client = Client::new(new_work_tx, config, runtime.clone());
+        (client, new_work_rx)
+    }
+
+    fn notify_request(
+        method: &str,
+        auth_header: Option<&str>,
+        body: Bytes,
+    ) -> Request<Full<Bytes>> {
+        let mut builder = Request::builder().method(method).uri("http://127.0.0.1:8888/");
+        if let Some(header) = auth_header {
+            builder = builder.header(hyper::header::AUTHORIZATION, header);
+        }
+        builder.body(Full::new(body)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn notify_rejects_non_post_requests() {
+        let (client, _rx) = test_client(None);
+        let req = notify_request("GET", None, Bytes::new());
+        let resp = handle(client, req).await.unwrap();
+        assert_eq!(resp.status(), hyper::StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn notify_accepts_unauthenticated_requests_when_no_token_configured() {
+        let (client, _rx) = test_client(None);
+        let req = notify_request("POST", None, Bytes::new());
+        let resp = handle(client, req).await.unwrap();
+        assert_eq!(resp.status(), hyper::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn notify_rejects_missing_token_when_auth_configured() {
+        let (client, _rx) = test_client(Some("secret".to_string()));
+        let req = notify_request("POST", None, Bytes::new());
+        let resp = handle(client, req).await.unwrap();
+        assert_eq!(resp.status(), hyper::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn notify_rejects_wrong_token_when_auth_configured() {
+        let (client, _rx) = test_client(Some("secret".to_string()));
+        let req = notify_request("POST", Some("Bearer wrong"), Bytes::new());
+        let resp = handle(client, req).await.unwrap();
+        assert_eq!(resp.status(), hyper::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn notify_accepts_correct_token_and_updates_work() {
+        let (client, rx) = test_client(Some("secret".to_string()));
+        let template = BlockTemplate {
+            work_id: 42.into(),
+            ..Default::default()
+        };
+        let body = serde_json::to_vec(&template).unwrap();
+        let req = notify_request("POST", Some("Bearer secret"), Bytes::from(body));
+        let resp = handle(client.clone(), req).await.unwrap();
+        assert_eq!(resp.status(), hyper::StatusCode::OK);
+        assert_eq!(client.current_work_id.load(Ordering::SeqCst), 42);
+
+        let work = rx.recv();
+        assert!(matches!(work, Ok(Works::New(_))), "expected new work notification");
+    }
+
+    #[tokio::test]
+    async fn notify_accepts_correct_token_with_leading_whitespace() {
+        let (client, _rx) = test_client(Some("secret".to_string()));
+        let req = notify_request("POST", Some("Bearer  secret"), Bytes::new());
+        let resp = handle(client, req).await.unwrap();
+        assert_eq!(resp.status(), hyper::StatusCode::OK);
     }
 }
