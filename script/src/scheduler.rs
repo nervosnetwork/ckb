@@ -572,7 +572,7 @@ where
                             .inner_mut()
                             .set_register(A0, Self::u8_to_reg(SUCCESS));
                         self.states.insert(vm_id, VmState::Runnable);
-                        self.terminated_vms.retain(|id, _| id != &args.target_id);
+                        self.terminated_vms.remove(&args.target_id);
                         continue;
                     }
                     if !self.states.contains_key(&args.target_id) {
