@@ -6,7 +6,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   push:
-    branches: ['**']
+    branches:
+      - master
+      - develop
+      - rc/**
   merge_group: {}
   workflow_dispatch: {}
 
