@@ -3,7 +3,7 @@ use crate::component::orphan::OrphanPool;
 use crate::component::tests::util::build_tx;
 use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::pool::TxPool;
-use crate::service::TxPoolService;
+use crate::service::{TxPoolService, TxVerificationResult};
 use ckb_app_config::{NetworkConfig, TxPoolConfig};
 use ckb_async_runtime::new_background_runtime;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
@@ -356,26 +356,33 @@ fn network(consensus: &Consensus) -> ckb_network::NetworkController {
 }
 
 fn service() -> TxPoolService {
+    service_with_relay_receiver().0
+}
+
+fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVerificationResult>) {
     let consensus = Arc::new(ConsensusBuilder::default().build());
     let snapshot = snapshot(Arc::clone(&consensus));
     let config = tx_pool_config();
-    let (tx_relay_sender, _) = ckb_channel::bounded(16);
+    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(16);
     let (block_assembler_sender, _) = mpsc::channel(1);
 
-    TxPoolService {
-        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config.clone()),
-        block_assembler: None,
-        txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-        callbacks: Arc::new(Callbacks::new()),
-        network: network(&consensus),
-        tx_relay_sender,
-        verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
-        block_assembler_sender,
-        fee_estimator: FeeEstimator::new_dummy(),
-    }
+    (
+        TxPoolService {
+            tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
+            orphan: Arc::new(RwLock::new(OrphanPool::new())),
+            consensus: Arc::clone(&consensus),
+            tx_pool_config: Arc::new(config.clone()),
+            block_assembler: None,
+            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
+            callbacks: Arc::new(Callbacks::new()),
+            network: network(&consensus),
+            tx_relay_sender,
+            verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
+            block_assembler_sender,
+            fee_estimator: FeeEstimator::new_dummy(),
+        },
+        tx_relay_receiver,
+    )
 }
 
 #[tokio::test]
@@ -405,4 +412,58 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_verify_queue_is_full() {
 
     assert!(service.orphan.read().await.contains_key(&orphan_id));
     assert!(!service.verify_queue.read().await.contains_key(&orphan_id));
+}
+
+#[tokio::test]
+async fn submit_remote_tx_notifies_relayer_when_verify_queue_is_full() {
+    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    let tx_hash = tx.hash();
+
+    service
+        .verify_queue
+        .write()
+        .await
+        .set_total_tx_size_for_test(256_000_000 - 1);
+
+    let ret = service
+        .submit_remote_tx(tx, MAX_TX_VERIFY_CYCLES, 1.into())
+        .await;
+
+    assert!(matches!(ret, Err(crate::error::Reject::Full(_))));
+    match tx_relay_receiver
+        .try_recv()
+        .expect("expected reject notification")
+    {
+        TxVerificationResult::Reject { tx_hash: rejected } => {
+            assert_eq!(rejected, tx_hash);
+        }
+        _ => panic!("expected reject notification"),
+    }
+}
+
+#[tokio::test]
+async fn notify_tx_notifies_relayer_when_verify_queue_is_full() {
+    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    let tx_hash = tx.hash();
+
+    service
+        .verify_queue
+        .write()
+        .await
+        .set_total_tx_size_for_test(256_000_000 - 1);
+
+    let ret = service.notify_tx(tx).await;
+
+    assert!(matches!(ret, Err(crate::error::Reject::Full(_))));
+    match tx_relay_receiver
+        .try_recv()
+        .expect("expected reject notification")
+    {
+        TxVerificationResult::Reject { tx_hash: rejected } => {
+            assert_eq!(rejected, tx_hash);
+        }
+        _ => panic!("expected reject notification"),
+    }
 }
