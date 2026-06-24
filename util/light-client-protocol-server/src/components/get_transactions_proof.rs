@@ -46,16 +46,10 @@ impl<'a> GetTransactionsProofProcess<'a> {
         // Reject duplicate tx hashes to prevent response amplification.
         // Collecting into a HashSet naturally deduplicates — if the set is
         // smaller than the original list, at least one hash was repeated.
-        let tx_hashes: HashSet<_> = self
-            .message
-            .tx_hashes()
-            .to_entity()
-            .into_iter()
-            .collect();
+        let tx_hashes: HashSet<_> = self.message.tx_hashes().to_entity().into_iter().collect();
 
         if tx_hashes.len() < tx_count {
-            return StatusCode::MalformedProtocolMessage
-                .with_context("duplicate tx hash exists");
+            return StatusCode::MalformedProtocolMessage.with_context("duplicate tx hash exists");
         }
 
         let snapshot = self.protocol.shared.snapshot();
@@ -71,14 +65,12 @@ impl<'a> GetTransactionsProofProcess<'a> {
             .get_block(&last_block_hash)
             .expect("block should be in store");
 
-        let (found, missing): (Vec<_>, Vec<_>) = tx_hashes
-            .into_iter()
-            .partition(|tx_hash| {
-                snapshot
-                    .get_transaction_info(tx_hash)
-                    .map(|tx_info| snapshot.is_main_chain(&tx_info.block_hash))
-                    .unwrap_or_default()
-            });
+        let (found, missing): (Vec<_>, Vec<_>) = tx_hashes.into_iter().partition(|tx_hash| {
+            snapshot
+                .get_transaction_info(tx_hash)
+                .map(|tx_info| snapshot.is_main_chain(&tx_info.block_hash))
+                .unwrap_or_default()
+        });
 
         let mut txs_in_blocks = HashMap::new();
         for tx_hash in found {
