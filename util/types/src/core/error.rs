@@ -210,6 +210,13 @@ pub enum TransactionError {
         index: usize,
     },
 
+    /// Nervos DAO output data mismatch.
+    #[error("The DAO output data at index {} is inconsistent", index)]
+    DaoOutputDataMismatch {
+        /// The index of inconsistent DAO output data.
+        index: usize,
+    },
+
     /// The lock script hash type is not permitted by the current consensus rules.
     #[error(
         "The lock script hash type {} is not permitted by the current consensus rules.",
@@ -252,6 +259,7 @@ impl TransactionError {
             | TransactionError::ExceededMaximumBlockBytes { .. }
             | TransactionError::InvalidScriptHashType { .. }
             | TransactionError::ScriptHashTypeNotPermitted { .. }
+            | TransactionError::DaoOutputDataMismatch { .. }
             | TransactionError::OutputsDataLengthMismatch { .. } => true,
 
             TransactionError::Immature { .. }
