@@ -4,6 +4,7 @@ mod estimate;
 mod links;
 mod orphan;
 mod pending;
+mod pipeline;
 mod proposed;
 mod recent_reject;
 mod score_key;

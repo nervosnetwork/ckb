@@ -7,7 +7,8 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_types::core::{
-    Capacity, Cycle, TransactionView, cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT,
+    Capacity, Cycle, FeeRate, TransactionView, cell::ResolvedTransaction,
+    tx_pool::TRANSACTION_SIZE_LIMIT,
 };
 use ckb_verification::{
     ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
@@ -15,7 +16,11 @@ use ckb_verification::{
     cache::{CacheEntry, Completed},
 };
 use std::sync::Arc;
-use tokio::{sync::watch, task::block_in_place};
+use tokio::{
+    runtime::Handle,
+    sync::watch,
+    task::block_in_place,
+};
 
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
     let short_id = tx.proposal_short_id();
@@ -31,6 +36,15 @@ pub(crate) fn check_tx_fee(
     rtx: &ResolvedTransaction,
     tx_size: usize,
 ) -> Result<Capacity, Reject> {
+    check_tx_fee_with_min_fee_rate(snapshot, rtx, tx_size, tx_pool.config.min_fee_rate)
+}
+
+pub(crate) fn check_tx_fee_with_min_fee_rate(
+    snapshot: &Snapshot,
+    rtx: &ResolvedTransaction,
+    tx_size: usize,
+    min_fee_rate: FeeRate,
+) -> Result<Capacity, Reject> {
     let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.borrow_as_data_loader())
         .transaction_fee(rtx)
         .map_err(|err| {
@@ -42,11 +56,10 @@ pub(crate) fn check_tx_fee(
     // Theoretically we cannot use size as weight directly to calculate fee_rate,
     // here min fee rate is used as a cheap check,
     // so we will use size to calculate fee_rate directly
-    let min_fee = tx_pool.config.min_fee_rate.fee(tx_size as u64);
+    let min_fee = min_fee_rate.fee(tx_size as u64);
     // reject txs which fee lower than min fee rate
     if fee < min_fee {
-        let reject =
-            Reject::LowFeeRate(tx_pool.config.min_fee_rate, min_fee.as_u64(), fee.as_u64());
+        let reject = Reject::LowFeeRate(min_fee_rate, min_fee.as_u64(), fee.as_u64());
         ckb_logger::debug!("Reject tx {}", reject);
         return Err(reject);
     }
@@ -99,14 +112,23 @@ pub(crate) async fn verify_rtx(
             .map(|_| *completed)
             .map_err(Reject::Verification)
     } else if let Some(command_rx) = command_rx {
-        ContextualTransactionVerifier::new(
-            Arc::clone(&rtx),
-            consensus,
-            data_loader,
-            Arc::clone(&tx_env),
-        )
-        .verify_with_pause(max_tx_verify_cycles, command_rx)
-        .await
+        // Pipeline verification can be CPU-heavy (script VM).  Run the chunkable
+        // verifier on the blocking pool so it doesn't starve the async runtime.
+        let mut command_rx = command_rx.clone();
+        let rtx_for_verifier = Arc::clone(&rtx);
+        block_in_place(|| {
+            let handle = Handle::current();
+            handle.block_on(async move {
+                ContextualTransactionVerifier::new(
+                    rtx_for_verifier,
+                    consensus,
+                    data_loader,
+                    Arc::clone(&tx_env),
+                )
+                .verify_with_pause(max_tx_verify_cycles, &mut command_rx)
+                .await
+            })
+        })
         .and_then(|result| {
             DaoScriptSizeVerifier::new(rtx, snapshot.cloned_consensus(), snapshot.as_data_loader())
                 .verify()?;

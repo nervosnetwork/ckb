@@ -2,6 +2,8 @@
 #![allow(missing_docs)]
 extern crate rustc_hash;
 extern crate slab;
+use crate::component::flight_tracker::FlightTracker;
+use crate::resolved_tx::ResolvedTx;
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
@@ -19,15 +21,27 @@ const DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE: usize = 256_000_000;
 const SHRINK_THRESHOLD: usize = 100;
 
 /// The verify queue Entry to verify.
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub struct Entry {
-    pub(crate) tx: TransactionView,
-    pub(crate) remote: Option<(Cycle, PeerIndex)>,
+    /// Resolved transaction ready for verification.
+    pub(crate) resolved: ResolvedTx,
+}
+
+impl Entry {
+    /// The raw transaction.
+    pub fn tx(&self) -> &TransactionView {
+        &self.resolved.tx
+    }
+
+    /// Declared cycles and source peer, if this is a remote transaction.
+    pub fn remote(&self) -> Option<(Cycle, PeerIndex)> {
+        self.resolved.remote
+    }
 }
 
 impl PartialEq for Entry {
     fn eq(&self, other: &Entry) -> bool {
-        self.tx == other.tx
+        self.tx() == other.tx()
     }
 }
 
@@ -64,6 +78,8 @@ pub(crate) struct VerifyQueue {
     total_tx_size: usize,
     /// large cycle threshold, from `pool_config.max_tx_verify_cycles`
     large_cycle_threshold: u64,
+    /// Output out-points of txs currently in this queue.
+    flight: FlightTracker,
 }
 
 impl VerifyQueue {
@@ -74,12 +90,19 @@ impl VerifyQueue {
             ready_rx: Arc::new(Notify::new()),
             total_tx_size: 0,
             large_cycle_threshold,
+            flight: FlightTracker::new(),
         }
+    }
+
+    /// Returns true if the given tx spends an output produced by another tx
+    /// that is currently in this queue.
+    pub fn depends_on(&self, tx: &TransactionView) -> bool {
+        self.flight.depends_on(tx)
     }
 
     fn recompute_total_tx_size(&self) -> Option<usize> {
         self.inner.iter().try_fold(0usize, |total, (_, entry)| {
-            total.checked_add(entry.inner.tx.data().serialized_size_in_block())
+            total.checked_add(entry.inner.resolved.tx_size)
         })
     }
 
@@ -95,11 +118,6 @@ impl VerifyQueue {
     #[cfg(test)]
     pub fn total_tx_size(&self) -> usize {
         self.total_tx_size
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_total_tx_size_for_test(&mut self, total_tx_size: usize) {
-        self.total_tx_size = total_tx_size;
     }
 
     /// Returns true if the queue is full.
@@ -129,8 +147,9 @@ impl VerifyQueue {
 
     /// Remove a tx from the queue
     pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
+        self.flight.remove(id);
         self.inner.remove_by_id(id).map(|e| {
-            let tx_size = e.inner.tx.data().serialized_size_in_block();
+            let tx_size = e.inner.resolved.tx_size;
             if let Some(total_tx_size) = self.total_tx_size.checked_sub(tx_size) {
                 self.total_tx_size = total_tx_size;
             } else if let Some(total_tx_size) = self.recompute_total_tx_size() {
@@ -162,7 +181,14 @@ impl VerifyQueue {
         let ids: Vec<_> = self
             .inner
             .iter()
-            .filter(|&(_cycle, entry)| entry.inner.remote.as_ref().is_some_and(|(_, p)| p == peer))
+            .filter(|&(_cycle, entry)| {
+                entry
+                    .inner
+                    .resolved
+                    .remote
+                    .as_ref()
+                    .is_some_and(|(_, p)| p == peer)
+            })
             .map(|(_cycle, entry)| entry.id.clone())
             .collect();
 
@@ -184,7 +210,7 @@ impl VerifyQueue {
         if let Some(entry) = first_entry
             && matches!(entry.priority_order.0, VerifyPriority::Proposal)
         {
-            return Some(entry.inner.tx.proposal_short_id());
+            return Some(entry.inner.tx().proposal_short_id());
         }
 
         let entry = if only_small_cycle {
@@ -195,26 +221,23 @@ impl VerifyQueue {
             first_entry
         };
 
-        entry.map(|e| e.inner.tx.proposal_short_id())
+        entry.map(|e| e.inner.tx().proposal_short_id())
     }
 
     /// If the queue did not have this tx present, true is returned.
     /// If the queue did have this tx present, false is returned.
-    pub fn add_tx(
-        &mut self,
-        tx: TransactionView,
-        is_proposal_tx: bool,
-        remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<bool, Reject> {
-        if self.contains_key(&tx.proposal_short_id()) {
-            if is_proposal_tx {
-                self.remove_tx(&tx.proposal_short_id());
+    pub fn add_tx(&mut self, resolved: ResolvedTx) -> Result<bool, Reject> {
+        let id = resolved.tx.proposal_short_id();
+        if self.contains_key(&id) {
+            if resolved.is_proposal_tx {
+                self.remove_tx(&id);
             } else {
                 return Ok(false);
             }
         }
-        let tx_size = tx.data().serialized_size_in_block();
-        let is_large_cycle = remote
+        let tx_size = resolved.tx_size;
+        let is_large_cycle = resolved
+            .remote
             .map(|(cycles, _)| cycles > self.large_cycle_threshold)
             .unwrap_or(false);
         let added_time = unix_time_as_millis();
@@ -226,21 +249,26 @@ impl VerifyQueue {
         if self.is_full(tx_size) {
             return Err(Reject::Full(format!(
                 "verify_queue total_tx_size exceeded, failed to add tx: {:#x}",
-                tx.hash()
+                resolved.tx.hash()
             )));
         }
         let total_tx_size = self.total_tx_size.checked_add(tx_size).ok_or_else(|| {
             Reject::Full(format!(
                 "verify_queue total_tx_size overflowed, failed to add tx: {:#x}",
-                tx.hash()
+                resolved.tx.hash()
             ))
         })?;
+        let is_proposal_tx = resolved.is_proposal_tx;
         self.inner.insert(VerifyEntry {
-            id: tx.proposal_short_id(),
-            inner: Entry { tx, remote },
+            id: id.clone(),
+            inner: Entry { resolved },
             is_large_cycle,
             priority_order: (priority, added_time),
         });
+        self.flight.insert(
+            id.clone(),
+            &self.inner.get_by_id(&id).expect("just inserted").inner.tx(),
+        );
         self.total_tx_size = total_tx_size;
         self.ready_rx.notify_one();
         Ok(true)
@@ -254,6 +282,7 @@ impl VerifyQueue {
     /// Clears the map, removing all elements.
     pub fn clear(&mut self) {
         self.inner.clear();
+        self.flight.clear();
         self.total_tx_size = 0;
         self.shrink_to_fit();
     }

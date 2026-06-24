@@ -166,6 +166,7 @@ pub struct TxPoolController {
     chunk_tx: Arc<watch::Sender<ChunkCommand>>,
     handle: Handle,
     started: Arc<AtomicBool>,
+    signal: CancellationToken,
 }
 
 macro_rules! send_message {
@@ -213,6 +214,11 @@ impl TxPoolController {
     /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle
+    }
+
+    /// Send a graceful stop signal to the tx-pool service and background workers.
+    pub fn stop(&self) {
+        self.signal.cancel();
     }
 
     /// Generate and return block_template
@@ -534,6 +540,7 @@ impl TxPoolServiceBuilder {
             handle: handle.clone(),
             chunk_tx: Arc::new(chunk_tx),
             started: Arc::clone(&started),
+            signal: signal_receiver.clone(),
         };
 
         let block_assembler = block_assembler_config.and_then(|config| {
@@ -586,6 +593,12 @@ impl TxPoolServiceBuilder {
     pub fn start(self, network: NetworkController) {
         let consensus = self.snapshot.cloned_consensus();
 
+        let resolve_queue = Arc::new(RwLock::new(
+            crate::component::resolve_queue::ResolveQueue::new(),
+        ));
+        let ordered_resolve_queue = Arc::new(RwLock::new(
+            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+        ));
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
             self.tx_pool_config.max_tx_verify_cycles,
         )));
@@ -610,15 +623,67 @@ impl TxPoolServiceBuilder {
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
             block_assembler_sender,
+            resolve_queue: Arc::clone(&resolve_queue),
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
             verify_queue: Arc::clone(&verify_queue),
             network,
             consensus,
             fee_estimator: self.fee_estimator,
         };
 
+        let chunk_rx_for_resolvers = self.chunk_rx.clone();
         let mut verify_mgr =
             VerifyMgr::new(service.clone(), self.chunk_rx, self.signal_receiver.clone());
         self.handle.spawn(async move { verify_mgr.run().await });
+
+        let mut pre_resolve_mgr = crate::resolve_mgr::PreResolveMgr::new(
+            service.clone(),
+            Arc::clone(&resolve_queue),
+            Arc::clone(&ordered_resolve_queue),
+            Arc::clone(&verify_queue),
+            chunk_rx_for_resolvers.clone(),
+            self.signal_receiver.child_token(),
+        );
+        self.handle
+            .spawn(async move { pre_resolve_mgr.run().await });
+
+        let resolver_exit_signal = self.signal_receiver.child_token();
+        let service_for_resolver = service.clone();
+        self.handle.spawn(async move {
+            loop {
+                let resolver = crate::resolve_mgr::OrderedResolver::new(
+                    service_for_resolver.clone(),
+                    Arc::clone(&ordered_resolve_queue),
+                    Arc::clone(&verify_queue),
+                    chunk_rx_for_resolvers.clone(),
+                    resolver_exit_signal.clone(),
+                );
+                let (exit_tx, mut exit_rx) = tokio::sync::mpsc::unbounded_channel();
+                let handle = resolver.start(exit_tx);
+
+                tokio::select! {
+                    _ = resolver_exit_signal.cancelled() => {
+                        let _ = handle.await;
+                        break;
+                    }
+                    Some(exit) = exit_rx.recv() => {
+                        let _ = handle.await;
+                        match exit {
+                            crate::resolve_mgr::ResolveExit::Stopped => {
+                                if resolver_exit_signal.is_cancelled() {
+                                    break;
+                                }
+                                error!("tx-pool ordered resolver stopped unexpectedly, respawning");
+                            }
+                            crate::resolve_mgr::ResolveExit::Panicked { message } => {
+                                error!("tx-pool ordered resolver panicked: {}; respawning", message);
+                            }
+                        }
+                    }
+                }
+            }
+            info!("TxPool ordered resolver monitor exited");
+        });
 
         let mut receiver = self.receiver;
         let mut reorg_receiver = self.reorg_receiver;
@@ -760,12 +825,16 @@ pub(crate) struct TxPoolService {
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
+    pub(crate) resolve_queue: Arc<RwLock<crate::component::resolve_queue::ResolveQueue>>,
+    pub(crate) ordered_resolve_queue:
+        Arc<RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>>,
     pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     pub(crate) fee_estimator: FeeEstimator,
 }
 
 /// tx verification result
+#[derive(Debug)]
 pub enum TxVerificationResult {
     /// tx is verified
     Ok {
@@ -992,6 +1061,8 @@ async fn process(mut service: TxPoolService, message: Message) {
             };
         }
         Message::ClearVerifyQueue(Request { responder, .. }) => {
+            service.resolve_queue.write().await.clear();
+            service.ordered_resolve_queue.write().await.clear();
             service.verify_queue.write().await.clear();
             if let Err(e) = responder.send(()) {
                 error!("Responder sending clear_verify_queue failed {:?}", e)
@@ -1198,7 +1269,7 @@ impl TxPoolService {
             txs.extend(short_ids.iter().filter_map(|short_id| {
                 verify_queue
                     .get_tx_by_id(short_id)
-                    .map(|entry| (short_id.to_owned(), entry.tx.to_owned()))
+                    .map(|entry| (short_id.to_owned(), entry.tx().to_owned()))
             }));
         }
         {

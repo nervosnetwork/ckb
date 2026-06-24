@@ -1,8 +1,10 @@
 use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
+use crate::component::resolve_queue::ResolveQueue;
 use crate::component::tests::util::build_tx;
 use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::pool::TxPool;
+use crate::resolved_tx::ResolvedTx;
 use crate::service::{TxPoolService, TxVerificationResult};
 use ckb_app_config::{NetworkConfig, TxPoolConfig};
 use ckb_async_runtime::new_background_runtime;
@@ -16,7 +18,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainDB;
 use ckb_types::H256;
 use ckb_types::U256;
-use ckb_types::core::{FeeRate, TransactionBuilder};
+use ckb_types::core::{Capacity, FeeRate, TransactionBuilder, cell::ResolvedTransaction};
 use ckb_verification::cache::init_cache;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -27,12 +29,38 @@ use tokio::time::sleep;
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const UNUSED_SNAPSHOT_COLUMNS: u32 = 1;
+
+fn test_snapshot() -> Arc<Snapshot> {
+    use std::sync::OnceLock;
+    static SNAPSHOT: OnceLock<Arc<Snapshot>> = OnceLock::new();
+    SNAPSHOT
+        .get_or_init(|| snapshot(Arc::new(ConsensusBuilder::default().build())))
+        .clone()
+}
+
+fn dummy_resolved_tx(
+    tx: ckb_types::core::TransactionView,
+    remote: Option<(u64, SessionId)>,
+    is_proposal_tx: bool,
+) -> ResolvedTx {
+    let rtx = Arc::new(ResolvedTransaction::dummy_resolve(tx.clone()));
+    ResolvedTx {
+        tx: tx.clone(),
+        rtx,
+        status: crate::process::TxStatus::Fresh,
+        fee: Capacity::zero(),
+        tx_size: tx.data().serialized_size_in_block(),
+        pre_resolve_tip: Default::default(),
+        snapshot: test_snapshot(),
+        remote,
+        is_proposal_tx,
+    }
+}
 #[tokio::test]
 async fn verify_queue_basic() {
     let tx = TransactionBuilder::default().build();
     let entry = Entry {
-        tx: tx.clone(),
-        remote: None,
+        resolved: dummy_resolved_tx(tx.clone(), None, false),
     };
     let tx2 = build_tx(vec![(&tx.hash(), 0)], 1);
 
@@ -55,23 +83,43 @@ async fn verify_queue_basic() {
         count
     });
 
-    assert!(queue.add_tx(tx.clone(), false, None).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
-    assert!(!queue.add_tx(tx.clone(), false, None).unwrap());
+    assert!(
+        !queue
+            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .unwrap()
+    );
 
     assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
     assert!(!queue.contains_key(&id));
 
-    assert!(queue.add_tx(tx.clone(), false, None).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert_eq!(queue.pop_front(false).as_ref(), Some(&entry));
 
-    assert!(queue.add_tx(tx.clone(), false, None).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
-    assert!(queue.add_tx(tx2.clone(), false, None).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx2.clone(), None, false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
     exit_tx.send(()).unwrap();
@@ -79,11 +127,11 @@ async fn verify_queue_basic() {
     assert_eq!(counts, 4);
 
     let cur = queue.pop_front(false);
-    assert_eq!(cur.unwrap().tx, tx);
+    assert_eq!(*cur.unwrap().tx(), tx);
 
     assert!(!queue.is_empty());
     let cur = queue.pop_front(false);
-    assert_eq!(cur.unwrap().tx, tx2);
+    assert_eq!(*cur.unwrap().tx(), tx2);
 
     assert!(queue.is_empty());
 
@@ -114,24 +162,40 @@ async fn test_verify_different_cycles() {
     let remote = |cycles| Some((cycles, SessionId::default()));
 
     let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(tx0.clone(), false, remote(1001)).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx0.clone(), remote(1001), false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx1 = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(tx1.clone(), false, remote(MAX_TX_VERIFY_CYCLES + 1))
+            .add_tx(dummy_resolved_tx(
+                tx1.clone(),
+                remote(MAX_TX_VERIFY_CYCLES + 1),
+                false
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx2 = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(tx2.clone(), false, remote(1001)).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx2.clone(), remote(1001), false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
     // now queue should be sorted by time (tx1, tx2)
 
     let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(tx3.clone(), false, remote(1001)).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx3.clone(), remote(1001), false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx_size_sum = [&tx0, &tx1, &tx2, &tx3]
@@ -144,24 +208,28 @@ async fn test_verify_different_cycles() {
     let tx_4_proposal = build_tx(vec![(&H256([4; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(tx_4_proposal.clone(), true, remote(2000000))
+            .add_tx(dummy_resolved_tx(
+                tx_4_proposal.clone(),
+                remote(2000000),
+                true
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
 
     // first should pop the proposal tx
     let cur = queue.pop_front(false);
-    assert_eq!(cur.unwrap().tx, tx_4_proposal);
+    assert_eq!(*cur.unwrap().tx(), tx_4_proposal);
 
     // tx0 should be the first tx in the queue
     let cur = queue.pop_front(true);
-    assert_eq!(cur.unwrap().tx, tx0);
+    assert_eq!(*cur.unwrap().tx(), tx0);
 
     let cur = queue.pop_front(true);
-    assert_eq!(cur.unwrap().tx, tx2);
+    assert_eq!(*cur.unwrap().tx(), tx2);
 
     let cur = queue.pop_front(true);
-    assert_eq!(cur.unwrap().tx, tx3);
+    assert_eq!(*cur.unwrap().tx(), tx3);
 
     // now there is no small cycle tx
     let cur = queue.pop_front(true);
@@ -169,7 +237,7 @@ async fn test_verify_different_cycles() {
 
     // pop the tx with the large cycle
     let cur = queue.pop_front(false);
-    assert_eq!(cur.unwrap().tx, tx1);
+    assert_eq!(*cur.unwrap().tx(), tx1);
 
     let cur = queue.pop_front(false);
     assert!(cur.is_none());
@@ -247,63 +315,47 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
 
 #[tokio::test]
 async fn verify_queue_remove() {
+    let tx1 = TransactionBuilder::default()
+        .set_outputs_data(vec![Default::default()])
+        .build();
     let entry1 = Entry {
-        tx: TransactionBuilder::default()
-            .set_outputs_data(vec![Default::default()])
-            .build(),
-        remote: Some((1, SessionId::new(1))),
+        resolved: dummy_resolved_tx(tx1.clone(), Some((1, SessionId::new(1))), false),
     };
-    let entry1_id = entry1.tx.proposal_short_id();
+    let entry1_id = entry1.tx().proposal_short_id();
     eprintln!("entry1_id: {:?}", entry1_id);
+    let tx2 = TransactionBuilder::default()
+        .set_cell_deps(vec![Default::default(), Default::default()])
+        .build();
     let entry2 = Entry {
-        tx: TransactionBuilder::default()
-            .set_cell_deps(vec![Default::default(), Default::default()])
-            .build(),
-        remote: Some((2, SessionId::new(2))),
+        resolved: dummy_resolved_tx(tx2.clone(), Some((2, SessionId::new(2))), false),
     };
-    let entry2_id = entry2.tx.proposal_short_id();
+    let entry2_id = entry2.tx().proposal_short_id();
     eprintln!("entry2_id: {:?}", entry2_id);
+    let tx3 = TransactionBuilder::default().build();
     let entry3 = Entry {
-        tx: TransactionBuilder::default().build(),
-        remote: None,
+        resolved: dummy_resolved_tx(tx3.clone(), None, false),
     };
-    let entry3_id = entry3.tx.proposal_short_id();
+    let entry3_id = entry3.tx().proposal_short_id();
     eprintln!("entry3_id: {:?}", entry3_id);
 
+    let tx4 = TransactionBuilder::default()
+        .set_cell_deps(vec![
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ])
+        .build();
     let entry4 = Entry {
-        tx: TransactionBuilder::default()
-            .set_cell_deps(vec![
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            ])
-            .build(),
-        remote: Some((4, SessionId::new(1))),
+        resolved: dummy_resolved_tx(tx4.clone(), Some((4, SessionId::new(1))), false),
     };
-    let entry4_id = entry4.tx.proposal_short_id();
+    let entry4_id = entry4.tx().proposal_short_id();
 
     let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
 
-    assert!(
-        queue
-            .add_tx(entry1.tx.clone(), false, entry1.remote)
-            .unwrap()
-    );
-    assert!(
-        queue
-            .add_tx(entry2.tx.clone(), false, entry2.remote)
-            .unwrap()
-    );
-    assert!(
-        queue
-            .add_tx(entry3.tx.clone(), false, entry3.remote)
-            .unwrap()
-    );
-    assert!(
-        queue
-            .add_tx(entry4.tx.clone(), false, entry4.remote)
-            .unwrap()
-    );
+    assert!(queue.add_tx(entry1.resolved.clone()).unwrap());
+    assert!(queue.add_tx(entry2.resolved.clone()).unwrap());
+    assert!(queue.add_tx(entry3.resolved.clone()).unwrap());
+    assert!(queue.add_tx(entry4.resolved.clone()).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert!(queue.contains_key(&entry1_id));
@@ -351,7 +403,7 @@ fn snapshot(consensus: Arc<Consensus>) -> Arc<Snapshot> {
     ))
 }
 
-fn network(consensus: &Consensus) -> ckb_network::NetworkController {
+pub(crate) fn network(consensus: &Consensus) -> ckb_network::NetworkController {
     let handle = new_background_runtime();
     let tmp_dir = TempDir::new().expect("create temp dir");
     let config = NetworkConfig {
@@ -401,6 +453,10 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
             callbacks: Arc::new(Callbacks::new()),
             network: network(&consensus),
             tx_relay_sender,
+            resolve_queue: Arc::new(RwLock::new(ResolveQueue::new())),
+            ordered_resolve_queue: Arc::new(RwLock::new(
+                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+            )),
             verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
             block_assembler_sender,
             fee_estimator: FeeEstimator::new_dummy(),
@@ -420,7 +476,7 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_verify_queue_is_full() {
         .add_orphan(orphan.clone(), 1.into(), MAX_TX_VERIFY_CYCLES + 1)
         .await;
     service
-        .verify_queue
+        .resolve_queue
         .write()
         .await
         .set_total_tx_size_for_test(256_000_000 - 1);
@@ -431,21 +487,22 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_verify_queue_is_full() {
     });
     assert!(
         handle.await.is_ok(),
-        "full verify queue should not panic while requeueing a high-cycle orphan"
+        "full resolve queue should not panic while requeueing a high-cycle orphan"
     );
 
     assert!(service.orphan.read().await.contains_key(&orphan_id));
-    assert!(!service.verify_queue.read().await.contains_key(&orphan_id));
+    assert!(!service.resolve_queue.read().await.contains_key(&orphan_id));
 }
 
+#[cfg(feature = "pipeline")]
 #[tokio::test]
-async fn submit_remote_tx_notifies_relayer_when_verify_queue_is_full() {
+async fn submit_remote_tx_notifies_relayer_when_resolve_queue_is_full() {
     let (service, tx_relay_receiver) = service_with_relay_receiver();
     let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
     let tx_hash = tx.hash();
 
     service
-        .verify_queue
+        .resolve_queue
         .write()
         .await
         .set_total_tx_size_for_test(256_000_000 - 1);
@@ -466,14 +523,15 @@ async fn submit_remote_tx_notifies_relayer_when_verify_queue_is_full() {
     }
 }
 
+#[cfg(feature = "pipeline")]
 #[tokio::test]
-async fn notify_tx_notifies_relayer_when_verify_queue_is_full() {
+async fn notify_tx_notifies_relayer_when_resolve_queue_is_full() {
     let (service, tx_relay_receiver) = service_with_relay_receiver();
     let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
     let tx_hash = tx.hash();
 
     service
-        .verify_queue
+        .resolve_queue
         .write()
         .await
         .set_total_tx_size_for_test(256_000_000 - 1);

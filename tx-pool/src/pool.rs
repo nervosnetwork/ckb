@@ -324,7 +324,6 @@ impl TxPool {
                 }
             }
         }
-        self.pool_map.entries.shrink_to_fit();
         ret
     }
 

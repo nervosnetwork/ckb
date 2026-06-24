@@ -10,6 +10,8 @@ mod persisted;
 pub mod pool;
 mod pool_cell;
 mod process;
+pub mod resolve_mgr;
+pub mod resolved_tx;
 pub mod service;
 mod util;
 mod verify_mgr;

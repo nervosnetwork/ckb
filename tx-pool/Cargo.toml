@@ -51,10 +51,15 @@ ckb-fee-estimator.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 ckb-hash.workspace = true
+ckb-dao-utils.workspace = true
+ckb-test-chain-utils.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
+ckb-system-scripts.workspace = true
+ckb-crypto.workspace = true
 
 [features]
-default = []
+default = ["pipeline"]
+pipeline = []
 internal = []
 with_sentry = ["sentry"]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-snapshot/portable"]

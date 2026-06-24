@@ -144,20 +144,18 @@ impl Worker {
                 }
             };
 
+            let tx = entry.tx().clone();
+            let remote = entry.remote();
             if let Some((res, snapshot)) = self
                 .service
-                ._process_tx(
-                    entry.tx.clone(),
-                    entry.remote.map(|e| e.0),
-                    Some(&mut self.command_rx),
-                )
+                ._verify_and_submit_tx(entry.resolved, Some(&mut self.command_rx))
                 .await
             {
                 self.service
-                    .after_process(entry.tx, entry.remote, &snapshot, &res)
+                    .after_process(tx.clone(), remote, &snapshot, &res)
                     .await;
             } else {
-                info!("_process_tx for tx: {} returned none", entry.tx.hash());
+                info!("_verify_and_submit_tx for tx: {} returned none", tx.hash());
             }
         }
     }
