@@ -244,7 +244,7 @@ pub(crate) async fn send_block_proposals(
         .transactions(txs)
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
-    let status = async_quick_send_message_to(nc, peer_index, &message).await;
+    let status = async_send_message_to(nc, peer_index, &message).await;
     if !status.is_ok() {
         ckb_logger::error!(
             "send RelayBlockProposal to {}, status: {:?}",
