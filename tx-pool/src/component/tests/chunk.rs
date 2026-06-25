@@ -181,6 +181,47 @@ async fn test_verify_different_cycles() {
 }
 
 #[tokio::test]
+async fn verify_queue_pops_proposals_by_arrival_order() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let remote = |cycles| Some((cycles, SessionId::default()));
+
+    let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
+    assert!(queue.add_tx(tx0.clone(), false, remote(1001)).unwrap());
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    let tx1_proposal = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    assert!(
+        queue
+            .add_tx(tx1_proposal.clone(), true, remote(1001))
+            .unwrap()
+    );
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    let tx2_proposal = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
+    assert!(
+        queue
+            .add_tx(tx2_proposal.clone(), true, remote(1001))
+            .unwrap()
+    );
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
+    assert!(queue.add_tx(tx3.clone(), false, remote(1001)).unwrap());
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx1_proposal);
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx2_proposal);
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx0);
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx3);
+}
+
+#[tokio::test]
 async fn verify_queue_remove() {
     let entry1 = Entry {
         tx: TransactionBuilder::default()
