@@ -140,7 +140,10 @@ impl<T: Callback> IdentifyProtocol<T> {
                 .into_iter()
                 .filter(|addr| match multiaddr_to_socketaddr(addr) {
                     Some(socket_addr) => !global_ip_only || is_reachable(socket_addr.ip()),
-                    None => true,
+                    // Reject non-IP addresses (e.g. /dns4, /dns6, /dnsaddr)
+                    // from untrusted peers — we cannot verify reachability
+                    // without resolving them first.
+                    None => false,
                 })
                 .collect::<Vec<_>>();
             self.callback

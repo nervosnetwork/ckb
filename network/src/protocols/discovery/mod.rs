@@ -333,7 +333,10 @@ impl AddressManager for DiscoveryAddressManager {
         if !self.discovery_local_address {
             match multiaddr_to_socketaddr(addr) {
                 Some(socket_addr) => is_reachable(socket_addr.ip()),
-                None => true,
+                // Reject non-IP addresses (e.g. /dns4, /dns6, /dnsaddr)
+                // from untrusted peers — we cannot verify reachability
+                // without resolving them first.
+                None => false,
             }
         } else {
             true
