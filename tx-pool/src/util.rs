@@ -169,6 +169,17 @@ pub(crate) fn is_missing_input(reject: &Reject) -> bool {
     matches!(reject, Reject::Resolve(out_point_err) if out_point_err.is_unknown())
 }
 
+/// Convert a panic payload to a human-readable string for logging.
+pub(crate) fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_owned()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_owned()
+    }
+}
+
 /// Unwraps a result or propagates its error with snapshot.
 #[macro_export]
 macro_rules! try_or_return_with_snapshot {

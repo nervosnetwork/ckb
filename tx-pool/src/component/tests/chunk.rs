@@ -1,10 +1,9 @@
 use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
-use crate::component::resolve_queue::ResolveQueue;
 use crate::component::tests::util::build_tx;
 use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::pool::TxPool;
-use crate::resolved_tx::ResolvedTx;
+use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::{TxPoolService, TxVerificationResult};
 use ckb_app_config::{NetworkConfig, TxPoolConfig};
 use ckb_async_runtime::new_background_runtime;
@@ -441,45 +440,85 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
     let config = tx_pool_config();
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(16);
     let (block_assembler_sender, _) = mpsc::channel(1);
+    #[cfg(feature = "pipeline")]
+    let max_workers = config.max_tx_verify_workers.max(1);
+    #[cfg(feature = "pipeline")]
+    let pre_check_workers = max_workers.min(4);
+    #[cfg(feature = "pipeline")]
+    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
+    #[cfg(feature = "pipeline")]
+    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
 
-    (
-        TxPoolService {
-            tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
-            orphan: Arc::new(RwLock::new(OrphanPool::new())),
-            consensus: Arc::clone(&consensus),
-            tx_pool_config: Arc::new(config.clone()),
-            block_assembler: None,
-            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-            callbacks: Arc::new(Callbacks::new()),
-            network: network(&consensus),
-            tx_relay_sender,
-            resolve_queue: Arc::new(RwLock::new(ResolveQueue::new())),
-            ordered_resolve_queue: Arc::new(RwLock::new(
-                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-            )),
-            verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
-            block_assembler_sender,
-            fee_estimator: FeeEstimator::new_dummy(),
-        },
-        tx_relay_receiver,
-    )
+    let service = TxPoolService {
+        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
+        orphan: Arc::new(RwLock::new(OrphanPool::new())),
+        consensus: Arc::clone(&consensus),
+        tx_pool_config: Arc::new(config.clone()),
+        block_assembler: None,
+        txs_verify_cache: Arc::new(RwLock::new(init_cache())),
+        callbacks: Arc::new(Callbacks::new()),
+        network: network(&consensus),
+        tx_relay_sender,
+        ordered_resolve_queue: Arc::new(RwLock::new(
+            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+        )),
+        verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
+        block_assembler_sender,
+        fee_estimator: FeeEstimator::new_dummy(),
+        #[cfg(feature = "pipeline")]
+        pre_check_queue: Arc::clone(&pre_check_queue),
+    };
+
+    #[cfg(feature = "pipeline")]
+    {
+        for _ in 0..pre_check_workers {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            tokio::spawn(async move {
+                while let Some(job) = queue.pop().await {
+                    let _ = svc
+                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                        .await;
+                }
+            });
+        }
+    }
+
+    (service, tx_relay_receiver)
+}
+
+/// Seed `parent` into the ordered resolve queue and inflate the queue's
+/// `total_tx_size` so the next `add_tx` call will be rejected with
+/// `Reject::Full`.  This avoids hitting the chain snapshot (which in tests
+/// only has one column) when classifying dependent transactions.
+async fn seed_parent_and_nearly_fill_queue(
+    service: &TxPoolService,
+    parent: ckb_types::core::TransactionView,
+) {
+    let mut ordered = service.ordered_resolve_queue.write().await;
+    ordered.set_total_tx_size_for_test(256_000_000 - 1_000);
+    ordered
+        .add_tx(ResolveJob {
+            tx: parent,
+            remote: None,
+            is_proposal_tx: false,
+        })
+        .unwrap();
+    ordered.set_total_tx_size_for_test(256_000_000 - 1);
 }
 
 #[tokio::test]
-async fn process_orphan_tx_keeps_high_cycle_orphan_when_verify_queue_is_full() {
+async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is_full() {
     let service = service();
     let parent = build_tx(vec![], 1);
     let orphan = build_tx(vec![(&parent.hash(), 0)], 1);
     let orphan_id = orphan.proposal_short_id();
 
+    seed_parent_and_nearly_fill_queue(&service, parent.clone()).await;
+
     service
         .add_orphan(orphan.clone(), 1.into(), MAX_TX_VERIFY_CYCLES + 1)
         .await;
-    service
-        .resolve_queue
-        .write()
-        .await
-        .set_total_tx_size_for_test(256_000_000 - 1);
 
     let service_clone = service.clone();
     let handle = tokio::spawn(async move {
@@ -491,21 +530,18 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_verify_queue_is_full() {
     );
 
     assert!(service.orphan.read().await.contains_key(&orphan_id));
-    assert!(!service.resolve_queue.read().await.contains_key(&orphan_id));
+    assert!(!service.ordered_resolve_queue.read().await.contains_key(&orphan_id));
 }
 
 #[cfg(feature = "pipeline")]
 #[tokio::test]
-async fn submit_remote_tx_notifies_relayer_when_resolve_queue_is_full() {
+async fn submit_remote_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
     let (service, tx_relay_receiver) = service_with_relay_receiver();
-    let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    let parent = build_tx(vec![], 1);
+    let tx = build_tx(vec![(&parent.hash(), 0)], 1);
     let tx_hash = tx.hash();
 
-    service
-        .resolve_queue
-        .write()
-        .await
-        .set_total_tx_size_for_test(256_000_000 - 1);
+    seed_parent_and_nearly_fill_queue(&service, parent).await;
 
     let ret = service
         .submit_remote_tx(tx, MAX_TX_VERIFY_CYCLES, 1.into())
@@ -525,16 +561,13 @@ async fn submit_remote_tx_notifies_relayer_when_resolve_queue_is_full() {
 
 #[cfg(feature = "pipeline")]
 #[tokio::test]
-async fn notify_tx_notifies_relayer_when_resolve_queue_is_full() {
+async fn notify_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
     let (service, tx_relay_receiver) = service_with_relay_receiver();
-    let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    let parent = build_tx(vec![], 1);
+    let tx = build_tx(vec![(&parent.hash(), 0)], 1);
     let tx_hash = tx.hash();
 
-    service
-        .resolve_queue
-        .write()
-        .await
-        .set_total_tx_size_for_test(256_000_000 - 1);
+    seed_parent_and_nearly_fill_queue(&service, parent).await;
 
     let ret = service.notify_tx(tx).await;
 

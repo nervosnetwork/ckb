@@ -1,6 +1,4 @@
 //! Top-level Pool type, methods, and tests
-extern crate rustc_hash;
-extern crate slab;
 use super::component::{TxEntry, tx_selector::TxSelector};
 use crate::callback::Callbacks;
 use crate::component::pool_map::{PoolEntry, PoolMap, Status};
@@ -28,8 +26,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
-const CONFLICTES_CACHE_SIZE: usize = 10_000;
-const CONFLICTES_INPUTS_CACHE_SIZE: usize = 30_000;
+const CONFLICTS_CACHE_SIZE: usize = 10_000;
+const CONFLICTS_INPUTS_CACHE_SIZE: usize = 30_000;
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 
 /// Tx-pool implementation
@@ -62,8 +60,8 @@ impl TxPool {
             snapshot,
             recent_reject,
             expiry,
-            conflicts_cache: LruCache::new(CONFLICTES_CACHE_SIZE),
-            conflicts_outputs_cache: lru::LruCache::new(CONFLICTES_INPUTS_CACHE_SIZE),
+            conflicts_cache: LruCache::new(CONFLICTS_CACHE_SIZE),
+            conflicts_outputs_cache: lru::LruCache::new(CONFLICTS_INPUTS_CACHE_SIZE),
         }
     }
 
@@ -516,8 +514,8 @@ impl TxPool {
         self.pool_map.clear();
         self.snapshot = snapshot;
         self.committed_txs_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
-        self.conflicts_cache = LruCache::new(CONFLICTES_CACHE_SIZE);
-        self.conflicts_outputs_cache = lru::LruCache::new(CONFLICTES_INPUTS_CACHE_SIZE);
+        self.conflicts_cache = LruCache::new(CONFLICTS_CACHE_SIZE);
+        self.conflicts_outputs_cache = lru::LruCache::new(CONFLICTS_INPUTS_CACHE_SIZE);
     }
 
     pub(crate) fn package_proposals(
@@ -593,11 +591,34 @@ impl TxPool {
         assert!(conflicts.len() == conflict_ids.len());
 
         // Rule #2, new tx don't contain any new unconfirmed inputs
+        self.check_rbf_no_new_unconfirmed_inputs(&conflicts, &tx_inputs, snapshot)?;
+
+        // Rule #5, check descendants count limit, ancestor-descendant overlap,
+        // and no inputs from descendants
+        let all_conflicted =
+            self.check_rbf_descendants(&conflicts, &short_id, &tx_inputs)?;
+
+        // Check new tx does not use cell deps from conflicted txs
+        self.check_rbf_no_conflict_cell_deps(&all_conflicted, entry)?;
+
+        // Rule #3 & #4, new tx's fee must be higher than both conflicts and min_rbf_fee
+        self.check_rbf_fee(&all_conflicted, entry)?;
+
+        Ok(conflict_ids)
+    }
+
+    /// RBF Rule #2: new tx must not contain any new unconfirmed inputs
+    /// (all inputs must either be from the conflicted txs or already confirmed on-chain).
+    fn check_rbf_no_new_unconfirmed_inputs(
+        &self,
+        conflicts: &[&PoolEntry],
+        tx_inputs: &[OutPoint],
+        snapshot: &Snapshot,
+    ) -> Result<(), Reject> {
         let mut inputs = HashSet::new();
         for c in conflicts.iter() {
             inputs.extend(c.inner.transaction().input_pts_iter());
         }
-
         if tx_inputs
             .iter()
             .any(|pt| !inputs.contains(pt) && !snapshot.transaction_exists(&pt.tx_hash()))
@@ -606,12 +627,24 @@ impl TxPool {
                 "new Tx contains unconfirmed inputs".to_string(),
             ));
         }
+        Ok(())
+    }
 
-        // Rule #5, the replaced tx's descendants can not more than 100
-        // and the ancestor of the new tx don't have common set with the replaced tx's descendants
+    /// RBF Rule #5: check that the number of replaced txs (conflicts + descendants)
+    /// does not exceed MAX_REPLACEMENT_CANDIDATES, that the new tx's ancestors do not
+    /// overlap with the conflicted txs' descendants, and that the new tx does not
+    /// reference outputs of descendant txs as inputs.
+    ///
+    /// Returns the full set of conflicted entries (direct conflicts + their descendants).
+    fn check_rbf_descendants<'a>(
+        &'a self,
+        conflicts: &[&'a PoolEntry],
+        short_id: &ProposalShortId,
+        tx_inputs: &[OutPoint],
+    ) -> Result<Vec<&'a PoolEntry>, Reject> {
         let mut replace_count: usize = 0;
-        let mut all_conflicted = conflicts.clone();
-        let ancestors = self.pool_map.calc_ancestors(&short_id);
+        let mut all_conflicted = conflicts.to_vec();
+        let ancestors = self.pool_map.calc_ancestors(short_id);
         for conflict in conflicts.iter() {
             let descendants = self.pool_map.calc_descendants(&conflict.id);
             replace_count += descendants.len() + 1;
@@ -643,25 +676,42 @@ impl TxPool {
             }
             all_conflicted.extend(entries);
         }
+        Ok(all_conflicted)
+    }
 
+    /// Check that the new tx does not reference any conflicted tx as a cell dep.
+    fn check_rbf_no_conflict_cell_deps(
+        &self,
+        all_conflicted: &[&PoolEntry],
+        entry: &TxEntry,
+    ) -> Result<(), Reject> {
         let tx_cells_deps: Vec<OutPoint> = entry
             .transaction()
             .cell_deps_iter()
             .map(|c| c.out_point())
             .collect();
-        for entry in all_conflicted.iter() {
-            let hash = entry.inner.transaction().hash();
+        for conflicted in all_conflicted.iter() {
+            let hash = conflicted.inner.transaction().hash();
             if tx_cells_deps.iter().any(|pt| pt.tx_hash() == hash) {
                 return Err(Reject::RBFRejected(
                     "new Tx contains cell deps from conflicts".to_string(),
                 ));
             }
         }
+        Ok(())
+    }
 
-        // Rule #4, new tx's fee need to higher than min_rbf_fee computed from the tx_pool configuration
-        // Rule #3, new tx's fee need to higher than conflicts, here we only check the all conflicted txs fee
+    /// RBF Rule #3 & #4: the new tx's fee must be higher than the total fee of
+    /// all conflicted txs and must meet the minimum replacement fee rate.
+    fn check_rbf_fee(
+        &self,
+        all_conflicted: &[&PoolEntry],
+        entry: &TxEntry,
+    ) -> Result<(), Reject> {
         let fee = entry.fee;
-        if let Some(min_replace_fee) = self.calculate_min_replace_fee(&all_conflicted, entry.size) {
+        if let Some(min_replace_fee) =
+            self.calculate_min_replace_fee(all_conflicted, entry.size)
+        {
             if fee < min_replace_fee {
                 return Err(Reject::RBFRejected(format!(
                     "Tx's current fee is {}, expect it to >= {} to replace old txs",
@@ -673,8 +723,7 @@ impl TxPool {
                 "calculate_min_replace_fee failed".to_string(),
             ));
         }
-
-        Ok(conflict_ids)
+        Ok(())
     }
 
     /// query the details of a transaction in the pool, only for trouble shooting

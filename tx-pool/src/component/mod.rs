@@ -8,7 +8,6 @@ pub(crate) mod ordered_resolve_queue;
 pub(crate) mod orphan;
 pub(crate) mod pool_map;
 pub(crate) mod recent_reject;
-pub(crate) mod resolve_queue;
 pub(crate) mod sort_key;
 #[cfg(test)]
 mod tests;

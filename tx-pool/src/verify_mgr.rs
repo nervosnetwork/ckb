@@ -4,7 +4,7 @@ use ckb_logger::{debug, error, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use futures_util::FutureExt;
-use std::any::Any;
+use crate::util::panic_payload_to_string;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc, watch};
@@ -315,12 +315,3 @@ impl VerifyMgr {
     }
 }
 
-fn panic_payload_to_string(payload: &(dyn Any + Send)) -> String {
-    if let Some(message) = payload.downcast_ref::<&str>() {
-        (*message).to_owned()
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        "non-string panic payload".to_owned()
-    }
-}

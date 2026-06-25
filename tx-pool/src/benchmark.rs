@@ -4,10 +4,9 @@
 //! target lives in `tx-pool/benches/pipeline.rs`.
 
 use crate::component::orphan::OrphanPool;
-use crate::component::resolve_queue::ResolveQueue;
 use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
-use crate::resolve_mgr::{OrderedResolver, PreResolveMgr, ResolveExit};
+use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use ckb_app_config::{NetworkConfig, TxPoolConfig};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
@@ -300,11 +299,19 @@ fn start_service(
         .spawn_blocking(move || while tx_relay_receiver.recv().is_ok() {});
     let (block_assembler_sender, _) = mpsc::channel(1);
 
-    let resolve_queue = Arc::new(RwLock::new(ResolveQueue::new()));
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
     let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+
+    #[cfg(feature = "pipeline")]
+    let max_workers = config.max_tx_verify_workers.max(1);
+    #[cfg(feature = "pipeline")]
+    let pre_check_workers = max_workers.min(4);
+    #[cfg(feature = "pipeline")]
+    let signal = ckb_stop_handler::CancellationToken::new();
+    #[cfg(feature = "pipeline")]
+    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(signal.child_token()));
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(tx_pool)),
@@ -319,29 +326,36 @@ fn start_service(
         callbacks: Arc::new(crate::callback::Callbacks::new()),
         network: shared.network.clone(),
         tx_relay_sender,
-        resolve_queue: Arc::clone(&resolve_queue),
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        #[cfg(feature = "pipeline")]
+        pre_check_queue: Arc::clone(&pre_check_queue),
     };
 
+    #[cfg(feature = "pipeline")]
+    {
+        for _ in 0..pre_check_workers {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            tokio::spawn(async move {
+                while let Some(job) = queue.pop().await {
+                    let _ = svc
+                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                        .await;
+                }
+            });
+        }
+    }
+
+    #[cfg(not(feature = "pipeline"))]
     let signal = ckb_stop_handler::CancellationToken::new();
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let mut verify_mgr =
         crate::verify_mgr::VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
-
-    let mut pre_resolve_mgr = PreResolveMgr::new(
-        service.clone(),
-        Arc::clone(&resolve_queue),
-        Arc::clone(&ordered_resolve_queue),
-        Arc::clone(&verify_queue),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
-    tokio::spawn(async move { pre_resolve_mgr.run().await });
 
     let ordered_resolver = OrderedResolver::new(
         service.clone(),
@@ -536,11 +550,20 @@ async fn wait_for_pending(controller: &crate::TxPoolController, count: usize) {
 }
 
 const SIZES: &[usize] = &[50, 100];
-const PEER_COUNTS: &[usize] = &[1, 2, 4];
+const PEER_COUNTS: &[usize] = &[1, 2, 4, 8];
 const WORKER_COUNTS: &[usize] = &[4, 8, 12];
-const WARM_POOL_SIZE: usize = 100;
+const WARM_POOL_SIZE: usize = 30;
 const DEPENDENT_SIZES: &[usize] = &[10, 20];
 const DEPENDENT_WARM_POOL_SIZE: usize = 10;
+
+// Medium matrix: a balanced tier between QUICK_BENCH and full benchmark.
+// Runs in roughly 10–15 minutes; activate with MEDIUM_BENCH=1.
+const MEDIUM_SIZES: &[usize] = &[100];
+const MEDIUM_PEER_COUNTS: &[usize] = &[1, 4];
+const MEDIUM_WORKER_COUNTS: &[usize] = &[4, 8];
+const MEDIUM_WARM_POOL_SIZE: usize = 30;
+const MEDIUM_DEPENDENT_SIZES: &[usize] = &[10];
+const MEDIUM_DEPENDENT_WARM_POOL_SIZE: usize = 10;
 
 // Quick matrix: runs in about 5 minutes and is used when QUICK_BENCH is set.
 const QUICK_SIZES: &[usize] = &[50];
@@ -671,6 +694,9 @@ fn measure_cycles(
     use_process: bool,
 ) -> HashMap<ckb_types::packed::Byte32, u64> {
     let (service, signal) = shared.runtime.block_on(async { start_service(shared, 8) });
+    // secp256k1 ECDSA verification has non-deterministic cycle counts per tx
+    // (different signature values take different CKB-VM execution paths),
+    // so we must measure each tx individually.
     let cycles = shared.runtime.block_on(async {
         let mut cycles = HashMap::with_capacity(txs.len());
         for tx in txs {
@@ -909,6 +935,15 @@ fn bench_matrix() -> BenchMatrix {
             dependent_sizes: QUICK_DEPENDENT_SIZES,
             dependent_warm_pool_size: QUICK_DEPENDENT_WARM_POOL_SIZE,
         }
+    } else if std::env::var("MEDIUM_BENCH").is_ok() {
+        BenchMatrix {
+            sizes: MEDIUM_SIZES,
+            peer_counts: MEDIUM_PEER_COUNTS,
+            worker_counts: MEDIUM_WORKER_COUNTS,
+            warm_pool_size: MEDIUM_WARM_POOL_SIZE,
+            dependent_sizes: MEDIUM_DEPENDENT_SIZES,
+            dependent_warm_pool_size: MEDIUM_DEPENDENT_WARM_POOL_SIZE,
+        }
     } else {
         BenchMatrix {
             sizes: SIZES,
@@ -972,9 +1007,18 @@ fn bench(c: &mut Criterion) {
     group.sample_size(10);
     group.sampling_mode(SamplingMode::Flat);
 
+    // Dependent txs are bottlenecked by chain-serialized orphan recovery, so
+    // varying peer/worker counts produces no meaningful signal. Only benchmark
+    // dependent types once with 1 peer and the first worker count.
+    let dep_peers = 1;
+    let dep_workers = *matrix.worker_counts.first().expect("worker_counts is non-empty");
+
     for workers in matrix.worker_counts {
         for peers in matrix.peer_counts {
             for (data, sizes) in &data_sets {
+                if data.tx_type.is_dependent() && (*peers != dep_peers || *workers != dep_workers) {
+                    continue;
+                }
                 for size in *sizes {
                     register_cold_bench(&mut group, mode, data, *peers, *workers, *size);
                 }
@@ -985,6 +1029,9 @@ fn bench(c: &mut Criterion) {
     for workers in matrix.worker_counts {
         for peers in matrix.peer_counts {
             for (data, sizes) in &data_sets {
+                if data.tx_type.is_dependent() && (*peers != dep_peers || *workers != dep_workers) {
+                    continue;
+                }
                 for size in *sizes {
                     register_warm_bench(&mut group, mode, data, *peers, *workers, *size);
                 }

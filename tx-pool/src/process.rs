@@ -62,6 +62,68 @@ impl TxStatus {
     }
 }
 
+/// A classification job that is offloaded to the pre-check worker pool.
+#[cfg(feature = "pipeline")]
+#[derive(Clone)]
+pub(crate) struct PreCheckJob {
+    pub tx: TransactionView,
+    pub is_proposal_tx: bool,
+    pub remote: Option<(Cycle, PeerIndex)>,
+}
+
+/// A small multi-consumer queue used by the pre-check worker pool.
+///
+/// It is intentionally kept separate from the ordered resolve queue: jobs here
+/// are independent and can be processed in any order, while the ordered queue
+/// must retry missing-input txs in arrival order.
+///
+/// `tokio::sync::Notify` is used for wake-ups; a permit is stored if a job is
+/// pushed before any worker is waiting, so a worker that calls `notified()`
+/// afterwards will wake up immediately.
+///
+/// Workers are cancelled via the `CancellationToken`; `pop()` returns `None`
+/// once the token is cancelled so the worker loop can exit cleanly.
+#[cfg(feature = "pipeline")]
+pub(crate) struct PreCheckQueue {
+    inner: std::sync::Mutex<std::collections::VecDeque<PreCheckJob>>,
+    ready: tokio::sync::Notify,
+    cancel: ckb_stop_handler::CancellationToken,
+}
+
+#[cfg(feature = "pipeline")]
+impl PreCheckQueue {
+    pub(crate) fn new(cancel: ckb_stop_handler::CancellationToken) -> Self {
+        Self {
+            inner: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            ready: tokio::sync::Notify::new(),
+            cancel,
+        }
+    }
+
+    pub(crate) fn push(&self, job: PreCheckJob) {
+        let mut guard = self.inner.lock().expect("pre_check queue lock poisoned");
+        guard.push_back(job);
+        drop(guard);
+        self.ready.notify_one();
+    }
+
+    /// Pop the next job, or return `None` if the queue has been cancelled.
+    pub(crate) async fn pop(&self) -> Option<PreCheckJob> {
+        loop {
+            {
+                let mut guard = self.inner.lock().expect("pre_check queue lock poisoned");
+                if let Some(job) = guard.pop_front() {
+                    return Some(job);
+                }
+            }
+            tokio::select! {
+                _ = self.ready.notified() => {}
+                _ = self.cancel.cancelled() => return None,
+            }
+        }
+    }
+}
+
 impl TxPoolService {
     pub(crate) async fn get_block_template(&self) -> Result<BlockTemplate, AnyError> {
         if let Some(ref block_assembler) = self.block_assembler {
@@ -154,15 +216,18 @@ impl TxPoolService {
                 if !may_recovered_txs.is_empty() {
                     let self_clone = self.clone();
                     tokio::spawn(async move {
-                        // push the recovered txs back to resolve queue, so that they can be resolved, verified and submitted again
-                        let mut queue = self_clone.resolve_queue.write().await;
+                        // push the recovered txs back to the ordered resolve queue,
+                        // so that they can be resolved, verified and submitted again
+                        let mut queue = self_clone.ordered_resolve_queue.write().await;
                         for tx in may_recovered_txs {
                             debug!("recover back: {:?}", tx.proposal_short_id());
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
+                            if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob {
                                 tx,
                                 remote: None,
                                 is_proposal_tx: false,
-                            });
+                            }) {
+                                warn!("failed to recover tx back to ordered resolve queue: {}", reject);
+                            }
                         }
                     });
                 }
@@ -406,7 +471,7 @@ impl TxPoolService {
 
         #[cfg(feature = "pipeline")]
         {
-            self.enqueue_resolve_queue(tx, is_proposal_tx, remote).await
+            self.classify_and_enqueue_tx_spawn(tx, is_proposal_tx, remote).await
         }
 
         #[cfg(not(feature = "pipeline"))]
@@ -513,12 +578,6 @@ impl TxPoolService {
     pub(crate) async fn remove_tx(&self, tx_hash: Byte32) -> bool {
         let id = ProposalShortId::from_tx_hash(&tx_hash);
         {
-            let mut queue = self.resolve_queue.write().await;
-            if queue.remove_tx(&id).is_some() {
-                return true;
-            }
-        }
-        {
             let mut queue = self.ordered_resolve_queue.write().await;
             if queue.remove_tx(&id).is_some() {
                 return true;
@@ -578,11 +637,7 @@ impl TxPoolService {
                         "after_process remote send_result_to_relayer {} {}",
                         tx_hash, peer
                     );
-                    self.send_result_to_relayer(TxVerificationResult::Ok {
-                        original_peer: Some(peer),
-                        tx_hash,
-                    });
-                    self.process_orphan_tx(&tx).await;
+                    self.handle_verify_success(&tx, Some(peer)).await;
                 }
                 Err(reject) => {
                     debug!(
@@ -612,21 +667,15 @@ impl TxPoolService {
             },
             None => {
                 match ret {
-                    Ok(_) => {
-                        debug!("after_process local send_result_to_relayer {}", tx_hash);
-                        self.send_result_to_relayer(TxVerificationResult::Ok {
-                            original_peer: None,
-                            tx_hash,
-                        });
-                        self.process_orphan_tx(&tx).await;
-                    }
-                    Err(Reject::Duplicated(_)) => {
-                        debug!("after_process {} duplicated", tx_hash);
-                        // re-broadcast tx when it's duplicated and submitted through local rpc
-                        self.send_result_to_relayer(TxVerificationResult::Ok {
-                            original_peer: None,
-                            tx_hash,
-                        });
+                    Ok(_) | Err(Reject::Duplicated(_)) => {
+                        if matches!(ret, Err(Reject::Duplicated(_))) {
+                            debug!("after_process {} duplicated", tx_hash);
+                        } else {
+                            debug!("after_process local send_result_to_relayer {}", tx_hash);
+                        }
+                        // Re-broadcast tx when it's duplicated and submitted
+                        // through local rpc, or notify on fresh success.
+                        self.handle_verify_success(&tx, None).await;
                     }
                     Err(reject) => {
                         debug!("after_process {} reject: {} ", tx_hash, reject);
@@ -637,6 +686,23 @@ impl TxPoolService {
                 }
             }
         }
+    }
+
+    /// Common success handler: relay the result and trigger orphan processing.
+    ///
+    /// Box::pin is required because after_process and process_orphan_tx are
+    /// mutually recursive async fns; without boxing the compiler cannot prove
+    /// the resulting future has a finite size.
+    async fn handle_verify_success(
+        &self,
+        tx: &TransactionView,
+        original_peer: Option<PeerIndex>,
+    ) {
+        self.send_result_to_relayer(TxVerificationResult::Ok {
+            original_peer,
+            tx_hash: tx.hash(),
+        });
+        Box::pin(self.process_orphan_tx(tx)).await;
     }
 
     pub(crate) async fn add_orphan(
@@ -681,14 +747,9 @@ impl TxPoolService {
             let orphans = self.find_orphan_by_previous(&previous).await;
             for orphan in orphans.into_iter() {
                 if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
-                    debug!(
-                        "process_orphan {} added to verify queue; find previous from {}",
-                        orphan.tx.hash(),
-                        tx.hash(),
-                    );
                     let orphan_id = orphan.tx.proposal_short_id();
                     match self
-                        .enqueue_resolve_queue(
+                        .classify_and_enqueue_tx(
                             orphan.tx.clone(),
                             false,
                             Some((orphan.cycle, orphan.peer)),
@@ -726,13 +787,6 @@ impl TxPoolService {
                             orphan_queue.push_back(orphan.tx);
                         }
                         Err(reject) => {
-                            debug!(
-                                "process_orphan {} reject {}, find previous from {}",
-                                orphan.tx.hash(),
-                                reject,
-                                tx.hash(),
-                            );
-
                             if !is_missing_input(&reject) {
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
                                 if reject.is_malformed_tx() {
@@ -784,7 +838,6 @@ impl TxPoolService {
             },
         );
         self.network.ban_peer(peer, DEFAULT_BAN_TIME, reason);
-        self.resolve_queue.write().await.remove_txs_by_peer(&peer);
         self.ordered_resolve_queue
             .write()
             .await
@@ -798,72 +851,22 @@ impl TxPoolService {
         declared_cycles: Option<Cycle>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
-        let wtx_hash = tx.witness_hash();
-        let instant = Instant::now();
-        let is_sync_process = command_rx.is_none();
-
         let (ret, snapshot) = self.pre_check(&tx).await;
 
-        let (tip_hash, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let (pre_resolve_tip, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
 
-        let verify_cache = self.fetch_tx_verify_cache(&tx).await;
-        let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
-        let tip_header = snapshot.tip_header();
-        let tx_env = Arc::new(status.with_env(tip_header));
-
-        let verified_ret = verify_rtx(
-            Arc::clone(&snapshot),
-            Arc::clone(&rtx),
-            tx_env,
-            &verify_cache,
-            max_cycles,
+        self.verify_and_submit_core(
+            tx,
+            rtx,
+            status,
+            fee,
+            tx_size,
+            pre_resolve_tip,
+            snapshot,
+            declared_cycles,
             command_rx,
         )
-        .await;
-
-        let verified = try_or_return_with_snapshot!(verified_ret, snapshot);
-
-        if let Some(declared) = declared_cycles
-            && declared != verified.cycles
-        {
-            info!(
-                "process_tx declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
-                declared,
-                verified.cycles,
-                tx.hash()
-            );
-            return Some((
-                Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
-                snapshot,
-            ));
-        }
-
-        let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
-
-        let (ret, submit_snapshot) = self.submit_entry(tip_hash, entry, status).await;
-        try_or_return_with_snapshot!(ret, submit_snapshot);
-
-        self.notify_block_assembler(status).await;
-
-        if verify_cache.is_none() {
-            // update cache
-            let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
-            tokio::spawn(async move {
-                let mut guard = txs_verify_cache.write().await;
-                guard.put(wtx_hash, verified);
-            });
-        }
-
-        if let Some(metrics) = ckb_metrics::handle() {
-            let elapsed = instant.elapsed().as_secs_f64();
-            if is_sync_process {
-                metrics.ckb_tx_pool_sync_process.observe(elapsed);
-            } else {
-                metrics.ckb_tx_pool_async_process.observe(elapsed);
-            }
-        }
-
-        Some((Ok(verified), submit_snapshot))
+        .await
     }
 
     /// Verify and submit a transaction whose inputs have already been resolved.
@@ -888,10 +891,41 @@ impl TxPoolService {
             is_proposal_tx: _,
         } = resolved;
 
+        let declared_cycles = remote.map(|(cycles, _)| cycles);
+
+        self.verify_and_submit_core(
+            tx,
+            rtx,
+            status,
+            fee,
+            tx_size,
+            pre_resolve_tip,
+            snapshot,
+            declared_cycles,
+            command_rx,
+        )
+        .await
+    }
+
+    /// Shared core: verify a resolved transaction and submit it to the pool.
+    ///
+    /// Both `_process_tx` (sync path) and `_verify_and_submit_tx` (pipeline
+    /// path) converge here after the resolve step.
+    async fn verify_and_submit_core(
+        &self,
+        tx: TransactionView,
+        rtx: Arc<ResolvedTransaction>,
+        status: TxStatus,
+        fee: Capacity,
+        tx_size: usize,
+        pre_resolve_tip: Byte32,
+        snapshot: Arc<Snapshot>,
+        declared_cycles: Option<Cycle>,
+        command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
+    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
         let wtx_hash = tx.witness_hash();
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
-        let declared_cycles = remote.map(|(cycles, _)| cycles);
 
         let verify_cache = self.fetch_tx_verify_cache(&tx).await;
         let max_cycles = declared_cycles.unwrap_or_else(|| self.consensus.max_block_cycles());
@@ -914,7 +948,7 @@ impl TxPoolService {
             && declared != verified.cycles
         {
             info!(
-                "verify_and_submit_tx declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
+                "declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
                 declared,
                 verified.cycles,
                 tx.hash()
@@ -933,7 +967,6 @@ impl TxPoolService {
         self.notify_block_assembler(status).await;
 
         if verify_cache.is_none() {
-            // update cache
             let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
             tokio::spawn(async move {
                 let mut guard = txs_verify_cache.write().await;
@@ -1034,7 +1067,12 @@ impl TxPoolService {
         }
     }
 
-    async fn enqueue_resolve_queue(
+    /// Classify a transaction and enqueue it for verification or ordered resolve.
+    ///
+    /// This is the core entry-point classifier.  It checks whether the tx
+    /// depends on an in-flight pipeline tx, runs `pre_check`, and routes the
+    /// result to the appropriate queue.
+    pub(crate) async fn classify_and_enqueue_tx(
         &self,
         tx: TransactionView,
         is_proposal_tx: bool,
@@ -1044,10 +1082,10 @@ impl TxPoolService {
 
         // If this tx spends an output produced by another tx already in the
         // pipeline, route it directly to the ordered resolver to avoid a failing
-        // pre-resolve and the resulting orphan-pool churn.
+        // pre_check and the resulting orphan-pool churn.
         let depends_on_pipeline = {
-            let resolve_queue = self.resolve_queue.read().await;
-            if resolve_queue.depends_on(&tx) {
+            let ordered = self.ordered_resolve_queue.read().await;
+            if ordered.depends_on(&tx) {
                 true
             } else {
                 let verify_queue = self.verify_queue.read().await;
@@ -1060,20 +1098,107 @@ impl TxPoolService {
             if ordered.contains_key(&id) {
                 return Ok(false);
             }
-            ordered.add_tx(crate::resolved_tx::ResolveJob {
+            return ordered.add_tx(crate::resolved_tx::ResolveJob {
                 tx,
                 remote,
                 is_proposal_tx,
             });
-            return Ok(true);
         }
 
-        let mut queue = self.resolve_queue.write().await;
-        queue.add_tx(crate::resolved_tx::ResolveJob {
+        // Run pre_check once at the entry point.
+        let (pre_check_ret, snapshot) = self.pre_check(&tx).await;
+
+        match pre_check_ret {
+            Ok((pre_resolve_tip, rtx, status, fee, tx_size)) => {
+                let resolved = crate::resolved_tx::ResolvedTx {
+                    tx: tx.clone(),
+                    rtx,
+                    status,
+                    fee,
+                    tx_size,
+                    pre_resolve_tip,
+                    snapshot: Arc::clone(&snapshot),
+                    remote,
+                    is_proposal_tx,
+                };
+                let mut verify_queue = self.verify_queue.write().await;
+                match verify_queue.add_tx(resolved) {
+                    Ok(added) => Ok(added),
+                    Err(reject) => {
+                        self.after_process(tx, remote, &snapshot, &Err(reject.clone())).await;
+                        Err(reject)
+                    }
+                }
+            }
+            Err(reject) if crate::util::is_missing_input(&reject) => {
+                let mut ordered = self.ordered_resolve_queue.write().await;
+                if ordered.contains_key(&id) {
+                    return Ok(false);
+                }
+                ordered.add_tx(crate::resolved_tx::ResolveJob {
+                    tx,
+                    remote,
+                    is_proposal_tx,
+                })
+            }
+            Err(reject) => {
+                self.after_process(tx, remote, &snapshot, &Err(reject.clone())).await;
+                Err(reject)
+            }
+        }
+    }
+
+    /// Entry-point classifier used by remote/local submission.
+    ///
+    /// Dependent transactions (those that spend an output currently in flight)
+    /// are handled synchronously so they land in the ordered resolve queue in
+    /// arrival order and errors propagate to the caller.  Independent
+    /// transactions are sent to a fixed-size worker pool so that the expensive
+    /// `pre_check` work does not serialize inside the service actor.
+    #[cfg(feature = "pipeline")]
+    async fn classify_and_enqueue_tx_spawn(
+        &self,
+        tx: TransactionView,
+        is_proposal_tx: bool,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<bool, Reject> {
+        let depends_on_pipeline = {
+            let ordered = self.ordered_resolve_queue.read().await;
+            if ordered.depends_on(&tx) {
+                true
+            } else {
+                let verify_queue = self.verify_queue.read().await;
+                verify_queue.depends_on(&tx)
+            }
+        };
+
+        if depends_on_pipeline {
+            // Route dependent txs synchronously to the ordered resolve queue
+            // so they land in arrival order.  We inline the dedup + enqueue
+            // here to avoid repeating the depends_on_pipeline check that
+            // classify_and_enqueue_tx would otherwise perform again.
+            let id = tx.proposal_short_id();
+            let mut ordered = self.ordered_resolve_queue.write().await;
+            if ordered.contains_key(&id) {
+                return Ok(false);
+            }
+            return ordered.add_tx(crate::resolved_tx::ResolveJob {
+                tx,
+                remote,
+                is_proposal_tx,
+            });
+        }
+
+        let job = PreCheckJob {
             tx,
-            remote,
             is_proposal_tx,
-        })
+            remote,
+        };
+        self.pre_check_queue.push(job);
+
+        // Returning Ok(true) only means the tx was accepted into the pipeline;
+        // actual classification/verification happens in the worker pool.
+        Ok(true)
     }
 
     async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {

@@ -2,10 +2,9 @@
 
 use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
-use crate::component::resolve_queue::ResolveQueue;
 use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
-use crate::resolve_mgr::{OrderedResolver, PreResolveMgr, ResolveExit};
+use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::TxPoolConfig;
@@ -181,11 +180,18 @@ fn service_with_pipeline_workers(
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
     let (block_assembler_sender, _) = mpsc::channel(1);
 
-    let resolve_queue = Arc::new(RwLock::new(ResolveQueue::new()));
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
     let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    #[cfg(feature = "pipeline")]
+    let max_workers = config.max_tx_verify_workers.max(1);
+    #[cfg(feature = "pipeline")]
+    let pre_check_workers = max_workers.min(4);
+    #[cfg(feature = "pipeline")]
+    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
+    #[cfg(feature = "pipeline")]
+    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
@@ -197,28 +203,34 @@ fn service_with_pipeline_workers(
         callbacks: Arc::new(Callbacks::new()),
         network: super::chunk::network(&consensus),
         tx_relay_sender,
-        resolve_queue: Arc::clone(&resolve_queue),
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        #[cfg(feature = "pipeline")]
+        pre_check_queue: Arc::clone(&pre_check_queue),
     };
+
+    #[cfg(feature = "pipeline")]
+    {
+        for _ in 0..pre_check_workers {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            tokio::spawn(async move {
+                while let Some(job) = queue.pop().await {
+                    let _ = svc
+                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                        .await;
+                }
+            });
+        }
+    }
 
     let signal = CancellationToken::new();
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
-
-    let mut pre_resolve_mgr = PreResolveMgr::new(
-        service.clone(),
-        Arc::clone(&resolve_queue),
-        Arc::clone(&ordered_resolve_queue),
-        Arc::clone(&verify_queue),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
-    tokio::spawn(async move { pre_resolve_mgr.run().await });
 
     let ordered_resolver = OrderedResolver::new(
         service.clone(),
@@ -384,11 +396,18 @@ fn secp_service_with_pipeline_workers(
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
     let (block_assembler_sender, _) = mpsc::channel(1);
 
-    let resolve_queue = Arc::new(RwLock::new(ResolveQueue::new()));
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
     let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    #[cfg(feature = "pipeline")]
+    let max_workers = config.max_tx_verify_workers.max(1);
+    #[cfg(feature = "pipeline")]
+    let pre_check_workers = max_workers.min(4);
+    #[cfg(feature = "pipeline")]
+    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
+    #[cfg(feature = "pipeline")]
+    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
@@ -400,28 +419,34 @@ fn secp_service_with_pipeline_workers(
         callbacks: Arc::new(Callbacks::new()),
         network: super::chunk::network(&consensus),
         tx_relay_sender,
-        resolve_queue: Arc::clone(&resolve_queue),
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        #[cfg(feature = "pipeline")]
+        pre_check_queue: Arc::clone(&pre_check_queue),
     };
+
+    #[cfg(feature = "pipeline")]
+    {
+        for _ in 0..pre_check_workers {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            tokio::spawn(async move {
+                while let Some(job) = queue.pop().await {
+                    let _ = svc
+                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                        .await;
+                }
+            });
+        }
+    }
 
     let signal = CancellationToken::new();
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
-
-    let mut pre_resolve_mgr = PreResolveMgr::new(
-        service.clone(),
-        Arc::clone(&resolve_queue),
-        Arc::clone(&ordered_resolve_queue),
-        Arc::clone(&verify_queue),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
-    tokio::spawn(async move { pre_resolve_mgr.run().await });
 
     let ordered_resolver = OrderedResolver::new(
         service.clone(),
@@ -649,17 +674,17 @@ async fn pipeline_rejects_conflicting_double_spend() {
     let _ = res_a.expect("task a should not panic");
     let _ = res_b.expect("task b should not panic");
 
-    // Wait for the pipeline to drain. Both txs should leave the resolve/verify
+    // Wait for the pipeline to drain. Both txs should leave the ordered/verify
     // queues and exactly one must land in the pending pool.
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let (pending, resolve_len, verify_len) = {
+            let (pending, ordered_len, verify_len) = {
                 let pool = service.tx_pool.read().await;
-                let resolve = service.resolve_queue.read().await;
+                let ordered = service.ordered_resolve_queue.read().await;
                 let verify = service.verify_queue.read().await;
-                (pool.pool_map.pending_size(), resolve.len(), verify.len())
+                (pool.pool_map.pending_size(), ordered.len(), verify.len())
             };
-            if pending == 1 && resolve_len == 0 && verify_len == 0 {
+            if pending == 1 && ordered_len == 0 && verify_len == 0 {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;

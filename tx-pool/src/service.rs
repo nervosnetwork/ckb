@@ -593,9 +593,6 @@ impl TxPoolServiceBuilder {
     pub fn start(self, network: NetworkController) {
         let consensus = self.snapshot.cloned_consensus();
 
-        let resolve_queue = Arc::new(RwLock::new(
-            crate::component::resolve_queue::ResolveQueue::new(),
-        ));
         let ordered_resolve_queue = Arc::new(RwLock::new(
             crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
         ));
@@ -614,6 +611,17 @@ impl TxPoolServiceBuilder {
         };
 
         let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
+        #[cfg(feature = "pipeline")]
+        let max_workers = tx_pool.config.max_tx_verify_workers.max(1);
+        // Cap pre-check concurrency so that cheap pre-resolution does not starve
+        // the heavier verification workers on the shared 8-thread runtime.
+        #[cfg(feature = "pipeline")]
+        let pre_check_workers = max_workers.min(4);
+        #[cfg(feature = "pipeline")]
+        let pre_check_cancel = self.signal_receiver.child_token();
+        #[cfg(feature = "pipeline")]
+        let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
@@ -623,29 +631,34 @@ impl TxPoolServiceBuilder {
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
             block_assembler_sender,
-            resolve_queue: Arc::clone(&resolve_queue),
             ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
             verify_queue: Arc::clone(&verify_queue),
             network,
             consensus,
             fee_estimator: self.fee_estimator,
+            #[cfg(feature = "pipeline")]
+            pre_check_queue: Arc::clone(&pre_check_queue),
         };
+
+        #[cfg(feature = "pipeline")]
+        {
+            for _ in 0..pre_check_workers {
+                let svc = service.clone();
+                let queue = Arc::clone(&pre_check_queue);
+                self.handle.spawn(async move {
+                    while let Some(job) = queue.pop().await {
+                        let _ = svc
+                            .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                            .await;
+                    }
+                });
+            }
+        }
 
         let chunk_rx_for_resolvers = self.chunk_rx.clone();
         let mut verify_mgr =
             VerifyMgr::new(service.clone(), self.chunk_rx, self.signal_receiver.clone());
         self.handle.spawn(async move { verify_mgr.run().await });
-
-        let mut pre_resolve_mgr = crate::resolve_mgr::PreResolveMgr::new(
-            service.clone(),
-            Arc::clone(&resolve_queue),
-            Arc::clone(&ordered_resolve_queue),
-            Arc::clone(&verify_queue),
-            chunk_rx_for_resolvers.clone(),
-            self.signal_receiver.child_token(),
-        );
-        self.handle
-            .spawn(async move { pre_resolve_mgr.run().await });
 
         let resolver_exit_signal = self.signal_receiver.child_token();
         let service_for_resolver = service.clone();
@@ -825,12 +838,16 @@ pub(crate) struct TxPoolService {
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) network: NetworkController,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
-    pub(crate) resolve_queue: Arc<RwLock<crate::component::resolve_queue::ResolveQueue>>,
     pub(crate) ordered_resolve_queue:
         Arc<RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>>,
     pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     pub(crate) fee_estimator: FeeEstimator,
+    /// Queue used to offload independent tx classification to a fixed-size
+    /// worker pool.  Dependent txs are still handled synchronously in the
+    /// service actor to preserve ordering.
+    #[cfg(feature = "pipeline")]
+    pub(crate) pre_check_queue: Arc<crate::process::PreCheckQueue>,
 }
 
 /// tx verification result
@@ -1061,7 +1078,6 @@ async fn process(mut service: TxPoolService, message: Message) {
             };
         }
         Message::ClearVerifyQueue(Request { responder, .. }) => {
-            service.resolve_queue.write().await.clear();
             service.ordered_resolve_queue.write().await.clear();
             service.verify_queue.write().await.clear();
             if let Err(e) = responder.send(()) {
