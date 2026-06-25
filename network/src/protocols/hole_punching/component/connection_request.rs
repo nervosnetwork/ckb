@@ -124,16 +124,14 @@ impl<'a> ConnectionRequestProcess<'a> {
             return StatusCode::InvalidRoute.with_context("the route length is too long");
         }
 
-        let self_peer_id = self.protocol.network_state.local_peer_id();
-        if content.route.contains(self_peer_id) {
+        let self_peer_id = self.protocol.network_state.local_peer_id().clone();
+        if content.route.contains(&self_peer_id) {
             return StatusCode::Ignore.with_context("the message is passed, ignore it");
         }
 
-        if self
+        if !self
             .protocol
-            .forward_rate_limiter
-            .check_key(&(content.from.clone(), content.to.clone(), self.msg_item_id))
-            .is_err()
+            .check_forward_rate_limit(&content.from, &content.to, self.msg_item_id)
         {
             debug!(
                 "from: {}, to {}, item_name: {}, rate limit is reached",
@@ -142,13 +140,13 @@ impl<'a> ConnectionRequestProcess<'a> {
             return StatusCode::TooManyRequests.with_context("ConnectionRequest");
         }
 
-        if self_peer_id == &content.to {
+        if self_peer_id == content.to {
             self.respond_delivered(content.from, &content.to, content.listen_addrs)
                 .await
         } else if content.max_hops == 0u8 {
             StatusCode::ReachedMaxHops.into()
         } else {
-            self.forward_message(self_peer_id, &content.to).await
+            self.forward_message(&self_peer_id, &content.to).await
         }
     }
 

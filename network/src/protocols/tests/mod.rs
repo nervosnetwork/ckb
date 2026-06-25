@@ -29,6 +29,8 @@ use p2p::{
 use tempfile::tempdir;
 
 mod discovery;
+#[cfg(not(target_family = "wasm"))]
+mod hole_punching;
 
 struct Node {
     listen_addr: Multiaddr,
