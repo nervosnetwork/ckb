@@ -11,12 +11,12 @@ use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_crypto::secp::Privkey;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::attach_block_cell;
-use ckb_crypto::secp::Privkey;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::{MockStore, always_success_cell};
 use ckb_types::{
@@ -265,7 +265,8 @@ async fn measured_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
 // secp256k1 1-in-1-out helpers
 // -----------------------------------------------------------------------------
 
-const SECP_PRIVKEY: H256 = h256!("0xb2b3324cece882bca684eaf202667bb56ed8e8c2fd4b4dc71f615ebd6d9055a5");
+const SECP_PRIVKEY: H256 =
+    h256!("0xb2b3324cece882bca684eaf202667bb56ed8e8c2fd4b4dc71f615ebd6d9055a5");
 const SECP_PUBKEY_HASH: H160 = h160!("0x779e5930892a0a9bf2fedfe048f685466c7d0396");
 // 50,000 CKB and 1,000 CKB expressed in shannons (1 CKB = 10^8 shannons).
 const SECP_ISSUE_CAPACITY: u64 = 50_000 * 100_000_000;
@@ -497,11 +498,6 @@ async fn submit_local_tx(service: &TxPoolService, tx: TransactionView) -> u64 {
     ret.expect("local tx should be accepted").cycles
 }
 
-async fn clear_verify_cache(service: &TxPoolService) {
-    let mut cache = service.txs_verify_cache.write().await;
-    *cache = init_cache();
-}
-
 async fn verify_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
     let (pre_check_ret, snapshot) = service.pre_check(&tx).await;
     let (_tip_hash, rtx, status, _fee, _tx_size) =
@@ -612,57 +608,6 @@ async fn pipeline_preserves_order_for_dependent_txs() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn pipeline_throughput() {
-    const TX_COUNT: usize = 500;
-    let (service, _relay, signal, _store, issue_out_points) =
-        service_with_pipeline_workers(TX_COUNT, 8);
-
-    let txs: Vec<_> = issue_out_points
-        .iter()
-        .map(|out_point| build_tx(out_point, 4_000))
-        .collect();
-
-    let cycles = measured_cycles(&service, txs[0].clone()).await;
-
-    let start = std::time::Instant::now();
-
-    let handles: Vec<_> = txs
-        .into_iter()
-        .map(|tx| {
-            let service = service.clone();
-            tokio::spawn(async move {
-                service
-                    .submit_remote_tx(tx, cycles, 1.into())
-                    .await
-                    .expect("enqueue remote tx should succeed");
-            })
-        })
-        .collect();
-    for h in handles {
-        h.await.unwrap();
-    }
-
-    tokio::time::timeout(Duration::from_secs(30), async {
-        loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
-            if pending == TX_COUNT {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("pipeline should process all txs in time");
-
-    let elapsed = start.elapsed();
-    let throughput = TX_COUNT as f64 / elapsed.as_secs_f64();
-    eprintln!("pipeline throughput: {TX_COUNT} txs in {elapsed:?} => {throughput:.1} tx/s",);
-
-    signal.cancel();
-    tokio::time::sleep(Duration::from_millis(100)).await;
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_rejects_conflicting_double_spend() {
     // Two remote txs spend the same chain output concurrently.
@@ -695,16 +640,10 @@ async fn pipeline_rejects_conflicting_double_spend() {
 
     let service_a = service.clone();
     let service_b = service.clone();
-    let handle_a = tokio::spawn(async move {
-        service_a
-            .submit_remote_tx(tx_a, cycles_a, 1.into())
-            .await
-    });
-    let handle_b = tokio::spawn(async move {
-        service_b
-            .submit_remote_tx(tx_b, cycles_b, 1.into())
-            .await
-    });
+    let handle_a =
+        tokio::spawn(async move { service_a.submit_remote_tx(tx_a, cycles_a, 1.into()).await });
+    let handle_b =
+        tokio::spawn(async move { service_b.submit_remote_tx(tx_b, cycles_b, 1.into()).await });
 
     let (res_a, res_b) = tokio::join!(handle_a, handle_b);
     let _ = res_a.expect("task a should not panic");
@@ -718,11 +657,7 @@ async fn pipeline_rejects_conflicting_double_spend() {
                 let pool = service.tx_pool.read().await;
                 let resolve = service.resolve_queue.read().await;
                 let verify = service.verify_queue.read().await;
-                (
-                    pool.pool_map.pending_size(),
-                    resolve.len(),
-                    verify.len(),
-                )
+                (pool.pool_map.pending_size(), resolve.len(), verify.len())
             };
             if pending == 1 && resolve_len == 0 && verify_len == 0 {
                 break;
@@ -801,7 +736,11 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
 
     let parent = build_secp_tx(issue_out_point, &cell_deps, SECP_ISSUE_CAPACITY - SECP_FEE);
     let parent_output = OutPoint::new(parent.hash(), 0);
-    let child = build_secp_tx(&parent_output, &cell_deps, SECP_ISSUE_CAPACITY - 2 * SECP_FEE);
+    let child = build_secp_tx(
+        &parent_output,
+        &cell_deps,
+        SECP_ISSUE_CAPACITY - 2 * SECP_FEE,
+    );
 
     // Put parent into the pool temporarily so we can measure the child's exact
     // verification cycles, then remove it so the child must go through orphan
@@ -836,76 +775,6 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
 
     let pending = service.tx_pool.read().await.pool_map.pending_size();
     assert_eq!(pending, 2);
-
-    signal.cancel();
-    tokio::time::sleep(Duration::from_millis(100)).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn secp_remote_throughput() {
-    // Smaller count than the always-success benchmark because real secp256k1
-    // verification is much heavier, especially in debug builds.
-    const TX_COUNT: usize = 500;
-    let (service, _relay, signal, _store, issue_out_points, cell_deps) =
-        secp_service_with_pipeline_workers(TX_COUNT, 8);
-
-    let txs: Vec<_> = issue_out_points
-        .iter()
-        .map(|out_point| build_secp_tx(out_point, &cell_deps, SECP_ISSUE_CAPACITY - SECP_FEE))
-        .collect();
-
-    // Measure exact cycles for every tx without adding them to the pool, so the
-    // benchmark only times the pipeline (resolve + verify + submit).
-    let mut cycles = Vec::with_capacity(txs.len());
-    for tx in &txs {
-        cycles.push(verify_cycles(&service, tx.clone()).await);
-    }
-
-    // Clear the verify cache so the pipeline has to run real secp256k1 script
-    // verification, matching what happens when txs first arrive from the network.
-    clear_verify_cache(&service).await;
-
-    let start = std::time::Instant::now();
-
-    let handles: Vec<_> = txs
-        .into_iter()
-        .zip(cycles)
-        .map(|(tx, cycles)| {
-            let service = service.clone();
-            tokio::spawn(async move {
-                service
-                    .submit_remote_tx(tx, cycles, 1.into())
-                    .await
-                    .expect("enqueue secp remote tx should succeed");
-            })
-        })
-        .collect();
-    for h in handles {
-        h.await.unwrap();
-    }
-
-    tokio::time::timeout(Duration::from_secs(120), async {
-        loop {
-            let pending = service.tx_pool.read().await.pool_map.pending_size();
-            if pending == TX_COUNT {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("pipeline should process all secp txs in time");
-
-    let elapsed = start.elapsed();
-    let throughput = TX_COUNT as f64 / elapsed.as_secs_f64();
-    let mode = if cfg!(feature = "pipeline") {
-        "pipeline"
-    } else {
-        "sync"
-    };
-    eprintln!(
-        "{mode} secp throughput: {TX_COUNT} txs in {elapsed:?} => {throughput:.1} tx/s",
-    );
 
     signal.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;

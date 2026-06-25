@@ -27,7 +27,7 @@ ckb-chain-spec.workspace = true
 ckb-snapshot.workspace = true
 ckb-metrics.workspace = true
 ckb-error.workspace = true
-tokio = { workspace = true, features = ["sync", "process"] }
+tokio = { workspace = true, features = ["sync", "process", "time", "rt-multi-thread"] }
 ckb-async-runtime.workspace = true
 ckb-stop-handler.workspace = true
 ckb-app-config.workspace = true
@@ -47,6 +47,13 @@ slab.workspace = true
 rustc-hash.workspace = true
 tokio-util.workspace = true
 ckb-fee-estimator.workspace = true
+criterion = { workspace = true, optional = true }
+ckb-hash = { workspace = true, optional = true }
+ckb-crypto = { workspace = true, optional = true }
+ckb-system-scripts = { workspace = true, optional = true }
+ckb-test-chain-utils = { workspace = true, optional = true }
+ckb-dao-utils = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -57,10 +64,24 @@ ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 ckb-system-scripts.workspace = true
 ckb-crypto.workspace = true
 
+[[bench]]
+name = "pipeline"
+harness = false
+required-features = ["internal"]
+
 [features]
 default = ["pipeline"]
 pipeline = []
-internal = []
+internal = [
+    "criterion",
+    "ckb-hash",
+    "ckb-crypto",
+    "ckb-system-scripts",
+    "ckb-test-chain-utils",
+    "ckb-dao-utils",
+    "tempfile",
+]
+ci = []
 with_sentry = ["sentry"]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-snapshot/portable"]
 march-native = [

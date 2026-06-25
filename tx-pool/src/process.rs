@@ -281,9 +281,7 @@ impl TxPoolService {
         // the fee without holding the tx_pool read lock.  We only take the lock
         // briefly to check for txid collisions.
         let (collision, snapshot) = self
-            .with_tx_pool_read_lock(|tx_pool, _snapshot| {
-                check_txid_collision(tx_pool, tx).err()
-            })
+            .with_tx_pool_read_lock(|tx_pool, _snapshot| check_txid_collision(tx_pool, tx).err())
             .await;
         if let Some(reject) = collision {
             return (Err(reject), snapshot);
@@ -291,7 +289,12 @@ impl TxPoolService {
 
         let short_id = tx.proposal_short_id();
         let mut seen_inputs = HashSet::new();
-        match resolve_transaction(tx.clone(), &mut seen_inputs, snapshot.as_ref(), snapshot.as_ref()) {
+        match resolve_transaction(
+            tx.clone(),
+            &mut seen_inputs,
+            snapshot.as_ref(),
+            snapshot.as_ref(),
+        ) {
             Ok(rtx) => {
                 let rtx = Arc::new(rtx);
                 let fee = match check_tx_fee_with_min_fee_rate(
@@ -304,7 +307,10 @@ impl TxPoolService {
                     Err(reject) => return (Err(reject), snapshot),
                 };
                 let status = get_tx_status(&snapshot, &short_id);
-                (Ok((snapshot.tip_hash(), rtx, status, fee, tx_size)), snapshot)
+                (
+                    Ok((snapshot.tip_hash(), rtx, status, fee, tx_size)),
+                    snapshot,
+                )
             }
             Err(OutPointError::Unknown(_)) => {
                 // At least one input/cell dep is not in the chain snapshot.  It may

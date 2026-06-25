@@ -2,6 +2,8 @@
 //! [Two-Step-Transaction-Confirmation](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#Two-Step-Transaction-Confirmation)
 //! mechanism
 
+#[cfg(feature = "internal")]
+pub mod benchmark;
 pub mod block_assembler;
 mod callback;
 mod component;

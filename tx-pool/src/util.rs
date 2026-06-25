@@ -16,11 +16,7 @@ use ckb_verification::{
     cache::{CacheEntry, Completed},
 };
 use std::sync::Arc;
-use tokio::{
-    runtime::Handle,
-    sync::watch,
-    task::block_in_place,
-};
+use tokio::{runtime::Handle, sync::watch, task::block_in_place};
 
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
     let short_id = tx.proposal_short_id();
