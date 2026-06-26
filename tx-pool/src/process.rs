@@ -32,7 +32,9 @@ use ckb_verification::{
     cache::{CacheEntry, Completed},
 };
 use std::collections::HashSet;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
+#[cfg(not(feature = "pipeline"))]
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -140,6 +142,7 @@ impl TxPoolService {
         guard.peek(&tx.witness_hash()).cloned()
     }
 
+    #[cfg(not(feature = "pipeline"))]
     async fn fetch_txs_verify_cache(
         &self,
         txs: impl Iterator<Item = &TransactionView>,
@@ -213,27 +216,27 @@ impl TxPoolService {
                     .limit_size(&self.callbacks, Some(&entry.proposal_short_id()))
                     .map_or(Ok(()), Err)?;
 
-                if !may_recovered_txs.is_empty() {
-                    let self_clone = self.clone();
-                    tokio::spawn(async move {
-                        // push the recovered txs back to the ordered resolve queue,
-                        // so that they can be resolved, verified and submitted again
-                        let mut queue = self_clone.ordered_resolve_queue.write().await;
-                        for tx in may_recovered_txs {
-                            debug!("recover back: {:?}", tx.proposal_short_id());
-                            if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                tx,
-                                remote: None,
-                                is_proposal_tx: false,
-                            }) {
-                                warn!("failed to recover tx back to ordered resolve queue: {}", reject);
-                            }
-                        }
-                    });
-                }
-                Ok(())
+                Ok(((), may_recovered_txs))
             })
             .await;
+
+        // Send recovered txs to the deferred worker after the write lock is
+        // released. Use .send().await rather than try_send so that recovery
+        // txs are never silently dropped under high RBF frequency.
+        let ret = match ret {
+            Ok(((), recovered)) if !recovered.is_empty() => {
+                if let Err(e) = self
+                    .deferred_sender
+                    .send(crate::service::DeferredTask::RecoverTxs(recovered))
+                    .await
+                {
+                    warn!("failed to enqueue recovered txs for re-processing: {}", e);
+                }
+                Ok(())
+            }
+            Ok(((), _)) => Ok(()),
+            Err(e) => Err(e),
+        };
 
         (ret, snapshot)
     }
@@ -967,11 +970,14 @@ impl TxPoolService {
         self.notify_block_assembler(status).await;
 
         if verify_cache.is_none() {
-            let txs_verify_cache = Arc::clone(&self.txs_verify_cache);
-            tokio::spawn(async move {
-                let mut guard = txs_verify_cache.write().await;
-                guard.put(wtx_hash, verified);
-            });
+            // Defer cache update to the background worker instead of
+            // spawning a fire-and-forget task.
+            let _ = self.deferred_sender.try_send(
+                crate::service::DeferredTask::CacheUpdate {
+                    wtx_hash,
+                    verified,
+                },
+            );
         }
 
         if let Some(metrics) = ckb_metrics::handle() {
@@ -1035,12 +1041,12 @@ impl TxPoolService {
         }
         let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
+        // In non-pipeline mode, pre-fetch verify cache for batch re-verification.
+        // In pipeline mode, caching is handled per-tx by verify_and_submit_core
+        // using the correct wtx_hash key.
+        #[cfg(not(feature = "pipeline"))]
         let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
 
-        // If there are any transactions requires re-process, return them.
-        //
-        // At present, there is only one situation:
-        // - If the hardfork was happened, then re-process all transactions.
         {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.tx_pool.write().await;
@@ -1055,7 +1061,8 @@ impl TxPoolService {
                 mine_mode,
             );
 
-            // notice: readd_detached_tx don't update cache
+            // Non-pipeline path: re-verify detached txs inline (write lock held).
+            #[cfg(not(feature = "pipeline"))]
             self.readd_detached_tx(&mut tx_pool, retain, fetched_cache)
                 .await;
         }
@@ -1065,6 +1072,60 @@ impl TxPoolService {
             let mut queue = self.verify_queue.write().await;
             queue.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
+
+        // Pipeline path: feed retain txs back into the pipeline entry point.
+        // This releases the write lock before re-verification, allowing:
+        // - Concurrent verification via VerifyMgr workers
+        // - Full submit_entry path (RBF, limit_size, block assembler notification)
+        // - Correct verify cache usage (wtx_hash key in verify_and_submit_core)
+        // - Chunk/pause signal support (command_rx passed through pipeline)
+        #[cfg(feature = "pipeline")]
+        for tx in retain {
+            if let Err(e) = self.classify_and_enqueue_tx(tx, false, None).await {
+                debug!("reorg re-add tx failed: {}", e);
+            }
+        }
+    }
+
+    /// Check if a transaction depends on any in-flight pipeline transaction.
+    /// If so, route it to the ordered resolve queue.
+    ///
+    /// Returns:
+    /// - `Ok(Some(true))` — tx was dependent and successfully enqueued
+    /// - `Ok(Some(false))` — tx was dependent but is a duplicate
+    /// - `Ok(None)` — tx is independent, caller should proceed with pre_check
+    async fn check_and_route_dependent(
+        &self,
+        tx: &TransactionView,
+        is_proposal_tx: bool,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<Option<bool>, Reject> {
+        let id = tx.proposal_short_id();
+        let depends_on_pipeline = {
+            let ordered = self.ordered_resolve_queue.read().await;
+            if ordered.depends_on(tx) {
+                true
+            } else {
+                let verify_queue = self.verify_queue.read().await;
+                verify_queue.depends_on(tx)
+            }
+        };
+
+        if depends_on_pipeline {
+            let mut ordered = self.ordered_resolve_queue.write().await;
+            if ordered.contains_key(&id) {
+                return Ok(Some(false));
+            }
+            return ordered
+                .add_tx(crate::resolved_tx::ResolveJob {
+                    tx: tx.clone(),
+                    remote,
+                    is_proposal_tx,
+                })
+                .map(Some);
+        }
+
+        Ok(None)
     }
 
     /// Classify a transaction and enqueue it for verification or ordered resolve.
@@ -1080,29 +1141,8 @@ impl TxPoolService {
     ) -> Result<bool, Reject> {
         let id = tx.proposal_short_id();
 
-        // If this tx spends an output produced by another tx already in the
-        // pipeline, route it directly to the ordered resolver to avoid a failing
-        // pre_check and the resulting orphan-pool churn.
-        let depends_on_pipeline = {
-            let ordered = self.ordered_resolve_queue.read().await;
-            if ordered.depends_on(&tx) {
-                true
-            } else {
-                let verify_queue = self.verify_queue.read().await;
-                verify_queue.depends_on(&tx)
-            }
-        };
-
-        if depends_on_pipeline {
-            let mut ordered = self.ordered_resolve_queue.write().await;
-            if ordered.contains_key(&id) {
-                return Ok(false);
-            }
-            return ordered.add_tx(crate::resolved_tx::ResolveJob {
-                tx,
-                remote,
-                is_proposal_tx,
-            });
+        if let Some(routed) = self.check_and_route_dependent(&tx, is_proposal_tx, remote).await? {
+            return Ok(routed);
         }
 
         // Run pre_check once at the entry point.
@@ -1162,31 +1202,8 @@ impl TxPoolService {
         is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
-        let depends_on_pipeline = {
-            let ordered = self.ordered_resolve_queue.read().await;
-            if ordered.depends_on(&tx) {
-                true
-            } else {
-                let verify_queue = self.verify_queue.read().await;
-                verify_queue.depends_on(&tx)
-            }
-        };
-
-        if depends_on_pipeline {
-            // Route dependent txs synchronously to the ordered resolve queue
-            // so they land in arrival order.  We inline the dedup + enqueue
-            // here to avoid repeating the depends_on_pipeline check that
-            // classify_and_enqueue_tx would otherwise perform again.
-            let id = tx.proposal_short_id();
-            let mut ordered = self.ordered_resolve_queue.write().await;
-            if ordered.contains_key(&id) {
-                return Ok(false);
-            }
-            return ordered.add_tx(crate::resolved_tx::ResolveJob {
-                tx,
-                remote,
-                is_proposal_tx,
-            });
+        if let Some(routed) = self.check_and_route_dependent(&tx, is_proposal_tx, remote).await? {
+            return Ok(routed);
         }
 
         let job = PreCheckJob {
@@ -1209,6 +1226,7 @@ impl TxPoolService {
         orphan.remove_orphan_txs(txs.iter().map(|tx| tx.proposal_short_id()));
     }
 
+    #[cfg(not(feature = "pipeline"))]
     async fn readd_detached_tx(
         &self,
         tx_pool: &mut TxPool,

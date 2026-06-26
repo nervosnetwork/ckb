@@ -15,8 +15,7 @@ use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::error;
-use ckb_logger::info;
+use ckb_logger::{debug, error, info};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -42,7 +41,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::sync::watch;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{RwLock, Semaphore, mpsc};
 use tokio::task::block_in_place;
 use tokio_util::sync::CancellationToken;
 
@@ -613,14 +612,18 @@ impl TxPoolServiceBuilder {
         let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
         #[cfg(feature = "pipeline")]
         let max_workers = tx_pool.config.max_tx_verify_workers.max(1);
-        // Cap pre-check concurrency so that cheap pre-resolution does not starve
-        // the heavier verification workers on the shared 8-thread runtime.
+        // Cap pre-check concurrency to the number of available CPU cores so that
+        // cheap pre-resolution does not starve the heavier verification workers
+        // on the shared tokio runtime.
         #[cfg(feature = "pipeline")]
-        let pre_check_workers = max_workers.min(4);
+        let pre_check_workers =
+            max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
         #[cfg(feature = "pipeline")]
         let pre_check_cancel = self.signal_receiver.child_token();
         #[cfg(feature = "pipeline")]
         let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+
+        let (deferred_sender, mut deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
 
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
@@ -638,7 +641,46 @@ impl TxPoolServiceBuilder {
             fee_estimator: self.fee_estimator,
             #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
+            deferred_sender,
         };
+
+        // Spawn the deferred task worker — a single task that processes
+        // recovery tx re-enqueue and verify cache updates sequentially,
+        // preventing unbounded fire-and-forget task accumulation.
+        {
+            let svc = service.clone();
+            self.handle.spawn(async move {
+                while let Some(task) = deferred_receiver.recv().await {
+                    match task {
+                        DeferredTask::RecoverTxs(txs) => {
+                            let mut queue = svc.ordered_resolve_queue.write().await;
+                            for tx in txs {
+                                debug!("recover back: {:?}", tx.proposal_short_id());
+                                if let Err(reject) =
+                                    queue.add_tx(crate::resolved_tx::ResolveJob {
+                                        tx,
+                                        remote: None,
+                                        is_proposal_tx: false,
+                                    })
+                                {
+                                    ckb_logger::warn!(
+                                        "failed to recover tx back to ordered resolve queue: {}",
+                                        reject
+                                    );
+                                }
+                            }
+                        }
+                        DeferredTask::CacheUpdate {
+                            wtx_hash,
+                            verified,
+                        } => {
+                            let mut guard = svc.txs_verify_cache.write().await;
+                            guard.put(wtx_hash, verified);
+                        }
+                    }
+                }
+            });
+        }
 
         #[cfg(feature = "pipeline")]
         {
@@ -704,12 +746,18 @@ impl TxPoolServiceBuilder {
 
         let process_service = service.clone();
         let signal_receiver = self.signal_receiver.clone();
+        let max_workers = service.tx_pool_config.max_tx_verify_workers.max(1);
+        let semaphore = Arc::new(Semaphore::new(max_workers * 2));
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
                     Some(message) = receiver.recv() => {
                         let service_clone = process_service.clone();
-                        handle_clone.spawn(process(service_clone, message));
+                        let permit = semaphore.clone().acquire_owned().await.unwrap();
+                        handle_clone.spawn(async move {
+                            let _permit = permit;
+                            process(service_clone, message).await;
+                        });
                     },
                     _ = signal_receiver.cancelled() => {
                         info!("TxPool is saving, please wait...");
@@ -856,6 +904,8 @@ impl TxPoolServiceBuilder {
         let pre_check_queue =
             Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
 
+        let (deferred_sender, deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
+
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
@@ -872,6 +922,7 @@ impl TxPoolServiceBuilder {
             fee_estimator: self.fee_estimator,
             #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
+            deferred_sender,
         };
 
         BenchServiceParts {
@@ -880,6 +931,7 @@ impl TxPoolServiceBuilder {
             signal,
             #[cfg(feature = "pipeline")]
             pre_check_queue,
+            deferred_receiver,
         }
     }
 }
@@ -895,6 +947,7 @@ pub(crate) struct BenchServiceParts {
     pub signal: CancellationToken,
     #[cfg(feature = "pipeline")]
     pub pre_check_queue: Arc<crate::process::PreCheckQueue>,
+    pub deferred_receiver: mpsc::Receiver<DeferredTask>,
 }
 
 #[derive(Clone)]
@@ -918,6 +971,23 @@ pub(crate) struct TxPoolService {
     /// service actor to preserve ordering.
     #[cfg(feature = "pipeline")]
     pub(crate) pre_check_queue: Arc<crate::process::PreCheckQueue>,
+    /// Bounded channel for deferred side-effects (recovery tx re-enqueue,
+    /// verify cache updates). A single background worker drains this channel,
+    /// preventing unbounded task accumulation under high RBF frequency.
+    pub(crate) deferred_sender: mpsc::Sender<DeferredTask>,
+}
+
+/// Deferred side-effects that are processed by a single background worker
+/// instead of fire-and-forget `tokio::spawn` calls.
+pub(crate) enum DeferredTask {
+    /// Push RBF-displaced transactions back into the ordered resolve queue
+    /// so they can be re-resolved, re-verified and re-submitted.
+    RecoverTxs(Vec<TransactionView>),
+    /// Store a successful verification result in the cache (keyed by wtx_hash).
+    CacheUpdate {
+        wtx_hash: Byte32,
+        verified: ckb_verification::cache::Completed,
+    },
 }
 
 /// tx verification result

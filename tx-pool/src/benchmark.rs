@@ -398,6 +398,35 @@ fn start_service(
     );
     let parts = builder.build_bench_service(shared.network.clone());
 
+    // Spawn the deferred task worker (recovery tx re-enqueue + cache updates).
+    {
+        let svc = parts.service.clone();
+        let mut deferred_rx = parts.deferred_receiver;
+        tokio::spawn(async move {
+            while let Some(task) = deferred_rx.recv().await {
+                match task {
+                    crate::service::DeferredTask::RecoverTxs(txs) => {
+                        let mut queue = svc.ordered_resolve_queue.write().await;
+                        for tx in txs {
+                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
+                                tx,
+                                remote: None,
+                                is_proposal_tx: false,
+                            });
+                        }
+                    }
+                    crate::service::DeferredTask::CacheUpdate {
+                        wtx_hash,
+                        verified,
+                    } => {
+                        let mut guard = svc.txs_verify_cache.write().await;
+                        guard.put(wtx_hash, verified);
+                    }
+                }
+            }
+        });
+    }
+
     // Spawn pipeline workers using the components from the builder.
     #[cfg(feature = "pipeline")]
     let signal = parts.signal;
@@ -406,7 +435,8 @@ fn start_service(
 
     #[cfg(feature = "pipeline")]
     {
-        let pre_check_workers = max_workers.min(4);
+        let pre_check_workers =
+            max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
         for _ in 0..pre_check_workers {
             let svc = parts.service.clone();
             let queue = Arc::clone(&parts.pre_check_queue);

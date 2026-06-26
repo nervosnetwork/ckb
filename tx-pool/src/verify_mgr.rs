@@ -162,10 +162,9 @@ impl Worker {
 }
 
 pub(crate) struct VerifyMgr {
-    workers: Vec<(watch::Sender<ChunkCommand>, Worker)>,
+    workers: Vec<Worker>,
     join_handles: Option<Vec<Option<JoinHandle<()>>>>,
     signal_exit: CancellationToken,
-    command_rx: watch::Receiver<ChunkCommand>,
 }
 
 impl VerifyMgr {
@@ -179,22 +178,19 @@ impl VerifyMgr {
             .map({
                 let tasks = Arc::clone(&service.verify_queue);
                 let signal_exit = signal_exit.clone();
+                let shared_command_rx = command_rx.clone();
                 move |idx| {
                     let role = if idx == 0 && worker_num > 1 {
                         WorkerRole::OnlySmallCycleTx
                     } else {
                         WorkerRole::SubmitTimeFirst
                     };
-                    let (child_tx, child_rx) = watch::channel(ChunkCommand::Resume);
-                    (
-                        child_tx,
-                        Worker::new(
-                            service.clone(),
-                            Arc::clone(&tasks),
-                            child_rx,
-                            signal_exit.clone(),
-                            role,
-                        ),
+                    Worker::new(
+                        service.clone(),
+                        Arc::clone(&tasks),
+                        shared_command_rx.clone(),
+                        signal_exit.clone(),
+                        role,
                     )
                 }
             })
@@ -203,15 +199,6 @@ impl VerifyMgr {
             workers,
             join_handles: None,
             signal_exit,
-            command_rx,
-        }
-    }
-
-    fn send_child_command(&self, command: ChunkCommand) {
-        for w in &self.workers {
-            if let Err(err) = w.0.send(command.clone()) {
-                info!("send worker command failed, error: {}", err);
-            }
         }
     }
 
@@ -223,7 +210,7 @@ impl VerifyMgr {
         let Some(worker) = self
             .workers
             .get(worker_id)
-            .map(|(_, worker)| worker.clone())
+            .map(|worker| worker.clone())
         else {
             error!("cannot respawn missing tx-pool verify worker {}", worker_id);
             return;
@@ -262,7 +249,7 @@ impl VerifyMgr {
         let (worker_exit_tx, mut worker_exit_rx) = mpsc::unbounded_channel();
         let mut join_handles = Vec::new();
         for (worker_id, w) in self.workers.iter_mut().enumerate() {
-            let h = w.1.clone().start(worker_id, worker_exit_tx.clone());
+            let h = w.clone().start(worker_id, worker_exit_tx.clone());
             join_handles.push(Some(h));
         }
         self.join_handles.replace(join_handles);
@@ -270,12 +257,9 @@ impl VerifyMgr {
             tokio::select! {
                 _ = self.signal_exit.cancelled() => {
                     info!("TxPool chunk_command service received exit signal, exit now");
-                    self.send_child_command(ChunkCommand::Stop);
+                    // Workers will exit via their own CancellationToken;
+                    // no need to broadcast Stop through per-worker channels.
                     break;
-                },
-                _ = self.command_rx.changed() => {
-                    let command = self.command_rx.borrow().to_owned();
-                    self.send_child_command(command);
                 },
                 Some((worker_id, exit)) = worker_exit_rx.recv() => {
                     self.join_worker(worker_id).await;

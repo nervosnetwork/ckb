@@ -443,12 +443,17 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
     #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
     #[cfg(feature = "pipeline")]
-    let pre_check_workers = max_workers.min(4);
+    let pre_check_workers =
+        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
     #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
 
+    let ordered_resolve_queue = Arc::new(RwLock::new(
+        crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+    ));
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
         orphan: Arc::new(RwLock::new(OrphanPool::new())),
@@ -459,14 +464,13 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         callbacks: Arc::new(Callbacks::new()),
         network: network(&consensus),
         tx_relay_sender,
-        ordered_resolve_queue: Arc::new(RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        )),
+        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
+        deferred_sender,
     };
 
     #[cfg(feature = "pipeline")]
@@ -482,6 +486,35 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
                 }
             });
         }
+    }
+
+    // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
+    {
+        let svc = service.clone();
+        let ordered = Arc::clone(&ordered_resolve_queue);
+        tokio::spawn(async move {
+            while let Some(task) = deferred_receiver.recv().await {
+                match task {
+                    crate::service::DeferredTask::RecoverTxs(txs) => {
+                        let mut queue = ordered.write().await;
+                        for tx in txs {
+                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
+                                tx,
+                                remote: None,
+                                is_proposal_tx: false,
+                            });
+                        }
+                    }
+                    crate::service::DeferredTask::CacheUpdate {
+                        wtx_hash,
+                        verified,
+                    } => {
+                        let mut guard = svc.txs_verify_cache.write().await;
+                        guard.put(wtx_hash, verified);
+                    }
+                }
+            }
+        });
     }
 
     (service, tx_relay_receiver)
