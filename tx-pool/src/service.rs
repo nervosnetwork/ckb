@@ -15,7 +15,7 @@ use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_logger::{debug, error, info};
+use ckb_logger::{debug, error, info, warn};
 use ckb_network::{NetworkController, PeerIndex};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -34,7 +34,9 @@ use ckb_types::{
 };
 use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
+use futures_util::FutureExt;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::panic::AssertUnwindSafe;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -46,6 +48,7 @@ use tokio::task::block_in_place;
 use tokio_util::sync::CancellationToken;
 
 use crate::pool_cell::PoolCell;
+use crate::util::panic_payload_to_string;
 #[cfg(feature = "internal")]
 use crate::{component::entry::TxEntry, process::PlugTarget};
 
@@ -623,7 +626,7 @@ impl TxPoolServiceBuilder {
         #[cfg(feature = "pipeline")]
         let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
 
-        let (deferred_sender, mut deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
+        let (deferred_sender, deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
 
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
@@ -644,41 +647,61 @@ impl TxPoolServiceBuilder {
             deferred_sender,
         };
 
-        // Spawn the deferred task worker — a single task that processes
-        // recovery tx re-enqueue and verify cache updates sequentially,
-        // preventing unbounded fire-and-forget task accumulation.
+        // Spawn the deferred task worker with panic-respawn protection.
+        // Recovery tx re-enqueue and verify cache updates run sequentially
+        // in a single background task, with automatic respawn on panic.
         {
             let svc = service.clone();
             self.handle.spawn(async move {
-                while let Some(task) = deferred_receiver.recv().await {
-                    match task {
-                        DeferredTask::RecoverTxs(txs) => {
-                            let mut queue = svc.ordered_resolve_queue.write().await;
-                            for tx in txs {
-                                debug!("recover back: {:?}", tx.proposal_short_id());
-                                if let Err(reject) =
-                                    queue.add_tx(crate::resolved_tx::ResolveJob {
-                                        tx,
-                                        remote: None,
-                                        is_proposal_tx: false,
-                                    })
-                                {
-                                    ckb_logger::warn!(
-                                        "failed to recover tx back to ordered resolve queue: {}",
-                                        reject
-                                    );
+                let mut deferred_rx = deferred_receiver;
+                loop {
+                    // recv() is outside catch_unwind: the mpsc receiver is not
+                    // poisoned by panics in the message handler below.
+                    let task = match deferred_rx.recv().await {
+                        Some(task) => task,
+                        None => break, // channel closed, exit
+                    };
+                    let svc = &svc;
+                    let handler = async {
+                        match task {
+                            DeferredTask::RecoverTxs(txs) => {
+                                let mut queue = svc.ordered_resolve_queue.write().await;
+                                for tx in txs {
+                                    debug!("recover back: {:?}", tx.proposal_short_id());
+                                    if let Err(reject) =
+                                        queue.add_tx(crate::resolved_tx::ResolveJob {
+                                            tx,
+                                            remote: None,
+                                            is_proposal_tx: false,
+                                            attempts: 0,
+                                        })
+                                    {
+                                        warn!(
+                                            "failed to recover tx back to ordered resolve queue: {}",
+                                            reject
+                                        );
+                                    }
                                 }
                             }
+                            DeferredTask::CacheUpdate {
+                                wtx_hash,
+                                verified,
+                            } => {
+                                let mut guard = svc.txs_verify_cache.write().await;
+                                guard.put(wtx_hash, verified);
+                            }
                         }
-                        DeferredTask::CacheUpdate {
-                            wtx_hash,
-                            verified,
-                        } => {
-                            let mut guard = svc.txs_verify_cache.write().await;
-                            guard.put(wtx_hash, verified);
+                    };
+                    match AssertUnwindSafe(handler).catch_unwind().await {
+                        Ok(()) => {}
+                        Err(payload) => {
+                            let message = panic_payload_to_string(payload.as_ref());
+                            error!("deferred task worker panicked: {}; respawning", message);
+                            // Loop continues: receiver is still valid, next recv() picks up.
                         }
                     }
                 }
+                info!("deferred task worker exited (channel closed)");
             });
         }
 
@@ -882,7 +905,7 @@ impl TxPoolServiceBuilder {
     /// both [`Self::start`] (production) and the benchmark harness.  The
     /// caller is responsible for spawning the pipeline workers that the
     /// returned service depends on.
-    #[cfg(any(test, feature = "internal"))]
+    #[cfg(feature = "internal")]
     pub(crate) fn build_bench_service(self, network: NetworkController) -> BenchServiceParts {
         let consensus = self.snapshot.cloned_consensus();
 
@@ -940,7 +963,7 @@ impl TxPoolServiceBuilder {
 ///
 /// The caller must spawn the pre-check workers, [`VerifyMgr`], and
 /// [`OrderedResolver`] using these components.
-#[cfg(any(test, feature = "internal"))]
+#[cfg(feature = "internal")]
 pub(crate) struct BenchServiceParts {
     pub service: TxPoolService,
     #[cfg(feature = "pipeline")]

@@ -267,7 +267,7 @@ impl VerifyQueue {
         });
         self.flight.insert(
             id.clone(),
-            &self.inner.get_by_id(&id).expect("just inserted").inner.tx(),
+            self.inner.get_by_id(&id).expect("just inserted").inner.tx(),
         );
         self.total_tx_size = total_tx_size;
         self.ready_rx.notify_one();

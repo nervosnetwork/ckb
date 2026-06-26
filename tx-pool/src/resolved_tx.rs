@@ -23,6 +23,10 @@ pub struct ResolveJob {
     pub remote: Option<(Cycle, PeerIndex)>,
     /// Whether this transaction came from a block proposal.
     pub is_proposal_tx: bool,
+    /// Number of times this local transaction has been retried because its
+    /// inputs were not yet available. Used to bound retries for orphans that
+    /// are not satisfiable.
+    pub attempts: u8,
 }
 
 /// A transaction that has been resolved and is ready for verification.

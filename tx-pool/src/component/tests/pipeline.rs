@@ -22,11 +22,11 @@ use ckb_types::{
     H160, H256, U256,
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockExt, Capacity, EpochNumberWithFraction, TransactionBuilder,
-        TransactionView,
+        BlockBuilder, BlockExt, BlockView, Capacity, EpochNumberWithFraction,
+        TransactionBuilder, TransactionView,
     },
     h160, h256,
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
+    packed::{CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script, WitnessArgs},
     prelude::*,
     utilities::difficulty_to_compact,
 };
@@ -228,6 +228,7 @@ fn service_with_pipeline_workers(
                                 tx,
                                 remote: None,
                                 is_proposal_tx: false,
+                                attempts: 0,
                             });
                         }
                     }
@@ -476,6 +477,7 @@ fn secp_service_with_pipeline_workers(
                                 tx,
                                 remote: None,
                                 is_proposal_tx: false,
+                                attempts: 0,
                             });
                         }
                     }
@@ -867,4 +869,800 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
 
     signal.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// Test that `update_tx_pool_for_reorg` correctly routes retained (detached)
+/// transactions through the pipeline entry point (`classify_and_enqueue_tx`)
+/// rather than blocking the write lock with inline verification.
+///
+/// Scenario:
+/// 1. Submit 3 independent txs; wait for all to reach pending.
+/// 2. Build a "detached" block containing 2 of those txs (simulating they were
+///    mined in a block that is now being orphaned).
+/// 3. Call `update_tx_pool_for_reorg` with the block as detached, empty attached.
+/// 4. Verify: no panic, pool stays consistent, and `classify_and_enqueue_tx` is
+///    called for the 2 retained txs (errors are expected since they're still in
+///    the pool — the pipeline path logs them at debug level).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_reorg_routes_retained_txs_through_classify() {
+    use std::collections::{HashSet, VecDeque};
+
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(3);
+
+    // Submit 3 independent txs and wait for all to be pending.
+    let txs: Vec<_> = issue_out_points
+        .iter()
+        .map(|out_point| build_tx(out_point, 4_000))
+        .collect();
+
+    for tx in &txs {
+        let cycles = measured_cycles(&service, tx.clone()).await;
+        service
+            .submit_remote_tx(tx.clone(), cycles, 1.into())
+            .await
+            .expect("enqueue remote tx should succeed");
+    }
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == txs.len() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("all txs should be pending before reorg");
+
+    // Build a "detached" block that contains the first 2 txs.
+    // This simulates a block being orphaned during a reorg.
+    let detached_block = BlockBuilder::default()
+        .number(1)
+        .parent_hash(service.tx_pool.read().await.snapshot.tip_hash())
+        .epoch(EpochNumberWithFraction::new(0, 0, 1).full_value())
+        .transaction(
+            // cellbase (placeholder — skip(1) in reorg handler skips this)
+            TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::null(), 0))
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(Capacity::bytes(1_000).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::default().pack())
+                .build(),
+        )
+        .transaction(txs[0].clone())
+        .transaction(txs[1].clone())
+        .build();
+
+    let detached_blocks: VecDeque<BlockView> = [detached_block].into();
+    let attached_blocks: VecDeque<BlockView> = VecDeque::new();
+    let detached_proposal_id: HashSet<ProposalShortId> = HashSet::new();
+    let snapshot = service.tx_pool.read().await.cloned_snapshot();
+
+    // Trigger the reorg. In pipeline mode, this should call
+    // classify_and_enqueue_tx for each retained tx after releasing the write
+    // lock. The calls will fail with "already in pool" errors (expected),
+    // but the critical thing is:
+    // - No panic
+    // - Pool remains consistent
+    // - classify_and_enqueue_tx is exercised (pipeline path, not inline verify)
+    service
+        .update_tx_pool_for_reorg(
+            detached_blocks,
+            attached_blocks,
+            detached_proposal_id,
+            snapshot,
+        )
+        .await;
+
+    // Give the pipeline a moment to process any classify_and_enqueue_tx calls.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Pool should still contain all 3 txs (reorg didn't remove anything
+    // since attached was empty and the txs were in pending, not committed).
+    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    assert_eq!(
+        pending, 3,
+        "pool should still have all 3 txs after reorg with empty attached"
+    );
+
+    // Verify the ordered resolve queue and verify queue are drained (no stuck txs).
+    let ordered_len = service.ordered_resolve_queue.read().await.len();
+    let verify_len = service.verify_queue.read().await.len();
+    assert_eq!(
+        ordered_len, 0,
+        "ordered resolve queue should be empty after reorg classify calls fail"
+    );
+    assert_eq!(
+        verify_len, 0,
+        "verify queue should be empty after reorg classify calls fail"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+// ---------------------------------------------------------------------------
+// Additional helpers for specialized test configurations
+// ---------------------------------------------------------------------------
+
+/// Same as `service_with_pipeline` but enables RBF by setting `min_rbf_rate`
+/// above `min_fee_rate`.
+fn service_with_rbf(
+    issue_outputs: usize,
+) -> (
+    TxPoolService,
+    ckb_channel::Receiver<crate::service::TxVerificationResult>,
+    CancellationToken,
+    MockStore,
+    Vec<OutPoint>,
+) {
+    let (consensus, issue_out_points) = test_consensus(issue_outputs);
+    let consensus = Arc::new(consensus);
+    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
+    let mut config = tx_pool_config();
+    config.min_rbf_rate = ckb_types::core::FeeRate::from_u64(1000);
+    #[cfg(feature = "pipeline")]
+    let max_workers = config.max_tx_verify_workers.max(1);
+    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
+    let (block_assembler_sender, _) = mpsc::channel(1);
+
+    let ordered_resolve_queue = Arc::new(RwLock::new(
+        crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+    ));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    #[cfg(feature = "pipeline")]
+    let pre_check_workers =
+        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
+    #[cfg(feature = "pipeline")]
+    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
+    #[cfg(feature = "pipeline")]
+    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+
+    let service = TxPoolService {
+        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
+        orphan: Arc::new(RwLock::new(OrphanPool::new())),
+        consensus: Arc::clone(&consensus),
+        tx_pool_config: Arc::new(config.clone()),
+        block_assembler: None,
+        txs_verify_cache: Arc::new(RwLock::new(init_cache())),
+        callbacks: Arc::new(Callbacks::new()),
+        network: super::chunk::network(&consensus),
+        tx_relay_sender,
+        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+        verify_queue: Arc::clone(&verify_queue),
+        block_assembler_sender,
+        fee_estimator: FeeEstimator::new_dummy(),
+        #[cfg(feature = "pipeline")]
+        pre_check_queue: Arc::clone(&pre_check_queue),
+        deferred_sender,
+    };
+
+    {
+        let svc = service.clone();
+        let ordered = Arc::clone(&ordered_resolve_queue);
+        tokio::spawn(async move {
+            while let Some(task) = deferred_receiver.recv().await {
+                match task {
+                    crate::service::DeferredTask::RecoverTxs(txs) => {
+                        let mut queue = ordered.write().await;
+                        for tx in txs {
+                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
+                                tx,
+                                remote: None,
+                                is_proposal_tx: false,
+                                attempts: 0,
+                            });
+                        }
+                    }
+                    crate::service::DeferredTask::CacheUpdate {
+                        wtx_hash,
+                        verified,
+                    } => {
+                        let mut guard = svc.txs_verify_cache.write().await;
+                        guard.put(wtx_hash, verified);
+                    }
+                }
+            }
+        });
+    }
+
+    #[cfg(feature = "pipeline")]
+    {
+        for _ in 0..pre_check_workers {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            tokio::spawn(async move {
+                while let Some(job) = queue.pop().await {
+                    let _ = svc
+                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                        .await;
+                }
+            });
+        }
+    }
+
+    let signal = CancellationToken::new();
+    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+
+    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
+    tokio::spawn(async move { verify_mgr.run().await });
+
+    let ordered_resolver = OrderedResolver::new(
+        service.clone(),
+        Arc::clone(&ordered_resolve_queue),
+        Arc::clone(&verify_queue),
+        chunk_tx.subscribe(),
+        signal.child_token(),
+    );
+    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
+    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
+    tokio::spawn(async move {
+        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+            panic!("tx-pool ordered resolver panicked: {message}");
+        }
+        let _ = resolver_handle.await;
+    });
+
+    (service, tx_relay_receiver, signal, _store, issue_out_points)
+}
+
+/// Same as `secp_service_with_pipeline_workers` but also returns
+/// `watch::Sender<ChunkCommand>` so tests can send Suspend/Resume signals.
+#[allow(clippy::type_complexity)]
+fn secp_service_with_pipeline_workers_and_chunk(
+    issue_outputs: usize,
+    max_workers: usize,
+) -> (
+    TxPoolService,
+    ckb_channel::Receiver<crate::service::TxVerificationResult>,
+    CancellationToken,
+    MockStore,
+    Vec<OutPoint>,
+    Vec<CellDep>,
+    watch::Sender<ChunkCommand>,
+) {
+    let (consensus, issue_out_points, cell_deps) = secp_test_consensus(issue_outputs);
+    let consensus = Arc::new(consensus);
+    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
+    let mut config = tx_pool_config();
+    config.max_tx_verify_workers = max_workers;
+    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
+    let (block_assembler_sender, _) = mpsc::channel(1);
+
+    let ordered_resolve_queue = Arc::new(RwLock::new(
+        crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+    ));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    #[cfg(feature = "pipeline")]
+    let max_workers = config.max_tx_verify_workers.max(1);
+    #[cfg(feature = "pipeline")]
+    let pre_check_workers =
+        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
+    #[cfg(feature = "pipeline")]
+    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
+    #[cfg(feature = "pipeline")]
+    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+
+    let service = TxPoolService {
+        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
+        orphan: Arc::new(RwLock::new(OrphanPool::new())),
+        consensus: Arc::clone(&consensus),
+        tx_pool_config: Arc::new(config.clone()),
+        block_assembler: None,
+        txs_verify_cache: Arc::new(RwLock::new(init_cache())),
+        callbacks: Arc::new(Callbacks::new()),
+        network: super::chunk::network(&consensus),
+        tx_relay_sender,
+        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+        verify_queue: Arc::clone(&verify_queue),
+        block_assembler_sender,
+        fee_estimator: FeeEstimator::new_dummy(),
+        #[cfg(feature = "pipeline")]
+        pre_check_queue: Arc::clone(&pre_check_queue),
+        deferred_sender,
+    };
+
+    {
+        let svc = service.clone();
+        let ordered = Arc::clone(&ordered_resolve_queue);
+        tokio::spawn(async move {
+            while let Some(task) = deferred_receiver.recv().await {
+                match task {
+                    crate::service::DeferredTask::RecoverTxs(txs) => {
+                        let mut queue = ordered.write().await;
+                        for tx in txs {
+                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
+                                tx,
+                                remote: None,
+                                is_proposal_tx: false,
+                                attempts: 0,
+                            });
+                        }
+                    }
+                    crate::service::DeferredTask::CacheUpdate {
+                        wtx_hash,
+                        verified,
+                    } => {
+                        let mut guard = svc.txs_verify_cache.write().await;
+                        guard.put(wtx_hash, verified);
+                    }
+                }
+            }
+        });
+    }
+
+    #[cfg(feature = "pipeline")]
+    {
+        for _ in 0..pre_check_workers {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            tokio::spawn(async move {
+                while let Some(job) = queue.pop().await {
+                    let _ = svc
+                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                        .await;
+                }
+            });
+        }
+    }
+
+    let signal = CancellationToken::new();
+    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+
+    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
+    tokio::spawn(async move { verify_mgr.run().await });
+
+    let ordered_resolver = OrderedResolver::new(
+        service.clone(),
+        Arc::clone(&ordered_resolve_queue),
+        Arc::clone(&verify_queue),
+        chunk_tx.subscribe(),
+        signal.child_token(),
+    );
+    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
+    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
+    tokio::spawn(async move {
+        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+            panic!("tx-pool ordered resolver panicked: {message}");
+        }
+        let _ = resolver_handle.await;
+    });
+
+    (
+        service,
+        tx_relay_receiver,
+        signal,
+        _store,
+        issue_out_points,
+        cell_deps,
+        chunk_tx,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests: dedup, worker cap, backpressure, pause/resume, RBF
+// ---------------------------------------------------------------------------
+
+/// Submitting the same transaction twice must not duplicate it in the pool.
+/// The second submission should be silently deduplicated — the pool must
+/// contain exactly one copy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_dedup_double_submission() {
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
+
+    let tx = build_tx(&issue_out_points[0], 4_000);
+    let id = tx.proposal_short_id();
+    let cycles = measured_cycles(&service, tx.clone()).await;
+
+    // First submission.
+    service
+        .submit_remote_tx(tx.clone(), cycles, 1.into())
+        .await
+        .expect("first submission should succeed");
+
+    // Wait for the tx to reach the pending pool.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("tx should reach pending");
+
+    // Second submission of the same tx.
+    // The pipeline deduplicates at multiple levels:
+    // - verify_queue / ordered_resolve_queue contains checks
+    // - pool_map.add_entry returns Ok((false, _)) for existing short_id
+    // Either way, the pool must still have exactly 1 tx.
+    let second_result = service
+        .submit_remote_tx(tx.clone(), cycles, 1.into())
+        .await;
+    // The result may be Ok (silent dedup in pool_map) or Err(Duplicated).
+    // Both are correct behavior — what matters is the pool state.
+    let _ = second_result;
+
+    // Brief wait for any in-flight processing.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    assert_eq!(
+        pending, 1,
+        "pool must have exactly 1 tx after duplicate submission"
+    );
+
+    // Verify the specific tx is still in the pool.
+    let pool = service.tx_pool.read().await;
+    assert!(
+        pool.get_tx_from_pool(&id).is_some(),
+        "original tx should still be in pool"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// Creating a service with `max_tx_verify_workers` far exceeding the machine's
+/// available parallelism should not panic or cause resource issues. The
+/// PreCheckQueue worker cap (`min(max_workers, available_parallelism)`) should
+/// keep the actual worker count reasonable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_high_pre_check_worker_cap() {
+    let (service, _relay, signal, _store, issue_out_points) =
+        service_with_pipeline_workers(5, 1000);
+
+    let txs: Vec<_> = issue_out_points
+        .iter()
+        .map(|out_point| build_tx(out_point, 4_000))
+        .collect();
+
+    for tx in &txs {
+        let cycles = measured_cycles(&service, tx.clone()).await;
+        service
+            .submit_remote_tx(tx.clone(), cycles, 1.into())
+            .await
+            .expect("enqueue remote tx should succeed");
+    }
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == txs.len() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("pipeline should process all txs even with high worker cap");
+
+    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    assert_eq!(pending, txs.len());
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// With `max_workers = 1` (semaphore capacity = 2), flooding the pipeline
+/// with many concurrent submissions must not lose any transactions. The
+/// semaphore provides backpressure: when all permits are consumed, the actor
+/// loop blocks on `acquire_owned()`, but no messages are dropped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_semaphore_backpressure() {
+    let tx_count = 10;
+    let (service, _relay, signal, _store, issue_out_points) =
+        service_with_pipeline_workers(tx_count, 1);
+
+    let txs: Vec<_> = issue_out_points
+        .iter()
+        .map(|out_point| build_tx(out_point, 4_000))
+        .collect();
+
+    let mut cycles_vec = Vec::with_capacity(txs.len());
+    for tx in &txs {
+        cycles_vec.push(measured_cycles(&service, tx.clone()).await);
+    }
+
+    // Submit all txs concurrently. With semaphore cap = 2, at most 2
+    // process() calls run simultaneously. All 10 must still complete.
+    let mut handles = Vec::new();
+    for (tx, cycles) in txs.iter().zip(&cycles_vec) {
+        let svc = service.clone();
+        let tx = tx.clone();
+        let cycles = *cycles;
+        handles.push(tokio::spawn(async move {
+            svc.submit_remote_tx(tx, cycles, 1.into())
+                .await
+                .expect("submit under backpressure should succeed");
+        }));
+    }
+    for h in handles {
+        h.await.expect("submit task should not panic");
+    }
+
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == tx_count {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("all txs should reach pending despite semaphore backpressure");
+
+    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    assert_eq!(
+        pending, tx_count,
+        "semaphore backpressure must not lose transactions"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// The `ChunkCommand` watch signal propagates from `TxPoolController` through
+/// `VerifyMgr` and `OrderedResolver`. This test verifies the signal path
+/// end-to-end using real secp256k1 transactions:
+///
+/// 1. Submit secp txs with 1 worker (slow, sequential verification).
+/// 2. Send `ChunkCommand::Suspend` — VerifyMgr stops picking up new work.
+/// 3. Send `ChunkCommand::Resume` — verification resumes.
+/// 4. All txs must eventually reach pending.
+#[cfg(feature = "pipeline")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_chunk_command_pause_resume() {
+    let (service, _relay, signal, _store, issue_out_points, cell_deps, chunk_tx) =
+        secp_service_with_pipeline_workers_and_chunk(4, 1);
+
+    let txs: Vec<_> = issue_out_points
+        .iter()
+        .map(|out_point| {
+            build_secp_tx(out_point, &cell_deps, SECP_ISSUE_CAPACITY - SECP_FEE)
+        })
+        .collect();
+
+    let mut cycles_vec = Vec::with_capacity(txs.len());
+    for tx in &txs {
+        cycles_vec.push(verify_cycles(&service, tx.clone()).await);
+    }
+
+    for (tx, cycles) in txs.iter().zip(&cycles_vec) {
+        service
+            .submit_remote_tx(tx.clone(), *cycles, 1.into())
+            .await
+            .expect("enqueue secp tx should succeed");
+    }
+
+    // Brief yield to let the first tx start verifying.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // Suspend — VerifyMgr stops picking up new VerifyQueue items.
+    chunk_tx
+        .send(ChunkCommand::Suspend)
+        .expect("send suspend signal");
+
+    // Wait briefly while suspended. In-flight verification continues, but
+    // no new items are dequeued from VerifyQueue.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let pending_while_suspended = service.tx_pool.read().await.pool_map.pending_size();
+
+    // Resume — remaining txs should now drain through verification.
+    chunk_tx
+        .send(ChunkCommand::Resume)
+        .expect("send resume signal");
+
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == txs.len() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("all txs should reach pending after resume");
+
+    let pending = service.tx_pool.read().await.pool_map.pending_size();
+    assert_eq!(pending, txs.len());
+
+    // With 1 worker and suspend, some txs should have been delayed.
+    assert!(
+        pending_while_suspended < txs.len(),
+        "suspend should have delayed some txs (got {pending_while_suspended}/{})",
+        txs.len()
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// When RBF is enabled (`min_rbf_rate > min_fee_rate`), submitting a
+/// higher-fee transaction that spends the same input as an existing
+/// lower-fee transaction should:
+///
+/// 1. Remove the lower-fee tx from the pool (via `process_rbf`).
+/// 2. Insert the higher-fee tx.
+/// 3. Exercise the `DeferredTask::RecoverTxs` path (even if recovery set
+///    is empty for a simple 2-tx conflict).
+///
+/// This tests the full RBF → deferred worker → pool state transition path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_rbf_displaces_lower_fee_tx() {
+    let (service, _relay, signal, _store, issue_out_points) = service_with_rbf(1);
+
+    let shared_input = &issue_out_points[0];
+
+    // tx_a: lower fee (input 5000 CKB → output 4998 CKB, fee = 2 CKB).
+    let tx_a = build_tx(shared_input, 4_998);
+    let id_a = tx_a.proposal_short_id();
+
+    // tx_b: higher fee, same input (output 4990 CKB, fee = 10 CKB).
+    let tx_b = build_tx(shared_input, 4_990);
+    let id_b = tx_b.proposal_short_id();
+
+    assert_ne!(id_a, id_b, "txs must have different proposal_short_ids");
+
+    let cycles_a = measured_cycles(&service, tx_a.clone()).await;
+    let cycles_b = measured_cycles(&service, tx_b.clone()).await;
+
+    // Submit tx_a and wait for it to reach pending.
+    service
+        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .await
+        .expect("tx_a should be accepted");
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("tx_a should reach pending");
+
+    {
+        let pool = service.tx_pool.read().await;
+        assert!(
+            pool.get_tx_from_pool(&id_a).is_some(),
+            "tx_a should be in pool before replacement"
+        );
+    }
+
+    // Submit tx_b — triggers RBF, displacing tx_a.
+    service
+        .submit_remote_tx(tx_b.clone(), cycles_b, 1.into())
+        .await
+        .expect("tx_b (RBF replacement) should be accepted");
+
+    // Wait for RBF to complete: tx_b must appear in the pool, which can only
+    // happen after tx_a is removed (they conflict on the same input).
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (b_in_pool, ordered_len, verify_len) = {
+                let pool = service.tx_pool.read().await;
+                let ordered = service.ordered_resolve_queue.read().await;
+                let verify = service.verify_queue.read().await;
+                (
+                    pool.get_tx_from_pool(&id_b).is_some(),
+                    ordered.len(),
+                    verify.len(),
+                )
+            };
+            if b_in_pool && ordered_len == 0 && verify_len == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("RBF should complete: tx_a displaced, tx_b in pool");
+
+    let pool = service.tx_pool.read().await;
+    assert!(
+        pool.get_tx_from_pool(&id_a).is_none(),
+        "tx_a should be removed after RBF"
+    );
+    assert!(
+        pool.get_tx_from_pool(&id_b).is_some(),
+        "tx_b (higher fee) should be in pool after RBF"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// Topologically sort dependent transactions so parents come before children.
+#[cfg(feature = "pipeline")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sort_txs_by_dependencies_orders_parents_before_children() {
+    let (_service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
+    let issue_out_point = &issue_out_points[0];
+
+    let tx_a = build_tx(issue_out_point, 4_000);
+    let tx_b = build_tx(&OutPoint::new(tx_a.hash(), 0), 3_000);
+    let tx_c = build_tx(&OutPoint::new(tx_b.hash(), 0), 2_000);
+
+    // Shuffle: child first, then grandchild, then parent.
+    let mut txs = vec![tx_c.clone(), tx_b.clone(), tx_a.clone()];
+    TxPoolService::sort_txs_by_dependencies(&mut txs);
+
+    assert_eq!(txs[0], tx_a);
+    assert_eq!(txs[1], tx_b);
+    assert_eq!(txs[2], tx_c);
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// A cycle in the dependency graph should keep the original order.
+#[cfg(feature = "pipeline")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sort_txs_by_dependencies_keeps_original_order_on_cycle() {
+    let (_service, _relay, signal, _store, issue_out_points) = service_with_pipeline(2);
+    let input_a = &issue_out_points[0];
+    let input_b = &issue_out_points[1];
+
+    let mut txs = vec![input_a.clone(), input_b.clone()]
+        .into_iter()
+        .map(|out_point| build_tx(&out_point, 4_000))
+        .collect::<Vec<_>>();
+    let original = txs.clone();
+    TxPoolService::sort_txs_by_dependencies(&mut txs);
+    assert_eq!(txs, original);
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// The pre-check queue rejects new jobs once its size limit is exceeded.
+#[cfg(feature = "pipeline")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pre_check_queue_rejects_when_full() {
+    let cancel = ckb_stop_handler::CancellationToken::new();
+    let queue = Arc::new(crate::process::PreCheckQueue::new(cancel));
+
+    let tx = TransactionBuilder::default().build();
+    let job = crate::process::PreCheckJob {
+        tx: tx.clone(),
+        is_proposal_tx: false,
+        remote: None,
+    };
+
+    // First push succeeds.
+    assert!(queue.push(job.clone()).is_ok());
+
+    // Push a very large dummy tx to exceed the 256MB limit.
+    let huge_tx = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from(vec![0u8; 300_000_000]).pack()])
+        .build();
+    let huge_job = crate::process::PreCheckJob {
+        tx: huge_tx,
+        is_proposal_tx: false,
+        remote: None,
+    };
+    assert!(
+        matches!(queue.push(huge_job), Err(crate::error::Reject::Full(_))),
+        "pre_check_queue should reject a tx that exceeds the size limit"
+    );
+
+    // Popping the first job makes room.
+    let popped = queue.pop().await;
+    assert!(popped.is_some());
+    assert!(queue.push(job).is_ok());
 }

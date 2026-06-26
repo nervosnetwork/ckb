@@ -412,6 +412,7 @@ fn start_service(
                                 tx,
                                 remote: None,
                                 is_proposal_tx: false,
+                                attempts: 0,
                             });
                         }
                     }

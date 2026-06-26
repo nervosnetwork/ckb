@@ -24,17 +24,14 @@ use ckb_types::{
         BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView, TransactionView,
         cell::{ResolvedTransaction, resolve_transaction},
     },
-    packed::{Byte32, ProposalShortId},
+    packed::{Byte32, OutPoint, ProposalShortId},
 };
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     TxVerifyEnv,
     cache::{CacheEntry, Completed},
 };
-use std::collections::HashSet;
-use std::collections::VecDeque;
-#[cfg(not(feature = "pipeline"))]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -73,6 +70,10 @@ pub(crate) struct PreCheckJob {
     pub remote: Option<(Cycle, PeerIndex)>,
 }
 
+/// 256mb for total_tx_size limit, default max_tx_pool_size is 180mb.
+#[cfg(feature = "pipeline")]
+const DEFAULT_MAX_PRE_CHECK_QUEUE_TX_SIZE: usize = 256_000_000;
+
 /// A small multi-consumer queue used by the pre-check worker pool.
 ///
 /// It is intentionally kept separate from the ordered resolve queue: jobs here
@@ -83,6 +84,9 @@ pub(crate) struct PreCheckJob {
 /// pushed before any worker is waiting, so a worker that calls `notified()`
 /// afterwards will wake up immediately.
 ///
+/// The queue is bounded by total serialized tx size so a flood of large remote
+/// txs cannot grow it without limit.
+///
 /// Workers are cancelled via the `CancellationToken`; `pop()` returns `None`
 /// once the token is cancelled so the worker loop can exit cleanly.
 #[cfg(feature = "pipeline")]
@@ -90,6 +94,7 @@ pub(crate) struct PreCheckQueue {
     inner: std::sync::Mutex<std::collections::VecDeque<PreCheckJob>>,
     ready: tokio::sync::Notify,
     cancel: ckb_stop_handler::CancellationToken,
+    total_tx_size: std::sync::atomic::AtomicUsize,
 }
 
 #[cfg(feature = "pipeline")]
@@ -99,14 +104,37 @@ impl PreCheckQueue {
             inner: std::sync::Mutex::new(std::collections::VecDeque::new()),
             ready: tokio::sync::Notify::new(),
             cancel,
+            total_tx_size: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
-    pub(crate) fn push(&self, job: PreCheckJob) {
+    fn tx_size(job: &PreCheckJob) -> usize {
+        job.tx.data().serialized_size_in_block()
+    }
+
+    /// Returns true if the queue is full.
+    pub fn is_full(&self, add_tx_size: usize) -> bool {
+        self.total_tx_size
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .saturating_add(add_tx_size)
+            >= DEFAULT_MAX_PRE_CHECK_QUEUE_TX_SIZE
+    }
+
+    pub(crate) fn push(&self, job: PreCheckJob) -> Result<(), Reject> {
+        let tx_size = Self::tx_size(&job);
+        let tx_hash = job.tx.hash();
+        if self.is_full(tx_size) {
+            return Err(Reject::Full(format!(
+                "pre_check_queue total_tx_size exceeded, failed to add tx: {tx_hash:#x}"
+            )));
+        }
         let mut guard = self.inner.lock().expect("pre_check queue lock poisoned");
         guard.push_back(job);
         drop(guard);
+        self.total_tx_size
+            .fetch_add(tx_size, std::sync::atomic::Ordering::Relaxed);
         self.ready.notify_one();
+        Ok(())
     }
 
     /// Pop the next job, or return `None` if the queue has been cancelled.
@@ -115,6 +143,9 @@ impl PreCheckQueue {
             {
                 let mut guard = self.inner.lock().expect("pre_check queue lock poisoned");
                 if let Some(job) = guard.pop_front() {
+                    let tx_size = Self::tx_size(&job);
+                    self.total_tx_size
+                        .fetch_sub(tx_size, std::sync::atomic::Ordering::Relaxed);
                     return Some(job);
                 }
             }
@@ -914,6 +945,7 @@ impl TxPoolService {
     ///
     /// Both `_process_tx` (sync path) and `_verify_and_submit_tx` (pipeline
     /// path) converge here after the resolve step.
+    #[allow(clippy::too_many_arguments)]
     async fn verify_and_submit_core(
         &self,
         tx: TransactionView,
@@ -969,15 +1001,26 @@ impl TxPoolService {
 
         self.notify_block_assembler(status).await;
 
+        // A newly submitted transaction may resolve dependent transactions that
+        // are waiting in the ordered resolve queue (e.g. children of a parent
+        // that was just re-added after a reorg). Wake the ordered resolver so
+        // those children can be retried promptly.
+        self.ordered_resolve_queue.read().await.subscribe().notify_one();
+
         if verify_cache.is_none() {
             // Defer cache update to the background worker instead of
             // spawning a fire-and-forget task.
-            let _ = self.deferred_sender.try_send(
+            if let Err(e) = self.deferred_sender.try_send(
                 crate::service::DeferredTask::CacheUpdate {
-                    wtx_hash,
+                    wtx_hash: wtx_hash.clone(),
                     verified,
                 },
-            );
+            ) {
+                warn!(
+                    "failed to enqueue verify cache update for {}: {}",
+                    wtx_hash, e
+                );
+            }
         }
 
         if let Some(metrics) = ckb_metrics::handle() {
@@ -1013,6 +1056,62 @@ impl TxPoolService {
             None,
         )
         .await
+    }
+
+    /// Topologically sort transactions so that parents are placed before their
+    /// children. This is required when re-adding detached transactions into the
+    /// pipeline: a child must not be classified before its parent has had a
+    /// chance to enter the in-flight pipeline, otherwise it will be treated as a
+    /// local orphan and have to wait for a retry.
+    #[cfg(feature = "pipeline")]
+    pub(crate) fn sort_txs_by_dependencies(txs: &mut Vec<TransactionView>) {
+        if txs.len() <= 1 {
+            return;
+        }
+
+        let mut output_to_index: HashMap<OutPoint, usize> =
+            HashMap::with_capacity(txs.len().saturating_mul(2));
+        for (i, tx) in txs.iter().enumerate() {
+            let tx_hash = tx.hash();
+            for idx in 0..tx.outputs().len() {
+                output_to_index.insert(OutPoint::new(tx_hash.clone(), idx as u32), i);
+            }
+        }
+
+        let mut in_degree = vec![0usize; txs.len()];
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); txs.len()];
+        for (i, tx) in txs.iter().enumerate() {
+            for input in tx.input_pts_iter() {
+                if let Some(&parent) = output_to_index.get(&input) && parent != i {
+                    in_degree[i] += 1;
+                    children[parent].push(i);
+                }
+            }
+        }
+
+        let mut ready: VecDeque<usize> = (0..txs.len())
+            .filter(|&i| in_degree[i] == 0)
+            .collect();
+        let mut sorted = Vec::with_capacity(txs.len());
+        while let Some(i) = ready.pop_front() {
+            sorted.push(i);
+            for &child in &children[i] {
+                in_degree[child] -= 1;
+                if in_degree[child] == 0 {
+                    ready.push_back(child);
+                }
+            }
+        }
+
+        if sorted.len() != txs.len() {
+            // A cycle should never happen in valid detached blocks, but if it
+            // does we keep the original order rather than losing transactions.
+            return;
+        }
+
+        let mut remaining: Vec<Option<TransactionView>> =
+            txs.drain(..).map(Some).collect();
+        txs.extend(sorted.into_iter().map(|i| remaining[i].take().expect("index valid")));
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(
@@ -1073,16 +1172,21 @@ impl TxPoolService {
             queue.remove_txs(attached.iter().map(|tx| tx.proposal_short_id()));
         }
 
-        // Pipeline path: feed retain txs back into the pipeline entry point.
-        // This releases the write lock before re-verification, allowing:
-        // - Concurrent verification via VerifyMgr workers
-        // - Full submit_entry path (RBF, limit_size, block assembler notification)
-        // - Correct verify cache usage (wtx_hash key in verify_and_submit_core)
-        // - Chunk/pause signal support (command_rx passed through pipeline)
+        // Pipeline path: recover detached transactions through the synchronous
+        // per-tx entry point.  Dependent transactions must be processed after
+        // their parents have already been submitted to the pool; a topological
+        // sort guarantees this ordering.  Using `_process_tx` here instead of
+        // the general pipeline keeps the recovery logic simple and correct while
+        // still releasing the tx-pool write lock between transactions.
         #[cfg(feature = "pipeline")]
-        for tx in retain {
-            if let Err(e) = self.classify_and_enqueue_tx(tx, false, None).await {
-                debug!("reorg re-add tx failed: {}", e);
+        {
+            let mut retain = retain;
+            Self::sort_txs_by_dependencies(&mut retain);
+            for tx in retain {
+                let hash = tx.hash();
+                if self._process_tx(tx, None, None).await.is_none() {
+                    debug!("reorg re-add tx {} failed", hash);
+                }
             }
         }
     }
@@ -1121,6 +1225,7 @@ impl TxPoolService {
                     tx: tx.clone(),
                     remote,
                     is_proposal_tx,
+                    attempts: 0,
                 })
                 .map(Some);
         }
@@ -1179,6 +1284,7 @@ impl TxPoolService {
                     tx,
                     remote,
                     is_proposal_tx,
+                    attempts: 0,
                 })
             }
             Err(reject) => {
@@ -1211,14 +1317,14 @@ impl TxPoolService {
             is_proposal_tx,
             remote,
         };
-        self.pre_check_queue.push(job);
+        self.pre_check_queue.push(job)?;
 
         // Returning Ok(true) only means the tx was accepted into the pipeline;
         // actual classification/verification happens in the worker pool.
         Ok(true)
     }
 
-    async fn remove_orphan_txs_by_attach<'a>(&self, txs: &LinkedHashSet<TransactionView>) {
+    async fn remove_orphan_txs_by_attach(&self, txs: &LinkedHashSet<TransactionView>) {
         for tx in txs.iter() {
             self.process_orphan_tx(tx).await;
         }
@@ -1380,9 +1486,9 @@ fn _submit_entry(
     };
     if succ {
         match status {
-            TxStatus::Fresh => callbacks.call_pending(&entry),
-            TxStatus::Gap => callbacks.call_pending(&entry),
-            TxStatus::Proposed => callbacks.call_proposed(&entry),
+            TxStatus::Fresh => callbacks.call_pending(entry),
+            TxStatus::Gap => callbacks.call_pending(entry),
+            TxStatus::Proposed => callbacks.call_proposed(entry),
         }
     }
     Ok(evicts)

@@ -23,6 +23,13 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, watch};
 use tokio::task::JoinHandle;
 
+/// Maximum number of times a local orphan transaction is re-enqueued for
+/// retry when none of its missing parents are currently in the pipeline.
+/// This bounds the work we do for genuinely unsatisfiable orphans while still
+/// giving us enough slack to recover from the small race window between a
+/// parent leaving the verify queue and being committed to the pool.
+const MAX_LOCAL_ORPHAN_ATTEMPTS: u8 = 5;
+
 /// Result of attempting to resolve one transaction.
 #[derive(Debug)]
 pub(crate) enum ResolveStageResult {
@@ -196,15 +203,53 @@ impl OrderedResolver {
                             .add_orphan(job.tx.clone(), peer, declared_cycle)
                             .await;
                     } else {
-                        // Local transactions with missing inputs are rejected.
-                        let reject = first_unknown_input_reject(&job.tx);
-                        let (_ret, snapshot) = self
-                            .service
-                            .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
-                            .await;
-                        self.service
-                            .after_process(job.tx, None, &snapshot, &Err(reject))
-                            .await;
+                        // Local transactions with missing inputs are normally rejected.
+                        // The exception is when the missing parent is currently in the
+                        // pipeline (e.g. a parent detached during a reorg that has not
+                        // finished verification yet). In that case we put the child back
+                        // into the ordered resolve queue so it can be retried once the
+                        // parent lands in the pool.
+                        let depends_on_pipeline = {
+                            let ordered = self.ordered_queue.read().await;
+                            if ordered.depends_on(&job.tx) {
+                                true
+                            } else {
+                                let verify_queue = self.verify_queue.read().await;
+                                verify_queue.depends_on(&job.tx)
+                            }
+                        };
+
+                        if depends_on_pipeline || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
+                            let mut job = job;
+                            if !depends_on_pipeline {
+                                job.attempts += 1;
+                            }
+                            debug!(
+                                "ordered resolve stage local orphan {} re-enqueue (attempt {}, depends_on_pipeline: {})",
+                                id, job.attempts, depends_on_pipeline
+                            );
+                            let tx = job.tx.clone();
+                            let mut ordered = self.ordered_queue.write().await;
+                            if let Err(reject) = ordered.add_tx(job) {
+                                drop(ordered);
+                                let (_ret, snapshot) = self
+                                    .service
+                                    .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
+                                    .await;
+                                self.service
+                                    .after_process(tx, None, &snapshot, &Err(reject))
+                                    .await;
+                            }
+                        } else {
+                            let reject = first_unknown_input_reject(&job.tx);
+                            let (_ret, snapshot) = self
+                                .service
+                                .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
+                                .await;
+                            self.service
+                                .after_process(job.tx, None, &snapshot, &Err(reject))
+                                .await;
+                        }
                     }
                 }
                 ResolveStageResult::Reject(tx, reject) => {

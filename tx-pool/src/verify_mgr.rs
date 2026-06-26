@@ -207,11 +207,7 @@ impl VerifyMgr {
         worker_id: usize,
         exit_tx: mpsc::UnboundedSender<(usize, WorkerExit)>,
     ) {
-        let Some(worker) = self
-            .workers
-            .get(worker_id)
-            .map(|worker| worker.clone())
-        else {
+        let Some(worker) = self.workers.get(worker_id).cloned() else {
             error!("cannot respawn missing tx-pool verify worker {}", worker_id);
             return;
         };

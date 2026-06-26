@@ -502,6 +502,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
                                 tx,
                                 remote: None,
                                 is_proposal_tx: false,
+                                attempts: 0,
                             });
                         }
                     }
@@ -535,6 +536,7 @@ async fn seed_parent_and_nearly_fill_queue(
             tx: parent,
             remote: None,
             is_proposal_tx: false,
+            attempts: 0,
         })
         .unwrap();
     ordered.set_total_tx_size_for_test(256_000_000 - 1);
