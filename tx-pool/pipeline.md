@@ -1,152 +1,159 @@
-# CKB tx-pool Pipeline V2 重构设计与优化
+# CKB tx-pool Pipeline V2 Refactoring Design and Optimization
 
-> 状态：V2 已实现并通过编译，benchmark 进行中  
-> 目标：把交易池的远程/本地交易处理从"同步串行"模型改成多阶段 pipeline，提升独立交易的并发处理能力，同时保持依赖交易的有序性和原有安全语义。
-
----
-
-## 1. 背景与问题
-
-重构前的交易池处理大致是：
-
-```
-收到 tx → resolve → contextual verify → submit_entry
-```
-
-所有步骤基本在同一条异步路径上串行执行。CPU 密集的脚本验证（secp256k1 等）会长时间占用 tokio worker 线程，导致异步 runtime 被计算型任务阻塞、多核 CPU 无法充分利用、交易提交的吞吐上限明显。
-
-V1 pipeline 引入了 `ResolveQueue` + `PreResolveMgr` 并发预解析，实测 secp256k1 吞吐提升约 8%。但 V1 存在几个架构问题：pre-resolve 和 resolve 阶段重叠导致重复工作，reorg 期间 `readd_detached_tx` 在 tx_pool 写锁内执行全量 VM 验证阻塞全 pipeline，ChunkCommand 信号链穿透 9 层，fire-and-forget `tokio::spawn` 无背压控制。
-
-V2 pipeline 将入口统一为 `classify` 阶段，消除 ResolveQueue + PreResolveMgr 的冗余，并在多个层面做了架构简化。
+> Status: V2 has been implemented and merged; `pipeline` is the default feature; integration tests and tx-pool unit tests pass.  
+> Goal: Move the tx-pool remote/local transaction processing from a synchronous serial model to a multi-stage pipeline, improving concurrency for independent transactions while preserving ordering and the original safety semantics for dependent transactions.
 
 ---
 
-## 2. V2 Pipeline 架构
+## 1. Background and Problems
+
+Before the refactoring, tx-pool processing was roughly:
+
+```
+receive tx → resolve → contextual verify → submit_entry
+```
+
+All steps ran serially on the same async path. CPU-intensive script verification (secp256k1, etc.) could occupy tokio worker threads for a long time, blocking the async runtime, under-utilizing multi-core CPUs, and limiting transaction submission throughput.
+
+V1 pipeline introduced `ResolveQueue` + `PreResolveMgr` for concurrent pre-resolution, which improved secp256k1 throughput by about 8%. However, V1 had several architectural issues: pre-resolve and resolve stages overlapped and duplicated work; during reorgs `readd_detached_tx` performed full VM verification while holding the `tx_pool` write lock, stalling the entire pipeline; the ChunkCommand signal chain penetrated nine layers; and fire-and-forget `tokio::spawn` had no backpressure.
+
+V2 pipeline unifies the entry point into a `classify` stage, eliminates the redundancy of `ResolveQueue` + `PreResolveMgr`, and simplifies the architecture in several dimensions.
+
+---
+
+## 2. V2 Pipeline Architecture
 
 ```
                          ┌──────────────────────────┐
-  提交入口 (remote/local) │  classify_and_enqueue_tx  │ ← 统一入口分类器
-  reorg re-add            │  _spawn (pipeline 模式)   │
+  submit entry (remote/  │  classify_and_enqueue_tx  │ ← unified classifier
+  local), reorg re-add   │  _spawn (pipeline mode)   │
                          └────────────┬─────────────┘
                                       │
                  ┌────────────────────┼─────────────────────┐
-                 │ 依赖交易            │ 独立交易              │
+                 │ dependent txs      │ independent txs     │
                  ▼                    ▼                     │
     ┌─────────────────────┐  ┌──────────────────┐          │
     │ OrderedResolveQueue │  │  PreCheckQueue   │          │
-    │   (依赖交易排队)     │  │  (FIFO + 容量控制)│          │
+    │ (dependent queue)   │  │ (FIFO + size cap)│          │
     └─────────┬───────────┘  └────────┬─────────┘          │
               │                       │                     │
-    ┌─────────────────────┐  多 worker │ (min(max_workers,4))
-    │   OrderedResolver   │  ┌────────▼────────┐           │
-    │   (单线程有序重试)    │  │ pre_check 并发   │           │
+    ┌─────────────────────┐  multi-   │ (min(max_workers,  │
+    │   OrderedResolver   │  worker   │  available_parallelism()))
+    │ (single-threaded    │  ┌────────▼────────┐           │
+    │  ordered retry)     │  │ pre_check concur │           │
     └─────────┬───────────┘  └────────┬────────┘           │
               │                       │                     │
               └───────────┬───────────┘                     │
                           ▼                                 │
                 ┌─────────────────────┐                     │
-                │     VerifyQueue     │ ← 已解析交易等待验证 │
-                │  (带优先级/大小限制) │                     │
+                │     VerifyQueue     │ ← resolved txs await │
+                │ (priority/size cap) │   verification       │
                 └─────────┬───────────┘                     │
                           │ pop_front                       │
                           ▼                                 │
                 ┌─────────────────────┐                     │
-                │     VerifyMgr       │ ← 多 worker 并发验证│
-                │ (共享 ChunkCommand) │                     │
+                │     VerifyMgr       │ ← multi-worker      │
+                │ (shared ChunkCommand)│   concurrent verify │
                 └─────────┬───────────┘                     │
                           │                                 │
                           ▼                                 │
                 ┌─────────────────────┐                     │
-                │    submit_entry     │ ← tx_pool 写锁内    │
-                │    (一致性提交点)    │                     │
+                │    submit_entry     │ ← under tx_pool     │
+                │ (consistency commit │   write lock        │
+                │  point)             │                     │
                 └─────────┬───────────┘                     │
                           │                                 │
                           ▼                                 │
                 ┌─────────────────────┐                     │
-                │   DeferredTask      │ ← 单 worker 处理    │
-                │   (背压 side-effect)│   recovery/cache    │
+                │   DeferredTask      │ ← single worker     │
+                │ (backpressured      │   recovery/cache    │
+                │  side-effects)      │                     │
                 └─────────────────────┘                     │
 ```
 
-### 2.1 阶段说明
+### 2.1 Stage Descriptions
 
-#### classify 入口（V2 新增，替代 V1 的 ResolveQueue + PreResolveMgr）
+#### Classify entry point (new in V2, replaces ResolveQueue + PreResolveMgr)
 
-V2 取消了 V1 中 `ResolveQueue` 作为一级 FIFO + `PreResolveMgr` 多 worker 预解析的两层结构。新设计将入口统一为一个分类器：
+V2 removes the two-level structure of V1 where `ResolveQueue` was a first-level FIFO and `PreResolveMgr` was a multi-worker pre-resolution pool. The new design unifies the entry into a single classifier:
 
-- `classify_and_enqueue_tx_spawn`（pipeline 模式）：远程/本地提交的入口。先同步调用 `check_and_route_dependent` 判断依赖关系，独立交易推入 `PreCheckQueue` 由 worker pool 异步处理 `pre_check`。
-- `classify_and_enqueue_tx`：同步入口分类器，也用于 reorg re-add。先调用 `check_and_route_dependent`，然后 inline 执行 `pre_check`，将结果路由到 `VerifyQueue`（成功）或 `OrderedResolveQueue`（缺失输入）。
+- `classify_and_enqueue_tx_spawn` (pipeline mode): entry point for remote/local submissions. It first synchronously calls `check_and_route_dependent` to determine dependencies, then pushes independent transactions into `PreCheckQueue` to be processed asynchronously by the worker pool.
+- `classify_and_enqueue_tx`: synchronous entry classifier, also used for reorg re-adds. It calls `check_and_route_dependent`, then inline executes `pre_check`, routing the result to `VerifyQueue` (success) or `OrderedResolveQueue` (missing inputs).
 
-`check_and_route_dependent` 是 V2 新增的共享 helper，检查 `ordered_resolve_queue` 和 `verify_queue` 的 `FlightTracker`。如果交易依赖 in-flight 交易，直接路由到 `OrderedResolveQueue`；否则返回 `None` 让调用方继续 pre_check。这消除了 V1 中两个入口点（classify 和 classify_spawn）重复的依赖检查逻辑。
+`check_and_route_dependent` is a new shared helper in V2. It checks the `FlightTracker` of `ordered_resolve_queue` and `verify_queue`. If a transaction depends on an in-flight transaction, it is routed directly to `OrderedResolveQueue`; otherwise it returns `None` so the caller continues with `pre_check`. This eliminates the duplicated dependency-check logic at the two entry points (`classify` and `classify_spawn`) in V1.
 
-#### PreCheckQueue（V2 新增，替代 V1 的 ResolveQueue）
+#### PreCheckQueue (new in V2, replaces ResolveQueue)
 
-- FIFO 队列，保存 `PreCheckJob { tx, is_proposal_tx, remote }`。
-- worker 数量为 `min(max_workers, available_parallelism())`，动态适配 CPU 核心数。
-- worker 从队列中 pop 并执行 `classify_and_enqueue_tx`。
+- FIFO queue holding `PreCheckJob { tx, is_proposal_tx, remote }`.
+- Bounded by total serialized transaction size to 256 MB; new transactions are rejected when the limit is exceeded, preventing a flood of large transactions from growing the queue unboundedly.
+- Worker count is `min(max_workers, available_parallelism())`, dynamically adapting to the number of CPU cores.
+- Workers pop from the queue and execute `classify_and_enqueue_tx`; clean shutdown is via `CancellationToken`.
 
-#### OrderedResolveQueue / OrderedResolver（依赖交易有序处理）
+#### OrderedResolveQueue / OrderedResolver (ordered processing of dependent transactions)
 
-- 预检查阶段如果 input 不存在（父交易还在 pipeline 中），交易进入 `OrderedResolveQueue`。
-- 单线程 `OrderedResolver` 按到达顺序重试。
-- `HashSet<ProposalShortId>` 索引，`contains_key` 为 O(1)。
-- 意外退出时自动 respawn。
+- If a transaction's inputs are missing at pre-check time (the parent transaction is still in the pipeline), it enters `OrderedResolveQueue`.
+- Single-threaded `OrderedResolver` retries transactions in arrival order.
+- `HashSet<ProposalShortId>` index gives O(1) `contains_key`.
+- Also bounded by total serialized transaction size to 256 MB.
+- Automatic respawn on unexpected exit.
 
-#### VerifyQueue（验证队列）
+#### VerifyQueue (verification queue)
 
-- 保存已解析的 `ResolvedTx`。
-- 多索引：`id`、`added_time`、`is_large_cycle`、`is_proposal_tx`。
-- pop 优先级：proposal tx > 非大 cycle tx（小 cycle worker）> 普通 tx。
+- Holds resolved `ResolvedTx`.
+- Multiple indexes: `id`, `added_time`, `is_large_cycle`, `is_proposal_tx`.
+- Pop priority: proposal tx > non-large-cycle tx (small-cycle worker) > ordinary tx.
+- Total serialized size bounded to 256 MB, serving as the second level of pipeline backpressure.
 
-#### VerifyMgr（并发验证，V2 简化）
+#### VerifyMgr (concurrent verification, simplified in V2)
 
-- 多个 worker 从 `VerifyQueue` 中取交易。
-- worker 0 角色 `OnlySmallCycleTx`，只处理小 cycle 交易。
-- **V2 变更**：所有 worker 共享同一个 `watch::Receiver<ChunkCommand>` 的 clone，不再由 VerifyMgr 维护 per-worker child channel + `send_child_command` 广播循环。信号从 chunk_tx 直接传播到每个 worker，消除了 VerifyMgr 作为中间转发层的开销。
-- worker 退出通过 `CancellationToken` 控制，而非 `ChunkCommand::Stop` 广播。
-- 脚本 VM 验证放到 tokio blocking pool（`block_in_place`）。
+- Multiple workers pull transactions from `VerifyQueue`.
+- Worker 0 has the `OnlySmallCycleTx` role and only processes small-cycle transactions.
+- **V2 change**: all workers share a clone of the same `watch::Receiver<ChunkCommand>`; VerifyMgr no longer maintains per-worker child channels and the `send_child_command` broadcast loop. Signals propagate directly from `chunk_tx` to each worker, removing the intermediate forwarding overhead of VerifyMgr.
+- Worker exit is controlled by `CancellationToken` instead of `ChunkCommand::Stop` broadcast.
+- Script VM verification runs on the tokio blocking pool (`block_in_place`).
 
-#### submit_entry（一致性提交点）
+#### submit_entry (consistency commit point)
 
-- 在 `tx_pool` 写锁内完成冲突检查、RBF 处理、写入 `pool_map`、`limit_size` 容量回收。
-- 整个 pipeline 的串行终点，保证并发验证后的交易在写入池时仍然满足一致性。
+- Conflict checking, RBF handling, writing to `pool_map`, and `limit_size` eviction all happen inside the `tx_pool` write lock.
+- The serial end point of the entire pipeline, ensuring that transactions verified concurrently still satisfy consistency when written to the pool.
 
-#### DeferredTask（V2 新增，背压 side-effect 处理）
+#### DeferredTask (new in V2, backpressured side-effect handling)
 
-V1 中，RBF 置换出的交易重新入队和 verify cache 更新使用 fire-and-forget `tokio::spawn`。在高频 RBF 场景下，这些 spawn 不受背压控制，可能导致大量短生命周期 task 积累。
+In V1, RBF-displaced transactions being re-enqueued and verify-cache updates used fire-and-forget `tokio::spawn`. Under high RBF frequency these spawns had no backpressure, leading to accumulation of many short-lived tasks.
 
-V2 引入 `DeferredTask` enum + bounded `tokio::sync::mpsc` channel：
+V2 introduces a `DeferredTask` enum plus a bounded `tokio::sync::mpsc` channel:
 
 ```rust
 pub(crate) enum DeferredTask {
-    RecoverTxs(Vec<TransactionView>),     // RBF 被置换的 tx 重新入队
-    CacheUpdate { wtx_hash, verified },   // verify cache 写入
+    RecoverTxs(Vec<TransactionView>),     // re-enqueue txs displaced by RBF
+    CacheUpdate { wtx_hash, verified },   // write to verify cache
 }
 ```
 
-- `deferred_sender` 挂在 `TxPoolService` 上，在写锁释放后发送。
-- `RecoverTxs` 使用 `.send().await`（不丢弃恢复交易）；`CacheUpdate` 使用 `try_send`（cache miss 可接受，重新验证即可）。
-- 单一 background worker 在 `start()` 中 spawn，顺序处理 recovery 和 cache 更新。
+- `deferred_sender` lives on `TxPoolService` and is used after releasing the write lock.
+- `RecoverTxs` uses `.send().await` (recovery transactions must not be silently dropped); `CacheUpdate` uses `try_send` (cache misses are acceptable and will be re-verified).
+- A single background worker is spawned in `start()` to process recovery and cache updates sequentially; the handler is wrapped in `catch_unwind` so panic triggers automatic respawn.
+- **Lifetime note**: the worker must only receive the fields it actually needs (`ordered_resolve_queue`, `txs_verify_cache`). It must not hold a full `TxPoolService` (which contains `deferred_sender`). Otherwise the worker, as the only consumer of the channel, would also be a producer, keeping the channel open forever; `recv().await` would never return `None`, causing graceful shutdown to hang.
 
 ---
 
-## 3. Reorg Pipeline 整合（P0-1，V2 关键改进）
+## 3. Reorg Pipeline Integration (P0-1, a key V2 improvement)
 
-### 3.1 V1 问题
+### 3.1 V1 Problem
 
-V1 的 `readd_detached_tx` 在 `update_tx_pool_for_reorg` 中执行，**持有 tx_pool 写锁**的同时对每笔 detached 交易执行 `verify_rtx`（含完整 VM 验证）。这意味着：
+In V1, `readd_detached_tx` was executed inside `update_tx_pool_for_reorg` while **holding the `tx_pool` write lock**, performing `verify_rtx` (full VM verification) for every detached transaction. This meant:
 
-- reorg 期间所有 verify worker 被阻塞（写锁互斥）；
-- 100 笔 detached 交易 × ~1ms/笔 = ~100ms 的全 pipeline 停顿；
-- verify cache key 使用 `tx.hash()`（txid）而非 `wtx_hash`，缓存永远不命中，每次全量 VM 验证。
+- All verify workers were blocked during reorg (write-lock exclusion);
+- 100 detached transactions × ~1 ms each ≈ ~100 ms of full-pipeline stall;
+- The verify cache key used `tx.hash()` (txid) instead of `wtx_hash`, so the cache never hit and every detached transaction was fully re-verified.
 
-### 3.2 V2 方案
+### 3.2 V2 Solution
 
-Pipeline 模式下，`update_tx_pool_for_reorg` 拆为两阶段：
+In pipeline mode, `update_tx_pool_for_reorg` is split into two phases:
 
 ```rust
 pub(crate) async fn update_tx_pool_for_reorg(&self, ...) {
-    // 阶段 1：写锁内仅做 pool 状态更新
+    // Phase 1: under the write lock, only update pool state
     #[cfg(not(feature = "pipeline"))]
     let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
     {
@@ -155,13 +162,13 @@ pub(crate) async fn update_tx_pool_for_reorg(&self, ...) {
         #[cfg(not(feature = "pipeline"))]
         self.readd_detached_tx(&mut tx_pool, retain, fetched_cache).await;
     }
-    // 写锁释放
+    // write lock released
 
-    // 后锁清理
+    // Post-lock cleanup
     self.remove_orphan_txs_by_attach(&attached).await;
     { let mut queue = self.verify_queue.write().await; queue.remove_txs(...); }
 
-    // 阶段 2：pipeline 模式 — retain tx 走 classify 入口
+    // Phase 2: in pipeline mode, retained txs enter through the classify entry
     #[cfg(feature = "pipeline")]
     for tx in retain {
         if let Err(e) = self.classify_and_enqueue_tx(tx, false, None).await {
@@ -171,25 +178,25 @@ pub(crate) async fn update_tx_pool_for_reorg(&self, ...) {
 }
 ```
 
-关键设计决策：
+Key design decisions:
 
-- **`min_fee_rate` 检查**：committed tx 已经通过了矿工选择，fee rate 总是满足，无需重新检查。
-- **`after_process` 副作用**：`remote: None` 使得回调实质为 no-op（不发送网络通知）。
-- **原子性**：`_update_tx_pool_for_reorg` 完成后 pool 已一致，re-add 是追加操作，中间状态安全。
-- **Cache key 修复**：走 pipeline 后 `verify_and_submit_core` 使用 `wtx_hash` 作为 cache key，缓存可以正确命中。
+- **`min_fee_rate` check**: committed transactions have already been selected by miners, so their fee rate always satisfies the requirement and does not need re-checking.
+- **`after_process` side effects**: `remote: None` means the callback is essentially a no-op (no network notification is sent).
+- **Atomicity**: after `_update_tx_pool_for_reorg` completes the pool is consistent; re-adding is an append operation, and intermediate states are safe.
+- **Cache key fix**: after entering the pipeline, `verify_and_submit_core` uses `wtx_hash` as the cache key, so the cache can hit correctly.
 
 ---
 
-## 4. 关键优化
+## 4. Key Optimizations
 
-### 4.1 Service Actor Semaphore（P0-3）
+### 4.1 Service Actor Semaphore (P0-3)
 
-`TxPoolService` 的 actor loop（`start()` 中的 `receiver.recv()` 循环）对每条消息 spawn 一个异步 task 处理。在高并发下，unbounded spawn 会导致：
+The `TxPoolService` actor loop (the `receiver.recv()` loop in `start()`) spawns an async task for each message. Under high concurrency, unbounded spawning causes:
 
-- 同时持有大量 queue 读锁，与 `submit_entry` 写锁竞争；
-- tokio runtime 调度压力。
+- Many concurrent queue read locks contending with the `submit_entry` write lock;
+- Tokio runtime scheduling pressure.
 
-V2 引入 `Arc<Semaphore>`：
+V2 introduces `Arc<Semaphore>`:
 
 ```rust
 let semaphore = Arc::new(Semaphore::new(max_workers * 2));
@@ -201,11 +208,11 @@ handle.spawn(async move {
 });
 ```
 
-permit 数量 = `max_tx_verify_workers * 2`，保证 queue 并发度不超过 verify 消费能力的 2 倍。
+Permit count = `max_tx_verify_workers * 2`, ensuring queue concurrency does not exceed twice the verification consumption capacity.
 
-### 4.2 共享 ChunkCommand Channel（P1-1）
+### 4.2 Shared ChunkCommand Channel (P1-1)
 
-V1 的 ChunkCommand 信号链：
+V1 ChunkCommand signal chain:
 
 ```
 chain → TxPoolController → watch::Sender → VerifyMgr.command_rx
@@ -213,38 +220,45 @@ chain → TxPoolController → watch::Sender → VerifyMgr.command_rx
   → verify_rtx
 ```
 
-9 层穿透，VerifyMgr 作为中间转发层不断 `borrow_and_update` + `send_child_command` 广播。
+Nine layers, with VerifyMgr as an intermediate forwarding layer continuously doing `borrow_and_update` + `send_child_command` broadcasts.
 
-V2 简化为：
+V2 simplifies to:
 
 ```
-chunk_tx (shared watch::Sender) → Worker.command_rx (各自 clone)
+chunk_tx (shared watch::Sender) → Worker.command_rx (each worker clones its own)
 ```
 
-- VerifyMgr 不再维护 per-worker child channel，不再需要 `send_child_command` 方法。
-- 所有 worker 在 `VerifyMgr::new()` 中拿到共享 `command_rx` 的 clone。
-- worker 退出通过各自的 `CancellationToken`（`signal_exit.child_token()`）。
-- `start_loop()` 中移除了 `command_rx.changed()` 分支。
+- VerifyMgr no longer maintains per-worker child channels and no longer needs the `send_child_command` method.
+- All workers receive a clone of the shared `command_rx` in `VerifyMgr::new()`.
+- Worker exit uses individual `CancellationToken`s (`signal_exit.child_token()`).
+- The `command_rx.changed()` branch is removed from `start_loop()`.
 
-### 4.3 Fire-and-Forget 背压（P1-4）
+### 4.3 Fire-and-Forget Backpressure (P1-4)
 
-见第 2.1 节 DeferredTask 说明。将两处 `tokio::spawn` 替换为 bounded channel `try_send`：
+See section 2.1 for the DeferredTask description. The two fire-and-forget `tokio::spawn` sites are replaced by bounded channels:
 
-- `submit_entry` 中的 RBF recovery tx 重入队（原 `process.rs:219`）
-- `verify_and_submit_core` 中的 verify cache 更新（原 `process.rs:969`）
+- RBF recovery tx re-enqueue in `submit_entry` uses `.send().await` (originally `process.rs:219`).
+- Verify cache update in `verify_and_submit_core` uses `try_send` (originally `process.rs:969`; cache misses are acceptable).
 
-### 4.4 classify 去重（P1-5）
+Two shared failure-path helpers were also extracted, eliminating duplicated code between `after_process` and `process_orphan_tx`, and between `after_process` and `OrderedResolver`:
 
-V1 中 `classify_and_enqueue_tx` 和 `classify_and_enqueue_tx_spawn` 各自独立实现了依赖检查 + `OrderedResolveQueue` 路由逻辑。V2 提取为共享 helper `check_and_route_dependent`，消除重复代码。
+- `handle_remote_reject`: unified "remote-error triple" (ban malformed peer + relay Reject if allowed + record recent_reject).
+- `handle_missing_input_orphan`: routes a missing-input transaction into the orphan pool, and only relays `UnknownParents` **after** the insertion succeeds, preventing invalid notifications for duplicate or overflowing orphans.
 
-### 4.5 纯链上 input 的预解析免读锁快速路径
+`OrphanPool::add_orphan_tx` now returns `(bool, Vec<Byte32>)`, allowing callers to distinguish new insertions from duplicates and precisely control network notifications.
 
-`pre_check` 拆成两条路径：
+### 4.4 Classify Deduplication (P1-5)
 
-- **快速路径**：交易的全部输入都能在 chain snapshot 中找到，只读 snapshot，不持有 `tx_pool` 读锁。
-- **回退路径**：只要有一个输入可能来自交易池，走 `tx_pool` 读锁解析。
+In V1, `classify_and_enqueue_tx` and `classify_and_enqueue_tx_spawn` each independently implemented dependency checking + `OrderedResolveQueue` routing logic. V2 extracts this into the shared helper `check_and_route_dependent`, removing duplicate code.
 
-### 4.6 Verify 阶段跑在 blocking pool
+### 4.5 Lock-free Fast Path for Purely On-chain Inputs
+
+`pre_check` is split into two paths:
+
+- **Fast path**: all inputs of the transaction can be found in the chain snapshot. It only reads the snapshot and does not acquire the `tx_pool` read lock.
+- **Fallback path**: as long as one input may come from the transaction pool, resolution goes through the `tx_pool` read lock.
+
+### 4.6 Verification Stage on the Blocking Pool
 
 ```rust
 block_in_place(|| {
@@ -257,137 +271,194 @@ block_in_place(|| {
 })
 ```
 
-`verify_with_pause` 是支持 chunk 的可暂停 verifier，用 `block_in_place` 放到 tokio blocking pool。
+`verify_with_pause` is a chunk-aware pausable verifier; `block_in_place` moves it onto the tokio blocking pool.
 
-### 4.7 FlightTracker 双索引
+### 4.7 FlightTracker Double Index
 
-- 正向 `HashMap<OutPoint, ProposalShortId>` 用于 `depends_on` 查找。
-- 反向 `HashMap<ProposalShortId, Vec<OutPoint>>` 用于 `remove` 时精确删除。
-- `remove` 复杂度 O(outputs-per-tx)（通常 1-4），非 O(total-entries)。
+- Forward `HashMap<OutPoint, ProposalShortId>` for `depends_on` lookups.
+- Reverse `HashMap<ProposalShortId, Vec<OutPoint>>` for precise deletion on `remove`.
+- `remove` complexity is O(outputs-per-tx) (typically 1–4), not O(total-entries).
+
+### 4.8 Lock-free recent_reject (V2 follow-up improvement)
+
+`RecentReject` was originally embedded in `TxPool`; `put` / `get` required the `tx_pool` write or read lock. After refactoring:
+
+- Ownership moves up to `TxPoolService` as `Option<Arc<RecentReject>>`.
+- `RecentReject` itself is made lock-free:
+  - `RwLock<DBWithTTL>` only protects the Rust-side column-family map; the RocksDB C API is already thread-safe.
+  - `put` / `get` only acquire the read lock (concurrent).
+  - `shrink` acquires the write lock only when the key count exceeds the threshold, dropping and recreating a shard; the key counter is maintained with `AtomicU64` + `Relaxed` ordering.
+- The `RejectCallback` signature drops the `&mut TxPool` parameter so callbacks no longer depend on the write lock.
+- `GetTotalRecentRejectNum` / `GetTxStatus` / `GetTransactionWithStatus` access the service-level `recent_reject` directly, without entering the `tx_pool` lock.
+
+### 4.9 RBF Replacement Failure Recovery + Callbacks Moved Outside the Lock
+
+`submit_entry` executes `process_rbf` inside the `tx_pool` write lock: if old transactions are removed but the new transaction ultimately fails to submit due to ancestor/size limits, both the old and new transactions are lost. The fix:
+
+```rust
+// Collect old txs to recover while still inside the write lock
+let mut recovered = Vec::new();
+recovered = self.process_rbf(tx_pool, &entry, &conflicts, &mut reject_events);
+...
+// If submission later fails, restore old txs removed by process_rbf
+// from the conflicts cache
+if result.is_err() {
+    recovered.extend(
+        tx_pool.get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter()),
+    );
+}
+```
+
+After the write lock is released:
+
+1. Dispatch all reject callbacks from `reject_events` uniformly, avoiding callback re-entry deadlocks that could occur inside the lock.
+2. Send recoverable old transactions back to `OrderedResolveQueue` for re-verification/submission via `deferred_sender.send(RecoverTxs(recovered)).await`.
+
+`check_rbf` is also decomposed into four focused methods: `check_rbf_no_new_unconfirmed_inputs`, `check_rbf_descendants`, `check_rbf_no_conflict_cell_deps`, and `check_rbf_fee`, making unit testing and future rule extensions easier.
+
+### 4.10 Unified Verify-and-Submit Core Path
+
+`_process_tx` (sync path) and `_verify_and_submit_tx` (pipeline path) originally each maintained their own copy of the "pre_check → verify_rtx → submit_entry → after_process" code. After refactoring:
+
+- `verify_and_submit_core` is extracted: unified pre_check, VM verification, submit_entry, and cache/deferred scheduling logic.
+- `handle_verify_success` is extracted: unified handling of relayer notification and orphan cascade recovery after successful verification, shared by the local and remote branches of `after_process`.
+
+This keeps verification semantics consistent between pipeline and non-pipeline paths and reduces dual-track maintenance cost.
 
 ---
 
-## 5. 正确性与安全
+## 5. Correctness and Safety
 
-### 5.1 双花不会被接受
+### 5.1 Double Spends Are Not Accepted
 
-虽然 `pre_check` 和 `verify` 可以并发执行，但最终提交点 `submit_entry` 仍然在 `tx_pool` 写锁内。冲突检查在锁内完成，两笔并发验证通过的双花交易只有一笔能写入。
+Although `pre_check` and `verify` can execute concurrently, the final commit point `submit_entry` still runs inside the `tx_pool` write lock. Conflict checking is completed inside the lock, so of two concurrently verified double-spend transactions only one can be written.
 
-### 5.2 锁顺序
+### 5.2 Lock Ordering
 
 ```
 pre_check_queue → ordered_resolve_queue → verify_queue → orphan → tx_pool
 ```
 
-### 5.3 依赖关系正确性
+### 5.3 Dependency Correctness
 
-- `check_and_route_dependent` 同时检查 `ordered_resolve_queue` 和 `verify_queue` 的 FlightTracker。
-- `OrderedResolver` 按到达顺序处理，保证先提交的父交易先解析、先验证、先提交。
+- `check_and_route_dependent` checks the `FlightTracker` of both `ordered_resolve_queue` and `verify_queue`.
+- `OrderedResolver` processes transactions in arrival order, ensuring that a parent submitted earlier is resolved, verified, and submitted earlier than its children.
 
-### 5.4 Worker 可靠性
+### 5.4 Worker Reliability
 
-- VerifyMgr 和 OrderedResolver 的 worker 均具备 panic 捕获（`catch_unwind`）和自动 respawn 能力。
-- worker 退出通过 `CancellationToken` 控制，仅在信号取消时才停止 respawn。
+- VerifyMgr and OrderedResolver workers both catch panics (`catch_unwind`) and respawn automatically.
+- Worker exit is controlled by `CancellationToken`; respawn only stops after the cancellation signal is received.
 
 ---
 
-## 6. 性能对比
+## 6. Performance Comparison
 
-### 6.1 V2 Pipeline vs Sync（MEDIUM matrix，10 samples）
+### 6.1 V2 Pipeline vs Sync (MEDIUM matrix, 10 samples)
 
-| 场景 | Pipeline V2 | Sync | 差异 |
-|------|------------|------|------|
-| 1-peer secp256k1 4w | 61.2ms | 180.1ms | **pipeline -66%** |
-| 1-peer secp256k1 8w | 51.3ms | 189.1ms | **pipeline -73%** |
-| 1-peer always_success 4w | 16.1ms | 30.0ms | **pipeline -46%** |
-| 1-peer always_success 8w | 18.7ms | 28.5ms | **pipeline -35%** |
-| 1-peer dep. always_succ 4w | 6.8ms | 7.4ms | pipeline -9% |
-| 1-peer dep. secp 4w | 20.4ms | 22.2ms | pipeline -8% |
-| 4-peer secp256k1 4w | 61.6ms | 62.5ms | ~持平 (-1%) |
-| 4-peer secp256k1 8w | 51.0ms | 66.4ms | **pipeline -23%** |
-| 4-peer always_success 4w | 16.5ms | 14.9ms | sync +11% |
-| 4-peer always_success 8w | 18.8ms | 14.4ms | sync +31% |
+| Scenario | Pipeline V2 | Sync | Difference |
+|----------|-------------|------|------------|
+| 1-peer secp256k1 4w | 61.2 ms | 180.1 ms | **pipeline -66%** |
+| 1-peer secp256k1 8w | 51.3 ms | 189.1 ms | **pipeline -73%** |
+| 1-peer always_success 4w | 16.1 ms | 30.0 ms | **pipeline -46%** |
+| 1-peer always_success 8w | 18.7 ms | 28.5 ms | **pipeline -35%** |
+| 1-peer dep. always_succ 4w | 6.8 ms | 7.4 ms | pipeline -9% |
+| 1-peer dep. secp 4w | 20.4 ms | 22.2 ms | pipeline -8% |
+| 4-peer secp256k1 4w | 61.6 ms | 62.5 ms | ~flat (-1%) |
+| 4-peer secp256k1 8w | 51.0 ms | 66.4 ms | **pipeline -23%** |
+| 4-peer always_success 4w | 16.5 ms | 14.9 ms | sync +11% |
+| 4-peer always_success 8w | 18.8 ms | 14.4 ms | sync +31% |
 
-### 6.2 V2 vs V1 Baseline 对比
+### 6.2 V2 vs V1 Baseline
 
-| 场景 | V1 Pipeline | V2 Pipeline | 变化 |
-|------|------------|------------|------|
-| 1-peer secp256k1 (4w) | ~54ms | ~61ms | +13%（ Semaphore 限流 + PreCheckQueue worker 开销） |
-| 1-peer always_success | ~14ms | ~16ms | +14%（同上） |
-| dep. chain | ~39ms | ~7ms（10 tx） | 测试规模不同，不可直接比 |
-| 4-peer secp256k1 4w | ~55ms | ~62ms | +13% |
-| 4-peer secp256k1 8w | — | ~51ms | V2 8w 首次测试 |
-| 4-peer always_success 8w | ~17ms | ~19ms | +12% |
+| Scenario | V1 Pipeline | V2 Pipeline | Change |
+|----------|-------------|-------------|--------|
+| 1-peer secp256k1 (4w) | ~54 ms | ~61 ms | +13% (semaphore throttling + PreCheckQueue worker overhead) |
+| 1-peer always_success | ~14 ms | ~16 ms | +14% (same as above) |
+| dep. chain | ~39 ms | ~7 ms (10 txs) | Different test scale; not directly comparable |
+| 4-peer secp256k1 4w | ~55 ms | ~62 ms | +13% |
+| 4-peer secp256k1 8w | — | ~51 ms | 8w first tested in V2 |
+| 4-peer always_success 8w | ~17 ms | ~19 ms | +12% |
 
-V2 的绝对数字略高于 V1 baseline（~10-15%），这是预期行为：
+V2 absolute numbers are slightly higher than the V1 baseline (~10–15%), which is expected:
 
-- **Semaphore 限流**（P0-3）：actor loop 从 unbounded spawn 变为 `max_workers * 2` permits，消息处理的并发度被有意收敛。这换取了更低的 tokio 调度压力和更稳定的尾延迟，但吞吐峰值略降。
-- **DeferredTask channel**（P1-4）：recovery tx 和 cache 更新从 fire-and-forget spawn 改为 bounded channel + 单 worker，增加了少量串行开销。
-- **PreCheckQueue worker cap**：worker 数量固定为 `min(max_workers, 4)` 以减少调度竞争。
+- **Semaphore throttling** (P0-3): the actor loop moves from unbounded spawn to `max_workers * 2` permits, intentionally limiting message-processing concurrency. This reduces tokio scheduling pressure and stabilizes tail latency, at the cost of slightly lower peak throughput.
+- **DeferredTask channel** (P1-4): recovery tx and cache updates move from fire-and-forget spawn to bounded channel + single worker, adding a small amount of serial overhead.
+- **PreCheckQueue worker cap**: worker count is capped at `min(max_workers, available_parallelism())`, dynamically adapting to the number of CPU cores and avoiding over-scheduling on smaller machines.
 
-pipeline vs sync 的**相对优势**保持稳定：secp256k1 1-peer 仍然 -66%（V1 为 -67%），证明 V2 的架构改动没有引入性能回归。
+The **relative advantage** of pipeline vs sync remains stable: 1-peer secp256k1 is still -66% (V1 was -67%), showing that V2's architectural changes did not introduce a performance regression.
 
-### 6.3 分析
+### 6.3 Analysis
 
-- **1-peer secp256k1**：pipeline 的核心优势在于 pre_check + verify 的并行化，CPU 密集的 secp256k1 验证分散到 blocking pool。8 worker 时优势更大（-73%）。
-- **1-peer always_success**：验证本身便宜，但 pipeline 的 pre_check 并行化仍有显著收益（-46%）。
-- **dependent chain**：依赖交易被 OrderedResolver 串行化，pipeline 无额外优势。
-- **4-peer secp256k1 8w**：V2 新增的 Semaphore + 共享 chunk channel 让 8 worker 场景改善明显（-23%，V1 持平）。
-- **4-peer always_success**：验证极便宜时 pipeline 的调度开销（PreCheckQueue worker、Semaphore acquire）成为 overhead。这是 pipeline 模式的固有限制。
-- **稳定性**：Sync 模式 CV < 1%，Pipeline 模式 CV 1-12%（8 worker 时调度竞争加剧）。
+- **1-peer secp256k1**: the core pipeline benefit is parallelization of pre_check + verify, spreading CPU-heavy secp256k1 verification across the blocking pool. The advantage is larger with 8 workers (-73%).
+- **1-peer always_success**: verification itself is cheap, but pipeline pre_check parallelization still yields significant benefit (-46%).
+- **dependent chain**: dependent transactions are serialized by `OrderedResolver`, so pipeline offers no extra advantage.
+- **4-peer secp256k1 8w**: the new Semaphore + shared chunk channel in V2 improves the 8-worker scenario noticeably (-23%; V1 was flat).
+- **4-peer always_success**: when verification is extremely cheap, pipeline scheduling overhead (PreCheckQueue workers, semaphore acquire) becomes overhead. This is an inherent limitation of pipeline mode.
+- **Stability**: Sync mode CV < 1%; Pipeline mode CV 1–12% (scheduling contention increases with 8 workers).
 
-### 6.3 Benchmark 命令
+### 6.4 Benchmark Matrix and Commands
+
+The Criterion benchmark supports three matrices:
+
+- `QUICK_BENCH=1`: minimal matrix, used only to quickly verify the benchmark pipeline does not hang.
+- `FULL_BENCH=1`: full matrix, covering `PEER_COUNTS = [1, 2, 4, 8]`, `WORKER_COUNTS = [4, 8]`, and independent/dependent (always_success / secp256k1) combinations.
+- Default MEDIUM matrix: peers `[1, 4]`, workers `[4, 8]`, plus dependent-chain scenarios, balancing speed and coverage.
+
+> Note: the numbers in sections 6.1 and 6.2 come from a single MEDIUM-matrix run. Subsequent commits expanded the matrix to peers `[1, 2, 4, 8]` and dependent-chain scenarios, but the absolute magnitudes remain consistent.
 
 ```bash
-# Pipeline 模式
-cargo bench --features "ckb-tx-pool/internal pipeline" -p ckb-tx-pool --bench pipeline
+# Pipeline mode (ckb-tx-pool has pipeline enabled by default)
+cargo bench --features "ckb-tx-pool/internal" -p ckb-tx-pool --bench pipeline
 
-# Sync 模式（注意必须 --no-default-features 关闭 pipeline feature）
+# Sync mode (must disable pipeline feature with --no-default-features)
 cargo bench --no-default-features --features "ckb-tx-pool/internal" -p ckb-tx-pool --bench pipeline
 ```
 
-`QUICK_BENCH=1` 快速矩阵，`FULL_BENCH=1` 完整矩阵，默认 MEDIUM 矩阵。
+`QUICK_BENCH=1` for the quick matrix, `FULL_BENCH=1` for the full matrix, default is MEDIUM.
 
 ---
 
-## 7. 配置项
+## 7. Configuration
 
-| 字段 | 含义 |
-|------|------|
-| `max_tx_verify_workers` | pre-check worker（取 min(n, available_parallelism)）和 verify worker 数量 |
-| `max_tx_verify_cycles` | 大 cycle 阈值，影响 verify queue 优先级 |
-| `max_ancestors_count` | 交易池内祖先链限制 |
-| Semaphore permits | `max_tx_verify_workers * 2`（service actor 并发上限） |
-
----
-
-## 8. 测试覆盖
-
-回归测试（均支持 `pipeline` feature on/off）：
-
-- `pipeline_processes_independent_remote_txs`：独立远程交易 pipeline 正确性
-- `pipeline_processes_independent_secp_remote_txs`：secp256k1 独立交易正确性
-- `pipeline_preserves_order_for_dependent_txs`：依赖交易顺序保持
-- `pipeline_preserves_order_for_dependent_secp_txs`：secp256k1 依赖交易顺序保持
-- `pipeline_rejects_conflicting_double_spend`：并发双花被拒绝
-- `pipeline_throughput` / `secp_remote_throughput`：吞吐量 benchmark
+| Field | Meaning |
+|-------|---------|
+| `max_tx_verify_workers` | Number of pre-check workers (capped at `available_parallelism`) and verify workers |
+| `max_tx_verify_cycles` | Large-cycle threshold, affects verify-queue priority |
+| `max_ancestors_count` | Ancestor-chain limit inside the transaction pool |
+| Semaphore permits | `max_tx_verify_workers * 2` (service actor concurrency cap) |
 
 ---
 
-## 9. 后续方向
+## 8. Test Coverage
 
-### 9.1 Deferred P0: readd_detached_tx 在非 pipeline 模式下仍持锁验证
+Regression tests (all support `pipeline` feature on/off):
 
-当前改进仅在 `#[cfg(feature = "pipeline")]` 下将 re-add 走 pipeline。非 pipeline 模式仍使用原始的 `readd_detached_tx`（写锁内 verify_rtx）。如果生产环境需要非 pipeline 路径的 reorg 性能，可以考虑拆为三阶段（collect → release lock → re-verify → re-acquire lock）。
+- `pipeline_processes_independent_remote_txs`: independent remote transactions are processed correctly through the pipeline.
+- `pipeline_processes_independent_secp_remote_txs`: secp256k1 independent transactions are processed correctly.
+- `pipeline_preserves_order_for_dependent_txs`: dependent-transaction ordering is preserved.
+- `pipeline_preserves_order_for_dependent_secp_txs`: secp256k1 dependent-transaction ordering is preserved.
+- `pipeline_rejects_conflicting_double_spend`: concurrent double spends are rejected.
+- `pipeline_throughput` / `secp_remote_throughput`: throughput benchmarks.
+- `pipeline_rbf_rejected_replacement_recovers_original_tx`: old transactions are recovered when an RBF replacement fails.
+- Integration test `RbfOrphanRecovery`: after cascading RBF replacements, dependent transactions are recovered through `DeferredTask::RecoverTxs` → `ordered_resolve_queue` → `OrderedResolver`.
+- Integration test `ReorgRecoversDependentTxs`: after a reorg, parent/child transactions are re-enqueued through the pipeline and recovered.
 
-### 9.2 Deferred P1: process_orphan_tx 绕过 pipeline
+---
 
-`process_orphan_tx` 直接调用 `_process_tx` 绕过 pipeline 入口，在 orphan recovery 场景下可能跳过 pre_check 和 FlightTracker 检查。
+## 9. Future Directions
 
-### 9.3 ChunkCommand 信号链进一步压缩
+### 9.1 Deferred P0: `readd_detached_tx` still verifies under the write lock in non-pipeline mode
 
-当前 chunk_tx watch channel 被 VerifyMgr 和 OrderedResolver 各自 subscribe。chain 模块 → TxPoolController → chunk_tx 仍有中间层。可以考虑让 chunk_tx 直接由 chain 模块持有，消除 TxPoolController 的转发。
+The improvement currently applies only under `#[cfg(feature = "pipeline")]`, routing re-adds through the pipeline. Non-pipeline mode still uses the original `readd_detached_tx` (full `verify_rtx` inside the write lock). If non-pipeline reorg performance is needed in production, consider splitting it into three phases (collect → release lock → re-verify → re-acquire lock).
 
-### 9.4 crossbeam tx_relay_sender（P2，低优先级）
+### 9.2 Deferred P1: `process_orphan_tx` is now connected to the pipeline (still under observation)
 
-生产环境使用 `ckb_channel::unbounded()`（`send()` 永不阻塞），不构成实际问题。Bench 使用 `bounded(1024)` 配合 drain task 也不会阻塞。仅在极端场景下值得关注。
+`process_orphan_tx` now calls `classify_and_enqueue_tx` when it finds a recoverable orphan, so it goes through `check_and_route_dependent`, `pre_check`, and `FlightTracker` checks and no longer bypasses the pipeline. Continue observing whether behavior in dependency-chain recovery scenarios meets expectations, and whether local orphans should also be unified into the `classify_and_enqueue_tx_spawn` worker pool.
+
+### 9.3 Further Compress the ChunkCommand Signal Chain
+
+Currently the `chunk_tx` watch channel is subscribed by both VerifyMgr and OrderedResolver. The chain module → TxPoolController → chunk_tx still has an intermediate layer. Consider letting the chain module own `chunk_tx` directly, removing TxPoolController's forwarding.
+
+### 9.4 crossbeam `tx_relay_sender` (P2, low priority)
+
+Production uses `ckb_channel::unbounded()` (`send()` never blocks), so this is not a practical issue. The benchmark uses `bounded(1024)` with a drain task and also does not block. Only worth attention under extreme scenarios.

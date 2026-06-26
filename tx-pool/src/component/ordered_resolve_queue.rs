@@ -8,6 +8,7 @@
 use crate::component::flight_tracker::FlightTracker;
 use crate::error::Reject;
 use crate::resolved_tx::ResolveJob;
+use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::ProposalShortId;
@@ -94,7 +95,16 @@ impl OrderedResolveQueue {
         let id = job.tx.proposal_short_id();
         self.index.remove(&id);
         self.flight.remove(&id);
-        self.total_tx_size -= Self::tx_size(&job);
+        if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
+            self.total_tx_size = total;
+        } else {
+            error!(
+                "ordered_resolve_queue total_tx_size {} underflowed by sub {} in pop_front",
+                self.total_tx_size,
+                Self::tx_size(&job)
+            );
+            self.total_tx_size = 0;
+        }
         Some(job)
     }
 
@@ -110,7 +120,16 @@ impl OrderedResolveQueue {
             .expect("index says id exists");
         let job = self.inner.remove(pos).expect("position exists");
         self.flight.remove(id);
-        self.total_tx_size -= Self::tx_size(&job);
+        if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
+            self.total_tx_size = total;
+        } else {
+            error!(
+                "ordered_resolve_queue total_tx_size {} underflowed by sub {} in remove_tx",
+                self.total_tx_size,
+                Self::tx_size(&job)
+            );
+            self.total_tx_size = 0;
+        }
         self.shrink_to_fit();
         Some(job)
     }
@@ -122,7 +141,16 @@ impl OrderedResolveQueue {
                 let id = job.tx.proposal_short_id();
                 self.index.remove(&id);
                 self.flight.remove(&id);
-                self.total_tx_size -= Self::tx_size(job);
+                if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(job)) {
+                    self.total_tx_size = total;
+                } else {
+                    error!(
+                        "ordered_resolve_queue total_tx_size {} underflowed by sub {} in remove_txs_by_peer",
+                        self.total_tx_size,
+                        Self::tx_size(job)
+                    );
+                    self.total_tx_size = 0;
+                }
                 false
             } else {
                 true

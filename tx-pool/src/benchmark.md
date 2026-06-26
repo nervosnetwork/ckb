@@ -17,27 +17,48 @@ cargo bench -p ckb-tx-pool --no-default-features --features internal
 ### Using the comparison script
 
 ```bash
-# full matrix (~1 hour)
+# default medium matrix (~10–15 minutes)
 python3 devtools/tx_pool_bench.py
 
 # small quick matrix (~5 minutes)
 python3 devtools/tx_pool_bench.py --quick
+
+# full matrix (~1 hour)
+python3 devtools/tx_pool_bench.py --full
 ```
 
 The script runs pipeline and sync modes back-to-back, **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), and finally prints a comparison table.
+`--quick` sets `QUICK_BENCH=1`, `--full` sets `FULL_BENCH=1`, and the default uses the medium matrix.
 
 ## Matrices
 
-### Full matrix
+The matrix is selected at compile time via environment variables:
+
+- `FULL_BENCH=1` — full matrix.
+- `QUICK_BENCH=1` — quick matrix.
+- default (no env var) — medium matrix.
+
+### Full matrix (`FULL_BENCH=1`)
 
 | Constant | Value |
 |---|---|
 | `SIZES` | `[50, 100]` |
-| `PEER_COUNTS` | `[1, 2, 4]` |
+| `PEER_COUNTS` | `[1, 2, 4, 8]` |
 | `WORKER_COUNTS` | `[4, 8, 12]` |
-| `WARM_POOL_SIZE` | `100` |
+| `WARM_POOL_SIZE` | `30` |
 | `DEPENDENT_SIZES` | `[10, 20]` |
 | `DEPENDENT_WARM_POOL_SIZE` | `10` |
+
+### Medium matrix (default)
+
+| Constant | Value |
+|---|---|
+| `MEDIUM_SIZES` | `[100]` |
+| `MEDIUM_PEER_COUNTS` | `[1, 4]` |
+| `MEDIUM_WORKER_COUNTS` | `[4, 8]` |
+| `MEDIUM_WARM_POOL_SIZE` | `30` |
+| `MEDIUM_DEPENDENT_SIZES` | `[10]` |
+| `MEDIUM_DEPENDENT_WARM_POOL_SIZE` | `10` |
 
 ### Quick matrix (`--quick` / `QUICK_BENCH=1`)
 
@@ -50,7 +71,7 @@ The script runs pipeline and sync modes back-to-back, **streams each benchmark's
 | `QUICK_DEPENDENT_SIZES` | `[10]` |
 | `QUICK_DEPENDENT_WARM_POOL_SIZE` | `10` |
 
-Regular workloads and dependent-chain workloads use different size/warm configurations so the chain never grows too long.
+Regular workloads and dependent-chain workloads use different size/warm configurations so the chain never grows too long.  Dependent chains are only benchmarked with **1 peer and the first worker count** because they are bottlenecked by serialized orphan recovery; varying peers/workers adds no useful signal.
 
 ## Workloads
 
@@ -82,8 +103,11 @@ Dependent chains must be submitted in **child -> parent** reverse order. Childre
 ### Resource lifecycle
 
 - `SharedBench` owns the genesis snapshot, network controller, and tokio runtime, and is reused across all benchmark iterations.
-- `ServiceHandle::drop` cancels the local `CancellationToken` so the tx-pool actor and background tasks stop cleanly after each iteration.
-- Both `start_controller` and the temporary `start_service` used for cycle measurement spawn a background thread to drain the relayer channel, preventing the channel from filling up and blocking.
+- `start_controller` builds a full tx-pool through the production `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
+- `ServiceHandle::drop` cancels the local `CancellationToken` so the tx-pool actor and background tasks stop cleanly after each iteration, and drops the `tx_relay_sender` clone so the background relay-drain thread exits.
+- `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `verify_mgr`, `ordered_resolver`) plus the deferred task worker.  It is used only for cycle measurement.
+- Both `start_controller` and `start_service` spawn a background thread to drain the relayer channel, preventing the channel from filling up and blocking.
+- The deferred task worker only receives clones of the two fields it needs (`ordered_resolve_queue` and `txs_verify_cache`) so it does not hold a `deferred_sender` and the channel can close on shutdown.
 - `SharedBench` creates genesis issue outputs according to the workload's actual need (`issue_outputs = max_size + warm_pool_size`), avoiding over-allocation for dependent chains.
 
 ### Criterion sampling

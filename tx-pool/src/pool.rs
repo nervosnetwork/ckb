@@ -346,14 +346,20 @@ impl TxPool {
                     let tx_hash = entry.transaction().hash();
                     entry.reset_statistic_state();
                     let ret = self.add_pending(entry.clone());
-                    if let Ok((true, ref evicted)) = ret {
-                        callbacks.call_pending(&entry);
-                        for evict in evicted {
-                            let reject = Reject::Full(format!(
-                                "the fee_rate for this transaction is: {}",
-                                evict.fee_rate()
-                            ));
-                            reject_events.push((evict.clone(), reject));
+                    match ret {
+                        Ok((true, ref evicted)) => {
+                            callbacks.call_pending(&entry);
+                            for evict in evicted {
+                                let reject = Reject::Full(format!(
+                                    "the fee_rate for this transaction is: {}",
+                                    evict.fee_rate()
+                                ));
+                                reject_events.push((evict.clone(), reject));
+                            }
+                        }
+                        Ok((false, _)) => {} // duplicate
+                        Err(ref reject) => {
+                            reject_events.push((entry.clone(), reject.clone()));
                         }
                     }
                     debug!(

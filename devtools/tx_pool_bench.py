@@ -3,8 +3,9 @@
 print a comparison table.
 
 Usage:
-    python3 devtools/tx_pool_bench.py
-    python3 devtools/tx_pool_bench.py --quick
+    python3 devtools/tx_pool_bench.py           # medium matrix (default)
+    python3 devtools/tx_pool_bench.py --quick   # quick matrix
+    python3 devtools/tx_pool_bench.py --full    # full matrix
 """
 
 import os
@@ -15,7 +16,29 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 
 
-QUICK = "--quick" in sys.argv
+def parse_args() -> Tuple[bool, bool]:
+    """Parse command-line arguments.
+
+    Returns (quick, full). Unknown arguments are rejected.
+    """
+    quick = False
+    full = False
+    for arg in sys.argv[1:]:
+        if arg in ("--help", "-h"):
+            print(__doc__)
+            sys.exit(0)
+        elif arg == "--quick":
+            quick = True
+        elif arg == "--full":
+            full = True
+        else:
+            raise RuntimeError(f"unknown argument: {arg}")
+    if quick and full:
+        raise RuntimeError("--quick and --full are mutually exclusive")
+    return quick, full
+
+
+QUICK, FULL = parse_args()
 
 
 def run_cargo_bench(pipeline: bool) -> str:
@@ -31,6 +54,8 @@ def run_cargo_bench(pipeline: bool) -> str:
     env = os.environ.copy()
     if QUICK:
         env["QUICK_BENCH"] = "1"
+    elif FULL:
+        env["FULL_BENCH"] = "1"
 
     # Stream output in real-time so progress is visible and hangs can be spotted.
     proc = subprocess.Popen(
@@ -150,6 +175,10 @@ def parse_output(text: str) -> Dict[Tuple[str, int, int, bool, str, int], Dict]:
 def main() -> None:
     if QUICK:
         print("Quick mode: reduced peer/size/worker matrix (~5 minutes)")
+    elif FULL:
+        print("Full mode: complete peer/size/worker matrix (~1 hour)")
+    else:
+        print("Medium mode: default matrix (~10-15 minutes)")
 
     pipeline_text = run_cargo_bench(pipeline=True)
     sync_text = run_cargo_bench(pipeline=False)

@@ -1,5 +1,5 @@
 use crate::node::waiting_for_sync_with_timeout;
-use crate::specs::tx_pool::utils::{assert_new_block_committed, prepare_tx_family};
+use crate::specs::tx_pool::utils::{assert_new_block_committed, prepare_tx_family, wait_for_pending_count};
 use crate::utils::{blank, propose};
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::TxStatus;
@@ -51,6 +51,7 @@ impl Spec for ReorgRecoversDependentTxs {
         node_a.wait_for_tx_pool();
 
         // 5. Both parent and child should be back in the pool.
+        wait_for_pending_count(node_a, 2);
         let info = node_a.rpc_client().tx_pool_info();
         assert_eq!(
             info.pending.value(),
@@ -109,6 +110,7 @@ impl Spec for ReorgRecoversDependentChain {
         waiting_for_sync_with_timeout(nodes, 30);
         node_a.wait_for_tx_pool();
 
+        wait_for_pending_count(node_a, 3);
         let info = node_a.rpc_client().tx_pool_info();
         assert_eq!(
             info.pending.value(),

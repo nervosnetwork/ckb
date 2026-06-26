@@ -266,23 +266,26 @@ impl OrderedResolver {
     }
 
     async fn push_to_verify_queue(&self, resolved: ResolvedTx) {
-        let mut queue = self.verify_queue.write().await;
-        match queue.add_tx(resolved.clone()) {
-            Ok(true) => {}
-            Ok(false) => {
-                debug!("resolved tx {} already in verify queue", resolved.tx.hash());
+        // Extract fields needed for after_process before resolved is consumed by add_tx.
+        let tx = resolved.tx.clone();
+        let remote = resolved.remote;
+        let snapshot = Arc::clone(&resolved.snapshot);
+
+        let reject = {
+            let mut queue = self.verify_queue.write().await;
+            match queue.add_tx(resolved) {
+                Ok(true) => return,
+                Ok(false) => {
+                    debug!("resolved tx {} already in verify queue", tx.hash());
+                    return;
+                }
+                Err(reject) => reject,
             }
-            Err(reject) => {
-                self.service
-                    .after_process(
-                        resolved.tx,
-                        resolved.remote,
-                        &resolved.snapshot,
-                        &Err(reject),
-                    )
-                    .await;
-            }
-        }
+        };
+        // verify_queue lock released before after_process
+        self.service
+            .after_process(tx, remote, &snapshot, &Err(reject))
+            .await;
     }
 }
 

@@ -29,12 +29,15 @@ use ckb_types::{
 ///   2. C1 consumes A1_out0 + B1_out0, displacing A2 and B2 via RBF.
 ///      A2 enters `conflicts_cache` keyed by A1_out0.
 ///      B2 enters `conflicts_cache` keyed by B1_out0.
-///   3. D1 consumes A1_out0 + B1_out0 + input_c, displacing C1 via RBF.
-///      C1's freed inputs include A1_out0 → maps to A2 → A2 recovered.
-///      C1's freed inputs include B1_out0 → maps to B2 → B2 recovered.
+///   3. D1 consumes A1_out0 + input_c, displacing C1 via RBF.
+///      C1's freed inputs: {A1_out0, B1_out0}
+///      D1's inputs: {A1_out0, input_c}
+///      available = freed − D1's = {B1_out0}
+///      B1_out0 maps to B2 in conflicts_outputs_cache → B2 recovered.
+///      A1_out0 is consumed by D1, so A2 stays rejected.
 ///
 /// Expected:
-///   - A2 transitions Pending → Rejected → Pending (recovered).
+///   - A2 stays Rejected (input A1_out0 still consumed by D1).
 ///   - B2 transitions Pending → Rejected → Pending (recovered).
 ///   - C1 transitions Pending → Rejected.
 ///   - D1 ends up Pending.

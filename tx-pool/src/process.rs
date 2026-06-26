@@ -132,9 +132,9 @@ impl PreCheckQueue {
         }
         let mut guard = self.inner.lock().expect("pre_check queue lock poisoned");
         guard.push_back(job);
-        drop(guard);
         self.total_tx_size
             .fetch_add(tx_size, std::sync::atomic::Ordering::Relaxed);
+        drop(guard);
         self.ready.notify_one();
         Ok(())
     }
@@ -1240,9 +1240,11 @@ impl TxPoolService {
             let mut retain = retain;
             Self::sort_txs_by_dependencies(&mut retain);
             for tx in retain {
-                let hash = tx.hash();
-                if self._process_tx(tx, None, None).await.is_none() {
-                    debug!("reorg re-add tx {} failed", hash);
+                if let Some((ret, snapshot)) = self._process_tx(tx.clone(), None, None).await
+                    && let Err(ref reject) = ret
+                {
+                    debug!("reorg re-add failed: {}", reject);
+                    self.after_process(tx, None, &snapshot, &ret).await;
                 }
             }
         }
@@ -1323,14 +1325,15 @@ impl TxPoolService {
                     remote,
                     is_proposal_tx,
                 };
-                let mut verify_queue = self.verify_queue.write().await;
-                match verify_queue.add_tx(resolved) {
-                    Ok(added) => Ok(added),
-                    Err(reject) => {
-                        self.after_process(tx, remote, &snapshot, &Err(reject.clone())).await;
-                        Err(reject)
+                let reject = {
+                    let mut verify_queue = self.verify_queue.write().await;
+                    match verify_queue.add_tx(resolved) {
+                        Ok(added) => return Ok(added),
+                        Err(reject) => reject,
                     }
-                }
+                };
+                self.after_process(tx, remote, &snapshot, &Err(reject.clone())).await;
+                Err(reject)
             }
             Err(reject) if crate::util::is_missing_input(&reject) => {
                 let mut ordered = self.ordered_resolve_queue.write().await;

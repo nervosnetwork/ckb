@@ -399,14 +399,18 @@ fn start_service(
     let parts = builder.build_bench_service(shared.network.clone());
 
     // Spawn the deferred task worker (recovery tx re-enqueue + cache updates).
+    // Only clone the two fields the worker needs; holding a full TxPoolService
+    // (which contains deferred_sender) would keep the mpsc channel open forever
+    // because the receiver task would itself be holding a sender.
     {
-        let svc = parts.service.clone();
+        let ordered_resolve_queue = Arc::clone(&parts.service.ordered_resolve_queue);
+        let txs_verify_cache = Arc::clone(&parts.service.txs_verify_cache);
         let mut deferred_rx = parts.deferred_receiver;
         tokio::spawn(async move {
             while let Some(task) = deferred_rx.recv().await {
                 match task {
                     crate::service::DeferredTask::RecoverTxs(txs) => {
-                        let mut queue = svc.ordered_resolve_queue.write().await;
+                        let mut queue = ordered_resolve_queue.write().await;
                         for tx in txs {
                             let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
                                 tx,
@@ -420,7 +424,7 @@ fn start_service(
                         wtx_hash,
                         verified,
                     } => {
-                        let mut guard = svc.txs_verify_cache.write().await;
+                        let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
                 }
