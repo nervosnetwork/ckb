@@ -10,7 +10,7 @@ use crate::component::ordered_resolve_queue::OrderedResolveQueue;
 use crate::component::verify_queue::VerifyQueue;
 use crate::error::Reject;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
-use crate::service::{TxPoolService, TxVerificationResult};
+use crate::service::TxPoolService;
 use ckb_logger::{debug, error, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
@@ -195,12 +195,12 @@ impl OrderedResolver {
                             id, peer, parents
                         );
                         self.service
-                            .send_result_to_relayer(TxVerificationResult::UnknownParents {
+                            .handle_missing_input_orphan(
+                                job.tx.clone(),
                                 peer,
+                                declared_cycle,
                                 parents,
-                            });
-                        self.service
-                            .add_orphan(job.tx.clone(), peer, declared_cycle)
+                            )
                             .await;
                     } else {
                         // Local transactions with missing inputs are normally rejected.

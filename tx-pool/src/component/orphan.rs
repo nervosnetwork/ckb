@@ -131,14 +131,19 @@ impl OrphanPool {
         evicted_txs
     }
 
+    /// Add a transaction to the orphan pool.
+    ///
+    /// Returns `(true, evicted_txs)` if the transaction was newly inserted,
+    /// or `(false, vec![])` if it was already present (in which case nothing
+    /// is changed).
     pub fn add_orphan_tx(
         &mut self,
         tx: TransactionView,
         peer: PeerIndex,
         declared_cycle: Cycle,
-    ) -> Vec<Byte32> {
+    ) -> (bool, Vec<Byte32>) {
         if self.entries.contains_key(&tx.proposal_short_id()) {
-            return vec![];
+            return (false, vec![]);
         }
 
         debug!("add_orphan_tx {}", tx.hash());
@@ -155,7 +160,8 @@ impl OrphanPool {
         }
 
         // DoS prevention: do not allow OrphanPool to grow unbounded
-        self.limit_size()
+        let evicted_txs = self.limit_size();
+        (true, evicted_txs)
     }
 
     pub fn find_by_previous(&self, tx: &TransactionView) -> Vec<&ProposalShortId> {

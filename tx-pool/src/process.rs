@@ -710,23 +710,11 @@ impl TxPoolService {
                         tx_hash, peer, reject
                     );
                     if is_missing_input(reject) {
-                        self.send_result_to_relayer(TxVerificationResult::UnknownParents {
-                            peer,
-                            parents: tx.unique_parents(),
-                        });
-                        self.add_orphan(tx, peer, declared_cycle).await;
+                        let parents = tx.unique_parents();
+                        self.handle_missing_input_orphan(tx, peer, declared_cycle, parents)
+                            .await;
                     } else {
-                        if reject.is_malformed_tx() {
-                            self.ban_malformed(peer, format!("reject {reject}")).await;
-                        }
-                        if reject.is_allowed_relay() {
-                            self.send_result_to_relayer(TxVerificationResult::Reject {
-                                tx_hash: tx_hash.clone(),
-                            });
-                        }
-                        if reject.should_recorded() {
-                            self.put_recent_reject(&tx_hash, reject);
-                        }
+                        self.handle_remote_reject(&tx_hash, reject, peer).await;
                     }
                 }
             },
@@ -770,13 +758,54 @@ impl TxPoolService {
         Box::pin(self.process_orphan_tx(tx)).await;
     }
 
+    /// Post-processing for a rejected remote transaction: ban the peer if the
+    /// tx is malformed, relay the rejection if allowed, and record it in the
+    /// recent-reject database if applicable.
+    ///
+    /// This is the single source of truth for the "remote error triple" used
+    /// by both [`Self::after_process`] and [`Self::process_orphan_tx`].
+    pub(crate) async fn handle_remote_reject(&self, tx_hash: &Byte32, reject: &Reject, peer: PeerIndex) {
+        if reject.is_malformed_tx() {
+            self.ban_malformed(peer, format!("reject {reject}")).await;
+        }
+        if reject.is_allowed_relay() {
+            self.send_result_to_relayer(TxVerificationResult::Reject {
+                tx_hash: tx_hash.clone(),
+            });
+        }
+        if reject.should_recorded() {
+            self.put_recent_reject(tx_hash, reject);
+        }
+    }
+
+    /// Route a transaction with missing inputs to the orphan pool and notify
+    /// the relayer about the missing parents.
+    ///
+    /// Used by both [`Self::after_process`] (which computes parents from the
+    /// tx) and the ordered resolver (which receives parents from the resolve
+    /// stage result).
+    pub(crate) async fn handle_missing_input_orphan(
+        &self,
+        tx: TransactionView,
+        peer: PeerIndex,
+        declared_cycle: Cycle,
+        parents: HashSet<Byte32>,
+    ) {
+        // Only notify the relayer after the tx has actually been accepted into
+        // the orphan pool. This avoids telling peers about missing parents for
+        // a tx that we end up dropping (e.g. duplicate orphan or pool full).
+        if self.add_orphan(tx, peer, declared_cycle).await {
+            self.send_result_to_relayer(TxVerificationResult::UnknownParents { peer, parents });
+        }
+    }
+
     pub(crate) async fn add_orphan(
         &self,
         tx: TransactionView,
         peer: PeerIndex,
         declared_cycle: Cycle,
-    ) {
-        let evicted_txs = self
+    ) -> bool {
+        let (added, evicted_txs) = self
             .orphan
             .write()
             .await
@@ -786,6 +815,7 @@ impl TxPoolService {
         for tx_hash in evicted_txs {
             self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
         }
+        added
     }
 
     pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
@@ -854,18 +884,8 @@ impl TxPoolService {
                         Err(reject) => {
                             if !is_missing_input(&reject) {
                                 self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                                if reject.is_malformed_tx() {
-                                    self.ban_malformed(orphan.peer, format!("reject {reject}"))
-                                        .await;
-                                }
-                                if reject.is_allowed_relay() {
-                                    self.send_result_to_relayer(TxVerificationResult::Reject {
-                                        tx_hash: orphan.tx.hash(),
-                                    });
-                                }
-                                if reject.should_recorded() {
-                                    self.put_recent_reject(&orphan.tx.hash(), &reject);
-                                }
+                                self.handle_remote_reject(&orphan.tx.hash(), &reject, orphan.peer)
+                                    .await;
                             }
                         }
                     }

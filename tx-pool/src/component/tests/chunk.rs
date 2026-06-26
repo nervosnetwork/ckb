@@ -17,7 +17,10 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainDB;
 use ckb_types::H256;
 use ckb_types::U256;
-use ckb_types::core::{Capacity, FeeRate, TransactionBuilder, cell::ResolvedTransaction};
+use ckb_types::core::{
+    Capacity, FeeRate, TransactionBuilder, cell::ResolvedTransaction, tx_pool::Reject,
+};
+use ckb_types::packed::Byte32;
 use ckb_verification::cache::init_cache;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -617,4 +620,116 @@ async fn notify_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
         }
         _ => panic!("expected reject notification"),
     }
+}
+
+/// Build a service with a real `RecentReject` database so that
+/// `handle_remote_reject` recording paths can be tested.
+fn service_with_recent_reject() -> (TxPoolService, ckb_channel::Receiver<TxVerificationResult>) {
+    let (service, receiver) = service_with_relay_receiver();
+    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+    let recent_reject = crate::component::recent_reject::RecentReject::build(
+        tmp_dir.path(),
+        2,   // shard_num
+        100, // count_limit
+        -1,  // ttl
+    )
+    .expect("create test recent_reject");
+    // Keep the temp dir alive for the lifetime of the service by leaking it.
+    // Tests are short-lived, so this is acceptable.
+    let _ = Box::leak(Box::new(tmp_dir));
+    (
+        TxPoolService {
+            recent_reject: Some(Arc::new(recent_reject)),
+            ..service
+        },
+        receiver,
+    )
+}
+
+#[tokio::test]
+async fn handle_remote_reject_records_reject_and_rejects_relay() {
+    let (service, tx_relay_receiver) = service_with_recent_reject();
+    let tx = build_tx(vec![(&Byte32::zero(), 0)], 1);
+    let tx_hash = tx.hash();
+    // Malformed tx: should be recorded and should ban the peer, but not relayed.
+    let reject = Reject::Malformed("bad tx".to_string(), Default::default());
+
+    service.handle_remote_reject(&tx_hash, &reject, 1.into()).await;
+
+    // No relay reject for malformed tx.
+    assert!(
+        tx_relay_receiver.try_recv().is_err(),
+        "malformed reject should not be relayed"
+    );
+    // Recorded in recent_reject.
+    let recent_reject = service.recent_reject.as_ref().expect("recent_reject set");
+    assert!(
+        recent_reject.get(&tx_hash).unwrap().is_some(),
+        "malformed reject should be recorded"
+    );
+}
+
+#[tokio::test]
+async fn handle_remote_reject_relays_allowed_rejects() {
+    let (service, tx_relay_receiver) = service_with_recent_reject();
+    let tx = build_tx(vec![(&Byte32::zero(), 0)], 1);
+    let tx_hash = tx.hash();
+    // DeclaredWrongCycles: malformed but allowed to be relayed with correct cycles.
+    let reject = Reject::DeclaredWrongCycles(100, 200);
+
+    service.handle_remote_reject(&tx_hash, &reject, 1.into()).await;
+
+    match tx_relay_receiver
+        .try_recv()
+        .expect("expected reject relay")
+    {
+        TxVerificationResult::Reject { tx_hash: rejected } => {
+            assert_eq!(rejected, tx_hash);
+        }
+        _ => panic!("expected Reject relay"),
+    }
+    // Also recorded.
+    let recent_reject = service.recent_reject.as_ref().expect("recent_reject set");
+    assert!(
+        recent_reject.get(&tx_hash).unwrap().is_some(),
+        "declared-wrong-cycles reject should be recorded"
+    );
+}
+
+#[tokio::test]
+async fn handle_missing_input_orphan_notifies_relayer_once() {
+    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let parent = build_tx(vec![], 1);
+    let parent_hash = parent.hash();
+    let orphan = build_tx(vec![(&parent_hash, 0)], 1);
+    let orphan_id = orphan.proposal_short_id();
+    let parents: std::collections::HashSet<Byte32> = std::iter::once(parent_hash).collect();
+
+    // First call should add to orphan pool and notify relayer.
+    service
+        .handle_missing_input_orphan(orphan.clone(), 1.into(), 100, parents.clone())
+        .await;
+
+    assert!(service.orphan.read().await.contains_key(&orphan_id));
+    match tx_relay_receiver
+        .try_recv()
+        .expect("expected UnknownParents on first add")
+    {
+        TxVerificationResult::UnknownParents { peer, parents: p } => {
+            assert_eq!(peer, 1.into());
+            assert_eq!(p, parents);
+        }
+        _ => panic!("expected UnknownParents"),
+    }
+
+    // Second call for the same tx is a duplicate; orphan pool already contains
+    // it, so the relayer must not receive another UnknownParents notification.
+    service
+        .handle_missing_input_orphan(orphan, 2.into(), 100, parents)
+        .await;
+
+    assert!(
+        tx_relay_receiver.try_recv().is_err(),
+        "duplicate orphan should not trigger second UnknownParents"
+    );
 }
