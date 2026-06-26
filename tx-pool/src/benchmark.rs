@@ -2,10 +2,18 @@
 //!
 //! This module is only available with the `internal` feature. The actual binary
 //! target lives in `tx-pool/benches/pipeline.rs`.
+//!
+//! # Comparing sync vs pipeline
+//!
+//! Run each mode separately and then compare with Criterion's built-in
+//! baseline facility:
+//!
+//! ```sh
+//! cargo bench --no-default-features --features internal --bench pipeline -- --save-baseline sync
+//! cargo bench --features "internal pipeline" --bench pipeline -- --save-baseline pipeline
+//! critcmp sync.json pipeline.json   # install critcmp with `cargo install critcmp`
+//! ```
 
-use crate::component::orphan::OrphanPool;
-use crate::component::verify_queue::VerifyQueue;
-use crate::pool::TxPool;
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use ckb_app_config::{NetworkConfig, TxPoolConfig};
@@ -36,9 +44,9 @@ use ckb_verification::cache::init_cache;
 use criterion::{BatchSize, BenchmarkGroup, Criterion, SamplingMode, Throughput, criterion_group};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{RwLock, watch};
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ALWAYS_SUCCESS_ISSUE_CAPACITY: u64 = 5_000;
@@ -48,6 +56,10 @@ const SECP_PRIVKEY: H256 =
 const SECP_PUBKEY_HASH: H160 = h160!("0x779e5930892a0a9bf2fedfe048f685466c7d0396");
 const SECP_ISSUE_CAPACITY: u64 = 50_000 * 100_000_000;
 const SECP_FEE: u64 = 1_000 * 100_000_000;
+
+// ---------------------------------------------------------------------------
+// Config helpers
+// ---------------------------------------------------------------------------
 
 fn tx_pool_config(max_workers: usize) -> TxPoolConfig {
     TxPoolConfig {
@@ -64,6 +76,10 @@ fn tx_pool_config(max_workers: usize) -> TxPoolConfig {
         expiry_hours: 24,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Chain / script helpers
+// ---------------------------------------------------------------------------
 
 fn always_success_script() -> Script {
     always_success_cell().2.clone()
@@ -186,6 +202,10 @@ fn network(consensus: &Consensus) -> (ckb_network::NetworkController, TempDir) {
     (controller, tmp_dir)
 }
 
+// ---------------------------------------------------------------------------
+// SharedBench — resources shared across all benchmark iterations
+// ---------------------------------------------------------------------------
+
 struct SharedBench {
     _store: MockStore,
     _network_tmp_dir: TempDir,
@@ -243,6 +263,11 @@ impl SharedBench {
             .collect()
     }
 
+    /// Start a full tx-pool service (with controller) for benchmark iterations.
+    ///
+    /// The returned [`ServiceHandle`] owns a clone of `tx_relay_sender` so that
+    /// dropping it closes the relay channel, allowing the background drain task
+    /// to exit cleanly.
     fn start_controller(&self, max_workers: usize) -> ServiceHandle {
         let config = tx_pool_config(max_workers);
         let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
@@ -260,7 +285,7 @@ impl SharedBench {
             None,
             Arc::new(RwLock::new(init_cache())),
             &self.ckb_handle,
-            tx_relay_sender,
+            tx_relay_sender.clone(),
             FeeEstimator::new_dummy(),
         );
         // Replace the global exit token with a local one so stopping this service
@@ -271,74 +296,120 @@ impl SharedBench {
         ServiceHandle {
             controller,
             signal: local_signal,
+            tx_relay_sender: Some(tx_relay_sender),
         }
     }
 }
 
+/// RAII handle for a benchmark service instance.
+///
+/// On drop it cancels the [`CancellationToken`] (shutting down all spawned
+/// workers) **and** drops the `tx_relay_sender` clone, which causes the
+/// background relay-drain task to exit cleanly.
 struct ServiceHandle {
     controller: crate::TxPoolController,
     signal: CancellationToken,
+    /// Stored so we can explicitly drop it on shutdown, closing the relay
+    /// channel and letting the background drain task exit.
+    tx_relay_sender: Option<ckb_channel::Sender<crate::service::TxVerificationResult>>,
 }
 
 impl Drop for ServiceHandle {
     fn drop(&mut self) {
         self.signal.cancel();
+        // Drop the sender explicitly so the relay drain task (spawn_blocking)
+        // sees a closed channel and exits instead of leaking.
+        self.tx_relay_sender.take();
     }
 }
 
+// ---------------------------------------------------------------------------
+// Async helpers
+// ---------------------------------------------------------------------------
+
+/// Poll the tx-pool until at least `count` transactions reach the pending state.
+///
+/// Uses a 5 ms polling interval for tight feedback on small batches while still
+/// being gentle on the runtime scheduler.
+async fn wait_for_pending(controller: &crate::TxPoolController, count: usize) {
+    let start = Instant::now();
+    let mut last_log = start;
+    let result = tokio::time::timeout(Duration::from_secs(120), async {
+        loop {
+            let info = controller.get_tx_pool_info().ok();
+            let pending = info.as_ref().map(|i| i.pending_size).unwrap_or(0);
+            if pending >= count {
+                break;
+            }
+            let now = Instant::now();
+            if now.duration_since(last_log).as_secs() >= 5 {
+                eprintln!(
+                    "[wait_for_pending] pending={} orphan={} total={} after {:?}",
+                    pending,
+                    info.as_ref().map(|i| i.orphan_size).unwrap_or(0),
+                    info.as_ref().map(|i| i.total_tx_size).unwrap_or(0),
+                    now.duration_since(start)
+                );
+                last_log = now;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    let pending = controller
+        .get_tx_pool_info()
+        .map(|info| info.pending_size)
+        .unwrap_or(usize::MAX);
+    assert!(
+        result.is_ok(),
+        "pipeline did not process all txs in time: {}/{} pending",
+        pending,
+        count
+    );
+}
+
+// ---------------------------------------------------------------------------
+// start_service — used by measure_cycles (needs direct TxPoolService access)
+// ---------------------------------------------------------------------------
+
+/// Build a [`TxPoolService`] together with its pipeline workers for direct
+/// method calls (e.g. `process_tx`, `_test_accept_tx`).
+///
+/// This uses [`TxPoolServiceBuilder::build_bench_service`] for the service
+/// construction, ensuring the same assembly path as production code.
 fn start_service(
     shared: &SharedBench,
     max_workers: usize,
 ) -> (TxPoolService, ckb_stop_handler::CancellationToken) {
     let config = tx_pool_config(max_workers);
-    let tx_pool = TxPool::new(config.clone(), Arc::clone(&shared.snapshot));
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-    // Drain relay results so the temporary service does not block on a full channel.
     shared
         .runtime
         .spawn_blocking(move || while tx_relay_receiver.recv().is_ok() {});
-    let (block_assembler_sender, _) = mpsc::channel(1);
 
-    let ordered_resolve_queue = Arc::new(RwLock::new(
-        crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-    ));
-    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
-
-    #[cfg(feature = "pipeline")]
-    let max_workers = config.max_tx_verify_workers.max(1);
-    #[cfg(feature = "pipeline")]
-    let pre_check_workers = max_workers.min(4);
-    #[cfg(feature = "pipeline")]
-    let signal = ckb_stop_handler::CancellationToken::new();
-    #[cfg(feature = "pipeline")]
-    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(signal.child_token()));
-
-    let service = TxPoolService {
-        tx_pool: Arc::new(RwLock::new(tx_pool)),
-        orphan: Arc::new(RwLock::new(OrphanPool::new())),
-        consensus: Arc::clone(&shared.snapshot.cloned_consensus()),
-        tx_pool_config: Arc::new(config.clone()),
-        block_assembler: None,
-        // Temporary service for cycle measurement. Its verify cache is
-        // independent from the benchmark controller's cache (see start_controller).
-        // When this service is dropped via signal.cancel(), its cache is discarded.
-        txs_verify_cache: Arc::new(RwLock::new(init_cache())),
-        callbacks: Arc::new(crate::callback::Callbacks::new()),
-        network: shared.network.clone(),
+    let (builder, _controller) = crate::TxPoolServiceBuilder::new(
+        config,
+        Arc::clone(&shared.snapshot),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &shared.ckb_handle,
         tx_relay_sender,
-        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::clone(&verify_queue),
-        block_assembler_sender,
-        fee_estimator: FeeEstimator::new_dummy(),
-        #[cfg(feature = "pipeline")]
-        pre_check_queue: Arc::clone(&pre_check_queue),
-    };
+        FeeEstimator::new_dummy(),
+    );
+    let parts = builder.build_bench_service(shared.network.clone());
+
+    // Spawn pipeline workers using the components from the builder.
+    #[cfg(feature = "pipeline")]
+    let signal = parts.signal;
+    #[cfg(not(feature = "pipeline"))]
+    let signal = ckb_stop_handler::CancellationToken::new();
 
     #[cfg(feature = "pipeline")]
     {
+        let pre_check_workers = max_workers.min(4);
         for _ in 0..pre_check_workers {
-            let svc = service.clone();
-            let queue = Arc::clone(&pre_check_queue);
+            let svc = parts.service.clone();
+            let queue = Arc::clone(&parts.pre_check_queue);
             tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
                     let _ = svc
@@ -349,18 +420,19 @@ fn start_service(
         }
     }
 
-    #[cfg(not(feature = "pipeline"))]
-    let signal = ckb_stop_handler::CancellationToken::new();
+    // Create a fresh chunk channel shared by VerifyMgr and OrderedResolver.
+    // The builder's original chunk_tx was inside the TxPoolController which
+    // was consumed by build_bench_service, so we need our own.
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let mut verify_mgr =
-        crate::verify_mgr::VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
+        crate::verify_mgr::VerifyMgr::new(parts.service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
 
     let ordered_resolver = OrderedResolver::new(
-        service.clone(),
-        Arc::clone(&ordered_resolve_queue),
-        Arc::clone(&verify_queue),
+        parts.service.clone(),
+        Arc::clone(&parts.service.ordered_resolve_queue),
+        Arc::clone(&parts.service.verify_queue),
         chunk_tx.subscribe(),
         signal.child_token(),
     );
@@ -373,8 +445,89 @@ fn start_service(
         let _ = resolver_handle.await;
     });
 
-    (service, signal)
+    (parts.service, signal)
 }
+
+// ---------------------------------------------------------------------------
+// Cycle measurement
+// ---------------------------------------------------------------------------
+
+/// How cycle counts should be measured for a set of transactions.
+enum MeasureMode {
+    /// Measure one sample tx via `_test_accept_tx` and apply the same cycle
+    /// count to every transaction in the set (appropriate for always_success
+    /// scripts whose verification cost is deterministic).
+    Uniform,
+    /// Measure each tx individually via `process_tx`.  Required for dependent
+    /// chains whose inputs resolve through the pool's locked path.
+    PerTxProcess,
+    /// Measure each tx individually via `_test_accept_tx`.  Required for
+    /// independent secp256k1 txs whose ECDSA verification cycles vary
+    /// non-deterministically with signature values.
+    PerTxTest,
+}
+
+/// Measure verification cycles for a set of transactions.
+///
+/// For dependent chains, `process_tx` is used because it resolves inputs
+/// through both the chain snapshot **and** the tx-pool (via
+/// `pre_check_with_pool_lock`), allowing earlier transactions in the chain to
+/// serve as parents for later ones.  Without this, dependent children would
+/// fail resolution since their inputs are not yet on-chain.
+///
+/// secp256k1 ECDSA verification has non-deterministic cycle counts per tx
+/// (different signature values take different CKB-VM execution paths), so each
+/// tx must be measured individually — we cannot just measure one and multiply.
+fn measure_cycles(
+    shared: &SharedBench,
+    txs: &[TransactionView],
+    mode: MeasureMode,
+) -> HashMap<ckb_types::packed::Byte32, u64> {
+    let (service, signal) = shared.runtime.block_on(async { start_service(shared, 8) });
+    let cycles = shared.runtime.block_on(async {
+        let mut cycles = HashMap::with_capacity(txs.len());
+        match mode {
+            MeasureMode::Uniform => {
+                let sample = &txs[0];
+                let c = service
+                    ._test_accept_tx(sample.clone())
+                    .await
+                    .expect("measure uniform cycle")
+                    .cycles;
+                for tx in txs {
+                    cycles.insert(tx.hash(), c);
+                }
+            }
+            MeasureMode::PerTxProcess => {
+                for tx in txs {
+                    let c = service
+                        .process_tx(tx.clone(), None)
+                        .await
+                        .expect("measure cycles via process_tx")
+                        .cycles;
+                    cycles.insert(tx.hash(), c);
+                }
+            }
+            MeasureMode::PerTxTest => {
+                for tx in txs {
+                    let c = service
+                        ._test_accept_tx(tx.clone())
+                        .await
+                        .expect("measure cycles via _test_accept_tx")
+                        .cycles;
+                    cycles.insert(tx.hash(), c);
+                }
+            }
+        }
+        cycles
+    });
+    signal.cancel();
+    cycles
+}
+
+// ---------------------------------------------------------------------------
+// Transaction builders
+// ---------------------------------------------------------------------------
 
 fn build_tx(input: &OutPoint, output_capacity: usize) -> TransactionView {
     TransactionBuilder::default()
@@ -512,66 +665,75 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
         .build()
 }
 
-async fn wait_for_pending(controller: &crate::TxPoolController, count: usize) {
-    let start = std::time::Instant::now();
-    let mut last_log = start;
-    let result = tokio::time::timeout(Duration::from_secs(120), async {
-        loop {
-            let info = controller.get_tx_pool_info().ok();
-            let pending = info.as_ref().map(|i| i.pending_size).unwrap_or(0);
-            if pending >= count {
-                break;
-            }
-            let now = std::time::Instant::now();
-            if now.duration_since(last_log).as_secs() >= 5 {
-                eprintln!(
-                    "[wait_for_pending] pending={} orphan={} total={} after {:?}",
-                    pending,
-                    info.as_ref().map(|i| i.orphan_size).unwrap_or(0),
-                    info.as_ref().map(|i| i.total_tx_size).unwrap_or(0),
-                    now.duration_since(start)
-                );
-                last_log = now;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await;
-    let pending = controller
-        .get_tx_pool_info()
-        .map(|info| info.pending_size)
-        .unwrap_or(usize::MAX);
-    assert!(
-        result.is_ok(),
-        "pipeline did not process all txs in time: {}/{} pending",
-        pending,
-        count
-    );
+fn build_dependent_chain(shared: &SharedBench, count: usize) -> Vec<TransactionView> {
+    let roots = shared.issue_out_points(count);
+    let mut txs: Vec<TransactionView> = Vec::with_capacity(count);
+    for (i, root) in roots.iter().enumerate() {
+        let input = if i == 0 {
+            root.clone()
+        } else {
+            OutPoint::new(txs[i - 1].hash(), 0)
+        };
+        let tx = if let Some(deps) = &shared.secp_cell_deps {
+            build_secp_tx(&input, deps, SECP_ISSUE_CAPACITY)
+        } else {
+            build_tx(&input, ALWAYS_SUCCESS_ISSUE_CAPACITY as usize)
+        };
+        txs.push(tx);
+    }
+    txs
 }
 
-const SIZES: &[usize] = &[50, 100];
-const PEER_COUNTS: &[usize] = &[1, 2, 4, 8];
-const WORKER_COUNTS: &[usize] = &[4, 8, 12];
-const WARM_POOL_SIZE: usize = 30;
-const DEPENDENT_SIZES: &[usize] = &[10, 20];
-const DEPENDENT_WARM_POOL_SIZE: usize = 10;
+// ---------------------------------------------------------------------------
+// Pipeline metrics (P3-9)
+// ---------------------------------------------------------------------------
 
-// Medium matrix: a balanced tier between QUICK_BENCH and full benchmark.
-// Runs in roughly 10–15 minutes; activate with MEDIUM_BENCH=1.
-const MEDIUM_SIZES: &[usize] = &[100];
-const MEDIUM_PEER_COUNTS: &[usize] = &[1, 4];
-const MEDIUM_WORKER_COUNTS: &[usize] = &[4, 8];
-const MEDIUM_WARM_POOL_SIZE: usize = 30;
-const MEDIUM_DEPENDENT_SIZES: &[usize] = &[10];
-const MEDIUM_DEPENDENT_WARM_POOL_SIZE: usize = 10;
+/// Snapshot of internal pipeline queue depths at a point in time.
+#[derive(Default, Clone, Debug)]
+#[allow(dead_code)]
+struct PipelineMetrics {
+    pending: usize,
+    orphan_size: usize,
+}
 
-// Quick matrix: runs in about 5 minutes and is used when QUICK_BENCH is set.
-const QUICK_SIZES: &[usize] = &[50];
-const QUICK_PEER_COUNTS: &[usize] = &[1];
-const QUICK_WORKER_COUNTS: &[usize] = &[8];
-const QUICK_WARM_POOL_SIZE: usize = 50;
-const QUICK_DEPENDENT_SIZES: &[usize] = &[10];
-const QUICK_DEPENDENT_WARM_POOL_SIZE: usize = 10;
+#[allow(dead_code)]
+impl PipelineMetrics {
+    /// Collect metrics directly from the service's internal state (used by
+    /// `measure_cycles` where no controller exists).
+    fn snapshot_from_service(service: &TxPoolService) -> Self {
+        let orphan_size = service
+            .orphan
+            .try_read()
+            .map(|o| o.len())
+            .unwrap_or(0);
+        Self {
+            pending: 0, // not easily accessible without a controller
+            orphan_size,
+        }
+    }
+
+    fn snapshot(controller: &crate::TxPoolController) -> Self {
+        let info = controller.get_tx_pool_info().ok();
+        Self {
+            pending: info.as_ref().map(|i| i.pending_size).unwrap_or(0),
+            orphan_size: info.as_ref().map(|i| i.orphan_size).unwrap_or(0),
+        }
+    }
+}
+
+impl std::fmt::Display for PipelineMetrics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "pending={} orphan={}",
+            self.pending, self.orphan_size,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BenchData — pre-built transactions and cycle counts for one tx type
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
 enum TxType {
@@ -615,8 +777,9 @@ impl BenchData {
                     .iter()
                     .map(|out_point| build_tx(out_point, 4_000))
                     .collect();
-                let cycle = measure_sample_cycle(&shared);
-                let cycles = txs.iter().map(|tx| (tx.hash(), cycle)).collect();
+                // always_success verification cost is deterministic, so measure
+                // one sample and apply the same cycle count to all txs.
+                let cycles = measure_cycles(&shared, &txs, MeasureMode::Uniform);
                 (shared, txs, cycles)
             }
             TxType::Secp256k1 => {
@@ -628,19 +791,19 @@ impl BenchData {
                         build_secp_tx(out_point, &cell_deps, SECP_ISSUE_CAPACITY - SECP_FEE)
                     })
                     .collect();
-                let cycles = measure_cycles(&shared, &txs, false);
+                let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxTest);
                 (shared, txs, cycles)
             }
             TxType::DependentAlwaysSuccess => {
                 let shared = SharedBench::new_always_success(issue_outputs);
                 let txs = build_dependent_chain(&shared, issue_outputs);
-                let cycles = measure_cycles(&shared, &txs, true);
+                let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxProcess);
                 (shared, txs, cycles)
             }
             TxType::DependentSecp => {
                 let (shared, _) = SharedBench::new_secp(issue_outputs);
                 let txs = build_dependent_chain(&shared, issue_outputs);
-                let cycles = measure_cycles(&shared, &txs, true);
+                let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxProcess);
                 (shared, txs, cycles)
             }
         };
@@ -653,129 +816,62 @@ impl BenchData {
         }
     }
 
-    fn warm(&self) -> (Vec<TransactionView>, Vec<u64>) {
-        let txs = self.txs[..self.warm_pool_size].to_vec();
+    fn warm(&self) -> (Arc<Vec<TransactionView>>, Arc<Vec<u64>>) {
+        let txs: Vec<_> = self.txs[..self.warm_pool_size].to_vec();
         let cycles = txs
             .iter()
             .map(|tx| *self.cycles.get(&tx.hash()).expect("missing cycle"))
             .collect();
-        (txs, cycles)
+        (Arc::new(txs), Arc::new(cycles))
     }
 
-    fn target(&self, size: usize) -> (Vec<TransactionView>, Vec<u64>) {
+    fn target(&self, size: usize) -> (Arc<Vec<TransactionView>>, Arc<Vec<u64>>) {
         let end = self.warm_pool_size + size;
-        let txs = self.txs[self.warm_pool_size..end].to_vec();
+        let txs: Vec<_> = self.txs[self.warm_pool_size..end].to_vec();
         let cycles = txs
             .iter()
             .map(|tx| *self.cycles.get(&tx.hash()).expect("missing cycle"))
             .collect();
-        (txs, cycles)
+        (Arc::new(txs), Arc::new(cycles))
     }
 }
 
-fn measure_sample_cycle(shared: &SharedBench) -> u64 {
-    let out_point = shared.issue_out_points(1).pop().expect("one output");
-    let sample = build_tx(&out_point, 4_000);
-    let (service, signal) = shared.runtime.block_on(async { start_service(shared, 8) });
-    let cycle = shared.runtime.block_on(async {
-        service
-            ._test_accept_tx(sample)
-            .await
-            .expect("measure cycle")
-            .cycles
-    });
-    signal.cancel();
-    cycle
-}
-
-fn measure_cycles(
-    shared: &SharedBench,
-    txs: &[TransactionView],
-    use_process: bool,
-) -> HashMap<ckb_types::packed::Byte32, u64> {
-    let (service, signal) = shared.runtime.block_on(async { start_service(shared, 8) });
-    // secp256k1 ECDSA verification has non-deterministic cycle counts per tx
-    // (different signature values take different CKB-VM execution paths),
-    // so we must measure each tx individually.
-    let cycles = shared.runtime.block_on(async {
-        let mut cycles = HashMap::with_capacity(txs.len());
-        for tx in txs {
-            let c = if use_process {
-                service
-                    .process_tx(tx.clone(), None)
-                    .await
-                    .expect("measure cycles via process_tx")
-                    .cycles
-            } else {
-                service
-                    ._test_accept_tx(tx.clone())
-                    .await
-                    .expect("measure cycles via _test_accept_tx")
-                    .cycles
-            };
-            cycles.insert(tx.hash(), c);
-        }
-        cycles
-    });
-    signal.cancel();
-    cycles
-}
-
-fn build_dependent_chain(shared: &SharedBench, count: usize) -> Vec<TransactionView> {
-    let roots = shared.issue_out_points(count);
-    let mut txs: Vec<TransactionView> = Vec::with_capacity(count);
-    for (i, root) in roots.iter().enumerate() {
-        let input = if i == 0 {
-            root.clone()
-        } else {
-            OutPoint::new(txs[i - 1].hash(), 0)
-        };
-        let tx = if let Some(deps) = &shared.secp_cell_deps {
-            build_secp_tx(&input, deps, SECP_ISSUE_CAPACITY)
-        } else {
-            build_tx(&input, ALWAYS_SUCCESS_ISSUE_CAPACITY as usize)
-        };
-        txs.push(tx);
-    }
-    txs
-}
-
-fn chunk_vec<T>(mut vec: Vec<T>, n: usize) -> Vec<Vec<T>> {
-    if n == 0 {
-        return vec![vec];
-    }
-    let chunk_size = vec.len().div_ceil(n);
-    let mut chunks = Vec::new();
-    while !vec.is_empty() {
-        let split_at = std::cmp::min(chunk_size, vec.len());
-        let tail = vec.split_off(split_at);
-        chunks.push(vec);
-        vec = tail;
-    }
-    chunks
-}
+// ---------------------------------------------------------------------------
+// Submit and wait
+// ---------------------------------------------------------------------------
 
 fn submit_and_wait(
     runtime: &tokio::runtime::Runtime,
     controller: &crate::TxPoolController,
-    txs: Vec<TransactionView>,
-    cycles: Vec<u64>,
+    txs: Arc<Vec<TransactionView>>,
+    cycles: Arc<Vec<u64>>,
     target_pending: usize,
     submitters: usize,
 ) {
     runtime.block_on(async {
-        // `submitters` concurrent submitters mimic several peers feeding the service actor.
-        // The actor itself still processes messages one by one.
-        let tx_chunks = chunk_vec(txs, submitters);
-        let c_chunks = chunk_vec(cycles, submitters);
+        // Split into per-submitter ranges.  Each spawned task gets a cheap
+        // Arc clone and indexes directly into the shared Vec, avoiding a
+        // full Vec clone per submitter.
+        let chunk_size = if submitters == 0 || txs.is_empty() {
+            txs.len()
+        } else {
+            txs.len().div_ceil(submitters)
+        };
+        let ranges: Vec<(usize, usize)> = (0..txs.len())
+            .step_by(chunk_size.max(1))
+            .map(|start| (start, (start + chunk_size).min(txs.len())))
+            .collect();
+
         let controller_for_wait = controller.clone();
-        let mut handles = Vec::with_capacity(tx_chunks.len());
-        for (tx_chunk, c_chunk) in tx_chunks.into_iter().zip(c_chunks) {
+        let mut handles = Vec::with_capacity(ranges.len());
+        for (start, end) in ranges {
             let controller = controller.clone();
+            let txs = Arc::clone(&txs);
+            let cycles = Arc::clone(&cycles);
             handles.push(tokio::spawn(async move {
-                for (tx, c) in tx_chunk.into_iter().zip(c_chunk) {
+                for i in start..end {
                     controller
-                        .submit_remote_tx(tx, c, 1.into())
+                        .submit_remote_tx(txs[i].clone(), cycles[i], 1.into())
                         .await
                         .expect("submit remote tx");
                 }
@@ -788,6 +884,80 @@ fn submit_and_wait(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Benchmark matrix
+// ---------------------------------------------------------------------------
+
+// Full matrix: all combinations — runs in ~30+ minutes.
+const SIZES: &[usize] = &[50, 100];
+const PEER_COUNTS: &[usize] = &[1, 2, 4, 8];
+const WORKER_COUNTS: &[usize] = &[4, 8, 12];
+const WARM_POOL_SIZE: usize = 30;
+const DEPENDENT_SIZES: &[usize] = &[10, 20];
+const DEPENDENT_WARM_POOL_SIZE: usize = 10;
+
+// Medium matrix: a balanced tier — runs in roughly 10–15 minutes.
+// This is the **default** matrix (no env var needed).
+const MEDIUM_SIZES: &[usize] = &[100];
+const MEDIUM_PEER_COUNTS: &[usize] = &[1, 4];
+const MEDIUM_WORKER_COUNTS: &[usize] = &[4, 8];
+const MEDIUM_WARM_POOL_SIZE: usize = 30;
+const MEDIUM_DEPENDENT_SIZES: &[usize] = &[10];
+const MEDIUM_DEPENDENT_WARM_POOL_SIZE: usize = 10;
+
+// Quick matrix: runs in about 5 minutes — activate with QUICK_BENCH=1.
+const QUICK_SIZES: &[usize] = &[50];
+const QUICK_PEER_COUNTS: &[usize] = &[1];
+const QUICK_WORKER_COUNTS: &[usize] = &[8];
+const QUICK_WARM_POOL_SIZE: usize = 50;
+const QUICK_DEPENDENT_SIZES: &[usize] = &[10];
+const QUICK_DEPENDENT_WARM_POOL_SIZE: usize = 10;
+
+struct BenchMatrix {
+    sizes: &'static [usize],
+    peer_counts: &'static [usize],
+    worker_counts: &'static [usize],
+    warm_pool_size: usize,
+    dependent_sizes: &'static [usize],
+    dependent_warm_pool_size: usize,
+}
+
+fn bench_matrix() -> BenchMatrix {
+    if std::env::var("QUICK_BENCH").is_ok() {
+        BenchMatrix {
+            sizes: QUICK_SIZES,
+            peer_counts: QUICK_PEER_COUNTS,
+            worker_counts: QUICK_WORKER_COUNTS,
+            warm_pool_size: QUICK_WARM_POOL_SIZE,
+            dependent_sizes: QUICK_DEPENDENT_SIZES,
+            dependent_warm_pool_size: QUICK_DEPENDENT_WARM_POOL_SIZE,
+        }
+    } else if std::env::var("FULL_BENCH").is_ok() {
+        BenchMatrix {
+            sizes: SIZES,
+            peer_counts: PEER_COUNTS,
+            worker_counts: WORKER_COUNTS,
+            warm_pool_size: WARM_POOL_SIZE,
+            dependent_sizes: DEPENDENT_SIZES,
+            dependent_warm_pool_size: DEPENDENT_WARM_POOL_SIZE,
+        }
+    } else {
+        // Default: medium matrix for a good speed/signal trade-off.
+        BenchMatrix {
+            sizes: MEDIUM_SIZES,
+            peer_counts: MEDIUM_PEER_COUNTS,
+            worker_counts: MEDIUM_WORKER_COUNTS,
+            warm_pool_size: MEDIUM_WARM_POOL_SIZE,
+            dependent_sizes: MEDIUM_DEPENDENT_SIZES,
+            dependent_warm_pool_size: MEDIUM_DEPENDENT_WARM_POOL_SIZE,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark registration
+// ---------------------------------------------------------------------------
+
 fn register_cold_bench(
     group: &mut BenchmarkGroup<'_, criterion::measurement::WallTime>,
     mode: &str,
@@ -797,20 +967,23 @@ fn register_cold_bench(
     size: usize,
 ) {
     let (mut txs, mut cycles) = data.target(size);
-    // Submit dependent chains in reverse order so children land in the orphan pool
-    // and are recovered after their parents are accepted. Submitting in natural
-    // order would route them to the ordered resolve queue, which is not re-driven
-    // once the parent leaves the pipeline.
+    // Submit dependent chains in reverse order so children land in the orphan
+    // pool and are recovered after their parents are accepted.  Submitting in
+    // natural order would route them to the ordered resolve queue, which is not
+    // re-driven once the parent leaves the pipeline.
     if data.tx_type.is_dependent() {
-        txs.reverse();
-        cycles.reverse();
+        let txs_mut = Arc::make_mut(&mut txs);
+        txs_mut.reverse();
+        let cycles_mut = Arc::make_mut(&mut cycles);
+        cycles_mut.reverse();
     }
     let tx_type = data.tx_type.as_str();
     group.throughput(Throughput::Elements(size as u64));
 
     if data.tx_type.is_dependent() {
-        // Cold dependent txs depend on the warm prefix of the chain. Pre-submit that
-        // prefix (not measured) so the reversed target txs have parents in the pool.
+        // Cold dependent txs depend on the warm prefix of the chain.  Pre-submit
+        // that prefix (not measured) so the reversed target txs have parents in
+        // the pool.
         let (warm_txs, warm_cycles) = data.warm();
         let expected_pending = data.warm_pool_size + size;
         group.bench_function(
@@ -822,8 +995,8 @@ fn register_cold_bench(
                         submit_and_wait(
                             &data.shared.runtime,
                             &handle.controller,
-                            warm_txs.clone(),
-                            warm_cycles.clone(),
+                            Arc::clone(&warm_txs),
+                            Arc::clone(&warm_cycles),
                             data.warm_pool_size,
                             1,
                         );
@@ -833,8 +1006,8 @@ fn register_cold_bench(
                         submit_and_wait(
                             &data.shared.runtime,
                             &handle.controller,
-                            txs.clone(),
-                            cycles.clone(),
+                            Arc::clone(&txs),
+                            Arc::clone(&cycles),
                             expected_pending,
                             peers,
                         )
@@ -853,8 +1026,8 @@ fn register_cold_bench(
                         submit_and_wait(
                             &data.shared.runtime,
                             &handle.controller,
-                            txs.clone(),
-                            cycles.clone(),
+                            Arc::clone(&txs),
+                            Arc::clone(&cycles),
                             size,
                             peers,
                         )
@@ -881,7 +1054,7 @@ fn register_warm_bench(
     group.throughput(Throughput::Elements(size as u64));
     // The setup closure (iter_batched) creates a fresh controller with an empty
     // verify cache, then submits warm_txs which populate the cache with those
-    // entries. The measured closure then submits target_txs (different hashes),
+    // entries.  The measured closure then submits target_txs (different hashes),
     // so they miss the cache and undergo full verification — matching the real
     // behaviour of a node that already holds verified txs in its pool.
     group.bench_function(
@@ -893,8 +1066,8 @@ fn register_warm_bench(
                     submit_and_wait(
                         &data.shared.runtime,
                         &handle.controller,
-                        warm_txs.clone(),
-                        warm_cycles.clone(),
+                        Arc::clone(&warm_txs),
+                        Arc::clone(&warm_cycles),
                         data.warm_pool_size,
                         peers,
                     );
@@ -904,8 +1077,8 @@ fn register_warm_bench(
                     submit_and_wait(
                         &data.shared.runtime,
                         &handle.controller,
-                        target_txs.clone(),
-                        target_cycles.clone(),
+                        Arc::clone(&target_txs),
+                        Arc::clone(&target_cycles),
                         expected_pending,
                         peers,
                     )
@@ -916,45 +1089,9 @@ fn register_warm_bench(
     );
 }
 
-struct BenchMatrix {
-    sizes: &'static [usize],
-    peer_counts: &'static [usize],
-    worker_counts: &'static [usize],
-    warm_pool_size: usize,
-    dependent_sizes: &'static [usize],
-    dependent_warm_pool_size: usize,
-}
-
-fn bench_matrix() -> BenchMatrix {
-    if std::env::var("QUICK_BENCH").is_ok() {
-        BenchMatrix {
-            sizes: QUICK_SIZES,
-            peer_counts: QUICK_PEER_COUNTS,
-            worker_counts: QUICK_WORKER_COUNTS,
-            warm_pool_size: QUICK_WARM_POOL_SIZE,
-            dependent_sizes: QUICK_DEPENDENT_SIZES,
-            dependent_warm_pool_size: QUICK_DEPENDENT_WARM_POOL_SIZE,
-        }
-    } else if std::env::var("MEDIUM_BENCH").is_ok() {
-        BenchMatrix {
-            sizes: MEDIUM_SIZES,
-            peer_counts: MEDIUM_PEER_COUNTS,
-            worker_counts: MEDIUM_WORKER_COUNTS,
-            warm_pool_size: MEDIUM_WARM_POOL_SIZE,
-            dependent_sizes: MEDIUM_DEPENDENT_SIZES,
-            dependent_warm_pool_size: MEDIUM_DEPENDENT_WARM_POOL_SIZE,
-        }
-    } else {
-        BenchMatrix {
-            sizes: SIZES,
-            peer_counts: PEER_COUNTS,
-            worker_counts: WORKER_COUNTS,
-            warm_pool_size: WARM_POOL_SIZE,
-            dependent_sizes: DEPENDENT_SIZES,
-            dependent_warm_pool_size: DEPENDENT_WARM_POOL_SIZE,
-        }
-    }
-}
+// ---------------------------------------------------------------------------
+// Top-level benchmark entry point
+// ---------------------------------------------------------------------------
 
 fn bench(c: &mut Criterion) {
     let mode = if cfg!(feature = "pipeline") {
@@ -1008,7 +1145,7 @@ fn bench(c: &mut Criterion) {
     group.sampling_mode(SamplingMode::Flat);
 
     // Dependent txs are bottlenecked by chain-serialized orphan recovery, so
-    // varying peer/worker counts produces no meaningful signal. Only benchmark
+    // varying peer/worker counts produces no meaningful signal.  Only benchmark
     // dependent types once with 1 peer and the first worker count.
     let dep_peers = 1;
     let dep_workers = *matrix.worker_counts.first().expect("worker_counts is non-empty");
@@ -1057,7 +1194,7 @@ mod debug_tests {
         let (mut shared, cell_deps) = SharedBench::new_secp(2);
         shared.secp_cell_deps = Some(cell_deps.clone());
         let mut txs = build_dependent_chain(&shared, 2);
-        let cycles = measure_cycles(&shared, &txs, true);
+        let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxProcess);
         txs.reverse();
         eprintln!("dependent secp chain cycles {:?}", cycles);
         let handle = shared.start_controller(4);

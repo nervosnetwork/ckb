@@ -825,6 +825,76 @@ impl TxPoolServiceBuilder {
             error!("Failed to import persistent txs, cause: {}", err);
         }
     }
+
+    /// Build a bare [`TxPoolService`] and its supporting queues **without**
+    /// spawning any background workers (pre-check pool, [`VerifyMgr`],
+    /// [`OrderedResolver`]).
+    ///
+    /// This is the single source of truth for service construction used by
+    /// both [`Self::start`] (production) and the benchmark harness.  The
+    /// caller is responsible for spawning the pipeline workers that the
+    /// returned service depends on.
+    #[cfg(any(test, feature = "internal"))]
+    pub(crate) fn build_bench_service(self, network: NetworkController) -> BenchServiceParts {
+        let consensus = self.snapshot.cloned_consensus();
+
+        let ordered_resolve_queue = Arc::new(RwLock::new(
+            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+        ));
+        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
+            self.tx_pool_config.max_tx_verify_cycles,
+        )));
+
+        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
+        let (block_assembler_sender, _) = self.block_assembler_channel;
+
+        #[cfg(feature = "pipeline")]
+        let signal = self.signal_receiver;
+        #[cfg(feature = "pipeline")]
+        let pre_check_cancel = signal.child_token();
+        #[cfg(feature = "pipeline")]
+        let pre_check_queue =
+            Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+
+        let service = TxPoolService {
+            tx_pool_config: Arc::new(tx_pool.config.clone()),
+            tx_pool: Arc::new(RwLock::new(tx_pool)),
+            orphan: Arc::new(RwLock::new(OrphanPool::new())),
+            block_assembler: self.block_assembler,
+            txs_verify_cache: self.txs_verify_cache,
+            callbacks: Arc::new(self.callbacks),
+            tx_relay_sender: self.tx_relay_sender,
+            block_assembler_sender,
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+            verify_queue: Arc::clone(&verify_queue),
+            network,
+            consensus,
+            fee_estimator: self.fee_estimator,
+            #[cfg(feature = "pipeline")]
+            pre_check_queue: Arc::clone(&pre_check_queue),
+        };
+
+        BenchServiceParts {
+            service,
+            #[cfg(feature = "pipeline")]
+            signal,
+            #[cfg(feature = "pipeline")]
+            pre_check_queue,
+        }
+    }
+}
+
+/// Components returned by [`TxPoolServiceBuilder::build_bench_service`].
+///
+/// The caller must spawn the pre-check workers, [`VerifyMgr`], and
+/// [`OrderedResolver`] using these components.
+#[cfg(any(test, feature = "internal"))]
+pub(crate) struct BenchServiceParts {
+    pub service: TxPoolService,
+    #[cfg(feature = "pipeline")]
+    pub signal: CancellationToken,
+    #[cfg(feature = "pipeline")]
+    pub pre_check_queue: Arc<crate::process::PreCheckQueue>,
 }
 
 #[derive(Clone)]
