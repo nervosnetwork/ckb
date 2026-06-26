@@ -24,8 +24,10 @@ use ckb_types::{
         BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView, TransactionView,
         cell::{ResolvedTransaction, resolve_transaction},
     },
-    packed::{Byte32, OutPoint, ProposalShortId},
+    packed::{Byte32, ProposalShortId},
 };
+#[cfg(feature = "pipeline")]
+use ckb_types::packed::OutPoint;
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     TxVerifyEnv,
@@ -195,81 +197,110 @@ impl TxPoolService {
         entry: TxEntry,
         mut status: TxStatus,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
-        let (ret, snapshot) = self
+        // Separate the successful result from the collected reject events and
+        // recovered txs. Reject callbacks must be dispatched and displaced txs
+        // must be recovered even if the closure returns an error after
+        // `process_rbf` has already removed old transactions (e.g. the
+        // replacement fails the pool ancestor/size limits). Without this, a
+        // remote peer can evict in-pool txs via a crafted RBF replacement that
+        // is itself rejected, leaving the node with neither transaction.
+        let ((result, recovered, reject_events), snapshot) = self
             .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                // check_rbf must be invoked in `write` lock to avoid concurrent issues.
-                let conflicts = if tx_pool.enable_rbf() {
-                    tx_pool.check_rbf(&snapshot, &entry)?
-                } else {
-                    // RBF is disabled but we found conflicts, return error here
-                    // after_process will put this tx into conflicts_pool
-                    let conflicted_outpoint =
-                        tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
-                    if let Some(outpoint) = conflicted_outpoint {
-                        return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
+                let mut reject_events = Vec::new();
+                let mut recovered = Vec::new();
+
+                let result = (|| -> Result<(), Reject> {
+                    // check_rbf must be invoked in `write` lock to avoid concurrent issues.
+                    let conflicts = if tx_pool.enable_rbf() {
+                        tx_pool.check_rbf(&snapshot, &entry)?
+                    } else {
+                        // RBF is disabled but we found conflicts, return error here
+                        // after_process will put this tx into conflicts_pool
+                        let conflicted_outpoint =
+                            tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
+                        if let Some(outpoint) = conflicted_outpoint {
+                            return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
+                        }
+                        HashSet::new()
+                    };
+
+                    // if snapshot changed by context switch we need redo time_relative verify
+                    let tip_hash = snapshot.tip_hash();
+                    if pre_resolve_tip != tip_hash {
+                        debug!(
+                            "submit_entry {} context changed. previous:{} now:{}",
+                            entry.proposal_short_id(),
+                            pre_resolve_tip,
+                            tip_hash
+                        );
+
+                        // destructuring assignments are not currently supported
+                        status = check_rtx(tx_pool, &snapshot, &entry.rtx)?;
+
+                        let tip_header = snapshot.tip_header();
+                        let tx_env = status.with_env(tip_header);
+                        time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                     }
-                    HashSet::new()
-                };
 
-                // if snapshot changed by context switch we need redo time_relative verify
-                let tip_hash = snapshot.tip_hash();
-                if pre_resolve_tip != tip_hash {
-                    debug!(
-                        "submit_entry {} context changed. previous:{} now:{}",
-                        entry.proposal_short_id(),
-                        pre_resolve_tip,
-                        tip_hash
+                    recovered =
+                        self.process_rbf(tx_pool, &entry, &conflicts, &mut reject_events);
+                    let evicted = _submit_entry(tx_pool, status, &entry, &self.callbacks)?;
+
+                    // in a corner case, a tx with lower fee rate may be rejected immediately
+                    // after inserting into pool, return proper reject error here
+                    for evict in evicted {
+                        let reject = Reject::Invalidated(format!(
+                            "invalidated by tx {}",
+                            evict.transaction().hash()
+                        ));
+                        reject_events.push((evict, reject));
+                    }
+
+                    tx_pool.remove_conflict(&entry.proposal_short_id());
+                    tx_pool
+                        .limit_size(Some(&entry.proposal_short_id()), &mut reject_events)
+                        .map_or(Ok(()), Err)?;
+
+                    Ok(())
+                })();
+
+                // If the replacement was rejected after `process_rbf` removed the
+                // old conflicting transactions, the new tx's inputs are free
+                // again. Recover any txs stored in the conflict pool for those
+                // inputs (in particular the old tx itself) so that a failed
+                // RBF attempt cannot be used to evict in-pool transactions.
+                if result.is_err() {
+                    recovered.extend(
+                        tx_pool.get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter()),
                     );
-
-                    // destructuring assignments are not currently supported
-                    status = check_rtx(tx_pool, &snapshot, &entry.rtx)?;
-
-                    let tip_header = snapshot.tip_header();
-                    let tx_env = status.with_env(tip_header);
-                    time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                 }
 
-                let may_recovered_txs = self.process_rbf(tx_pool, &entry, &conflicts);
-                let evicted = _submit_entry(tx_pool, status, &entry, &self.callbacks)?;
-
-                // in a corner case, a tx with lower fee rate may be rejected immediately
-                // after inserting into pool, return proper reject error here
-                for evict in evicted {
-                    let reject = Reject::Invalidated(format!(
-                        "invalidated by tx {}",
-                        evict.transaction().hash()
-                    ));
-                    self.callbacks.call_reject(tx_pool, &evict, reject);
-                }
-
-                tx_pool.remove_conflict(&entry.proposal_short_id());
-                tx_pool
-                    .limit_size(&self.callbacks, Some(&entry.proposal_short_id()))
-                    .map_or(Ok(()), Err)?;
-
-                Ok(((), may_recovered_txs))
+                (result, recovered, reject_events)
             })
             .await;
+
+        // Dispatch reject callbacks outside the write lock, regardless of
+        // whether the submission itself succeeded.
+        for (entry, reject) in reject_events {
+            self.callbacks.call_reject(&entry, reject);
+        }
 
         // Send recovered txs to the deferred worker after the write lock is
         // released. Use .send().await rather than try_send so that recovery
         // txs are never silently dropped under high RBF frequency.
-        let ret = match ret {
-            Ok(((), recovered)) if !recovered.is_empty() => {
-                if let Err(e) = self
-                    .deferred_sender
-                    .send(crate::service::DeferredTask::RecoverTxs(recovered))
-                    .await
-                {
-                    warn!("failed to enqueue recovered txs for re-processing: {}", e);
-                }
-                Ok(())
-            }
-            Ok(((), _)) => Ok(()),
-            Err(e) => Err(e),
-        };
+        // Recovery is attempted even if the replacement ultimately failed,
+        // because the old conflicting txs have already been removed from the
+        // pool and may now be valid again.
+        if !recovered.is_empty()
+            && let Err(e) = self
+                .deferred_sender
+                .send(crate::service::DeferredTask::RecoverTxs(recovered))
+                .await
+        {
+            warn!("failed to enqueue recovered txs for re-processing: {}", e);
+        }
 
-        (ret, snapshot)
+        (result, snapshot)
     }
 
     pub(crate) async fn notify_block_assembler(&self, status: TxStatus) {
@@ -295,6 +326,7 @@ impl TxPoolService {
         tx_pool: &mut TxPool,
         entry: &TxEntry,
         conflicts: &HashSet<ProposalShortId>,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Vec<TransactionView> {
         let mut may_recovered_txs = vec![];
         let mut available_inputs = HashSet::new();
@@ -330,8 +362,8 @@ impl TxPoolService {
 
             // RBF replace successfully, put old transactions into conflicts pool
             tx_pool.record_conflict(old.transaction().clone());
-            // after removing old tx from tx_pool, we call reject callbacks manually
-            self.callbacks.call_reject(tx_pool, &old, reject);
+            // collect reject events for dispatch outside write lock
+            reject_events.push((old, reject));
         }
         assert!(!may_recovered_txs.contains(entry.transaction()));
         may_recovered_txs
@@ -597,9 +629,8 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
-        let mut tx_pool = self.tx_pool.write().await;
-        if let Some(ref mut recent_reject) = tx_pool.recent_reject
+    pub(crate) fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {
+        if let Some(ref recent_reject) = self.recent_reject
             && let Err(e) = recent_reject.put(tx_hash, reject.clone())
         {
             error!(
@@ -694,7 +725,7 @@ impl TxPoolService {
                             });
                         }
                         if reject.should_recorded() {
-                            self.put_recent_reject(&tx_hash, reject).await;
+                            self.put_recent_reject(&tx_hash, reject);
                         }
                     }
                 }
@@ -714,7 +745,7 @@ impl TxPoolService {
                     Err(reject) => {
                         debug!("after_process {} reject: {} ", tx_hash, reject);
                         if reject.should_recorded() {
-                            self.put_recent_reject(&tx_hash, reject).await;
+                            self.put_recent_reject(&tx_hash, reject);
                         }
                     }
                 }
@@ -833,7 +864,7 @@ impl TxPoolService {
                                     });
                                 }
                                 if reject.should_recorded() {
-                                    self.put_recent_reject(&orphan.tx.hash(), &reject).await;
+                                    self.put_recent_reject(&orphan.tx.hash(), &reject);
                                 }
                             }
                         }
@@ -1146,11 +1177,12 @@ impl TxPoolService {
         #[cfg(not(feature = "pipeline"))]
         let fetched_cache = self.fetch_txs_verify_cache(retain.iter()).await;
 
+        let reject_events;
         {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.tx_pool.write().await;
 
-            _update_tx_pool_for_reorg(
+            reject_events = _update_tx_pool_for_reorg(
                 &mut tx_pool,
                 &attached,
                 &detached_headers,
@@ -1164,6 +1196,11 @@ impl TxPoolService {
             #[cfg(not(feature = "pipeline"))]
             self.readd_detached_tx(&mut tx_pool, retain, fetched_cache)
                 .await;
+        }
+
+        // Dispatch reject callbacks outside the write lock
+        for (entry, reject) in reject_events {
+            self.callbacks.call_reject(&entry, reject);
         }
 
         self.remove_orphan_txs_by_attach(&attached).await;
@@ -1502,7 +1539,9 @@ fn _update_tx_pool_for_reorg(
     snapshot: Arc<Snapshot>,
     callbacks: &Callbacks,
     mine_mode: bool,
-) {
+) -> Vec<(TxEntry, Reject)> {
+    let mut reject_events = Vec::new();
+
     tx_pool.snapshot = Arc::clone(&snapshot);
 
     // NOTE: `remove_by_detached_proposal` will try to re-put the given expired/detached proposals into
@@ -1510,8 +1549,8 @@ fn _update_tx_pool_for_reorg(
     // which is both expired and committed at the one time(commit at its end of commit-window),
     // we should treat it as a committed and not re-put into pending-pool. So we should ensure
     // that involves `remove_committed_txs` before `remove_expired`.
-    tx_pool.remove_committed_txs(attached.iter(), callbacks, detached_headers);
-    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter());
+    tx_pool.remove_committed_txs(attached.iter(), detached_headers, &mut reject_events);
+    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter(), callbacks, &mut reject_events);
 
     // mine mode:
     // pending ---> gap ----> proposed
@@ -1545,7 +1584,7 @@ fn _update_tx_pool_for_reorg(
                     entry.transaction().hash(),
                     e
                 );
-                callbacks.call_reject(tx_pool, &entry, e);
+                reject_events.push((entry, e));
             } else {
                 callbacks.call_proposed(&entry)
             }
@@ -1559,14 +1598,16 @@ fn _update_tx_pool_for_reorg(
                     entry.transaction().hash(),
                     e
                 );
-                callbacks.call_reject(tx_pool, &entry, e.clone());
+                reject_events.push((entry, e));
             }
         }
     }
 
     // Remove expired transaction from pending
-    tx_pool.remove_expired(callbacks);
+    tx_pool.remove_expired(&mut reject_events);
 
     // Remove transactions from the pool until its size <= size_limit.
-    let _ = tx_pool.limit_size(callbacks, None);
+    let _ = tx_pool.limit_size(None, &mut reject_events);
+
+    reject_events
 }

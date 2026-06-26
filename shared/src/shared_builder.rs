@@ -21,7 +21,7 @@ use ckb_proposal_table::ProposalView;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_store::{ChainDB, ChainStore, Freezer};
 use ckb_tx_pool::{
-    TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder, service::TxVerificationResult,
+    TokioRwLock, TxEntry, TxPoolServiceBuilder, service::TxVerificationResult,
 };
 use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
@@ -573,12 +573,13 @@ fn register_tx_pool_callback(
     }));
 
     let notify_reject = notify;
+    let recent_reject = tx_pool_builder.recent_reject();
     tx_pool_builder.register_reject(Box::new(
-        move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
+        move |entry: &TxEntry, reject: Reject| {
             let tx_hash = entry.transaction().hash();
             // record recent reject
             if reject.should_recorded()
-                && let Some(ref mut recent_reject) = tx_pool.recent_reject
+                && let Some(ref recent_reject) = recent_reject
                 && let Err(e) = recent_reject.put(&tx_hash, reject.clone())
             {
                 error!("record recent_reject failed {} {} {}", tx_hash, reject, e);

@@ -209,6 +209,7 @@ fn service_with_pipeline_workers(
         verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
         deferred_sender,
@@ -458,6 +459,7 @@ fn secp_service_with_pipeline_workers(
         verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
         deferred_sender,
@@ -1037,6 +1039,134 @@ fn service_with_rbf(
         verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        recent_reject: None,
+        #[cfg(feature = "pipeline")]
+        pre_check_queue: Arc::clone(&pre_check_queue),
+        deferred_sender,
+    };
+
+    {
+        let svc = service.clone();
+        let ordered = Arc::clone(&ordered_resolve_queue);
+        tokio::spawn(async move {
+            while let Some(task) = deferred_receiver.recv().await {
+                match task {
+                    crate::service::DeferredTask::RecoverTxs(txs) => {
+                        let mut queue = ordered.write().await;
+                        for tx in txs {
+                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
+                                tx,
+                                remote: None,
+                                is_proposal_tx: false,
+                                attempts: 0,
+                            });
+                        }
+                    }
+                    crate::service::DeferredTask::CacheUpdate {
+                        wtx_hash,
+                        verified,
+                    } => {
+                        let mut guard = svc.txs_verify_cache.write().await;
+                        guard.put(wtx_hash, verified);
+                    }
+                }
+            }
+        });
+    }
+
+    #[cfg(feature = "pipeline")]
+    {
+        for _ in 0..pre_check_workers {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            tokio::spawn(async move {
+                while let Some(job) = queue.pop().await {
+                    let _ = svc
+                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                        .await;
+                }
+            });
+        }
+    }
+
+    let signal = CancellationToken::new();
+    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+
+    let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
+    tokio::spawn(async move { verify_mgr.run().await });
+
+    let ordered_resolver = OrderedResolver::new(
+        service.clone(),
+        Arc::clone(&ordered_resolve_queue),
+        Arc::clone(&verify_queue),
+        chunk_tx.subscribe(),
+        signal.child_token(),
+    );
+    let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
+    let resolver_handle = ordered_resolver.start(resolve_exit_tx);
+    tokio::spawn(async move {
+        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+            panic!("tx-pool ordered resolver panicked: {message}");
+        }
+        let _ = resolver_handle.await;
+    });
+
+    (service, tx_relay_receiver, signal, _store, issue_out_points)
+}
+
+/// Same as `service_with_rbf` but with a custom `max_tx_pool_size`. Used to
+/// force `limit_size` to reject a replacement after the original transaction
+/// has already been removed by RBF.
+#[allow(clippy::type_complexity)]
+fn service_with_rbf_and_max_size(
+    issue_outputs: usize,
+    max_tx_pool_size: usize,
+) -> (
+    TxPoolService,
+    ckb_channel::Receiver<crate::service::TxVerificationResult>,
+    CancellationToken,
+    MockStore,
+    Vec<OutPoint>,
+) {
+    let (consensus, issue_out_points) = test_consensus(issue_outputs);
+    let consensus = Arc::new(consensus);
+    let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
+    let mut config = tx_pool_config();
+    config.min_rbf_rate = ckb_types::core::FeeRate::from_u64(1000);
+    config.max_tx_pool_size = max_tx_pool_size;
+    #[cfg(feature = "pipeline")]
+    let max_workers = config.max_tx_verify_workers.max(1);
+    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
+    let (block_assembler_sender, _) = mpsc::channel(1);
+
+    let ordered_resolve_queue = Arc::new(RwLock::new(
+        crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+    ));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    #[cfg(feature = "pipeline")]
+    let pre_check_workers =
+        max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
+    #[cfg(feature = "pipeline")]
+    let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
+    #[cfg(feature = "pipeline")]
+    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+
+    let service = TxPoolService {
+        tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
+        orphan: Arc::new(RwLock::new(OrphanPool::new())),
+        consensus: Arc::clone(&consensus),
+        tx_pool_config: Arc::new(config.clone()),
+        block_assembler: None,
+        txs_verify_cache: Arc::new(RwLock::new(init_cache())),
+        callbacks: Arc::new(Callbacks::new()),
+        network: super::chunk::network(&consensus),
+        tx_relay_sender,
+        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+        verify_queue: Arc::clone(&verify_queue),
+        block_assembler_sender,
+        fee_estimator: FeeEstimator::new_dummy(),
+        recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
         deferred_sender,
@@ -1163,6 +1293,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
         verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
         deferred_sender,
@@ -1581,6 +1712,102 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
     assert!(
         pool.get_tx_from_pool(&id_b).is_some(),
         "tx_b (higher fee) should be in pool after RBF"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// When an RBF replacement is rejected by the pool (e.g. it no longer fits
+/// after the old tx is removed), the original conflicted transaction must be
+/// recovered rather than silently dropped. This prevents a remote peer from
+/// evicting an in-pool tx by submitting a replacement that passes RBF checks
+/// but fails insertion.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
+    // Pool size just large enough for the small original tx but not for the
+    // large replacement.
+    let (service, _relay, signal, _store, issue_out_points) =
+        service_with_rbf_and_max_size(1, 1_500);
+
+    let shared_input = &issue_out_points[0];
+
+    // tx_a: small tx in the pool.
+    let tx_a = build_tx(shared_input, 4_998);
+    let id_a = tx_a.proposal_short_id();
+
+    // tx_b: higher fee, same input, but with a large output_data so its
+    // serialized size exceeds the tiny pool limit after tx_a is removed.
+    let tx_b = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .input(CellInput::new(shared_input.clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(4_990).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::from(vec![0u8; 2_000]).pack())
+        .build();
+    let id_b = tx_b.proposal_short_id();
+
+    assert_ne!(id_a, id_b, "txs must have different proposal_short_ids");
+
+    let cycles_a = measured_cycles(&service, tx_a.clone()).await;
+    let cycles_b = measured_cycles(&service, tx_b.clone()).await;
+
+    // Submit tx_a and wait for it to reach pending.
+    service
+        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .await
+        .expect("tx_a should be accepted");
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("tx_a should reach pending");
+
+    // Submit tx_b. In pipeline mode this merely enqueues the tx and returns
+    // Ok; in non-pipeline mode it may return the actual reject. Either way,
+    // success/failure is determined by inspecting the final pool state.
+    let _ = service.submit_remote_tx(tx_b.clone(), cycles_b, 1.into()).await;
+
+    // Wait for tx_a to be recovered. In pipeline mode this involves the
+    // deferred worker, pre-check, verify, and submit stages; in non-pipeline
+    // mode the deferred task is processed asynchronously after `submit_remote_tx`
+    // returns. Either way, the observable outcome is tx_a back in the pool.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            {
+                let pool = service.tx_pool.read().await;
+                if pool.get_tx_from_pool(&id_a).is_some() {
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("tx_a should be recovered after the rejected replacement");
+
+    // tx_b passes RBF checks, removes tx_a, but is then rejected by
+    // `limit_size` because the pool is too small. tx_a must be recovered from
+    // the conflict pool rather than left out of the mempool.
+    let pool = service.tx_pool.read().await;
+    assert!(
+        pool.get_tx_from_pool(&id_b).is_none(),
+        "tx_b should be rejected because it exceeds the tiny pool size"
+    );
+    assert!(
+        pool.get_tx_from_pool(&id_a).is_some(),
+        "tx_a should be recovered after the rejected replacement"
     );
 
     signal.cancel();

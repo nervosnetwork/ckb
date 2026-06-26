@@ -4,6 +4,7 @@ use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::orphan::OrphanPool;
 use crate::component::pool_map::{PoolEntry, Status};
+use crate::component::recent_reject::RecentReject;
 use crate::component::verify_queue::VerifyQueue;
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::pool::TxPool;
@@ -516,6 +517,7 @@ pub struct TxPoolServiceBuilder {
         mpsc::Receiver<BlockAssemblerMessage>,
     ),
     pub(crate) fee_estimator: FeeEstimator,
+    pub(crate) recent_reject: Option<Arc<RecentReject>>,
 }
 
 impl TxPoolServiceBuilder {
@@ -550,6 +552,7 @@ impl TxPoolServiceBuilder {
                 .inspect_err(|err| error!("failed to initialize block assembler: {}", err))
                 .ok()
         });
+        let recent_reject = Self::build_recent_reject(&tx_pool_config).map(Arc::new);
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
             tx_pool_controller: controller.clone(),
@@ -566,6 +569,7 @@ impl TxPoolServiceBuilder {
             started,
             block_assembler_channel,
             fee_estimator,
+            recent_reject,
         };
 
         (builder, controller)
@@ -591,6 +595,35 @@ impl TxPoolServiceBuilder {
         self.callbacks.register_reject(callback);
     }
 
+    /// Access the shared recent-reject database (for registering callbacks).
+    pub fn recent_reject(&self) -> Option<Arc<RecentReject>> {
+        self.recent_reject.clone()
+    }
+
+    pub(crate) fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
+        if !config.recent_reject.as_os_str().is_empty() {
+            let recent_reject_ttl =
+                u8::max(1, config.keep_rejected_tx_hashes_days) as i32 * 24 * 60 * 60;
+            match RecentReject::new(
+                &config.recent_reject,
+                config.keep_rejected_tx_hashes_count,
+                recent_reject_ttl,
+            ) {
+                Ok(recent_reject) => Some(recent_reject),
+                Err(err) => {
+                    error!(
+                        "Failed to open the recent reject database {:?} {}",
+                        config.recent_reject, err
+                    );
+                    None
+                }
+            }
+        } else {
+            warn!("Recent reject database is disabled!");
+            None
+        }
+    }
+
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(self, network: NetworkController) {
         let consensus = self.snapshot.cloned_consensus();
@@ -603,6 +636,7 @@ impl TxPoolServiceBuilder {
         )));
 
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
+        let recent_reject = self.recent_reject;
         let txs = match tx_pool.load_from_file() {
             Ok(txs) => txs,
             Err(e) => {
@@ -642,6 +676,7 @@ impl TxPoolServiceBuilder {
             network,
             consensus,
             fee_estimator: self.fee_estimator,
+            recent_reject,
             #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
             deferred_sender,
@@ -917,6 +952,7 @@ impl TxPoolServiceBuilder {
         )));
 
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
+        let recent_reject = self.recent_reject;
         let (block_assembler_sender, _) = self.block_assembler_channel;
 
         #[cfg(feature = "pipeline")]
@@ -943,6 +979,7 @@ impl TxPoolServiceBuilder {
             network,
             consensus,
             fee_estimator: self.fee_estimator,
+            recent_reject,
             #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
             deferred_sender,
@@ -989,6 +1026,10 @@ pub(crate) struct TxPoolService {
     pub(crate) verify_queue: Arc<RwLock<VerifyQueue>>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
     pub(crate) fee_estimator: FeeEstimator,
+    /// Lock-free recent-reject database (RocksDB with TTL).
+    /// Owned by the service rather than `TxPool` so that `put` / `get` never
+    /// need the tx-pool write lock.
+    pub(crate) recent_reject: Option<Arc<RecentReject>>,
     /// Queue used to offload independent tx classification to a fixed-size
     /// worker pool.  Dependent txs are still handled synchronously in the
     /// service actor to preserve ordering.
@@ -1144,7 +1185,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                     TxStatus::Pending
                 };
                 Ok((status, Some(entry.cycles)))
-            } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
+            } else if let Some(ref recent_reject_db) = service.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
                 if let Ok(recent_reject) = recent_reject_result {
                     if let Some(record) = recent_reject {
@@ -1188,7 +1229,7 @@ async fn process(mut service: TxPoolService, message: Message) {
                     Some(entry.fee),
                     min_replace_fee,
                 ))
-            } else if let Some(ref recent_reject_db) = tx_pool.recent_reject {
+            } else if let Some(ref recent_reject_db) = service.recent_reject {
                 match recent_reject_db.get(&hash) {
                     Ok(Some(record)) => Ok(TransactionWithStatus::with_rejected(record)),
                     Ok(_) => Ok(TransactionWithStatus::with_unknown()),
@@ -1328,7 +1369,7 @@ async fn process(mut service: TxPoolService, message: Message) {
             };
         }
         Message::GetTotalRecentRejectNum(Request { responder, .. }) => {
-            let total_recent_reject_num = service.get_total_recent_reject_num().await;
+            let total_recent_reject_num = service.get_total_recent_reject_num();
             if let Err(e) = responder.send(total_recent_reject_num) {
                 error!("Responder sending total_recent_reject_num failed {:?}", e)
             };
@@ -1360,10 +1401,8 @@ impl TxPoolService {
         }
     }
 
-    async fn get_total_recent_reject_num(&self) -> Option<u64> {
-        let tx_pool = self.tx_pool.read().await;
-        tx_pool
-            .recent_reject
+    fn get_total_recent_reject_num(&self) -> Option<u64> {
+        self.recent_reject
             .as_ref()
             .map(|r| r.get_estimate_total_keys_num())
     }

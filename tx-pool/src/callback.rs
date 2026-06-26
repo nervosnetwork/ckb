@@ -1,13 +1,12 @@
 use super::component::TxEntry;
 use crate::error::Reject;
-use crate::pool::TxPool;
 
 /// Callback boxed fn pointer wrapper
 pub type PendingCallback = Box<dyn Fn(&TxEntry) + Sync + Send>;
 /// Proposed Callback boxed fn pointer wrapper
 pub type ProposedCallback = Box<dyn Fn(&TxEntry) + Sync + Send>;
 /// Reject Callback boxed fn pointer wrapper
-pub type RejectCallback = Box<dyn Fn(&mut TxPool, &TxEntry, Reject) + Sync + Send>;
+pub type RejectCallback = Box<dyn Fn(&TxEntry, Reject) + Sync + Send>;
 
 /// Struct hold callbacks
 pub struct Callbacks {
@@ -62,9 +61,9 @@ impl Callbacks {
     }
 
     /// Call on after reject
-    pub fn call_reject(&self, tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject) {
+    pub fn call_reject(&self, entry: &TxEntry, reject: Reject) {
         if let Some(call) = &self.reject {
-            call(tx_pool, entry, reject)
+            call(entry, reject)
         }
     }
 }

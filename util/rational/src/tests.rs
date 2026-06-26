@@ -135,7 +135,7 @@ impl Arbitrary for U256LeBytes {
     }
 }
 
-impl<'a> ::std::convert::From<&'a U256LeBytes> for U256 {
+impl ::std::convert::From<&U256LeBytes> for U256 {
     fn from(bytes: &U256LeBytes) -> Self {
         U256::from_little_endian(&bytes.inner).expect("U256LeBytes convert")
     }

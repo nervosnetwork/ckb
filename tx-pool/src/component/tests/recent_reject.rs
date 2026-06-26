@@ -10,7 +10,7 @@ fn test_basic() {
     let limit = 100;
     let ttl = -1;
 
-    let mut recent_reject = RecentReject::build(tmp_dir.path(), shard_num, limit, ttl).unwrap();
+    let recent_reject = RecentReject::build(tmp_dir.path(), shard_num, limit, ttl).unwrap();
 
     for i in 0..80u64 {
         let key = Byte32::new(blake2b_256(i.to_le_bytes()));
@@ -36,7 +36,7 @@ fn test_basic() {
             .unwrap();
     }
 
-    assert!(recent_reject.total_keys_num < 100);
+    assert!(recent_reject.get_estimate_total_keys_num() < 100);
 }
 
 #[test]

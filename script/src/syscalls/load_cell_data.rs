@@ -65,36 +65,38 @@ where
                         .memory_mut()
                         .store64(&size_addr, &Mac::REG::from_u64(cell.len() as u64))?;
                     machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-                    return Ok(());
-                }
-                let (wrote_size, _) = match sc.store_bytes(
-                    machine,
-                    addr,
-                    &data_piece_id,
-                    offset,
-                    size,
-                    size_addr.to_u64(),
-                ) {
-                    Ok(val) => val,
-                    Err(VMError::SnapshotDataLoadError) => {
-                        // This comes from TxData results in an out of bound error, to
-                        // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
-                        machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
-                        return Ok(());
+                    Ok(())
+                } else {
+                    match sc.store_bytes(
+                        machine,
+                        addr,
+                        &data_piece_id,
+                        offset,
+                        size,
+                        size_addr.to_u64(),
+                    ) {
+                        Ok((wrote_size, _)) => {
+                            machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
+                            machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
+                            Ok(())
+                        }
+                        Err(VMError::SnapshotDataLoadError) => {
+                            // This comes from TxData results in an out of bound error, to
+                            // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
+                            machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
+                            Ok(())
+                        }
+                        Err(e) => Err(e),
                     }
-                    Err(e) => return Err(e),
-                };
-                machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
-                machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-                return Ok(());
+                }
             }
             Err(VMError::SnapshotDataLoadError) => {
                 // This comes from TxData results in an out of bound error, to
                 // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
                 machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
-                return Ok(());
+                Ok(())
             }
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
         }
     }
 

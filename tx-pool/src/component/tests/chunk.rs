@@ -468,6 +468,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
+        recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
         deferred_sender,

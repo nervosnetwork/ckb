@@ -1,13 +1,11 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{TxEntry, tx_selector::TxSelector};
-use crate::callback::Callbacks;
 use crate::component::pool_map::{PoolEntry, PoolMap, Status};
-use crate::component::recent_reject::RecentReject;
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
 use ckb_app_config::TxPoolConfig;
 use ckb_fee_estimator::Error as FeeEstimatorError;
-use ckb_logger::{debug, error, warn};
+use ckb_logger::{debug, error};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::tx_pool::PoolTxDetailInfo;
@@ -38,8 +36,6 @@ pub struct TxPool {
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
     /// storage snapshot reference
     pub(crate) snapshot: Arc<Snapshot>,
-    /// record recent reject
-    pub recent_reject: Option<RecentReject>,
     // expiration milliseconds,
     pub(crate) expiry: u64,
     // conflicted transaction cache
@@ -51,14 +47,12 @@ pub struct TxPool {
 impl TxPool {
     /// Create new TxPool
     pub fn new(config: TxPoolConfig, snapshot: Arc<Snapshot>) -> TxPool {
-        let recent_reject = Self::build_recent_reject(&config);
         let expiry = config.expiry_hours as u64 * 60 * 60 * 1000;
         TxPool {
             pool_map: PoolMap::new(config.max_ancestors_count),
             committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
             config,
             snapshot,
-            recent_reject,
             expiry,
             conflicts_cache: LruCache::new(CONFLICTS_CACHE_SIZE),
             conflicts_outputs_cache: lru::LruCache::new(CONFLICTS_INPUTS_CACHE_SIZE),
@@ -221,34 +215,38 @@ impl TxPool {
     pub(crate) fn remove_committed_txs<'a>(
         &mut self,
         txs: impl Iterator<Item = &'a TransactionView>,
-        callbacks: &Callbacks,
         detached_headers: &HashSet<Byte32>,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
         for tx in txs {
             let tx_hash = tx.hash();
             debug!("try remove_committed_tx {}", tx_hash);
-            self.remove_committed_tx(tx, callbacks);
+            self.remove_committed_tx(tx, reject_events);
 
             self.committed_txs_hash_cache
                 .put(tx.proposal_short_id(), tx_hash);
         }
 
         if !detached_headers.is_empty() {
-            self.resolve_conflict_header_dep(detached_headers, callbacks)
+            self.resolve_conflict_header_dep(detached_headers, reject_events)
         }
     }
 
     fn resolve_conflict_header_dep(
         &mut self,
         detached_headers: &HashSet<Byte32>,
-        callbacks: &Callbacks,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
         for (entry, reject) in self.pool_map.resolve_conflict_header_dep(detached_headers) {
-            callbacks.call_reject(self, &entry, reject);
+            reject_events.push((entry, reject));
         }
     }
 
-    fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
+    fn remove_committed_tx(
+        &mut self,
+        tx: &TransactionView,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+    ) {
         let short_id = tx.proposal_short_id();
         if let Some(_entry) = self.pool_map.remove_entry(&short_id) {
             debug!("remove_committed_tx for {}", tx.hash());
@@ -260,13 +258,16 @@ impl TxPool {
                     entry.transaction().hash(),
                     tx.hash()
                 );
-                callbacks.call_reject(self, &entry, reject);
+                reject_events.push((entry, reject));
             }
         }
     }
 
     // Expire all transaction (and their dependencies) in the pool.
-    pub(crate) fn remove_expired(&mut self, callbacks: &Callbacks) {
+    pub(crate) fn remove_expired(
+        &mut self,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+    ) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
 
         let removed: Vec<_> = self
@@ -281,7 +282,7 @@ impl TxPool {
             debug!("remove_expired {} timestamp({})", tx_hash, entry.timestamp);
             self.pool_map.remove_entry(&entry.proposal_short_id());
             let reject = Reject::Expiry(entry.timestamp);
-            callbacks.call_reject(self, &entry, reject);
+            reject_events.push((entry, reject));
         }
     }
 
@@ -289,8 +290,8 @@ impl TxPool {
     // Return a `Reject` for current inserting entry if it's removed
     pub(crate) fn limit_size(
         &mut self,
-        callbacks: &Callbacks,
         current_entry_id: Option<&ProposalShortId>,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Option<Reject> {
         let mut ret = None;
         while self.pool_map.total_tx_size > self.config.max_tx_pool_size {
@@ -318,7 +319,7 @@ impl TxPool {
                     {
                         ret = Some(reject.clone());
                     }
-                    callbacks.call_reject(self, &entry, reject);
+                    reject_events.push((entry, reject));
                 }
             }
         }
@@ -330,6 +331,8 @@ impl TxPool {
     pub(crate) fn remove_by_detached_proposal<'a>(
         &mut self,
         ids: impl Iterator<Item = &'a ProposalShortId>,
+        callbacks: &crate::callback::Callbacks,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
     ) {
         for id in ids {
             if let Some(e) = self.pool_map.get_by_id(id) {
@@ -342,7 +345,17 @@ impl TxPool {
                 for mut entry in entries {
                     let tx_hash = entry.transaction().hash();
                     entry.reset_statistic_state();
-                    let ret = self.add_pending(entry);
+                    let ret = self.add_pending(entry.clone());
+                    if let Ok((true, ref evicted)) = ret {
+                        callbacks.call_pending(&entry);
+                        for evict in evicted {
+                            let reject = Reject::Full(format!(
+                                "the fee_rate for this transaction is: {}",
+                                evict.fee_rate()
+                            ));
+                            reject_events.push((evict.clone(), reject));
+                        }
+                    }
                     debug!(
                         "remove_by_detached_proposal from {:?} {} add_pending {:?}",
                         status, tx_hash, ret
@@ -758,27 +771,4 @@ impl TxPool {
         }
     }
 
-    fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
-        if !config.recent_reject.as_os_str().is_empty() {
-            let recent_reject_ttl =
-                u8::max(1, config.keep_rejected_tx_hashes_days) as i32 * 24 * 60 * 60;
-            match RecentReject::new(
-                &config.recent_reject,
-                config.keep_rejected_tx_hashes_count,
-                recent_reject_ttl,
-            ) {
-                Ok(recent_reject) => Some(recent_reject),
-                Err(err) => {
-                    error!(
-                        "Failed to open the recent reject database {:?} {}",
-                        config.recent_reject, err
-                    );
-                    None
-                }
-            }
-        } else {
-            warn!("Recent reject database is disabled!");
-            None
-        }
-    }
 }
