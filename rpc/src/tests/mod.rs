@@ -75,9 +75,11 @@ pub(crate) struct RpcTestSuite {
     rpc_client: Client,
     rpc_uri: String,
     tcp_uri: Option<String>,
-    shared: Shared,
+    // Drop the extra controller before joining the chain service, then keep
+    // Shared/runtime alive until the service has stopped.
     chain_controller: ChainController,
     _chain_scope: ChainServiceScope,
+    shared: Shared,
     _tmp_dir: tempfile::TempDir,
 }
 
