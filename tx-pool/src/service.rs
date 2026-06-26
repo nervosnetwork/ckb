@@ -686,7 +686,12 @@ impl TxPoolServiceBuilder {
         // Recovery tx re-enqueue and verify cache updates run sequentially
         // in a single background task, with automatic respawn on panic.
         {
-            let svc = service.clone();
+            // The worker only needs the ordered resolve queue and the verify
+            // cache.  It must NOT keep a clone of `TxPoolService` (which holds
+            // `deferred_sender`): doing so would keep the channel open forever
+            // because the receiver task itself would be holding a sender.
+            let ordered_resolve_queue = Arc::clone(&service.ordered_resolve_queue);
+            let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
             self.handle.spawn(async move {
                 let mut deferred_rx = deferred_receiver;
                 loop {
@@ -696,11 +701,12 @@ impl TxPoolServiceBuilder {
                         Some(task) => task,
                         None => break, // channel closed, exit
                     };
-                    let svc = &svc;
-                    let handler = async {
+                    let ordered_resolve_queue = Arc::clone(&ordered_resolve_queue);
+                    let txs_verify_cache = Arc::clone(&txs_verify_cache);
+                    let handler = async move {
                         match task {
                             DeferredTask::RecoverTxs(txs) => {
-                                let mut queue = svc.ordered_resolve_queue.write().await;
+                                let mut queue = ordered_resolve_queue.write().await;
                                 for tx in txs {
                                     debug!("recover back: {:?}", tx.proposal_short_id());
                                     if let Err(reject) =
@@ -722,7 +728,7 @@ impl TxPoolServiceBuilder {
                                 wtx_hash,
                                 verified,
                             } => {
-                                let mut guard = svc.txs_verify_cache.write().await;
+                                let mut guard = txs_verify_cache.write().await;
                                 guard.put(wtx_hash, verified);
                             }
                         }
