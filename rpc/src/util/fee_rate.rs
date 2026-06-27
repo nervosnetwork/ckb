@@ -90,7 +90,10 @@ where
                 txs_fees,
                 ..
             } = block_ext;
-            let txs_sizes = txs_sizes.expect("expect txs_size's length >= 1");
+            // Older BlockExt records may not contain transaction size data.
+            let Some(txs_sizes) = txs_sizes else {
+                return fee_rates;
+            };
             if txs_sizes.len() > 1 && !txs_fees.is_empty() {
                 // block_ext.txs_fees's length == block_ext.cycles's length
                 // block_ext.txs_fees's length + 1 == txs_sizes's length
