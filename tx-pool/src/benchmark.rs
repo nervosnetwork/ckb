@@ -14,14 +14,14 @@
 //! critcmp sync.json pipeline.json   # install critcmp with `cargo install critcmp`
 //! ```
 
+use crate::network::{DummyTxPoolNetwork, TxPoolNetworkHandle};
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
-use ckb_app_config::{NetworkConfig, TxPoolConfig};
+use ckb_app_config::TxPoolConfig;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_network::{Flags, NetworkService, NetworkState, network::TransportType};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
@@ -45,7 +45,6 @@ use criterion::{BatchSize, BenchmarkGroup, Criterion, SamplingMode, Throughput, 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tempfile::TempDir;
 use tokio::sync::{RwLock, watch};
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
@@ -173,45 +172,15 @@ fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>
     (store, snap)
 }
 
-fn network(consensus: &Consensus) -> (ckb_network::NetworkController, TempDir) {
-    let handle = ckb_async_runtime::new_background_runtime();
-    let tmp_dir = TempDir::new().expect("create temp dir");
-    let config = NetworkConfig {
-        max_peers: 19,
-        max_outbound_peers: 5,
-        path: tmp_dir.path().to_path_buf(),
-        ping_interval_secs: 15,
-        ping_timeout_secs: 20,
-        connect_outbound_interval_secs: 1,
-        discovery_local_address: true,
-        bootnode_mode: true,
-        reuse_port_on_linux: true,
-        ..Default::default()
-    };
-    let network_state =
-        Arc::new(NetworkState::from_config(config).expect("init test network state"));
-    let controller = NetworkService::new(
-        network_state,
-        vec![],
-        vec![],
-        (consensus.identify_name(), "test".to_string(), Flags::all()),
-        TransportType::Tcp,
-    )
-    .start(&handle)
-    .expect("start test network service");
-    (controller, tmp_dir)
-}
-
 // ---------------------------------------------------------------------------
 // SharedBench — resources shared across all benchmark iterations
 // ---------------------------------------------------------------------------
 
 struct SharedBench {
     _store: MockStore,
-    _network_tmp_dir: TempDir,
     issue_tx: TransactionView,
     snapshot: Arc<Snapshot>,
-    network: ckb_network::NetworkController,
+    network: TxPoolNetworkHandle,
     runtime: tokio::runtime::Runtime,
     ckb_handle: ckb_async_runtime::Handle,
     secp_cell_deps: Option<Vec<CellDep>>,
@@ -225,7 +194,7 @@ impl SharedBench {
     ) -> Self {
         let consensus = Arc::new(consensus);
         let (store, snapshot) = snapshot_with_genesis(Arc::clone(&consensus));
-        let (network, network_tmp_dir) = network(&consensus);
+        let network: TxPoolNetworkHandle = Arc::new(DummyTxPoolNetwork);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(8)
             .enable_all()
@@ -234,7 +203,6 @@ impl SharedBench {
         let ckb_handle = ckb_async_runtime::Handle::new(runtime.handle().clone(), None);
         Self {
             _store: store,
-            _network_tmp_dir: network_tmp_dir,
             issue_tx,
             snapshot,
             network,
@@ -396,7 +364,7 @@ fn start_service(
         tx_relay_sender,
         FeeEstimator::new_dummy(),
     );
-    let parts = builder.build_bench_service(shared.network.clone());
+    let mut parts = builder.build_bench_service(shared.network.clone());
 
     // Spawn the deferred task worker (recovery tx re-enqueue + cache updates).
     // Only clone the two fields the worker needs; holding a full TxPoolService
@@ -455,10 +423,13 @@ fn start_service(
         }
     }
 
-    // Create a fresh chunk channel shared by VerifyMgr and OrderedResolver.
-    // The builder's original chunk_tx was inside the TxPoolController which
-    // was consumed by build_bench_service, so we need our own.
+    // Create a fresh chunk channel shared by VerifyMgr, OrderedResolver and the
+    // service itself (the reorg recovery path needs to observe pause/resume).
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+    #[cfg(feature = "pipeline")]
+    {
+        parts.service.chunk_rx = chunk_rx.clone();
+    }
 
     let mut verify_mgr =
         crate::verify_mgr::VerifyMgr::new(parts.service.clone(), chunk_rx, signal.child_token());

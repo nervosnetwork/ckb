@@ -219,11 +219,9 @@ impl OrderedResolver {
                             }
                         };
 
-                        if depends_on_pipeline || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
+                        if job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
                             let mut job = job;
-                            if !depends_on_pipeline {
-                                job.attempts += 1;
-                            }
+                            job.attempts += 1;
                             debug!(
                                 "ordered resolve stage local orphan {} re-enqueue (attempt {}, depends_on_pipeline: {})",
                                 id, job.attempts, depends_on_pipeline

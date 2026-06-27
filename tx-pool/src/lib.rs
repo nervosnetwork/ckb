@@ -8,6 +8,7 @@ pub mod block_assembler;
 mod callback;
 mod component;
 pub mod error;
+mod network;
 mod persisted;
 pub mod pool;
 mod pool_cell;

@@ -194,6 +194,7 @@ fn service_with_pipeline_workers(
     #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
@@ -203,7 +204,7 @@ fn service_with_pipeline_workers(
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::network(&consensus),
+        network: super::chunk::dummy_network(),
         tx_relay_sender,
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
@@ -212,13 +213,15 @@ fn service_with_pipeline_workers(
         recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
+        #[cfg(feature = "pipeline")]
+        chunk_rx,
         deferred_sender,
     };
 
     // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
     {
-        let svc = service.clone();
         let ordered = Arc::clone(&ordered_resolve_queue);
+        let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
@@ -237,7 +240,7 @@ fn service_with_pipeline_workers(
                         wtx_hash,
                         verified,
                     } => {
-                        let mut guard = svc.txs_verify_cache.write().await;
+                        let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
                 }
@@ -444,6 +447,7 @@ fn secp_service_with_pipeline_workers(
     #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
@@ -453,7 +457,7 @@ fn secp_service_with_pipeline_workers(
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::network(&consensus),
+        network: super::chunk::dummy_network(),
         tx_relay_sender,
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
@@ -462,13 +466,15 @@ fn secp_service_with_pipeline_workers(
         recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
+        #[cfg(feature = "pipeline")]
+        chunk_rx,
         deferred_sender,
     };
 
     // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
     {
-        let svc = service.clone();
         let ordered = Arc::clone(&ordered_resolve_queue);
+        let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
@@ -487,7 +493,7 @@ fn secp_service_with_pipeline_workers(
                         wtx_hash,
                         verified,
                     } => {
-                        let mut guard = svc.txs_verify_cache.write().await;
+                        let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
                 }
@@ -1024,6 +1030,7 @@ fn service_with_rbf(
     #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
@@ -1033,7 +1040,7 @@ fn service_with_rbf(
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::network(&consensus),
+        network: super::chunk::dummy_network(),
         tx_relay_sender,
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
@@ -1042,12 +1049,14 @@ fn service_with_rbf(
         recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
+        #[cfg(feature = "pipeline")]
+        chunk_rx,
         deferred_sender,
     };
 
     {
-        let svc = service.clone();
         let ordered = Arc::clone(&ordered_resolve_queue);
+        let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
@@ -1066,7 +1075,7 @@ fn service_with_rbf(
                         wtx_hash,
                         verified,
                     } => {
-                        let mut guard = svc.txs_verify_cache.write().await;
+                        let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
                 }
@@ -1151,6 +1160,7 @@ fn service_with_rbf_and_max_size(
     #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
@@ -1160,7 +1170,7 @@ fn service_with_rbf_and_max_size(
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::network(&consensus),
+        network: super::chunk::dummy_network(),
         tx_relay_sender,
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
@@ -1169,12 +1179,14 @@ fn service_with_rbf_and_max_size(
         recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
+        #[cfg(feature = "pipeline")]
+        chunk_rx,
         deferred_sender,
     };
 
     {
-        let svc = service.clone();
         let ordered = Arc::clone(&ordered_resolve_queue);
+        let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
@@ -1193,7 +1205,7 @@ fn service_with_rbf_and_max_size(
                         wtx_hash,
                         verified,
                     } => {
-                        let mut guard = svc.txs_verify_cache.write().await;
+                        let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
                 }
@@ -1278,6 +1290,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
     #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
@@ -1287,7 +1300,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
-        network: super::chunk::network(&consensus),
+        network: super::chunk::dummy_network(),
         tx_relay_sender,
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::clone(&verify_queue),
@@ -1296,12 +1309,14 @@ fn secp_service_with_pipeline_workers_and_chunk(
         recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
+        #[cfg(feature = "pipeline")]
+        chunk_rx,
         deferred_sender,
     };
 
     {
-        let svc = service.clone();
         let ordered = Arc::clone(&ordered_resolve_queue);
+        let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
@@ -1320,7 +1335,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
                         wtx_hash,
                         verified,
                     } => {
-                        let mut guard = svc.txs_verify_cache.write().await;
+                        let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
                 }

@@ -85,6 +85,14 @@ impl OrderedResolveQueue {
         self.index.contains(id)
     }
 
+    /// Returns the raw transaction for the given id, if present.
+    pub fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
+        self.inner
+            .iter()
+            .find(|job| &job.tx.proposal_short_id() == id)
+            .map(|job| &job.tx)
+    }
+
     fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.inner, SHRINK_THRESHOLD);
     }

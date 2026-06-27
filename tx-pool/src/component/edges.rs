@@ -1,5 +1,6 @@
+use ckb_logger::debug;
 use ckb_types::{
-    core::tx_pool::Reject,
+    core::{error::OutPointError, tx_pool::Reject},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use std::collections::{HashMap, HashSet, hash_map::Entry};
@@ -35,16 +36,16 @@ impl Edges {
         out_point: OutPoint,
         txid: ProposalShortId,
     ) -> Result<(), Reject> {
-        // inputs is occupied means double speanding happened here
+        // inputs is occupied means double spending happened here
         match self.inputs.entry(out_point.clone()) {
             Entry::Occupied(occupied) => {
-                let msg = format!(
+                debug!(
                     "txpool unexpected double-spending out_point: {:?} old_tx: {:?} new_tx: {:?}",
                     out_point,
                     occupied.get(),
                     txid
                 );
-                Err(Reject::RBFRejected(msg))
+                Err(Reject::Resolve(OutPointError::Dead(out_point)))
             }
             Entry::Vacant(vacant) => {
                 vacant.insert(txid);

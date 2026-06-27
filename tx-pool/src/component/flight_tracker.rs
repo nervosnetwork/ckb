@@ -49,10 +49,14 @@ impl FlightTracker {
         }
     }
 
-    /// Returns true if any input of `tx` is produced by a transaction currently
-    /// tracked by this tracker.
+    /// Returns true if any input or cell dep of `tx` is produced by a
+    /// transaction currently tracked by this tracker.
     pub fn depends_on(&self, tx: &TransactionView) -> bool {
+        if self.out_points.is_empty() {
+            return false;
+        }
         tx.input_pts_iter()
+            .chain(tx.cell_deps_iter().map(|c| c.out_point()))
             .any(|out_point| self.out_points.contains_key(&out_point))
     }
 

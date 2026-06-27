@@ -40,8 +40,11 @@ pub struct TxPool {
     pub(crate) expiry: u64,
     // conflicted transaction cache
     pub(crate) conflicts_cache: lru::LruCache<ProposalShortId, TransactionView>,
-    // conflicted transaction outputs cache, input -> tx_short_id
-    pub(crate) conflicts_outputs_cache: lru::LruCache<OutPoint, ProposalShortId>,
+    // conflicted transaction outputs cache, input -> set of conflicting tx ids.
+    // A set is necessary because multiple txs can conflict on the same input;
+    // a single-value cache would silently drop older conflicts and break
+    // recovery (see RbfOrphanRecovery).
+    pub(crate) conflicts_outputs_cache: lru::LruCache<OutPoint, HashSet<ProposalShortId>>,
 }
 
 impl TxPool {
@@ -155,8 +158,14 @@ impl TxPool {
 
     pub(crate) fn record_conflict(&mut self, tx: TransactionView) {
         let short_id = tx.proposal_short_id();
-        for inputs in tx.input_pts_iter() {
-            self.conflicts_outputs_cache.put(inputs, short_id.clone());
+        for input in tx.input_pts_iter() {
+            if let Some(set) = self.conflicts_outputs_cache.get_mut(&input) {
+                set.insert(short_id.clone());
+            } else {
+                let mut set = HashSet::with_capacity(1);
+                set.insert(short_id.clone());
+                self.conflicts_outputs_cache.put(input, set);
+            }
         }
         self.conflicts_cache.put(short_id.clone(), tx);
         debug!(
@@ -168,8 +177,13 @@ impl TxPool {
 
     pub(crate) fn remove_conflict(&mut self, short_id: &ProposalShortId) {
         if let Some(tx) = self.conflicts_cache.pop(short_id) {
-            for inputs in tx.input_pts_iter() {
-                self.conflicts_outputs_cache.pop(&inputs);
+            for input in tx.input_pts_iter() {
+                if let Some(set) = self.conflicts_outputs_cache.get_mut(&input) {
+                    set.remove(short_id);
+                    if set.is_empty() {
+                        self.conflicts_outputs_cache.pop(&input);
+                    }
+                }
             }
         }
         debug!(
@@ -183,13 +197,20 @@ impl TxPool {
         &self,
         inputs: impl Iterator<Item = OutPoint>,
     ) -> Vec<TransactionView> {
-        inputs
-            .filter_map(|input| {
-                self.conflicts_outputs_cache
-                    .peek(&input)
-                    .and_then(|id| self.conflicts_cache.peek(id).cloned())
-            })
-            .collect()
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        for input in inputs {
+            if let Some(set) = self.conflicts_outputs_cache.peek(&input) {
+                for short_id in set {
+                    if seen.insert(short_id.clone())
+                        && let Some(tx) = self.conflicts_cache.peek(short_id)
+                    {
+                        result.push(tx.clone());
+                    }
+                }
+            }
+        }
+        result
     }
 
     /// Returns tx with cycles corresponding to the id.
@@ -447,13 +468,18 @@ impl TxPool {
     }
 
     /// Returns tx from tx-pool or storage corresponding to the id.
+    ///
+    /// In addition to the in-pool transactions, this also consults a small cache
+    /// of recently committed transaction hashes so that compact blocks can
+    /// retrieve transactions that were just removed from the pool.  Replaced /
+    /// conflicted transactions are intentionally *not* returned: they are no
+    /// longer valid and must not be used to reconstruct a block.
     pub(crate) fn get_tx_from_pool_or_store(
         &self,
         proposal_id: &ProposalShortId,
     ) -> Option<TransactionView> {
         self.get_tx_from_pool(proposal_id)
             .cloned()
-            .or_else(|| self.conflicts_cache.peek(proposal_id).cloned())
             .or_else(|| {
                 self.committed_txs_hash_cache
                     .peek(proposal_id)
@@ -577,9 +603,10 @@ impl TxPool {
         if !(3..=131).contains(&target_to_be_committed) {
             return Err(FeeEstimatorError::NoProperFeeRate);
         }
+        let closest = self.snapshot.consensus().tx_proposal_window().closest();
+        let target_blocks = target_to_be_committed.saturating_sub(closest).max(1) as usize;
         let fee_rate = self.pool_map.estimate_fee_rate(
-            (target_to_be_committed - self.snapshot.consensus().tx_proposal_window().closest())
-                as usize,
+            target_blocks,
             self.snapshot.consensus().max_block_bytes() as usize,
             self.snapshot.consensus().max_block_cycles(),
             self.config.min_fee_rate,
@@ -650,20 +677,27 @@ impl TxPool {
     }
 
     /// RBF Rule #5: check that the number of replaced txs (conflicts + descendants)
-    /// does not exceed MAX_REPLACEMENT_CANDIDATES, that the new tx's ancestors do not
-    /// overlap with the conflicted txs' descendants, and that the new tx does not
-    /// reference outputs of descendant txs as inputs.
+    /// does not exceed MAX_REPLACEMENT_CANDIDATES, that the new tx does not
+    /// reference outputs of descendant txs as inputs, and that the new tx's
+    /// ancestors do not overlap with the conflicted txs' descendants.
     ///
     /// Returns the full set of conflicted entries (direct conflicts + their descendants).
     fn check_rbf_descendants<'a>(
         &'a self,
         conflicts: &[&'a PoolEntry],
-        short_id: &ProposalShortId,
+        _short_id: &ProposalShortId,
         tx_inputs: &[OutPoint],
     ) -> Result<Vec<&'a PoolEntry>, Reject> {
         let mut replace_count: usize = 0;
         let mut all_conflicted = conflicts.to_vec();
-        let ancestors = self.pool_map.calc_ancestors(short_id);
+        let mut ancestors: HashSet<ProposalShortId> = HashSet::new();
+        for input in tx_inputs {
+            let parent_id = ProposalShortId::from_tx_hash(&input.tx_hash());
+            if self.get_pool_entry(&parent_id).is_some() {
+                ancestors.insert(parent_id.clone());
+                ancestors.extend(self.pool_map.calc_ancestors(&parent_id));
+            }
+        }
         for conflict in conflicts.iter() {
             let descendants = self.pool_map.calc_descendants(&conflict.id);
             replace_count += descendants.len() + 1;
@@ -674,17 +708,13 @@ impl TxPool {
                 )));
             }
 
-            if !descendants.is_disjoint(&ancestors) {
-                return Err(Reject::RBFRejected(
-                    "Tx ancestors have common with conflict Tx descendants".to_string(),
-                ));
-            }
-
             let entries = descendants
                 .iter()
                 .filter_map(|id| self.get_pool_entry(id))
                 .collect::<Vec<_>>();
 
+            // Check the more specific error first: the new tx is spending an
+            // output that belongs to a descendant of the to-be-replaced tx.
             for entry in entries.iter() {
                 let hash = entry.inner.transaction().hash();
                 if tx_inputs.iter().any(|pt| pt.tx_hash() == hash) {
@@ -693,6 +723,14 @@ impl TxPool {
                     ));
                 }
             }
+
+            // Then check the broader ancestor/descendant overlap.
+            if !descendants.is_disjoint(&ancestors) {
+                return Err(Reject::RBFRejected(
+                    "Tx ancestors have common with conflict Tx descendants".to_string(),
+                ));
+            }
+
             all_conflicted.extend(entries);
         }
         Ok(all_conflicted)

@@ -5,14 +5,12 @@ use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::pool::TxPool;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::{TxPoolService, TxVerificationResult};
-use ckb_app_config::{NetworkConfig, TxPoolConfig};
-use ckb_async_runtime::new_background_runtime;
+use ckb_app_config::TxPoolConfig;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_db::RocksDB;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_network::SessionId;
-use ckb_network::network::TransportType;
-use ckb_network::{Flags, NetworkService, NetworkState};
+use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainDB;
 use ckb_types::H256;
@@ -405,32 +403,8 @@ fn snapshot(consensus: Arc<Consensus>) -> Arc<Snapshot> {
     ))
 }
 
-pub(crate) fn network(consensus: &Consensus) -> ckb_network::NetworkController {
-    let handle = new_background_runtime();
-    let tmp_dir = TempDir::new().expect("create temp dir");
-    let config = NetworkConfig {
-        max_peers: 19,
-        max_outbound_peers: 5,
-        path: tmp_dir.path().to_path_buf(),
-        ping_interval_secs: 15,
-        ping_timeout_secs: 20,
-        connect_outbound_interval_secs: 1,
-        discovery_local_address: true,
-        bootnode_mode: true,
-        reuse_port_on_linux: true,
-        ..Default::default()
-    };
-    let network_state =
-        Arc::new(NetworkState::from_config(config).expect("init test network state"));
-    NetworkService::new(
-        network_state,
-        vec![],
-        vec![],
-        (consensus.identify_name(), "test".to_string(), Flags::all()),
-        TransportType::Tcp,
-    )
-    .start(&handle)
-    .expect("start test network service")
+pub(crate) fn dummy_network() -> crate::network::TxPoolNetworkHandle {
+    Arc::new(crate::network::DummyTxPoolNetwork)
 }
 
 fn service() -> TxPoolService {
@@ -453,6 +427,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
     #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
+    let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
@@ -465,7 +440,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
-        network: network(&consensus),
+        network: dummy_network(),
         tx_relay_sender,
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
         verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
@@ -474,6 +449,8 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         recent_reject: None,
         #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
+        #[cfg(feature = "pipeline")]
+        chunk_rx,
         deferred_sender,
     };
 
@@ -494,8 +471,8 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
 
     // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
     {
-        let svc = service.clone();
         let ordered = Arc::clone(&ordered_resolve_queue);
+        let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
@@ -514,7 +491,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
                         wtx_hash,
                         verified,
                     } => {
-                        let mut guard = svc.txs_verify_cache.write().await;
+                        let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
                 }

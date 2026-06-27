@@ -74,7 +74,11 @@ impl OrphanPool {
     pub fn remove_orphan_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
         self.entries.remove(id).inspect(|entry| {
             debug!("remove orphan tx {}", entry.tx.hash());
-            for out_point in entry.tx.input_pts_iter() {
+            for out_point in entry
+                .tx
+                .input_pts_iter()
+                .chain(entry.tx.cell_deps_iter().map(|c| c.out_point()))
+            {
                 if let Some(ids_set) = self.by_out_point.get_mut(&out_point) {
                     ids_set.remove(id);
 
@@ -91,6 +95,11 @@ impl OrphanPool {
             self.remove_orphan_tx(&id);
         }
         self.shrink_to_fit();
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.by_out_point.clear();
     }
 
     fn limit_size(&mut self) -> Vec<Byte32> {
@@ -152,7 +161,10 @@ impl OrphanPool {
             Entry::new(tx.clone(), peer, declared_cycle),
         );
 
-        for out_point in tx.input_pts_iter() {
+        for out_point in tx
+            .input_pts_iter()
+            .chain(tx.cell_deps_iter().map(|c| c.out_point()))
+        {
             self.by_out_point
                 .entry(out_point)
                 .or_default()

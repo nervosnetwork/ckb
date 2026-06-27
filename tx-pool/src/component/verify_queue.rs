@@ -206,11 +206,16 @@ impl VerifyQueue {
         }
     }
 
-    /// Returns the first entry in the queue
+    /// Returns the first entry in the queue.
+    ///
+    /// Proposal transactions are prioritised, but when `only_small_cycle` is
+    /// `true` a large-cycle proposal tx is skipped so that the dedicated
+    /// small-cycle worker is not stalled.
     pub fn peek(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
         let first_entry = self.inner.iter_by_priority_order().next();
         if let Some(entry) = first_entry
             && matches!(entry.priority_order.0, VerifyPriority::Proposal)
+            && !(only_small_cycle && entry.is_large_cycle)
         {
             return Some(entry.inner.tx().proposal_short_id());
         }

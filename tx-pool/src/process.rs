@@ -1,5 +1,7 @@
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
+#[cfg(feature = "pipeline")]
+use crate::component::flight_tracker::FlightTracker;
 use crate::component::orphan::Entry as OrphanEntry;
 use crate::component::pool_map::Status;
 use crate::error::Reject;
@@ -92,8 +94,14 @@ const DEFAULT_MAX_PRE_CHECK_QUEUE_TX_SIZE: usize = 256_000_000;
 /// Workers are cancelled via the `CancellationToken`; `pop()` returns `None`
 /// once the token is cancelled so the worker loop can exit cleanly.
 #[cfg(feature = "pipeline")]
+struct PreCheckQueueState {
+    inner: std::collections::VecDeque<PreCheckJob>,
+    index: std::collections::HashSet<ProposalShortId>,
+    flight: FlightTracker,
+}
+
 pub(crate) struct PreCheckQueue {
-    inner: std::sync::Mutex<std::collections::VecDeque<PreCheckJob>>,
+    state: std::sync::Mutex<PreCheckQueueState>,
     ready: tokio::sync::Notify,
     cancel: ckb_stop_handler::CancellationToken,
     total_tx_size: std::sync::atomic::AtomicUsize,
@@ -103,7 +111,11 @@ pub(crate) struct PreCheckQueue {
 impl PreCheckQueue {
     pub(crate) fn new(cancel: ckb_stop_handler::CancellationToken) -> Self {
         Self {
-            inner: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            state: std::sync::Mutex::new(PreCheckQueueState {
+                inner: std::collections::VecDeque::new(),
+                index: std::collections::HashSet::new(),
+                flight: FlightTracker::new(),
+            }),
             ready: tokio::sync::Notify::new(),
             cancel,
             total_tx_size: std::sync::atomic::AtomicUsize::new(0),
@@ -122,29 +134,63 @@ impl PreCheckQueue {
             >= DEFAULT_MAX_PRE_CHECK_QUEUE_TX_SIZE
     }
 
+    /// Returns true if the given tx spends or references an output produced by
+    /// a transaction currently in the pre-check queue.
+    pub fn depends_on(&self, tx: &TransactionView) -> bool {
+        let state = self.state.lock().expect("pre_check queue lock poisoned");
+        state.flight.depends_on(tx)
+    }
+
+    /// Returns true if the queue contains a job for the given proposal id.
+    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
+        let state = self.state.lock().expect("pre_check queue lock poisoned");
+        state.index.contains(id)
+    }
+
     pub(crate) fn push(&self, job: PreCheckJob) -> Result<(), Reject> {
+        let mut state = self.state.lock().expect("pre_check queue lock poisoned");
+        let id = job.tx.proposal_short_id();
+        if state.index.contains(&id) {
+            return Ok(());
+        }
         let tx_size = Self::tx_size(&job);
         let tx_hash = job.tx.hash();
+        // The full check is performed while holding the lock so concurrent
+        // pushes cannot both observe a non-full queue and exceed the limit.
         if self.is_full(tx_size) {
             return Err(Reject::Full(format!(
                 "pre_check_queue total_tx_size exceeded, failed to add tx: {tx_hash:#x}"
             )));
         }
-        let mut guard = self.inner.lock().expect("pre_check queue lock poisoned");
-        guard.push_back(job);
+        state.index.insert(id.clone());
+        state.flight.insert(id, &job.tx);
+        state.inner.push_back(job);
         self.total_tx_size
             .fetch_add(tx_size, std::sync::atomic::Ordering::Relaxed);
-        drop(guard);
+        drop(state);
         self.ready.notify_one();
         Ok(())
+    }
+
+    /// Drain all pending jobs without cancelling the queue.
+    pub(crate) fn clear(&self) {
+        let mut state = self.state.lock().expect("pre_check queue lock poisoned");
+        state.inner.clear();
+        state.index.clear();
+        state.flight.clear();
+        self.total_tx_size
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Pop the next job, or return `None` if the queue has been cancelled.
     pub(crate) async fn pop(&self) -> Option<PreCheckJob> {
         loop {
             {
-                let mut guard = self.inner.lock().expect("pre_check queue lock poisoned");
-                if let Some(job) = guard.pop_front() {
+                let mut state = self.state.lock().expect("pre_check queue lock poisoned");
+                if let Some(job) = state.inner.pop_front() {
+                    let id = job.tx.proposal_short_id();
+                    state.index.remove(&id);
+                    state.flight.remove(&id);
                     let tx_size = Self::tx_size(&job);
                     self.total_tx_size
                         .fetch_sub(tx_size, std::sync::atomic::Ordering::Relaxed);
@@ -209,6 +255,7 @@ impl TxPoolService {
                 let mut reject_events = Vec::new();
                 let mut recovered = Vec::new();
 
+                let mut removed_old_txs = Vec::new();
                 let result = (|| -> Result<(), Reject> {
                     // check_rbf must be invoked in `write` lock to avoid concurrent issues.
                     let conflicts = if tx_pool.enable_rbf() {
@@ -242,8 +289,25 @@ impl TxPoolService {
                         time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
                     }
 
-                    recovered =
+                    removed_old_txs =
                         self.process_rbf(tx_pool, &entry, &conflicts, &mut reject_events);
+
+                    // Txs whose inputs are not consumed by the new tx can be
+                    // recovered immediately, regardless of whether the new tx
+                    // ultimately succeeds.
+                    let mut available_inputs: HashSet<OutPoint> = HashSet::new();
+                    available_inputs.extend(
+                        removed_old_txs
+                            .iter()
+                            .flat_map(|removed| removed.transaction().input_pts_iter()),
+                    );
+                    for input in entry.transaction().input_pts_iter() {
+                        available_inputs.remove(&input);
+                    }
+                    recovered.extend(
+                        tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter()),
+                    );
+
                     let evicted = _submit_entry(tx_pool, status, &entry, &self.callbacks)?;
 
                     // in a corner case, a tx with lower fee rate may be rejected immediately
@@ -273,6 +337,12 @@ impl TxPoolService {
                     recovered.extend(
                         tx_pool.get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter()),
                     );
+                    for tx in &recovered {
+                        tx_pool.remove_conflict(&tx.proposal_short_id());
+                    }
+                    for old in removed_old_txs {
+                        tx_pool.remove_conflict(&old.proposal_short_id());
+                    }
                 }
 
                 (result, recovered, reject_events)
@@ -319,20 +389,19 @@ impl TxPoolService {
         }
     }
 
-    // try to remove conflicted tx here, the returned txs can be re-verified and re-submitted
-    // since they maybe not conflicted anymore
+    // Remove conflicting transactions for RBF and record them in the conflicts
+    // cache so they can be recovered if the replacement fails. Returns the set
+    // of removed entries; the caller decides which ones to recover and when to
+    // clean up the conflicts cache.
     fn process_rbf(
         &self,
         tx_pool: &mut TxPool,
         entry: &TxEntry,
         conflicts: &HashSet<ProposalShortId>,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) -> Vec<TransactionView> {
-        let mut may_recovered_txs = vec![];
-        let mut available_inputs = HashSet::new();
-
+    ) -> Vec<TxEntry> {
         if conflicts.is_empty() {
-            return may_recovered_txs;
+            return Vec::new();
         }
 
         let all_removed: Vec<_> = conflicts
@@ -340,18 +409,7 @@ impl TxPoolService {
             .flat_map(|id| tx_pool.pool_map.remove_entry_and_descendants(id))
             .collect();
 
-        available_inputs.extend(
-            all_removed
-                .iter()
-                .flat_map(|removed| removed.transaction().input_pts_iter()),
-        );
-
-        for input in entry.transaction().input_pts_iter() {
-            available_inputs.remove(&input);
-        }
-
-        may_recovered_txs = tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter());
-        for old in all_removed {
+        for old in &all_removed {
             debug!(
                 "remove conflict tx {} for RBF by new tx {}",
                 old.transaction().hash(),
@@ -360,13 +418,13 @@ impl TxPoolService {
             let reject =
                 Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()));
 
-            // RBF replace successfully, put old transactions into conflicts pool
+            // Put old transactions into conflicts pool so they can be recovered
+            // if the replacement ultimately fails.
             tx_pool.record_conflict(old.transaction().clone());
             // collect reject events for dispatch outside write lock
-            reject_events.push((old, reject));
+            reject_events.push((old.clone(), reject));
         }
-        assert!(!may_recovered_txs.contains(entry.transaction()));
-        may_recovered_txs
+        all_removed
     }
 
     pub(crate) async fn verify_queue_contains(&self, tx: &TransactionView) -> bool {
@@ -651,6 +709,13 @@ impl TxPoolService {
         {
             let mut queue = self.verify_queue.write().await;
             if queue.remove_tx(&id).is_some() {
+                // The removed tx may have had descendants waiting in the
+                // ordered resolve queue. Wake the resolver so they can be
+                // retried (and rejected if the parent is gone) promptly.
+                let ordered = self.ordered_resolve_queue.read().await;
+                if !ordered.is_empty() {
+                    ordered.subscribe().notify_one();
+                }
                 return true;
             }
         }
@@ -660,8 +725,17 @@ impl TxPoolService {
                 return true;
             }
         }
-        let mut tx_pool = self.tx_pool.write().await;
-        tx_pool.remove_tx(&id)
+        let removed = {
+            let mut tx_pool = self.tx_pool.write().await;
+            tx_pool.remove_tx(&id)
+        };
+        if removed {
+            let ordered = self.ordered_resolve_queue.read().await;
+            if !ordered.is_empty() {
+                ordered.subscribe().notify_one();
+            }
+        }
+        removed
     }
 
     pub(crate) async fn after_process(
@@ -831,9 +905,12 @@ impl TxPoolService {
         self.orphan.write().await.remove_orphan_tx(id);
     }
 
-    /// Remove all orphans which are resolved by the given transaction
-    /// the process is like a breath first search, if there is a cycle in `orphan_queue`,
-    /// `_process_tx` will return `Reject` since we have checked duplicated tx
+    /// Remove all orphans which are resolved by the given transaction.
+    ///
+    /// The search is breadth-first: each orphan is routed through the same
+    /// pipeline entry point as other remote transactions. When an orphan is
+    /// eventually verified and submitted, `after_process` will recursively
+    /// process its own descendants in the orphan pool.
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
         let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
         orphan_queue.push_back(tx.clone());
@@ -841,52 +918,40 @@ impl TxPoolService {
         while let Some(previous) = orphan_queue.pop_front() {
             let orphans = self.find_orphan_by_previous(&previous).await;
             for orphan in orphans.into_iter() {
-                if orphan.cycle > self.tx_pool_config.max_tx_verify_cycles {
-                    let orphan_id = orphan.tx.proposal_short_id();
-                    match self
-                        .classify_and_enqueue_tx(
-                            orphan.tx.clone(),
-                            false,
-                            Some((orphan.cycle, orphan.peer)),
-                        )
-                        .await
-                    {
-                        Ok(_) => {
-                            self.remove_orphan_tx(&orphan_id).await;
-                        }
-                        Err(reject) => {
-                            warn!(
-                                "process_orphan {} failed to enqueue resolve queue: {}; keep orphan from {}",
-                                orphan.tx.hash(),
-                                reject,
-                                tx.hash(),
-                            );
-                        }
-                    }
-                } else if let Some((ret, _snapshot)) = self
-                    ._process_tx(orphan.tx.clone(), Some(orphan.cycle), None)
+                let orphan_id = orphan.tx.proposal_short_id();
+                match self
+                    .classify_and_enqueue_tx(
+                        orphan.tx.clone(),
+                        false,
+                        Some((orphan.cycle, orphan.peer)),
+                    )
                     .await
                 {
-                    match ret {
-                        Ok(_) => {
-                            self.send_result_to_relayer(TxVerificationResult::Ok {
-                                original_peer: Some(orphan.peer),
-                                tx_hash: orphan.tx.hash(),
-                            });
-                            debug!(
-                                "process_orphan {} success, find previous from {}",
+                    Ok(_) => {
+                        self.remove_orphan_tx(&orphan_id).await;
+                        // The orphan is now in the pipeline. Its own children
+                        // will be processed once it successfully submits via
+                        // the normal `after_process` -> `handle_verify_success`
+                        // path, so we do not need to push it back here.
+                    }
+                    Err(reject) => {
+                        // Keep the orphan if the only problem is that its
+                        // parents are not yet available or the pipeline queues
+                        // are temporarily full.  For any other reject reason
+                        // (malformed, low fee, etc.) remove it and notify the
+                        // peer.
+                        if crate::util::is_missing_input(&reject)
+                            || matches!(reject, Reject::Full(_))
+                        {
+                            warn!(
+                                "process_orphan {} not ready ({reject}); keeping orphan from {}",
                                 orphan.tx.hash(),
-                                tx.hash()
+                                tx.hash(),
                             );
-                            self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                            orphan_queue.push_back(orphan.tx);
-                        }
-                        Err(reject) => {
-                            if !is_missing_input(&reject) {
-                                self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                                self.handle_remote_reject(&orphan.tx.hash(), &reject, orphan.peer)
-                                    .await;
-                            }
+                        } else {
+                            self.remove_orphan_tx(&orphan_id).await;
+                            self.handle_remote_reject(&orphan.tx.hash(), &reject, orphan.peer)
+                                .await;
                         }
                     }
                 }
@@ -1056,7 +1121,10 @@ impl TxPoolService {
         // are waiting in the ordered resolve queue (e.g. children of a parent
         // that was just re-added after a reorg). Wake the ordered resolver so
         // those children can be retried promptly.
-        self.ordered_resolve_queue.read().await.subscribe().notify_one();
+        let queue = self.ordered_resolve_queue.read().await;
+        if !queue.is_empty() {
+            queue.subscribe().notify_one();
+        }
 
         if verify_cache.is_none() {
             // Defer cache update to the background worker instead of
@@ -1134,6 +1202,13 @@ impl TxPoolService {
         for (i, tx) in txs.iter().enumerate() {
             for input in tx.input_pts_iter() {
                 if let Some(&parent) = output_to_index.get(&input) && parent != i {
+                    in_degree[i] += 1;
+                    children[parent].push(i);
+                }
+            }
+            for dep in tx.cell_deps_iter() {
+                let out_point = dep.out_point();
+                if let Some(&parent) = output_to_index.get(&out_point) && parent != i {
                     in_degree[i] += 1;
                     children[parent].push(i);
                 }
@@ -1239,12 +1314,18 @@ impl TxPoolService {
         {
             let mut retain = retain;
             Self::sort_txs_by_dependencies(&mut retain);
+            let mut chunk_rx = self.chunk_rx.clone();
             for tx in retain {
-                if let Some((ret, snapshot)) = self._process_tx(tx.clone(), None, None).await
+                if let Some((ret, snapshot)) =
+                    self._process_tx(tx.clone(), None, Some(&mut chunk_rx)).await
                     && let Err(ref reject) = ret
                 {
                     debug!("reorg re-add failed: {}", reject);
                     self.after_process(tx, None, &snapshot, &ret).await;
+                } else {
+                    // The detached tx is now back in the pool. Wake up any
+                    // orphans that depend on it (including via cell dep).
+                    self.process_orphan_tx(&tx).await;
                 }
             }
         }
@@ -1270,7 +1351,11 @@ impl TxPoolService {
                 true
             } else {
                 let verify_queue = self.verify_queue.read().await;
-                verify_queue.depends_on(tx)
+                if verify_queue.depends_on(tx) {
+                    true
+                } else {
+                    self.pre_check_queue.depends_on(tx)
+                }
             }
         };
 
@@ -1435,6 +1520,22 @@ impl TxPoolService {
         {
             let mut tx_pool = self.tx_pool.write().await;
             tx_pool.clear(Arc::clone(&new_snapshot));
+        }
+        {
+            let mut queue = self.ordered_resolve_queue.write().await;
+            queue.clear();
+        }
+        {
+            let mut queue = self.verify_queue.write().await;
+            queue.clear();
+        }
+        {
+            let mut orphan = self.orphan.write().await;
+            orphan.clear();
+        }
+        #[cfg(feature = "pipeline")]
+        {
+            self.pre_check_queue.clear();
         }
         // reset block_assembler
         if self

@@ -3,10 +3,11 @@
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::orphan::OrphanPool;
-use crate::component::pool_map::{PoolEntry, Status};
+use crate::component::pool_map::Status;
 use crate::component::recent_reject::RecentReject;
 use crate::component::verify_queue::VerifyQueue;
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
+use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
 use crate::pool::TxPool;
 use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -17,14 +18,14 @@ use ckb_error::AnyError;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info, warn};
-use ckb_network::{NetworkController, PeerIndex};
+use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        BlockView, Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView, Version,
+        BlockView, Capacity, Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView, Version,
         cell::{CellProvider, CellStatus, OverlayCellProvider},
         tx_pool::{
             EntryCompleted, PoolTxDetailInfo, Reject, TRANSACTION_SIZE_LIMIT,
@@ -132,8 +133,12 @@ pub(crate) enum Message {
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
+    /// Replace the tx-pool snapshot, clear **all** in-pool entries, and drain
+    /// all pipeline queues (ordered resolve, verification, orphan and pre-check).
     ClearPool(Request<Arc<Snapshot>, ()>),
-    ClearVerifyQueue(Request<(), ()>),
+    /// Clear only the pipeline queues (ordered resolve, verification, orphan
+    /// and pre-check) without touching the already-accepted pool.
+    ClearPipeline(Request<(), ()>),
     GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
     GetAllIds(Request<(), TxPoolIds>),
     SavePool(Request<(), ()>),
@@ -391,9 +396,10 @@ impl TxPoolController {
         send_message!(self, ClearPool, new_snapshot)
     }
 
-    /// Clears the tx-verify-queue.
+    /// Clears the pipeline queues (ordered resolve, verify, orphan and
+    /// pre-check) without touching the already-accepted pool.
     pub fn clear_verify_queue(&self) -> Result<(), AnyError> {
-        send_message!(self, ClearVerifyQueue, ())
+        send_message!(self, ClearPipeline, ())
     }
 
     /// Returns information about all transactions in the pool.
@@ -625,7 +631,8 @@ impl TxPoolServiceBuilder {
     }
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
-    pub fn start(self, network: NetworkController) {
+    pub fn start<N: TxPoolNetwork>(self, network: N) {
+        let network: TxPoolNetworkHandle = Arc::new(network);
         let consensus = self.snapshot.cloned_consensus();
 
         let ordered_resolve_queue = Arc::new(RwLock::new(
@@ -658,7 +665,7 @@ impl TxPoolServiceBuilder {
         #[cfg(feature = "pipeline")]
         let pre_check_cancel = self.signal_receiver.child_token();
         #[cfg(feature = "pipeline")]
-        let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+        let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel.clone()));
 
         let (deferred_sender, deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
 
@@ -679,6 +686,8 @@ impl TxPoolServiceBuilder {
             recent_reject,
             #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
+            #[cfg(feature = "pipeline")]
+            chunk_rx: self.chunk_rx.clone(),
             deferred_sender,
         };
 
@@ -702,7 +711,12 @@ impl TxPoolServiceBuilder {
                         None => break, // channel closed, exit
                     };
                     let ordered_resolve_queue = Arc::clone(&ordered_resolve_queue);
+                    let ordered_resolve_queue_retry = Arc::clone(&ordered_resolve_queue);
                     let txs_verify_cache = Arc::clone(&txs_verify_cache);
+                    let recover_txs_for_retry = match &task {
+                        DeferredTask::RecoverTxs(txs) => Some(txs.clone()),
+                        DeferredTask::CacheUpdate { .. } => None,
+                    };
                     let handler = async move {
                         match task {
                             DeferredTask::RecoverTxs(txs) => {
@@ -738,7 +752,24 @@ impl TxPoolServiceBuilder {
                         Err(payload) => {
                             let message = panic_payload_to_string(payload.as_ref());
                             error!("deferred task worker panicked: {}; respawning", message);
-                            // Loop continues: receiver is still valid, next recv() picks up.
+                            // If a RecoverTxs task panicked, retry it directly
+                            // without going back through the channel.
+                            if let Some(txs) = recover_txs_for_retry {
+                                let mut queue = ordered_resolve_queue_retry.write().await;
+                                for tx in txs {
+                                    if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob {
+                                        tx,
+                                        remote: None,
+                                        is_proposal_tx: false,
+                                        attempts: 0,
+                                    }) {
+                                        warn!(
+                                            "failed to recover tx back to ordered resolve queue after panic: {}",
+                                            reject
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -748,14 +779,43 @@ impl TxPoolServiceBuilder {
 
         #[cfg(feature = "pipeline")]
         {
+            let pre_check_cancel = pre_check_cancel.clone();
             for _ in 0..pre_check_workers {
                 let svc = service.clone();
                 let queue = Arc::clone(&pre_check_queue);
+                let cancel = pre_check_cancel.child_token();
                 self.handle.spawn(async move {
-                    while let Some(job) = queue.pop().await {
-                        let _ = svc
-                            .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                            .await;
+                    loop {
+                        let svc = svc.clone();
+                        let queue = Arc::clone(&queue);
+                        let worker = async move {
+                            while let Some(job) = queue.pop().await {
+                                let _ = svc
+                                    .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                                    .await;
+                            }
+                        };
+                        let exit = match AssertUnwindSafe(worker).catch_unwind().await {
+                            Ok(()) => crate::resolve_mgr::ResolveExit::Stopped,
+                            Err(payload) => crate::resolve_mgr::ResolveExit::Panicked {
+                                message: crate::util::panic_payload_to_string(payload.as_ref()),
+                            },
+                        };
+                        if cancel.is_cancelled() {
+                            break;
+                        }
+                        match exit {
+                            crate::resolve_mgr::ResolveExit::Stopped => {
+                                // Normal exit because the queue was cancelled.
+                                break;
+                            }
+                            crate::resolve_mgr::ResolveExit::Panicked { message } => {
+                                error!(
+                                    "tx-pool pre-check worker panicked: {}; respawning",
+                                    message
+                                );
+                            }
+                        }
                     }
                 });
             }
@@ -947,7 +1007,7 @@ impl TxPoolServiceBuilder {
     /// caller is responsible for spawning the pipeline workers that the
     /// returned service depends on.
     #[cfg(feature = "internal")]
-    pub(crate) fn build_bench_service(self, network: NetworkController) -> BenchServiceParts {
+    pub(crate) fn build_bench_service(self, network: TxPoolNetworkHandle) -> BenchServiceParts {
         let consensus = self.snapshot.cloned_consensus();
 
         let ordered_resolve_queue = Arc::new(RwLock::new(
@@ -988,6 +1048,8 @@ impl TxPoolServiceBuilder {
             recent_reject,
             #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
+            #[cfg(feature = "pipeline")]
+            chunk_rx: self.chunk_rx.clone(),
             deferred_sender,
         };
 
@@ -1025,7 +1087,7 @@ pub(crate) struct TxPoolService {
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) callbacks: Arc<Callbacks>,
-    pub(crate) network: NetworkController,
+    pub(crate) network: TxPoolNetworkHandle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) ordered_resolve_queue:
         Arc<RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>>,
@@ -1041,10 +1103,58 @@ pub(crate) struct TxPoolService {
     /// service actor to preserve ordering.
     #[cfg(feature = "pipeline")]
     pub(crate) pre_check_queue: Arc<crate::process::PreCheckQueue>,
+    /// Chunk command receiver used by the synchronous reorg recovery path so
+    /// that detached transactions are not verified while the pipeline is
+    /// suspended.
+    #[cfg(feature = "pipeline")]
+    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     /// Bounded channel for deferred side-effects (recovery tx re-enqueue,
     /// verify cache updates). A single background worker drains this channel,
     /// preventing unbounded task accumulation under high RBF frequency.
     pub(crate) deferred_sender: mpsc::Sender<DeferredTask>,
+}
+
+/// Location and metadata of a transaction found in the pipeline queues.
+pub(crate) enum PipelineTxLocation {
+    /// In the ordered resolve queue (not yet resolved/verified).
+    Ordered(TransactionView),
+    /// In the verify queue (resolved, awaiting verification).
+    Verifying(TransactionView, Capacity, crate::process::TxStatus),
+    /// In the orphan pool (missing inputs).
+    Orphan(TransactionView, Cycle),
+}
+
+impl TxPoolService {
+    /// Search the pipeline queues for a transaction by short id.
+    pub(crate) async fn find_tx_in_pipeline(
+        &self,
+        id: &ProposalShortId,
+    ) -> Option<PipelineTxLocation> {
+        {
+            let ordered = self.ordered_resolve_queue.read().await;
+            if let Some(tx) = ordered.get_tx(id) {
+                return Some(PipelineTxLocation::Ordered(tx.clone()));
+            }
+        }
+        {
+            let verify_queue = self.verify_queue.read().await;
+            if let Some(entry) = verify_queue.get_tx_by_id(id) {
+                let resolved = &entry.resolved;
+                return Some(PipelineTxLocation::Verifying(
+                    resolved.tx.clone(),
+                    resolved.fee,
+                    resolved.status,
+                ));
+            }
+        }
+        {
+            let orphan = self.orphan.read().await;
+            if let Some(entry) = orphan.get(id) {
+                return Some(PipelineTxLocation::Orphan(entry.tx.clone(), entry.cycle));
+            }
+        }
+        None
+    }
 }
 
 /// Deferred side-effects that are processed by a single background worker
@@ -1178,19 +1288,22 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: hash,
         }) => {
             let id = ProposalShortId::from_tx_hash(&hash);
-            let tx_pool = service.tx_pool.read().await;
-            let ret = if let Some(PoolEntry {
-                status,
-                inner: entry,
-                ..
-            }) = tx_pool.pool_map.get_by_id(&id)
-            {
-                let status = if status == &Status::Proposed {
+            let pool_cycles = {
+                let tx_pool = service.tx_pool.read().await;
+                tx_pool
+                    .pool_map
+                    .get_by_id(&id)
+                    .map(|entry| (entry.status, entry.inner.cycles))
+            };
+            let ret = if let Some((status, cycles)) = pool_cycles {
+                let status = if status == Status::Proposed {
                     TxStatus::Proposed
                 } else {
                     TxStatus::Pending
                 };
-                Ok((status, Some(entry.cycles)))
+                Ok((status, Some(cycles)))
+            } else if service.find_tx_in_pipeline(&id).await.is_some() {
+                Ok((TxStatus::Pending, None))
             } else if let Some(ref recent_reject_db) = service.recent_reject {
                 let recent_reject_result = recent_reject_db.get(&hash);
                 if let Ok(recent_reject) = recent_reject_result {
@@ -1215,17 +1328,24 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: hash,
         }) => {
             let id = ProposalShortId::from_tx_hash(&hash);
-            let tx_pool = service.tx_pool.read().await;
-            let ret = if let Some(PoolEntry {
-                status,
-                inner: entry,
-                ..
-            }) = tx_pool.pool_map.get_by_id(&id)
-            {
-                let (tx_status, min_replace_fee) = if status == &Status::Proposed {
-                    (TxStatus::Proposed, None)
+            let pool_entry = {
+                let tx_pool = service.tx_pool.read().await;
+                tx_pool.pool_map.get_by_id(&id).map(|entry| {
+                    let status = entry.status;
+                    let entry = entry.inner.clone();
+                    let min_replace_fee = if status == Status::Proposed {
+                        None
+                    } else {
+                        tx_pool.min_replace_fee(&entry)
+                    };
+                    (status, entry, min_replace_fee)
+                })
+            };
+            let ret = if let Some((status, entry, min_replace_fee)) = pool_entry {
+                let tx_status = if status == Status::Proposed {
+                    TxStatus::Proposed
                 } else {
-                    (TxStatus::Pending, tx_pool.min_replace_fee(entry))
+                    TxStatus::Pending
                 };
                 Ok(TransactionWithStatus::with_status(
                     Some(entry.transaction().clone()),
@@ -1235,6 +1355,29 @@ async fn process(mut service: TxPoolService, message: Message) {
                     Some(entry.fee),
                     min_replace_fee,
                 ))
+            } else if let Some(location) = service.find_tx_in_pipeline(&id).await {
+                let (tx, tx_status, cycles, fee) = match location {
+                    PipelineTxLocation::Ordered(tx) => (tx, TxStatus::Pending, None, None),
+                    PipelineTxLocation::Verifying(tx, fee, status) => {
+                        let tx_status = if status == crate::process::TxStatus::Proposed {
+                            TxStatus::Proposed
+                        } else {
+                            TxStatus::Pending
+                        };
+                        (tx, tx_status, None, Some(fee))
+                    }
+                    PipelineTxLocation::Orphan(tx, cycle) => {
+                        (tx, TxStatus::Pending, Some(cycle), None)
+                    }
+                };
+                Ok(TransactionWithStatus {
+                    transaction: Some(tx),
+                    tx_status,
+                    cycles,
+                    fee,
+                    min_replace_fee: None,
+                    time_added_to_pool: None,
+                })
             } else if let Some(ref recent_reject_db) = service.recent_reject {
                 match recent_reject_db.get(&hash) {
                     Ok(Some(record)) => Ok(TransactionWithStatus::with_rejected(record)),
@@ -1287,11 +1430,14 @@ async fn process(mut service: TxPoolService, message: Message) {
                 error!("Responder sending clear_pool failed {:?}", e)
             };
         }
-        Message::ClearVerifyQueue(Request { responder, .. }) => {
+        Message::ClearPipeline(Request { responder, .. }) => {
             service.ordered_resolve_queue.write().await.clear();
             service.verify_queue.write().await.clear();
+            service.orphan.write().await.clear();
+            #[cfg(feature = "pipeline")]
+            service.pre_check_queue.clear();
             if let Err(e) = responder.send(()) {
-                error!("Responder sending clear_verify_queue failed {:?}", e)
+                error!("Responder sending clear_pipeline failed {:?}", e)
             };
         }
         Message::GetPoolTxDetails(Request {
@@ -1436,22 +1582,31 @@ impl TxPoolService {
         self.block_assembler.is_some()
     }
 
-    /// Excludes proposals that already exist in either the proposal pool or the verification queue.
+    /// Excludes proposals that already exist in the tx-pool or any pipeline queue.
     ///
-    /// Any proposal that appears in **either** of these two structures is considered "already exists"
-    /// and will be filtered out.
-    /// - already accepted and stored in the main pool (`pool_map`), or
-    /// - orphan_pool that are waiting for missing parents
+    /// Any proposal that appears in any of the following structures is considered
+    /// "already exists" and will be filtered out:
+    /// - already accepted and stored in the main pool (`pool_map`),
+    /// - waiting for missing parents in the `orphan` pool,
+    /// - waiting for resolution/verification in the `ordered_resolve_queue`,
+    /// - undergoing pre-check in the `pre_check_queue` (pipeline),
     /// - currently being verified (`verify_queue`).
     ///
-    /// /// # Returns
+    /// # Returns
     ///
-    /// A new `Vec<ProposalShortId> ` containing only the proposals that are **completely new**
-    /// (not present in `pool_map` nor in `verify_queue`).
+    /// A new `Vec<ProposalShortId>` containing only the proposals that are **completely new**.
     pub async fn exclude_existing_proposal(
         &self,
         mut proposals: Vec<ProposalShortId>,
     ) -> Vec<ProposalShortId> {
+        {
+            let ordered = self.ordered_resolve_queue.read().await;
+            proposals.retain(|id| !ordered.contains_key(id));
+        }
+        #[cfg(feature = "pipeline")]
+        {
+            proposals.retain(|id| !self.pre_check_queue.contains_key(id));
+        }
         {
             let verify_queue = self.verify_queue.read().await;
             proposals.retain(|id| !verify_queue.contains_key(id));

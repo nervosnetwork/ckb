@@ -207,14 +207,14 @@ impl PoolMap {
         if self.entries.get_by_id(&tx_short_id).is_some() {
             return Ok((false, evicts));
         }
-        let (total_tx_size, total_tx_cycles) =
-            self.updated_stat_for_add_tx(entry.size, entry.cycles)?;
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         evicts = self.check_and_record_ancestors(&mut entry)?;
         self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
         self.track_entry_statics(None, Some(status));
+        let (total_tx_size, total_tx_cycles) =
+            self.updated_stat_for_add_tx(entry.size, entry.cycles)?;
         self.total_tx_size = total_tx_size;
         self.total_tx_cycles = total_tx_cycles;
         Ok((true, evicts))
@@ -253,12 +253,36 @@ impl PoolMap {
         let mut removed_ids = vec![id.to_owned()];
         removed_ids.extend(self.calc_descendants(id));
 
-        // update links state for remove, so that we won't update_descendants_index_key in remove_entry
-        for id in &removed_ids {
-            self.remove_entry_links(id);
+        // Remove entries in post-order (children before parents) so that
+        // update_ancestors_index_key / update_descendants_index_key still see
+        // valid links while subtracting weights. Removing links upfront would
+        // leave surviving entries with stale ancestor/descendant statistics.
+        let removed_set: HashSet<ProposalShortId> = removed_ids.iter().cloned().collect();
+        let mut ordered = Vec::with_capacity(removed_ids.len());
+        let mut visited = HashSet::with_capacity(removed_ids.len());
+        // Iterative DFS to avoid stack overflow for deeply nested descendant
+        // chains.  Each stack frame is (id, children_already_processed).
+        let mut stack: Vec<(&ProposalShortId, bool)> = removed_ids.iter().map(|id| (id, false)).collect();
+        while let Some((id, processed)) = stack.pop() {
+            if !removed_set.contains(id) {
+                continue;
+            }
+            if processed {
+                ordered.push(id.clone());
+                continue;
+            }
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            stack.push((id, true));
+            if let Some(children) = self.links.get_children(id) {
+                for child in children {
+                    stack.push((child, false));
+                }
+            }
         }
 
-        removed_ids
+        ordered
             .iter()
             .filter_map(|id| self.remove_entry(id))
             .collect()

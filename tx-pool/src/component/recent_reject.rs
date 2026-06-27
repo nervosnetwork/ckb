@@ -67,19 +67,65 @@ impl RecentReject {
         let shard = self.get_shard(hash_slice).to_string();
         let reject: ckb_jsonrpc_types::PoolTransactionReject = reject.into();
         let json_string = serde_json::to_string(&reject)?;
-        // Hold the read lock across the DB write so that `shrink` cannot drop
-        // the column family while we are writing to it.
-        let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
-        db.put(&shard, hash_slice, json_string)?;
-        drop(db);
+        let json_bytes = json_string.as_bytes();
 
+        // Fast path: hold the read lock across the DB write so that `shrink`
+        // cannot drop the column family while we are writing to it.
+        {
+            let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
+            let existed = match db.get_pinned(&shard, hash_slice) {
+                Ok(v) => v.is_some(),
+                Err(e) => {
+                    let err = AnyError::from(e);
+                    if !is_cf_missing(&err, &shard) {
+                        return Err(err);
+                    }
+                    false
+                }
+            };
+            match db.put(&shard, hash_slice, json_bytes) {
+                Ok(()) => {
+                    // Only count newly inserted keys; overwrites should not
+                    // inflate the approximate counter.
+                    if !existed {
+                        self.maybe_shrink();
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    let err = AnyError::from(e);
+                    if !is_cf_missing(&err, &shard) {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        // Slow path: the shard column family is missing (e.g. `shrink`
+        // dropped it but failed to recreate it).  Upgrade to a write lock,
+        // create the column family on demand, and retry the write.
+        let mut db = self.db.write().map_err(|e| OtherError::new(e.to_string()))?;
+        if let Err(e) = db.put(&shard, hash_slice, json_bytes) {
+            let err = AnyError::from(e);
+            if is_cf_missing(&err, &shard) {
+                db.create_cf_with_ttl(&shard, self.ttl)?;
+                db.put(&shard, hash_slice, json_bytes)?;
+            } else {
+                return Err(err);
+            }
+        }
+        // The shard was empty (it had just been dropped), so this is a new key.
+        self.maybe_shrink();
+        Ok(())
+    }
+
+    fn maybe_shrink(&self) {
         let new_count = self.total_keys_num.fetch_add(1, Ordering::Relaxed) + 1;
         if new_count > self.count_limit
             && let Err(e) = self.shrink()
         {
             error!("failed to shrink recent_reject: {}", e);
         }
-        Ok(())
     }
 
     pub fn get(&self, hash: &Byte32) -> Result<Option<String>, AnyError> {
@@ -87,7 +133,15 @@ impl RecentReject {
         let shard = self.get_shard(slice).to_string();
         let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
         let ret = db.get_pinned(&shard, slice)?;
-        Ok(ret.map(|bytes| unsafe { String::from_utf8_unchecked(bytes.to_vec()) }))
+        match ret {
+            Some(bytes) => {
+                let s = String::from_utf8(bytes.to_vec()).map_err(|e| {
+                    OtherError::new(format!("recent reject value is not valid utf-8: {e}"))
+                })?;
+                Ok(Some(s))
+            }
+            None => Ok(None),
+        }
     }
 
     pub fn get_estimate_total_keys_num(&self) -> u64 {
@@ -145,4 +199,9 @@ impl RecentReject {
         low_u32.copy_from_slice(&hash[0..4]);
         u32::from_le_bytes(low_u32) % self.shard_num
     }
+}
+
+fn is_cf_missing(err: &AnyError, cf: &str) -> bool {
+    let msg = err.to_string();
+    msg.contains(&format!("column {cf} not found"))
 }
