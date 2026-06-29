@@ -25,7 +25,8 @@ use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        BlockView, Capacity, Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView, Version,
+        BlockView, Capacity, Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView,
+        Version,
         cell::{CellProvider, CellStatus, OverlayCellProvider},
         tx_pool::{
             EntryCompleted, PoolTxDetailInfo, Reject, TRANSACTION_SIZE_LIMIT,
@@ -665,7 +666,8 @@ impl TxPoolServiceBuilder {
         #[cfg(feature = "pipeline")]
         let pre_check_cancel = self.signal_receiver.child_token();
         #[cfg(feature = "pipeline")]
-        let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel.clone()));
+        let pre_check_queue =
+            Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel.clone()));
 
         let (deferred_sender, deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
 
@@ -779,7 +781,6 @@ impl TxPoolServiceBuilder {
 
         #[cfg(feature = "pipeline")]
         {
-            let pre_check_cancel = pre_check_cancel.clone();
             for _ in 0..pre_check_workers {
                 let svc = service.clone();
                 let queue = Arc::clone(&pre_check_queue);
@@ -877,7 +878,7 @@ impl TxPoolServiceBuilder {
                 tokio::select! {
                     Some(message) = receiver.recv() => {
                         let service_clone = process_service.clone();
-                        let permit = semaphore.clone().acquire_owned().await.unwrap();
+                        let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
                         handle_clone.spawn(async move {
                             let _permit = permit;
                             process(service_clone, message).await;
@@ -1026,8 +1027,7 @@ impl TxPoolServiceBuilder {
         #[cfg(feature = "pipeline")]
         let pre_check_cancel = signal.child_token();
         #[cfg(feature = "pipeline")]
-        let pre_check_queue =
-            Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+        let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
 
         let (deferred_sender, deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
 
@@ -1049,7 +1049,7 @@ impl TxPoolServiceBuilder {
             #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
             #[cfg(feature = "pipeline")]
-            chunk_rx: self.chunk_rx.clone(),
+            chunk_rx: self.chunk_rx,
             deferred_sender,
         };
 

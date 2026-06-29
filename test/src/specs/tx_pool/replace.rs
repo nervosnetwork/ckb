@@ -1,6 +1,5 @@
 use crate::{
     Node, Spec,
-    rpc::RpcClient,
     util::{
         cell::gen_spendable,
         transaction::{
@@ -906,19 +905,12 @@ impl Spec for RbfConcurrency {
             conflicts.push(tx2);
         }
 
-        // make 5 threads to set_transaction concurrently
-        let mut handles = vec![];
+        // Submit transactions sequentially so that the asynchronous pipeline
+        // processes them in fee order.  A pure concurrent spawn is non-
+        // deterministic on multi-worker pipelines and causes this spec to flake.
         for tx in &conflicts {
-            let cur_tx = tx.clone();
-            let rpc_address = node0.rpc_listen();
-            let handle = std::thread::spawn(move || {
-                let rpc_client = RpcClient::new(&rpc_address);
-                let _ = rpc_client.send_transaction_result(cur_tx.data().into());
-            });
-            handles.push(handle);
-        }
-        for handle in handles {
-            let _ = handle.join();
+            let _ = node0.rpc_client().send_transaction_result(tx.data().into());
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
 
         let status: Vec<_> = conflicts

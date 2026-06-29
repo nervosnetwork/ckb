@@ -22,8 +22,8 @@ use ckb_types::{
     H160, H256, U256,
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockExt, BlockView, Capacity, EpochNumberWithFraction,
-        TransactionBuilder, TransactionView,
+        BlockBuilder, BlockExt, BlockView, Capacity, EpochNumberWithFraction, TransactionBuilder,
+        TransactionView,
     },
     h160, h256,
     packed::{CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script, WitnessArgs},
@@ -200,7 +200,7 @@ fn service_with_pipeline_workers(
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
         orphan: Arc::new(RwLock::new(OrphanPool::new())),
         consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config.clone()),
+        tx_pool_config: Arc::new(config),
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
@@ -236,10 +236,7 @@ fn service_with_pipeline_workers(
                             });
                         }
                     }
-                    crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash,
-                        verified,
-                    } => {
+                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
@@ -453,7 +450,7 @@ fn secp_service_with_pipeline_workers(
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
         orphan: Arc::new(RwLock::new(OrphanPool::new())),
         consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config.clone()),
+        tx_pool_config: Arc::new(config),
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
@@ -489,10 +486,7 @@ fn secp_service_with_pipeline_workers(
                             });
                         }
                     }
-                    crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash,
-                        verified,
-                    } => {
+                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
@@ -552,7 +546,7 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
     let lock = secp_script();
     let output = CellOutput::new_builder()
         .capacity(Capacity::shannons(output_capacity))
-        .lock(lock.clone())
+        .lock(lock)
         .build();
 
     let raw = TransactionBuilder::default()
@@ -1036,7 +1030,7 @@ fn service_with_rbf(
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
         orphan: Arc::new(RwLock::new(OrphanPool::new())),
         consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config.clone()),
+        tx_pool_config: Arc::new(config),
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
@@ -1071,10 +1065,7 @@ fn service_with_rbf(
                             });
                         }
                     }
-                    crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash,
-                        verified,
-                    } => {
+                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
@@ -1166,7 +1157,7 @@ fn service_with_rbf_and_max_size(
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
         orphan: Arc::new(RwLock::new(OrphanPool::new())),
         consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config.clone()),
+        tx_pool_config: Arc::new(config),
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
@@ -1201,10 +1192,7 @@ fn service_with_rbf_and_max_size(
                             });
                         }
                     }
-                    crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash,
-                        verified,
-                    } => {
+                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
@@ -1296,7 +1284,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snap))),
         orphan: Arc::new(RwLock::new(OrphanPool::new())),
         consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config.clone()),
+        tx_pool_config: Arc::new(config),
         block_assembler: None,
         txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
@@ -1331,10 +1319,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
                             });
                         }
                     }
-                    crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash,
-                        verified,
-                    } => {
+                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
@@ -1430,9 +1415,7 @@ async fn pipeline_dedup_double_submission() {
     // - verify_queue / ordered_resolve_queue contains checks
     // - pool_map.add_entry returns Ok((false, _)) for existing short_id
     // Either way, the pool must still have exactly 1 tx.
-    let second_result = service
-        .submit_remote_tx(tx.clone(), cycles, 1.into())
-        .await;
+    let second_result = service.submit_remote_tx(tx.clone(), cycles, 1.into()).await;
     // The result may be Ok (silent dedup in pool_map) or Err(Duplicated).
     // Both are correct behavior — what matters is the pool state.
     let _ = second_result;
@@ -1573,9 +1556,7 @@ async fn pipeline_chunk_command_pause_resume() {
 
     let txs: Vec<_> = issue_out_points
         .iter()
-        .map(|out_point| {
-            build_secp_tx(out_point, &cell_deps, SECP_ISSUE_CAPACITY - SECP_FEE)
-        })
+        .map(|out_point| build_secp_tx(out_point, &cell_deps, SECP_ISSUE_CAPACITY - SECP_FEE))
         .collect();
 
     let mut cycles_vec = Vec::with_capacity(txs.len());
@@ -1792,7 +1773,9 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
     // Submit tx_b. In pipeline mode this merely enqueues the tx and returns
     // Ok; in non-pipeline mode it may return the actual reject. Either way,
     // success/failure is determined by inspecting the final pool state.
-    let _ = service.submit_remote_tx(tx_b.clone(), cycles_b, 1.into()).await;
+    let _ = service
+        .submit_remote_tx(tx_b.clone(), cycles_b, 1.into())
+        .await;
 
     // Wait for tx_a to be recovered. In pipeline mode this involves the
     // deferred worker, pre-check, verify, and submit stages; in non-pipeline

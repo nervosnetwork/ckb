@@ -122,9 +122,7 @@ impl VerifyQueue {
 
     /// Returns true if the queue is full.
     pub fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size
-            .saturating_add(add_tx_size)
-            >= DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE
+        self.total_tx_size.saturating_add(add_tx_size) >= DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE
     }
 
     /// Returns true if the queue contains a tx with the specified id.

@@ -1,10 +1,10 @@
 use crate::component::verify_queue::VerifyQueue;
 use crate::service::TxPoolService;
+use crate::util::panic_payload_to_string;
 use ckb_logger::{debug, error, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use futures_util::FutureExt;
-use crate::util::panic_payload_to_string;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc, watch};
@@ -178,7 +178,6 @@ impl VerifyMgr {
             .map({
                 let tasks = Arc::clone(&service.verify_queue);
                 let signal_exit = signal_exit.clone();
-                let shared_command_rx = command_rx.clone();
                 move |idx| {
                     let role = if idx == 0 && worker_num > 1 {
                         WorkerRole::OnlySmallCycleTx
@@ -188,7 +187,7 @@ impl VerifyMgr {
                     Worker::new(
                         service.clone(),
                         Arc::clone(&tasks),
-                        shared_command_rx.clone(),
+                        command_rx.clone(),
                         signal_exit.clone(),
                         role,
                     )
@@ -294,4 +293,3 @@ impl VerifyMgr {
         self.start_loop().await;
     }
 }
-

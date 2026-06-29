@@ -260,7 +260,7 @@ impl SharedBench {
         // does not affect other benchmark iterations.
         let local_signal = CancellationToken::new();
         builder.signal_receiver = local_signal.clone();
-        builder.start(self.network.clone());
+        builder.start(Arc::clone(&self.network));
         ServiceHandle {
             controller,
             signal: local_signal,
@@ -364,7 +364,7 @@ fn start_service(
         tx_relay_sender,
         FeeEstimator::new_dummy(),
     );
-    let mut parts = builder.build_bench_service(shared.network.clone());
+    let mut parts = builder.build_bench_service(Arc::clone(&shared.network));
 
     // Spawn the deferred task worker (recovery tx re-enqueue + cache updates).
     // Only clone the two fields the worker needs; holding a full TxPoolService
@@ -388,10 +388,7 @@ fn start_service(
                             });
                         }
                     }
-                    crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash,
-                        verified,
-                    } => {
+                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
@@ -635,7 +632,7 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
     let lock = secp_script();
     let output = CellOutput::new_builder()
         .capacity(Capacity::shannons(output_capacity))
-        .lock(lock.clone())
+        .lock(lock)
         .build();
 
     let raw = TransactionBuilder::default()
@@ -707,11 +704,7 @@ impl PipelineMetrics {
     /// Collect metrics directly from the service's internal state (used by
     /// `measure_cycles` where no controller exists).
     fn snapshot_from_service(service: &TxPoolService) -> Self {
-        let orphan_size = service
-            .orphan
-            .try_read()
-            .map(|o| o.len())
-            .unwrap_or(0);
+        let orphan_size = service.orphan.try_read().map(|o| o.len()).unwrap_or(0);
         Self {
             pending: 0, // not easily accessible without a controller
             orphan_size,
@@ -729,11 +722,7 @@ impl PipelineMetrics {
 
 impl std::fmt::Display for PipelineMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "pending={} orphan={}",
-            self.pending, self.orphan_size,
-        )
+        write!(f, "pending={} orphan={}", self.pending, self.orphan_size,)
     }
 }
 
@@ -1154,7 +1143,10 @@ fn bench(c: &mut Criterion) {
     // varying peer/worker counts produces no meaningful signal.  Only benchmark
     // dependent types once with 1 peer and the first worker count.
     let dep_peers = 1;
-    let dep_workers = *matrix.worker_counts.first().expect("worker_counts is non-empty");
+    let dep_workers = *matrix
+        .worker_counts
+        .first()
+        .expect("worker_counts is non-empty");
 
     for workers in matrix.worker_counts {
         for peers in matrix.peer_counts {
@@ -1185,11 +1177,17 @@ fn bench(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group! {
-    name = pipeline_bench;
-    config = Criterion::default().sample_size(10);
-    targets = bench
+#[allow(missing_docs)]
+mod benches {
+    use super::*;
+    criterion_group! {
+        name = pipeline_bench;
+        config = Criterion::default().sample_size(10);
+        targets = bench
+    }
 }
+
+pub use benches::pipeline_bench;
 
 #[cfg(test)]
 mod debug_tests {
@@ -1198,7 +1196,7 @@ mod debug_tests {
     #[test]
     fn controller_dependent_secp_chain_reverse() {
         let (mut shared, cell_deps) = SharedBench::new_secp(2);
-        shared.secp_cell_deps = Some(cell_deps.clone());
+        shared.secp_cell_deps = Some(cell_deps);
         let mut txs = build_dependent_chain(&shared, 2);
         let cycles = measure_cycles(&shared, &txs, MeasureMode::PerTxProcess);
         txs.reverse();

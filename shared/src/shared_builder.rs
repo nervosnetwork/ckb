@@ -20,9 +20,7 @@ use ckb_proposal_table::ProposalTable;
 use ckb_proposal_table::ProposalView;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_store::{ChainDB, ChainStore, Freezer};
-use ckb_tx_pool::{
-    TokioRwLock, TxEntry, TxPoolServiceBuilder, service::TxVerificationResult,
-};
+use ckb_tx_pool::{TokioRwLock, TxEntry, TxPoolServiceBuilder, service::TxVerificationResult};
 use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
 use ckb_types::{
@@ -574,31 +572,29 @@ fn register_tx_pool_callback(
 
     let notify_reject = notify;
     let recent_reject = tx_pool_builder.recent_reject();
-    tx_pool_builder.register_reject(Box::new(
-        move |entry: &TxEntry, reject: Reject| {
-            let tx_hash = entry.transaction().hash();
-            // record recent reject
-            if reject.should_recorded()
-                && let Some(ref recent_reject) = recent_reject
-                && let Err(e) = recent_reject.put(&tx_hash, reject.clone())
-            {
-                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
-            }
+    tx_pool_builder.register_reject(Box::new(move |entry: &TxEntry, reject: Reject| {
+        let tx_hash = entry.transaction().hash();
+        // record recent reject
+        if reject.should_recorded()
+            && let Some(ref recent_reject) = recent_reject
+            && let Err(e) = recent_reject.put(&tx_hash, reject.clone())
+        {
+            error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
+        }
 
-            if reject.is_allowed_relay()
-                && let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
-                    tx_hash: tx_hash.clone(),
-                })
-            {
-                error!("tx-pool tx_relay_sender internal error {}", e);
-            }
+        if reject.is_allowed_relay()
+            && let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
+                tx_hash: tx_hash.clone(),
+            })
+        {
+            error!("tx-pool tx_relay_sender internal error {}", e);
+        }
 
-            // notify
-            let notify_tx_entry = create_notify_entry(entry);
-            notify_reject.notify_reject_transaction(notify_tx_entry, reject);
+        // notify
+        let notify_tx_entry = create_notify_entry(entry);
+        notify_reject.notify_reject_transaction(notify_tx_entry, reject);
 
-            // fee estimator
-            fee_estimator.reject_tx(&tx_hash);
-        },
-    ));
+        // fee estimator
+        fee_estimator.reject_tx(&tx_hash);
+    }));
 }

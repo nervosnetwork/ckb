@@ -1,9 +1,6 @@
 use crate::{
     Node, Spec,
-    util::{
-        cell::gen_spendable,
-        transaction::always_success_transaction,
-    },
+    util::{cell::gen_spendable, transaction::always_success_transaction},
     utils::wait_until,
 };
 use ckb_jsonrpc_types::Status;
@@ -64,21 +61,17 @@ impl Spec for RbfOrphanRecovery {
         let tx_a0 = always_success_transaction(node, input_a);
         node.submit_transaction(&tx_a0);
 
-        let a1_meta = CellMetaBuilder::from_cell_output(
-            tx_a0.output(0).unwrap(),
-            Default::default(),
-        )
-        .out_point(OutPoint::new(tx_a0.hash(), 0))
-        .build();
+        let a1_meta =
+            CellMetaBuilder::from_cell_output(tx_a0.output(0).unwrap(), Default::default())
+                .out_point(OutPoint::new(tx_a0.hash(), 0))
+                .build();
         let tx_a1 = always_success_transaction(node, &a1_meta);
         let _ = node.rpc_client().send_transaction(tx_a1.data().into());
 
-        let a2_meta = CellMetaBuilder::from_cell_output(
-            tx_a1.output(0).unwrap(),
-            Default::default(),
-        )
-        .out_point(OutPoint::new(tx_a1.hash(), 0))
-        .build();
+        let a2_meta =
+            CellMetaBuilder::from_cell_output(tx_a1.output(0).unwrap(), Default::default())
+                .out_point(OutPoint::new(tx_a1.hash(), 0))
+                .build();
         let tx_a2 = always_success_transaction(node, &a2_meta);
         let _ = node.rpc_client().send_transaction(tx_a2.data().into());
 
@@ -86,21 +79,17 @@ impl Spec for RbfOrphanRecovery {
         let tx_b0 = always_success_transaction(node, input_b);
         node.submit_transaction(&tx_b0);
 
-        let b1_meta = CellMetaBuilder::from_cell_output(
-            tx_b0.output(0).unwrap(),
-            Default::default(),
-        )
-        .out_point(OutPoint::new(tx_b0.hash(), 0))
-        .build();
+        let b1_meta =
+            CellMetaBuilder::from_cell_output(tx_b0.output(0).unwrap(), Default::default())
+                .out_point(OutPoint::new(tx_b0.hash(), 0))
+                .build();
         let tx_b1 = always_success_transaction(node, &b1_meta);
         let _ = node.rpc_client().send_transaction(tx_b1.data().into());
 
-        let b2_meta = CellMetaBuilder::from_cell_output(
-            tx_b1.output(0).unwrap(),
-            Default::default(),
-        )
-        .out_point(OutPoint::new(tx_b1.hash(), 0))
-        .build();
+        let b2_meta =
+            CellMetaBuilder::from_cell_output(tx_b1.output(0).unwrap(), Default::default())
+                .out_point(OutPoint::new(tx_b1.hash(), 0))
+                .build();
         let tx_b2 = always_success_transaction(node, &b2_meta);
         let _ = node.rpc_client().send_transaction(tx_b2.data().into());
 
@@ -109,8 +98,7 @@ impl Spec for RbfOrphanRecovery {
             wait_until(15, || {
                 let a2 = node.rpc_client().get_transaction(tx_a2.hash());
                 let b2 = node.rpc_client().get_transaction(tx_b2.hash());
-                a2.tx_status.status == Status::Pending
-                    && b2.tx_status.status == Status::Pending
+                a2.tx_status.status == Status::Pending && b2.tx_status.status == Status::Pending
             }),
             "chain txs should reach pending"
         );

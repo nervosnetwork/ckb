@@ -33,9 +33,9 @@ const UNUSED_SNAPSHOT_COLUMNS: u32 = 1;
 fn test_snapshot() -> Arc<Snapshot> {
     use std::sync::OnceLock;
     static SNAPSHOT: OnceLock<Arc<Snapshot>> = OnceLock::new();
-    SNAPSHOT
-        .get_or_init(|| snapshot(Arc::new(ConsensusBuilder::default().build())))
-        .clone()
+    Arc::<Snapshot>::clone(
+        SNAPSHOT.get_or_init(|| snapshot(Arc::new(ConsensusBuilder::default().build()))),
+    )
 }
 
 fn dummy_resolved_tx(
@@ -487,10 +487,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
                             });
                         }
                     }
-                    crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash,
-                        verified,
-                    } => {
+                    crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
                         guard.put(wtx_hash, verified);
                     }
@@ -546,7 +543,13 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is
     );
 
     assert!(service.orphan.read().await.contains_key(&orphan_id));
-    assert!(!service.ordered_resolve_queue.read().await.contains_key(&orphan_id));
+    assert!(
+        !service
+            .ordered_resolve_queue
+            .read()
+            .await
+            .contains_key(&orphan_id)
+    );
 }
 
 #[cfg(feature = "pipeline")]
@@ -631,7 +634,9 @@ async fn handle_remote_reject_records_reject_and_rejects_relay() {
     // Malformed tx: should be recorded and should ban the peer, but not relayed.
     let reject = Reject::Malformed("bad tx".to_string(), Default::default());
 
-    service.handle_remote_reject(&tx_hash, &reject, 1.into()).await;
+    service
+        .handle_remote_reject(&tx_hash, &reject, 1.into())
+        .await;
 
     // No relay reject for malformed tx.
     assert!(
@@ -654,12 +659,11 @@ async fn handle_remote_reject_relays_allowed_rejects() {
     // DeclaredWrongCycles: malformed but allowed to be relayed with correct cycles.
     let reject = Reject::DeclaredWrongCycles(100, 200);
 
-    service.handle_remote_reject(&tx_hash, &reject, 1.into()).await;
+    service
+        .handle_remote_reject(&tx_hash, &reject, 1.into())
+        .await;
 
-    match tx_relay_receiver
-        .try_recv()
-        .expect("expected reject relay")
-    {
+    match tx_relay_receiver.try_recv().expect("expected reject relay") {
         TxVerificationResult::Reject { tx_hash: rejected } => {
             assert_eq!(rejected, tx_hash);
         }

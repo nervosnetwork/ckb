@@ -285,10 +285,7 @@ impl TxPool {
     }
 
     // Expire all transaction (and their dependencies) in the pool.
-    pub(crate) fn remove_expired(
-        &mut self,
-        reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) {
+    pub(crate) fn remove_expired(&mut self, reject_events: &mut Vec<(TxEntry, Reject)>) {
         let now_ms = ckb_systemtime::unix_time_as_millis();
 
         let removed: Vec<_> = self
@@ -478,13 +475,11 @@ impl TxPool {
         &self,
         proposal_id: &ProposalShortId,
     ) -> Option<TransactionView> {
-        self.get_tx_from_pool(proposal_id)
-            .cloned()
-            .or_else(|| {
-                self.committed_txs_hash_cache
-                    .peek(proposal_id)
-                    .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
-            })
+        self.get_tx_from_pool(proposal_id).cloned().or_else(|| {
+            self.committed_txs_hash_cache
+                .peek(proposal_id)
+                .and_then(|tx_hash| self.snapshot().get_transaction(tx_hash).map(|(tx, _)| tx))
+        })
     }
 
     pub(crate) fn get_ids(&self) -> TxPoolIds {
@@ -641,8 +636,7 @@ impl TxPool {
 
         // Rule #5, check descendants count limit, ancestor-descendant overlap,
         // and no inputs from descendants
-        let all_conflicted =
-            self.check_rbf_descendants(&conflicts, &short_id, &tx_inputs)?;
+        let all_conflicted = self.check_rbf_descendants(&conflicts, &short_id, &tx_inputs)?;
 
         // Check new tx does not use cell deps from conflicted txs
         self.check_rbf_no_conflict_cell_deps(&all_conflicted, entry)?;
@@ -760,15 +754,9 @@ impl TxPool {
 
     /// RBF Rule #3 & #4: the new tx's fee must be higher than the total fee of
     /// all conflicted txs and must meet the minimum replacement fee rate.
-    fn check_rbf_fee(
-        &self,
-        all_conflicted: &[&PoolEntry],
-        entry: &TxEntry,
-    ) -> Result<(), Reject> {
+    fn check_rbf_fee(&self, all_conflicted: &[&PoolEntry], entry: &TxEntry) -> Result<(), Reject> {
         let fee = entry.fee;
-        if let Some(min_replace_fee) =
-            self.calculate_min_replace_fee(all_conflicted, entry.size)
-        {
+        if let Some(min_replace_fee) = self.calculate_min_replace_fee(all_conflicted, entry.size) {
             if fee < min_replace_fee {
                 return Err(Reject::RBFRejected(format!(
                     "Tx's current fee is {}, expect it to >= {} to replace old txs",
@@ -814,5 +802,4 @@ impl TxPool {
             None
         }
     }
-
 }

@@ -1,5 +1,7 @@
 use crate::node::waiting_for_sync_with_timeout;
-use crate::specs::tx_pool::utils::{assert_new_block_committed, prepare_tx_family, wait_for_pending_count};
+use crate::specs::tx_pool::utils::{
+    assert_new_block_committed, prepare_tx_family, wait_for_pending_count,
+};
 use crate::utils::{blank, propose};
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::TxStatus;
@@ -100,7 +102,10 @@ impl Spec for ReorgRecoversDependentChain {
         (0..window.closest()).for_each(|_| {
             node_a.submit_block(&blank(node_a));
         });
-        assert_new_block_committed(node_a, &[grandparent.clone(), parent.clone(), child.clone()]);
+        assert_new_block_committed(
+            node_a,
+            &[grandparent.clone(), parent.clone(), child.clone()],
+        );
 
         while node_b.get_tip_block_number() <= node_a.get_tip_block_number() {
             node_b.submit_block(&blank(node_b));
@@ -127,11 +132,7 @@ impl Spec for ReorgRecoversDependentChain {
         });
         assert_new_block_committed(
             node_a,
-            &[
-                grandparent.clone(),
-                parent.clone(),
-                child.clone(),
-            ],
+            &[grandparent.clone(), parent.clone(), child.clone()],
         );
     }
 }

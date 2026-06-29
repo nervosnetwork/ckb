@@ -11,6 +11,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const DEFAULT_SHARDS: u32 = 5;
 
+/// Persistent, sharded store for recently rejected transactions.
+///
+/// Entries are kept in a RocksDB database with TTL-based expiration and a
+/// rough key-count cap.  When the cap is exceeded a random shard is dropped
+/// and recreated to reclaim space.
 #[derive(Debug)]
 pub struct RecentReject {
     ttl: i32,
@@ -28,6 +33,11 @@ pub struct RecentReject {
 }
 
 impl RecentReject {
+    /// Opens a new `RecentReject` database at `path` with the default number
+    /// of shards.
+    ///
+    /// `count_limit` is the approximate maximum number of entries before a
+    /// shard is dropped and recreated.  `ttl` is the RocksDB TTL in seconds.
     pub fn new<P>(path: P, count_limit: u64, ttl: i32) -> Result<RecentReject, AnyError>
     where
         P: AsRef<Path>,
@@ -62,6 +72,10 @@ impl RecentReject {
         })
     }
 
+    /// Stores a rejection reason for `hash`.
+    ///
+    /// The reject reason is serialized as JSON and written to the shard
+    /// selected from the first four bytes of `hash`.
     pub fn put(&self, hash: &Byte32, reject: Reject) -> Result<(), AnyError> {
         let hash_slice = hash.as_slice();
         let shard = self.get_shard(hash_slice).to_string();
@@ -104,7 +118,10 @@ impl RecentReject {
         // Slow path: the shard column family is missing (e.g. `shrink`
         // dropped it but failed to recreate it).  Upgrade to a write lock,
         // create the column family on demand, and retry the write.
-        let mut db = self.db.write().map_err(|e| OtherError::new(e.to_string()))?;
+        let mut db = self
+            .db
+            .write()
+            .map_err(|e| OtherError::new(e.to_string()))?;
         if let Err(e) = db.put(&shard, hash_slice, json_bytes) {
             let err = AnyError::from(e);
             if is_cf_missing(&err, &shard) {
@@ -128,6 +145,7 @@ impl RecentReject {
         }
     }
 
+    /// Returns the serialized rejection reason for `hash`, if one exists.
     pub fn get(&self, hash: &Byte32) -> Result<Option<String>, AnyError> {
         let slice = hash.as_slice();
         let shard = self.get_shard(slice).to_string();
@@ -144,6 +162,10 @@ impl RecentReject {
         }
     }
 
+    /// Returns the approximate total number of stored rejection entries.
+    ///
+    /// This is a best-effort counter updated with relaxed ordering; it may
+    /// briefly differ from the exact number of keys in the database.
     pub fn get_estimate_total_keys_num(&self) -> u64 {
         self.total_keys_num.load(Ordering::Relaxed)
     }
@@ -165,7 +187,10 @@ impl RecentReject {
         // and recreate a column family.  This is a very cold path (triggered
         // only when key count exceeds `count_limit`), so brief contention is
         // acceptable.
-        let mut db = self.db.write().map_err(|e| OtherError::new(e.to_string()))?;
+        let mut db = self
+            .db
+            .write()
+            .map_err(|e| OtherError::new(e.to_string()))?;
 
         let mut rng = thread_rng();
         let shard = rng.sample(Uniform::new(0, self.shard_num)).to_string();

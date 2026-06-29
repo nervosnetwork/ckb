@@ -497,7 +497,10 @@ impl PoolMap {
 
         // record dep-txid
         for d in related_dep_out_points {
-            self.edges.insert_deps(d.to_owned(), tx_short_id.clone());
+            if self.edges.get_input_ref(&d).is_some() {
+                return Err(Reject::Resolve(OutPointError::Dead(d)));
+            }
+            self.edges.insert_deps(d, tx_short_id.clone());
         }
         // record header_deps
         if !header_deps.is_empty() {

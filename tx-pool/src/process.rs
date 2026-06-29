@@ -21,6 +21,8 @@ use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::error::OutPointError;
+#[cfg(feature = "pipeline")]
+use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
         BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView, TransactionView,
@@ -28,8 +30,6 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-#[cfg(feature = "pipeline")]
-use ckb_types::packed::OutPoint;
 use ckb_util::LinkedHashSet;
 use ckb_verification::{
     TxVerifyEnv,
@@ -335,7 +335,8 @@ impl TxPoolService {
                 // RBF attempt cannot be used to evict in-pool transactions.
                 if result.is_err() {
                     recovered.extend(
-                        tx_pool.get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter()),
+                        tx_pool
+                            .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter()),
                     );
                     for tx in &recovered {
                         tx_pool.remove_conflict(&tx.proposal_short_id());
@@ -595,7 +596,8 @@ impl TxPoolService {
 
         #[cfg(feature = "pipeline")]
         {
-            self.classify_and_enqueue_tx_spawn(tx, is_proposal_tx, remote).await
+            self.classify_and_enqueue_tx_spawn(tx, is_proposal_tx, remote)
+                .await
         }
 
         #[cfg(not(feature = "pipeline"))]
@@ -820,11 +822,7 @@ impl TxPoolService {
     /// Box::pin is required because after_process and process_orphan_tx are
     /// mutually recursive async fns; without boxing the compiler cannot prove
     /// the resulting future has a finite size.
-    async fn handle_verify_success(
-        &self,
-        tx: &TransactionView,
-        original_peer: Option<PeerIndex>,
-    ) {
+    async fn handle_verify_success(&self, tx: &TransactionView, original_peer: Option<PeerIndex>) {
         self.send_result_to_relayer(TxVerificationResult::Ok {
             original_peer,
             tx_hash: tx.hash(),
@@ -838,7 +836,12 @@ impl TxPoolService {
     ///
     /// This is the single source of truth for the "remote error triple" used
     /// by both [`Self::after_process`] and [`Self::process_orphan_tx`].
-    pub(crate) async fn handle_remote_reject(&self, tx_hash: &Byte32, reject: &Reject, peer: PeerIndex) {
+    pub(crate) async fn handle_remote_reject(
+        &self,
+        tx_hash: &Byte32,
+        reject: &Reject,
+        peer: PeerIndex,
+    ) {
         if reject.is_malformed_tx() {
             self.ban_malformed(peer, format!("reject {reject}")).await;
         }
@@ -879,11 +882,11 @@ impl TxPoolService {
         peer: PeerIndex,
         declared_cycle: Cycle,
     ) -> bool {
-        let (added, evicted_txs) = self
-            .orphan
-            .write()
-            .await
-            .add_orphan_tx(tx, peer, declared_cycle);
+        let (added, evicted_txs) =
+            self.orphan
+                .write()
+                .await
+                .add_orphan_tx(tx, peer, declared_cycle);
         // for any evicted orphan tx, we should send reject to relayer
         // so that we mark it as `unknown` in filter
         for tx_hash in evicted_txs {
@@ -1003,7 +1006,8 @@ impl TxPoolService {
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
         let (ret, snapshot) = self.pre_check(&tx).await;
 
-        let (pre_resolve_tip, rtx, status, fee, tx_size) = try_or_return_with_snapshot!(ret, snapshot);
+        let (pre_resolve_tip, rtx, status, fee, tx_size) =
+            try_or_return_with_snapshot!(ret, snapshot);
 
         self.verify_and_submit_core(
             tx,
@@ -1129,12 +1133,13 @@ impl TxPoolService {
         if verify_cache.is_none() {
             // Defer cache update to the background worker instead of
             // spawning a fire-and-forget task.
-            if let Err(e) = self.deferred_sender.try_send(
-                crate::service::DeferredTask::CacheUpdate {
-                    wtx_hash: wtx_hash.clone(),
-                    verified,
-                },
-            ) {
+            if let Err(e) =
+                self.deferred_sender
+                    .try_send(crate::service::DeferredTask::CacheUpdate {
+                        wtx_hash: wtx_hash.clone(),
+                        verified,
+                    })
+            {
                 warn!(
                     "failed to enqueue verify cache update for {}: {}",
                     wtx_hash, e
@@ -1201,23 +1206,25 @@ impl TxPoolService {
         let mut children: Vec<Vec<usize>> = vec![Vec::new(); txs.len()];
         for (i, tx) in txs.iter().enumerate() {
             for input in tx.input_pts_iter() {
-                if let Some(&parent) = output_to_index.get(&input) && parent != i {
+                if let Some(&parent) = output_to_index.get(&input)
+                    && parent != i
+                {
                     in_degree[i] += 1;
                     children[parent].push(i);
                 }
             }
             for dep in tx.cell_deps_iter() {
                 let out_point = dep.out_point();
-                if let Some(&parent) = output_to_index.get(&out_point) && parent != i {
+                if let Some(&parent) = output_to_index.get(&out_point)
+                    && parent != i
+                {
                     in_degree[i] += 1;
                     children[parent].push(i);
                 }
             }
         }
 
-        let mut ready: VecDeque<usize> = (0..txs.len())
-            .filter(|&i| in_degree[i] == 0)
-            .collect();
+        let mut ready: VecDeque<usize> = (0..txs.len()).filter(|&i| in_degree[i] == 0).collect();
         let mut sorted = Vec::with_capacity(txs.len());
         while let Some(i) = ready.pop_front() {
             sorted.push(i);
@@ -1235,9 +1242,12 @@ impl TxPoolService {
             return;
         }
 
-        let mut remaining: Vec<Option<TransactionView>> =
-            txs.drain(..).map(Some).collect();
-        txs.extend(sorted.into_iter().map(|i| remaining[i].take().expect("index valid")));
+        let mut remaining: Vec<Option<TransactionView>> = txs.drain(..).map(Some).collect();
+        txs.extend(
+            sorted
+                .into_iter()
+                .map(|i| remaining[i].take().expect("index valid")),
+        );
     }
 
     pub(crate) async fn update_tx_pool_for_reorg(
@@ -1316,8 +1326,9 @@ impl TxPoolService {
             Self::sort_txs_by_dependencies(&mut retain);
             let mut chunk_rx = self.chunk_rx.clone();
             for tx in retain {
-                if let Some((ret, snapshot)) =
-                    self._process_tx(tx.clone(), None, Some(&mut chunk_rx)).await
+                if let Some((ret, snapshot)) = self
+                    ._process_tx(tx.clone(), None, Some(&mut chunk_rx))
+                    .await
                     && let Err(ref reject) = ret
                 {
                     debug!("reorg re-add failed: {}", reject);
@@ -1390,7 +1401,10 @@ impl TxPoolService {
     ) -> Result<bool, Reject> {
         let id = tx.proposal_short_id();
 
-        if let Some(routed) = self.check_and_route_dependent(&tx, is_proposal_tx, remote).await? {
+        if let Some(routed) = self
+            .check_and_route_dependent(&tx, is_proposal_tx, remote)
+            .await?
+        {
             return Ok(routed);
         }
 
@@ -1417,7 +1431,8 @@ impl TxPoolService {
                         Err(reject) => reject,
                     }
                 };
-                self.after_process(tx, remote, &snapshot, &Err(reject.clone())).await;
+                self.after_process(tx, remote, &snapshot, &Err(reject.clone()))
+                    .await;
                 Err(reject)
             }
             Err(reject) if crate::util::is_missing_input(&reject) => {
@@ -1433,7 +1448,8 @@ impl TxPoolService {
                 })
             }
             Err(reject) => {
-                self.after_process(tx, remote, &snapshot, &Err(reject.clone())).await;
+                self.after_process(tx, remote, &snapshot, &Err(reject.clone()))
+                    .await;
                 Err(reject)
             }
         }
@@ -1453,7 +1469,10 @@ impl TxPoolService {
         is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
-        if let Some(routed) = self.check_and_route_dependent(&tx, is_proposal_tx, remote).await? {
+        if let Some(routed) = self
+            .check_and_route_dependent(&tx, is_proposal_tx, remote)
+            .await?
+        {
             return Ok(routed);
         }
 
