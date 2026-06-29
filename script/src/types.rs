@@ -193,7 +193,6 @@ impl fmt::Display for ScriptGroupType {
 }
 
 /// Struct specifies which script has verified so far.
-/// State is lifetime free, but capture snapshot need heavy memory copy
 #[derive(Clone)]
 pub struct TransactionState {
     /// current suspended script index
