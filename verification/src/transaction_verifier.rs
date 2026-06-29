@@ -8,7 +8,7 @@ use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
 use ckb_script::ChunkCommand;
-use ckb_script::{TransactionScriptsVerifier, TransactionState};
+use ckb_script::TransactionScriptsVerifier;
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -186,26 +186,6 @@ where
             .script
             .resumable_verify_with_signal(max_cycles, command_rx)
             .await?;
-        Ok(Completed { cycles, fee })
-    }
-
-    /// Perform complete a suspend context-dependent verification, return a `Result` to `CacheEntry`
-    ///
-    /// skip script verify will result in the return value cycle always is zero
-    pub fn complete(
-        &self,
-        max_cycles: Cycle,
-        skip_script_verify: bool,
-        state: &TransactionState,
-    ) -> Result<Completed, Error> {
-        self.time_relative.verify()?;
-        self.capacity.verify()?;
-        let cycles = if skip_script_verify {
-            0
-        } else {
-            self.script.complete(state, max_cycles)?
-        };
-        let fee = self.fee_calculator.transaction_fee()?;
         Ok(Completed { cycles, fee })
     }
 }
