@@ -18,7 +18,7 @@ use crate::network::{DummyTxPoolNetwork, TxPoolNetworkHandle};
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use crate::util::panic_payload_to_string;
-use ckb_app_config::TxPoolConfig;
+use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
@@ -77,6 +77,7 @@ fn tx_pool_config(max_workers: usize) -> TxPoolConfig {
         persisted_data: Default::default(),
         recent_reject: Default::default(),
         expiry_hours: 24,
+        verify_ordering: VerifyOrdering::ArrivalTime,
     }
 }
 

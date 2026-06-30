@@ -5,6 +5,22 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use url::Url;
 
+/// Ordering strategy for the verify queue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerifyOrdering {
+    /// FIFO — first-come first-served by arrival time (default).
+    ArrivalTime,
+    /// Highest fee rate is verified first; ties broken by arrival time.
+    FeeRate,
+}
+
+/// Default verify queue ordering: FIFO by arrival time.
+#[allow(dead_code)]
+pub fn default_verify_ordering() -> VerifyOrdering {
+    VerifyOrdering::ArrivalTime
+}
+
 // The default values are set in the legacy version.
 /// Transaction pool configuration
 #[derive(Clone, Debug, Serialize)]
@@ -40,6 +56,9 @@ pub struct TxPoolConfig {
     pub recent_reject: PathBuf,
     /// The expiration time for pool transactions in hours
     pub expiry_hours: u8,
+    /// Verify queue ordering strategy: arrival_time (FIFO) or fee_rate.
+    #[serde(default = "default_verify_ordering")]
+    pub verify_ordering: VerifyOrdering,
 }
 
 /// default max tx verify workers is 3/4 of cpu cores

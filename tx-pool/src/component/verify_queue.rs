@@ -4,13 +4,15 @@ extern crate rustc_hash;
 extern crate slab;
 use crate::component::flight_tracker::FlightTracker;
 use crate::resolved_tx::ResolvedTx;
+use ckb_app_config::VerifyOrdering;
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::{
-    core::{Cycle, TransactionView, tx_pool::Reject},
+    core::{Cycle, FeeRate, TransactionView, tx_pool::Reject},
     packed::ProposalShortId,
 };
+use ckb_types::core::tx_pool::get_transaction_weight;
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
 use std::sync::Arc;
@@ -45,15 +47,33 @@ impl PartialEq for Entry {
     }
 }
 
+/// Compute an inverted fee rate so that ascending iteration over the index
+/// yields descending fee-rate order.  `u64::MAX - fee_rate` is used as the
+/// sort key.
+fn invert_fee_rate(fee_rate: u64) -> u64 {
+    u64::MAX - fee_rate
+}
+
 #[derive(MultiIndexMap, Clone)]
 struct VerifyEntry {
     /// The transaction id
     #[multi_index(hashed_unique)]
     id: ProposalShortId,
+    /// The unix timestamp when entering the Txpool, unit: Millisecond.
+    /// Used as the primary sort key in `ArrivalTime` mode.
+    #[multi_index(ordered_non_unique)]
+    added_time: u64,
+    /// Inverted fee rate (`u64::MAX - fee_rate`) so that ascending iteration
+    /// yields highest-fee-rate-first ordering.  Used as the primary sort key
+    /// in `FeeRate` mode.
+    #[multi_index(ordered_non_unique)]
+    inverted_fee_rate: u64,
 
     /// whether the tx is a large cycle tx
     #[multi_index(hashed_non_unique)]
     is_large_cycle: bool,
+    /// Whether this is a proposal transaction.
+    is_proposal_tx: bool,
     /// Orders proposal txs before non-proposal txs, preserving arrival order within each group.
     #[multi_index(ordered_non_unique)]
     priority_order: (VerifyPriority, u64),
@@ -80,17 +100,20 @@ pub(crate) struct VerifyQueue {
     large_cycle_threshold: u64,
     /// Output out-points of txs currently in this queue.
     flight: FlightTracker,
+    /// Ordering strategy: arrival time (FIFO) or fee rate.
+    ordering: VerifyOrdering,
 }
 
 impl VerifyQueue {
     /// Create a new VerifyQueue
-    pub(crate) fn new(large_cycle_threshold: u64) -> Self {
+    pub(crate) fn new(large_cycle_threshold: u64, ordering: VerifyOrdering) -> Self {
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
             ready_rx: Arc::new(Notify::new()),
             total_tx_size: 0,
             large_cycle_threshold,
             flight: FlightTracker::new(),
+            ordering,
         }
     }
 
@@ -209,27 +232,72 @@ impl VerifyQueue {
 
     /// Returns the first entry in the queue.
     ///
-    /// Proposal transactions are prioritised, but when `only_small_cycle` is
-    /// `true` a large-cycle proposal tx is skipped so that the dedicated
-    /// small-cycle worker is not stalled.
+    /// Proposal transactions are always prioritised first (they come from
+    /// committed blocks and must be verified to update pool state).
+    ///
+    /// In `ArrivalTime` mode (default), non-proposal txs are ordered FIFO.
+    /// In `FeeRate` mode, non-proposal txs are ordered by descending fee rate.
     pub fn peek(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
-        let first_entry = self.inner.iter_by_priority_order().next();
-        if let Some(entry) = first_entry
-            && matches!(entry.priority_order.0, VerifyPriority::Proposal)
-            && !(only_small_cycle && entry.is_large_cycle)
+        match self.ordering {
+            VerifyOrdering::ArrivalTime => self.peek_by_arrival_time(only_small_cycle),
+            VerifyOrdering::FeeRate => self.peek_by_fee_rate(only_small_cycle),
+        }
+    }
+
+    fn peek_by_arrival_time(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
+        let mut iter = self.inner.iter_by_added_time();
+
+        if let Some(proposal_entry) =
+            iter.find(|e| e.is_proposal_tx && !(only_small_cycle && e.is_large_cycle))
         {
-            return Some(entry.inner.tx().proposal_short_id());
+            return Some(proposal_entry.inner.tx().proposal_short_id());
         }
 
         let entry = if only_small_cycle {
             self.inner
-                .iter_by_priority_order()
+                .iter_by_added_time()
                 .find(|e| !e.is_large_cycle)
         } else {
-            first_entry
+            self.inner.iter_by_added_time().next()
         };
 
         entry.map(|e| e.inner.tx().proposal_short_id())
+    }
+
+    fn peek_by_fee_rate(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
+        // Proposals first — within proposals, highest fee rate wins.
+        if let Some(proposal_entry) = self
+            .inner
+            .iter_by_inverted_fee_rate()
+            .find(|e| e.is_proposal_tx && !(only_small_cycle && e.is_large_cycle))
+        {
+            return Some(proposal_entry.inner.tx().proposal_short_id());
+        }
+
+        // Non-proposal txs — highest fee rate first.
+        let entry = if only_small_cycle {
+            self.inner
+                .iter_by_inverted_fee_rate()
+                .find(|e| !e.is_large_cycle)
+        } else {
+            self.inner.iter_by_inverted_fee_rate().next()
+        };
+
+        entry.map(|e| e.inner.tx().proposal_short_id())
+    }
+
+    /// Compute fee rate for a resolved tx.
+    ///
+    /// For remote txs, declared cycles are used to compute weight.
+    /// For local txs (cycles unknown), `large_cycle_threshold` is used as a
+    /// conservative estimate so that local txs are not unfairly penalised.
+    fn compute_fee_rate(&self, resolved: &ResolvedTx) -> FeeRate {
+        let declared_cycles = resolved
+            .remote
+            .map(|(cycles, _)| cycles)
+            .unwrap_or(self.large_cycle_threshold);
+        let weight = get_transaction_weight(resolved.tx_size, declared_cycles);
+        FeeRate::calculate(resolved.fee, weight)
     }
 
     /// If the queue did not have this tx present, true is returned.
@@ -262,6 +330,7 @@ impl VerifyQueue {
             .map(|(cycles, _)| cycles > self.large_cycle_threshold)
             .unwrap_or(false);
         let added_time = unix_time_as_millis();
+        let is_proposal_tx = resolved.is_proposal_tx;
         let priority = if is_proposal_tx {
             VerifyPriority::Proposal
         } else {
@@ -279,11 +348,14 @@ impl VerifyQueue {
                 resolved.tx.hash()
             ))
         })?;
-        let is_proposal_tx = resolved.is_proposal_tx;
+        let fee_rate = self.compute_fee_rate(&resolved);
         self.inner.insert(VerifyEntry {
             id: id.clone(),
+            added_time,
+            inverted_fee_rate: invert_fee_rate(fee_rate.as_u64()),
             inner: Entry { resolved },
             is_large_cycle,
+            is_proposal_tx,
             priority_order: (priority, added_time),
         });
         self.flight.insert(

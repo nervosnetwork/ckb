@@ -7,7 +7,7 @@ use crate::pool::TxPool;
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use crate::verify_mgr::VerifyMgr;
-use ckb_app_config::TxPoolConfig;
+use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_crypto::secp::Privkey;
@@ -51,6 +51,7 @@ fn tx_pool_config() -> TxPoolConfig {
         persisted_data: Default::default(),
         recent_reject: Default::default(),
         expiry_hours: 24,
+        verify_ordering: VerifyOrdering::ArrivalTime,
     }
 }
 
@@ -183,7 +184,10 @@ fn service_with_pipeline_workers(
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
-    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
+        config.max_tx_verify_cycles,
+        config.verify_ordering,
+    )));
     #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
     #[cfg(feature = "pipeline")]
@@ -435,7 +439,10 @@ fn secp_service_with_pipeline_workers(
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
-    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
+        config.max_tx_verify_cycles,
+        config.verify_ordering,
+    )));
     #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
     #[cfg(feature = "pipeline")]
@@ -1113,7 +1120,10 @@ fn service_with_rbf(
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
-    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
+        config.max_tx_verify_cycles,
+        config.verify_ordering,
+    )));
     #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
@@ -1242,7 +1252,10 @@ fn service_with_rbf_and_max_size(
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
-    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
+        config.max_tx_verify_cycles,
+        config.verify_ordering,
+    )));
     #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
@@ -1369,7 +1382,10 @@ fn secp_service_with_pipeline_workers_and_chunk(
     let ordered_resolve_queue = Arc::new(RwLock::new(
         crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
     ));
-    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles)));
+    let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
+        config.max_tx_verify_cycles,
+        config.verify_ordering,
+    )));
     #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
     #[cfg(feature = "pipeline")]

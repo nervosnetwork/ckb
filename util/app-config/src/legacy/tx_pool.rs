@@ -1,4 +1,4 @@
-use crate::configs::default_max_tx_verify_workers;
+use crate::configs::{VerifyOrdering, default_max_tx_verify_workers};
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
 use ckb_jsonrpc_types::FeeRateDef;
 use ckb_types::core::{Cycle, FeeRate};
@@ -48,6 +48,8 @@ pub(crate) struct TxPoolConfig {
     recent_reject: PathBuf,
     #[serde(default = "default_expiry_hours")]
     expiry_hours: u8,
+    #[serde(default = "default_verify_ordering")]
+    verify_ordering: VerifyOrdering,
 }
 
 fn default_keep_rejected_tx_hashes_days() -> u8 {
@@ -60,6 +62,10 @@ fn default_keep_rejected_tx_hashes_count() -> u64 {
 
 fn default_expiry_hours() -> u8 {
     DEFAULT_EXPIRY_HOURS
+}
+
+fn default_verify_ordering() -> VerifyOrdering {
+    VerifyOrdering::ArrivalTime
 }
 
 fn default_max_tx_pool_size() -> usize {
@@ -95,6 +101,7 @@ impl Default for TxPoolConfig {
             persisted_data: Default::default(),
             recent_reject: Default::default(),
             expiry_hours: DEFAULT_EXPIRY_HOURS,
+            verify_ordering: VerifyOrdering::ArrivalTime,
         }
     }
 }
@@ -118,6 +125,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             persisted_data,
             recent_reject,
             expiry_hours,
+            verify_ordering,
         } = input;
 
         Self {
@@ -132,6 +140,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             persisted_data,
             recent_reject,
             expiry_hours,
+            verify_ordering,
         }
     }
 }

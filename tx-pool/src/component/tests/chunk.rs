@@ -5,7 +5,7 @@ use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::pool::TxPool;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::{TxPoolService, TxVerificationResult};
-use ckb_app_config::TxPoolConfig;
+use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_db::RocksDB;
 use ckb_fee_estimator::FeeEstimator;
@@ -66,7 +66,7 @@ async fn verify_queue_basic() {
 
     let id = tx.proposal_short_id();
     let (exit_tx, mut exit_rx) = watch::channel(());
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
     let queue_rx = queue.subscribe();
     let count = tokio::spawn(async move {
         let mut count = 0;
@@ -142,7 +142,7 @@ async fn verify_queue_basic() {
 #[tokio::test]
 async fn test_verify_different_cycles() {
     let (exit_tx, mut exit_rx) = watch::channel(());
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
     let queue_rx = queue.subscribe();
     let count = tokio::spawn(async move {
         let mut count = 0;
@@ -350,7 +350,7 @@ async fn verify_queue_remove() {
     };
     let entry4_id = entry4.tx().proposal_short_id();
 
-    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
 
     assert!(queue.add_tx(entry1.resolved.clone()).unwrap());
     assert!(queue.add_tx(entry2.resolved.clone()).unwrap());
@@ -384,6 +384,7 @@ fn tx_pool_config() -> TxPoolConfig {
         persisted_data: Default::default(),
         recent_reject: Default::default(),
         expiry_hours: 24,
+        verify_ordering: VerifyOrdering::ArrivalTime,
     }
 }
 
@@ -443,7 +444,10 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         network: dummy_network(),
         tx_relay_sender,
         ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::new(RwLock::new(VerifyQueue::new(config.max_tx_verify_cycles))),
+        verify_queue: Arc::new(RwLock::new(VerifyQueue::new(
+            config.max_tx_verify_cycles,
+            config.verify_ordering,
+        ))),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,

@@ -643,6 +643,7 @@ impl TxPoolServiceBuilder {
         ));
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
             self.tx_pool_config.max_tx_verify_cycles,
+            self.tx_pool_config.verify_ordering,
         )));
 
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
@@ -1045,6 +1046,7 @@ impl TxPoolServiceBuilder {
         ));
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
             self.tx_pool_config.max_tx_verify_cycles,
+            self.tx_pool_config.verify_ordering,
         )));
 
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
