@@ -18,7 +18,9 @@ use ckb_types::U256;
 use ckb_types::core::{
     Capacity, FeeRate, TransactionBuilder, cell::ResolvedTransaction, tx_pool::Reject,
 };
+use ckb_types::bytes::Bytes;
 use ckb_types::packed::Byte32;
+use ckb_types::prelude::Pack;
 use ckb_verification::cache::init_cache;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -369,6 +371,195 @@ async fn verify_queue_remove() {
     assert!(!queue.contains_key(&entry4_id));
     assert!(queue.contains_key(&entry2_id));
     assert!(queue.contains_key(&entry3_id));
+}
+
+/// Helper: create a ResolvedTx with a specific fee (shannons).
+fn dummy_resolved_tx_with_fee(
+    tx: ckb_types::core::TransactionView,
+    fee_shannons: u64,
+    is_proposal_tx: bool,
+) -> ResolvedTx {
+    let rtx = Arc::new(ResolvedTransaction::dummy_resolve(tx.clone()));
+    ResolvedTx {
+        tx: tx.clone(),
+        rtx,
+        status: crate::process::TxStatus::Fresh,
+        fee: Capacity::shannons(fee_shannons),
+        tx_size: tx.data().serialized_size_in_block(),
+        pre_resolve_tip: Default::default(),
+        snapshot: test_snapshot(),
+        remote: None,
+        is_proposal_tx,
+    }
+}
+
+#[tokio::test]
+async fn verify_queue_peek_arrival_time_ordering() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
+
+    // Add txs with different fees — in arrival-time mode, fee should NOT matter.
+    let tx_high_fee = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("high").pack()])
+        .build();
+    let rtx_high = dummy_resolved_tx_with_fee(tx_high_fee, 10_000, false);
+    let id_high = rtx_high.tx.proposal_short_id();
+
+    sleep(std::time::Duration::from_millis(5)).await;
+
+    let tx_low_fee = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("low").pack()])
+        .build();
+    let rtx_low = dummy_resolved_tx_with_fee(tx_low_fee, 100, false);
+    let _id_low = rtx_low.tx.proposal_short_id();
+
+    queue.add_tx(rtx_high).unwrap();
+    queue.add_tx(rtx_low).unwrap();
+
+    // Arrival time mode: first added (high fee, but that's irrelevant) is peeked first.
+    let peeked = queue.peek(false).unwrap();
+    assert_eq!(peeked, id_high, "arrival-time mode should return oldest first");
+}
+
+#[tokio::test]
+async fn verify_queue_peek_fee_rate_ordering() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+
+    // Add a low-fee tx first, then a high-fee tx.
+    // tx_size is roughly the same for both, so fee_rate ∝ fee.
+    let tx_low = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("low-fee").pack()])
+        .build();
+    let rtx_low = dummy_resolved_tx_with_fee(tx_low, 100, false);
+    let _id_low = rtx_low.tx.proposal_short_id();
+
+    let tx_high = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("high-fee").pack()])
+        .build();
+    let rtx_high = dummy_resolved_tx_with_fee(tx_high, 10_000, false);
+    let id_high = rtx_high.tx.proposal_short_id();
+
+    queue.add_tx(rtx_low).unwrap();
+    queue.add_tx(rtx_high).unwrap();
+
+    // Fee-rate mode: highest fee rate should be peeked first regardless of arrival order.
+    let peeked = queue.peek(false).unwrap();
+    assert_eq!(
+        peeked, id_high,
+        "fee-rate mode should return highest fee rate first"
+    );
+}
+
+#[tokio::test]
+async fn verify_queue_fee_rate_pop_order() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+
+    // Add 3 txs with increasing fees.
+    let fees = [500u64, 5000, 50_000];
+    let mut ids = Vec::new();
+    for (i, &fee) in fees.iter().enumerate() {
+        let tx = TransactionBuilder::default()
+            .set_outputs_data(vec![Bytes::from(format!("tx-{i}")).pack()])
+            .build();
+        let rtx = dummy_resolved_tx_with_fee(tx, fee, false);
+        ids.push(rtx.tx.proposal_short_id());
+        queue.add_tx(rtx).unwrap();
+    }
+
+    // Pop order should be: highest fee first → lowest fee last.
+    let e1 = queue.pop_front(false).unwrap();
+    assert_eq!(e1.tx().proposal_short_id(), ids[2], "first pop should be highest fee");
+
+    let e2 = queue.pop_front(false).unwrap();
+    assert_eq!(e2.tx().proposal_short_id(), ids[1], "second pop should be middle fee");
+
+    let e3 = queue.pop_front(false).unwrap();
+    assert_eq!(e3.tx().proposal_short_id(), ids[0], "third pop should be lowest fee");
+
+    assert!(queue.pop_front(false).is_none());
+}
+
+#[tokio::test]
+async fn verify_queue_proposal_always_first_in_fee_rate_mode() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+
+    // Add a high-fee non-proposal tx first.
+    let tx_high = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("high-fee-normal").pack()])
+        .build();
+    let rtx_high = dummy_resolved_tx_with_fee(tx_high, 100_000, false);
+    let id_high = rtx_high.tx.proposal_short_id();
+
+    // Add a low-fee proposal tx.
+    let tx_proposal = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("low-fee-proposal").pack()])
+        .build();
+    let rtx_proposal = dummy_resolved_tx_with_fee(tx_proposal, 1, true);
+    let id_proposal = rtx_proposal.tx.proposal_short_id();
+
+    queue.add_tx(rtx_high).unwrap();
+    queue.add_tx(rtx_proposal).unwrap();
+
+    // Proposal tx should be peeked first even though it has much lower fee.
+    let peeked = queue.peek(false).unwrap();
+    assert_eq!(
+        peeked, id_proposal,
+        "proposal tx should always be prioritised over non-proposal"
+    );
+
+    // After popping the proposal, the high-fee tx should be next.
+    queue.pop_front(false).unwrap();
+    let next = queue.peek(false).unwrap();
+    assert_eq!(next, id_high);
+}
+
+#[tokio::test]
+async fn verify_queue_fee_rate_remove_and_repeek() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::FeeRate);
+
+    let tx1 = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("fee-1000").pack()])
+        .build();
+    let rtx1 = dummy_resolved_tx_with_fee(tx1, 1_000, false);
+    let id1 = rtx1.tx.proposal_short_id();
+
+    let tx2 = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("fee-5000").pack()])
+        .build();
+    let rtx2 = dummy_resolved_tx_with_fee(tx2, 5_000, false);
+    let id2 = rtx2.tx.proposal_short_id();
+
+    let tx3 = TransactionBuilder::default()
+        .set_outputs_data(vec![Bytes::from("fee-3000").pack()])
+        .build();
+    let rtx3 = dummy_resolved_tx_with_fee(tx3, 3_000, false);
+    let id3 = rtx3.tx.proposal_short_id();
+
+    queue.add_tx(rtx1).unwrap();
+    queue.add_tx(rtx2).unwrap();
+    queue.add_tx(rtx3).unwrap();
+
+    // Highest fee should be first.
+    assert_eq!(queue.peek(false).unwrap(), id2);
+
+    // Remove the highest fee tx.
+    queue.remove_tx(&id2);
+
+    // Now the second highest (id3, fee=3000) should be first.
+    assert_eq!(queue.peek(false).unwrap(), id3);
+
+    // Remove the lowest fee tx.
+    queue.remove_tx(&id1);
+
+    // id3 should still be first.
+    assert_eq!(queue.peek(false).unwrap(), id3);
+
+    // Pop should return id3.
+    let popped = queue.pop_front(false).unwrap();
+    assert_eq!(popped.tx().proposal_short_id(), id3);
+
+    // Queue should be empty.
+    assert!(queue.is_empty());
+    assert!(queue.peek(false).is_none());
 }
 
 fn tx_pool_config() -> TxPoolConfig {
