@@ -386,10 +386,10 @@ impl CKBProtocolContext for MockProtocolContext {
 
     async fn async_filter_broadcast(
         &self,
-        _target: TargetSession,
-        _data: P2pBytes,
+        target: TargetSession,
+        data: P2pBytes,
     ) -> Result<(), Error> {
-        unimplemented!();
+        self.quick_filter_broadcast(target, data)
     }
     async fn async_filter_broadcast_with_proto(
         &self,
@@ -418,9 +418,7 @@ impl CKBProtocolContext for MockProtocolContext {
             TargetSession::Single(peer) => {
                 self.sent_messages.borrow_mut().push((proto_id, peer, data));
             }
-            TargetSession::Filter(_filter) => {
-                unimplemented!();
-            }
+            TargetSession::Filter(_filter) => {}
         }
         Ok(())
     }
@@ -472,8 +470,8 @@ impl CKBProtocolContext for MockProtocolContext {
         self.send_message(protocol_id, peer_index, data)
     }
 
-    fn filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
-        unimplemented!();
+    fn filter_broadcast(&self, target: TargetSession, data: P2pBytes) -> Result<(), Error> {
+        self.quick_filter_broadcast(target, data)
     }
     fn disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
         unimplemented!();
