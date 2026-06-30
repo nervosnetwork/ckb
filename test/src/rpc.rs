@@ -9,8 +9,7 @@ use ckb_jsonrpc_types::{
     BlockView, Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles,
     HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, SyncState, Timestamp,
     Transaction, TransactionAndWitnessProof, TransactionProof, TransactionWithStatusResponse,
-    TxPoolInfo, Uint32, Uint64,
-    Version,
+    TxPoolInfo, Uint32, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,

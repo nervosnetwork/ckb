@@ -211,10 +211,10 @@ impl TxConfirmStat {
             let block_index = (entry_height % self.block_unconfirmed_txs.len() as u64) as usize;
             self.block_unconfirmed_txs[block_index][bucket_index] -= 1;
         }
-        if count_failure {
-            if let Some(buckets) = self.confirm_blocks_to_failed_txs.get_mut(tx_age - 1) {
-                buckets[bucket_index] += 1f64;
-            }
+        if count_failure
+            && let Some(buckets) = self.confirm_blocks_to_failed_txs.get_mut(tx_age - 1)
+        {
+            buckets[bucket_index] += 1f64;
         }
     }
 

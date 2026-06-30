@@ -58,7 +58,7 @@ impl Spec for RpcTransactionProof {
 
         // Reject indices exceeding the block transaction count.
         {
-            let mut invalid = proof.clone();
+            let mut invalid = proof;
             invalid.proof.indices = (0..10000u32).map(Uint32::from).collect();
             assert!(
                 node0
@@ -136,7 +136,7 @@ impl Spec for RpcTransactionProof {
 
         // Reject oversized witness proof indices.
         {
-            let mut invalid = tx_and_witness.clone();
+            let mut invalid = tx_and_witness;
             invalid.witnesses_proof.indices = (0..10000u32).map(Uint32::from).collect();
             assert!(
                 node0
