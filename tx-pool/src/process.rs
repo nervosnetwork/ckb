@@ -399,6 +399,8 @@ impl TxPoolService {
 
         #[cfg(feature = "pipeline")]
         let entry_id = entry.proposal_short_id();
+        #[cfg(feature = "pipeline")]
+        let entry_id_for_cleanup = entry_id.clone();
 
         // Separate the successful result from the collected reject events and
         // recovered txs. Reject callbacks must be dispatched and displaced txs
@@ -496,10 +498,18 @@ impl TxPoolService {
                 // again. Recover any txs stored in the conflict pool for those
                 // inputs (in particular the old tx itself) so that a failed
                 // RBF attempt cannot be used to evict in-pool transactions.
+                //
+                // IMPORTANT: exclude the entry transaction itself from recovery.
+                // It was just rejected by RBF; re-enqueueing it would cause a
+                // cycle where both the entry and the in-pool tx keep being
+                // recovered and failing RBF against each other indefinitely.
                 if result.is_err() {
+                    let entry_id_clone = entry_id.clone();
                     recovered.extend(
                         tx_pool
-                            .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter()),
+                            .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter())
+                            .into_iter()
+                            .filter(|tx| tx.proposal_short_id() != entry_id_clone),
                     );
                     for tx in &recovered {
                         tx_pool.remove_conflict(&tx.proposal_short_id());
@@ -537,7 +547,7 @@ impl TxPoolService {
         // The RBF candidate has either been accepted or definitively rejected;
         // remove it from the in-flight fee-ordering gate.
         #[cfg(feature = "pipeline")]
-        self.rbf_candidates.write().await.remove(&entry_id);
+        self.rbf_candidates.write().await.remove(&entry_id_for_cleanup);
 
         (result, snapshot)
     }
