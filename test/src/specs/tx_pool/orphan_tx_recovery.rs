@@ -200,12 +200,20 @@ impl Spec for RbfOrphanRecovery {
 
         // A2 should still be rejected — its input A1_out0 is consumed by
         // D1, so it was NOT in the available_inputs set and was NOT
-        // recovered.
-        let a2_final = node.rpc_client().get_transaction(tx_a2.hash());
-        assert_eq!(
-            a2_final.tx_status.status,
-            Status::Rejected,
-            "A2 should remain rejected (input consumed by D1, not recoverable)"
+        // recovered.  Use wait_until to let deferred tasks settle before
+        // asserting, preventing flaky failures under concurrent load.
+        assert!(
+            wait_until(15, || {
+                let d1 = node.rpc_client().get_transaction(tx_d1.hash());
+                let b2 = node.rpc_client().get_transaction(tx_b2.hash());
+                let c1 = node.rpc_client().get_transaction(tx_c1.hash());
+                let a2 = node.rpc_client().get_transaction(tx_a2.hash());
+                d1.tx_status.status == Status::Pending
+                    && b2.tx_status.status == Status::Pending
+                    && c1.tx_status.status == Status::Rejected
+                    && a2.tx_status.status == Status::Rejected
+            }),
+            "Stable state: D1 Pending, B2 Pending (recovered), C1 Rejected, A2 Rejected"
         );
     }
 
