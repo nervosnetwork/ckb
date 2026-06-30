@@ -1953,13 +1953,10 @@ impl ChainRpc for ChainRpcImpl {
                     .collect();
 
                 // Reject empty, duplicate, or oversized indices.
-                if indices.is_empty()
-                    || indices.len() > block.transactions().len()
-                    || {
-                        let mut uniq = HashSet::new();
-                        indices.iter().any(|idx| !uniq.insert(*idx))
-                    }
-                {
+                if indices.is_empty() || indices.len() > block.transactions().len() || {
+                    let mut uniq = HashSet::new();
+                    indices.iter().any(|idx| !uniq.insert(*idx))
+                } {
                     return Err(RPCError::invalid_params(
                         "Invalid transaction proof indices",
                     ));
@@ -2042,13 +2039,10 @@ impl ChainRpc for ChainRpcImpl {
                     .collect();
 
                 // Reject empty, duplicate, or oversized transaction proof indices.
-                if tx_indices.is_empty()
-                    || tx_indices.len() > block.transactions().len()
-                    || {
-                        let mut uniq = HashSet::new();
-                        tx_indices.iter().any(|idx| !uniq.insert(*idx))
-                    }
-                {
+                if tx_indices.is_empty() || tx_indices.len() > block.transactions().len() || {
+                    let mut uniq = HashSet::new();
+                    tx_indices.iter().any(|idx| !uniq.insert(*idx))
+                } {
                     return Err(RPCError::invalid_params(
                         "Invalid transaction proof indices",
                     ));
@@ -2062,9 +2056,7 @@ impl ChainRpc for ChainRpcImpl {
                         witness_indices.iter().any(|idx| !uniq.insert(*idx))
                     }
                 {
-                    return Err(RPCError::invalid_params(
-                        "Invalid witness proof indices",
-                    ));
+                    return Err(RPCError::invalid_params("Invalid witness proof indices"));
                 }
 
                 // After deduplication the two index sets must match.

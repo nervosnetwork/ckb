@@ -19,7 +19,7 @@ fn test_reject_duplicate_transaction_indexes() {
     assert!(repeat_count <= MAX_RELAY_TXS_NUM_PER_BATCH);
 
     let content = packed::GetBlockTransactions::new_builder()
-        .block_hash(tip_hash.clone())
+        .block_hash(tip_hash)
         .indexes(vec![0u32; repeat_count])
         .build();
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
@@ -49,7 +49,7 @@ fn test_reject_duplicate_uncle_indexes() {
 
     let tip_hash = relayer.shared.active_chain().tip_hash();
     let content = packed::GetBlockTransactions::new_builder()
-        .block_hash(tip_hash.clone())
+        .block_hash(tip_hash)
         .uncle_indexes(vec![0u32, 0u32])
         .build();
     let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
