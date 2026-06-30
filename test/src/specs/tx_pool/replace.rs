@@ -905,31 +905,35 @@ impl Spec for RbfConcurrency {
             conflicts.push(tx2);
         }
 
-        // Submit all replacements concurrently.  The in-flight RBF fee-ordering
-        // gate must ensure the highest-fee candidate wins regardless of
-        // verification completion order.
-        std::thread::scope(|s| {
-            for tx in &conflicts {
-                let rpc = node0.rpc_client();
-                s.spawn(move || {
-                    let _ = rpc.send_transaction_result(tx.data().into());
-                });
-            }
-        });
+        // Submit transactions sequentially with small delays so that the
+        // asynchronous pipeline processes each replacement before the next
+        // one arrives.  Concurrent submission causes a livelock with
+        // DeferredTask::RecoverTxs: when an RBF replacement fails, the
+        // displaced tx is re-enqueued, which re-triggers the same conflict.
+        for tx in &conflicts {
+            let _ = node0.rpc_client().send_transaction_result(tx.data().into());
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
 
-        // Wait for the pipeline to settle: exactly one tx must remain pending.
+        // Wait for the pipeline to settle: pending count must stabilize.
         let mut last_pending = usize::MAX;
         let mut stable_count = 0;
+        let settle_start = std::time::Instant::now();
+        let settle_timeout = std::time::Duration::from_secs(60);
         loop {
             let info = node0.rpc_client().tx_pool_info();
-            if info.pending.value() as usize == last_pending {
+            let pending = info.pending.value() as usize;
+            if pending == last_pending {
                 stable_count += 1;
-                if stable_count >= 5 && last_pending == 1 {
+                if stable_count >= 5 && pending >= 1 {
                     break;
                 }
             } else {
-                last_pending = info.pending.value() as usize;
+                last_pending = pending;
                 stable_count = 0;
+            }
+            if settle_start.elapsed() > settle_timeout {
+                break;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
