@@ -215,6 +215,8 @@ fn service_with_pipeline_workers(
         pre_check_queue: Arc::clone(&pre_check_queue),
         #[cfg(feature = "pipeline")]
         chunk_rx,
+        #[cfg(feature = "pipeline")]
+        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
         deferred_sender,
     };
 
@@ -465,6 +467,8 @@ fn secp_service_with_pipeline_workers(
         pre_check_queue: Arc::clone(&pre_check_queue),
         #[cfg(feature = "pipeline")]
         chunk_rx,
+        #[cfg(feature = "pipeline")]
+        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
         deferred_sender,
     };
 
@@ -774,6 +778,100 @@ async fn pipeline_rejects_conflicting_double_spend() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_serializes_cell_dep_on_in_flight_input() {
+    // tx_a spends an on-chain cell X. tx_b spends a different cell but uses X as
+    // a cell dep. Because X is about to be consumed by tx_a, tx_b must wait until
+    // tx_a resolves; after that X is dead and tx_b should be rejected rather than
+    // observing a stale live X and racing through the pipeline.
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline_workers(2, 4);
+    let input_a = &issue_out_points[0];
+    let input_b = &issue_out_points[1];
+
+    let tx_a = build_tx(input_a, 4_000);
+    let tx_b = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .cell_dep(CellDep::new_builder().out_point(input_a.clone()).build())
+        .input(CellInput::new(input_b.clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(4_000).unwrap())
+                .lock(Script::default())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
+    let id_a = tx_a.proposal_short_id();
+    let id_b = tx_b.proposal_short_id();
+
+    let cycles_a = measured_cycles(&service, tx_a.clone()).await;
+    let cycles_b = measured_cycles(&service, tx_b.clone()).await;
+
+    // Submit tx_a first and wait until it is actually in flight (either in the
+    // verify queue or already accepted).  Only then submit tx_b so that the
+    // cell-dep-on-in-flight-input path is exercised deterministically.
+    service
+        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (pending, verify_len) = {
+                let pool = service.tx_pool.read().await;
+                let verify = service.verify_queue.read().await;
+                (pool.pool_map.pending_size(), verify.len())
+            };
+            if pending == 1 || verify_len == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("tx_a should enter the pipeline");
+
+    service
+        .submit_remote_tx(tx_b.clone(), cycles_b, 2.into())
+        .await
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let (pending, ordered_len, verify_len, orphan_len) = {
+                let pool = service.tx_pool.read().await;
+                let ordered = service.ordered_resolve_queue.read().await;
+                let verify = service.verify_queue.read().await;
+                let orphan = service.orphan.read().await;
+                (
+                    pool.pool_map.pending_size(),
+                    ordered.len(),
+                    verify.len(),
+                    orphan.len(),
+                )
+            };
+            if pending == 1 && ordered_len == 0 && verify_len == 0 && orphan_len == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("pipeline should settle with tx_a accepted and tx_b rejected");
+
+    let pool = service.tx_pool.read().await;
+    assert!(
+        pool.get_tx_from_pool(&id_a).is_some(),
+        "tx_a should be accepted"
+    );
+    assert!(
+        pool.get_tx_from_pool(&id_b).is_none(),
+        "tx_b should be rejected because its cell dep was consumed by tx_a"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_processes_independent_secp_remote_txs() {
     // Verify that the concurrent pre-resolver handles real secp256k1 1-in-1-out
     // transactions (not always-success scripts) correctly.
@@ -1045,6 +1143,8 @@ fn service_with_rbf(
         pre_check_queue: Arc::clone(&pre_check_queue),
         #[cfg(feature = "pipeline")]
         chunk_rx,
+        #[cfg(feature = "pipeline")]
+        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
         deferred_sender,
     };
 
@@ -1172,6 +1272,8 @@ fn service_with_rbf_and_max_size(
         pre_check_queue: Arc::clone(&pre_check_queue),
         #[cfg(feature = "pipeline")]
         chunk_rx,
+        #[cfg(feature = "pipeline")]
+        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
         deferred_sender,
     };
 
@@ -1299,6 +1401,8 @@ fn secp_service_with_pipeline_workers_and_chunk(
         pre_check_queue: Arc::clone(&pre_check_queue),
         #[cfg(feature = "pipeline")]
         chunk_rx,
+        #[cfg(feature = "pipeline")]
+        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
         deferred_sender,
     };
 
@@ -1891,3 +1995,290 @@ async fn pre_check_queue_rejects_when_full() {
     assert!(popped.is_some());
     assert!(queue.push(job).is_ok());
 }
+
+/// Concurrent RBF replacements for the same input must be ordered by fee.
+/// Only the highest-fee candidate should end up in the pool; lower-fee ones
+/// must be rejected rather than temporarily displacing the original tx and
+/// blocking the higher-fee candidate.
+#[cfg(feature = "pipeline")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_concurrent_rbf_prefers_highest_fee() {
+    let (service, _relay, signal, _store, issue_out_points) = service_with_rbf(1);
+    let shared_input = &issue_out_points[0];
+
+    // Original tx in pool: fee = 1000 bytes.
+    let original = build_tx(shared_input, 4_000);
+    let original_id = original.proposal_short_id();
+    let original_cycles = measured_cycles(&service, original.clone()).await;
+    service
+        .submit_remote_tx(original, original_cycles, 1.into())
+        .await
+        .unwrap();
+
+    // Wait until the original tx is actually in the pool before racing
+    // replacements against it.
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("original tx should be accepted");
+
+    // Replacement candidates with strictly increasing fees.
+    let replacements = vec![
+        (3_500, 1), // fee 1500
+        (3_000, 2), // fee 2000
+        (2_500, 3), // fee 2500 (highest)
+    ];
+
+    let always_success_script = always_success_script();
+    let mut handles = Vec::new();
+    let mut ids = Vec::new();
+    for (output_capacity, peer) in replacements {
+        let tx = TransactionBuilder::default()
+            .cell_dep(always_success_dep())
+            .input(CellInput::new(shared_input.clone(), 0))
+            .output(
+                CellOutput::new_builder()
+                    .capacity(Capacity::bytes(output_capacity).unwrap())
+                    .lock(always_success_script.clone())
+                    .build(),
+            )
+            .output_data(Bytes::default().pack())
+            .witness(always_success_script.clone().into_witness())
+            .build();
+        ids.push((tx.proposal_short_id(), output_capacity));
+        let cycles = measured_cycles(&service, tx.clone()).await;
+        let svc = service.clone();
+        handles.push(tokio::spawn(async move {
+            svc.submit_remote_tx(tx, cycles, peer.into()).await
+        }));
+    }
+
+    for handle in handles {
+        let _ = handle.await.expect("replacement task should not panic");
+    }
+
+    // Wait until the pipeline has fully settled and only the highest-fee
+    // replacement remains in the pool.  Because remote submissions only block
+    // until the tx is enqueued, a lower-fee candidate may briefly enter the
+    // pool before a higher-fee candidate that is still racing through the
+    // verify/submit stages replaces it.  Polling on the pool contents (not
+    // just queue lengths) is required to avoid observing the transient state.
+    let expected_id = ids
+        .iter()
+        .find(|(_, cap)| *cap == 2_500)
+        .map(|(id, _)| id)
+        .expect("highest-fee replacement exists")
+        .clone();
+
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let (pending, ordered_len, verify_len, settled) = {
+                let pool = service.tx_pool.read().await;
+                let ordered = service.ordered_resolve_queue.read().await;
+                let verify = service.verify_queue.read().await;
+                let settled = pool.get_tx_from_pool(&original_id).is_none()
+                    && pool.get_tx_from_pool(&expected_id).is_some()
+                    && ids.iter().all(|(id, _)| {
+                        *id == expected_id || pool.get_tx_from_pool(id).is_none()
+                    });
+                (
+                    pool.pool_map.pending_size(),
+                    ordered.len(),
+                    verify.len(),
+                    settled,
+                )
+            };
+            if pending == 1 && ordered_len == 0 && verify_len == 0 && settled {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("pipeline should settle with exactly one RBF replacement accepted");
+
+    let pool = service.tx_pool.read().await;
+    assert!(
+        pool.get_tx_from_pool(&original_id).is_none(),
+        "original tx should have been replaced"
+    );
+    assert!(
+        pool.get_tx_from_pool(&expected_id).is_some(),
+        "highest-fee replacement should be in the pool; ids={:?}",
+        ids.iter()
+            .map(|(id, cap)| (cap, pool.get_tx_from_pool(id).is_some()))
+            .collect::<Vec<_>>()
+    );
+
+    // All other replacement ids should not be in the pool.
+    for (id, cap) in &ids {
+        if *id != expected_id {
+            assert!(
+                pool.get_tx_from_pool(id).is_none(),
+                "lower-fee replacement {} should not be in the pool",
+                cap
+            );
+        }
+    }
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+/// A multi-level RBF replacement must recover *all* removed transactions,
+/// including descendants, in dependency order. If tx_a is replaced by a
+/// higher-fee tx_r that is then rejected by the pool size limit, both tx_a
+/// and its descendants tx_b and tx_c must be re-submitted so that parents
+/// precede children in the recovery set.
+#[cfg(feature = "pipeline")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
+    // Pool size large enough for a small three-tx chain but not for the
+    // oversized replacement.
+    let (service, _relay, signal, _store, issue_out_points) =
+        service_with_rbf_and_max_size(1, 2_000);
+
+    let shared_input = &issue_out_points[0];
+
+    // tx_a -> tx_b -> tx_c
+    let tx_a = build_tx(shared_input, 4_998);
+    let id_a = tx_a.proposal_short_id();
+    let tx_b = build_tx(&OutPoint::new(tx_a.hash(), 0), 4_998);
+    let id_b = tx_b.proposal_short_id();
+    let tx_c = build_tx(&OutPoint::new(tx_b.hash(), 0), 4_998);
+    let id_c = tx_c.proposal_short_id();
+
+    // tx_r spends the same input as tx_a, pays a high enough fee to pass RBF
+    // checks, but carries enough output data that it exceeds the tiny pool
+    // limit once tx_a has been removed.
+    let tx_r = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .input(CellInput::new(shared_input.clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(2_400).unwrap())
+                .lock(always_success_script())
+                .build(),
+        )
+        .output_data(Bytes::from(vec![0u8; 2_000]).pack())
+        .build();
+    let id_r = tx_r.proposal_short_id();
+
+    let cycles_a = measured_cycles(&service, tx_a.clone()).await;
+
+    // Submit tx_a and wait for it to reach pending so that tx_b can be
+    // resolved against the pool.
+    service
+        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .await
+        .expect("tx_a should be accepted");
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("tx_a should reach pending");
+
+    let cycles_b = measured_cycles(&service, tx_b.clone()).await;
+    service
+        .submit_remote_tx(tx_b.clone(), cycles_b, 1.into())
+        .await
+        .expect("tx_b should be accepted");
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("tx_b should reach pending");
+
+    let cycles_c = measured_cycles(&service, tx_c.clone()).await;
+    service
+        .submit_remote_tx(tx_c.clone(), cycles_c, 1.into())
+        .await
+        .expect("tx_c should be accepted");
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let pending = service.tx_pool.read().await.pool_map.pending_size();
+            if pending == 3 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("tx_c should reach pending");
+
+    let cycles_r = measured_cycles(&service, tx_r.clone()).await;
+
+    // Submit the oversized replacement.
+    let _ = service
+        .submit_remote_tx(tx_r.clone(), cycles_r, 1.into())
+        .await;
+
+    // Wait for the pipeline to drain and the original chain to be recovered.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (a_in_pool, b_in_pool, c_in_pool, r_in_pool, ordered_len, verify_len) = {
+                let pool = service.tx_pool.read().await;
+                let ordered = service.ordered_resolve_queue.read().await;
+                let verify = service.verify_queue.read().await;
+                (
+                    pool.get_tx_from_pool(&id_a).is_some(),
+                    pool.get_tx_from_pool(&id_b).is_some(),
+                    pool.get_tx_from_pool(&id_c).is_some(),
+                    pool.get_tx_from_pool(&id_r).is_some(),
+                    ordered.len(),
+                    verify.len(),
+                )
+            };
+            if a_in_pool && b_in_pool && c_in_pool && !r_in_pool && ordered_len == 0 && verify_len == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("original chain should be recovered after rejected RBF replacement");
+
+    let pool = service.tx_pool.read().await;
+    assert!(
+        pool.get_tx_from_pool(&id_r).is_none(),
+        "oversized replacement should be rejected"
+    );
+    assert!(
+        pool.get_tx_from_pool(&id_a).is_some(),
+        "tx_a should be recovered"
+    );
+    assert!(
+        pool.get_tx_from_pool(&id_b).is_some(),
+        "tx_b (descendant) should be recovered"
+    );
+    assert!(
+        pool.get_tx_from_pool(&id_c).is_some(),
+        "tx_c (grand-descendant) should be recovered"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+

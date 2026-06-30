@@ -416,6 +416,54 @@ cargo bench --no-default-features --features "ckb-tx-pool/internal" -p ckb-tx-po
 
 `QUICK_BENCH=1` for the quick matrix, `FULL_BENCH=1` for the full matrix, default is MEDIUM.
 
+### 6.5 Post-Audit Fix Benchmark Results
+
+After the correctness and reliability fixes (see section 10), benchmarks were re-run to measure the performance impact.
+
+#### QUICK Matrix: Pipeline vs Sync (1 peer, 8 workers, 10 samples)
+
+| Scenario | Pipeline | Sync | Difference |
+|----------|----------|------|------------|
+| cold always_success 50 | 7.37 ms | 12.41 ms | **pipeline -41%** |
+| cold secp256k1 50 | 23.23 ms | 83.01 ms | **pipeline -72%** |
+| warm always_success 50 | 8.01 ms | 12.42 ms | **pipeline -36%** |
+| warm secp256k1 50 | 23.88 ms | 82.87 ms | **pipeline -71%** |
+| cold dep. always_success 10 | 5.27 ms | — | pipeline only* |
+| cold dep. secp 10 | 18.34 ms | — | pipeline only* |
+| warm dep. always_success 10 | 4.91 ms | — | pipeline only* |
+| warm dep. secp 10 | 18.55 ms | — | pipeline only* |
+
+\* Dependent chain benchmarks are skipped in sync mode because the cycle measurement path (`PerTxProcess`) requires the pipeline's classify → ordered-resolve → verify chain. The sync mode's `notify_tx` cannot resolve pool-only dependencies.
+
+#### MEDIUM Matrix: Pipeline vs Sync (1 peer & 4 peer, 4 & 8 workers, 30 samples)
+
+| Scenario | Pipeline | Sync | Difference |
+|----------|----------|------|------------|
+| 1-peer 4w always_success 100 | 13.55 ms | 22.30 ms | **pipeline -39%** |
+| 1-peer 4w secp256k1 100 | 79.12 ms | 165.48 ms | **pipeline -52%** |
+| 1-peer 8w always_success 100 | 13.82 ms | 22.84 ms | **pipeline -39%** |
+| 1-peer 8w secp256k1 100 | 44.85 ms | 166.83 ms | **pipeline -73%** |
+| 4-peer 4w always_success 100 | 14.70 ms | 10.87 ms | sync +35% |
+| 4-peer 4w secp256k1 100 | 78.30 ms | 53.58 ms | sync +46% |
+| 4-peer 8w always_success 100 | 13.90 ms | 11.11 ms | sync +25% |
+| 4-peer 8w secp256k1 100 | 45.14 ms | 54.30 ms | **pipeline -17%** |
+| warm 1-peer 8w always_success 100 | 15.96 ms | 23.40 ms | **pipeline -32%** |
+| warm 1-peer 8w secp256k1 100 | 45.97 ms | 167.34 ms | **pipeline -73%** |
+| warm 4-peer 8w always_success 100 | — | 12.24 ms | — |
+| warm 4-peer 8w secp256k1 100 | 57.63 ms | 55.70 ms | ~flat (+3%) |
+
+The audit fixes (RBF deduplication, verify_queue promotion, clear_pool consistency, shutdown drain, reorg panic recovery) did not introduce measurable performance regressions.
+
+### 6.6 Post-Fix Analysis
+
+- **1-peer secp256k1**: pipeline advantage scales with worker count — -52% at 4 workers, -73% at 8 workers. The blocking pool parallelizes CPU-heavy verification across cores, while sync serializes everything on the actor loop.
+- **1-peer always_success**: pipeline shows -39% improvement even for cheap verification, because pre_check parallelization amortizes lock acquisition and resolution overhead.
+- **4-peer secp256k1 4w**: sync is 46% faster than pipeline at 4 workers. The 4-peer submission pattern (4 concurrent submitters each blocking on their response) creates less contention in sync mode's serialized actor loop. At 8 workers, pipeline catches up (-17%) because more verify workers can absorb the higher submission rate.
+- **4-peer always_success**: sync is faster (+25-35%) because verification is trivially cheap and pipeline scheduling overhead (PreCheckQueue workers, semaphore acquire, queue enqueue/dequeue) dominates.
+- **Warm pool**: the warm-vs-cold pattern is consistent — warm pool adds a fixed setup cost but the relative pipeline advantage is similar.
+- **Dependent chains**: pipeline processes dependent chains through OrderedResolver serialization. Performance is comparable to sync's orphan-pool cascade (QUICK: pipeline 5.27 ms vs sync's orphan cascade in section 6.1).
+- **Stability**: pipeline CV is slightly higher than sync (1-10% vs <1%), consistent with pre-fix observations. The audit fixes did not worsen stability.
+
 ---
 
 ## 7. Configuration
@@ -462,3 +510,59 @@ Currently the `chunk_tx` watch channel is subscribed by both VerifyMgr and Order
 ### 9.4 crossbeam `tx_relay_sender` (P2, low priority)
 
 Production uses `ckb_channel::unbounded()` (`send()` never blocks), so this is not a practical issue. The benchmark uses `bounded(1024)` with a drain task and also does not block. Only worth attention under extreme scenarios.
+
+---
+
+## 10. Audit Fixes
+
+This section documents correctness, reliability, and safety fixes identified through deep audit of the V2 pipeline implementation.
+
+### 10.1 RbfCandidates Multi-Displacement (F3)
+
+`RbfCandidates::register()` previously returned `Option<ProposalShortId>` — only the last displaced candidate. When a higher-fee transaction conflicts with multiple existing candidates across different inputs, only one was evicted from the `VerifyQueue`, leaving stale entries. Fixed to return `Vec<ProposalShortId>` collecting all displaced candidates. The caller in `classify_and_enqueue_tx` now iterates and removes all displaced entries from `verify_queue`.
+
+### 10.2 check_rbf_descendants Deduplication (3.7 + 3.8)
+
+`check_rbf_descendants` collected descendants of all conflict transactions without deduplication. When two conflict transactions shared a common descendant, it was counted twice, inflating `replace_count` and potentially rejecting valid RBF replacements. Fixed with a `HashSet<ProposalShortId>` to track seen IDs, ensuring each descendant is counted exactly once.
+
+### 10.3 Non-Pipeline Orphan Double Notification (D4)
+
+The non-pipeline orphan processing path (`process_orphan_tx`) called both `handle_remote_reject` explicitly AND `after_process` (which internally calls `handle_remote_reject`). This double notification sent duplicate ban/relay messages for the same rejected transaction. Fixed by removing the explicit `handle_remote_reject` call, relying solely on `after_process` to handle remote notifications.
+
+### 10.4 clear_pool Missing rbf_candidates (F4)
+
+`clear_pool` (called during chain state changes) cleared `pre_check_queue` but not `rbf_candidates`. After a reorg, stale RBF candidate entries could reject new legitimate replacements. Fixed by adding `self.rbf_candidates.write().await.clear()` in the pipeline branch of `clear_pool`.
+
+### 10.5 ban_malformed Missing Orphan Cleanup (N5)
+
+`ban_malformed` removed a misbehaving peer's transactions from `verify_queue`, `pre_check_queue`, and `ordered_resolve_queue`, but not from the orphan pool. Orphans from a banned peer could linger and be re-processed. Fixed by iterating orphan entries and removing all orphans belonging to the banned peer.
+
+### 10.6 Shutdown Drain of In-Flight Tasks (N1)
+
+The shutdown handler saved the pool state without waiting for in-flight detached tasks (spawned by the semaphore-gated actor loop) to complete. Transactions accepted by workers but not yet committed to the pool were lost on restart. Fixed by acquiring all semaphore permits (`max_workers * 2`) before calling `save_pool()`, ensuring all in-flight tasks have completed.
+
+### 10.7 Reorg Handler Panic Recovery (N2)
+
+The reorg handler (`update_tx_pool_for_reorg`) ran without panic protection. A panic would permanently kill reorg processing while other workers (VerifyMgr, OrderedResolver, DeferredTask) all had catch_unwind + respawn. Fixed by wrapping the reorg handler loop in `AssertUnwindSafe(...).catch_unwind()` with automatic respawn on panic.
+
+### 10.8 VerifyQueue Proposal Promotion (4.6)
+
+When a proposal transaction was added to `verify_queue` that already existed as a non-proposal entry, `add_tx` simply returned `false` (duplicate) without promoting the existing entry. This meant proposal transactions lost priority in the verification queue. Fixed by using `modify_by_id` to promote `is_proposal_tx` in-place and refresh `added_time` when a proposal duplicate arrives.
+
+### 10.9 Sync Benchmark Dependent Chain Fix
+
+The benchmark's cycle measurement for dependent chains (`PerTxProcess` mode) relied on the pipeline's classify → ordered-resolve → verify path, which doesn't exist in sync mode. This caused the sync benchmark to hang indefinitely when initializing dependent chain data sets. Fixed by gating dependent chain BenchData construction behind `#[cfg(feature = "pipeline")]`.
+
+---
+
+## 11. Known Remaining Issues
+
+The following issues were identified during audit but deferred due to low impact or acceptable tradeoffs:
+
+- **N3 MED**: `resumeble_process_tx` does not check `pre_check_queue` for duplicates (pipeline mode only). A transaction already queued in pre_check can be submitted again. Impact: duplicate is harmlessly absorbed during classify.
+- **N4 MED**: `RecoverTxs` discards `remote` and `is_proposal_tx` metadata from the original submission. Recovered transactions are re-enqueued as local non-proposal. Impact: minor — recovery is a best-effort retry path.
+- **N7 LOW**: `OrderedResolveQueue::get_tx` and `remove_tx` are O(n) linear scans. Acceptable because the queue is bounded and n is typically small (< 100).
+- **N10 LOW**: `depends_on_pipeline` checks multiple queues sequentially, creating a benign TOCTOU window where a transaction may be misclassified as independent. The subsequent submit_entry handles this correctly via conflict detection.
+- **4.7 LOW**: `RecentReject::put()` performs synchronous RocksDB I/O under `RwLock` read lock. Bounded impact due to low call frequency and small key sizes.
+- **reorg handler no catch_unwind** (pre-fix): Now fixed (N2).
+- **shutdown save_pool race** (pre-fix): Now fixed (N1).

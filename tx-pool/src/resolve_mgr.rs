@@ -28,7 +28,7 @@ use tokio::task::JoinHandle;
 /// This bounds the work we do for genuinely unsatisfiable orphans while still
 /// giving us enough slack to recover from the small race window between a
 /// parent leaving the verify queue and being committed to the pool.
-const MAX_LOCAL_ORPHAN_ATTEMPTS: u8 = 5;
+pub(crate) const MAX_LOCAL_ORPHAN_ATTEMPTS: u8 = 5;
 
 /// Result of attempting to resolve one transaction.
 #[derive(Debug)]
@@ -205,23 +205,57 @@ impl OrderedResolver {
                     } else {
                         // Local transactions with missing inputs are normally rejected.
                         // The exception is when the missing parent is currently in the
-                        // pipeline (e.g. a parent detached during a reorg that has not
-                        // finished verification yet). In that case we put the child back
-                        // into the ordered resolve queue so it can be retried once the
-                        // parent lands in the pool.
+                        // pipeline (pre-check, ordered, verify, or already committed to
+                        // the pool). In that case we put the child back into the ordered
+                        // resolve queue so it can be retried once the parent is ready.
                         let depends_on_pipeline = {
-                            let ordered = self.ordered_queue.read().await;
-                            if ordered.depends_on(&job.tx) {
+                            let ordered_dep = {
+                                let ordered = self.ordered_queue.read().await;
+                                ordered.depends_on(&job.tx)
+                            };
+                            if ordered_dep {
                                 true
                             } else {
-                                let verify_queue = self.verify_queue.read().await;
-                                verify_queue.depends_on(&job.tx)
+                                let verify_dep = {
+                                    let verify_queue = self.verify_queue.read().await;
+                                    verify_queue.depends_on(&job.tx)
+                                };
+                                if verify_dep {
+                                    true
+                                } else {
+                                    #[cfg(feature = "pipeline")]
+                                    let pre_check_dep = self
+                                        .service
+                                        .pre_check_queue
+                                        .depends_on(&job.tx);
+                                    #[cfg(not(feature = "pipeline"))]
+                                    let pre_check_dep = false;
+                                    if pre_check_dep {
+                                        true
+                                    } else {
+                                        // A parent may have left the verify queue and
+                                        // be in the middle of being committed to the pool.
+                                        // Treat an in-pool parent as still in-flight so
+                                        // the child does not burn an attempt while waiting.
+                                        let pool = self.service.tx_pool.read().await;
+                                        parents.iter().any(|parent_hash| {
+                                            pool.contains_proposal_id(&ProposalShortId::from_tx_hash(
+                                                parent_hash,
+                                            ))
+                                        })
+                                    }
+                                }
                             }
                         };
 
-                        if job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
+                        // If the missing parent is still in the in-flight pipeline,
+                        // keep retrying without burning an attempt. The child will be
+                        // re-resolved once the parent is committed to the pool.
+                        if depends_on_pipeline || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
                             let mut job = job;
-                            job.attempts += 1;
+                            if !depends_on_pipeline {
+                                job.attempts += 1;
+                            }
                             debug!(
                                 "ordered resolve stage local orphan {} re-enqueue (attempt {}, depends_on_pipeline: {})",
                                 id, job.attempts, depends_on_pipeline

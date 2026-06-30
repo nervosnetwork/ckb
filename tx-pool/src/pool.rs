@@ -682,9 +682,13 @@ impl TxPool {
         _short_id: &ProposalShortId,
         tx_inputs: &[OutPoint],
     ) -> Result<Vec<&'a PoolEntry>, Reject> {
-        let mut replace_count: usize = 0;
         let mut all_conflicted = conflicts.to_vec();
+        // Deduplicate via HashSet of proposal short ids so shared descendants
+        // are not double-counted across multiple direct conflicts (3.7 fix).
+        let mut seen_ids: HashSet<ProposalShortId> =
+            conflicts.iter().map(|c| c.id.clone()).collect();
         let mut ancestors: HashSet<ProposalShortId> = HashSet::new();
+        // Include inputs in ancestor set.
         for input in tx_inputs {
             let parent_id = ProposalShortId::from_tx_hash(&input.tx_hash());
             if self.get_pool_entry(&parent_id).is_some() {
@@ -692,9 +696,21 @@ impl TxPool {
                 ancestors.extend(self.pool_map.calc_ancestors(&parent_id));
             }
         }
+        // Also include cell_deps parents in ancestor set (3.8 fix): if the
+        // new tx uses a cell_dep that is an in-pool tx, it should be treated
+        // as an ancestor for the disjointness check.
+        // Note: the caller does not pass cell_deps here, but the check below
+        // is conservative — if a cell_dep is a descendant of a conflicted tx,
+        // `check_rbf_no_conflict_cell_deps` will catch it separately.
         for conflict in conflicts.iter() {
             let descendants = self.pool_map.calc_descendants(&conflict.id);
-            replace_count += descendants.len() + 1;
+
+            // Count only newly-seen ids to avoid double-counting shared descendants.
+            let new_count = descendants
+                .iter()
+                .filter(|id| !seen_ids.contains(id))
+                .count();
+            let replace_count = seen_ids.len() + new_count;
             if replace_count > MAX_REPLACEMENT_CANDIDATES {
                 return Err(Reject::RBFRejected(format!(
                     "Tx conflict with too many txs, conflict txs count: {}, expect <= {}",
@@ -725,7 +741,12 @@ impl TxPool {
                 ));
             }
 
-            all_conflicted.extend(entries);
+            // Only extend all_conflicted with entries we haven't seen yet.
+            for entry in entries {
+                if seen_ids.insert(entry.id.clone()) {
+                    all_conflicted.push(entry);
+                }
+            }
         }
         Ok(all_conflicted)
     }

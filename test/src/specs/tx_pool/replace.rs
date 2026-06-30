@@ -905,12 +905,33 @@ impl Spec for RbfConcurrency {
             conflicts.push(tx2);
         }
 
-        // Submit transactions sequentially so that the asynchronous pipeline
-        // processes them in fee order.  A pure concurrent spawn is non-
-        // deterministic on multi-worker pipelines and causes this spec to flake.
-        for tx in &conflicts {
-            let _ = node0.rpc_client().send_transaction_result(tx.data().into());
-            std::thread::sleep(std::time::Duration::from_millis(50));
+        // Submit all replacements concurrently.  The in-flight RBF fee-ordering
+        // gate must ensure the highest-fee candidate wins regardless of
+        // verification completion order.
+        std::thread::scope(|s| {
+            for tx in &conflicts {
+                let rpc = node0.rpc_client();
+                s.spawn(move || {
+                    let _ = rpc.send_transaction_result(tx.data().into());
+                });
+            }
+        });
+
+        // Wait for the pipeline to settle: exactly one tx must remain pending.
+        let mut last_pending = usize::MAX;
+        let mut stable_count = 0;
+        loop {
+            let info = node0.rpc_client().tx_pool_info();
+            if info.pending.value() as usize == last_pending {
+                stable_count += 1;
+                if stable_count >= 5 && last_pending == 1 {
+                    break;
+                }
+            } else {
+                last_pending = info.pending.value() as usize;
+                stable_count = 0;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
         let status: Vec<_> = conflicts

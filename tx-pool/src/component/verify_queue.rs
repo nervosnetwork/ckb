@@ -176,8 +176,9 @@ impl VerifyQueue {
         }
     }
 
-    /// Remove multiple txs from the queue from a specified peer
-    pub fn remove_txs_by_peer(&mut self, peer: &PeerIndex) {
+    /// Remove multiple txs from the queue from a specified peer.
+    /// Returns the short ids of the removed txs.
+    pub fn remove_txs_by_peer(&mut self, peer: &PeerIndex) -> Vec<ProposalShortId> {
         let ids: Vec<_> = self
             .inner
             .iter()
@@ -192,7 +193,9 @@ impl VerifyQueue {
             .map(|(_cycle, entry)| entry.id.clone())
             .collect();
 
+        let removed = ids.clone();
         self.remove_txs(ids.into_iter());
+        removed
     }
 
     /// Returns the first entry in the queue and remove it
@@ -235,7 +238,20 @@ impl VerifyQueue {
         let id = resolved.tx.proposal_short_id();
         if self.contains_key(&id) {
             if resolved.is_proposal_tx {
-                self.remove_tx(&id);
+                // If the existing entry is not yet a proposal tx, promote it
+                // in place without the costly remove + shrink + reinsert cycle.
+                let mut promoted = false;
+                self.inner.modify_by_id(&id, |e| {
+                    if !e.is_proposal_tx {
+                        e.is_proposal_tx = true;
+                        e.added_time = unix_time_as_millis();
+                        promoted = true;
+                    } else {
+                        // Already a proposal tx — update the timestamp to re-promote.
+                        e.added_time = unix_time_as_millis();
+                    }
+                });
+                return Ok(promoted);
             } else {
                 return Ok(false);
             }

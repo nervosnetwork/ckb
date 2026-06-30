@@ -4,6 +4,8 @@ use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::orphan::OrphanPool;
 use crate::component::pool_map::Status;
+#[cfg(feature = "pipeline")]
+use crate::component::rbf_candidates::RbfCandidates;
 use crate::component::recent_reject::RecentReject;
 use crate::component::verify_queue::VerifyQueue;
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
@@ -690,6 +692,8 @@ impl TxPoolServiceBuilder {
             pre_check_queue: Arc::clone(&pre_check_queue),
             #[cfg(feature = "pipeline")]
             chunk_rx: self.chunk_rx.clone(),
+            #[cfg(feature = "pipeline")]
+            rbf_candidates: Arc::new(RwLock::new(RbfCandidates::new())),
             deferred_sender,
         };
 
@@ -885,6 +889,15 @@ impl TxPoolServiceBuilder {
                         });
                     },
                     _ = signal_receiver.cancelled() => {
+                        info!("TxPool is draining in-flight tasks...");
+                        // Wait for all in-flight message-processing tasks to
+                        // complete before persisting the pool state.  The
+                        // semaphore bounds concurrent message handlers at
+                        // max_workers * 2, so acquiring all permits guarantees
+                        // no handler is still running.
+                        let _ = semaphore
+                            .acquire_many(max_workers as u32 * 2)
+                            .await;
                         info!("TxPool is saving, please wait...");
                         process_service.save_pool().await;
                         info!("TxPool process_service exit now");
@@ -961,35 +974,51 @@ impl TxPoolServiceBuilder {
         let signal_receiver = self.signal_receiver;
         self.handle.spawn(async move {
             loop {
-                tokio::select! {
-                    Some(message) = reorg_receiver.recv() => {
-                        let Notify {
-                            arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
-                        } = message;
-                        let snapshot_clone = Arc::clone(&snapshot);
-                        let detached_blocks_clone = detached_blocks.clone();
-                        service.update_block_assembler_before_tx_pool_reorg(
-                            detached_blocks_clone,
-                            snapshot_clone
-                        ).await;
+                let service = service.clone();
+                let reorg_result = AssertUnwindSafe(async {
+                    tokio::select! {
+                        Some(message) = reorg_receiver.recv() => {
+                            let Notify {
+                                arguments: (detached_blocks, attached_blocks, detached_proposal_id, snapshot),
+                            } = message;
+                            let snapshot_clone = Arc::clone(&snapshot);
+                            let detached_blocks_clone = detached_blocks.clone();
+                            service.update_block_assembler_before_tx_pool_reorg(
+                                detached_blocks_clone,
+                                snapshot_clone
+                            ).await;
 
-                        let snapshot_clone = Arc::clone(&snapshot);
-                        service
-                        .update_tx_pool_for_reorg(
-                            detached_blocks,
-                            attached_blocks,
-                            detached_proposal_id,
-                            snapshot_clone,
-                        )
-                        .await;
+                            let snapshot_clone = Arc::clone(&snapshot);
+                            service
+                            .update_tx_pool_for_reorg(
+                                detached_blocks,
+                                attached_blocks,
+                                detached_proposal_id,
+                                snapshot_clone,
+                            )
+                            .await;
 
-                        service.update_block_assembler_after_tx_pool_reorg().await;
-                    },
-                    _ = signal_receiver.cancelled() => {
-                        info!("TxPool reorg process service received exit signal, exit now");
-                        break
-                    },
-                    else => break,
+                            service.update_block_assembler_after_tx_pool_reorg().await;
+                            true
+                        },
+                        _ = signal_receiver.cancelled() => {
+                            info!("TxPool reorg process service received exit signal, exit now");
+                            false
+                        },
+                        else => false,
+                    }
+                })
+                .catch_unwind()
+                .await;
+
+                match reorg_result {
+                    Ok(true) => continue,
+                    Ok(false) => break,
+                    Err(payload) => {
+                        let message = panic_payload_to_string(payload.as_ref());
+                        error!("tx-pool reorg handler panicked: {}; respawning", message);
+                        continue;
+                    }
                 }
             }
         });
@@ -1050,6 +1079,8 @@ impl TxPoolServiceBuilder {
             pre_check_queue: Arc::clone(&pre_check_queue),
             #[cfg(feature = "pipeline")]
             chunk_rx: self.chunk_rx,
+            #[cfg(feature = "pipeline")]
+            rbf_candidates: Arc::new(RwLock::new(RbfCandidates::new())),
             deferred_sender,
         };
 
@@ -1108,6 +1139,10 @@ pub(crate) struct TxPoolService {
     /// suspended.
     #[cfg(feature = "pipeline")]
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
+    /// Fee-ordering gate for conflicting RBF replacements that are concurrently
+    /// in flight through the pipeline.  Ensures the highest-fee candidate wins.
+    #[cfg(feature = "pipeline")]
+    pub(crate) rbf_candidates: Arc<RwLock<RbfCandidates>>,
     /// Bounded channel for deferred side-effects (recovery tx re-enqueue,
     /// verify cache updates). A single background worker drains this channel,
     /// preventing unbounded task accumulation under high RBF frequency.
@@ -1116,6 +1151,9 @@ pub(crate) struct TxPoolService {
 
 /// Location and metadata of a transaction found in the pipeline queues.
 pub(crate) enum PipelineTxLocation {
+    /// In the pre-check queue (awaiting initial resolution).
+    #[cfg(feature = "pipeline")]
+    PreChecking(TransactionView),
     /// In the ordered resolve queue (not yet resolved/verified).
     Ordered(TransactionView),
     /// In the verify queue (resolved, awaiting verification).
@@ -1130,6 +1168,12 @@ impl TxPoolService {
         &self,
         id: &ProposalShortId,
     ) -> Option<PipelineTxLocation> {
+        #[cfg(feature = "pipeline")]
+        {
+            if let Some(tx) = self.pre_check_queue.get_tx(id) {
+                return Some(PipelineTxLocation::PreChecking(tx));
+            }
+        }
         {
             let ordered = self.ordered_resolve_queue.read().await;
             if let Some(tx) = ordered.get_tx(id) {
@@ -1357,6 +1401,8 @@ async fn process(mut service: TxPoolService, message: Message) {
                 ))
             } else if let Some(location) = service.find_tx_in_pipeline(&id).await {
                 let (tx, tx_status, cycles, fee) = match location {
+                    #[cfg(feature = "pipeline")]
+                    PipelineTxLocation::PreChecking(tx) => (tx, TxStatus::Pending, None, None),
                     PipelineTxLocation::Ordered(tx) => (tx, TxStatus::Pending, None, None),
                     PipelineTxLocation::Verifying(tx, fee, status) => {
                         let tx_status = if status == crate::process::TxStatus::Proposed {
@@ -1436,6 +1482,8 @@ async fn process(mut service: TxPoolService, message: Message) {
             service.orphan.write().await.clear();
             #[cfg(feature = "pipeline")]
             service.pre_check_queue.clear();
+            #[cfg(feature = "pipeline")]
+            service.rbf_candidates.write().await.clear();
             if let Err(e) = responder.send(()) {
                 error!("Responder sending clear_pipeline failed {:?}", e)
             };

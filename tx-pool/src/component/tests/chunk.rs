@@ -451,6 +451,8 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         pre_check_queue: Arc::clone(&pre_check_queue),
         #[cfg(feature = "pipeline")]
         chunk_rx,
+        #[cfg(feature = "pipeline")]
+        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
         deferred_sender,
     };
 
