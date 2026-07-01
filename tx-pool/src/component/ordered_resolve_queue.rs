@@ -11,7 +11,7 @@ use crate::resolved_tx::ResolveJob;
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
-use ckb_types::packed::ProposalShortId;
+use ckb_types::packed::{OutPoint, ProposalShortId};
 use ckb_util::shrink_to_fit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -45,6 +45,11 @@ pub(crate) struct OrderedResolveQueue {
     total_tx_size: usize,
     /// Output out-points of txs currently in this queue.
     flight: FlightTracker,
+    /// Reverse index: output outpoint → set of job ids that consume it as an
+    /// input.  When a parent transaction enters the pool, we use this to
+    /// immediately find and re-enqueue its dependent children, bypassing the
+    /// FIFO scan.
+    output_dependents: HashMap<OutPoint, HashSet<ProposalShortId>>,
 }
 
 impl OrderedResolveQueue {
@@ -58,6 +63,7 @@ impl OrderedResolveQueue {
             ready_rx: Arc::new(Notify::new()),
             total_tx_size: 0,
             flight: FlightTracker::new(),
+            output_dependents: HashMap::new(),
         }
     }
 
@@ -104,6 +110,46 @@ impl OrderedResolveQueue {
 
     fn shrink_to_fit(&mut self) {
         shrink_to_fit!(self.inner, SHRINK_THRESHOLD);
+        shrink_to_fit!(self.output_dependents, SHRINK_THRESHOLD);
+    }
+
+    /// Remove the output_dependents reverse-index entries for a job.
+    fn remove_dependents_for(&mut self, id: &ProposalShortId, inputs: &[OutPoint]) {
+        for outpoint in inputs {
+            if let Some(set) = self.output_dependents.get_mut(outpoint) {
+                set.remove(id);
+                if set.is_empty() {
+                    self.output_dependents.remove(outpoint);
+                }
+            }
+        }
+    }
+
+    /// Internal removal: lookup → tombstone → clean up all indexes.
+    ///
+    /// This is the single source of truth for removing a job from the queue.
+    /// All public removal methods (`pop_front`, `remove_tx`,
+    /// `remove_txs_by_peer`, `drain_dependents`) delegate here to ensure
+    /// every index stays in sync.
+    fn remove_job_internal(&mut self, id: &ProposalShortId, context: &str) -> Option<ResolveJob> {
+        let job = self.lookup.remove(id)?;
+        self.removed.insert(id.clone());
+        self.live_count -= 1;
+        let inputs: Vec<OutPoint> = job.tx.input_pts_iter().collect();
+        self.remove_dependents_for(id, &inputs);
+        self.flight.remove(id);
+        if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
+            self.total_tx_size = total;
+        } else {
+            error!(
+                "ordered_resolve_queue total_tx_size {} underflowed by sub {} in {}",
+                self.total_tx_size,
+                Self::tx_size(&job),
+                context,
+            );
+            self.total_tx_size = 0;
+        }
+        Some(job)
     }
 
     /// Drain tombstoned entries from the front of the FIFO queue.
@@ -121,40 +167,13 @@ impl OrderedResolveQueue {
     pub fn pop_front(&mut self) -> Option<ResolveJob> {
         self.drain_tombstones();
         let id = self.inner.pop_front()?;
-        let job = self.lookup.remove(&id).expect("lookup contains id from inner");
-        self.live_count -= 1;
-        self.flight.remove(&id);
-        if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
-            self.total_tx_size = total;
-        } else {
-            error!(
-                "ordered_resolve_queue total_tx_size {} underflowed by sub {} in pop_front",
-                self.total_tx_size,
-                Self::tx_size(&job)
-            );
-            self.total_tx_size = 0;
-        }
-        Some(job)
+        self.remove_job_internal(&id, "pop_front")
     }
 
     /// Remove a tx from the queue by its short id.  O(1) — marks the entry
     /// as tombstoned; the `VecDeque` slot is reclaimed lazily by `pop_front`.
     pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<ResolveJob> {
-        let job = self.lookup.remove(id)?;
-        self.removed.insert(id.clone());
-        self.live_count -= 1;
-        self.flight.remove(id);
-        if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
-            self.total_tx_size = total;
-        } else {
-            error!(
-                "ordered_resolve_queue total_tx_size {} underflowed by sub {} in remove_tx",
-                self.total_tx_size,
-                Self::tx_size(&job)
-            );
-            self.total_tx_size = 0;
-        }
-        // Attempt to reclaim the front slot if this id happens to be there.
+        let job = self.remove_job_internal(id, "remove_tx")?;
         self.drain_tombstones();
         self.shrink_to_fit();
         Some(job)
@@ -162,7 +181,7 @@ impl OrderedResolveQueue {
 
     /// Remove all jobs submitted by the given peer.
     pub fn remove_txs_by_peer(&mut self, peer: &PeerIndex) {
-        // First pass: identify which ids to remove.
+        // First pass: identify which ids to remove (iterate inner for FIFO order).
         let to_remove: Vec<ProposalShortId> = self
             .inner
             .iter()
@@ -175,21 +194,7 @@ impl OrderedResolveQueue {
             .collect();
 
         for id in &to_remove {
-            if let Some(job) = self.lookup.remove(id) {
-                self.removed.insert(id.clone());
-                self.live_count -= 1;
-                self.flight.remove(id);
-                if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
-                    self.total_tx_size = total;
-                } else {
-                    error!(
-                        "ordered_resolve_queue total_tx_size {} underflowed by sub {} in remove_txs_by_peer",
-                        self.total_tx_size,
-                        Self::tx_size(&job)
-                    );
-                    self.total_tx_size = 0;
-                }
-            }
+            self.remove_job_internal(id, "remove_txs_by_peer");
         }
 
         self.drain_tombstones();
@@ -217,6 +222,16 @@ impl OrderedResolveQueue {
                 "ordered_resolve_queue total_tx_size overflowed, failed to add tx: {tx_hash:#x}",
             ))
         })?;
+
+        // Register reverse index: for each input this job consumes, record that
+        // this job is waiting for the producer of that outpoint.
+        for outpoint in job.tx.input_pts_iter() {
+            self.output_dependents
+                .entry(outpoint.clone())
+                .or_default()
+                .insert(id.clone());
+        }
+
         self.flight.insert(id.clone(), &job.tx);
         self.lookup.insert(id.clone(), job);
         self.inner.push_back(id);
@@ -235,9 +250,55 @@ impl OrderedResolveQueue {
         self.inner.clear();
         self.lookup.clear();
         self.removed.clear();
+        self.output_dependents.clear();
         self.live_count = 0;
         self.flight.clear();
         self.total_tx_size = 0;
         self.shrink_to_fit();
+    }
+
+    /// Extract jobs that are waiting for the given output outpoints,
+    /// preserving their original FIFO order.
+    ///
+    /// When a parent transaction enters the pool, its output outpoints become
+    /// available.  This method finds all queued jobs that consume those outputs
+    /// as inputs, removes them from the queue, and returns them so the caller
+    /// can push them directly to the resolver (bypassing the FIFO scan).
+    ///
+    /// The returned jobs are in the same relative order as they appeared in
+    /// the queue, which matters when multiple children compete for the same
+    /// subsequent cell.
+    pub fn drain_dependents(&mut self, outputs: &[OutPoint]) -> Vec<ResolveJob> {
+        // Collect the set of ids that depend on the given outputs.
+        let mut dependent_ids: HashSet<ProposalShortId> = HashSet::new();
+        for outpoint in outputs {
+            if let Some(ids) = self.output_dependents.remove(outpoint) {
+                dependent_ids.extend(ids);
+            }
+        }
+
+        if dependent_ids.is_empty() {
+            return Vec::new();
+        }
+
+        // Collect matching ids in FIFO order by iterating inner (VecDeque).
+        // This preserves the original queue ordering, which matters when
+        // multiple children compete for the same subsequent cell.
+        let ordered_ids: Vec<ProposalShortId> = self
+            .inner
+            .iter()
+            .filter(|id| dependent_ids.contains(id))
+            .cloned()
+            .collect();
+
+        let mut jobs = Vec::with_capacity(ordered_ids.len());
+        for id in &ordered_ids {
+            if let Some(job) = self.remove_job_internal(id, "drain_dependents") {
+                jobs.push(job);
+            }
+        }
+
+        self.drain_tombstones();
+        jobs
     }
 }
