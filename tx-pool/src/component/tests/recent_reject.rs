@@ -46,7 +46,7 @@ fn put_enforces_count_limit_after_successful_writes() {
     let limit = 1;
     let ttl = -1;
 
-    let mut recent_reject = RecentReject::build(tmp_dir.path(), shard_num, limit, ttl).unwrap();
+    let recent_reject = RecentReject::build(tmp_dir.path(), shard_num, limit, ttl).unwrap();
     let first_key = Byte32::new(blake2b_256(1u64.to_le_bytes()));
     let second_key = Byte32::new(blake2b_256(2u64.to_le_bytes()));
 

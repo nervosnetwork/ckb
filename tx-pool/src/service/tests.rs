@@ -19,6 +19,7 @@ fn full_controller() -> TxPoolController {
         chunk_tx: Arc::new(chunk_tx),
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
+        signal: new_tokio_exit_rx(),
     }
 }
 

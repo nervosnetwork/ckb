@@ -68,15 +68,16 @@ struct VerifyEntry {
     /// in `FeeRate` mode.
     #[multi_index(ordered_non_unique)]
     inverted_fee_rate: u64,
+    /// Orders proposal txs before non-proposal txs, preserving arrival order
+    /// within each group.  Used for O(1) proposal lookup in `ArrivalTime` mode.
+    #[multi_index(ordered_non_unique)]
+    priority_order: (VerifyPriority, u64),
 
     /// whether the tx is a large cycle tx
     #[multi_index(hashed_non_unique)]
     is_large_cycle: bool,
     /// Whether this is a proposal transaction.
     is_proposal_tx: bool,
-    /// Orders proposal txs before non-proposal txs, preserving arrival order within each group.
-    #[multi_index(ordered_non_unique)]
-    priority_order: (VerifyPriority, u64),
 
     /// other sort key
     inner: Entry,
@@ -245,23 +246,20 @@ impl VerifyQueue {
     }
 
     fn peek_by_arrival_time(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
-        let mut iter = self.inner.iter_by_added_time();
-
-        if let Some(proposal_entry) =
-            iter.find(|e| e.is_proposal_tx && !(only_small_cycle && e.is_large_cycle))
-        {
-            return Some(proposal_entry.inner.tx().proposal_short_id());
-        }
-
-        let entry = if only_small_cycle {
+        // `priority_order` sorts proposals before normal txs, with arrival time
+        // as the secondary key, so a single iterator gives the correct priority
+        // without scanning the whole queue.
+        if only_small_cycle {
             self.inner
-                .iter_by_added_time()
+                .iter_by_priority_order()
                 .find(|e| !e.is_large_cycle)
+                .map(|e| e.inner.tx().proposal_short_id())
         } else {
-            self.inner.iter_by_added_time().next()
-        };
-
-        entry.map(|e| e.inner.tx().proposal_short_id())
+            self.inner
+                .iter_by_priority_order()
+                .next()
+                .map(|e| e.inner.tx().proposal_short_id())
+        }
     }
 
     fn peek_by_fee_rate(&self, only_small_cycle: bool) -> Option<ProposalShortId> {
@@ -310,13 +308,16 @@ impl VerifyQueue {
                 // in place without the costly remove + shrink + reinsert cycle.
                 let mut promoted = false;
                 self.inner.modify_by_id(&id, |e| {
+                    let now = unix_time_as_millis();
                     if !e.is_proposal_tx {
                         e.is_proposal_tx = true;
-                        e.added_time = unix_time_as_millis();
+                        e.added_time = now;
+                        e.priority_order = (VerifyPriority::Proposal, now);
                         promoted = true;
                     } else {
                         // Already a proposal tx — update the timestamp to re-promote.
-                        e.added_time = unix_time_as_millis();
+                        e.added_time = now;
+                        e.priority_order.1 = now;
                     }
                 });
                 return Ok(promoted);
@@ -353,10 +354,10 @@ impl VerifyQueue {
             id: id.clone(),
             added_time,
             inverted_fee_rate: invert_fee_rate(fee_rate.as_u64()),
+            priority_order: (priority, added_time),
             inner: Entry { resolved },
             is_large_cycle,
             is_proposal_tx,
-            priority_order: (priority, added_time),
         });
         self.flight.insert(
             id.clone(),

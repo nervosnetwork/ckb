@@ -85,6 +85,8 @@ impl RecentReject {
 
         // Fast path: hold the read lock across the DB write so that `shrink`
         // cannot drop the column family while we are writing to it.
+        let mut fast_path_ok = false;
+        let mut is_new_key = false;
         {
             let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
             let existed = match db.get_pinned(&shard, hash_slice) {
@@ -101,10 +103,8 @@ impl RecentReject {
                 Ok(()) => {
                     // Only count newly inserted keys; overwrites should not
                     // inflate the approximate counter.
-                    if !existed {
-                        self.maybe_shrink();
-                    }
-                    return Ok(());
+                    fast_path_ok = true;
+                    is_new_key = !existed;
                 }
                 Err(e) => {
                     let err = AnyError::from(e);
@@ -115,23 +115,34 @@ impl RecentReject {
             }
         }
 
+        if fast_path_ok {
+            if is_new_key {
+                self.maybe_shrink();
+            }
+            return Ok(());
+        }
+
         // Slow path: the shard column family is missing (e.g. `shrink`
         // dropped it but failed to recreate it).  Upgrade to a write lock,
         // create the column family on demand, and retry the write.
-        let mut db = self
-            .db
-            .write()
-            .map_err(|e| OtherError::new(e.to_string()))?;
-        if let Err(e) = db.put(&shard, hash_slice, json_bytes) {
-            let err = AnyError::from(e);
-            if is_cf_missing(&err, &shard) {
-                db.create_cf_with_ttl(&shard, self.ttl)?;
-                db.put(&shard, hash_slice, json_bytes)?;
-            } else {
-                return Err(err);
+        {
+            let mut db = self
+                .db
+                .write()
+                .map_err(|e| OtherError::new(e.to_string()))?;
+            if let Err(e) = db.put(&shard, hash_slice, json_bytes) {
+                let err = AnyError::from(e);
+                if is_cf_missing(&err, &shard) {
+                    db.create_cf_with_ttl(&shard, self.ttl)?;
+                    db.put(&shard, hash_slice, json_bytes)?;
+                } else {
+                    return Err(err);
+                }
             }
         }
         // The shard was empty (it had just been dropped), so this is a new key.
+        // Call `maybe_shrink` only after releasing the write lock to avoid
+        // deadlock: `shrink` also needs the write lock.
         self.maybe_shrink();
         Ok(())
     }
