@@ -3,7 +3,6 @@ use crate::component::pool_map::PoolMap;
 use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
 use ckb_logger::debug;
 use ckb_types::{core::Cycle, packed::ProposalShortId};
-use ckb_util::LinkedHashMap;
 use multi_index_map::MultiIndexMap;
 use std::collections::HashSet;
 
@@ -19,7 +18,9 @@ pub struct ModifiedTx {
 
 impl MultiIndexModifiedTxMap {
     pub fn next_best_entry(&self) -> Option<&TxEntry> {
-        self.iter_by_score().last().map(|x| &x.inner)
+        // ordered_non_unique iterator is DoubleEnded, so `next_back()` returns
+        // the max-score entry in O(1) instead of walking the whole index.
+        self.iter_by_score().next_back().map(|x| &x.inner)
     }
 
     pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
@@ -80,6 +81,11 @@ pub struct TxSelector<'a> {
     fetched_txs: HashSet<ProposalShortId>,
     // Keep track of entries that failed inclusion, to avoid duplicate work
     failed_txs: HashSet<ProposalShortId>,
+    // Cache for calc_descendants results.  PoolMap is immutably borrowed for
+    // the lifetime of TxSelector, so cached results remain valid throughout
+    // the selection round.  This eliminates redundant BFS traversals when
+    // multiple committed txs share descendants (CPFP chains).
+    descendants_cache: std::collections::HashMap<ProposalShortId, HashSet<ProposalShortId>>,
 }
 
 impl<'a> TxSelector<'a> {
@@ -90,6 +96,7 @@ impl<'a> TxSelector<'a> {
             modified_entries: MultiIndexModifiedTxMap::default(),
             fetched_txs: HashSet::default(),
             failed_txs: HashSet::default(),
+            descendants_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -153,8 +160,8 @@ impl<'a> TxSelector<'a> {
                 consecutive_failed += 1;
                 if using_modified {
                     self.modified_entries.remove(&short_id);
-                    self.failed_txs.insert(short_id.clone());
                 }
+                self.failed_txs.insert(short_id);
                 if consecutive_failed > MAX_CONSECUTIVE_FAILURES {
                     break;
                 }
@@ -179,8 +186,8 @@ impl<'a> TxSelector<'a> {
             {
                 if using_modified {
                     self.modified_entries.remove(&short_id);
-                    self.failed_txs.insert(short_id.clone());
                 }
+                self.failed_txs.insert(short_id);
                 consecutive_failed += 1;
                 if consecutive_failed > MAX_CONSECUTIVE_FAILURES {
                     break;
@@ -188,23 +195,24 @@ impl<'a> TxSelector<'a> {
                 continue;
             }
 
-            let mut ancestors = ancestors_ids
+            let mut ancestors: Vec<(ProposalShortId, TxEntry)> = ancestors_ids
                 .iter()
                 .filter_map(only_unconfirmed)
-                .cloned()
-                .collect::<Vec<TxEntry>>();
+                .map(|entry| (entry.proposal_short_id(), entry.clone()))
+                .collect();
 
             // sort ancestors by ancestors_count,
             // if A is an ancestor of B, B.ancestors_count must large than A
-            ancestors.sort_unstable_by_key(|entry| entry.ancestors_count);
-            ancestors.push(tx_entry.to_owned());
+            ancestors.sort_unstable_by_key(|(_, entry)| entry.ancestors_count);
+            let tx_short_id = tx_entry.proposal_short_id();
+            ancestors.push((tx_short_id, tx_entry));
 
-            let ancestors: LinkedHashMap<ProposalShortId, TxEntry> = ancestors
-                .into_iter()
-                .map(|entry| (entry.proposal_short_id(), entry))
-                .collect();
+            let committed_ids: HashSet<ProposalShortId> =
+                ancestors.iter().map(|(id, _)| id.clone()).collect();
 
-            for (short_id, entry) in &ancestors {
+            self.update_modified_entries(&ancestors, &committed_ids);
+
+            for (short_id, entry) in ancestors {
                 let is_new = self.fetched_txs.insert(short_id.clone());
                 if !is_new {
                     debug!("package duplicate txs {}", short_id);
@@ -212,12 +220,12 @@ impl<'a> TxSelector<'a> {
                 }
                 cycles = cycles.saturating_add(entry.cycles);
                 size = size.saturating_add(entry.size);
-                self.entries.push(entry.to_owned());
+                self.entries.push(entry);
                 // try remove from modified
-                self.modified_entries.remove(short_id);
+                self.modified_entries.remove(&short_id);
             }
 
-            self.update_modified_entries(&ancestors);
+            consecutive_failed = 0;
         }
         (self.entries, size, cycles)
     }
@@ -238,25 +246,77 @@ impl<'a> TxSelector<'a> {
             || self.failed_txs.contains(short_id)
     }
 
+    /// Memoized wrapper around `pool_map.calc_descendants`.
+    ///
+    /// PoolMap is immutably borrowed for the lifetime of TxSelector, so
+    /// cached results remain valid throughout the selection round.
+    fn cache_descendants(&mut self, id: &ProposalShortId) {
+        if !self.descendants_cache.contains_key(id) {
+            let desc = self.pool_map.calc_descendants(id);
+            self.descendants_cache.insert(id.clone(), desc);
+        }
+    }
+
     /// Add descendants of given transactions to `modified_entries` with ancestor
     /// state updated assuming given transactions are inBlock.
-    fn update_modified_entries(&mut self, already_added: &LinkedHashMap<ProposalShortId, TxEntry>) {
-        for (id, entry) in already_added {
-            let descendants = self.pool_map.calc_descendants(id);
+    ///
+    /// When multiple committed transactions share descendants (CPFP chains),
+    /// the old code would remove → adjust → re-insert the same descendant
+    /// once per committed ancestor.  This version collects all adjustments
+    /// first, then applies them in a single remove → batch-sub → insert per
+    /// unique descendant.  Descendant sets are memoized to avoid redundant
+    /// BFS traversals across committed txs in the same package.
+    fn update_modified_entries(
+        &mut self,
+        committed: &[(ProposalShortId, TxEntry)],
+        committed_ids: &HashSet<ProposalShortId>,
+    ) {
+        use std::collections::HashMap;
+
+        // Phase 1a: populate descendants cache for all committed txs.
+        // Track whether any committed tx actually has descendants — leaf
+        // packages (the common non-CPFP case) can skip the rest entirely.
+        let mut has_descendants = false;
+        for (id, _) in committed {
+            self.cache_descendants(id);
+            if !self.descendants_cache[id].is_empty() {
+                has_descendants = true;
+            }
+        }
+        if !has_descendants {
+            return;
+        }
+
+        // Phase 1b: collect all (descendant_id → list of ancestor entries to subtract).
+        // Uses cached descendant sets — no BFS here.
+        let mut adjustments: HashMap<ProposalShortId, Vec<&TxEntry>> = HashMap::new();
+        for (id, entry) in committed {
+            let descendants = &self.descendants_cache[id];
             for desc_id in descendants
                 .iter()
-                .filter(|id| !already_added.contains_key(id) && self.pool_map.has_proposed(id))
+                .filter(|id| !committed_ids.contains(*id) && self.pool_map.has_proposed(id))
             {
-                // Note: since https://github.com/nervosnetwork/ckb/pull/3706
-                // calc_descendants() may not consistent
-                if let Some(mut desc) = self
-                    .modified_entries
-                    .remove(desc_id)
-                    .or_else(|| self.pool_map.get(desc_id).cloned())
-                {
+                adjustments
+                    .entry(desc_id.clone())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+
+        // Phase 2: apply all adjustments in a single remove → batch-sub → insert
+        // per unique descendant.
+        for (desc_id, entries_to_sub) in adjustments {
+            // Note: since https://github.com/nervosnetwork/ckb/pull/3706
+            // calc_descendants() may not consistent
+            if let Some(mut desc) = self
+                .modified_entries
+                .remove(&desc_id)
+                .or_else(|| self.pool_map.get(&desc_id).cloned())
+            {
+                for entry in entries_to_sub {
                     desc.sub_ancestor_weight(entry);
-                    self.modified_entries.insert_entry(desc);
                 }
+                self.modified_entries.insert_entry(desc);
             }
         }
     }
