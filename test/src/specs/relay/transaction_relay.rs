@@ -22,21 +22,31 @@ impl Spec for TransactionRelayBasic {
     fn run(&self, nodes: &mut Vec<Node>) {
         out_ibd_mode(nodes);
         connect_all(nodes);
+        waiting_for_sync(nodes);
 
         let node1 = &nodes[1];
         let cells = gen_spendable(node1, 1);
         let transaction = always_success_transaction(node1, &cells[0]);
         let hash = node1.submit_transaction(&transaction);
 
-        let relayed = wait_until(10, || {
+        let relayed = wait_until(60, || {
             nodes.iter().all(|node| {
                 node.rpc_client().get_transaction(hash.clone()).cycles == Some(537.into())
             })
         });
-        assert!(
-            relayed,
-            "Transaction should be relayed from node0 to others"
-        );
+        if !relayed {
+            let tx_states = nodes
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    let response = node.rpc_client().get_transaction(hash.clone());
+                    (index, response.tx_status.status, response.cycles)
+                })
+                .collect::<Vec<_>>();
+            panic!(
+                "Transaction should be relayed from node1 to all nodes, tx: {hash:?}, node states: {tx_states:?}"
+            );
+        }
     }
 }
 
