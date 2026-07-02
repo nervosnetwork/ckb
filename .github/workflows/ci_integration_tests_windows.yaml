@@ -20,7 +20,7 @@ jobs:
   build:
     name: Build and prepare test chunks
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: windows-2022
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-16vcpu-windows-2025' || 'windows-2022' }}
     outputs:
       test_chunks: ${{ steps.chunk_tests.outputs.test_chunks }}
       chunk_indices: ${{ steps.chunk_tests.outputs.chunk_indices }}
@@ -132,7 +132,7 @@ jobs:
     name: Run tests (chunk ${{ matrix.chunk_index }})
     needs: build
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: windows-2022
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-8vcpu-windows-2025' || 'windows-2022' }}
     strategy:
       fail-fast: false
       matrix:

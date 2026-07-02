@@ -20,7 +20,7 @@ jobs:
   build:
     name: Build and prepare test chunks
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: macos-15
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     outputs:
       test_chunks: ${{ steps.chunk_tests.outputs.test_chunks }}
       chunk_indices: ${{ steps.chunk_tests.outputs.chunk_indices }}
@@ -122,7 +122,7 @@ jobs:
     name: Run tests (chunk ${{ matrix.chunk_index }})
     needs: build
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: macos-15
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     strategy:
       fail-fast: false
       matrix:
