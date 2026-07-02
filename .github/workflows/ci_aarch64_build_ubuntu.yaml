@@ -31,10 +31,10 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}

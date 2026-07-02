@@ -29,10 +29,10 @@ jobs:
           brew cleanup
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
