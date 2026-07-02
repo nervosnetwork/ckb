@@ -397,7 +397,7 @@ impl TxPoolService {
             }
         }
 
-        #[allow(unused_variables)]
+        #[cfg(feature = "pipeline")]
         let entry_id = entry.proposal_short_id();
         #[cfg(feature = "pipeline")]
         let entry_id_for_cleanup = entry_id.clone();
@@ -1371,14 +1371,6 @@ impl TxPoolService {
             ));
         }
 
-        // Pre-compute output outpoints before rtx is consumed by TxEntry.
-        // Used below for push-based dependent wake-up.
-        #[cfg(feature = "pipeline")]
-        let submitted_output_pts: Vec<ckb_types::packed::OutPoint> =
-            (0..rtx.transaction.outputs().len())
-                .map(|i| ckb_types::packed::OutPoint::new(rtx.transaction.hash(), i as u32))
-                .collect();
-
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
         let (ret, submit_snapshot) = self.submit_entry(pre_resolve_tip, entry, status).await;
@@ -1388,30 +1380,11 @@ impl TxPoolService {
 
         // A newly submitted transaction may resolve dependent transactions that
         // are waiting in the ordered resolve queue (e.g. children of a parent
-        // that was just re-added after a reorg).
-        //
-        // Push-based wake-up: use the output_dependents reverse index to find
-        // and extract dependent jobs directly, then re-enqueue them at the
-        // back of the queue so the resolver picks them up immediately —
-        // bypassing any unrelated jobs ahead in the FIFO.
-        #[cfg(feature = "pipeline")]
-        {
-            let mut queue = self.ordered_resolve_queue.write().await;
-            let dependents = queue.drain_dependents(&submitted_output_pts);
-            let has_dependents = !dependents.is_empty();
-            for job in dependents {
-                let _ = queue.add_tx(job);
-            }
-            if has_dependents || !queue.is_empty() {
-                queue.subscribe().notify_one();
-            }
-        }
-        #[cfg(not(feature = "pipeline"))]
-        {
-            let queue = self.ordered_resolve_queue.read().await;
-            if !queue.is_empty() {
-                queue.subscribe().notify_one();
-            }
+        // that was just re-added after a reorg). Wake the ordered resolver so
+        // those children can be retried promptly.
+        let queue = self.ordered_resolve_queue.read().await;
+        if !queue.is_empty() {
+            queue.subscribe().notify_one();
         }
 
         if verify_cache.is_none() {
