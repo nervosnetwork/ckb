@@ -45,6 +45,7 @@ macOS and Windows jobs are split into quick PR checks and full protected-branch 
 - ✅ PRs run quick macOS/Windows checks for early cross-platform signal
 - ✅ Full macOS/Windows jobs run in `merge_group`, `develop`, `master`, `rc/**`, `pkg/*`, and manual dispatch
 - ✅ This keeps regular PR feedback cheaper while preserving full desktop validation before or after protected-branch changes
+- ✅ If a Ubuntu CI workflow fails, is cancelled, or times out, `ci_cancel_desktop_on_ubuntu_failure` cancels queued or running macOS/Windows CI for the same commit
 
 ### Why This Design?
 
