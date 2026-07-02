@@ -3,10 +3,12 @@ concurrency:
   group: ci_benchmarks_windows-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   push:
-    branches: ['**']
+    branches:
+      - develop
+      - master
+      - "rc/**"
+      - "pkg/*"
   merge_group: {}
   workflow_dispatch: {}
 
@@ -17,18 +19,18 @@ env:
 jobs:
   ci_benchmarks_windows:
     name: ci_benchmarks_windows
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: windows-2022
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-8vcpu-windows-2025' || 'windows-2022' }}
     steps:
       - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
         run: |
           Remove-Item -Path "C:\Program Files\dotnet" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "$env:PROGRAMDATA\chocolatey" -Recurse -Force -ErrorAction SilentlyContinue
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
-        uses: actions/cache@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
@@ -48,7 +50,7 @@ jobs:
         run: make bench-test
         shell: bash
       - name: Disk usage summary
-        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/')))
         run: |
           echo "=== Disk Space Summary ==="
           Get-PSDrive -PSProvider FileSystem | Format-Table

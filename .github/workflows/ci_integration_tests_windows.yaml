@@ -3,10 +3,12 @@ concurrency:
   group: ci_integration_tests_windows-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   push:
-    branches: ["**"]
+    branches:
+      - develop
+      - master
+      - "rc/**"
+      - "pkg/*"
   merge_group: {}
   workflow_dispatch: {}
 
@@ -19,21 +21,21 @@ env:
 jobs:
   build:
     name: Build and prepare test chunks
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: windows-2022
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-16vcpu-windows-2025' || 'windows-2022' }}
     outputs:
       test_chunks: ${{ steps.chunk_tests.outputs.test_chunks }}
       chunk_indices: ${{ steps.chunk_tests.outputs.chunk_indices }}
     steps:
       - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
         run: |
           Remove-Item -Path "C:\Program Files\dotnet" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "$env:PROGRAMDATA\chocolatey" -Recurse -Force -ErrorAction SilentlyContinue
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
-        uses: actions/cache@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-it-${{ hashFiles('**/Cargo.lock') }}
@@ -110,19 +112,19 @@ jobs:
           echo "$test_chunks" | jq .
         shell: bash
       - name: Upload ckb binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb-binary-${{ runner.os }}
           path: target/release/ckb.exe
           retention-days: 1
       - name: Upload ckb-test binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb-test-binary-${{ runner.os }}
           path: target/release/ckb-test.exe
           retention-days: 1
       - name: Upload obfs4proxy
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: obfs4proxy-${{ runner.os }}
           path: test/obfs4/obfs4proxy/obfs4proxy
@@ -131,28 +133,27 @@ jobs:
   test:
     name: Run tests (chunk ${{ matrix.chunk_index }})
     needs: build
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: windows-2022
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-8vcpu-windows-2025' || 'windows-2022' }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         chunk_index: ${{ fromJson(needs.build.outputs.chunk_indices) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
       - name: Download ckb binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ckb-binary-${{ runner.os }}
           path: target/release/
       - name: Download ckb-test binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ckb-test-binary-${{ runner.os }}
           path: target/release/
       - name: Download obfs4proxy
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: obfs4proxy-${{ runner.os }}
           path: test/obfs4/obfs4proxy/
@@ -169,11 +170,11 @@ jobs:
           RUST_BACKTRACE=1 RUST_LOG=info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug \
             ./target/release/ckb-test.exe --bin "$(pwd)/target/release/ckb.exe" \
             --obfs4proxy-bin "$(pwd)/test/obfs4/obfs4proxy/obfs4proxy" \
-            -c 1 --no-report --max-time 900 $CHUNK_SPECS
+            --no-report --max-time 900 $CHUNK_SPECS
         shell: bash
       - name: upload log files
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ runner.os }}_integration_logs_chunk_${{ matrix.chunk_index }}
           path: ${{ runner.temp }}/ckb-integration-test
@@ -181,7 +182,7 @@ jobs:
   ci_integration_tests_windows:
     name: ci_integration_tests_windows
     needs: test
-    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Check test chunks result
