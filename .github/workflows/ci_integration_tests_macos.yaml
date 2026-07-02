@@ -166,7 +166,7 @@ jobs:
           RUST_BACKTRACE=1 RUST_LOG=info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug \
             ${{ github.workspace }}/target/release/ckb-test --bin ${{ github.workspace }}/target/release/ckb \
             --obfs4proxy-bin ${{ github.workspace }}/test/obfs4/obfs4proxy/obfs4proxy \
-            -c 1 --no-report --max-time 7200 $CHUNK_SPECS
+            --no-report --max-time 7200 $CHUNK_SPECS
         shell: bash
         env:
           CKB_FEATURES: deadlock_detection,with_sentry,portable
