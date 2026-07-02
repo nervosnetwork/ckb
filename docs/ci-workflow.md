@@ -6,7 +6,9 @@ This document explains how the CKB CI (Continuous Integration) workflow operates
 
 The CI workflow runs tests and checks across multiple operating systems (Ubuntu, macOS, Windows) for various job types (quick checks, unit tests, integration tests, benchmarks, linters, etc.). The workflow is designed to:
 
-- Run all tests automatically on PRs and protected branches
+- Run all Ubuntu jobs automatically on PRs and protected branches
+- Run only quick macOS/Windows checks on PRs
+- Run full macOS/Windows jobs on merge queue, protected branches, and manual dispatch
 - Make Ubuntu jobs required for PR merges while other OS jobs are optional (but still block if they fail)
 - Prevent duplicate workflow runs on both PR events and push events
 - Support manual workflow triggering for testing purposes
@@ -18,7 +20,7 @@ All CI workflows support manual triggering via `workflow_dispatch` and can run o
 1. Go to the Actions tab in GitHub
 2. Select the workflow you want to run
 3. Click "Run workflow"
-4. Choose any branch to run on (not limited to master, develop, or rc/*)
+4. Choose any branch to run on (not limited to master, develop, or rc/**)
 
 This is useful for testing workflow changes on dedicated branches without creating a PR. To test changes:
 
@@ -36,21 +38,20 @@ Ubuntu jobs are configured as **required status checks** in the repository setti
 - ✅ Ubuntu jobs block PR merges immediately if they fail
 - ✅ These are the "essential path" - the minimum validation required
 
-### Other OS Jobs: Optional but Blocking
+### macOS/Windows Jobs: Layered Desktop Path
 
-macOS and Windows jobs are **not** configured as required status checks, which means:
+macOS and Windows jobs are split into quick PR checks and full protected-branch checks:
 
-- ✅ PRs **can be merged** even if macOS/Windows jobs are still running
-- ⚠️ However, if macOS/Windows jobs **finish and fail**, the PR **cannot be merged**
-- ✅ This allows faster iteration - you don't have to wait for slower macOS/Windows runners
-- ⚠️ But ensures cross-platform compatibility - failures still block merges
+- ✅ PRs run quick macOS/Windows checks for early cross-platform signal
+- ✅ Full macOS/Windows jobs run in `merge_group`, `develop`, `master`, `rc/**`, and manual dispatch
+- ✅ This keeps regular PR feedback cheaper while preserving full desktop validation before or after protected-branch changes
 
 ### Why This Design?
 
-1. **Speed**: Ubuntu runners are typically faster and more available, allowing quicker feedback
-2. **Flexibility**: Developers can merge PRs without waiting for all OS tests if Ubuntu passes
-3. **Safety**: Cross-platform failures still prevent merges, ensuring compatibility
-4. **Resource Efficiency**: macOS and Windows runners may be slower or have limited capacity
+1. **Speed**: Ubuntu runners provide full PR feedback quickly
+2. **Cost control**: PRs avoid running the most expensive full macOS/Windows jobs by default
+3. **Safety**: merge queue and protected branches still run full desktop validation
+4. **Flexibility**: maintainers can manually dispatch full desktop workflows when needed
 
 ## Avoiding Duplicate Runs
 
@@ -75,39 +76,39 @@ concurrency:
 Workflows trigger on:
 
 - `pull_request`: `opened`, `synchronize`, `reopened`
-- `push`: On all branches (master, develop, rc/*, and any other branch)
+- `push`: Ubuntu workflows run on all branches; desktop workflows run on `develop`, `master`, and `rc/**`
 - `merge_group`: For merge queue
 - `workflow_dispatch`: For manual triggering
 
 This means:
 
 - PR events always run
-- Push events run on any branch
+- Ubuntu push events run on any branch
+- Desktop push events run only on protected branches
 - Manual dispatch always runs
 
 ### 3. Workflow Execution Flow
 
 When a PR is opened/updated:
 
-1. Workflow runs triggered by `pull_request` event
-2. Concurrency group ensures only one run per workflow
+1. Ubuntu workflows run the full CI set
+2. macOS and Windows quick-check workflows run
+3. Full macOS/Windows workflows wait for `merge_group`, protected-branch pushes, or manual dispatch
 
 When a PR is merged (push to `develop`):
 
 1. The merge commit triggers `push` event
-2. Concurrency group matches the PR's reference, canceling any remaining PR runs
-3. New push-based run executes
-
-This prevents the same commit from running tests twice - once as a PR and once as a push.
+2. Ubuntu workflows run again on the protected branch
+3. Full macOS/Windows workflows run on the protected branch
 
 ## Workflow Files
 
 CI workflows are organized by job type and OS:
 
-- `ci_quick_checks_ubuntu.yaml` / `ci_quick_checks_macos.yaml`
-- `ci_unit_tests_ubuntu.yaml` / `ci_unit_tests_macos.yaml`
+- `ci_quick_checks_ubuntu.yaml` / `ci_quick_checks_macos.yaml` / `ci_quick_checks_windows.yaml`
+- `ci_unit_tests_ubuntu.yaml` / `ci_unit_tests_macos.yaml` / `ci_unit_tests_windows.yaml`
 - `ci_integration_tests_ubuntu.yaml` / `ci_integration_tests_macos.yaml` / `ci_integration_tests_windows.yaml`
-- `ci_benchmarks_ubuntu.yaml` / `ci_benchmarks_macos.yaml`
+- `ci_benchmarks_ubuntu.yaml` / `ci_benchmarks_macos.yaml` / `ci_benchmarks_windows.yaml`
 - `ci_linters_ubuntu.yaml` / `ci_linters_macos.yaml`
 - `ci_cargo_deny_ubuntu.yaml`
 - `ci_aarch64_build_ubuntu.yaml`

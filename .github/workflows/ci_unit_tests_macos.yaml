@@ -3,10 +3,11 @@ concurrency:
   group: ci_unit_tests_macos-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   push:
-    branches: ['**']
+    branches:
+      - develop
+      - master
+      - "rc/**"
   merge_group: {}
   workflow_dispatch: {}
 
@@ -17,7 +18,6 @@ env:
 jobs:
   ci_unit_tests_macos:
     name: ci_unit_tests_macos
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     steps:
       - name: Free up disk space

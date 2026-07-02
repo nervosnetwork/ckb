@@ -3,10 +3,11 @@ concurrency:
   group: ci_integration_tests_macos-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   push:
-    branches: ['**']
+    branches:
+      - develop
+      - master
+      - "rc/**"
   merge_group: {}
   workflow_dispatch: {}
 
@@ -19,7 +20,6 @@ env:
 jobs:
   build:
     name: Build and prepare test chunks
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     outputs:
       test_chunks: ${{ steps.chunk_tests.outputs.test_chunks }}
@@ -121,7 +121,6 @@ jobs:
   test:
     name: Run tests (chunk ${{ matrix.chunk_index }})
     needs: build
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     strategy:
       fail-fast: false
@@ -179,7 +178,7 @@ jobs:
   ci_integration_tests_macos:
     name: ci_integration_tests_macos
     needs: test
-    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Check test chunks result
