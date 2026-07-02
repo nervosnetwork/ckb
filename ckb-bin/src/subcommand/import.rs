@@ -1,5 +1,6 @@
 use ckb_app_config::{ExitCode, ImportArgs};
 use ckb_async_runtime::Handle;
+use ckb_chain::ChainServiceScope;
 use ckb_instrument::Import;
 use ckb_shared::SharedBuilder;
 
@@ -14,7 +15,8 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
     )?;
     let (shared, mut pack) = builder.build()?;
 
-    let chain_controller = ckb_chain::start_chain_services(pack.take_chain_services_builder());
+    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain_controller = chain_scope.chain_controller().clone();
 
     // manual drop tx_pool_builder and relay_tx_receiver
     pack.take_tx_pool_builder();
