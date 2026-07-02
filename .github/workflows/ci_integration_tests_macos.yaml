@@ -179,7 +179,7 @@ jobs:
   ci_integration_tests_macos:
     name: ci_integration_tests_macos
     needs: test
-    if: ${{ always() }}
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Check test chunks result
