@@ -25,10 +25,10 @@ impl Spec for TransactionRelayBasic {
         waiting_for_sync(nodes);
 
         let node1 = &nodes[1];
-        wait_relay_protocol_connected(node1, &nodes[0]);
-        wait_relay_protocol_connected(node1, &nodes[2]);
-
         let cells = gen_spendable(node1, 1);
+        waiting_for_sync(nodes);
+        wait_relay_protocols_connected(nodes);
+
         let transaction = always_success_transaction(node1, &cells[0]);
         let hash = node1.submit_transaction(&transaction);
 
@@ -49,6 +49,16 @@ impl Spec for TransactionRelayBasic {
             panic!(
                 "Transaction should be relayed from node1 to all nodes, tx: {hash:?}, node states: {tx_states:?}"
             );
+        }
+    }
+}
+
+fn wait_relay_protocols_connected(nodes: &[Node]) {
+    for (node_index, node) in nodes.iter().enumerate() {
+        for (peer_index, peer) in nodes.iter().enumerate() {
+            if node_index != peer_index {
+                wait_relay_protocol_connected(node, peer);
+            }
         }
     }
 }
@@ -98,6 +108,9 @@ impl Spec for TransactionRelayMultiple {
 
         let node0 = &nodes[0];
         let cells = gen_spendable(node0, 10);
+        waiting_for_sync(nodes);
+        wait_relay_protocols_connected(nodes);
+
         let transactions = always_success_transactions(node0, &cells);
         transactions.iter().for_each(|tx| {
             node0.submit_transaction(tx);
