@@ -265,7 +265,7 @@ impl Spec for TransactionRelayConflict {
                 .contains("TransactionFailedToResolve: Resolve failed Dead")
         );
 
-        let relayed = wait_until(20, || {
+        let relayed = wait_until(60, || {
             [tx1.hash()].iter().all(|hash| {
                 node1
                     .rpc_client()
@@ -317,7 +317,7 @@ impl Spec for TransactionRelayConflict {
         });
         assert!(result, "remove txs from node1");
 
-        let relayed = wait_until(10, || {
+        let relayed = wait_until(60, || {
             // re-broadcast
             let _ = node1
                 .rpc_client()

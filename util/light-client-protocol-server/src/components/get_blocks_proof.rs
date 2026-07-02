@@ -79,19 +79,17 @@ impl<'a> GetBlocksProofProcess<'a> {
         let mut extensions = Vec::with_capacity(found.len());
 
         for block_hash in found {
-            let header = snapshot
-                .get_block_header(&block_hash)
-                .expect("header should be in store");
-            positions.push(leaf_index_to_pos(header.number()));
-            block_headers.push(header.data());
-
-            let uncles = snapshot
-                .get_block_uncles(&block_hash)
-                .expect("block uncles must be stored");
-            let extension = snapshot.get_block_extension(&block_hash);
-
-            uncles_hash.push(uncles.data().calc_uncles_hash());
-            extensions.push(packed::BytesOpt::new_builder().set(extension).build());
+            let block = snapshot
+                .get_block(&block_hash)
+                .expect("block should be in store");
+            positions.push(leaf_index_to_pos(block.number()));
+            block_headers.push(block.header().data());
+            uncles_hash.push(block.calc_uncles_hash());
+            extensions.push(
+                packed::BytesOpt::new_builder()
+                    .set(block.extension())
+                    .build(),
+            );
         }
 
         let proved_items = (

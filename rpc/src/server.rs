@@ -122,7 +122,10 @@ impl RpcServer {
             .route("/ping", get(ping_handler))
             .layer(Extension(Arc::clone(rpc)))
             .layer(CorsLayer::permissive())
-            .layer(TimeoutLayer::new(Duration::from_secs(30)))
+            .layer(TimeoutLayer::with_status_code(
+                StatusCode::REQUEST_TIMEOUT,
+                Duration::from_secs(30),
+            ))
             .layer(Extension(stream_config));
 
         let (tx_addr, rx_addr) = tokio::sync::oneshot::channel::<SocketAddr>();
@@ -204,7 +207,7 @@ async fn ping_handler() -> impl IntoResponse {
     "pong"
 }
 
-/// used for compatible with old PRC error response for GET
+/// Used for compatibility with the old RPC error response for GET requests.
 async fn get_error_handler() -> impl IntoResponse {
     (
         StatusCode::METHOD_NOT_ALLOWED,

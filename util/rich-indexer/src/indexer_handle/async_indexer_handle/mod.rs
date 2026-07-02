@@ -12,7 +12,7 @@ use ckb_jsonrpc_types::{
     IndexerTip, JsonBytes,
 };
 use ckb_types::H256;
-use num_bigint::BigUint;
+
 use sql_builder::SqlBuilder;
 use sqlx::Row;
 
@@ -250,11 +250,23 @@ fn build_cell_filter(
 
 fn get_binary_upper_boundary(value: &[u8]) -> Vec<u8> {
     if value.is_empty() {
-        return vec![255; 32];
+        return vec![u8::MAX; 32];
     }
-    let value_big = BigUint::from_bytes_be(value);
-    let value_upper = value_big + 1usize;
-    value_upper.to_bytes_be()
+    // Compute the lexicographic successor: find the rightmost byte that is
+    // not u8::MAX, increment it, then truncate everything after it. The result
+    // is the shortest byte string that is strictly greater than every possible
+    // extension of `value`, which is exactly what the prefix range query
+    // `args >= $prefix AND args < $upper` needs.
+    if let Some(i) = value.iter().rposition(|&b| b != u8::MAX) {
+        let mut result = value[..=i].to_vec();
+        result[i] += 1;
+        result
+    } else {
+        // All bytes are u8::MAX — no finite exclusive upper bound exists for
+        // this prefix. Return a sentinel one byte longer that is still
+        // lexicographically greater than any extension of the input.
+        vec![u8::MAX; value.len() + 1]
+    }
 }
 
 fn bytes_to_h256(input: &[u8]) -> H256 {
@@ -365,6 +377,65 @@ mod tests {
             hex::decode("b2a8500929d6a1294bf9bf1bf565f549fa4a5f1316a3306ad3d4783e64bcf627")
                 .expect("Decoding failed");
         let result = get_binary_upper_boundary(&input);
+        assert_eq!(result, expected);
+    }
+
+    // Regression test for https://github.com/nervosnetwork/ckb/issues/5165
+    // Verifies that leading zero bytes are preserved in the upper boundary.
+    #[test]
+    fn test_get_binary_upper_boundary_leading_zeros() {
+        // Real-world case from the bug report: 22-byte args starting with 0x00
+        let input =
+            hex::decode("00014cbca1cb3cd2b60550904f16c920cffa7c9f866e").expect("Decoding failed");
+        let expected =
+            hex::decode("00014cbca1cb3cd2b60550904f16c920cffa7c9f866f").expect("Decoding failed");
+        let result = get_binary_upper_boundary(&input);
+        assert_eq!(
+            result.len(),
+            input.len(),
+            "Upper boundary must preserve the original byte length"
+        );
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_multiple_leading_zeros() {
+        let input = hex::decode("0000000102").expect("Decoding failed");
+        let expected = hex::decode("0000000103").expect("Decoding failed");
+        let result = get_binary_upper_boundary(&input);
+        assert_eq!(result.len(), input.len());
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_single_zero_byte() {
+        let result = get_binary_upper_boundary(&[0x00]);
+        assert_eq!(result, vec![0x01]);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_all_ff_overflow() {
+        // When all bytes are u8::MAX, no same-length upper bound exists.
+        // The function returns a sentinel of u8::MAX bytes one byte longer.
+        let result = get_binary_upper_boundary(&[u8::MAX, u8::MAX]);
+        assert_eq!(result, vec![u8::MAX; 3]);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_trailing_ff_carry() {
+        // Trailing u8::MAX bytes are truncated; only the incremented byte remains
+        let input = vec![0x00, u8::MAX, u8::MAX];
+        let result = get_binary_upper_boundary(&input);
+        assert_eq!(result, vec![0x01]);
+    }
+
+    #[test]
+    fn test_get_binary_upper_boundary_short_prefix_with_leading_zero() {
+        // Short prefix search case from the bug report: args "0x003d"
+        let input = hex::decode("003d").expect("Decoding failed");
+        let expected = hex::decode("003e").expect("Decoding failed");
+        let result = get_binary_upper_boundary(&input);
+        assert_eq!(result.len(), input.len());
         assert_eq!(result, expected);
     }
 }

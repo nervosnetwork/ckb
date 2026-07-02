@@ -37,6 +37,14 @@ pub mod mainnet {
             "0xcffc6a0a1f363db8fdbe2fea916ab5cd8851dd479bc04003dab88c9379dca1d0",
             // height: 14000000; https://explorer.nervos.org/block/0xf283cacaa21556957b9621b8ac303a0b2c06434c26a1b53b1e590219d2c7313a
             "0xf283cacaa21556957b9621b8ac303a0b2c06434c26a1b53b1e590219d2c7313a",
+            // height: 15000000; https://explorer.nervos.org/block/0xb4da23a733f12e0e855d21cfda68dd69121e44b529f9a8b5ef2f6ef63d48948e
+            "0xb4da23a733f12e0e855d21cfda68dd69121e44b529f9a8b5ef2f6ef63d48948e",
+            // height: 16000000; https://explorer.nervos.org/block/0xf50166ffd391a49eb09d1289a40f21e44791648570e45b86c24b4f812bb93166
+            "0xf50166ffd391a49eb09d1289a40f21e44791648570e45b86c24b4f812bb93166",
+            // height: 17000000; https://explorer.nervos.org/block/0xa1a12ec8500d1f339acbf706b91c6f2c3b1c8c020153ec162afb3971c9360b64
+            "0xa1a12ec8500d1f339acbf706b91c6f2c3b1c8c020153ec162afb3971c9360b64",
+            // height: 18000000; https://explorer.nervos.org/block/0xeadadce33bab7de39e5827e92360aac025af0f2e6f311a29139c2ee27562895b
+            "0xeadadce33bab7de39e5827e92360aac025af0f2e6f311a29139c2ee27562895b",
             latest_assume_valid_target::mainnet::DEFAULT_ASSUME_VALID_TARGET,
         ]
     }
@@ -79,6 +87,16 @@ pub mod testnet {
             "0xc884fb5ca8cc2acddf6ce4888dc7fe0f583bb0dd4f80c5be31bed87268b1ca2f",
             // height: 14000000; https://testnet.explorer.nervos.org/block/0xfb7da0ff926540463e3a9168cf0cd73113c24e4692a561525554c87c62aa3475
             "0xfb7da0ff926540463e3a9168cf0cd73113c24e4692a561525554c87c62aa3475",
+            // height: 15000000; https://testnet.explorer.nervos.org/block/0x0fbed5e1204d0a8352e6a1e4af5b7a0d1919f5242aa4d966657c23c969f1f79d
+            "0x0fbed5e1204d0a8352e6a1e4af5b7a0d1919f5242aa4d966657c23c969f1f79d",
+            // height: 16000000; https://testnet.explorer.nervos.org/block/0xa05ebcfd2f2a2b4bda1da4d48009eaab286d0511836c177fa49a605f242a2c4e
+            "0xa05ebcfd2f2a2b4bda1da4d48009eaab286d0511836c177fa49a605f242a2c4e",
+            // height: 17000000; https://testnet.explorer.nervos.org/block/0x6b9cec6c625b6369d7896a0290aed9a816b3d543e2fb7121043b6a358f2e54c4
+            "0x6b9cec6c625b6369d7896a0290aed9a816b3d543e2fb7121043b6a358f2e54c4",
+            // height: 18000000; https://testnet.explorer.nervos.org/block/0x28d608e264af05428843b1f5cc7ef582e4fc390e57b84011ea0454a4e1ca40eb
+            "0x28d608e264af05428843b1f5cc7ef582e4fc390e57b84011ea0454a4e1ca40eb",
+            // height: 19000000; https://testnet.explorer.nervos.org/block/0x5b390768dd2d515a5937c2595c7cb46c7b8d3174d86af47e59e2f5f393ec603a
+            "0x5b390768dd2d515a5937c2595c7cb46c7b8d3174d86af47e59e2f5f393ec603a",
             latest_assume_valid_target::testnet::DEFAULT_ASSUME_VALID_TARGET,
         ]
     }

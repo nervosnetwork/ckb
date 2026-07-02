@@ -1,4 +1,4 @@
-use crate::node::{make_bootnodes_for_all, waiting_for_sync};
+use crate::node::{make_bootnodes_for_all, waiting_for_sync_with_timeout};
 use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
 use ckb_logger::info;
@@ -40,22 +40,25 @@ impl Spec for SyncChurn {
         const NUM_MINED_BLOCKS: usize = 10000;
         #[cfg(target_os = "linux")]
         const NUM_RESTART: usize = 100;
+        #[cfg(target_os = "linux")]
+        const SYNC_TIMEOUT_SECS: u64 = 120;
 
         #[cfg(not(target_os = "linux"))]
         const NUM_MINED_BLOCKS: usize = 1000;
         #[cfg(not(target_os = "linux"))]
         const NUM_RESTART: usize = 20;
+        #[cfg(not(target_os = "linux"))]
+        const SYNC_TIMEOUT_SECS: u64 = 240;
 
         let mining_thread = thread::spawn(move || {
             let mut rng = rand::thread_rng();
             loop {
                 let mining_node = select_random_node(&mut rng, &mut mining_nodes);
                 mining_node.mine(1);
-                // Because the test that waiting for nodes to sync has a implicit maximum waiting time
-                // (currently 60 seconds, we can sync about 200 blocks per second, so a maximum blocks of 10000 is reasonable)
-                // and the implicit waiting time is not long enough when there are too many blocks to sync,
-                // so we stop mining when the tip block number is greater than 15000.
-                // Otherwise nodes may not be able to sync within the implicit waiting time.
+                // `waiting_for_sync_with_timeout` only waits up to `SYNC_TIMEOUT_SECS`, and we
+                // can sync about 200 blocks per second, so `NUM_MINED_BLOCKS` should stay within
+                // that budget for each platform. Otherwise nodes may not be able to sync within
+                // the configured timeout.
                 let too_many_blocks = mining_node.get_tip_block_number() > NUM_MINED_BLOCKS as u64;
                 if too_many_blocks || restart_stopped_rx.try_recv().is_ok() {
                     break;
@@ -65,7 +68,7 @@ impl Spec for SyncChurn {
                     mining_node.node_id(),
                     mining_node.get_tip_block_number()
                 );
-                waiting_for_sync(&mining_nodes);
+                waiting_for_sync_with_timeout(&mining_nodes, SYNC_TIMEOUT_SECS);
             }
         });
 
@@ -87,6 +90,6 @@ impl Spec for SyncChurn {
         restart_thread.join().unwrap();
 
         info!("Waiting for all nodes sync");
-        waiting_for_sync(nodes);
+        waiting_for_sync_with_timeout(nodes, SYNC_TIMEOUT_SECS);
     }
 }

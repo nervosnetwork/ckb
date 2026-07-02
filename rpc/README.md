@@ -191,8 +191,8 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `IndexerCellType`](#type-indexercelltype)
     * [Type `IndexerCellsCapacity`](#type-indexercellscapacity)
     * [Type `IndexerOrder`](#type-indexerorder)
-    * [Type `IndexerPagination<IndexerCell>`](#type-indexerpagination_for_indexercell)
-    * [Type `IndexerPagination<IndexerTx>`](#type-indexerpagination_for_indexertx)
+    * [Type `IndexerPagination<IndexerCell>`](#type-indexerpaginationindexercell)
+    * [Type `IndexerPagination<IndexerTx>`](#type-indexerpaginationindexertx)
     * [Type `IndexerRange`](#type-indexerrange)
     * [Type `IndexerScriptType`](#type-indexerscripttype)
     * [Type `IndexerSearchKey`](#type-indexersearchkey)
@@ -226,9 +226,9 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
     * [Type `RawTxPool`](#type-rawtxpool)
     * [Type `RemoteNode`](#type-remotenode)
     * [Type `RemoteNodeProtocol`](#type-remotenodeprotocol)
-    * [Type `ResponseFormat<BlockView>`](#type-responseformat_for_blockview)
-    * [Type `ResponseFormat<HeaderView>`](#type-responseformat_for_headerview)
-    * [Type `ResponseFormat<TransactionView>`](#type-responseformat_for_transactionview)
+    * [Type `ResponseFormat<BlockView>`](#type-responseformatblockview)
+    * [Type `ResponseFormat<HeaderView>`](#type-responseformatheaderview)
+    * [Type `ResponseFormat<TransactionView>`](#type-responseformattransactionview)
     * [Type `Rfc0043`](#type-rfc0043)
     * [Type `Script`](#type-script)
     * [Type `ScriptHashType`](#type-scripthashtype)
@@ -512,7 +512,7 @@ The RPC returns the block when `block_number` is less than or equal to the tip b
 number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
 null otherwise.
 
-Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+Because of [chain reorganization](#chain-reorganization), the RPC may return null or even
 different blocks in different invocations with the same `block_number`.
 
 When `verbosity` is 2, it returns a JSON object as the `result`. See `BlockView` for the
@@ -630,7 +630,7 @@ When specifying with_cycles, the response object will be different like below:
 * `get_header(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`ResponseFormat<HeaderView>`](#type-responseformat_for_headerview) `|` `null`
+* result: [`ResponseFormat<HeaderView>`](#type-responseformatheaderview) `|` `null`
 
 Returns the information about a block header by hash.
 
@@ -709,7 +709,7 @@ The response looks like below when `verbosity` is 0.
 * `get_header_by_number(block_number, verbosity)`
     * `block_number`: [`Uint64`](#type-uint64)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`ResponseFormat<HeaderView>`](#type-responseformat_for_headerview) `|` `null`
+* result: [`ResponseFormat<HeaderView>`](#type-responseformatheaderview) `|` `null`
 
 Returns the block header in the [canonical chain](#canonical-chain) with the specific block
 number.
@@ -725,7 +725,7 @@ The RPC returns the block header when `block_number` is less than or equal to th
 number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
 null otherwise.
 
-Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+Because of [chain reorganization](#chain-reorganization), the RPC may return null or even
 different block headers in different invocations with the same `block_number`.
 
 When `verbosity` is 1, it returns a JSON object as the `result`. See `HeaderView` for the
@@ -990,7 +990,7 @@ The RPC returns the block hash when `block_number` is less than or equal to the 
 number returned by [`get_tip_block_number`](#tymethod.get_tip_block_number) and returns
 null otherwise.
 
-Because of [chain reorganization](#chain-reorganization), the PRC may return null or even
+Because of [chain reorganization](#chain-reorganization), the RPC may return null or even
 different block hashes in different invocations with the same `block_number`.
 
 ###### Examples
@@ -1022,7 +1022,7 @@ Response
 #### Method `get_tip_header`
 * `get_tip_header(verbosity)`
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`ResponseFormat<HeaderView>`](#type-responseformat_for_headerview)
+* result: [`ResponseFormat<HeaderView>`](#type-responseformatheaderview)
 
 Returns the header with the highest block number in the [canonical chain](#canonical-chain).
 
@@ -1552,7 +1552,7 @@ Response
 * `get_fork_block(block_hash, verbosity)`
     * `block_hash`: [`H256`](#type-h256)
     * `verbosity`: [`Uint32`](#type-uint32) `|` `null`
-* result: [`ResponseFormat<BlockView>`](#type-responseformat_for_blockview) `|` `null`
+* result: [`ResponseFormat<BlockView>`](#type-responseformatblockview) `|` `null`
 
 Returns the information about a fork block by hash.
 
@@ -2290,7 +2290,7 @@ Response
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination<IndexerCell>`](#type-indexerpagination_for_indexercell)
+* result: [`IndexerPagination<IndexerCell>`](#type-indexerpaginationindexercell)
 
 Returns the live cells collection by the lock or type script.
 
@@ -2648,7 +2648,7 @@ Response
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination<IndexerTx>`](#type-indexerpagination_for_indexertx)
+* result: [`IndexerPagination<IndexerTx>`](#type-indexerpaginationindexertx)
 
 Returns the transactions collection by the lock or type script.
 
@@ -5011,7 +5011,7 @@ Same as CKB Indexer.
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination<IndexerCell>`](#type-indexerpagination_for_indexercell)
+* result: [`IndexerPagination<IndexerCell>`](#type-indexerpaginationindexercell)
 
 Returns the live cells collection by the lock or type script.
 
@@ -5059,7 +5059,7 @@ Same as CKB Indexer.
     * `order`: [`IndexerOrder`](#type-indexerorder)
     * `limit`: [`Uint32`](#type-uint32)
     * `after`: [`JsonBytes`](#type-jsonbytes) `|` `null`
-* result: [`IndexerPagination<IndexerTx>`](#type-indexerpagination_for_indexertx)
+* result: [`IndexerPagination<IndexerTx>`](#type-indexerpaginationindexertx)
 
 Returns the transactions collection by the lock or type script.
 
@@ -5867,7 +5867,7 @@ BlockResponse with cycles format wrapper
 
 `BlockWithCyclesResponse` is a JSON object with the following fields.
 
-* `block`: [`ResponseFormat<BlockView>`](#type-responseformat_for_blockview) - The block structure
+* `block`: [`ResponseFormat<BlockView>`](#type-responseformatblockview) - The block structure
 
 ### Type `Buried`
 Represent soft fork deployments where the activation epoch is
@@ -6683,7 +6683,7 @@ IndexerPagination wraps objects array and last_cursor to provide paging
 
 ### Type `IndexerRange`
 
-A array represent (half-open) range bounded inclusively below and exclusively above [start, end).
+An array representing (half-open) range bounded inclusively below and exclusively above [start, end).
 
 ###### Examples
 

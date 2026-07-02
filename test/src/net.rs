@@ -1,5 +1,5 @@
 use crate::Node;
-use crate::utils::{find_available_port, message_name, temp_path, wait_until};
+use crate::utils::{TempPathBuf, find_available_port, message_name, wait_until};
 use ckb_app_config::NetworkConfig;
 use ckb_async_runtime::{Runtime, new_global_runtime};
 use ckb_chain_spec::consensus::Consensus;
@@ -12,7 +12,6 @@ use ckb_network::{
 };
 use ckb_util::Mutex;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,12 +19,15 @@ pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 
 pub struct Net {
     p2p_port: u16,
-    working_dir: PathBuf,
     protocols: Vec<SupportProtocols>,
     controller: NetworkController,
     register_rx: Receiver<(String, PeerIndex, Receiver<NetMessage>)>,
     receivers: HashMap<String, (PeerIndex, Receiver<NetMessage>)>,
+    // _async_runtime MUST be declared before _working_dir
+    // to ensure the runtime stops and releases file handles
+    // before the TempDir attempts to clean up.
     _async_runtime: Runtime,
+    _working_dir: TempPathBuf,
 }
 
 impl Net {
@@ -35,13 +37,13 @@ impl Net {
             "Net cannot initialize with empty protocols"
         );
         let p2p_port = find_available_port();
-        let working_dir = temp_path(spec_name, "net");
+        let working_dir = TempPathBuf::new(spec_name, "net");
 
         let p2p_listen = format!("/ip4/127.0.0.1/tcp/{p2p_port}").parse().unwrap();
         let network_state = Arc::new(
             NetworkState::from_config(NetworkConfig {
                 listen_addresses: vec![p2p_listen],
-                path: (&working_dir).into(),
+                path: working_dir.to_path_buf(),
                 max_peers: 128,
                 max_outbound_peers: 128,
                 discovery_local_address: true,
@@ -79,17 +81,13 @@ impl Net {
         .unwrap();
         Self {
             p2p_port,
-            working_dir,
             protocols,
             controller,
             register_rx,
             receivers: Default::default(),
             _async_runtime: async_runtime,
+            _working_dir: working_dir,
         }
-    }
-
-    pub fn working_dir(&self) -> &PathBuf {
-        &self.working_dir
     }
 
     pub fn p2p_listen(&self) -> String {

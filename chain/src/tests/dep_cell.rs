@@ -192,7 +192,14 @@ fn test_package_txs_with_deps() {
             .get_block_template(None, None, None)
             .unwrap()
             .unwrap();
-        assert!(test_now.elapsed().as_secs() < 120);
+        assert!(
+            test_now.elapsed().as_secs() < 120,
+            "timed out waiting for block template number 3 with 4 transactions; got number {}, transactions {}, proposals {}",
+            block_template.number.value(),
+            block_template.transactions.len(),
+            block_template.proposals.len(),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     let block: Block = block_template.into();

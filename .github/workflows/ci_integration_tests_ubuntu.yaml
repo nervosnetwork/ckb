@@ -35,7 +35,7 @@ jobs:
           sudo docker image prune --all --force
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.92.0
+          toolchain: 1.95.0
           components: rustfmt, clippy
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential tor
       - uses: actions/setup-go@v6
@@ -185,11 +185,16 @@ jobs:
   ci_integration_tests_ubuntu:
     name: ci_integration_tests_ubuntu
     needs: test
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ubuntu-latest
     steps:
-      - name: All tests passed
-        run: echo "All test chunks completed successfully"
+      - name: Check test chunks result
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Integration test chunks did not complete successfully: ${{ needs.test.result }}"
+            exit 1
+          fi
+          echo "All test chunks completed successfully"
 
   ci_cli_bats_test:
     name: ci_cli_bats_test
@@ -206,7 +211,7 @@ jobs:
           sudo docker image prune --all --force
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.92.0
+          toolchain: 1.95.0
           components: rustfmt, clippy
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential procps wget
       - uses: actions/checkout@v4

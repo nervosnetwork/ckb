@@ -207,13 +207,16 @@ impl PoolMap {
         if self.entries.get_by_id(&tx_short_id).is_some() {
             return Ok((false, evicts));
         }
+        let (total_tx_size, total_tx_cycles) =
+            self.updated_stat_for_add_tx(entry.size, entry.cycles)?;
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
         evicts = self.check_and_record_ancestors(&mut entry)?;
         self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
         self.track_entry_statics(None, Some(status));
-        self.update_stat_for_add_tx(entry.size, entry.cycles);
+        self.total_tx_size = total_tx_size;
+        self.total_tx_cycles = total_tx_cycles;
         Ok((true, evicts))
     }
 
@@ -692,44 +695,65 @@ impl PoolMap {
         }
     }
 
-    /// Update size and cycles statistics for add tx
-    fn update_stat_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
-        let total_tx_size = self.total_tx_size.checked_add(tx_size).unwrap_or_else(|| {
-            error!(
-                "total_tx_size {} overflown by add {}",
+    fn recompute_total_stat(&self) -> Option<(usize, Cycle)> {
+        self.entries.iter().try_fold(
+            (0usize, 0 as Cycle),
+            |(total_size, total_cycles), (_, entry)| {
+                Some((
+                    total_size.checked_add(entry.inner.size)?,
+                    total_cycles.checked_add(entry.inner.cycles)?,
+                ))
+            },
+        )
+    }
+
+    /// Calculate size and cycles statistics for adding a tx.
+    fn updated_stat_for_add_tx(
+        &self,
+        tx_size: usize,
+        cycles: Cycle,
+    ) -> Result<(usize, Cycle), Reject> {
+        let total_tx_size = self.total_tx_size.checked_add(tx_size).ok_or_else(|| {
+            Reject::Full(format!(
+                "tx-pool total_tx_size {} overflows by add {}",
                 self.total_tx_size, tx_size
-            );
-            self.total_tx_size
-        });
-        let total_tx_cycles = self.total_tx_cycles.checked_add(cycles).unwrap_or_else(|| {
-            error!(
-                "total_tx_cycles {} overflown by add {}",
+            ))
+        })?;
+        let total_tx_cycles = self.total_tx_cycles.checked_add(cycles).ok_or_else(|| {
+            Reject::Full(format!(
+                "tx-pool total_tx_cycles {} overflows by add {}",
                 self.total_tx_cycles, cycles
-            );
-            self.total_tx_cycles
-        });
-        self.total_tx_size = total_tx_size;
-        self.total_tx_cycles = total_tx_cycles;
+            ))
+        })?;
+        Ok((total_tx_size, total_tx_cycles))
     }
 
     /// Update size and cycles statistics for remove tx
     /// cycles overflow is possible, currently obtaining cycles is not accurate
     fn update_stat_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
-        let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
-            error!(
-                "total_tx_size {} overflown by sub {}",
-                self.total_tx_size, tx_size
-            );
-            0
-        });
-        let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
-            error!(
-                "total_tx_cycles {} overflown by sub {}",
-                self.total_tx_cycles, cycles
-            );
-            0
-        });
-        self.total_tx_size = total_tx_size;
-        self.total_tx_cycles = total_tx_cycles;
+        match (
+            self.total_tx_size.checked_sub(tx_size),
+            self.total_tx_cycles.checked_sub(cycles),
+        ) {
+            (Some(total_tx_size), Some(total_tx_cycles)) => {
+                self.total_tx_size = total_tx_size;
+                self.total_tx_cycles = total_tx_cycles;
+            }
+            _ => {
+                if let Some((total_tx_size, total_tx_cycles)) = self.recompute_total_stat() {
+                    error!(
+                        "tx-pool total stats underflowed when removing size {} cycles {}, recomputed size {} cycles {}",
+                        tx_size, cycles, total_tx_size, total_tx_cycles
+                    );
+                    self.total_tx_size = total_tx_size;
+                    self.total_tx_cycles = total_tx_cycles;
+                } else {
+                    error!(
+                        "tx-pool total stats underflowed when removing size {} cycles {}, and recomputing overflowed",
+                        tx_size, cycles
+                    );
+                }
+            }
+        }
     }
 }

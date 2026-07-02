@@ -158,3 +158,103 @@ fn freeze_blockv1_with_extension() {
     let block = store.get_block(&block_hash).expect("get_block");
     assert_eq!(store.get_block(&block_hash), Some(block));
 }
+
+#[test]
+fn freezer_get_block_keeps_hash_lookup_contract_for_same_height_side_block() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let tmp_dir2 = TempDir::new().unwrap();
+    let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
+    let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+
+    let frozen_block = packed::Block::new_builder()
+        .header(
+            packed::Header::new_builder()
+                .raw(packed::RawHeader::new_builder().number(1u64).build())
+                .nonce(1u128)
+                .build(),
+        )
+        .build()
+        .into_view();
+    let side_block = packed::Block::new_builder()
+        .header(
+            packed::Header::new_builder()
+                .raw(packed::RawHeader::new_builder().number(1u64).build())
+                .nonce(2u128)
+                .build(),
+        )
+        .build()
+        .into_view();
+    let side_hash = side_block.hash();
+    assert_ne!(frozen_block.hash(), side_hash);
+
+    let txn = store.begin_transaction();
+    txn.insert_block(&frozen_block).unwrap();
+    txn.insert_block(&side_block).unwrap();
+    txn.commit().unwrap();
+
+    freezer
+        .freeze(2, |_number| Some(frozen_block.clone()))
+        .expect("freeze");
+
+    assert_eq!(store.get_block(&side_hash), Some(side_block));
+}
+
+#[test]
+fn freezer_get_transaction_keeps_hash_lookup_contract_for_same_height_side_tx() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let tmp_dir2 = TempDir::new().unwrap();
+    let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
+    let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+
+    let frozen_tx = packed::Transaction::new_builder()
+        .raw(packed::RawTransaction::new_builder().version(1u32).build())
+        .build()
+        .into_view();
+    let side_tx = packed::Transaction::new_builder()
+        .raw(packed::RawTransaction::new_builder().version(2u32).build())
+        .build()
+        .into_view();
+    let side_tx_hash = side_tx.hash();
+    assert_ne!(frozen_tx.hash(), side_tx_hash);
+
+    let frozen_block = packed::Block::new_builder()
+        .header(
+            packed::Header::new_builder()
+                .raw(packed::RawHeader::new_builder().number(1u64).build())
+                .nonce(1u128)
+                .build(),
+        )
+        .transactions(vec![frozen_tx.data()])
+        .build();
+    let frozen_block = frozen_block.into_view();
+    let side_block = packed::Block::new_builder()
+        .header(
+            packed::Header::new_builder()
+                .raw(packed::RawHeader::new_builder().number(1u64).build())
+                .nonce(2u128)
+                .build(),
+        )
+        .transactions(vec![side_tx.data()])
+        .build();
+    let side_block = side_block.into_view();
+    let side_block_hash = side_block.hash();
+    assert_ne!(frozen_block.hash(), side_block_hash);
+
+    let txn = store.begin_transaction();
+    txn.insert_block(&frozen_block).unwrap();
+    txn.insert_block(&side_block).unwrap();
+    txn.attach_block(&side_block).unwrap();
+    txn.commit().unwrap();
+
+    freezer
+        .freeze(2, |_number| Some(frozen_block.clone()))
+        .expect("freeze");
+
+    let (tx, tx_info) = store
+        .get_transaction_with_info(&side_tx_hash)
+        .expect("get side transaction");
+    assert_eq!(tx, side_tx);
+    assert_eq!(tx_info.block_hash, side_block_hash);
+}

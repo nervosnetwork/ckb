@@ -56,6 +56,9 @@ impl Spec for RpcTruncate {
             "old_tip_block should be truncated",
         );
 
+        // Ensure block-assembler templates are rebuilt from truncated tip.
+        node.new_block_with_blocking(|template| template.parent_hash != (&to_truncate).into());
+
         node.wait_for_tx_pool();
 
         let tx_pool_info = node.get_tip_tx_pool_info();

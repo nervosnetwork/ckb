@@ -293,10 +293,9 @@ impl TxPoolController {
     pub async fn notify_txs_async(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
         let notify = Notify::new(txs);
         self.sender
-            .send(Message::NotifyTxs(notify))
-            .await
+            .try_send(Message::NotifyTxs(notify))
             .map_err(|e| {
-                let e = ckb_error::OtherError::new(format!("SendError {e}"));
+                let (_m, e) = handle_try_send_error(e);
                 e.into()
             })
     }
@@ -323,8 +322,11 @@ impl TxPoolController {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(proposals, responder);
         self.sender
-            .send(Message::FreshProposalsFilter(request))
-            .await?;
+            .try_send(Message::FreshProposalsFilter(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -349,7 +351,12 @@ impl TxPoolController {
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(short_ids, responder);
-        self.sender.send(Message::FetchTxs(request)).await?;
+        self.sender
+            .try_send(Message::FetchTxs(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -362,8 +369,11 @@ impl TxPoolController {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(short_ids, responder);
         self.sender
-            .send(Message::FetchTxsWithCycles(request))
-            .await?;
+            .try_send(Message::FetchTxsWithCycles(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -475,6 +485,9 @@ impl TxPoolController {
     }
 }
 
+#[cfg(test)]
+mod tests;
+
 /// A builder used to create TxPoolService.
 pub struct TxPoolServiceBuilder {
     pub(crate) tx_pool_config: TxPoolConfig,
@@ -523,8 +536,11 @@ impl TxPoolServiceBuilder {
             started: Arc::clone(&started),
         };
 
-        let block_assembler =
-            block_assembler_config.map(|config| BlockAssembler::new(config, Arc::clone(&snapshot)));
+        let block_assembler = block_assembler_config.and_then(|config| {
+            BlockAssembler::new(config, Arc::clone(&snapshot))
+                .inspect_err(|err| error!("failed to initialize block assembler: {}", err))
+                .ok()
+        });
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
             tx_pool_controller: controller.clone(),
@@ -812,7 +828,10 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: tx,
         }) => {
-            let result = service.resumeble_process_tx(tx, None).await.map(|_| ());
+            let result = service
+                .resumeble_process_tx(tx, false, None)
+                .await
+                .map(|_| ());
             if let Err(e) = responder.send(result) {
                 error!("Responder sending submit_tx result failed {:?}", e);
             };
@@ -839,25 +858,22 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: (tx, declared_cycles, peer),
         }) => {
-            let _result = service
-                .resumeble_process_tx(tx, Some((declared_cycles, peer)))
-                .await;
+            let _result = service.submit_remote_tx(tx, declared_cycles, peer).await;
             if let Err(e) = responder.send(()) {
                 error!("Responder sending submit_tx result failed {:?}", e);
             };
         }
         Message::NotifyTxs(Notify { arguments: txs }) => {
             for tx in txs {
-                let _ret = service.resumeble_process_tx(tx, None).await;
+                let _ret = service.notify_tx(tx).await;
             }
         }
         Message::FreshProposalsFilter(AsyncRequest {
             responder,
-            arguments: mut proposals,
+            arguments: proposals,
         }) => {
-            let tx_pool = service.tx_pool.read().await;
-            proposals.retain(|id| !tx_pool.contains_proposal_id(id));
-            if let Err(e) = responder.send(proposals) {
+            let new_proposals = service.exclude_existing_proposal(proposals).await;
+            if let Err(e) = responder.send(new_proposals) {
                 error!("Responder sending fresh_proposals_filter failed {:?}", e);
             };
         }
@@ -941,18 +957,8 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: short_ids,
         }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let orphan = service.orphan.read().await;
-            let txs = short_ids
-                .into_iter()
-                .filter_map(|short_id| {
-                    tx_pool
-                        .get_tx_from_pool_or_store(&short_id)
-                        .or_else(|| orphan.get(&short_id).map(|entry| &entry.tx).cloned())
-                        .map(|tx| (short_id, tx))
-                })
-                .collect();
-            if let Err(e) = responder.send(txs) {
+            let txs_map = service.get_tx_for_compact_block(short_ids).await;
+            if let Err(e) = responder.send(txs_map) {
                 error!("Responder sending fetch_txs failed {:?}", e);
             };
         }
@@ -1133,6 +1139,85 @@ impl TxPoolService {
 
     pub fn should_notify_block_assembler(&self) -> bool {
         self.block_assembler.is_some()
+    }
+
+    /// Excludes proposals that already exist in either the proposal pool or the verification queue.
+    ///
+    /// Any proposal that appears in **either** of these two structures is considered "already exists"
+    /// and will be filtered out.
+    /// - already accepted and stored in the main pool (`pool_map`), or
+    /// - orphan_pool that are waiting for missing parents
+    /// - currently being verified (`verify_queue`).
+    ///
+    /// /// # Returns
+    ///
+    /// A new `Vec<ProposalShortId> ` containing only the proposals that are **completely new**
+    /// (not present in `pool_map` nor in `verify_queue`).
+    pub async fn exclude_existing_proposal(
+        &self,
+        mut proposals: Vec<ProposalShortId>,
+    ) -> Vec<ProposalShortId> {
+        {
+            let verify_queue = self.verify_queue.read().await;
+            proposals.retain(|id| !verify_queue.contains_key(id));
+        }
+        {
+            let orphan = self.orphan.read().await;
+            proposals.retain(|id| !orphan.contains_key(id));
+        }
+        {
+            let tx_pool = self.tx_pool.read().await;
+            proposals.retain(|id| !tx_pool.contains_proposal_id(id));
+        }
+        proposals
+    }
+
+    /// Retrieves transactions required for compact block reconstruction.
+    ///
+    /// During compact block relay, a node may receive a block that contains transactions
+    /// still being verified and not yet present in the main mempool. This method searches
+    /// **both** primary locations where a transaction can reside when its short ID is known:
+    ///
+    /// 1. `pool_map` – the main mempool (already accepted transactions)
+    /// 2. `verify_queue` – transactions currently undergoing background validation
+    /// 3. `orphan_pool`   – Orphan transactions that are waiting for missing parents
+    ///
+    /// # Returns
+    /// A map containing only the transactions that were found, keyed by their short ID.
+    /// Missing entries are simply omitted (caller should treat absence as "need to request")
+    /// Returning a `HashMap` allows the caller (compact block reconstructor) to:
+    /// - Immediately obtain all locally-available transactions in a single call
+    /// - Quickly identify which short IDs are missing
+    pub async fn get_tx_for_compact_block(
+        &self,
+        short_ids: HashSet<ProposalShortId>,
+    ) -> HashMap<ProposalShortId, TransactionView> {
+        let mut txs = HashMap::with_capacity(short_ids.len());
+        {
+            let verify_queue = self.verify_queue.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                verify_queue
+                    .get_tx_by_id(short_id)
+                    .map(|entry| (short_id.to_owned(), entry.tx.to_owned()))
+            }));
+        }
+        {
+            let orphan = self.orphan.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                orphan
+                    .get(short_id)
+                    .map(|entry| (short_id.to_owned(), entry.tx.to_owned()))
+            }));
+        }
+        {
+            let tx_pool = self.tx_pool.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                tx_pool
+                    .get_tx_from_pool_or_store(short_id)
+                    .map(|tx| (short_id.to_owned(), tx))
+            }));
+        }
+        txs
     }
 
     pub async fn receive_candidate_uncle(&self, uncle: UncleBlockView) {

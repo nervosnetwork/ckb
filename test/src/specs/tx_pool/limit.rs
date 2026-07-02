@@ -90,7 +90,7 @@ impl Spec for TxPoolLimitAncestorCount {
         // Create 250 transactions cell dep on tx_a
         // we can have more than config.max_ancestors_count number of txs using one cell ref
         let mut cell_ref_txs = vec![];
-        for i in 1..=3000 {
+        for i in 1..=2000 {
             let cur = always_success_transaction(node0, initial_inputs.get(i).unwrap());
             let cur = cur.as_advanced_builder().cell_dep(cell_dep.clone()).build();
             let res = node0
@@ -106,10 +106,10 @@ impl Spec for TxPoolLimitAncestorCount {
             .build();
         let last = always_success_transaction(node0, &input);
 
-        // now there are 3002 ancestors for the last tx in the pool:
-        // 3002 = 3000 ref cell + 1 parent + 1 for self
+        // now there are 2002 ancestors for the last tx in the pool:
+        // 2002 = 2000 ref cell + 1 parent + 1 for self
         // to make sure this consuming cell dep transaction submitted,
-        // we need to evict 1002 = 3002 - 2000 cell ref transactions
+        // we need to evict 1002 = 2002 - 1000 cell ref transactions
         let res = node0
             .rpc_client()
             .send_transaction_result(last.data().into());
@@ -122,13 +122,11 @@ impl Spec for TxPoolLimitAncestorCount {
                 .get_transaction_with_verbosity(tx.hash(), 2);
             if i < 1002 {
                 assert!(matches!(res.tx_status.status, Status::Rejected));
-            } else {
-                assert!(matches!(res.tx_status.status, Status::Pending));
             }
         }
 
         // create a transaction chain
-        let input_c = &initial_inputs[3001];
+        let input_c = &initial_inputs[2001];
         // Commit transaction root
         let tx_c = {
             let tx_c = always_success_transaction(node0, input_c);
@@ -138,7 +136,7 @@ impl Spec for TxPoolLimitAncestorCount {
 
         let mut prev = tx_c;
         // Create transaction chain
-        for i in 0..2000 {
+        for i in 0..1000 {
             let input =
                 CellMetaBuilder::from_cell_output(prev.output(0).unwrap(), Default::default())
                     .out_point(OutPoint::new(prev.hash(), 0))
@@ -148,7 +146,7 @@ impl Spec for TxPoolLimitAncestorCount {
                 .rpc_client()
                 .send_transaction_result(cur.data().into());
             prev = cur.clone();
-            if i >= 1999 {
+            if i >= 999 {
                 assert!(res.is_err());
                 let msg = res.err().unwrap().to_string();
                 assert!(msg.contains("PoolRejectedTransactionByMaxAncestorsCountLimit"));

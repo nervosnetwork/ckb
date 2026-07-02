@@ -1,3 +1,4 @@
+use crate::utils::TempPathBuf;
 use crate::{Spec, utils::nodes_panicked};
 use ckb_channel::{Receiver, Sender, unbounded};
 use ckb_logger::{error, info};
@@ -24,18 +25,20 @@ pub enum Notify {
     Done {
         spec_name: String,
         seconds: u64,
-        node_paths: Vec<PathBuf>,
+        node_paths: Vec<TempPathBuf>,
     },
     Error {
         spec_error: Box<dyn Any + Send>,
         spec_name: String,
         seconds: u64,
         node_log_paths: Vec<PathBuf>,
+        node_paths: Vec<TempPathBuf>,
     },
     Panick {
         spec_name: String,
         seconds: u64,
         node_log_paths: Vec<PathBuf>,
+        node_paths: Vec<TempPathBuf>,
     },
     Stop,
 }
@@ -163,9 +166,10 @@ impl Worker {
             .unwrap();
 
         let mut nodes = spec.before_run();
+        // Used to extend the lifecycle of TempPathBuf
         let node_paths = nodes
             .iter()
-            .map(|node| node.working_dir())
+            .map(|node| node.owned_working_dir())
             .collect::<Vec<_>>();
         let node_log_paths = nodes.iter().map(|node| node.log_path()).collect::<Vec<_>>();
         let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
@@ -184,6 +188,7 @@ impl Worker {
                     spec_name: spec.name().to_string(),
                     seconds: now.elapsed().as_secs(),
                     node_log_paths,
+                    node_paths,
                 })
                 .unwrap();
         } else if let Some(spec_error) = spec_error {
@@ -193,6 +198,7 @@ impl Worker {
                     spec_name: spec.name().to_string(),
                     seconds: now.elapsed().as_secs(),
                     node_log_paths,
+                    node_paths,
                 })
                 .unwrap();
         } else {

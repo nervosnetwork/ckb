@@ -26,10 +26,17 @@ fn resolve_type_name(name: &str) -> String {
         .unwrap_or_else(|| name.to_string())
 }
 
-/// Convert a generic type name to an anchor-safe string
-/// e.g. "ResponseFormat<BlockView>" -> "responseformat_for_blockview"
+/// Convert a type name to the slug GitHub uses for markdown heading anchors.
+/// e.g. "ResponseFormat<BlockView>" -> "responseformatblockview"
 fn type_name_to_anchor(name: &str) -> String {
-    name.to_lowercase().replace('<', "_for_").replace('>', "")
+    name.chars()
+        .filter_map(|c| match c {
+            'A'..='Z' => Some(c.to_ascii_lowercase()),
+            'a'..='z' | '0'..='9' | '_' | '-' => Some(c),
+            ' ' => Some('-'),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Build a mapping from numbered type names (e.g. "ResponseFormat2") to their
@@ -750,4 +757,27 @@ This is a 64-bit unsigned integer type encoded as the 0x-prefixed hex string in 
         ("Byte32", "The fixed-length 32 bytes binary encoded as a 0x-prefixed hex string in JSON."),
         ("RationalU256", "The ratio which numerator and denominator are both 256-bit unsigned integers.")
     ].iter().map(|&(x, y)| (x.to_string(), y.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::type_name_to_anchor;
+
+    #[test]
+    fn type_name_anchor_matches_github_for_generic_types() {
+        assert_eq!(
+            type_name_to_anchor("ResponseFormat<HeaderView>"),
+            "responseformatheaderview"
+        );
+        assert_eq!(
+            type_name_to_anchor("IndexerPagination<IndexerCell>"),
+            "indexerpaginationindexercell"
+        );
+    }
+
+    #[test]
+    fn type_name_anchor_preserves_simple_names() {
+        assert_eq!(type_name_to_anchor("Uint32"), "uint32");
+        assert_eq!(type_name_to_anchor("ScriptHashType"), "scripthashtype");
+    }
 }

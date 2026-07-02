@@ -17,6 +17,62 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[test]
+fn test_missing_requested_uncle_response_is_rejected() {
+    let (_chain, relayer, _) = build_chain(5);
+    let peer_index: PeerIndex = 100.into();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let tx1 = TransactionBuilder::default().build();
+    let uncle = BlockBuilder::default().build();
+
+    let block = BlockBuilder::default()
+        .transaction(tx1)
+        .uncle(uncle.as_uncle())
+        .build();
+
+    let prefilled = vec![0usize].into_iter().collect();
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled);
+    let block_hash = compact_block.header().calc_header_hash();
+
+    {
+        let mut pending_compact_blocks =
+            rt.block_on(relayer.shared.state().pending_compact_blocks());
+        pending_compact_blocks.insert(
+            block_hash.clone(),
+            (
+                compact_block,
+                HashMap::from_iter(vec![(peer_index, (vec![], vec![0]))]),
+                ckb_systemtime::unix_time_as_millis(),
+            ),
+        );
+    }
+
+    let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
+        .block_hash(block_hash)
+        .transactions(Vec::<packed::Transaction>::new())
+        .uncles(Vec::<packed::UncleBlock>::new())
+        .build();
+
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
+    let nc = Arc::new(mock_protocol_context);
+
+    let process = BlockTransactionsProcess::new(
+        block_transactions.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert_eq!(
+        rt.block_on(process.execute()),
+        StatusCode::BlockUnclesLengthIsUnmatchedWithPendingCompactBlock.into(),
+    );
+}
+
+#[test]
 fn test_accept_block() {
     let (_chain, relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1](https://github.com/nervosnetwork/ckb/compare/ckb-util-v1.3.0...ckb-util-v1.3.1) - 2026-06-08
+
+### Changed
+
+- Merge commit from fork (by @Officeyutong)
+- Merge commit from fork (by @zhangsoledad)
+- Merge commit from fork (by @eval-exec)
+- [rust-toolchain] Upgrade Rust toolchain to 1.95.0 (#5175) (by @eval-exec)
+
+### Fixed
+
+- fix clippy (#5230) (by @chenyukang)
+- fix overflows (by @chenyukang)
+- Fix clippy (#5227) (by @chenyukang)
+- fix some comments to improve readability (#5209) (by @caltechustc)
+
+### Contributors
+
+- @chenyukang
+- @Officeyutong
+- @zhangsoledad
+- @eval-exec
+- @caltechustc
+
 ## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-util-v1.2.0...ckb-util-v1.3.0) - 2026-03-02
 
 ### Added

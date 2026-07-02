@@ -1010,10 +1010,10 @@ impl CKBProtocolHandler for Synchronizer {
                         }
                     }
                 }
-                NOT_IBD_BLOCK_FETCH_TOKEN => {
-                    if !self.shared.active_chain().is_initial_block_download() {
-                        self.find_blocks_to_fetch(&nc, IBDState::Out);
-                    }
+                NOT_IBD_BLOCK_FETCH_TOKEN
+                    if !self.shared.active_chain().is_initial_block_download() =>
+                {
+                    self.find_blocks_to_fetch(&nc, IBDState::Out);
                 }
                 TIMEOUT_EVICTION_TOKEN => {
                     self.eviction(&nc);

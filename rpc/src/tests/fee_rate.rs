@@ -114,3 +114,67 @@ fn test_fee_rate_statics() {
         })
     );
 }
+
+#[test]
+fn test_fee_rate_statics_handles_large_values() {
+    let mut provider = DummyFeeRateProvider::new(3);
+    for i in 1..=2 {
+        provider.append(
+            i,
+            BlockExt {
+                received_at: 0,
+                total_difficulty: 0u64.into(),
+                total_uncles_count: 0,
+                verified: None,
+                txs_fees: vec![Capacity::shannons(u64::MAX)],
+                cycles: Some(vec![0]),
+                txs_sizes: Some(vec![0, 1]),
+            },
+        );
+    }
+
+    assert_eq!(
+        FeeRateCollector::new(&provider).statistics(Some(3)),
+        Some(FeeRateStatistics {
+            mean: u64::MAX.into(),
+            median: u64::MAX.into(),
+        })
+    );
+}
+
+#[test]
+fn test_fee_rate_statics_skips_missing_txs_sizes() {
+    let mut provider = DummyFeeRateProvider::new(3);
+    provider.append(
+        1,
+        BlockExt {
+            received_at: 0,
+            total_difficulty: 0u64.into(),
+            total_uncles_count: 0,
+            verified: None,
+            txs_fees: vec![Capacity::shannons(10_000)],
+            cycles: Some(vec![0]),
+            txs_sizes: None,
+        },
+    );
+    provider.append(
+        2,
+        BlockExt {
+            received_at: 0,
+            total_difficulty: 0u64.into(),
+            total_uncles_count: 0,
+            verified: None,
+            txs_fees: vec![Capacity::shannons(400)],
+            cycles: Some(vec![0]),
+            txs_sizes: Some(vec![0, 200]),
+        },
+    );
+
+    assert_eq!(
+        FeeRateCollector::new(&provider).statistics(Some(3)),
+        Some(FeeRateStatistics {
+            mean: 2_000.into(),
+            median: 2_000.into(),
+        })
+    );
+}

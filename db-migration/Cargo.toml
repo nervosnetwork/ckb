@@ -1,13 +1,13 @@
 [package]
 name = "ckb-db-migration"
-version = "1.1.0"
+version = "1.1.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 description = "Database migration framework"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-rust-version = "1.92.0"
+rust-version = "1.95.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -283,7 +283,7 @@ impl SharedBuilder {
 
                 if let Some(us) = store.get_block_uncles(&hash) {
                     for u in us.data().into_iter() {
-                        ids_set.extend(u.proposals().into_iter());
+                        ids_set.extend(u.proposals());
                     }
                 }
                 proposal_ids.insert(bn, ids_set);

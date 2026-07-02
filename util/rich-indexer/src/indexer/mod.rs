@@ -39,6 +39,20 @@ pub(crate) struct RichIndexer {
     request_limit: usize,
 }
 
+fn set_indexer_tip_metric(block_number: BlockNumber) {
+    let Ok(block_number) = i64::try_from(block_number) else {
+        log::warn!(
+            "skip updating ckb_indexer_tip: block number {} exceeds i64::MAX",
+            block_number
+        );
+        return;
+    };
+
+    if let Some(metrics) = ckb_metrics::handle() {
+        metrics.ckb_indexer_tip.set(block_number);
+    }
+}
+
 impl RichIndexer {
     /// Construct new Rich Indexer instance
     pub fn new(
@@ -74,13 +88,27 @@ impl IndexerSync for RichIndexer {
     /// Appends a new block to the indexer
     fn append(&self, block: &BlockView) -> Result<(), Error> {
         let future = self.async_rich_indexer.append(block);
-        self.async_runtime.block_on(future)
+        let append_ret = self.async_runtime.block_on(future);
+
+        if append_ret.is_ok() {
+            set_indexer_tip_metric(block.number());
+        }
+
+        append_ret
     }
 
     /// Rollback the indexer to a previous state
     fn rollback(&self) -> Result<(), Error> {
         let future = self.async_rich_indexer.rollback();
-        self.async_runtime.block_on(future)
+        let rollback_ret = self.async_runtime.block_on(future);
+
+        if rollback_ret.is_ok()
+            && let Some((number, _)) = self.tip().ok().flatten()
+        {
+            set_indexer_tip_metric(number);
+        }
+
+        rollback_ret
     }
 
     /// Return identity
@@ -201,7 +229,7 @@ impl AsyncRichIndexer {
             for (input_index, input) in tx_view.inputs().into_iter().enumerate() {
                 let out_point = input.previous_output();
                 if !spend_cell(&out_point, tx).await? {
-                    break;
+                    continue;
                 }
                 if self.custom_filters.is_cell_filter_enabled() {
                     if let Some((output_id, output, output_data)) =

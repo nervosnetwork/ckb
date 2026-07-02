@@ -34,6 +34,7 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
             .and_then(|y| maximum_withdraw.safe_sub(y))
             .map_err(Into::into)
     }
+
     fn transaction_maximum_withdraw(
         &self,
         rtx: &ResolvedTransaction,
@@ -49,57 +50,70 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
                             == Into::<u8>::into(ScriptHashType::Type)
                             && type_script.code_hash() == self.consensus.dao_type_hash()
                     };
-                    let is_withdrawing_input =
-                        |cell_meta: &CellMeta| match self.data_loader.load_cell_data(cell_meta) {
-                            Some(data) => data.len() == 8 && LittleEndian::read_u64(&data) > 0,
-                            None => false,
-                        };
-                    if output
+                    let is_dao_output = output
                         .type_()
                         .to_opt()
                         .map(is_dao_type_script)
-                        .unwrap_or(false)
-                        && is_withdrawing_input(cell_meta)
-                    {
-                        let withdrawing_header_hash = cell_meta
-                            .transaction_info
-                            .as_ref()
-                            .map(|info| &info.block_hash)
-                            .filter(|hash| header_deps.contains(hash))
-                            .ok_or(DaoError::InvalidOutPoint)?;
-                        let deposit_header_hash = rtx
-                            .transaction
-                            .witnesses()
-                            .get(i)
-                            .ok_or(DaoError::InvalidOutPoint)
-                            .and_then(|witness_data| {
-                                // dao contract stores header deps index as u64 in the input_type field of WitnessArgs
-                                let witness =
-                                    WitnessArgs::from_slice(&Into::<Bytes>::into(witness_data))
-                                        .map_err(|_| DaoError::InvalidDaoFormat)?;
-                                let header_deps_index_data: Option<Bytes> =
-                                    witness.input_type().to_opt().map(|witness| witness.into());
-                                if header_deps_index_data.is_none()
-                                    || header_deps_index_data.clone().map(|data| data.len())
-                                        != Some(8)
-                                {
-                                    return Err(DaoError::InvalidDaoFormat);
-                                }
-                                Ok(LittleEndian::read_u64(&header_deps_index_data.unwrap()))
-                            })
-                            .and_then(|header_dep_index| {
-                                rtx.transaction
-                                    .header_deps()
-                                    .get(header_dep_index as usize)
-                                    .and_then(|hash| header_deps.get(&hash))
-                                    .ok_or(DaoError::InvalidOutPoint)
-                            })?;
-                        self.calculate_maximum_withdraw(
-                            output,
-                            Capacity::bytes(cell_meta.data_bytes as usize)?,
-                            deposit_header_hash,
-                            withdrawing_header_hash,
-                        )
+                        .unwrap_or(false);
+                    if is_dao_output {
+                        // A withdrawing DAO cell has 8 bytes of cell data storing the
+                        // block number of the original deposit.
+                        let deposited_block_number =
+                            match self.data_loader.load_cell_data(cell_meta) {
+                                Some(data) if data.len() == 8 => LittleEndian::read_u64(&data),
+                                _ => 0,
+                            };
+                        if deposited_block_number > 0 {
+                            let withdrawing_header_hash = cell_meta
+                                .transaction_info
+                                .as_ref()
+                                .map(|info| &info.block_hash)
+                                .filter(|hash| header_deps.contains(hash))
+                                .ok_or(DaoError::InvalidOutPoint)?;
+                            let deposit_header_hash = rtx
+                                .transaction
+                                .witnesses()
+                                .get(i)
+                                .ok_or(DaoError::InvalidOutPoint)
+                                .and_then(|witness_data| {
+                                    // dao contract stores header deps index as u64 in the input_type field of WitnessArgs
+                                    let witness =
+                                        WitnessArgs::from_slice(&Into::<Bytes>::into(witness_data))
+                                            .map_err(|_| DaoError::InvalidDaoFormat)?;
+                                    let header_deps_index_data: Option<Bytes> =
+                                        witness.input_type().to_opt().map(|witness| witness.into());
+                                    if header_deps_index_data.is_none()
+                                        || header_deps_index_data.clone().map(|data| data.len())
+                                            != Some(8)
+                                    {
+                                        return Err(DaoError::InvalidDaoFormat);
+                                    }
+                                    Ok(LittleEndian::read_u64(&header_deps_index_data.unwrap()))
+                                })
+                                .and_then(|header_dep_index| {
+                                    rtx.transaction
+                                        .header_deps()
+                                        .get(header_dep_index as usize)
+                                        .and_then(|hash| header_deps.get(&hash))
+                                        .ok_or(DaoError::InvalidOutPoint)
+                                })?;
+
+                            let deposit_header = self
+                                .data_loader
+                                .get_header(deposit_header_hash)
+                                .ok_or(DaoError::InvalidHeader)?;
+                            if deposit_header.number() != deposited_block_number {
+                                return Err(DaoError::InvalidOutPoint);
+                            }
+                            self.calculate_maximum_withdraw(
+                                output,
+                                Capacity::bytes(cell_meta.data_bytes as usize)?,
+                                deposit_header_hash,
+                                withdrawing_header_hash,
+                            )
+                        } else {
+                            Ok(output.capacity().into())
+                        }
                     } else {
                         Ok(output.capacity().into())
                     }
@@ -138,11 +152,14 @@ impl<'a, DL: CellDataProvider + HeaderProvider> DaoCalculator<'a, DL> {
         let withdraw_counted_capacity = u128::from(counted_capacity.as_u64())
             * u128::from(withdrawing_ar)
             / u128::from(deposit_ar);
+        let withdraw_counted_capacity =
+            u64::try_from(withdraw_counted_capacity).map_err(|_| DaoError::Overflow)?;
         let withdraw_capacity =
-            Capacity::shannons(withdraw_counted_capacity as u64).safe_add(occupied_capacity)?;
+            Capacity::shannons(withdraw_counted_capacity).safe_add(occupied_capacity)?;
 
         Ok(withdraw_capacity)
     }
+
     /// Creates a new `DaoCalculator`.
     pub fn new(consensus: &'a Consensus, data_loader: &'a DL) -> Self {
         DaoCalculator {

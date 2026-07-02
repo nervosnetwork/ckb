@@ -1,13 +1,13 @@
 [package]
 name = "ckb-rich-indexer"
-version = "1.1.0"
+version = "1.1.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
 description = "CKB's built-in rich-indexer, based on relational database."
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
-rust-version = "1.92.0"
+rust-version = "1.95.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -19,9 +19,9 @@ ckb-indexer-sync.workspace = true
 ckb-jsonrpc-types.workspace = true
 ckb-notify.workspace = true
 ckb-types.workspace = true
+ckb-metrics.workspace = true
 futures.workspace = true
 log.workspace = true
-num-bigint.workspace = true
 sql-builder.workspace = true
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any", "sqlite", "postgres"] }
 include_dir.workspace = true

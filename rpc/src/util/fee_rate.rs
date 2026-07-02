@@ -12,8 +12,9 @@ fn is_even(n: u64) -> bool {
 }
 
 fn mean(numbers: &[u64]) -> u64 {
-    let sum: u64 = numbers.iter().sum();
-    sum / numbers.len() as u64
+    // The average of u64 values fits in u64, but the intermediate sum may not.
+    let sum: u128 = numbers.iter().map(|number| u128::from(*number)).sum();
+    (sum / numbers.len() as u128) as u64
 }
 
 fn median(numbers: &mut [u64]) -> u64 {
@@ -83,18 +84,29 @@ where
         target = std::cmp::min(self.provider.max_target(), target);
 
         let mut fee_rates = self.provider.collect(target, |mut fee_rates, block_ext| {
-            let txs_sizes = block_ext.txs_sizes.expect("expect txs_size's length >= 1");
-            if txs_sizes.len() > 1 && block_ext.cycles.is_some() && !block_ext.txs_fees.is_empty() {
+            let BlockExt {
+                txs_sizes,
+                cycles,
+                txs_fees,
+                ..
+            } = block_ext;
+            // Older BlockExt records may not contain transaction size data.
+            let Some(txs_sizes) = txs_sizes else {
+                return fee_rates;
+            };
+            if txs_sizes.len() > 1 && !txs_fees.is_empty() {
                 // block_ext.txs_fees's length == block_ext.cycles's length
                 // block_ext.txs_fees's length + 1 == txs_sizes's length
-                for (fee, cycles, size) in itertools::izip!(
-                    block_ext.txs_fees,
-                    block_ext.cycles.expect("checked"),
-                    txs_sizes.iter().skip(1) // skip cellbase (first element in the Vec)
-                ) {
-                    let weight = get_transaction_weight(*size as usize, cycles);
-                    if weight > 0 {
-                        fee_rates.push(FeeRate::calculate(fee, weight).as_u64());
+                if let Some(cycles) = cycles {
+                    for (fee, cycles, size) in itertools::izip!(
+                        txs_fees,
+                        cycles,
+                        txs_sizes.iter().skip(1) // skip cellbase (first element in the Vec)
+                    ) {
+                        let weight = get_transaction_weight(*size as usize, cycles);
+                        if weight > 0 {
+                            fee_rates.push(FeeRate::calculate(fee, weight).as_u64());
+                        }
                     }
                 }
             }

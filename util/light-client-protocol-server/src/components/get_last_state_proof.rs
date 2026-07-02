@@ -198,7 +198,11 @@ impl<'a> GetLastStateProofProcess<'a> {
     pub(crate) async fn execute(self) -> Status {
         let last_n_blocks: u64 = self.message.last_n_blocks().into();
 
-        if self.message.difficulties().len() + (last_n_blocks as usize) * 2
+        if self
+            .message
+            .difficulties()
+            .len()
+            .saturating_add((last_n_blocks as usize).saturating_mul(2))
             > constant::GET_LAST_STATE_PROOF_LIMIT
         {
             return StatusCode::MalformedProtocolMessage.with_context("too many samples");
@@ -228,6 +232,11 @@ impl<'a> GetLastStateProofProcess<'a> {
             .collect::<Vec<_>>();
 
         let last_block_number = last_block.number();
+        if start_block_number > last_block_number {
+            return StatusCode::InvalidRequest.with_context(format!(
+                "the start block number ({start_block_number}) should not be greater than the last block number ({last_block_number})"
+            ));
+        }
 
         let reorg_last_n_numbers = if start_block_number == 0
             || snapshot
