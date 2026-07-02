@@ -28,10 +28,10 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
-        uses: actions/cache@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -43,7 +43,10 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential
       - name: Run cargo deny checks
         run: |
-          cargo deny --version || cargo +stable install cargo-deny --locked
+          if ! command -v cargo-deny >/dev/null 2>&1; then
+            cargo +stable install cargo-deny --locked
+          fi
+          cargo deny --version
           if [[ "${{ github.event_name }}" == "push" && ( "${{ github.ref }}" == "refs/heads/develop" || "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/master" || "${{ github.ref }}" == refs/heads/rc/* ) ]]; then
             make security-audit
           else
@@ -52,7 +55,7 @@ jobs:
           make check-crates
           make check-licenses
       - name: Disk usage summary
-        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/')))
         run: |
           echo "=== Disk Space Summary ==="
           df -h

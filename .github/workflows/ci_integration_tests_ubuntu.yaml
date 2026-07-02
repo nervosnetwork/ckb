@@ -41,10 +41,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.20"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
-        uses: actions/cache@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-it-${{ hashFiles('**/Cargo.lock') }}
@@ -108,19 +108,19 @@ jobs:
           echo "$test_chunks" | jq .
         shell: bash
       - name: Upload ckb binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb-binary-${{ runner.os }}
           path: target/release/ckb
           retention-days: 1
       - name: Upload ckb-test binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb-test-binary-${{ runner.os }}
           path: target/release/ckb-test
           retention-days: 1
       - name: Upload obfs4proxy
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: obfs4proxy-${{ runner.os }}
           path: test/obfs4/obfs4proxy/obfs4proxy
@@ -130,27 +130,27 @@ jobs:
     name: Run tests (chunk ${{ matrix.chunk_index }})
     needs: build
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-16vcpu-ubuntu-2204' || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-8vcpu-ubuntu-2204' || 'ubuntu-22.04' }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         chunk_index: ${{ fromJson(needs.build.outputs.chunk_indices) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
       - name: Download ckb binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ckb-binary-${{ runner.os }}
           path: target/release/
       - name: Download ckb-test binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ckb-test-binary-${{ runner.os }}
           path: target/release/
       - name: Download obfs4proxy
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: obfs4proxy-${{ runner.os }}
           path: test/obfs4/obfs4proxy/
@@ -173,11 +173,11 @@ jobs:
           RUST_BACKTRACE=1 RUST_LOG=info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug \
             ${{ github.workspace }}/target/release/ckb-test --bin ${{ github.workspace }}/target/release/ckb \
             --obfs4proxy-bin ${{ github.workspace }}/test/obfs4/obfs4proxy/obfs4proxy \
-            -c 1 --no-report --max-time 7200 $CHUNK_SPECS
+            --no-report --max-time 7200 $CHUNK_SPECS
         shell: bash
       - name: upload log files
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ runner.os }}_integration_logs_chunk_${{ matrix.chunk_index }}
           path: ${{ runner.temp }}/ckb-integration-test
@@ -214,10 +214,10 @@ jobs:
           toolchain: 1.95.0
           components: rustfmt, clippy
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config libclang-dev build-essential procps wget
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
-        uses: actions/cache@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
+        uses: actions/cache@v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
