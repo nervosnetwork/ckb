@@ -1,7 +1,7 @@
 name: Package
 
 permissions:
-  # for gh release create/upload
+  # for actions/create-release, actions/upload-release-asset
   contents: write
 
 concurrency:
@@ -33,6 +33,8 @@ jobs:
   create-release:
     name: Create release
     runs-on: ubuntu-22.04
+    outputs:
+      upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
       - uses: actions/checkout@v6
       - name: Set tag
@@ -40,9 +42,15 @@ jobs:
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Create release
+        id: create-release
+        uses: actions/create-release@v1
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GIT_TAG_NAME}" --title "${GIT_TAG_NAME}" --draft --prerelease
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.GIT_TAG_NAME}}
+          release_name: ${{ env.GIT_TAG_NAME}}
+          draft: true
+          prerelease: true
 
   package-for-linux:
     name: package-for-linux
@@ -384,10 +392,20 @@ jobs:
         with:
           name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
       - name: Upload tar assets
+        uses: actions/upload-release-asset@v1
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GIT_TAG_NAME}" "${{ github.workspace }}/ckb_${GIT_TAG_NAME}_${{ matrix.REL_PKG }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}
+          asset_path: ${{ github.workspace }}/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}
+          asset_content_type: application/octet-stream
       - name: Upload asc assets
+        uses: actions/upload-release-asset@v1
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GIT_TAG_NAME}" "${{ github.workspace }}/ckb_${GIT_TAG_NAME}_${{ matrix.REL_PKG }}.asc"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
+          asset_path: ${{ github.workspace }}/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}.asc
+          asset_content_type: application/octet-stream
