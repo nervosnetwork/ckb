@@ -43,7 +43,7 @@ Ubuntu jobs are configured as **required status checks** in the repository setti
 macOS and Windows jobs are split into quick PR checks and full protected-branch checks:
 
 - ✅ PRs run quick macOS/Windows checks, including `cargo check`, for early cross-platform signal
-- ✅ Fork PR quick macOS/Windows checks use GitHub-hosted fallback runners instead of Blacksmith runners
+- ✅ Trusted fork PR quick macOS/Windows checks use Blacksmith runners; external fork PRs use GitHub-hosted fallback runners
 - ✅ Full macOS/Windows jobs run in `merge_group`, `develop`, `master`, `rc/**`, `pkg/*`, and manual dispatch
 - ✅ This keeps regular PR feedback cheaper while preserving full desktop validation before or after protected-branch changes
 - ✅ If a Ubuntu CI workflow fails, is cancelled, or times out, `ci_cancel_desktop_on_ubuntu_failure` cancels queued or running macOS/Windows CI for the same commit

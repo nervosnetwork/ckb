@@ -21,10 +21,10 @@ env:
 jobs:
   ci_quick_checks_macos:
     name: ci_quick_checks_macos
-    runs-on: ${{ github.repository_owner == 'nervosnetwork' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)) && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}
     steps:
       - name: Free up disk space
-        if: ${{ github.repository_owner != 'nervosnetwork' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+        if: ${{ github.repository_owner != 'nervosnetwork' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)) }}
         run: |
           sudo rm -rf /Applications/Xcode_*.app
           sudo rm -rf /usr/local/lib/android
