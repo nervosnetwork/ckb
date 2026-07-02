@@ -34,7 +34,7 @@ jobs:
           toolchain: 1.95.0
       - uses: actions/checkout@v4
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
         uses: actions/cache@v4
         with:
           path: target
@@ -58,7 +58,7 @@ jobs:
           devtools/ci/check-relaxed.sh
         shell: bash
       - name: Disk usage summary
-        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/')))
+        if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/')))
         run: |
           echo "=== Disk Space Summary ==="
           df -h

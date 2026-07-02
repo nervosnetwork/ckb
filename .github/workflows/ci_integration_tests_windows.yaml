@@ -34,7 +34,7 @@ jobs:
           Remove-Item -Path "$env:PROGRAMDATA\chocolatey" -Recurse -Force -ErrorAction SilentlyContinue
       - uses: actions/checkout@v4
       - name: Cache cargo target
-        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
         uses: actions/cache@v4
         with:
           path: target
@@ -135,7 +135,7 @@ jobs:
     needs: build
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-8vcpu-windows-2025' || 'windows-2022' }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         chunk_index: ${{ fromJson(needs.build.outputs.chunk_indices) }}
     steps:
