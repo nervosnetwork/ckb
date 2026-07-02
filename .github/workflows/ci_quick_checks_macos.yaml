@@ -28,6 +28,9 @@ jobs:
           sudo rm -rf /Applications/Xcode_*.app
           sudo rm -rf /usr/local/lib/android
           brew cleanup
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
       - uses: actions/checkout@v4
       - name: Cache cargo target
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/'))
@@ -37,6 +40,9 @@ jobs:
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ci-${{ runner.os }}-cargo-
+      - name: Run cargo check
+        run: cargo check --locked --workspace --all-targets --features deadlock_detection,with_sentry,portable
+        shell: bash
       - name: Run quick checks
         run: |
           brew unlink yq

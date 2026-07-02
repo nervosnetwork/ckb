@@ -51,8 +51,13 @@ jobs:
           echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           scoop install git
+          scoop bucket add extras
+          scoop install llvm
           scoop install jq
           python -m pip install yq
+      - name: Run cargo check
+        run: cargo check --locked --workspace --all-targets --features deadlock_detection,with_sentry,portable
+        shell: bash
       - name: Run quick checks
         run: |
           echo tomlq path: $(which tomlq)
