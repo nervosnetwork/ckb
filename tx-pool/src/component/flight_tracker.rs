@@ -115,11 +115,19 @@ mod tests {
     };
 
     fn mock_input_out_point() -> OutPoint {
-        OutPoint::new(ckb_types::h256!("0x0101010101010101010101010101010101010101010101010101010101010101").pack(), 0)
+        OutPoint::new(
+            ckb_types::h256!("0x0101010101010101010101010101010101010101010101010101010101010101")
+                .pack(),
+            0,
+        )
     }
 
     fn mock_other_input_out_point() -> OutPoint {
-        OutPoint::new(ckb_types::h256!("0x0202020202020202020202020202020202020202020202020202020202020202").pack(), 0)
+        OutPoint::new(
+            ckb_types::h256!("0x0202020202020202020202020202020202020202020202020202020202020202")
+                .pack(),
+            0,
+        )
     }
 
     fn mock_output_out_point(tx: &TransactionView, index: u32) -> OutPoint {
@@ -145,11 +153,7 @@ mod tests {
             .build();
         TransactionBuilder::default()
             .input(CellInput::new(input.clone(), 0))
-            .cell_dep(
-                CellDep::new_builder()
-                    .out_point(cell_dep.clone())
-                    .build(),
-            )
+            .cell_dep(CellDep::new_builder().out_point(cell_dep.clone()).build())
             .output(output)
             .output_data(Bytes::default().pack())
             .build()

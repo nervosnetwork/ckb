@@ -70,8 +70,11 @@ impl RbfCandidates {
 
         let mut displaced: Vec<ProposalShortId> = Vec::new();
         for input in conflict_inputs {
-            if let Some((existing_fee, existing_id)) = self.by_input.insert(input.clone(), (fee, id.clone()))
-                && existing_fee < fee && existing_id != id && !displaced.contains(&existing_id)
+            if let Some((existing_fee, existing_id)) =
+                self.by_input.insert(input.clone(), (fee, id.clone()))
+                && existing_fee < fee
+                && existing_id != id
+                && !displaced.contains(&existing_id)
             {
                 displaced.push(existing_id);
             }
@@ -140,7 +143,10 @@ mod tests {
     use ckb_types::{h256, prelude::Pack};
 
     fn out_point(idx: u8) -> OutPoint {
-        OutPoint::new(h256!("0x0101010101010101010101010101010101010101010101010101010101010101").pack(), idx as u32)
+        OutPoint::new(
+            h256!("0x0101010101010101010101010101010101010101010101010101010101010101").pack(),
+            idx as u32,
+        )
     }
 
     fn id(idx: u8) -> ProposalShortId {
@@ -155,21 +161,31 @@ mod tests {
         let id_a = id(0);
         let id_b = id(1);
 
-        rbf.register(id_a.clone(), Capacity::shannons(100), std::slice::from_ref(&input))
-            .unwrap();
+        rbf.register(
+            id_a.clone(),
+            Capacity::shannons(100),
+            std::slice::from_ref(&input),
+        )
+        .unwrap();
         // Lower-fee candidate is rejected.
-        assert!(rbf
-            .register(id_b.clone(), Capacity::shannons(50), std::slice::from_ref(&input))
-            .is_err());
+        assert!(
+            rbf.register(
+                id_b.clone(),
+                Capacity::shannons(50),
+                std::slice::from_ref(&input)
+            )
+            .is_err()
+        );
         assert!(rbf.is_superseded(&id_b, Capacity::shannons(50), std::slice::from_ref(&input)));
         // Higher-fee candidate supersedes.
         assert!(!rbf.is_superseded(&id_b, Capacity::shannons(200), std::slice::from_ref(&input)));
 
         // Remove the old candidate and register a new one.
         rbf.remove(&id_a);
-        assert!(rbf
-            .register(id_b, Capacity::shannons(50), std::slice::from_ref(&input))
-            .is_ok());
+        assert!(
+            rbf.register(id_b, Capacity::shannons(50), std::slice::from_ref(&input))
+                .is_ok()
+        );
     }
 
     #[test]
@@ -188,17 +204,19 @@ mod tests {
         .unwrap();
 
         // Candidate that only conflicts with one input but with lower fee is rejected.
-        assert!(rbf
-            .register(id_b.clone(), Capacity::shannons(50), std::slice::from_ref(&input0))
-            .is_err());
+        assert!(
+            rbf.register(
+                id_b.clone(),
+                Capacity::shannons(50),
+                std::slice::from_ref(&input0)
+            )
+            .is_err()
+        );
 
         // Higher-fee candidate can take over both inputs.
-        let displaced = rbf.register(
-            id_b.clone(),
-            Capacity::shannons(200),
-            &[input0, input1],
-        )
-        .unwrap();
+        let displaced = rbf
+            .register(id_b.clone(), Capacity::shannons(200), &[input0, input1])
+            .unwrap();
         assert_eq!(displaced, vec![id_a]);
         // Removing the new candidate frees both.
         rbf.remove(&id_b);

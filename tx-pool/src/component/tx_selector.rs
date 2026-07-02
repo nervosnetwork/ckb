@@ -296,10 +296,7 @@ impl<'a> TxSelector<'a> {
                 .iter()
                 .filter(|id| !committed_ids.contains(*id) && self.pool_map.has_proposed(id))
             {
-                adjustments
-                    .entry(desc_id.clone())
-                    .or_default()
-                    .push(entry);
+                adjustments.entry(desc_id.clone()).or_default().push(entry);
             }
         }
 

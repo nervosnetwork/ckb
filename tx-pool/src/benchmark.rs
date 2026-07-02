@@ -474,7 +474,10 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
                     Ok(()) => {}
                     Err(payload) => {
                         let message = panic_payload_to_string(payload.as_ref());
-                        error!("benchmark deferred task worker panicked: {}; respawning", message);
+                        error!(
+                            "benchmark deferred task worker panicked: {}; respawning",
+                            message
+                        );
                         if let Some(txs) = recover_txs_for_retry {
                             let mut queue = ordered_resolve_queue_retry.write().await;
                             for tx in txs {
@@ -827,7 +830,10 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
 }
 
 fn build_single_dependent_chain(shared: &SharedBench, count: usize) -> Vec<TransactionView> {
-    let root = shared.issue_out_points(1).pop().expect("at least one issue output");
+    let root = shared
+        .issue_out_points(1)
+        .pop()
+        .expect("at least one issue output");
     let mut txs: Vec<TransactionView> = Vec::with_capacity(count);
     for i in 0..count {
         let input = if i == 0 {
@@ -1290,7 +1296,11 @@ fn bench(c: &mut Criterion) {
             matrix.dependent_sizes,
         ));
         data_sets.push((
-            BenchData::new(TxType::DependentSecp, dep_max, matrix.dependent_warm_pool_size),
+            BenchData::new(
+                TxType::DependentSecp,
+                dep_max,
+                matrix.dependent_warm_pool_size,
+            ),
             matrix.dependent_sizes,
         ));
     }

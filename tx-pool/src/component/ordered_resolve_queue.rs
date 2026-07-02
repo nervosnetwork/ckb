@@ -121,7 +121,10 @@ impl OrderedResolveQueue {
     pub fn pop_front(&mut self) -> Option<ResolveJob> {
         self.drain_tombstones();
         let id = self.inner.pop_front()?;
-        let job = self.lookup.remove(&id).expect("lookup contains id from inner");
+        let job = self
+            .lookup
+            .remove(&id)
+            .expect("lookup contains id from inner");
         self.live_count -= 1;
         self.flight.remove(&id);
         if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {

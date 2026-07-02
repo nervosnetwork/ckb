@@ -8,11 +8,11 @@ use ckb_app_config::VerifyOrdering;
 use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::core::tx_pool::get_transaction_weight;
 use ckb_types::{
     core::{Cycle, FeeRate, TransactionView, tx_pool::Reject},
     packed::ProposalShortId,
 };
-use ckb_types::core::tx_pool::get_transaction_weight;
 use ckb_util::shrink_to_fit;
 use multi_index_map::MultiIndexMap;
 use std::sync::Arc;

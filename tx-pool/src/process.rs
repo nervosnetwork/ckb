@@ -285,7 +285,10 @@ mod pre_check_queue_tests {
         use ckb_types::{h256, prelude::Pack};
         let cancel = ckb_stop_handler::CancellationToken::new();
         let queue = PreCheckQueue::new(cancel);
-        let input = OutPoint::new(h256!("0x0101010101010101010101010101010101010101010101010101010101010101").pack(), 0);
+        let input = OutPoint::new(
+            h256!("0x0101010101010101010101010101010101010101010101010101010101010101").pack(),
+            0,
+        );
 
         let tx_a = dummy_tx(&input, 1_000);
         let tx_b = dummy_tx(&OutPoint::new(tx_a.hash(), 0), 500);
@@ -370,7 +373,8 @@ impl TxPoolService {
         mut status: TxStatus,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         #[cfg(feature = "pipeline")]
-        let (conflict_inputs, early_snapshot) = self.find_conflict_inputs(entry.transaction()).await;
+        let (conflict_inputs, early_snapshot) =
+            self.find_conflict_inputs(entry.transaction()).await;
 
         // If a higher-fee RBF candidate appeared while this tx was waiting in
         // the verify queue, abort before replacing anything.  This prevents a
@@ -547,7 +551,10 @@ impl TxPoolService {
         // The RBF candidate has either been accepted or definitively rejected;
         // remove it from the in-flight fee-ordering gate.
         #[cfg(feature = "pipeline")]
-        self.rbf_candidates.write().await.remove(&entry_id_for_cleanup);
+        self.rbf_candidates
+            .write()
+            .await
+            .remove(&entry_id_for_cleanup);
 
         (result, snapshot)
     }

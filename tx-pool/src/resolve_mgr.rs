@@ -224,10 +224,8 @@ impl OrderedResolver {
                                     true
                                 } else {
                                     #[cfg(feature = "pipeline")]
-                                    let pre_check_dep = self
-                                        .service
-                                        .pre_check_queue
-                                        .depends_on(&job.tx);
+                                    let pre_check_dep =
+                                        self.service.pre_check_queue.depends_on(&job.tx);
                                     #[cfg(not(feature = "pipeline"))]
                                     let pre_check_dep = false;
                                     if pre_check_dep {
@@ -239,9 +237,9 @@ impl OrderedResolver {
                                         // the child does not burn an attempt while waiting.
                                         let pool = self.service.tx_pool.read().await;
                                         parents.iter().any(|parent_hash| {
-                                            pool.contains_proposal_id(&ProposalShortId::from_tx_hash(
-                                                parent_hash,
-                                            ))
+                                            pool.contains_proposal_id(
+                                                &ProposalShortId::from_tx_hash(parent_hash),
+                                            )
                                         })
                                     }
                                 }

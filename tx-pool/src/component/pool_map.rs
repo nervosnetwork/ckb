@@ -262,7 +262,8 @@ impl PoolMap {
         let mut visited = HashSet::with_capacity(removed_ids.len());
         // Iterative DFS to avoid stack overflow for deeply nested descendant
         // chains.  Each stack frame is (id, children_already_processed).
-        let mut stack: Vec<(&ProposalShortId, bool)> = removed_ids.iter().map(|id| (id, false)).collect();
+        let mut stack: Vec<(&ProposalShortId, bool)> =
+            removed_ids.iter().map(|id| (id, false)).collect();
         while let Some((id, processed)) = stack.pop() {
             if !removed_set.contains(id) {
                 continue;

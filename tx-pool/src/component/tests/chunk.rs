@@ -15,10 +15,10 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainDB;
 use ckb_types::H256;
 use ckb_types::U256;
+use ckb_types::bytes::Bytes;
 use ckb_types::core::{
     Capacity, FeeRate, TransactionBuilder, cell::ResolvedTransaction, tx_pool::Reject,
 };
-use ckb_types::bytes::Bytes;
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::Pack;
 use ckb_verification::cache::init_cache;
@@ -280,7 +280,11 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
     let remote = |cycles| Some((cycles, SessionId::default()));
 
     let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(dummy_resolved_tx(tx0.clone(), remote(1001), false)).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx0.clone(), remote(1001), false))
+            .unwrap()
+    );
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx1_proposal = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
@@ -300,7 +304,11 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
     sleep(std::time::Duration::from_millis(100)).await;
 
     let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
-    assert!(queue.add_tx(dummy_resolved_tx(tx3.clone(), remote(1001), false)).unwrap());
+    assert!(
+        queue
+            .add_tx(dummy_resolved_tx(tx3.clone(), remote(1001), false))
+            .unwrap()
+    );
 
     let cur = queue.pop_front(false);
     assert_eq!(*cur.unwrap().tx(), tx1_proposal);
@@ -417,7 +425,10 @@ async fn verify_queue_peek_arrival_time_ordering() {
 
     // Arrival time mode: first added (high fee, but that's irrelevant) is peeked first.
     let peeked = queue.peek(false).unwrap();
-    assert_eq!(peeked, id_high, "arrival-time mode should return oldest first");
+    assert_eq!(
+        peeked, id_high,
+        "arrival-time mode should return oldest first"
+    );
 }
 
 #[tokio::test]
@@ -467,13 +478,25 @@ async fn verify_queue_fee_rate_pop_order() {
 
     // Pop order should be: highest fee first → lowest fee last.
     let e1 = queue.pop_front(false).unwrap();
-    assert_eq!(e1.tx().proposal_short_id(), ids[2], "first pop should be highest fee");
+    assert_eq!(
+        e1.tx().proposal_short_id(),
+        ids[2],
+        "first pop should be highest fee"
+    );
 
     let e2 = queue.pop_front(false).unwrap();
-    assert_eq!(e2.tx().proposal_short_id(), ids[1], "second pop should be middle fee");
+    assert_eq!(
+        e2.tx().proposal_short_id(),
+        ids[1],
+        "second pop should be middle fee"
+    );
 
     let e3 = queue.pop_front(false).unwrap();
-    assert_eq!(e3.tx().proposal_short_id(), ids[0], "third pop should be lowest fee");
+    assert_eq!(
+        e3.tx().proposal_short_id(),
+        ids[0],
+        "third pop should be lowest fee"
+    );
 
     assert!(queue.pop_front(false).is_none());
 }
@@ -647,7 +670,9 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         #[cfg(feature = "pipeline")]
         chunk_rx,
         #[cfg(feature = "pipeline")]
-        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
+        rbf_candidates: Arc::new(RwLock::new(
+            crate::component::rbf_candidates::RbfCandidates::new(),
+        )),
         deferred_sender,
     };
 

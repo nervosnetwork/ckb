@@ -220,7 +220,9 @@ fn service_with_pipeline_workers(
         #[cfg(feature = "pipeline")]
         chunk_rx,
         #[cfg(feature = "pipeline")]
-        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
+        rbf_candidates: Arc::new(RwLock::new(
+            crate::component::rbf_candidates::RbfCandidates::new(),
+        )),
         deferred_sender,
     };
 
@@ -475,7 +477,9 @@ fn secp_service_with_pipeline_workers(
         #[cfg(feature = "pipeline")]
         chunk_rx,
         #[cfg(feature = "pipeline")]
-        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
+        rbf_candidates: Arc::new(RwLock::new(
+            crate::component::rbf_candidates::RbfCandidates::new(),
+        )),
         deferred_sender,
     };
 
@@ -1154,7 +1158,9 @@ fn service_with_rbf(
         #[cfg(feature = "pipeline")]
         chunk_rx,
         #[cfg(feature = "pipeline")]
-        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
+        rbf_candidates: Arc::new(RwLock::new(
+            crate::component::rbf_candidates::RbfCandidates::new(),
+        )),
         deferred_sender,
     };
 
@@ -1286,7 +1292,9 @@ fn service_with_rbf_and_max_size(
         #[cfg(feature = "pipeline")]
         chunk_rx,
         #[cfg(feature = "pipeline")]
-        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
+        rbf_candidates: Arc::new(RwLock::new(
+            crate::component::rbf_candidates::RbfCandidates::new(),
+        )),
         deferred_sender,
     };
 
@@ -1418,7 +1426,9 @@ fn secp_service_with_pipeline_workers_and_chunk(
         #[cfg(feature = "pipeline")]
         chunk_rx,
         #[cfg(feature = "pipeline")]
-        rbf_candidates: Arc::new(RwLock::new(crate::component::rbf_candidates::RbfCandidates::new())),
+        rbf_candidates: Arc::new(RwLock::new(
+            crate::component::rbf_candidates::RbfCandidates::new(),
+        )),
         deferred_sender,
     };
 
@@ -2101,9 +2111,9 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
                 let verify = service.verify_queue.read().await;
                 let settled = pool.get_tx_from_pool(&original_id).is_none()
                     && pool.get_tx_from_pool(&expected_id).is_some()
-                    && ids.iter().all(|(id, _)| {
-                        *id == expected_id || pool.get_tx_from_pool(id).is_none()
-                    });
+                    && ids
+                        .iter()
+                        .all(|(id, _)| *id == expected_id || pool.get_tx_from_pool(id).is_none());
                 (
                     pool.pool_map.pending_size(),
                     ordered.len(),
@@ -2267,7 +2277,13 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
                     verify.len(),
                 )
             };
-            if a_in_pool && b_in_pool && c_in_pool && !r_in_pool && ordered_len == 0 && verify_len == 0 {
+            if a_in_pool
+                && b_in_pool
+                && c_in_pool
+                && !r_in_pool
+                && ordered_len == 0
+                && verify_len == 0
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -2297,4 +2313,3 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
     signal.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
-
