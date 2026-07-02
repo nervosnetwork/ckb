@@ -24,6 +24,7 @@ jobs:
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-4vcpu-windows-2025' || 'windows-2022' }}
     steps:
       - name: Free up disk space
+        if: github.repository_owner != 'nervosnetwork'
         run: |
           Remove-Item -Path "C:\Program Files\dotnet" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
