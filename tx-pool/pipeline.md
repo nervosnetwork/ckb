@@ -151,7 +151,7 @@ Reorg re-adds go through the classify entry point (not direct verify under write
 
 ## 4. Performance: Pipeline vs Sync
 
-Benchmark environment: Apple M-series (arm64), macOS 24.6.0, Rust 1.95.0.  
+Benchmark environment: Apple M-series (arm64), macOS 24.6.0, Rust 1.95.0.
 Matrix: MEDIUM (100 tx/batch, peers [1, 4], workers [4, 8], 30 samples, Criterion 95% CI).
 
 ### 4.1 secp256k1 Transactions (CPU-intensive verification)
