@@ -12,7 +12,7 @@ const DESKTOP_WORKFLOWS = new Set([
   'ci_unit_tests_windows',
 ]);
 
-const RUN_STATUSES = ['queued', 'in_progress', 'waiting', 'requested', 'pending'];
+const RUN_STATUSES = ['queued', 'in_progress', 'waiting'];
 
 function requiredEnv(name) {
   const value = process.env[name];

@@ -21,10 +21,10 @@ env:
 jobs:
   ci_quick_checks_windows:
     name: ci_quick_checks_windows
-    runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-4vcpu-windows-2025' || 'windows-2022' }}
+    runs-on: ${{ github.repository_owner == 'nervosnetwork' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'blacksmith-4vcpu-windows-2025' || 'windows-2022' }}
     steps:
       - name: Free up disk space
-        if: github.repository_owner != 'nervosnetwork'
+        if: ${{ github.repository_owner != 'nervosnetwork' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
         run: |
           Remove-Item -Path "C:\Program Files\dotnet" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
@@ -51,6 +51,7 @@ jobs:
           .\install-scoop.ps1 -RunAsAdmin
           echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "${{ github.workspace }}\devtools\windows" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           scoop install git
           scoop bucket add extras
           scoop install llvm
