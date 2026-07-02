@@ -8,6 +8,7 @@ on:
       - develop
       - master
       - "rc/**"
+      - "pkg/*"
   merge_group: {}
   workflow_dispatch: {}
 

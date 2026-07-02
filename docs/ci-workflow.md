@@ -43,7 +43,7 @@ Ubuntu jobs are configured as **required status checks** in the repository setti
 macOS and Windows jobs are split into quick PR checks and full protected-branch checks:
 
 - ✅ PRs run quick macOS/Windows checks for early cross-platform signal
-- ✅ Full macOS/Windows jobs run in `merge_group`, `develop`, `master`, `rc/**`, and manual dispatch
+- ✅ Full macOS/Windows jobs run in `merge_group`, `develop`, `master`, `rc/**`, `pkg/*`, and manual dispatch
 - ✅ This keeps regular PR feedback cheaper while preserving full desktop validation before or after protected-branch changes
 
 ### Why This Design?
@@ -76,7 +76,7 @@ concurrency:
 Workflows trigger on:
 
 - `pull_request`: `opened`, `synchronize`, `reopened`
-- `push`: Ubuntu workflows run on all branches; desktop workflows run on `develop`, `master`, and `rc/**`
+- `push`: Ubuntu workflows run on all branches; desktop workflows run on `develop`, `master`, `rc/**`, and `pkg/*`
 - `merge_group`: For merge queue
 - `workflow_dispatch`: For manual triggering
 
