@@ -915,6 +915,9 @@ impl TxPoolService {
         {
             let mut queue = self.verify_queue.write().await;
             if queue.remove_tx(&id).is_some() {
+                // Release verify_queue write lock before acquiring other locks
+                // to respect the documented lock ordering convention.
+                drop(queue);
                 // The removed tx may have had descendants waiting in the
                 // ordered resolve queue. Wake the resolver so they can be
                 // retried (and rejected if the parent is gone) promptly.
@@ -1643,6 +1646,7 @@ impl TxPoolService {
             if ordered.depends_on(tx) {
                 true
             } else {
+                drop(ordered);
                 let verify_queue = self.verify_queue.read().await;
                 if verify_queue.depends_on(tx) {
                     true
