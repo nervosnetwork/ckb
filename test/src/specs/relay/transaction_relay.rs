@@ -25,6 +25,9 @@ impl Spec for TransactionRelayBasic {
         waiting_for_sync(nodes);
 
         let node1 = &nodes[1];
+        wait_relay_protocol_connected(node1, &nodes[0]);
+        wait_relay_protocol_connected(node1, &nodes[2]);
+
         let cells = gen_spendable(node1, 1);
         let transaction = always_success_transaction(node1, &cells[0]);
         let hash = node1.submit_transaction(&transaction);
@@ -48,6 +51,41 @@ impl Spec for TransactionRelayBasic {
             );
         }
     }
+}
+
+fn wait_relay_protocol_connected(node: &Node, peer: &Node) {
+    let connected = wait_until(10, || relay_protocol_connected(node, peer));
+    if !connected {
+        let peers = node
+            .rpc_client()
+            .get_peers()
+            .into_iter()
+            .map(|remote_node| {
+                let protocol_ids = remote_node
+                    .protocols
+                    .into_iter()
+                    .map(|protocol| protocol.id.value())
+                    .collect::<Vec<_>>();
+                (remote_node.node_id, protocol_ids)
+            })
+            .collect::<Vec<_>>();
+        panic!(
+            "RelayV3 protocol should be active from node {} to peer {}, peers: {peers:?}",
+            node.node_id(),
+            peer.node_id(),
+        );
+    }
+}
+
+fn relay_protocol_connected(node: &Node, peer: &Node) -> bool {
+    let relay_protocol_id = SupportProtocols::RelayV3.protocol_id().value() as u64;
+    node.rpc_client().get_peers().iter().any(|remote_node| {
+        remote_node.node_id == peer.node_id()
+            && remote_node
+                .protocols
+                .iter()
+                .any(|protocol| protocol.id.value() == relay_protocol_id)
+    })
 }
 
 pub struct TransactionRelayMultiple;
