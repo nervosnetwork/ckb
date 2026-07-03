@@ -1,3 +1,5 @@
+use ckb_async_runtime::Runtime;
+use ckb_async_runtime::tokio::sync::mpsc::Receiver;
 use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
@@ -75,9 +77,13 @@ pub(crate) struct RpcTestSuite {
     rpc_client: Client,
     rpc_uri: String,
     tcp_uri: Option<String>,
-    shared: Shared,
+    // Drop the extra controller before joining the chain service, then keep
+    // Shared/runtime alive until the service has stopped.
     chain_controller: ChainController,
     _chain_scope: ChainServiceScope,
+    shared: Shared,
+    _runtime_stop_rx: Receiver<()>,
+    _runtime: Runtime,
     _tmp_dir: tempfile::TempDir,
 }
 

@@ -21,6 +21,62 @@ use ckb_verification_traits::Switch;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+fn new_non_tail_header_map_parent(relayer: &crate::relayer::Relayer) -> HeaderView {
+    let shared = relayer.shared.shared();
+    let tip_number = relayer.shared.active_chain().tip_header().number();
+
+    for number in (0..=tip_number).rev() {
+        let stored_parent = shared
+            .store()
+            .get_block_hash(number)
+            .and_then(|block_hash| shared.store().get_block_header(&block_hash))
+            .unwrap();
+        let header = new_header_builder(shared, &stored_parent).build();
+        let epoch = header.epoch();
+        let epoch_ext_exists = shared
+            .store()
+            .get_epoch_index(epoch.number())
+            .and_then(|index| shared.store().get_epoch_ext(&index))
+            .is_some();
+
+        if epoch_ext_exists && epoch.index() + 1 < epoch.length() {
+            return header;
+        }
+    }
+
+    panic!("failed to build a header-map parent with derivable next epoch");
+}
+
+fn new_tail_header_map_parent(relayer: &crate::relayer::Relayer) -> HeaderView {
+    let shared = relayer.shared.shared();
+    let tip_number = relayer.shared.active_chain().tip_header().number();
+
+    for number in (0..=tip_number).rev() {
+        let stored_parent = shared
+            .store()
+            .get_block_hash(number)
+            .and_then(|block_hash| shared.store().get_block_header(&block_hash))
+            .unwrap();
+        let header = new_header_builder(shared, &stored_parent).build();
+        let epoch = header.epoch();
+
+        if epoch.index() + 1 == epoch.length() {
+            return header;
+        }
+    }
+
+    panic!("failed to build a header-map parent at epoch boundary");
+}
+
+fn child_epoch_after(parent_epoch: EpochNumberWithFraction) -> EpochNumberWithFraction {
+    assert!(parent_epoch.index() + 1 < parent_epoch.length());
+    EpochNumberWithFraction::new(
+        parent_epoch.number(),
+        parent_epoch.index() + 1,
+        parent_epoch.length(),
+    )
+}
+
 #[test]
 fn test_in_block_status_map() {
     let (_chain, relayer, _) = build_chain(5);
@@ -192,14 +248,14 @@ fn test_accept_not_a_better_block() {
     let uncle_block: BlockView = gen_block(
         &second_to_last_header,
         relayer.shared().shared(),
-        1,
+        0,
         1,
         None,
     );
     //uncle_block's block_hash must not equal to tip's block_hash
     assert_ne!(uncle_block.header().hash(), tip_header.hash());
-    // uncle_block's difficulty must less than tip's difficulty
-    assert!(uncle_block.difficulty().lt(&tip_header.difficulty()));
+    // uncle_block's difficulty is equal to tip's difficulty but it is not a better block
+    assert_eq!(uncle_block.difficulty(), tip_header.difficulty());
 
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
@@ -376,6 +432,318 @@ fn test_send_missing_indexes() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     // send proposal request
     assert!(nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
+}
+
+#[test]
+fn test_compact_block_accepts_parent_from_header_map() {
+    let (_chain, relayer, _) = build_chain(20);
+    let header_map_parent = new_non_tail_header_map_parent(&relayer);
+    let child_epoch = child_epoch_after(header_map_parent.epoch());
+    let child_header = HeaderBuilder::default()
+        .parent_hash(header_map_parent.hash())
+        .number(header_map_parent.number() + 1)
+        .timestamp(header_map_parent.timestamp() + 1)
+        .epoch(child_epoch)
+        .compact_target(header_map_parent.compact_target())
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let peer_index: PeerIndex = 100.into();
+    relayer
+        .shared()
+        .insert_valid_header(peer_index, &header_map_parent);
+    assert!(
+        relayer
+            .shared()
+            .store()
+            .get_block_header(&header_map_parent.hash())
+            .is_none()
+    );
+
+    let block = BlockBuilder::default()
+        .header(child_header)
+        .transaction(TransactionBuilder::default().build())
+        .transaction(
+            TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
+                .build(),
+        )
+        .build();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
+    let nc = Arc::new(mock_protocol_context);
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert_eq!(
+        rt.block_on(compact_block_process.execute()),
+        StatusCode::CompactBlockRequiresFreshTransactions.into()
+    );
+}
+
+#[test]
+fn test_invalid_compact_target_with_parent_from_header_map_does_not_enter_pending() {
+    let (_chain, relayer, _) = build_chain(20);
+    let header_map_parent = new_non_tail_header_map_parent(&relayer);
+    let child_epoch = child_epoch_after(header_map_parent.epoch());
+    let invalid_compact_target = header_map_parent.compact_target().saturating_add(1);
+    assert_ne!(invalid_compact_target, header_map_parent.compact_target());
+    let child_header = HeaderBuilder::default()
+        .parent_hash(header_map_parent.hash())
+        .number(header_map_parent.number() + 1)
+        .timestamp(header_map_parent.timestamp() + 1)
+        .epoch(child_epoch)
+        .compact_target(invalid_compact_target)
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let peer_index: PeerIndex = 100.into();
+    relayer
+        .shared()
+        .insert_valid_header(peer_index, &header_map_parent);
+    assert!(
+        relayer
+            .shared()
+            .store()
+            .get_block_header(&header_map_parent.hash())
+            .is_none()
+    );
+
+    let block = BlockBuilder::default()
+        .header(child_header)
+        .transaction(TransactionBuilder::default().build())
+        .transaction(
+            TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
+                .build(),
+        )
+        .build();
+    let block_hash = block.header().hash();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
+    let nc = Arc::new(mock_protocol_context);
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert_eq!(
+        rt.block_on(compact_block_process.execute()),
+        StatusCode::CompactBlockHasInvalidHeader.into()
+    );
+    assert_eq!(
+        relayer
+            .shared()
+            .active_chain()
+            .get_block_status(&block_hash),
+        BlockStatus::BLOCK_INVALID
+    );
+
+    let pending_compact_blocks = rt.block_on(relayer.shared.state().pending_compact_blocks());
+    assert!(pending_compact_blocks.get(&block_hash).is_none());
+
+    let content = packed::GetBlockTransactions::new_builder()
+        .block_hash(block_hash)
+        .indexes([1u32])
+        .uncle_indexes(Vec::<u32>::new())
+        .build();
+    let message = packed::RelayMessage::new_builder().set(content).build();
+    let data = message.as_bytes();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
+}
+
+#[test]
+fn test_compact_block_with_unresolved_header_map_parent_epoch_is_temporary() {
+    let (_chain, relayer, _) = build_chain(20);
+    let header_map_parent = new_tail_header_map_parent(&relayer);
+    let parent_epoch = header_map_parent.epoch();
+    let child_header = HeaderBuilder::default()
+        .parent_hash(header_map_parent.hash())
+        .number(header_map_parent.number() + 1)
+        .timestamp(header_map_parent.timestamp() + 1)
+        .epoch(EpochNumberWithFraction::new(
+            parent_epoch.number() + 1,
+            0,
+            parent_epoch.length(),
+        ))
+        .compact_target(header_map_parent.compact_target())
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let peer_index: PeerIndex = 100.into();
+    relayer
+        .shared()
+        .insert_valid_header(peer_index, &header_map_parent);
+    assert!(
+        relayer
+            .shared()
+            .store()
+            .get_block_header(&header_map_parent.hash())
+            .is_none()
+    );
+
+    let block = BlockBuilder::default()
+        .header(child_header)
+        .transaction(TransactionBuilder::default().build())
+        .transaction(
+            TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
+                .build(),
+        )
+        .build();
+    let block_hash = block.header().hash();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
+    let nc = Arc::new(mock_protocol_context);
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert_eq!(
+        rt.block_on(compact_block_process.execute()),
+        StatusCode::CompactBlockRequiresParent.into()
+    );
+    assert_eq!(
+        relayer
+            .shared()
+            .active_chain()
+            .get_block_status(&block_hash),
+        BlockStatus::UNKNOWN
+    );
+
+    let pending_compact_blocks = rt.block_on(relayer.shared.state().pending_compact_blocks());
+    assert!(pending_compact_blocks.get(&block_hash).is_none());
+
+    let content = packed::GetBlockTransactions::new_builder()
+        .block_hash(block_hash)
+        .indexes([1u32])
+        .uncle_indexes(Vec::<u32>::new())
+        .build();
+    let message = packed::RelayMessage::new_builder().set(content).build();
+    let data = message.as_bytes();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
+}
+
+#[test]
+fn test_invalid_difficulty_compact_block_does_not_enter_pending() {
+    let (_chain, relayer, _) = build_chain(5);
+    let parent = {
+        let active_chain = relayer.shared.active_chain();
+        active_chain.tip_header()
+    };
+
+    let invalid_difficulty_block = gen_block(&parent, relayer.shared().shared(), 1, 1, None);
+    let header = invalid_difficulty_block.header();
+    let block = BlockBuilder::default()
+        .header(header)
+        .transaction(TransactionBuilder::default().build())
+        .transaction(
+            TransactionBuilder::default()
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
+                .build(),
+        )
+        .build();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocol_context = MockProtocolContext::new(SupportProtocols::RelayV3);
+    let nc = Arc::new(mock_protocol_context);
+    let peer_index: PeerIndex = 100.into();
+    let block_hash = block.header().hash();
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert_eq!(
+        rt.block_on(compact_block_process.execute()),
+        StatusCode::CompactBlockHasInvalidHeader.into()
+    );
+
+    assert_eq!(
+        relayer
+            .shared()
+            .active_chain()
+            .get_block_status(&block_hash),
+        BlockStatus::BLOCK_INVALID
+    );
+    let pending_compact_blocks = rt.block_on(relayer.shared.state().pending_compact_blocks());
+    assert!(pending_compact_blocks.get(&block_hash).is_none());
+
+    let content = packed::GetBlockTransactions::new_builder()
+        .block_hash(block_hash)
+        .indexes([1u32])
+        .uncle_indexes(Vec::<u32>::new())
+        .build();
+    let message = packed::RelayMessage::new_builder().set(content).build();
+    let data = message.as_bytes();
+
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!nc.has_sent(SupportProtocols::RelayV3.protocol_id(), peer_index, data));
 }
 
 #[test]

@@ -112,6 +112,18 @@ impl<'a> ConnectionRequestProcess<'a> {
             Ok(content) => content,
             Err(status) => return status,
         };
+        let authenticated_peer_id = self
+            .protocol
+            .network_state
+            .peer_registry
+            .read()
+            .get_peer(self.peer)
+            .and_then(|peer| extract_peer_id(&peer.connected_addr));
+        let expected_session_peer_id = content.route.last().unwrap_or(&content.from);
+        if authenticated_peer_id.as_ref() != Some(expected_session_peer_id) {
+            return StatusCode::InvalidFromPeerId
+                .with_context("the message route does not match the session peer id");
+        }
         if content.listen_addrs.len() > ADDRS_COUNT_LIMIT || content.listen_addrs.is_empty() {
             return StatusCode::InvalidListenAddrLen
                 .with_context("the listen address count is too large or empty");
@@ -124,16 +136,14 @@ impl<'a> ConnectionRequestProcess<'a> {
             return StatusCode::InvalidRoute.with_context("the route length is too long");
         }
 
-        let self_peer_id = self.protocol.network_state.local_peer_id();
-        if content.route.contains(self_peer_id) {
+        let self_peer_id = self.protocol.network_state.local_peer_id().clone();
+        if content.route.contains(&self_peer_id) {
             return StatusCode::Ignore.with_context("the message is passed, ignore it");
         }
 
-        if self
+        if !self
             .protocol
-            .forward_rate_limiter
-            .check_key(&(content.from.clone(), content.to.clone(), self.msg_item_id))
-            .is_err()
+            .check_forward_rate_limit(&content.from, &content.to, self.msg_item_id)
         {
             debug!(
                 "from: {}, to {}, item_name: {}, rate limit is reached",
@@ -142,13 +152,13 @@ impl<'a> ConnectionRequestProcess<'a> {
             return StatusCode::TooManyRequests.with_context("ConnectionRequest");
         }
 
-        if self_peer_id == &content.to {
+        if self_peer_id == content.to {
             self.respond_delivered(content.from, &content.to, content.listen_addrs)
                 .await
         } else if content.max_hops == 0u8 {
             StatusCode::ReachedMaxHops.into()
         } else {
-            self.forward_message(self_peer_id, &content.to).await
+            self.forward_message(&self_peer_id, &content.to).await
         }
     }
 
@@ -304,5 +314,168 @@ impl<'a> ConnectionRequestProcess<'a> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{borrow::Cow, sync::Arc};
+
+    use ckb_app_config::NetworkConfig;
+    use p2p::{
+        builder::ServiceBuilder,
+        multiaddr::{Multiaddr, Protocol},
+        secio::NoopKeyProvider,
+        service::SessionType,
+    };
+
+    use crate::{
+        NetworkState,
+        peer_store::PeerStore,
+        protocols::hole_punching::{
+            HolePunching,
+            status::{BAD_MESSAGE_BAN_TIME, StatusCode},
+        },
+    };
+
+    use super::*;
+
+    struct TestContext {
+        _tmp_dir: tempfile::TempDir,
+        network_state: Arc<NetworkState>,
+        protocol: HolePunching,
+        p2p_control: ServiceAsyncControl,
+        session_id: PeerIndex,
+    }
+
+    fn build_test_context(authenticated_peer: &PeerId) -> TestContext {
+        let session_id = 1.into();
+        let tmp_dir = tempfile::tempdir().expect("create tempdir");
+        let remote_addr: Multiaddr = format!(
+            "/ip4/127.0.0.1/tcp/42/p2p/{}",
+            authenticated_peer.to_base58()
+        )
+        .parse()
+        .unwrap();
+        let target = PeerId::random();
+
+        let network_state = Arc::new(
+            NetworkState::from_config(NetworkConfig {
+                max_peers: 4,
+                max_outbound_peers: 1,
+                path: tmp_dir.path().to_path_buf(),
+                public_addresses: vec![{
+                    let mut addr: Multiaddr = "/ip4/127.0.0.1/tcp/8115".parse().unwrap();
+                    addr.push(Protocol::P2P(Cow::Borrowed(target.as_bytes())));
+                    addr
+                }],
+                ..Default::default()
+            })
+            .expect("init network state"),
+        );
+        network_state
+            .peer_registry
+            .write()
+            .accept_peer(
+                remote_addr,
+                session_id,
+                SessionType::Inbound,
+                &mut PeerStore::default(),
+            )
+            .expect("accept peer");
+
+        let protocol = HolePunching::new(Arc::clone(&network_state));
+        let service = ServiceBuilder::<NoopKeyProvider>::default().build(());
+        let p2p_control = service.control().clone();
+
+        TestContext {
+            _tmp_dir: tmp_dir,
+            network_state,
+            protocol,
+            p2p_control,
+            session_id,
+        }
+    }
+
+    fn listen_addrs_without_peer_id() -> packed::AddressVec {
+        let listen_addr: Multiaddr = "/ip4/192.0.2.1/tcp/8333".parse().unwrap();
+        packed::AddressVec::new_builder()
+            .push(
+                packed::Address::new_builder()
+                    .bytes(listen_addr.to_vec())
+                    .build(),
+            )
+            .build()
+    }
+
+    #[tokio::test]
+    async fn rejects_forged_from_for_listen_address_without_peer_id() {
+        let forged_from = PeerId::random();
+        let authenticated_peer = PeerId::random();
+        let mut context = build_test_context(&authenticated_peer);
+
+        let request = packed::ConnectionRequest::new_builder()
+            .from(forged_from.as_bytes())
+            .to(context.network_state.local_peer_id().as_bytes())
+            .max_hops(MAX_HOPS)
+            .listen_addrs(listen_addrs_without_peer_id())
+            .build();
+
+        let status = ConnectionRequestProcess::new(
+            request.as_reader(),
+            &mut context.protocol,
+            context.session_id,
+            &context.p2p_control,
+            0,
+        )
+        .execute()
+        .await;
+
+        assert_eq!(status.code(), StatusCode::InvalidFromPeerId);
+        assert_eq!(status.should_ban(), Some(BAD_MESSAGE_BAN_TIME));
+        assert!(
+            !context
+                .protocol
+                .pending_delivered
+                .contains_key(&forged_from)
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_forged_from_with_unauthenticated_non_empty_route() {
+        let forged_from = PeerId::random();
+        let authenticated_peer = PeerId::random();
+        let forged_previous_hop = PeerId::random();
+        let mut context = build_test_context(&authenticated_peer);
+
+        let route = packed::BytesVec::new_builder()
+            .push(forged_previous_hop.as_bytes())
+            .build();
+        let request = packed::ConnectionRequest::new_builder()
+            .from(forged_from.as_bytes())
+            .to(context.network_state.local_peer_id().as_bytes())
+            .max_hops(MAX_HOPS)
+            .listen_addrs(listen_addrs_without_peer_id())
+            .route(route)
+            .build();
+
+        let status = ConnectionRequestProcess::new(
+            request.as_reader(),
+            &mut context.protocol,
+            context.session_id,
+            &context.p2p_control,
+            0,
+        )
+        .execute()
+        .await;
+
+        assert_eq!(status.code(), StatusCode::InvalidFromPeerId);
+        assert_eq!(status.should_ban(), Some(BAD_MESSAGE_BAN_TIME));
+        assert!(
+            !context
+                .protocol
+                .pending_delivered
+                .contains_key(&forged_from)
+        );
     }
 }

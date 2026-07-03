@@ -38,3 +38,34 @@ fn test_basic() {
 
     assert!(recent_reject.total_keys_num < 100);
 }
+
+#[test]
+fn put_enforces_count_limit_after_successful_writes() {
+    let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
+    let shard_num = 1;
+    let limit = 1;
+    let ttl = -1;
+
+    let mut recent_reject = RecentReject::build(tmp_dir.path(), shard_num, limit, ttl).unwrap();
+    let first_key = Byte32::new(blake2b_256(1u64.to_le_bytes()));
+    let second_key = Byte32::new(blake2b_256(2u64.to_le_bytes()));
+
+    recent_reject
+        .put(
+            &first_key,
+            Reject::Malformed("first".to_string(), Default::default()),
+        )
+        .unwrap();
+    assert_eq!(recent_reject.get_estimate_total_keys_num(), 1);
+    assert!(recent_reject.get(&first_key).unwrap().is_some());
+
+    recent_reject
+        .put(
+            &second_key,
+            Reject::Malformed("second".to_string(), Default::default()),
+        )
+        .unwrap();
+
+    assert!(recent_reject.get_estimate_total_keys_num() <= limit);
+    assert!(recent_reject.get(&first_key).unwrap().is_none());
+}

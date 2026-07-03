@@ -36,7 +36,7 @@ jobs:
     outputs:
       upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set tag
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -65,7 +65,7 @@ jobs:
           - rel_pkg: "x86_64-unknown-linux-gnu-portable.tar.gz"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -83,12 +83,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -103,7 +103,7 @@ jobs:
     needs:
       - get-ckb-cli-version
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -127,12 +127,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -153,7 +153,7 @@ jobs:
           - rel_pkg: "x86_64-unknown-centos-gnu-portable.tar.gz"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -171,12 +171,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -198,7 +198,7 @@ jobs:
           - rel_pkg: "x86_64-apple-darwin-portable.zip"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -218,12 +218,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -249,7 +249,7 @@ jobs:
           echo /opt/homebrew/bin >> $GITHUB_PATH
           echo /opt/homebrew/sbin >> $GITHUB_PATH
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set Env
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
@@ -277,12 +277,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -306,7 +306,7 @@ jobs:
           echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "LIBCLANG_PATH=$env:USERPROFILE\scoop\apps\llvm\current\bin" >> $env:GITHUB_ENV
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build
         run: |
           devtools/windows/make prod
@@ -340,12 +340,12 @@ jobs:
           mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG) ${{ github.workspace }}
           mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG).asc ${{ github.workspace }}
       - name: upload-artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -378,17 +378,17 @@ jobs:
       - package-for-windows
       - package-for-centos
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set tag
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Prepare - Download tar
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}
       - name: Prepare - Download asc
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
       - name: Upload tar assets

@@ -352,6 +352,37 @@ impl TxPoolService {
         self.enqueue_verify_queue(tx, is_proposal_tx, remote).await
     }
 
+    async fn resumeble_process_tx_and_notify_full_reject(
+        &self,
+        tx: TransactionView,
+        is_proposal_tx: bool,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<bool, Reject> {
+        let tx_hash = tx.hash();
+        let ret = self.resumeble_process_tx(tx, is_proposal_tx, remote).await;
+
+        if matches!(ret, Err(Reject::Full(_))) {
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+        }
+
+        ret
+    }
+
+    pub(crate) async fn submit_remote_tx(
+        &self,
+        tx: TransactionView,
+        declared_cycles: Cycle,
+        peer: PeerIndex,
+    ) -> Result<bool, Reject> {
+        self.resumeble_process_tx_and_notify_full_reject(tx, false, Some((declared_cycles, peer)))
+            .await
+    }
+
+    pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
+        self.resumeble_process_tx_and_notify_full_reject(tx, true, None)
+            .await
+    }
+
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, None).await?;
@@ -469,7 +500,7 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    info!(
+                    debug!(
                         "after_process {} {} remote reject: {} ",
                         tx_hash, peer, reject
                     );
@@ -645,23 +676,6 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn submit_remote_tx(
-        &self,
-        tx: TransactionView,
-        declared_cycles: Cycle,
-        peer: PeerIndex,
-    ) {
-        let tx_hash = tx.hash();
-        let result = self
-            .resumeble_process_tx(tx, false, Some((declared_cycles, peer)))
-            .await;
-        if matches!(result, Err(Reject::Full(_))) {
-            // The relayer already marked this hash as known, but a full verify
-            // queue means the tx was not retained locally.
-            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
-        }
-    }
-
     async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
         const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
@@ -723,8 +737,10 @@ impl TxPoolService {
             && declared != verified.cycles
         {
             info!(
-                "process_tx declared cycles not match verified cycles, declared: {:?} verified: {:?}, tx: {:?}",
-                declared, verified.cycles, tx
+                "process_tx declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
+                declared,
+                verified.cycles,
+                tx.hash()
             );
             return Some((
                 Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),

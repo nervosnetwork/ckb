@@ -7,7 +7,6 @@ use crate::service::{TxPoolService, TxVerificationResult};
 use ckb_app_config::{NetworkConfig, TxPoolConfig};
 use ckb_async_runtime::new_background_runtime;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
-use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_network::SessionId;
@@ -182,6 +181,71 @@ async fn test_verify_different_cycles() {
 }
 
 #[tokio::test]
+async fn verify_queue_renotify_does_not_store_permit() {
+    let queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let queue_rx = queue.subscribe();
+
+    queue.re_notify();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(10), queue_rx.notified())
+            .await
+            .is_err()
+    );
+
+    let queue_rx = queue.subscribe();
+    let waiter = tokio::spawn(async move {
+        tokio::time::timeout(std::time::Duration::from_millis(500), queue_rx.notified())
+            .await
+            .is_ok()
+    });
+    sleep(std::time::Duration::from_millis(10)).await;
+
+    queue.re_notify();
+    assert!(waiter.await.unwrap());
+}
+
+#[tokio::test]
+async fn verify_queue_pops_proposals_by_arrival_order() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let remote = |cycles| Some((cycles, SessionId::default()));
+
+    let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
+    assert!(queue.add_tx(tx0.clone(), false, remote(1001)).unwrap());
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    let tx1_proposal = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    assert!(
+        queue
+            .add_tx(tx1_proposal.clone(), true, remote(1001))
+            .unwrap()
+    );
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    let tx2_proposal = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
+    assert!(
+        queue
+            .add_tx(tx2_proposal.clone(), true, remote(1001))
+            .unwrap()
+    );
+    sleep(std::time::Duration::from_millis(100)).await;
+
+    let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
+    assert!(queue.add_tx(tx3.clone(), false, remote(1001)).unwrap());
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx1_proposal);
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx2_proposal);
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx0);
+
+    let cur = queue.pop_front(false);
+    assert_eq!(cur.unwrap().tx, tx3);
+}
+
+#[tokio::test]
 async fn verify_queue_remove() {
     let entry1 = Entry {
         tx: TransactionBuilder::default()
@@ -315,7 +379,11 @@ fn network(consensus: &Consensus) -> ckb_network::NetworkController {
     .expect("start test network service")
 }
 
-fn service_with_tx_relay_receiver() -> (TxPoolService, Receiver<TxVerificationResult>) {
+fn service() -> TxPoolService {
+    service_with_relay_receiver().0
+}
+
+fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVerificationResult>) {
     let consensus = Arc::new(ConsensusBuilder::default().build());
     let snapshot = snapshot(Arc::clone(&consensus));
     let config = tx_pool_config();
@@ -339,10 +407,6 @@ fn service_with_tx_relay_receiver() -> (TxPoolService, Receiver<TxVerificationRe
         },
         tx_relay_receiver,
     )
-}
-
-fn service() -> TxPoolService {
-    service_with_tx_relay_receiver().0
 }
 
 #[tokio::test]
@@ -375,8 +439,8 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_verify_queue_is_full() {
 }
 
 #[tokio::test]
-async fn submit_remote_tx_sends_relay_reject_when_verify_queue_is_full() {
-    let (service, tx_relay_receiver) = service_with_tx_relay_receiver();
+async fn submit_remote_tx_notifies_relayer_when_verify_queue_is_full() {
+    let (service, tx_relay_receiver) = service_with_relay_receiver();
     let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
     let tx_hash = tx.hash();
 
@@ -386,16 +450,44 @@ async fn submit_remote_tx_sends_relay_reject_when_verify_queue_is_full() {
         .await
         .set_total_tx_size_for_test(256_000_000 - 1);
 
-    service
-        .submit_remote_tx(tx, MAX_TX_VERIFY_CYCLES, SessionId::new(1))
+    let ret = service
+        .submit_remote_tx(tx, MAX_TX_VERIFY_CYCLES, 1.into())
         .await;
 
-    match tx_relay_receiver.try_recv() {
-        Ok(TxVerificationResult::Reject {
-            tx_hash: rejected_hash,
-        }) => assert_eq!(rejected_hash, tx_hash),
-        Ok(_) => panic!("expected relay reject for full verify queue"),
-        Err(err) => panic!("expected relay reject for full verify queue: {err}"),
+    assert!(matches!(ret, Err(crate::error::Reject::Full(_))));
+    match tx_relay_receiver
+        .try_recv()
+        .expect("expected reject notification")
+    {
+        TxVerificationResult::Reject { tx_hash: rejected } => {
+            assert_eq!(rejected, tx_hash);
+        }
+        _ => panic!("expected reject notification"),
     }
-    assert!(service.verify_queue.read().await.is_empty());
+}
+
+#[tokio::test]
+async fn notify_tx_notifies_relayer_when_verify_queue_is_full() {
+    let (service, tx_relay_receiver) = service_with_relay_receiver();
+    let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    let tx_hash = tx.hash();
+
+    service
+        .verify_queue
+        .write()
+        .await
+        .set_total_tx_size_for_test(256_000_000 - 1);
+
+    let ret = service.notify_tx(tx).await;
+
+    assert!(matches!(ret, Err(crate::error::Reject::Full(_))));
+    match tx_relay_receiver
+        .try_recv()
+        .expect("expected reject notification")
+    {
+        TxVerificationResult::Reject { tx_hash: rejected } => {
+            assert_eq!(rejected, tx_hash);
+        }
+        _ => panic!("expected reject notification"),
+    }
 }

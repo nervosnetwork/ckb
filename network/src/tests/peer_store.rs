@@ -123,6 +123,24 @@ fn test_ban_peer() {
 }
 
 #[test]
+fn test_ban_addr_timeout_saturates_instead_of_overflowing() {
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(1_000);
+
+    let mut peer_store: PeerStore = Default::default();
+    let addr = random_addr();
+    peer_store.add_connected_peer(addr.clone(), SessionType::Inbound);
+    // `now_ms + timeout_ms` would overflow u64; it must saturate, not panic.
+    peer_store.ban_addr(&addr, u64::MAX, "no reason".into());
+
+    assert!(peer_store.is_addr_banned(&addr));
+    assert_eq!(
+        peer_store.ban_list().get_banned_addrs()[0].ban_until,
+        u64::MAX
+    );
+}
+
+#[test]
 fn test_attempt_ban() {
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(1);

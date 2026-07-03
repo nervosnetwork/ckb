@@ -5,6 +5,7 @@ use crate::{
 use ckb_app_config::{
     BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
 };
+use ckb_async_runtime::new_global_runtime;
 use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
@@ -72,7 +73,9 @@ fn json_bytes(hex: &str) -> ckb_jsonrpc_types::JsonBytes {
 // Setup the running environment
 pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) -> RpcTestSuite {
     let consensus = consensus.unwrap_or_else(always_success_consensus);
+    let (async_handle, runtime_stop_rx, runtime) = new_global_runtime(None);
     let (shared, mut pack) = SharedBuilder::with_temp_db()
+        .async_handle(async_handle)
         .consensus(consensus)
         .block_assembler_config(Some(BlockAssemblerConfig {
             code_hash: h256!("0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"),
@@ -250,12 +253,14 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         .map(|addr| format!("{}:{}", addr.ip(), addr.port()));
 
     let suite = RpcTestSuite {
-        shared,
         chain_controller: chain_controller.clone(),
         _chain_scope: chain_scope,
+        shared,
         rpc_uri,
         tcp_uri,
         rpc_client,
+        _runtime_stop_rx: runtime_stop_rx,
+        _runtime: runtime,
         _tmp_dir: temp_dir,
     };
 
