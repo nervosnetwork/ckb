@@ -1,4 +1,4 @@
-use crate::node::{make_bootnodes_for_all, waiting_for_sync_with_timeout};
+use crate::node::{connect_all, make_bootnodes_for_all, waiting_for_sync_with_timeout};
 use crate::util::mining::out_ibd_mode;
 use crate::{Node, Spec};
 use ckb_logger::info;
@@ -31,11 +31,6 @@ impl Spec for SyncChurn {
         make_bootnodes_for_all(nodes);
         out_ibd_mode(nodes);
 
-        let mut mining_nodes = nodes.clone();
-        let mut churn_nodes = mining_nodes.split_off(2);
-
-        let (restart_stopped_tx, restart_stopped_rx) = mpsc::channel();
-
         #[cfg(target_os = "linux")]
         const NUM_MINED_BLOCKS: usize = 10000;
         #[cfg(target_os = "linux")]
@@ -49,6 +44,14 @@ impl Spec for SyncChurn {
         const NUM_RESTART: usize = 20;
         #[cfg(not(target_os = "linux"))]
         const SYNC_TIMEOUT_SECS: u64 = 240;
+
+        connect_all(nodes);
+        waiting_for_sync_with_timeout(nodes, SYNC_TIMEOUT_SECS);
+
+        let mut mining_nodes = nodes.clone();
+        let mut churn_nodes = mining_nodes.split_off(2);
+
+        let (restart_stopped_tx, restart_stopped_rx) = mpsc::channel();
 
         let mining_thread = thread::spawn(move || {
             let mut rng = rand::thread_rng();
@@ -90,6 +93,7 @@ impl Spec for SyncChurn {
         restart_thread.join().unwrap();
 
         info!("Waiting for all nodes sync");
+        connect_all(nodes);
         waiting_for_sync_with_timeout(nodes, SYNC_TIMEOUT_SECS);
     }
 }
