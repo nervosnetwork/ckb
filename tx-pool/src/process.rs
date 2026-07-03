@@ -129,7 +129,7 @@ impl PreCheckQueue {
     /// Returns true if the queue is full.
     pub fn is_full(&self, add_tx_size: usize) -> bool {
         self.total_tx_size
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::SeqCst)
             .saturating_add(add_tx_size)
             >= DEFAULT_MAX_PRE_CHECK_QUEUE_TX_SIZE
     }
@@ -169,7 +169,7 @@ impl PreCheckQueue {
         state.index.remove(id);
         state.flight.remove(id);
         self.total_tx_size
-            .fetch_sub(Self::tx_size(&job), std::sync::atomic::Ordering::Relaxed);
+            .fetch_sub(Self::tx_size(&job), std::sync::atomic::Ordering::SeqCst);
         Some(job.tx)
     }
 
@@ -191,7 +191,7 @@ impl PreCheckQueue {
             state.index.remove(&id);
             state.flight.remove(&id);
             self.total_tx_size
-                .fetch_sub(Self::tx_size(&job), std::sync::atomic::Ordering::Relaxed);
+                .fetch_sub(Self::tx_size(&job), std::sync::atomic::Ordering::SeqCst);
             removed.push(job.tx);
         }
         removed
@@ -216,7 +216,7 @@ impl PreCheckQueue {
         state.flight.insert(id, &job.tx);
         state.inner.push_back(job);
         self.total_tx_size
-            .fetch_add(tx_size, std::sync::atomic::Ordering::Relaxed);
+            .fetch_add(tx_size, std::sync::atomic::Ordering::SeqCst);
         drop(state);
         self.ready.notify_one();
         Ok(())
@@ -229,7 +229,7 @@ impl PreCheckQueue {
         state.index.clear();
         state.flight.clear();
         self.total_tx_size
-            .store(0, std::sync::atomic::Ordering::Relaxed);
+            .store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Pop the next job, or return `None` if the queue has been cancelled.
@@ -243,7 +243,7 @@ impl PreCheckQueue {
                     state.flight.remove(&id);
                     let tx_size = Self::tx_size(&job);
                     self.total_tx_size
-                        .fetch_sub(tx_size, std::sync::atomic::Ordering::Relaxed);
+                        .fetch_sub(tx_size, std::sync::atomic::Ordering::SeqCst);
                     return Some(job);
                 }
             }

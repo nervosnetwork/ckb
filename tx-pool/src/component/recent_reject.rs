@@ -148,7 +148,7 @@ impl RecentReject {
     }
 
     fn maybe_shrink(&self) {
-        let new_count = self.total_keys_num.fetch_add(1, Ordering::Relaxed) + 1;
+        let new_count = self.total_keys_num.fetch_add(1, Ordering::SeqCst) + 1;
         if new_count > self.count_limit
             && let Err(e) = self.shrink()
         {
@@ -175,10 +175,11 @@ impl RecentReject {
 
     /// Returns the approximate total number of stored rejection entries.
     ///
-    /// This is a best-effort counter updated with relaxed ordering; it may
-    /// briefly differ from the exact number of keys in the database.
+    /// This is a best-effort counter updated with sequentially-consistent
+    /// ordering; it may still briefly differ from the exact number of keys in
+    /// the database because it is an estimate rather than an exact count.
     pub fn get_estimate_total_keys_num(&self) -> u64 {
-        self.total_keys_num.load(Ordering::Relaxed)
+        self.total_keys_num.load(Ordering::SeqCst)
     }
 
     fn checked_estimate_sum(estimate_keys_num: &[Option<u64>]) -> Result<u64, OtherError> {
@@ -218,11 +219,11 @@ impl RecentReject {
         // Saturating decrement to avoid underflow if the estimate overshoots
         // the actual counter.
         loop {
-            let current = self.total_keys_num.load(Ordering::Relaxed);
+            let current = self.total_keys_num.load(Ordering::SeqCst);
             let new = current.saturating_sub(dropped_estimate);
             if self
                 .total_keys_num
-                .compare_exchange_weak(current, new, Ordering::Relaxed, Ordering::Relaxed)
+                .compare_exchange_weak(current, new, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
             {
                 return Ok(new);
