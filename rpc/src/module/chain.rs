@@ -1945,13 +1945,25 @@ impl ChainRpc for ChainRpcImpl {
             })
             .and_then(|block| {
                 let witnesses_root = tx_proof.witnesses_root.into();
+                let indices: Vec<u32> = tx_proof
+                    .proof
+                    .indices
+                    .into_iter()
+                    .map(|index| index.value())
+                    .collect();
+
+                // Reject empty, duplicate, or oversized indices.
+                if indices.is_empty() || indices.len() > block.transactions().len() || {
+                    let mut uniq = HashSet::new();
+                    indices.iter().any(|idx| !uniq.insert(*idx))
+                } {
+                    return Err(RPCError::invalid_params(
+                        "Invalid transaction proof indices",
+                    ));
+                }
+
                 let merkle_proof = MerkleProof::new(
-                    tx_proof
-                        .proof
-                        .indices
-                        .into_iter()
-                        .map(|index| index.value())
-                        .collect(),
+                    indices,
                     tx_proof
                         .proof
                         .lemmas
@@ -2013,13 +2025,53 @@ impl ChainRpc for ChainRpcImpl {
                 RPCError::invalid_params(format!("Cannot find block {:#x}", tx_proof.block_hash))
             })
             .and_then(|block| {
+                let tx_indices: Vec<u32> = tx_proof
+                    .transactions_proof
+                    .indices
+                    .into_iter()
+                    .map(|index| index.value())
+                    .collect();
+                let witness_indices: Vec<u32> = tx_proof
+                    .witnesses_proof
+                    .indices
+                    .into_iter()
+                    .map(|index| index.value())
+                    .collect();
+
+                // Reject empty, duplicate, or oversized transaction proof indices.
+                if tx_indices.is_empty() || tx_indices.len() > block.transactions().len() || {
+                    let mut uniq = HashSet::new();
+                    tx_indices.iter().any(|idx| !uniq.insert(*idx))
+                } {
+                    return Err(RPCError::invalid_params(
+                        "Invalid transaction proof indices",
+                    ));
+                }
+
+                // Reject empty, duplicate, or oversized witness proof indices.
+                if witness_indices.is_empty()
+                    || witness_indices.len() > block.tx_witness_hashes().len()
+                    || {
+                        let mut uniq = HashSet::new();
+                        witness_indices.iter().any(|idx| !uniq.insert(*idx))
+                    }
+                {
+                    return Err(RPCError::invalid_params("Invalid witness proof indices"));
+                }
+
+                // After deduplication the two index sets must match.
+                {
+                    let tx_set: HashSet<u32> = tx_indices.iter().copied().collect();
+                    let witness_set: HashSet<u32> = witness_indices.iter().copied().collect();
+                    if tx_set != witness_set {
+                        return Err(RPCError::invalid_params(
+                            "Transaction proof indices do not match witness proof indices",
+                        ));
+                    }
+                }
+
                 let transactions_merkle_proof = MerkleProof::new(
-                    tx_proof
-                        .transactions_proof
-                        .indices
-                        .into_iter()
-                        .map(|index| index.value())
-                        .collect(),
+                    tx_indices,
                     tx_proof
                         .transactions_proof
                         .lemmas
@@ -2028,12 +2080,7 @@ impl ChainRpc for ChainRpcImpl {
                         .collect(),
                 );
                 let witnesses_merkle_proof = MerkleProof::new(
-                    tx_proof
-                        .witnesses_proof
-                        .indices
-                        .into_iter()
-                        .map(|index| index.value())
-                        .collect(),
+                    witness_indices,
                     tx_proof
                         .witnesses_proof
                         .lemmas

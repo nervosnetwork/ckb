@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.207.0](https://github.com/nervosnetwork/ckb/compare/v0.206.0...v0.207.0) - 2026-06-10
+
+### Changed
+
+- split mainnet/testnet params in devnet-from-existing-data (#5205) (by @sunchengzhu)
+- [rust-toolchain] Upgrade Rust toolchain to 1.95.0 (#5175) (by @eval-exec)
+
+### Fixed
+
+- fix overflows (by @chenyukang)
+
+### Security
+
+- Update cargo deny workflow to conditionally run security audit (#5229) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+- @sunchengzhu
+- @eval-exec
+
 ## [0.206.0](https://github.com/nervosnetwork/ckb/compare/v0.205.0...v0.206.0) - 2026-05-06
 
 ### Added

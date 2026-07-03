@@ -14,7 +14,7 @@ use ckb_error::{AnyError, InternalErrorKind};
 use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::Level::Trace;
-use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
+use ckb_logger::{debug, error, info, log_enabled_target, trace_target, warn};
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -352,6 +352,37 @@ impl TxPoolService {
         self.enqueue_verify_queue(tx, is_proposal_tx, remote).await
     }
 
+    async fn resumeble_process_tx_and_notify_full_reject(
+        &self,
+        tx: TransactionView,
+        is_proposal_tx: bool,
+        remote: Option<(Cycle, PeerIndex)>,
+    ) -> Result<bool, Reject> {
+        let tx_hash = tx.hash();
+        let ret = self.resumeble_process_tx(tx, is_proposal_tx, remote).await;
+
+        if matches!(ret, Err(Reject::Full(_))) {
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+        }
+
+        ret
+    }
+
+    pub(crate) async fn submit_remote_tx(
+        &self,
+        tx: TransactionView,
+        declared_cycles: Cycle,
+        peer: PeerIndex,
+    ) -> Result<bool, Reject> {
+        self.resumeble_process_tx_and_notify_full_reject(tx, false, Some((declared_cycles, peer)))
+            .await
+    }
+
+    pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
+        self.resumeble_process_tx_and_notify_full_reject(tx, true, None)
+            .await
+    }
+
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
         // non contextual verify first
         self.non_contextual_verify(&tx, None).await?;
@@ -469,7 +500,7 @@ impl TxPoolService {
                     self.process_orphan_tx(&tx).await;
                 }
                 Err(reject) => {
-                    info!(
+                    debug!(
                         "after_process {} {} remote reject: {} ",
                         tx_hash, peer, reject
                     );
@@ -570,10 +601,27 @@ impl TxPoolService {
                         orphan.tx.hash(),
                         tx.hash(),
                     );
-                    self.remove_orphan_tx(&orphan.tx.proposal_short_id()).await;
-                    self.enqueue_verify_queue(orphan.tx, false, Some((orphan.cycle, orphan.peer)))
+                    let orphan_id = orphan.tx.proposal_short_id();
+                    match self
+                        .enqueue_verify_queue(
+                            orphan.tx.clone(),
+                            false,
+                            Some((orphan.cycle, orphan.peer)),
+                        )
                         .await
-                        .expect("enqueue suspended tx");
+                    {
+                        Ok(_) => {
+                            self.remove_orphan_tx(&orphan_id).await;
+                        }
+                        Err(reject) => {
+                            warn!(
+                                "process_orphan {} failed to enqueue verify queue: {}; keep orphan from {}",
+                                orphan.tx.hash(),
+                                reject,
+                                tx.hash(),
+                            );
+                        }
+                    }
                 } else if let Some((ret, _snapshot)) = self
                     ._process_tx(orphan.tx.clone(), Some(orphan.cycle), None)
                     .await
@@ -689,8 +737,10 @@ impl TxPoolService {
             && declared != verified.cycles
         {
             info!(
-                "process_tx declared cycles not match verified cycles, declared: {:?} verified: {:?}, tx: {:?}",
-                declared, verified.cycles, tx
+                "process_tx declared cycles not match verified cycles, declared: {}, verified: {}, tx_hash: {}",
+                declared,
+                verified.cycles,
+                tx.hash()
             );
             return Some((
                 Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),

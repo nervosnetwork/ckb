@@ -1,16 +1,25 @@
 use crate::component::verify_queue::VerifyQueue;
 use crate::service::TxPoolService;
-use ckb_logger::{debug, info};
+use ckb_logger::{debug, error, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
+use futures_util::FutureExt;
+use std::any::Any;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
 
 #[derive(Clone, Debug, PartialEq)]
 enum WorkerRole {
     OnlySmallCycleTx,
     SubmitTimeFirst,
+}
+
+#[derive(Debug)]
+enum WorkerExit {
+    Stopped { role: WorkerRole },
+    Panicked { role: WorkerRole, message: String },
 }
 
 struct Worker {
@@ -53,24 +62,48 @@ impl Worker {
         }
     }
 
-    pub fn start(mut self) -> JoinHandle<()> {
+    pub fn start(
+        self,
+        worker_id: usize,
+        exit_tx: mpsc::UnboundedSender<(usize, WorkerExit)>,
+    ) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let queue_ready = self.tasks.read().await.subscribe();
-            loop {
-                tokio::select! {
-                    _ = self.exit_signal.cancelled() => {
-                        break;
-                    }
-                    _ = self.command_rx.changed() => {
-                        self.status = self.command_rx.borrow().to_owned();
-                        self.process_inner().await;
-                    }
-                    _ = queue_ready.notified() => {
-                        self.process_inner().await;
-                    }
-                };
+            let role = self.role.clone();
+            let exit = match AssertUnwindSafe(self.run()).catch_unwind().await {
+                Ok(()) => WorkerExit::Stopped { role },
+                Err(payload) => WorkerExit::Panicked {
+                    role,
+                    message: panic_payload_to_string(payload.as_ref()),
+                },
+            };
+
+            if let Err(err) = exit_tx.send((worker_id, exit)) {
+                error!("failed to notify tx-pool verify worker exit: {:?}", err.0);
             }
         })
+    }
+
+    async fn run(mut self) {
+        let queue_ready = self.tasks.read().await.subscribe();
+        self.refresh_status();
+        loop {
+            tokio::select! {
+                _ = self.exit_signal.cancelled() => {
+                    break;
+                }
+                _ = self.command_rx.changed() => {
+                    self.status = self.command_rx.borrow_and_update().to_owned();
+                    self.process_inner().await;
+                }
+                _ = queue_ready.notified() => {
+                    self.process_inner().await;
+                }
+            };
+        }
+    }
+
+    fn refresh_status(&mut self) {
+        self.status = self.command_rx.borrow().to_owned();
     }
 
     async fn process_inner(&mut self) {
@@ -79,11 +112,17 @@ impl Worker {
                 info!("Verify worker::process_inner exit_signal is cancelled");
                 return;
             }
+            self.refresh_status();
             if self.status != ChunkCommand::Resume {
                 return;
             }
             // cheap query to check queue is not empty
             if self.tasks.read().await.is_empty() {
+                return;
+            }
+
+            self.refresh_status();
+            if self.status != ChunkCommand::Resume {
                 return;
             }
 
@@ -126,7 +165,7 @@ impl Worker {
 
 pub(crate) struct VerifyMgr {
     workers: Vec<(watch::Sender<ChunkCommand>, Worker)>,
-    join_handles: Option<Vec<JoinHandle<()>>>,
+    join_handles: Option<Vec<Option<JoinHandle<()>>>>,
     signal_exit: CancellationToken,
     command_rx: watch::Receiver<ChunkCommand>,
 }
@@ -178,11 +217,55 @@ impl VerifyMgr {
         }
     }
 
+    fn spawn_worker(
+        &mut self,
+        worker_id: usize,
+        exit_tx: mpsc::UnboundedSender<(usize, WorkerExit)>,
+    ) {
+        let Some(worker) = self
+            .workers
+            .get(worker_id)
+            .map(|(_, worker)| worker.clone())
+        else {
+            error!("cannot respawn missing tx-pool verify worker {}", worker_id);
+            return;
+        };
+        let handle = worker.start(worker_id, exit_tx);
+        if let Some(handles) = self.join_handles.as_mut()
+            && let Some(handle_slot) = handles.get_mut(worker_id)
+        {
+            handle_slot.replace(handle);
+        } else {
+            error!(
+                "cannot store handle for tx-pool verify worker {}",
+                worker_id
+            );
+        }
+    }
+
+    async fn join_worker(&mut self, worker_id: usize) {
+        let handle = self
+            .join_handles
+            .as_mut()
+            .and_then(|handles| handles.get_mut(worker_id))
+            .and_then(Option::take);
+
+        if let Some(handle) = handle
+            && let Err(err) = handle.await
+        {
+            error!(
+                "tx-pool verify worker {} join failed after exit notification: {}",
+                worker_id, err
+            );
+        }
+    }
+
     async fn start_loop(&mut self) {
+        let (worker_exit_tx, mut worker_exit_rx) = mpsc::unbounded_channel();
         let mut join_handles = Vec::new();
-        for w in self.workers.iter_mut() {
-            let h = w.1.clone().start();
-            join_handles.push(h);
+        for (worker_id, w) in self.workers.iter_mut().enumerate() {
+            let h = w.1.clone().start(worker_id, worker_exit_tx.clone());
+            join_handles.push(Some(h));
         }
         self.join_handles.replace(join_handles);
         loop {
@@ -195,12 +278,35 @@ impl VerifyMgr {
                 _ = self.command_rx.changed() => {
                     let command = self.command_rx.borrow().to_owned();
                     self.send_child_command(command);
+                },
+                Some((worker_id, exit)) = worker_exit_rx.recv() => {
+                    self.join_worker(worker_id).await;
+                    if self.signal_exit.is_cancelled() {
+                        continue;
+                    }
+                    match exit {
+                        WorkerExit::Stopped { role } => {
+                            error!(
+                                "tx-pool verify worker {} ({:?}) stopped unexpectedly, respawning",
+                                worker_id, role
+                            );
+                        }
+                        WorkerExit::Panicked { role, message } => {
+                            error!(
+                                "tx-pool verify worker {} ({:?}) panicked: {}; respawning",
+                                worker_id, role, message
+                            );
+                        }
+                    }
+                    self.spawn_worker(worker_id, worker_exit_tx.clone());
                 }
             }
         }
         if let Some(jh) = self.join_handles.take() {
-            for h in jh {
-                h.await.expect("Worker thread panic");
+            for h in jh.into_iter().flatten() {
+                if let Err(err) = h.await {
+                    error!("tx-pool verify worker join failed: {}", err);
+                }
             }
         }
         info!("TxPool verify_mgr service exited");
@@ -208,5 +314,15 @@ impl VerifyMgr {
 
     pub async fn run(&mut self) {
         self.start_loop().await;
+    }
+}
+
+fn panic_payload_to_string(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_owned()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_owned()
     }
 }

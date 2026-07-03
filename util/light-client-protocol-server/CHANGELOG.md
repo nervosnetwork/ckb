@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-light-client-protocol-server-v1.2.0...ckb-light-client-protocol-server-v1.2.1) - 2026-06-08
+
+### Changed
+
+- Merge commit from fork (by @Officeyutong)
+- [rust-toolchain] Upgrade Rust toolchain to 1.95.0 (#5175) (by @eval-exec)
+
+### Contributors
+
+- @Officeyutong
+- @eval-exec
+
 ## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-light-client-protocol-server-v1.1.1...ckb-light-client-protocol-server-v1.2.0) - 2026-03-02
 
 ### Added

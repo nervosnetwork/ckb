@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2](https://github.com/nervosnetwork/ckb/compare/ckb-chain-v1.2.1...ckb-chain-v1.2.2) - 2026-06-08
+
+### Changed
+
+- [rust-toolchain] Upgrade Rust toolchain to 1.95.0 (#5175) (by @eval-exec)
+
+### Fixed
+
+- fix overflows (by @chenyukang)
+- improve timeout assertion message in test_package_txs_with_deps (#5211) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+- @eval-exec
+
 ## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-chain-v1.2.0...ckb-chain-v1.2.1) - 2026-04-24
 
 ### Fixed

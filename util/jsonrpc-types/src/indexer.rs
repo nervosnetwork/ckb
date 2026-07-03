@@ -90,7 +90,7 @@ pub enum IndexerSearchMode {
     Partial,
 }
 
-/// A array represent (half-open) range bounded inclusively below and exclusively above [start, end).
+/// An array representing (half-open) range bounded inclusively below and exclusively above [start, end).
 ///
 /// ## Examples
 ///

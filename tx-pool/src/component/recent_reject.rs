@@ -1,6 +1,6 @@
 use crate::error::Reject;
 use ckb_db::DBWithTTL;
-use ckb_error::AnyError;
+use ckb_error::{AnyError, OtherError};
 use ckb_types::{packed::Byte32, prelude::*};
 use rand::distributions::Uniform;
 use rand::{Rng, thread_rng};
@@ -41,7 +41,7 @@ impl RecentReject {
             .map(|cf| db.estimate_num_keys_cf(cf))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let total_keys_num = estimate_keys_num.iter().map(|num| num.unwrap_or(0)).sum();
+        let total_keys_num = Self::checked_estimate_sum(&estimate_keys_num)?;
 
         Ok(RecentReject {
             shard_num,
@@ -59,12 +59,8 @@ impl RecentReject {
         let json_string = serde_json::to_string(&reject)?;
         self.db.put(&shard, hash_slice, json_string)?;
 
-        if let Some(total_keys_num) = self.total_keys_num.checked_add(1) {
-            if total_keys_num > self.count_limit {
-                self.shrink()?;
-            }
-        } else {
-            // overflow occurred, try shrink
+        self.total_keys_num = self.total_keys_num.saturating_add(1);
+        if self.total_keys_num > self.count_limit {
             self.shrink()?;
         }
         Ok(())
@@ -86,7 +82,19 @@ impl RecentReject {
             .map(|num| self.db.estimate_num_keys_cf(&num.to_string()))
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(estimate_keys_num.iter().map(|num| num.unwrap_or(0)).sum())
+        Self::checked_estimate_sum(&estimate_keys_num).map_err(Into::into)
+    }
+
+    fn checked_estimate_sum(estimate_keys_num: &[Option<u64>]) -> Result<u64, OtherError> {
+        estimate_keys_num.iter().try_fold(0u64, |total, num| {
+            let keys_num = num.unwrap_or(0);
+            total.checked_add(keys_num).ok_or_else(|| {
+                OtherError::new(format!(
+                    "recent reject estimated keys count overflows: {} + {}",
+                    total, keys_num
+                ))
+            })
+        })
     }
 
     fn shrink(&mut self) -> Result<u64, AnyError> {

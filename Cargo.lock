@@ -134,9 +134,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "arc-swap"
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.206.0"
+version = "0.207.0"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
@@ -740,7 +740,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-app-config"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-async-runtime"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-logger",
  "ckb-spawn",
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-bin"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -854,7 +854,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-block-filter"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
@@ -866,11 +866,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-build-info"
-version = "1.1.0"
+version = "1.1.1"
 
 [[package]]
 name = "ckb-chain"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-iter"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-store",
  "ckb-types",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "cacache",
  "ckb-constant",
@@ -939,21 +939,21 @@ dependencies = [
 
 [[package]]
 name = "ckb-channel"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "crossbeam-channel",
 ]
 
 [[package]]
 name = "ckb-constant"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "phf 0.12.1",
 ]
 
 [[package]]
 name = "ckb-crypto"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao-utils"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "byteorder",
  "ckb-error",
@@ -988,7 +988,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-db"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-db-schema",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-migration"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-channel",
@@ -1016,11 +1016,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-db-schema"
-version = "1.1.0"
+version = "1.1.1"
 
 [[package]]
 name = "ckb-error"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "ckb-occupied-capacity",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fee-estimator"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-fixed-hash-core",
  "ckb-fixed-hash-macros",
@@ -1049,7 +1049,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "faster-hex",
  "schemars",
@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-macros"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-fixed-hash-core",
  "proc-macro2",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-freezer"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-error",
  "ckb-logger",
@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-gen-types"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "cfg-if",
  "ckb-error",
@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-hash"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "blake2b-ref",
  "blake2b-rs",
@@ -1109,7 +1109,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1127,7 +1127,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer-sync"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-instrument"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-types",
  "faster-hex",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-launcher"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-light-client-protocol-server"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1242,14 +1242,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "ckb-logger-config"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "serde",
  "toml",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger-service"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "backtrace",
  "ckb-channel",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-memory-tracker"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-db",
  "ckb-logger",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "prometheus",
  "prometheus-static-metric",
@@ -1305,14 +1305,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics-config"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-metrics-service"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-async-runtime",
  "ckb-logger",
@@ -1329,7 +1329,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-migrate"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-migration-template"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "quote",
  "syn 2.0.117",
@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-miner"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -1387,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-multisig"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-crypto",
  "ckb-error",
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-network"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "bitflags 2.11.1",
  "bloom-filters",
@@ -1437,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-network-alert"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-notify"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-occupied-capacity-core",
  "ckb-occupied-capacity-macros",
@@ -1479,14 +1479,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-occupied-capacity-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ckb-occupied-capacity-macros"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-occupied-capacity-core",
  "quote",
@@ -1495,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-onion"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "base64 0.21.7",
  "ckb-async-runtime",
@@ -1510,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-pow"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "byteorder",
  "ckb-hash",
@@ -1522,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-proposal-table"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rational"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "numext-fixed-uint",
  "proptest",
@@ -1540,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-system-scripts",
  "ckb-types",
@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-reward-calculator"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1570,7 +1570,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rich-indexer"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "ckb-app-config",
@@ -1605,7 +1605,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1677,7 +1677,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-shared"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "arc-swap",
  "bitflags 2.11.1",
@@ -1739,7 +1739,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-snapshot"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "arc-swap",
  "ckb-chain-spec",
@@ -1755,11 +1755,11 @@ dependencies = [
 
 [[package]]
 name = "ckb-spawn"
-version = "1.1.0"
+version = "1.1.1"
 
 [[package]]
 name = "ckb-stop-handler"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-async-runtime",
  "ckb-channel",
@@ -1774,7 +1774,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-store"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1847,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-systemtime"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "web-time",
 ]
@@ -1893,7 +1893,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-test-chain-utils"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-chain-spec",
  "ckb-dao",
@@ -1911,14 +1911,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-traits"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-types",
 ]
 
 [[package]]
 name = "ckb-tx-pool"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1942,6 +1942,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "futures-util",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -1959,7 +1960,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-types"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "bit-vec 0.6.3",
  "bytes",
@@ -1982,7 +1983,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-util"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "ckb-fixed-hash",
  "linked-hash-map",
@@ -1991,7 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-chain-spec",
  "ckb-constant",
@@ -2013,7 +2014,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-contextual"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "ckb-async-runtime",
  "ckb-chain",
@@ -2039,7 +2040,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-traits"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "bitflags 2.11.1",
  "ckb-error",
@@ -4789,15 +4790,14 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openssl"
-version = "0.10.77"
+version = "0.10.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe4646e360ec77dff7dde40ed3d6c5fee52d156ef4a62f53973d38294dad87f"
+checksum = "77823a27f0babb03091cb9ed9ef80af3b39dbc82f97e8fa530374b7dafd87a45"
 dependencies = [
  "bitflags 2.11.1",
  "cfg-if",
  "foreign-types",
  "libc",
- "once_cell",
  "openssl-macros",
  "openssl-sys",
 ]
@@ -4830,9 +4830,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.113"
+version = "0.9.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad2f2c0eba47118757e4c6d2bff2838f3e0523380021356e7875e858372ce644"
+checksum = "b47e7e6bb2c38cd930d25a23b40fa52e068c10e85f3e03a7f5ba5aaca5713695"
 dependencies = [
  "cc",
  "libc",

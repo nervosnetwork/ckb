@@ -572,7 +572,7 @@ where
                             .inner_mut()
                             .set_register(A0, Self::u8_to_reg(SUCCESS));
                         self.states.insert(vm_id, VmState::Runnable);
-                        self.terminated_vms.retain(|id, _| id != &args.target_id);
+                        self.terminated_vms.remove(&args.target_id);
                         continue;
                     }
                     if !self.states.contains_key(&args.target_id) {
@@ -690,7 +690,10 @@ where
                     let copy_length = u64::min(full_length, real_length);
                     for i in 0..copy_length {
                         let fd = inherited_fd[i as usize].0;
-                        let addr = buffer_addr.checked_add(i * 8).ok_or(Error::MemOutOfBound)?;
+                        let offset = i.checked_mul(8).ok_or(Error::MemOutOfBound)?;
+                        let addr = buffer_addr
+                            .checked_add(offset)
+                            .ok_or(Error::MemOutOfBound)?;
                         machine
                             .inner_mut()
                             .memory_mut()
@@ -810,10 +813,12 @@ where
                 write_machine
                     .inner_mut()
                     .add_cycles_no_checking(transferred_byte_cycles(copiable))?;
-                let data = write_machine
-                    .inner_mut()
-                    .memory_mut()
-                    .load_bytes(write_buffer_addr.wrapping_add(consumed), copiable)?;
+                let data = write_machine.inner_mut().memory_mut().load_bytes(
+                    write_buffer_addr
+                        .checked_add(consumed)
+                        .ok_or(Error::MemOutOfBound)?,
+                    copiable,
+                )?;
                 let (_, read_machine) = self
                     .instantiated
                     .get_mut(&read_vm_id)

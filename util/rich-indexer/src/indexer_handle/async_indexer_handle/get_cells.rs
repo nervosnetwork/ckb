@@ -161,7 +161,6 @@ impl AsyncRichIndexerHandle {
             .map_err(|err| Error::DB(err.to_string()))?
             .trim_end_matches(';')
             .to_string();
-
         // bind
         let mut query = SQLXPool::new_query(&sql);
         query = query
@@ -185,6 +184,11 @@ impl AsyncRichIndexerHandle {
                     query = query.bind(search_key.script.args.as_bytes());
                 }
             },
+        }
+        if !dead_cells.is_empty() {
+            for (tx_hash, _) in dead_cells {
+                query = query.bind(tx_hash)
+            }
         }
         if let Some(filter) = search_key.filter.as_ref() {
             if let Some(script) = filter.script.as_ref() {
@@ -216,11 +220,6 @@ impl AsyncRichIndexerHandle {
                         }
                     },
                 }
-            }
-        }
-        if !dead_cells.is_empty() {
-            for (tx_hash, _) in dead_cells {
-                query = query.bind(tx_hash)
             }
         }
 

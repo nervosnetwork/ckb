@@ -13,3 +13,12 @@ mod vm_version_1;
 fn test_max_argv_length() {
     assert!(crate::syscalls::MAX_ARGV_LENGTH < u64::MAX);
 }
+
+#[test]
+fn test_checked_add_addr() {
+    assert_eq!(super::utils::checked_add_addr(7, 8), Ok(15));
+    assert!(matches!(
+        super::utils::checked_add_addr(u64::MAX, 1),
+        Err(ckb_vm::Error::MemOutOfBound)
+    ));
+}

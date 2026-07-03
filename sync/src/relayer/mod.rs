@@ -124,9 +124,13 @@ impl Relayer {
 
         match message {
             packed::RelayMessageUnionReader::CompactBlock(reader) => {
-                CompactBlockProcess::new(reader, self, nc, peer)
-                    .execute()
-                    .await
+                if reader.check_data() {
+                    CompactBlockProcess::new(reader, self, nc, peer)
+                        .execute()
+                        .await
+                } else {
+                    StatusCode::ProtocolMessageIsMalformed.with_context("CompactBlock is invalid")
+                }
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
                 if reader.check_data() {
@@ -419,13 +423,13 @@ impl Relayer {
         let mut position = 0;
         for (i, uncle_hash) in compact_block.uncles().into_iter().enumerate() {
             if uncles_index.contains(&(i as u32)) {
-                uncles.push(
-                    received_uncles
-                        .get(position)
-                        .expect("have checked the indexes")
-                        .clone()
-                        .data(),
-                );
+                let Some(uncle) = received_uncles.get(position) else {
+                    return ReconstructionResult::Error(
+                        StatusCode::BlockUnclesLengthIsUnmatchedWithPendingCompactBlock
+                            .with_context(format!("Missing received uncle at position {position}")),
+                    );
+                };
+                uncles.push(uncle.clone().data());
                 position += 1;
                 continue;
             };

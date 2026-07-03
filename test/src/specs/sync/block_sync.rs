@@ -296,6 +296,9 @@ impl Spec for BlockSyncRelayerCollaboration {
         assert!(!ret, "node0 should stay the same");
 
         sync_block(&net, node0, &first);
+        let parent_number = last.number() - 1;
+        let ret = wait_until(10, || rpc_client.get_tip_block_number() >= parent_number);
+        assert!(ret, "node0 should store compact block parent");
         net.send(node0, SupportProtocols::RelayV3, build_compact_block(&last));
 
         let ret = wait_until(10, || rpc_client.get_tip_block_number() >= tip_number + 17);

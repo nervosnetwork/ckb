@@ -48,7 +48,7 @@ impl NetTimeChecker {
         let mid = samples.len() >> 1;
         if samples.len() & 0x1 == 0 {
             // samples is even
-            Some((samples[mid - 1] + samples[mid]) >> 1)
+            Some(((i128::from(samples[mid - 1]) + i128::from(samples[mid])) >> 1) as i64)
         } else {
             // samples is odd
             samples.get(mid).cloned()

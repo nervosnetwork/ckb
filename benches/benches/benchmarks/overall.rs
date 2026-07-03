@@ -1,7 +1,7 @@
 use crate::benchmarks::util::{create_2out_transaction, create_secp_tx, secp_cell};
 use ckb_app_config::NetworkConfig;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
-use ckb_chain::{ChainController, start_chain_services};
+use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
@@ -31,6 +31,11 @@ const SIZES: &[usize] = &[500];
 
 #[cfg(feature = "ci")]
 const SIZES: &[usize] = &[2usize];
+
+struct ChainSetup {
+    chain_scope: ChainServiceScope,
+    shared: Shared,
+}
 
 fn block_assembler_config() -> BlockAssemblerConfig {
     let (_, _, secp_script) = secp_cell();
@@ -83,7 +88,7 @@ fn dummy_network(shared: &Shared) -> NetworkController {
     .expect("Start network service failed")
 }
 
-pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
+fn setup_chain(txs_size: usize) -> ChainSetup {
     let (_, _, secp_script) = secp_cell();
     let tx = create_secp_tx();
     let dao = genesis_dao_data(vec![&tx]).unwrap();
@@ -134,9 +139,12 @@ pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let network = dummy_network(&shared);
     pack.take_tx_pool_builder().start(network);
 
-    let chain_controller = start_chain_services(pack.take_chain_services_builder());
+    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
 
-    (shared, chain_controller)
+    ChainSetup {
+        chain_scope,
+        shared,
+    }
 }
 
 pub fn gen_txs_from_block(block: &BlockView) -> Vec<TransactionView> {
@@ -179,9 +187,10 @@ fn bench(c: &mut Criterion) {
             |b, txs_size| {
                 b.iter_batched(
                     || setup_chain(*txs_size),
-                    |(shared, chain)| {
+                    |setup| {
                         let mut i = 10;
                         while i > 0 {
+                            let shared = &setup.shared;
                             let snapshot = Arc::clone(&shared.snapshot());
                             let tip_hash = snapshot.tip_hash();
                             let block = snapshot.get_block(&tip_hash).expect("tip exist");
@@ -218,7 +227,9 @@ fn bench(c: &mut Criterion) {
                                 .verify(&block.header())
                                 .expect("header verified");
 
-                            chain
+                            setup
+                                .chain_scope
+                                .chain_controller()
                                 .blocking_process_block_with_switch(
                                     Arc::new(block),
                                     Switch::DISABLE_EXTENSION,

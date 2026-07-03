@@ -2,7 +2,7 @@ use super::*;
 
 use ckb_indexer_sync::Error;
 use sql_builder::SqlBuilder;
-use sqlx::{Any, Row, Transaction};
+use sqlx::{Any, Row, Transaction, any::AnyRow};
 
 pub(crate) async fn rollback_block(tx: &mut Transaction<'_, Any>) -> Result<(), Error> {
     let block_id = if let Some(block_id) = query_tip_id(tx).await? {
@@ -205,7 +205,7 @@ async fn script_exists_in_output(
     script_id: i64,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<bool, Error> {
-    let row_lock = sqlx::query(
+    if output_references_script(
         r#"
         SELECT EXISTS (
             SELECT 1
@@ -213,28 +213,15 @@ async fn script_exists_in_output(
             WHERE lock_script_id = $1
         )
         "#,
+        script_id,
+        tx,
     )
-    .bind(script_id)
-    .fetch_one(tx.as_mut())
-    .await
-    .map_err(|err| Error::DB(err.to_string()))?;
-
-    // pg type is BOOLEAN
-    match row_lock.try_get::<bool, _>(0) {
-        Ok(r) => {
-            if r {
-                return Ok(true);
-            }
-        }
-        Err(_) => {
-            // sqlite type is BIGINT
-            if row_lock.get::<i64, _>(0) == 1 {
-                return Ok(true);
-            }
-        }
+    .await?
+    {
+        return Ok(true);
     }
 
-    let row_type = sqlx::query(
+    output_references_script(
         r#"
         SELECT EXISTS (
             SELECT 1
@@ -242,17 +229,36 @@ async fn script_exists_in_output(
             WHERE type_script_id = $1
         )
         "#,
+        script_id,
+        tx,
     )
-    .bind(script_id)
-    .fetch_one(tx.as_mut())
     .await
-    .map_err(|err| Error::DB(err.to_string()))?;
+}
 
+async fn output_references_script(
+    query: &str,
+    script_id: i64,
+    tx: &mut Transaction<'_, Any>,
+) -> Result<bool, Error> {
+    let row = sqlx::query(query)
+        .bind(script_id)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(|err| Error::DB(err.to_string()))?;
+
+    read_exists_result(&row)
+}
+
+fn read_exists_result(row: &AnyRow) -> Result<bool, Error> {
     // pg type is BOOLEAN
-    match row_lock.try_get::<bool, _>(0) {
+    match row.try_get::<bool, _>(0) {
         Ok(r) => Ok(r),
         // sqlite type is BIGINT
-        Err(_) => Ok(row_type.get::<i64, _>(0) == 1),
+        Err(bool_err) => row.try_get::<i64, _>(0).map(|r| r == 1).map_err(|err| {
+            Error::DB(format!(
+                "failed to read EXISTS result as bool ({bool_err}) or i64 ({err})"
+            ))
+        }),
     }
 }
 
@@ -263,4 +269,57 @@ fn sqlx_param_placeholders(range: std::ops::Range<usize>) -> Result<Vec<String>,
     Ok((1..=range.end)
         .map(|i| format!("${}", i))
         .collect::<Vec<String>>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::store::SQLXPool;
+    use ckb_app_config::RichIndexerConfig;
+
+    const MEMORY_DB: &str = "sqlite://?mode=memory";
+
+    async fn connect_sqlite_memory() -> SQLXPool {
+        let mut pool = SQLXPool::default();
+        let config = RichIndexerConfig {
+            store: MEMORY_DB.into(),
+            ..Default::default()
+        };
+        pool.connect(&config).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_script_exists_in_output_finds_type_script_reference() {
+        let storage = connect_sqlite_memory().await;
+        let mut tx = storage.transaction().await.unwrap();
+
+        SQLXPool::new_query(
+            r#"
+            INSERT INTO output (
+                tx_id,
+                output_index,
+                capacity,
+                lock_script_id,
+                type_script_id
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(1_i64)
+        .bind(0_i64)
+        .bind(100_i64)
+        .bind(7_i64)
+        .bind(42_i64)
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+
+        assert!(script_exists_in_output(7, &mut tx).await.unwrap());
+        assert!(script_exists_in_output(42, &mut tx).await.unwrap());
+        assert!(!script_exists_in_output(99, &mut tx).await.unwrap());
+
+        tx.rollback().await.unwrap();
+    }
 }

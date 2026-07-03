@@ -12,8 +12,9 @@ fn is_even(n: u64) -> bool {
 }
 
 fn mean(numbers: &[u64]) -> u64 {
-    let sum: u64 = numbers.iter().sum();
-    sum / numbers.len() as u64
+    // The average of u64 values fits in u64, but the intermediate sum may not.
+    let sum: u128 = numbers.iter().map(|number| u128::from(*number)).sum();
+    (sum / numbers.len() as u128) as u64
 }
 
 fn median(numbers: &mut [u64]) -> u64 {
@@ -89,7 +90,10 @@ where
                 txs_fees,
                 ..
             } = block_ext;
-            let txs_sizes = txs_sizes.expect("expect txs_size's length >= 1");
+            // Older BlockExt records may not contain transaction size data.
+            let Some(txs_sizes) = txs_sizes else {
+                return fee_rates;
+            };
             if txs_sizes.len() > 1 && !txs_fees.is_empty() {
                 // block_ext.txs_fees's length == block_ext.cycles's length
                 // block_ext.txs_fees's length + 1 == txs_sizes's length

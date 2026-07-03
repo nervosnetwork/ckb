@@ -22,6 +22,17 @@ pub struct BlockFetcher {
     ibd: IBDState,
 }
 
+fn window_end(start: BlockNumber, window: BlockNumber, best_known: BlockNumber) -> BlockNumber {
+    match start.checked_add(window) {
+        Some(end) => min(end, best_known),
+        None => {
+            // The requested window crosses `BlockNumber::MAX`, so every
+            // representable block up to `best_known` is inside the window.
+            best_known
+        }
+    }
+}
+
 impl BlockFetcher {
     pub fn new(sync_shared: Arc<SyncShared>, peer: PeerIndex, ibd: IBDState) -> Self {
         let active_chain = sync_shared.active_chain();
@@ -97,9 +108,18 @@ impl BlockFetcher {
             ckb_metrics::handle().map(|handle| handle.ckb_sync_block_fetch_duration.start_timer())
         };
 
-        if self.sync_shared.shared().get_unverified_tip().number()
-            >= self.sync_shared.active_chain().tip_number() + BLOCK_DOWNLOAD_WINDOW * 9
-        {
+        let Some(unverified_tip_limit) = self
+            .sync_shared
+            .active_chain()
+            .tip_number()
+            .checked_add(BLOCK_DOWNLOAD_WINDOW * 9)
+        else {
+            trace!(
+                "active chain tip is too close to BlockNumber::MAX to calculate unverified tip limit"
+            );
+            return None;
+        };
+        if self.sync_shared.shared().get_unverified_tip().number() >= unverified_tip_limit {
             trace!(
                 "unverified_tip - tip > BLOCK_DOWNLOAD_WINDOW * 9, skip fetch, unverified_tip: {}, tip: {}",
                 self.sync_shared.shared().get_unverified_tip().number(),
@@ -184,14 +204,18 @@ impl BlockFetcher {
 
         let mut start = {
             match self.ibd {
-                IBDState::In => self.sync_shared.shared().get_unverified_tip().number() + 1,
-                IBDState::Out => last_common.number() + 1,
+                IBDState::In => self.sync_shared.shared().get_unverified_tip().number(),
+                IBDState::Out => last_common.number(),
             }
+            .checked_add(1)?
         };
         let mut end = min(
             fetch_end,
-            min(best_known.number(), start + BLOCK_DOWNLOAD_WINDOW),
+            window_end(start, BLOCK_DOWNLOAD_WINDOW, best_known.number()),
         );
+        if end < start {
+            return None;
+        }
         let n_fetch = min(
             end.saturating_sub(start) as usize + 1,
             state.read_inflight_blocks().peer_can_fetch_count(self.peer),
@@ -240,7 +264,7 @@ impl BlockFetcher {
                             .set_last_common_header(self.peer, header.number_and_hash());
                     }
 
-                    end = min(best_known.number(), header.number() + BLOCK_DOWNLOAD_WINDOW);
+                    end = window_end(header.number(), BLOCK_DOWNLOAD_WINDOW, best_known.number());
                     break;
                 } else if status.contains(BlockStatus::BLOCK_RECEIVED) {
                     // Do not download repeatedly
@@ -269,7 +293,10 @@ impl BlockFetcher {
             }
 
             // Move `start` forward
-            start += span;
+            let Some(next_start) = start.checked_add(span) else {
+                break;
+            };
+            start = next_start;
         }
 
         // The headers in `fetch` may be unordered. Sort them by number.

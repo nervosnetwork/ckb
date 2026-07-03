@@ -293,10 +293,9 @@ impl TxPoolController {
     pub async fn notify_txs_async(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
         let notify = Notify::new(txs);
         self.sender
-            .send(Message::NotifyTxs(notify))
-            .await
+            .try_send(Message::NotifyTxs(notify))
             .map_err(|e| {
-                let e = ckb_error::OtherError::new(format!("SendError {e}"));
+                let (_m, e) = handle_try_send_error(e);
                 e.into()
             })
     }
@@ -323,8 +322,11 @@ impl TxPoolController {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(proposals, responder);
         self.sender
-            .send(Message::FreshProposalsFilter(request))
-            .await?;
+            .try_send(Message::FreshProposalsFilter(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -349,7 +351,12 @@ impl TxPoolController {
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(short_ids, responder);
-        self.sender.send(Message::FetchTxs(request)).await?;
+        self.sender
+            .try_send(Message::FetchTxs(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -362,8 +369,11 @@ impl TxPoolController {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(short_ids, responder);
         self.sender
-            .send(Message::FetchTxsWithCycles(request))
-            .await?;
+            .try_send(Message::FetchTxsWithCycles(request))
+            .map_err(|e| {
+                let (_m, e) = handle_try_send_error(e);
+                e
+            })?;
         response.await.map_err(Into::into)
     }
 
@@ -475,6 +485,9 @@ impl TxPoolController {
     }
 }
 
+#[cfg(test)]
+mod tests;
+
 /// A builder used to create TxPoolService.
 pub struct TxPoolServiceBuilder {
     pub(crate) tx_pool_config: TxPoolConfig,
@@ -523,8 +536,11 @@ impl TxPoolServiceBuilder {
             started: Arc::clone(&started),
         };
 
-        let block_assembler =
-            block_assembler_config.map(|config| BlockAssembler::new(config, Arc::clone(&snapshot)));
+        let block_assembler = block_assembler_config.and_then(|config| {
+            BlockAssembler::new(config, Arc::clone(&snapshot))
+                .inspect_err(|err| error!("failed to initialize block assembler: {}", err))
+                .ok()
+        });
         let builder = TxPoolServiceBuilder {
             tx_pool_config,
             tx_pool_controller: controller.clone(),
@@ -842,16 +858,14 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: (tx, declared_cycles, peer),
         }) => {
-            let _result = service
-                .resumeble_process_tx(tx, false, Some((declared_cycles, peer)))
-                .await;
+            let _result = service.submit_remote_tx(tx, declared_cycles, peer).await;
             if let Err(e) = responder.send(()) {
                 error!("Responder sending submit_tx result failed {:?}", e);
             };
         }
         Message::NotifyTxs(Notify { arguments: txs }) => {
             for tx in txs {
-                let _ret = service.resumeble_process_tx(tx, true, None).await;
+                let _ret = service.notify_tx(tx).await;
             }
         }
         Message::FreshProposalsFilter(AsyncRequest {

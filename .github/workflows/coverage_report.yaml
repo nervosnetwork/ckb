@@ -9,11 +9,11 @@ env:
 jobs:
   coverage_report:
     name: coverage_report
-    runs-on: self-hosted-coverage_report-ubuntu-20.04
+    runs-on: blacksmith-32vcpu-ubuntu-2204
     if: |
         github.repository_owner == 'nervosnetwork'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.95.0
@@ -35,7 +35,7 @@ jobs:
           files: ${{github.workspace}}/lcov-integration-test.info
           flags: integration
           override_commit: ${{github.sha}}
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v6
         with:
           name: coverage_report
           path: ${{github.workspace}}/*.info
