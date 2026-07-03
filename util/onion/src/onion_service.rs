@@ -1,4 +1,3 @@
-use base64::Engine;
 use ckb_async_runtime::Handle;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{error, info, warn};
@@ -11,8 +10,8 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use torut::onion::TorSecretKeyV3;
 
+use crate::onion::{TorSecretKeyV3, TORV3_SECRET_KEY_LENGTH};
 use crate::tor_controller::TorController;
 use crate::OnionServiceConfig;
 
@@ -104,7 +103,8 @@ impl OnionService {
         let tor_controller = self.config.tor_controller.to_string();
         let tor_password = self.config.tor_password.clone();
 
-        let mut tor_controller = TorController::new(tor_controller, tor_password, None).await?;
+        let mut tor_controller =
+            TorController::new(tor_controller, tor_password, self.handle.clone()).await?;
 
         tor_controller.wait_tor_server_bootstrap_done().await?;
 
@@ -117,7 +117,7 @@ impl OnionService {
             self.config.p2p_listen_address.to_string()
         );
         tor_controller
-            .add_onion_v3(self.key.clone(), &mut p2p_listener_addresses.iter())
+            .add_onion_v3(&self.key, &p2p_listener_addresses)
             .await
             .map_err(|err| {
                 InternalErrorKind::Other.other(format!("Failed to add onion service: {:?}", err))
@@ -161,15 +161,13 @@ fn load_or_create_tor_secret_key(onion_private_key_path: String) -> Result<TorSe
 }
 
 fn create_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV3, Error> {
-    let key = torut::onion::TorSecretKeyV3::generate();
+    let key = TorSecretKeyV3::generate();
     info!(
         "Generated new onion service v3 key for address: {}",
         key.public().get_onion_address()
     );
 
-    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut file_options = OpenOptions::new();
-    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut options = file_options.create(true).truncate(true).write(true);
 
     #[cfg(unix)]
@@ -184,40 +182,33 @@ fn create_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV
             err
         ))
     })?;
-    file.write_all(
-        &base64::engine::general_purpose::STANDARD
-            .encode(key.as_bytes())
-            .into_bytes(),
-    )
-    .map_err(|err| {
-        InternalErrorKind::Other.other(format!("Failed to write onion private key: {:?}", err))
-    })?;
+    file.write_all(&key.as_tor_proto_encoded().into_bytes())
+        .map_err(|err| {
+            InternalErrorKind::Other.other(format!("Failed to write onion private key: {:?}", err))
+        })?;
 
     Ok(key)
 }
 
-const TOR_SECRET_KEY_LENGTH: usize = 64;
-
 fn load_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV3, Error> {
-    let raw = base64::engine::general_purpose::STANDARD
-        .decode(
-            std::fs::read_to_string(&onion_private_key_path).map_err(|err| {
-                InternalErrorKind::Other.other(format!(
-                    "Read onion private key({}) failed: {}",
-                    onion_private_key_path, err
-                ))
-            })?,
-        )
+    let content = std::fs::read_to_string(&onion_private_key_path).map_err(|err| {
+        InternalErrorKind::Other.other(format!(
+            "Read onion private key({}) failed: {}",
+            onion_private_key_path, err
+        ))
+    })?;
+    let raw = data_encoding::BASE64
+        .decode(content.as_bytes())
         .map_err(|err| {
             InternalErrorKind::Other.other(format!("Failed to decode onion private key: {:?}", err))
         })?;
     let raw = raw.as_slice();
-    if raw.len() != TOR_SECRET_KEY_LENGTH {
+    if raw.len() != TORV3_SECRET_KEY_LENGTH {
         return Err(InternalErrorKind::Other
             .other("Invalid secret key length")
             .into());
     }
-    let mut buf = [0u8; TOR_SECRET_KEY_LENGTH];
+    let mut buf = [0u8; TORV3_SECRET_KEY_LENGTH];
     buf.copy_from_slice(raw);
     Ok(TorSecretKeyV3::from(buf))
 }

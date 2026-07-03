@@ -1,35 +1,29 @@
+use ckb_async_runtime::Handle;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info, warn};
-use futures::future::BoxFuture;
 use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
-use torut::control::{TorAuthData, TorAuthMethod, UnauthenticatedConn, COOKIE_LENGTH};
-use torut::{
-    control::{AsyncEvent, AuthenticatedConn, ConnError},
-    onion::TorSecretKeyV3,
-};
 
-use crate::TorEventHandlerFn;
+use crate::tor_connection::{ConnError, ProtocolInfo, TorAuthData, TorAuthMethod, TorConnection};
+use crate::TorSecretKeyV3;
 
-type TorAuthenticatedConn =
-    AuthenticatedConn<TcpStream, fn(AsyncEvent<'_>) -> BoxFuture<'static, Result<(), ConnError>>>;
+const COOKIE_LENGTH: usize = 32;
 
 /// A controller for a Tor server.
 pub struct TorController {
-    inner: TorAuthenticatedConn,
+    inner: TorConnection,
 }
 
 impl TorController {
     /// Create a new TorController instance.
-    /// event_handler is an optional function that will be called when a Tor event occurs.
     pub async fn new(
         tor_controller_url: String,
         tor_password: Option<String>,
-        event_handler: Option<TorEventHandlerFn>,
+        handle: Handle,
     ) -> Result<Self, Error> {
         let s = TcpStream::connect(tor_controller_url.clone())
             .await
@@ -40,13 +34,8 @@ impl TorController {
                 ))
             })?;
 
-        let mut utc: UnauthenticatedConn<TcpStream> = UnauthenticatedConn::new(s);
-
-        authenticate(tor_password, &mut utc).await?;
-
-        let mut ac = utc.into_authenticated().await;
-
-        ac.set_async_event_handler(event_handler);
+        let conn = TorConnection::connect(s, handle);
+        let ac = authenticate(tor_password, conn).await?;
 
         Ok(TorController { inner: ac })
     }
@@ -115,34 +104,32 @@ impl TorController {
     /// Add a new v3 onion service to the Tor server.
     pub async fn add_onion_v3(
         &mut self,
-        key: TorSecretKeyV3,
-        listeners: &mut impl Iterator<Item = &(u16, SocketAddr)>,
-    ) -> Result<(), torut::control::ConnError> {
-        self.inner
-            .add_onion_v3(&key, false, false, false, None, listeners)
-            .await
+        key: &TorSecretKeyV3,
+        listeners: &[(u16, SocketAddr)],
+    ) -> Result<(), ConnError> {
+        self.inner.add_onion_v3(key, listeners).await
     }
 }
 
 /// Authenticates with the Tor controller using the given password or cookie.
 pub async fn authenticate(
     tor_password: Option<String>,
-    utc: &mut UnauthenticatedConn<TcpStream>,
-) -> Result<(), Error> {
-    let proto_info = utc.load_protocol_info().await.map_err(|err| {
+    connection: TorConnection,
+) -> Result<TorConnection, Error> {
+    let (conn, proto_info) = connection.load_protocol_info().await.map_err(|err| {
         InternalErrorKind::Other.other(format!("Failed to load protocol info: {:?}", err))
     })?;
     proto_info.auth_methods.iter().for_each(|m| {
         info!("Tor Server Controller supports auth method: {:?}", m);
     });
     if proto_info.auth_methods.contains(&TorAuthMethod::Null) {
-        utc.authenticate(&TorAuthData::Null).await.map_err(|err| {
+        let conn = conn.authenticate(&TorAuthData::Null).await.map_err(|err| {
             InternalErrorKind::Other.other(format!("Failed to authenticate with null: {:?}", err))
         })?;
         if tor_password.is_some() {
             warn!("Password not required for the Tor controller, but `tor_password` is configured in [network.onion].");
         }
-        return Ok(());
+        return Ok(conn);
     }
 
     if proto_info
@@ -151,13 +138,14 @@ pub async fn authenticate(
     {
         match tor_password {
             Some(tor_password) => {
-                utc.authenticate(&TorAuthData::HashedPassword(Cow::Owned(tor_password)))
+                let conn = conn
+                    .authenticate(&TorAuthData::HashedPassword(Cow::Owned(tor_password)))
                     .await
                     .map_err(|err| {
                         InternalErrorKind::Other
                             .other(format!("Failed to authenticate with password: {:?}", err))
                     })?;
-                return Ok(());
+                return Ok(conn);
             }
             None => {
                 warn!("Tor server requires a password, but none is configured");
@@ -168,20 +156,18 @@ pub async fn authenticate(
     if proto_info.auth_methods.contains(&TorAuthMethod::Cookie)
         || proto_info.auth_methods.contains(&TorAuthMethod::SafeCookie)
     {
-        let cookie = load_auth_cookie(proto_info).await?;
-        let tor_auth_data = {
-            if proto_info.auth_methods.contains(&TorAuthMethod::Cookie) {
-                debug!("Using Cookie auth method...");
-                TorAuthData::Cookie(Cow::Owned(cookie))
-            } else {
-                debug!("Using SafeCookie auth method...");
-                TorAuthData::SafeCookie(Cow::Owned(cookie))
-            }
+        let cookie = load_auth_cookie(&proto_info).await?;
+        let tor_auth_data = if proto_info.auth_methods.contains(&TorAuthMethod::Cookie) {
+            debug!("Using Cookie auth method...");
+            TorAuthData::Cookie(Cow::Owned(cookie))
+        } else {
+            debug!("Using SafeCookie auth method...");
+            TorAuthData::SafeCookie(Cow::Owned(cookie))
         };
-        utc.authenticate(&tor_auth_data).await.map_err(|err| {
+        let conn = conn.authenticate(&tor_auth_data).await.map_err(|err| {
             InternalErrorKind::Other.other(format!("Failed to authenticate with cookie: {:?}", err))
         })?;
-        return Ok(());
+        return Ok(conn);
     }
     Err(InternalErrorKind::Other
         .other(format!(
@@ -191,20 +177,11 @@ pub async fn authenticate(
         .into())
 }
 
-async fn load_auth_cookie(
-    proto_info: &torut::control::TorPreAuthInfo<'_>,
-) -> Result<Vec<u8>, Error> {
-    let mut cookie_file = File::open(
-        proto_info
-            .cookie_file
-            .as_ref()
-            .ok_or_else(|| {
-                InternalErrorKind::Other.other("Tor server did not provide cookie file path")
-            })?
-            .as_ref(),
-    )
-    .await
-    .map_err(|err| {
+async fn load_auth_cookie(proto_info: &ProtocolInfo) -> Result<Vec<u8>, Error> {
+    let cookie_path = proto_info.cookie_file.as_ref().ok_or_else(|| {
+        InternalErrorKind::Other.other("Tor server did not provide cookie file path")
+    })?;
+    let mut cookie_file = File::open(cookie_path).await.map_err(|err| {
         InternalErrorKind::Other.other(format!("Failed to open cookie file: {:?}", err))
     })?;
     let mut cookie = Vec::new();
