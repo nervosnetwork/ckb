@@ -883,6 +883,104 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
+    // CKB permits a transaction to reference the same out-point both as an
+    // input and as a cell dep. The pipeline must not reject such a tx with
+    // OutPointError::Dead.
+    let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline_workers(2, 4);
+    let input_a = &issue_out_points[0];
+
+    let tx_a = build_tx(input_a, 4_000);
+    let output_a = OutPoint::new(tx_a.hash(), 0);
+
+    // tx_b consumes tx_a's output and also references it as a cell dep.
+    let tx_b = TransactionBuilder::default()
+        .cell_dep(always_success_dep())
+        .cell_dep(CellDep::new_builder().out_point(output_a.clone()).build())
+        .input(CellInput::new(output_a.clone(), 0))
+        .output(
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(3_000).unwrap())
+                .lock(Script::default())
+                .build(),
+        )
+        .output_data(Bytes::default().pack())
+        .build();
+    let id_a = tx_a.proposal_short_id();
+    let id_b = tx_b.proposal_short_id();
+
+    // Submit tx_a first and wait until it is accepted.
+    service
+        .process_tx(tx_a.clone(), None)
+        .await
+        .expect("tx_a should be accepted");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (pending, ordered_len, verify_len, orphan_len) = {
+                let pool = service.tx_pool.read().await;
+                let ordered = service.ordered_resolve_queue.read().await;
+                let verify = service.verify_queue.read().await;
+                let orphan = service.orphan.read().await;
+                (
+                    pool.pool_map.pending_size(),
+                    ordered.len(),
+                    verify.len(),
+                    orphan.len(),
+                )
+            };
+            if pending == 1 && ordered_len == 0 && verify_len == 0 && orphan_len == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("tx_a should settle");
+
+    // Now tx_b's input and cell dep point to the same in-pool out-point.
+    service
+        .process_tx(tx_b.clone(), None)
+        .await
+        .expect("tx_b should be accepted even though its cell dep is also its input");
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (pending, ordered_len, verify_len, orphan_len) = {
+                let pool = service.tx_pool.read().await;
+                let ordered = service.ordered_resolve_queue.read().await;
+                let verify = service.verify_queue.read().await;
+                let orphan = service.orphan.read().await;
+                (
+                    pool.pool_map.pending_size(),
+                    ordered.len(),
+                    verify.len(),
+                    orphan.len(),
+                )
+            };
+            if pending == 2 && ordered_len == 0 && verify_len == 0 && orphan_len == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("tx_b should settle");
+
+    let pool = service.tx_pool.read().await;
+    assert!(
+        pool.get_tx_from_pool(&id_a).is_some(),
+        "tx_a should be accepted"
+    );
+    assert!(
+        pool.get_tx_from_pool(&id_b).is_some(),
+        "tx_b should be accepted even though its cell dep is also its input"
+    );
+
+    signal.cancel();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_processes_independent_secp_remote_txs() {
     // Verify that the concurrent pre-resolver handles real secp256k1 1-in-1-out
     // transactions (not always-success scripts) correctly.

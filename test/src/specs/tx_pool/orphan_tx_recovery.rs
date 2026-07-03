@@ -189,8 +189,7 @@ impl Spec for RbfOrphanRecovery {
             wait_until(15, || {
                 let d1 = node.rpc_client().get_transaction(tx_d1.hash());
                 let c1 = node.rpc_client().get_transaction(tx_c1.hash());
-                d1.tx_status.status == Status::Pending
-                    && c1.tx_status.status == Status::Rejected
+                d1.tx_status.status == Status::Pending && c1.tx_status.status == Status::Rejected
             }),
             "D1 should be pending and C1 should be rejected after replacement"
         );

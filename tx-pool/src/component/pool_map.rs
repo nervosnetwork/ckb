@@ -488,16 +488,23 @@ impl PoolMap {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
-        let inputs = entry.transaction().input_pts_iter();
+        let inputs: HashSet<OutPoint> = entry.transaction().input_pts_iter().collect();
 
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
-        for i in inputs {
+        for i in &inputs {
             self.edges.insert_input(i.to_owned(), tx_short_id.clone())?;
         }
 
         // record dep-txid
         for d in related_dep_out_points {
+            // CKB allows a transaction to reference the same out-point both as
+            // an input and as a cell dep. Such a dep does not represent a
+            // dependency on another tx; it is consumed by this tx itself, so
+            // skip recording it and skip the in-pool input conflict check.
+            if inputs.contains(&d) {
+                continue;
+            }
             if self.edges.get_input_ref(&d).is_some() {
                 return Err(Reject::Resolve(OutPointError::Dead(d)));
             }
