@@ -5,9 +5,9 @@ use crate::syscalls::{
 };
 
 use crate::types::{
-    DataLocation, DataPieceId, FIRST_FD_SLOT, FIRST_VM_ID, Fd, FdArgs, FullSuspendedState,
-    IterationResult, Message, ReadState, RunMode, SgData, SyscallGenerator, TerminatedResult,
-    VmArgs, VmContext, VmId, VmState, WriteState,
+    DataLocation, DataPieceId, FIRST_FD_SLOT, FIRST_VM_ID, Fd, FdArgs, IterationResult, Message,
+    ReadState, RunMode, SgData, SyscallGenerator, TerminatedResult, VmArgs, VmContext, VmId,
+    VmState, WriteState,
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
@@ -199,80 +199,6 @@ where
             Ok(_) => Ok(()),
             Err(_) => Err(Error::CyclesExceeded),
         }
-    }
-
-    /// Resume a previously suspended scheduler state
-    pub fn resume(
-        sg_data: SgData<DL>,
-        syscall_generator: SyscallGenerator<DL, V, M::Inner>,
-        syscall_context: V,
-        full: FullSuspendedState,
-    ) -> Self {
-        let mut scheduler = Self {
-            sg_data,
-            syscall_generator,
-            syscall_context,
-            total_cycles: Arc::new(AtomicU64::new(full.total_cycles)),
-            iteration_cycles: full.iteration_cycles,
-            next_vm_id: full.next_vm_id,
-            next_fd_slot: full.next_fd_slot,
-            states: full
-                .vms
-                .iter()
-                .map(|(id, state, _)| (*id, state.clone()))
-                .collect(),
-            fds: full.fds.into_iter().collect(),
-            inherited_fd: full.inherited_fd.into_iter().collect(),
-            instantiated: BTreeMap::default(),
-            suspended: full
-                .vms
-                .into_iter()
-                .map(|(id, _, snapshot)| (id, snapshot))
-                .collect(),
-            message_box: Arc::new(Mutex::new(Vec::new())),
-            terminated_vms: full.terminated_vms.into_iter().collect(),
-            root_vm_args: Vec::new(),
-        };
-        scheduler
-            .ensure_vms_instantiated(&full.instantiated_ids)
-            .unwrap();
-        // NOTE: suspending/resuming a scheduler is part of CKB's implementation
-        // details. It is not part of execution consensue. We should not charge
-        // cycles for them.
-        scheduler.iteration_cycles = 0;
-        scheduler
-    }
-
-    /// Suspend current scheduler into a serializable full state
-    pub fn suspend(mut self) -> Result<FullSuspendedState, Error> {
-        assert!(self.message_box.lock().expect("lock").is_empty());
-        let mut vms = Vec::with_capacity(self.states.len());
-        let instantiated_ids: Vec<_> = self.instantiated.keys().cloned().collect();
-        for id in &instantiated_ids {
-            self.suspend_vm(id)?;
-        }
-        for (id, state) in self.states {
-            let snapshot = self
-                .suspended
-                .remove(&id)
-                .ok_or_else(|| Error::Unexpected("Unable to find VM Id".to_string()))?;
-            vms.push((id, state, snapshot));
-        }
-        Ok(FullSuspendedState {
-            // NOTE: suspending a scheduler is actually part of CKB's
-            // internal execution logic, it does not belong to VM execution
-            // consensus. We are not charging cycles for suspending
-            // a VM in the process of suspending the whole scheduler.
-            total_cycles: self.total_cycles.load(Ordering::Acquire),
-            iteration_cycles: self.iteration_cycles,
-            next_vm_id: self.next_vm_id,
-            next_fd_slot: self.next_fd_slot,
-            vms,
-            fds: self.fds.into_iter().collect(),
-            inherited_fd: self.inherited_fd.into_iter().collect(),
-            terminated_vms: self.terminated_vms.into_iter().collect(),
-            instantiated_ids,
-        })
     }
 
     /// This is the only entrypoint for running the scheduler,
