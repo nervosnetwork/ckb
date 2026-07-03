@@ -104,7 +104,13 @@ pub struct BlockAssembler {
     pub(crate) config: Arc<BlockAssemblerConfig>,
     pub(crate) work_id: Arc<AtomicU64>,
     pub(crate) candidate_uncles: Arc<Mutex<CandidateUncles>>,
-    pub(crate) current: Arc<Mutex<CurrentTemplate>>,
+    /// Current template snapshot. Readers clone the inner `Arc` under a read
+    /// lock; updaters build a new `CurrentTemplate` without holding the lock,
+    /// then swap the `Arc` under a write lock.
+    pub(crate) current: Arc<RwLock<Arc<CurrentTemplate>>>,
+    /// Monotonic version used by non-forced updates to detect concurrent
+    /// reorgs. A successful write increments this counter.
+    pub(crate) version: Arc<AtomicU64>,
     pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
 }
 
@@ -171,7 +177,8 @@ impl BlockAssembler {
             config: Arc::new(config),
             work_id: Arc::new(work_id),
             candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
-            current: Arc::new(Mutex::new(current)),
+            current: Arc::new(RwLock::new(Arc::new(current))),
+            version: Arc::new(AtomicU64::new(0)),
             poster: Arc::new(
                 Client::builder(hyper_util::rt::TokioExecutor::new())
                     .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
@@ -180,7 +187,10 @@ impl BlockAssembler {
     }
 
     pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<(), AnyError> {
-        let mut current = self.current.lock().await;
+        // Reorg finalization has the highest priority: it never checks the
+        // version and always succeeds, so a concurrent non-forced update can
+        // never overwrite the reorg result.
+        let current = self.current.read().await.clone();
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
 
@@ -251,23 +261,40 @@ impl BlockAssembler {
             ))
             .dao(dao);
 
-        current.template = builder.build();
-        current.size.txs = txs_size;
-        current.size.total = total_size;
-        current.size.proposals = proposals_size;
+        let mut new_current = (*current).clone();
+        new_current.template = builder.build();
+        new_current.size.txs = txs_size;
+        new_current.size.total = total_size;
+        new_current.size.proposals = proposals_size;
 
         trace!(
             "[BlockAssembler] update_full {} uncles-{} proposals-{} txs-{}",
-            current.template.number,
-            current.template.uncles.len(),
-            current.template.proposals.len(),
-            current.template.transactions.len(),
+            new_current.template.number,
+            new_current.template.uncles.len(),
+            new_current.template.proposals.len(),
+            new_current.template.transactions.len(),
         );
+
+        let mut guard = self.current.write().await;
+        *guard = Arc::new(new_current);
+        self.version.fetch_add(1, Ordering::SeqCst);
 
         Ok(())
     }
 
-    pub(crate) async fn update_blank(&self, snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
+    pub(crate) async fn update_blank(
+        &self,
+        snapshot: Arc<Snapshot>,
+        force: bool,
+    ) -> Result<(), AnyError> {
+        // Non-forced blank updates (Reset messages) must not overwrite a reorg
+        // that happened while they were building.
+        let version = if force {
+            0
+        } else {
+            self.version.load(Ordering::SeqCst)
+        };
+
         let consensus = snapshot.consensus();
         let tip_header = snapshot.tip_header();
         let current_epoch = consensus
@@ -328,12 +355,18 @@ impl BlockAssembler {
             epoch: current_epoch,
         };
 
-        *self.current.lock().await = new_blank;
+        let mut guard = self.current.write().await;
+        if !force && self.version.load(Ordering::SeqCst) != version {
+            return Ok(());
+        }
+        *guard = Arc::new(new_blank);
+        self.version.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
     pub(crate) async fn update_uncles(&self) {
-        let mut current = self.current.lock().await;
+        let current = self.current.read().await.clone();
+        let version = self.version.load(Ordering::SeqCst);
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
         let max_uncles_num = consensus.max_uncles_num();
@@ -356,25 +389,35 @@ impl BlockAssembler {
                             unix_time_as_millis(),
                             current.template.current_time,
                         ));
-                    current.template = builder.build();
-                    current.size.uncles = new_uncle_size;
-                    current.size.total = new_total_size;
+
+                    let mut new_current = (*current).clone();
+                    new_current.template = builder.build();
+                    new_current.size.uncles = new_uncle_size;
+                    new_current.size.total = new_total_size;
 
                     trace!(
                         "[BlockAssembler] update_uncles-{} epoch-{} uncles-{} proposals-{} txs-{}",
-                        current.template.number,
-                        current.template.epoch.number(),
-                        current.template.uncles.len(),
-                        current.template.proposals.len(),
-                        current.template.transactions.len(),
+                        new_current.template.number,
+                        new_current.template.epoch.number(),
+                        new_current.template.uncles.len(),
+                        new_current.template.proposals.len(),
+                        new_current.template.transactions.len(),
                     );
+
+                    let mut guard = self.current.write().await;
+                    if self.version.load(Ordering::SeqCst) != version {
+                        return;
+                    }
+                    *guard = Arc::new(new_current);
+                    self.version.fetch_add(1, Ordering::SeqCst);
                 }
             }
         }
     }
 
     pub(crate) async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) {
-        let mut current = self.current.lock().await;
+        let current = self.current.read().await.clone();
+        let version = self.version.load(Ordering::SeqCst);
         let consensus = current.snapshot.consensus();
         let uncles = &current.template.uncles;
         let proposals = {
@@ -397,18 +440,27 @@ impl BlockAssembler {
                     unix_time_as_millis(),
                     current.template.current_time,
                 ));
-            current.template = builder.build();
-            current.size.proposals = new_proposals_size;
-            current.size.total = new_total_size;
+
+            let mut new_current = (*current).clone();
+            new_current.template = builder.build();
+            new_current.size.proposals = new_proposals_size;
+            new_current.size.total = new_total_size;
 
             trace!(
                 "[BlockAssembler] update_proposals-{} epoch-{} uncles-{} proposals-{} txs-{}",
-                current.template.number,
-                current.template.epoch.number(),
-                current.template.uncles.len(),
-                current.template.proposals.len(),
-                current.template.transactions.len(),
+                new_current.template.number,
+                new_current.template.epoch.number(),
+                new_current.template.uncles.len(),
+                new_current.template.proposals.len(),
+                new_current.template.transactions.len(),
             );
+
+            let mut guard = self.current.write().await;
+            if self.version.load(Ordering::SeqCst) != version {
+                return;
+            }
+            *guard = Arc::new(new_current);
+            self.version.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -416,7 +468,8 @@ impl BlockAssembler {
         &self,
         tx_pool: &RwLock<TxPool>,
     ) -> Result<(), AnyError> {
-        let mut current = self.current.lock().await;
+        let current = self.current.read().await.clone();
+        let version = self.version.load(Ordering::SeqCst);
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
         let max_block_bytes = consensus.max_block_bytes() as usize;
@@ -466,24 +519,35 @@ impl BlockAssembler {
             if let Some(data) = extension {
                 builder.extension(data);
             }
-            current.template = builder.build();
-            current.size.txs = new_txs_size;
-            current.size.total = new_total_size;
+
+            let mut new_current = (*current).clone();
+            new_current.template = builder.build();
+            new_current.size.txs = new_txs_size;
+            new_current.size.total = new_total_size;
 
             trace!(
                 "[BlockAssembler] update_transactions-{} epoch-{} uncles-{} proposals-{} txs-{}",
-                current.template.number,
-                current.template.epoch.number(),
-                current.template.uncles.len(),
-                current.template.proposals.len(),
-                current.template.transactions.len(),
+                new_current.template.number,
+                new_current.template.epoch.number(),
+                new_current.template.uncles.len(),
+                new_current.template.proposals.len(),
+                new_current.template.transactions.len(),
             );
+
+            let mut guard = self.current.write().await;
+            if self.version.load(Ordering::SeqCst) != version {
+                return Ok(());
+            }
+            *guard = Arc::new(new_current);
+            self.version.fetch_add(1, Ordering::SeqCst);
         }
         Ok(())
     }
 
     pub(crate) async fn get_current(&self) -> JsonBlockTemplate {
-        let current = self.current.lock().await;
+        // Only clone the inner Arc while holding the read lock; the lock is
+        // released immediately after this statement.
+        let current = self.current.read().await.clone();
         (&current.template).into()
     }
 

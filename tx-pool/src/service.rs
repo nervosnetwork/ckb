@@ -1749,7 +1749,7 @@ impl TxPoolService {
                 }
             }
 
-            if let Err(e) = block_assembler.update_blank(snapshot).await {
+            if let Err(e) = block_assembler.update_blank(snapshot, true).await {
                 error!("block_assembler update_blank error {}", e);
             }
             block_assembler.notify().await;

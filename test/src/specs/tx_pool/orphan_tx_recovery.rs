@@ -182,20 +182,17 @@ impl Spec for RbfOrphanRecovery {
             "B2 should be recovered back to pending via ordered_resolve_queue"
         );
 
-        // D1 should be pending (the final replacement).
-        let d1_status = node.rpc_client().get_transaction(tx_d1.hash());
-        assert_eq!(
-            d1_status.tx_status.status,
-            Status::Pending,
-            "D1 (the final replacement) should be pending"
-        );
-
-        // C1 should be rejected (displaced by D1).
-        let c1_status = node.rpc_client().get_transaction(tx_c1.hash());
-        assert_eq!(
-            c1_status.tx_status.status,
-            Status::Rejected,
-            "C1 should be rejected after being replaced by D1"
+        // Let the async pipeline settle before asserting D1/C1/A2.  The
+        // recovery of B2 can race with the rejection of C1, so a single
+        // point-in-time check is flaky under concurrent load.
+        assert!(
+            wait_until(15, || {
+                let d1 = node.rpc_client().get_transaction(tx_d1.hash());
+                let c1 = node.rpc_client().get_transaction(tx_c1.hash());
+                d1.tx_status.status == Status::Pending
+                    && c1.tx_status.status == Status::Rejected
+            }),
+            "D1 should be pending and C1 should be rejected after replacement"
         );
 
         // A2 should still be rejected — its input A1_out0 is consumed by
