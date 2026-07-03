@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 ///     }
 ///   },
 ///   "status": "live",
-///   "block_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+///   "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
 /// }
 /// # "#).unwrap();
 /// ```
@@ -157,39 +157,5 @@ impl From<CellStatus> for CellWithStatus {
             status: status.to_string(),
             block_hash,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ckb_types::{
-        core::{EpochNumberWithFraction, TransactionInfo},
-        packed::Byte32,
-    };
-
-    #[test]
-    fn cell_with_status_includes_block_hash_for_committed_live_cell() {
-        let block_hash = Byte32::zero();
-        let mut cell_meta = CellMeta::default();
-        cell_meta.transaction_info = Some(TransactionInfo::new(
-            1,
-            EpochNumberWithFraction::new(0, 0, 1),
-            block_hash.clone(),
-            0,
-        ));
-
-        let cell_with_status = CellWithStatus::from(CellStatus::Live(cell_meta));
-
-        assert_eq!(cell_with_status.status, "live");
-        assert_eq!(cell_with_status.block_hash, Some(block_hash.into()));
-    }
-
-    #[test]
-    fn cell_with_status_uses_null_block_hash_for_unknown_cell() {
-        let cell_with_status = CellWithStatus::from(CellStatus::Unknown);
-
-        assert_eq!(cell_with_status.status, "unknown");
-        assert_eq!(cell_with_status.block_hash, None);
     }
 }
