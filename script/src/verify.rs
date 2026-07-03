@@ -6,9 +6,8 @@ use crate::{
     syscalls::generator::generate_ckb_syscalls,
     type_id::TypeIdSystemScript,
     types::{
-        DebugPrinter, FullSuspendedState, Machine, RunMode, ScriptGroup, ScriptGroupType,
-        ScriptVersion, SgData, SyscallGenerator, TerminatedResult, TransactionState, TxData,
-        VerifyResult,
+        DebugPrinter, Machine, RunMode, ScriptGroup, ScriptGroupType, ScriptVersion, SgData,
+        SyscallGenerator, TerminatedResult, TxData,
     },
     verify_env::TxVerifyEnv,
 };
@@ -34,22 +33,6 @@ use tokio::sync::{
 
 #[cfg(test)]
 mod tests;
-
-pub enum ChunkState {
-    Suspended(Option<FullSuspendedState>),
-    // (total_cycles, consumed_cycles in last chunk)
-    Completed(Cycle, Cycle),
-}
-
-impl ChunkState {
-    pub fn suspended(state: FullSuspendedState) -> Self {
-        ChunkState::Suspended(Some(state))
-    }
-
-    pub fn suspended_type_id() -> Self {
-        ChunkState::Suspended(None)
-    }
-}
 
 /// This struct leverages CKB VM to verify transaction inputs.
 pub struct TransactionScriptsVerifier<
@@ -213,203 +196,6 @@ where
         Ok(cycles)
     }
 
-    /// Performing a resumable verification on the transaction scripts.
-    ///
-    /// ## Params
-    ///
-    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    ///   when the consumed cycles exceed the limit.
-    ///
-    /// ## Returns
-    ///
-    /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a state will returned.
-    pub fn resumable_verify(&self, limit_cycles: Cycle) -> Result<VerifyResult, Error> {
-        let mut cycles = 0;
-        let mut current_consumed_cycles = 0;
-
-        let groups: Vec<_> = self.groups().collect();
-        for (idx, (_hash, group)) in groups.iter().enumerate() {
-            // vm should early return invalid cycles
-            let remain_cycles = limit_cycles
-                .checked_sub(current_consumed_cycles)
-                .ok_or_else(|| {
-                    ScriptError::Other(format!("expect invalid cycles {limit_cycles} {cycles}"))
-                        .source(group)
-                })?;
-
-            match self.verify_group_with_chunk(group, remain_cycles, &None) {
-                Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
-                    current_consumed_cycles =
-                        wrapping_cycles_add(current_consumed_cycles, consumed_cycles, group)?;
-                    cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
-                }
-                Ok(ChunkState::Suspended(state)) => {
-                    let current = idx;
-                    let state = TransactionState::new(state, current, cycles, remain_cycles);
-                    return Ok(VerifyResult::Suspended(state));
-                }
-                Err(e) => {
-                    #[cfg(feature = "logging")]
-                    logging::on_script_error(_hash, &self.hash(), &e);
-                    return Err(e.source(group).into());
-                }
-            }
-        }
-
-        Ok(VerifyResult::Completed(cycles))
-    }
-
-    /// Resuming an suspended verify from vm state
-    ///
-    /// ## Params
-    ///
-    /// * `state` - vm state.
-    ///
-    /// * `limit_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    ///   when the consumed cycles exceed the limit.
-    ///
-    /// ## Returns
-    ///
-    /// It returns the total consumed cycles if verification completed,
-    /// If verify is suspended, a borrowed state will returned.
-    pub fn resume_from_state(
-        &self,
-        state: &TransactionState,
-        limit_cycles: Cycle,
-    ) -> Result<VerifyResult, Error> {
-        let TransactionState {
-            current,
-            state,
-            current_cycles,
-            ..
-        } = state;
-
-        let mut current_used = 0;
-        let mut cycles = *current_cycles;
-
-        let (_hash, current_group) = self.groups().nth(*current).ok_or_else(|| {
-            ScriptError::Other(format!("snapshot group missing {current:?}")).unknown_source()
-        })?;
-
-        let resumed_script_result =
-            self.verify_group_with_chunk(current_group, limit_cycles, state);
-
-        match resumed_script_result {
-            Ok(ChunkState::Completed(used_cycles, consumed_cycles)) => {
-                current_used = wrapping_cycles_add(current_used, consumed_cycles, current_group)?;
-                cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
-            }
-            Ok(ChunkState::Suspended(state)) => {
-                let state = TransactionState::new(state, *current, cycles, limit_cycles);
-                return Ok(VerifyResult::Suspended(state));
-            }
-            Err(e) => {
-                #[cfg(feature = "logging")]
-                logging::on_script_error(_hash, &self.hash(), &e);
-                return Err(e.source(current_group).into());
-            }
-        }
-
-        for (idx, (_hash, group)) in self.groups().enumerate().skip(current + 1) {
-            let remain_cycles = limit_cycles.checked_sub(current_used).ok_or_else(|| {
-                ScriptError::Other(format!(
-                    "expect invalid cycles {limit_cycles} {current_used} {cycles}"
-                ))
-                .source(group)
-            })?;
-
-            match self.verify_group_with_chunk(group, remain_cycles, &None) {
-                Ok(ChunkState::Completed(_, consumed_cycles)) => {
-                    current_used = wrapping_cycles_add(current_used, consumed_cycles, group)?;
-                    cycles = wrapping_cycles_add(cycles, consumed_cycles, group)?;
-                }
-                Ok(ChunkState::Suspended(state)) => {
-                    let current = idx;
-                    let state = TransactionState::new(state, current, cycles, remain_cycles);
-                    return Ok(VerifyResult::Suspended(state));
-                }
-                Err(e) => {
-                    #[cfg(feature = "logging")]
-                    logging::on_script_error(_hash, &self.hash(), &e);
-                    return Err(e.source(group).into());
-                }
-            }
-        }
-
-        Ok(VerifyResult::Completed(cycles))
-    }
-
-    /// Complete an suspended verify
-    ///
-    /// ## Params
-    ///
-    /// * `snap` - Captured transaction verification state.
-    ///
-    /// * `max_cycles` - Maximum allowed cycles to run the scripts. The verification quits early
-    ///   when the consumed cycles exceed the limit.
-    ///
-    /// ## Returns
-    ///
-    /// It returns the total consumed cycles on completed, Otherwise it returns the verification error.
-    pub fn complete(&self, snap: &TransactionState, max_cycles: Cycle) -> Result<Cycle, Error> {
-        let mut cycles = snap.current_cycles;
-
-        let (_hash, current_group) = self.groups().nth(snap.current).ok_or_else(|| {
-            ScriptError::Other(format!("snapshot group missing {:?}", snap.current))
-                .unknown_source()
-        })?;
-
-        if max_cycles < cycles {
-            return Err(ScriptError::ExceededMaximumCycles(max_cycles)
-                .source(current_group)
-                .into());
-        }
-
-        // continue snapshot current script
-        // max_cycles - cycles checked
-        match self.verify_group_with_chunk(current_group, max_cycles - cycles, &snap.state) {
-            Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
-                cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
-            }
-            Ok(ChunkState::Suspended(_)) => {
-                return Err(ScriptError::ExceededMaximumCycles(max_cycles)
-                    .source(current_group)
-                    .into());
-            }
-            Err(e) => {
-                #[cfg(feature = "logging")]
-                logging::on_script_error(_hash, &self.hash(), &e);
-                return Err(e.source(current_group).into());
-            }
-        }
-
-        for (_hash, group) in self.groups().skip(snap.current + 1) {
-            let remain_cycles = max_cycles.checked_sub(cycles).ok_or_else(|| {
-                ScriptError::Other(format!("expect invalid cycles {max_cycles} {cycles}"))
-                    .source(group)
-            })?;
-
-            match self.verify_group_with_chunk(group, remain_cycles, &None) {
-                Ok(ChunkState::Completed(used_cycles, _consumed_cycles)) => {
-                    cycles = wrapping_cycles_add(cycles, used_cycles, current_group)?;
-                }
-                Ok(ChunkState::Suspended(_)) => {
-                    return Err(ScriptError::ExceededMaximumCycles(max_cycles)
-                        .source(group)
-                        .into());
-                }
-                Err(e) => {
-                    #[cfg(feature = "logging")]
-                    logging::on_script_error(_hash, &self.hash(), &e);
-                    return Err(e.source(group).into());
-                }
-            }
-        }
-
-        Ok(cycles)
-    }
-
     /// Runs a single script in current transaction, while this is not useful for
     /// CKB itself, it can be very helpful when building a CKB debugger.
     pub fn verify_single(
@@ -443,72 +229,6 @@ where
         }
     }
 
-    fn verify_group_with_chunk(
-        &self,
-        group: &ScriptGroup,
-        max_cycles: Cycle,
-        state: &Option<FullSuspendedState>,
-    ) -> Result<ChunkState, ScriptError> {
-        if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
-            && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
-        {
-            let verifier = TypeIdSystemScript {
-                rtx: &self.tx_data.rtx,
-                script_group: group,
-                max_cycles,
-            };
-            match verifier.verify() {
-                Ok(cycles) => Ok(ChunkState::Completed(cycles, cycles)),
-                Err(ScriptError::ExceededMaximumCycles(_)) => Ok(ChunkState::suspended_type_id()),
-                Err(e) => Err(e),
-            }
-        } else {
-            self.chunk_run(group, max_cycles, state)
-        }
-    }
-
-    fn chunk_run(
-        &self,
-        script_group: &ScriptGroup,
-        max_cycles: Cycle,
-        state: &Option<FullSuspendedState>,
-    ) -> Result<ChunkState, ScriptError> {
-        let mut scheduler = if let Some(state) = state {
-            self.resume_scheduler(script_group, state)
-        } else {
-            self.create_scheduler(script_group)
-        }?;
-        let previous_cycles = scheduler.consumed_cycles();
-        let res = scheduler.run(RunMode::LimitCycles(max_cycles));
-        match res {
-            Ok(TerminatedResult {
-                exit_code,
-                consumed_cycles: cycles,
-            }) => {
-                if exit_code == 0 {
-                    Ok(ChunkState::Completed(
-                        cycles,
-                        scheduler.consumed_cycles() - previous_cycles,
-                    ))
-                } else {
-                    Err(ScriptError::validation_failure(
-                        &script_group.script,
-                        exit_code,
-                    ))
-                }
-            }
-            Err(error) => match error {
-                VMInternalError::CyclesExceeded | VMInternalError::Pause => {
-                    let snapshot = scheduler
-                        .suspend()
-                        .map_err(|err| self.map_vm_internal_error(err, max_cycles))?;
-                    Ok(ChunkState::suspended(snapshot))
-                }
-                _ => Err(self.map_vm_internal_error(error, max_cycles)),
-            },
-        }
-    }
-
     /// Create a scheduler to manage virtual machine instances.
     pub fn create_scheduler(
         &self,
@@ -519,21 +239,6 @@ where
             sg_data,
             self.syscall_generator,
             self.syscall_context.clone(),
-        ))
-    }
-
-    /// Resumes a scheduler from a previous state.
-    pub fn resume_scheduler(
-        &self,
-        script_group: &ScriptGroup,
-        state: &FullSuspendedState,
-    ) -> Result<Scheduler<DL, V, M>, ScriptError> {
-        let sg_data = SgData::new(&self.tx_data, script_group)?;
-        Ok(Scheduler::resume(
-            sg_data,
-            self.syscall_generator,
-            self.syscall_context.clone(),
-            state.clone(),
         ))
     }
 

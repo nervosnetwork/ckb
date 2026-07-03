@@ -279,44 +279,6 @@ impl TransactionScriptsVerifierWithEnv {
         })
     }
 
-    pub(crate) fn verify_until_completed(
-        &self,
-        version: ScriptVersion,
-        rtx: &ResolvedTransaction,
-    ) -> Result<(Cycle, usize), Error> {
-        let max_cycles = Cycle::MAX;
-        self.verify_map(version, rtx, |verifier| {
-            let cycles;
-            let mut times = 0usize;
-            times += 1;
-
-            let mut init_snap = match verifier.resumable_verify(max_cycles).unwrap() {
-                VerifyResult::Suspended(state) => Some(state),
-                VerifyResult::Completed(cycle) => {
-                    cycles = cycle;
-                    return Ok((cycles, times));
-                }
-            };
-
-            loop {
-                times += 1;
-                let snap = init_snap.take().unwrap();
-                match verifier.resume_from_state(&snap, max_cycles) {
-                    Ok(VerifyResult::Suspended(state)) => {
-                        init_snap = Some(state);
-                    }
-                    Ok(VerifyResult::Completed(cycle)) => {
-                        cycles = cycle;
-                        break;
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-
-            Ok((cycles, times))
-        })
-    }
-
     pub(crate) async fn verify_complete_async(
         &self,
         version: ScriptVersion,
