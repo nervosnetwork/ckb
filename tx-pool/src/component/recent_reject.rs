@@ -21,8 +21,9 @@ pub struct RecentReject {
     ttl: i32,
     shard_num: u32,
     pub(crate) count_limit: u64,
-    /// Approximate key count across all shards.  Updated with `Relaxed`
-    /// ordering — precision is not critical, only back-pressure for `shrink`.
+    /// Approximate key count across all shards.  Updated with sequentially
+    /// consistent ordering so the estimate stays coherent with concurrent
+    /// `put` and `shrink` operations.
     total_keys_num: AtomicU64,
     /// The `RwLock` protects the **Rust-side** `BTreeMap<String, ColumnFamily>`
     /// inside `DBWithTTL`, not RocksDB itself (the C API is already
