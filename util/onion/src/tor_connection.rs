@@ -162,11 +162,10 @@ impl TorConnection {
                 self.send_command("AUTHENTICATE\r\n").await?;
             }
             TorAuthData::HashedPassword(password) => {
-                self.send_command(&format!(
-                    "AUTHENTICATE {}\r\n",
-                    quote_string(password.as_bytes())
-                ))
-                .await?;
+                let mut cmd = b"AUTHENTICATE ".to_vec();
+                cmd.extend_from_slice(&quote_string(password.as_bytes()));
+                cmd.extend_from_slice(b"\r\n");
+                self.send_command(&cmd).await?;
             }
             TorAuthData::Cookie(cookie) => {
                 self.send_command(&format!(
@@ -210,7 +209,7 @@ impl TorConnection {
     /// Get a single INFO value and unquote it if it is a quoted string.
     pub async fn get_info_unquote(&mut self, key: &str) -> Result<String, ConnError> {
         let value = self.get_info(key).await?;
-        match unquote_string(&value) {
+        match unquote_string_to_string(&value) {
             Ok(unquoted) => Ok(unquoted),
             Err(_) => Ok(value),
         }
@@ -239,8 +238,8 @@ impl TorConnection {
         Ok(())
     }
 
-    async fn send_command(&mut self, cmd: &str) -> Result<(), ConnError> {
-        self.write.write_all(cmd.as_bytes()).await?;
+    async fn send_command(&mut self, cmd: impl AsRef<[u8]>) -> Result<(), ConnError> {
+        self.write.write_all(cmd.as_ref()).await?;
         self.write.flush().await?;
         Ok(())
     }
@@ -382,10 +381,10 @@ fn parse_protocol_info(lines: &[String]) -> Result<ProtocolInfo, ConnError> {
             }
 
             if let Some(cookie_part) = cookie_str.strip_prefix("COOKIEFILE=") {
-                cookie_file = Some(unquote_string(cookie_part)?);
+                cookie_file = Some(unquote_string_to_string(cookie_part)?);
             }
         } else if let Some(rest) = line.strip_prefix("VERSION Tor=") {
-            version = Some(unquote_string(rest)?);
+            version = Some(unquote_string_to_string(rest)?);
         }
     }
 
@@ -447,53 +446,105 @@ fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> Result<[u8; 32], ConnError> {
     Ok(result.into_bytes().into())
 }
 
-fn quote_string(s: &[u8]) -> String {
-    let mut result = String::with_capacity(s.len() + 2);
-    result.push('"');
+/// Encodes a byte slice into a Tor control protocol compliant `QuotedString`.
+///
+/// Per the spec, only backslashes and double quotes are escaped; all other
+/// octets are included verbatim. We intentionally do NOT use `\n`, `\t`,
+/// `\r`, or octal escapes (`\0`...`\377`) here, because spec 2.1.1 says a
+/// correct future QuotedString implementation will "never place a backslash
+/// before a 'n', 't', 'r', or digit".
+///
+/// Although all current callers pass UTF-8 text, this function takes `&[u8]`
+/// and returns `Vec<u8>` to stay faithful to the spec, which treats
+/// QuotedString as a sequence of octets rather than a Unicode string.
+///
+/// Ref: <https://gitlab.torproject.org/tpo/core/torspec/-/raw/a6c90f44013f47d1c2dae8b4a5d25302e3b6e256/attic/text_formats/control-spec.txt>
+/// Section: 2.1. Message format (Description format)
+fn quote_string(s: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(s.len() + 2);
+    result.push(b'"');
     for &b in s {
         match b {
-            b'\\' => result.push_str("\\\\"),
-            b'"' => result.push_str("\\\""),
-            b'\r' => result.push_str("\\r"),
-            b'\n' => result.push_str("\\n"),
-            b'\t' => result.push_str("\\t"),
-            0x00..=0x1F => result.push_str(&format!("\\x{:02x}", b)),
-            _ => result.push(b as char),
+            b'\\' => result.extend_from_slice(b"\\\\"),
+            b'"' => result.extend_from_slice(b"\\\""),
+            _ => result.push(b),
         }
     }
-    result.push('"');
+    result.push(b'"');
     result
 }
 
-fn unquote_string(s: &str) -> Result<String, ConnError> {
-    if s.len() < 2 || !s.starts_with('"') || !s.ends_with('"') {
+/// Decodes a Tor control protocol `QuotedString` back into its original raw bytes.
+///
+/// This parser follows the future-proofing rules in the "Notes on an escaping
+/// bug" section of the spec. Tor has historically emitted `CString` tokens (a
+/// bug) instead of standard `QuotedString` tokens, using C-style escapes for
+/// `\n`, `\t`, `\r`, and octal byte values `\0`...`\377`. To remain compatible
+/// with both legacy Tor and future correct implementations, this parser:
+///
+/// - interprets `\n`, `\t`, `\r` and `\0`...`\377` as C escapes;
+/// - treats a backslash followed by any other byte as that literal byte.
+///
+/// Ref: <https://gitlab.torproject.org/tpo/core/torspec/-/raw/a6c90f44013f47d1c2dae8b4a5d25302e3b6e256/attic/text_formats/control-spec.txt>
+/// Section: 2.1.1. Message format (Notes on an escaping bug)
+fn unquote_string(s: &[u8]) -> Result<Vec<u8>, ConnError> {
+    if s.len() < 2 || s[0] != b'"' || s[s.len() - 1] != b'"' {
         return Err(ConnError::InvalidFormat);
     }
-    let mut result = String::new();
-    let mut chars = s[1..s.len() - 1].chars();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.next() {
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('r') => result.push('\r'),
-                Some('n') => result.push('\n'),
-                Some('t') => result.push('\t'),
-                Some('x') => {
-                    let a = chars.next().ok_or(ConnError::InvalidFormat)?;
-                    let b = chars.next().ok_or(ConnError::InvalidFormat)?;
-                    let hex_str = format!("{}{}", a, b);
-                    let byte =
-                        u8::from_str_radix(&hex_str, 16).map_err(|_| ConnError::InvalidFormat)?;
-                    result.push(byte as char);
-                }
-                _ => return Err(ConnError::InvalidFormat),
+    let mut bytes = Vec::new();
+    let inner = &s[1..s.len() - 1];
+    let mut i = 0;
+    while i < inner.len() {
+        if inner[i] == b'\\' {
+            i += 1;
+            if i >= inner.len() {
+                return Err(ConnError::InvalidFormat);
             }
+            let c = inner[i];
+            match c {
+                b'n' => bytes.push(b'\n'),
+                b't' => bytes.push(b'\t'),
+                b'r' => bytes.push(b'\r'),
+                b'0'..=b'7' => {
+                    let mut value = (c - b'0') as u32;
+                    let mut consumed = 1;
+                    i += 1;
+                    while consumed < 3 && i < inner.len() {
+                        let next = inner[i];
+                        if (b'0'..=b'7').contains(&next) {
+                            let new_value = value * 8 + (next - b'0') as u32;
+                            if new_value <= 255 {
+                                value = new_value;
+                                consumed += 1;
+                                i += 1;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    bytes.push(value as u8);
+                    continue;
+                }
+                _ => bytes.push(c),
+            }
+            i += 1;
         } else {
-            result.push(c);
+            bytes.push(inner[i]);
+            i += 1;
         }
     }
-    Ok(result)
+    Ok(bytes)
+}
+
+/// Decodes a `QuotedString` and returns the result as a UTF-8 `String`.
+///
+/// This is a convenience wrapper around `unquote_string` for the common case
+/// where the caller expects textual data (e.g. `COOKIEFILE`, `VERSION`, or
+/// `GETINFO` values).
+fn unquote_string_to_string(s: impl AsRef<[u8]>) -> Result<String, ConnError> {
+    String::from_utf8(unquote_string(s.as_ref())?).map_err(|_| ConnError::InvalidFormat)
 }
 
 #[cfg(test)]
@@ -504,12 +555,58 @@ mod tests {
     fn test_quote_unquote() {
         let s = b"hello world";
         let quoted = quote_string(s);
-        assert_eq!(quoted, "\"hello world\"");
-        assert_eq!(unquote_string(&quoted).unwrap(), "hello world");
+        assert_eq!(quoted, b"\"hello world\"");
+        assert_eq!(unquote_string(&quoted).unwrap(), s);
 
         let s = b"a\"b\\c\n";
         let quoted = quote_string(s);
-        assert_eq!(unquote_string(&quoted).unwrap().as_bytes(), s);
+        assert_eq!(quoted, b"\"a\\\"b\\\\c\n\"");
+        assert_eq!(unquote_string(&quoted).unwrap(), s);
+
+        let s: &[u8] = b"";
+        let quoted = quote_string(s);
+        assert_eq!(quoted, b"\"\"");
+        assert_eq!(unquote_string(&quoted).unwrap(), s);
+
+        // Control characters are included verbatim in a QuotedString.
+        let s: &[u8] = b"\x00\x01\x02";
+        let quoted = quote_string(s);
+        assert_eq!(quoted, b"\"\x00\x01\x02\"");
+        assert_eq!(unquote_string(&quoted).unwrap(), s);
+
+        // Non-ASCII UTF-8 bytes are included verbatim and roundtrip.
+        let s = "中文".as_bytes();
+        let quoted = quote_string(s);
+        assert_eq!(quoted, "\"中文\"".as_bytes());
+        assert_eq!(unquote_string(&quoted).unwrap(), s);
+
+        // C-style escapes from buggy/legacy Tor output are decoded.
+        assert_eq!(unquote_string(b"\"a\\nb\"").unwrap(), b"a\nb");
+        assert_eq!(unquote_string(b"\"a\\tb\"").unwrap(), b"a\tb");
+        assert_eq!(unquote_string(b"\"a\\rb\"").unwrap(), b"a\rb");
+        assert_eq!(unquote_string(b"\"a\\0b\"").unwrap(), b"a\0b");
+        assert_eq!(unquote_string(b"\"a\\40b\"").unwrap(), b"a b");
+        assert_eq!(unquote_string(b"\"a\\377b\"").unwrap(), b"a\xffb");
+        assert_eq!(unquote_string(b"\"a\\\\b\"").unwrap(), b"a\\b");
+        assert_eq!(unquote_string(b"\"a\\\"b\"").unwrap(), b"a\"b");
+        assert_eq!(unquote_string(b"\"a\\xb\"").unwrap(), b"axb");
+
+        assert_eq!(unquote_string(b"\"a\\00b\"").unwrap(), b"a\0b");
+        assert_eq!(unquote_string(b"\"a\\000b\"").unwrap(), b"a\0b");
+        assert_eq!(unquote_string(b"\"a\\400b\"").unwrap(), b"a 0b");
+        assert_eq!(unquote_string(b"\"a\\0123\"").unwrap(), b"a\n3");
+
+        assert_eq!(unquote_string(b"\"a\\z\\?\\k\"").unwrap(), b"az?k");
+
+        assert!(unquote_string(b"").is_err());
+        assert!(unquote_string(b"\"").is_err());
+        assert!(unquote_string(b"hello").is_err());
+        assert!(unquote_string(b"\"hello").is_err());
+        assert!(unquote_string(b"\"hello\\\"").is_err());
+        assert!(unquote_string(b"\"hello\\").is_err());
+
+        assert_eq!(unquote_string(b"\"a\\\\b\"").unwrap(), b"a\\b");
+        assert!(unquote_string(b"\"a\\").is_err());
     }
 
     #[test]
