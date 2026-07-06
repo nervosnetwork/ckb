@@ -830,7 +830,8 @@ pub trait ChainRpc {
     ///         "type": null
     ///       }
     ///     },
-    ///     "status": "live"
+    ///     "status": "live",
+    ///     "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
     ///   }
     /// }
     /// ```
