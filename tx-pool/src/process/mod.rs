@@ -696,6 +696,20 @@ impl TxPoolService {
         }
     }
 
+    /// Convenience helper: record a reject outcome for a transaction and run the
+    /// shared after-process side effects (relayer notification, conflict cache
+    /// update, local callbacks).
+    pub(crate) async fn reject_with_after_process(
+        &self,
+        tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
+        reject: Reject,
+    ) {
+        let snapshot = self.tx_pool.read().await.cloned_snapshot();
+        self.after_process(tx, remote, &snapshot, &Err(reject))
+            .await;
+    }
+
     async fn after_process_remote(
         &self,
         tx: TransactionView,

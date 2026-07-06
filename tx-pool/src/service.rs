@@ -59,20 +59,37 @@ use crate::util::panic_payload_to_string;
 #[cfg(feature = "internal")]
 use crate::{component::entry::TxEntry, process::PlugTarget};
 
+/// Default bounded channel capacity for internal tx-pool message queues.
+///
+/// Provides back-pressure between producers (network, RPC, block sync) and
+/// consumers (pre-check, resolve, verify workers). 512 is large enough to
+/// absorb short bursts without allowing an unbounded backlog.
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
+
+/// Bounded channel capacity for block-assembler update notifications.
+///
+/// The block assembler receives notifications for new block templates. 100
+/// slots is sufficient because consumers drain these quickly and stale
+/// notifications are acceptable to drop.
 pub(crate) const BLOCK_ASSEMBLER_CHANNEL_SIZE: usize = 100;
 
-fn respond<R: fmt::Debug>(responder: oneshot::Sender<R>, value: R, message: &'static str) {
-    if let Err(e) = responder.send(value) {
-        error!("Responder sending {} failed {:?}", message, e);
+trait OneshotSender<R: fmt::Debug> {
+    fn send(self, value: R) -> Result<(), R>;
+}
+
+impl<R: fmt::Debug> OneshotSender<R> for oneshot::Sender<R> {
+    fn send(self, value: R) -> Result<(), R> {
+        oneshot::Sender::send(&self, value).map_err(|e| e.0)
     }
 }
 
-fn respond_async<R: fmt::Debug>(
-    responder: tokio::sync::oneshot::Sender<R>,
-    value: R,
-    message: &'static str,
-) {
+impl<R: fmt::Debug> OneshotSender<R> for tokio::sync::oneshot::Sender<R> {
+    fn send(self, value: R) -> Result<(), R> {
+        tokio::sync::oneshot::Sender::send(self, value)
+    }
+}
+
+fn respond<R: fmt::Debug, S: OneshotSender<R>>(responder: S, value: R, message: &'static str) {
     if let Err(e) = responder.send(value) {
         error!("Responder sending {} failed {:?}", message, e);
     }
@@ -1475,7 +1492,7 @@ impl TxPoolService {
             arguments: proposals,
         } = req;
         let new_proposals = self.exclude_existing_proposal(proposals).await;
-        respond_async(responder, new_proposals, "fresh_proposals_filter");
+        respond(responder, new_proposals, "fresh_proposals_filter");
     }
 
     /// Look up a transaction in the main pool or in the in-flight pipeline.
@@ -1593,7 +1610,7 @@ impl TxPoolService {
             arguments: short_ids,
         } = req;
         let txs_map = self.get_tx_for_compact_block(short_ids).await;
-        respond_async(responder, txs_map, "fetch_txs");
+        respond(responder, txs_map, "fetch_txs");
     }
 
     async fn handle_fetch_txs_with_cycles(
@@ -1613,7 +1630,7 @@ impl TxPoolService {
                     .map(|(tx, cycles)| (short_id, (tx, cycles)))
             })
             .collect();
-        respond_async(responder, txs, "fetch_txs_with_cycles");
+        respond(responder, txs, "fetch_txs_with_cycles");
     }
 
     async fn handle_new_uncle(&self, req: Notify<UncleBlockView>) {

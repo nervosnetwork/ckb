@@ -222,6 +222,16 @@ impl PoolMap {
         self.score_sorted_iter_by_status(Status::Proposed)
     }
 
+    /// Iterate over pending and gap entries sorted by score.
+    pub(crate) fn pending_gap_entries(&self) -> impl Iterator<Item = &TxEntry> {
+        self.score_sorted_iter_by_statuses(vec![Status::Pending, Status::Gap])
+    }
+
+    /// Iterate over proposed entries sorted by score.
+    pub(crate) fn proposed_entries(&self) -> impl Iterator<Item = &TxEntry> {
+        self.sorted_proposed_iter()
+    }
+
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.get_by_id(id).map(|entry| &entry.inner)
     }
@@ -651,7 +661,7 @@ impl PoolMap {
         (ancestors, parents, cell_ref_parents)
     }
 
-    fn _record_ancestors(
+    fn record_ancestors_inner(
         &mut self,
         entry: &mut TxEntry,
         ancestors: HashSet<ProposalShortId>,
@@ -694,7 +704,7 @@ impl PoolMap {
         let mut evicted = Default::default();
 
         if ancestors_count <= self.max_ancestors_count {
-            self._record_ancestors(entry, ancestors, parents);
+            self.record_ancestors_inner(entry, ancestors, parents);
             return Ok(evicted);
         }
 
@@ -733,7 +743,7 @@ impl PoolMap {
         // we can assume the number now is less than `max_ancestors_count`
         assert!(ancestors.len() < self.max_ancestors_count);
 
-        self._record_ancestors(entry, ancestors, parents);
+        self.record_ancestors_inner(entry, ancestors, parents);
         Ok(evicted)
     }
 

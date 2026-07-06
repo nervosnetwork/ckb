@@ -45,9 +45,14 @@ impl MultiIndexModifiedTxMap {
     }
 }
 
-// Limit the number of attempts to add transactions to the block when it is
-// close to full; this is just a simple heuristic to finish quickly if the
-// mempool has a lot of entries.
+/// Limit on consecutive failed attempts to add a transaction to a block template.
+///
+/// When the template is close to its size/cycles limit, most remaining transactions
+/// will fail to fit. This heuristic stops the selection loop early after a large
+/// number of consecutive failures, avoiding wasted work when the mempool contains
+/// many entries that are too big or too low-fee to be included. 4000 is an
+/// empirically chosen threshold that keeps block packing quality high while
+/// bounding the worst-case selection time.
 const MAX_CONSECUTIVE_FAILURES: usize = 4000;
 
 /// Selects transactions for inclusion in a block-template using **package-aware** fee-rate sorting.

@@ -197,22 +197,14 @@ impl ResolveHandler {
             let mut ordered = self.ordered_queue.write().await;
             if let Err(reject) = ordered.add_tx(job) {
                 drop(ordered);
-                let (_ret, snapshot) = self
-                    .service
-                    .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
-                    .await;
                 self.service
-                    .after_process(tx, None, &snapshot, &Err(reject))
+                    .reject_with_after_process(tx, None, reject)
                     .await;
             }
         } else {
             let reject = first_unknown_input_reject(&job.tx);
-            let (_ret, snapshot) = self
-                .service
-                .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
-                .await;
             self.service
-                .after_process(job.tx, None, &snapshot, &Err(reject))
+                .reject_with_after_process(job.tx, None, reject)
                 .await;
         }
     }
@@ -223,12 +215,8 @@ impl ResolveHandler {
         remote: Option<(ckb_types::core::Cycle, ckb_network::PeerIndex)>,
         reject: Reject,
     ) {
-        let (_ret, snapshot) = self
-            .service
-            .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
-            .await;
         self.service
-            .after_process(tx, remote, &snapshot, &Err(reject))
+            .reject_with_after_process(tx, remote, reject)
             .await;
     }
 

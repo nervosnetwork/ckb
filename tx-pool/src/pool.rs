@@ -10,7 +10,7 @@ use ckb_logger::{debug, error};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::tx_pool::PoolTxDetailInfo;
-use ckb_types::core::{BlockNumber, CapacityError, FeeRate};
+use ckb_types::core::{BlockNumber, FeeRate};
 use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
@@ -24,9 +24,32 @@ use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// Cache size for recently committed transaction hashes.
+///
+/// Used to short-circuit re-submission of transactions that were already committed in a
+/// recent block. 100k entries is enough to cover several hours of main-chain traffic
+/// under normal load without consuming excessive memory.
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
+
+/// Cache size for conflicted transactions that were evicted from the pool.
+///
+/// Keeps a limited history of evicted transactions so that we can return more descriptive
+/// rejection reasons (e.g. which transaction replaced this one). 10k is a conservative
+/// trade-off between diagnostic usefulness and memory usage.
 const CONFLICTS_CACHE_SIZE: usize = 10_000;
+
+/// Cache size for conflicted transaction inputs.
+///
+/// Mirrors the conflicted transaction cache but indexes by consumed out-point so that
+/// a new transaction spending the same cell can be rejected with a precise message.
+/// Sized at 3x `CONFLICTS_CACHE_SIZE` because a single transaction can consume many inputs.
 const CONFLICTS_INPUTS_CACHE_SIZE: usize = 30_000;
+
+/// Upper bound on the number of RBF replacement candidates evaluated in one replacement.
+///
+/// Prevents an O(n) scan of the mempool when a large transaction conflicts with many
+/// existing entries. 100 is the same order of magnitude as Bitcoin Core's replacement
+/// candidate limit.
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
 
 fn reject_full_for_evicted(entry: &TxEntry) -> Reject {
@@ -105,27 +128,25 @@ impl TxPool {
     fn calculate_min_replace_fee(&self, conflicts: &[&PoolEntry], size: usize) -> Option<Capacity> {
         let extra_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
         // don't account for duplicate txs
-        let replaced_fees: HashMap<_, _> = conflicts
+        let replaced_sum_fee = conflicts
             .iter()
             .map(|c| (c.id.clone(), c.inner.fee))
-            .collect();
-        let replaced_sum_fee = replaced_fees
-            .values()
-            .try_fold(Capacity::zero(), |acc, x| acc.safe_add(*x));
-        let res = replaced_sum_fee.map_or(Err(CapacityError::Overflow), |sum| {
-            sum.safe_add(extra_rbf_fee)
-        });
-        if let Ok(res) = res {
-            Some(res)
-        } else {
-            let fees = conflicts.iter().map(|c| c.inner.fee).collect::<Vec<_>>();
-            error!(
-                "conflicts: {:?} replaced_sum_fee {:?} overflow by add {}",
-                conflicts.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
-                fees,
-                extra_rbf_fee
-            );
-            None
+            .collect::<HashMap<_, _>>()
+            .into_values()
+            .try_fold(Capacity::zero(), |acc, x| acc.safe_add(x));
+        let total_fee = replaced_sum_fee.and_then(|sum| sum.safe_add(extra_rbf_fee));
+        match total_fee {
+            Ok(res) => Some(res),
+            Err(_) => {
+                let fees = conflicts.iter().map(|c| c.inner.fee).collect::<Vec<_>>();
+                error!(
+                    "conflicts: {:?} replaced_sum_fee {:?} overflow by add {}",
+                    conflicts.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
+                    fees,
+                    extra_rbf_fee
+                );
+                None
+            }
         }
     }
 
@@ -472,13 +493,13 @@ impl TxPool {
     pub(crate) fn get_ids(&self) -> TxPoolIds {
         let pending = self
             .pool_map
-            .score_sorted_iter_by_statuses(vec![Status::Pending, Status::Gap])
+            .pending_gap_entries()
             .map(|entry| entry.transaction().hash())
             .collect();
 
         let proposed = self
             .pool_map
-            .sorted_proposed_iter()
+            .proposed_entries()
             .map(|entry| entry.transaction().hash())
             .collect();
 
@@ -488,13 +509,13 @@ impl TxPool {
     pub(crate) fn get_all_entry_info(&self) -> TxPoolEntryInfo {
         let pending = self
             .pool_map
-            .score_sorted_iter_by_statuses(vec![Status::Pending, Status::Gap])
+            .pending_gap_entries()
             .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 
         let proposed = self
             .pool_map
-            .sorted_proposed_iter()
+            .proposed_entries()
             .map(|entry| (entry.transaction().hash(), entry.to_info()))
             .collect();
 

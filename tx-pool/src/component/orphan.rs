@@ -11,8 +11,20 @@ use std::collections::{HashMap, HashSet};
 
 use crate::constants::SHRINK_THRESHOLD;
 
-/// 100 max block interval
+/// Expiration time for orphan transactions, expressed as a multiple of the
+/// maximum block interval.
+///
+/// Orphans are transactions whose inputs are not yet available. They are kept
+/// for a long window so that out-of-order block/transaction propagation does
+/// not cause them to be dropped prematurely. 100 block intervals provides
+/// roughly one day of buffer time on main-net parameters.
 pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 100 * MAX_BLOCK_INTERVAL;
+
+/// Default maximum number of transactions stored in the orphan pool.
+///
+/// Limits memory consumption for transactions that cannot be resolved yet.
+/// 100 is a conservative default that tolerates moderate network disorder
+/// without allowing the orphan pool to grow unbounded.
 pub(crate) const DEFAULT_MAX_ORPHAN_TRANSACTIONS: usize = 100;
 
 #[derive(Debug, Clone)]

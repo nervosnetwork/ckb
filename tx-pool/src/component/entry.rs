@@ -12,6 +12,26 @@ use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+/// A signed delta used to update ancestor/descendant weight statistics.
+#[derive(Clone, Copy)]
+struct WeightDelta {
+    count: usize,
+    size: usize,
+    cycles: Cycle,
+    fee: u64,
+}
+
+impl WeightDelta {
+    fn from_entry(entry: &TxEntry) -> Self {
+        Self {
+            count: 1,
+            size: entry.size,
+            cycles: entry.cycles,
+            fee: entry.fee.as_u64(),
+        }
+    }
+}
+
 /// An entry in the transaction pool.
 #[derive(Debug, Clone, Eq)]
 pub struct TxEntry {
@@ -119,50 +139,54 @@ impl TxEntry {
 
     /// Update ancestor state for add an entry
     pub fn add_descendant_weight(&mut self, entry: &TxEntry) {
-        self.descendants_count = self.descendants_count.saturating_add(1);
-        self.descendants_size = self.descendants_size.saturating_add(entry.size);
-        self.descendants_cycles = self.descendants_cycles.saturating_add(entry.cycles);
-        self.descendants_fee = Capacity::shannons(
-            self.descendants_fee
-                .as_u64()
-                .saturating_add(entry.fee.as_u64()),
-        );
+        self.apply_descendant_delta(WeightDelta::from_entry(entry), true);
     }
 
     /// Update ancestor state for remove an entry
     pub fn sub_descendant_weight(&mut self, entry: &TxEntry) {
-        self.descendants_count = self.descendants_count.saturating_sub(1);
-        self.descendants_size = self.descendants_size.saturating_sub(entry.size);
-        self.descendants_cycles = self.descendants_cycles.saturating_sub(entry.cycles);
-        self.descendants_fee = Capacity::shannons(
-            self.descendants_fee
-                .as_u64()
-                .saturating_sub(entry.fee.as_u64()),
-        );
+        self.apply_descendant_delta(WeightDelta::from_entry(entry), false);
     }
 
     /// Update ancestor state for add an entry
     pub fn add_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_add(1);
-        self.ancestors_size = self.ancestors_size.saturating_add(entry.size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_add(entry.cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_add(entry.fee.as_u64()),
-        );
+        self.apply_ancestor_delta(WeightDelta::from_entry(entry), true);
     }
 
     /// Update ancestor state for remove an entry
     pub fn sub_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_sub(1);
-        self.ancestors_size = self.ancestors_size.saturating_sub(entry.size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_sub(entry.cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_sub(entry.fee.as_u64()),
-        );
+        self.apply_ancestor_delta(WeightDelta::from_entry(entry), false);
+    }
+
+    fn apply_ancestor_delta(&mut self, delta: WeightDelta, add: bool) {
+        if add {
+            self.ancestors_count = self.ancestors_count.saturating_add(delta.count);
+            self.ancestors_size = self.ancestors_size.saturating_add(delta.size);
+            self.ancestors_cycles = self.ancestors_cycles.saturating_add(delta.cycles);
+            self.ancestors_fee =
+                Capacity::shannons(self.ancestors_fee.as_u64().saturating_add(delta.fee));
+        } else {
+            self.ancestors_count = self.ancestors_count.saturating_sub(delta.count);
+            self.ancestors_size = self.ancestors_size.saturating_sub(delta.size);
+            self.ancestors_cycles = self.ancestors_cycles.saturating_sub(delta.cycles);
+            self.ancestors_fee =
+                Capacity::shannons(self.ancestors_fee.as_u64().saturating_sub(delta.fee));
+        }
+    }
+
+    fn apply_descendant_delta(&mut self, delta: WeightDelta, add: bool) {
+        if add {
+            self.descendants_count = self.descendants_count.saturating_add(delta.count);
+            self.descendants_size = self.descendants_size.saturating_add(delta.size);
+            self.descendants_cycles = self.descendants_cycles.saturating_add(delta.cycles);
+            self.descendants_fee =
+                Capacity::shannons(self.descendants_fee.as_u64().saturating_add(delta.fee));
+        } else {
+            self.descendants_count = self.descendants_count.saturating_sub(delta.count);
+            self.descendants_size = self.descendants_size.saturating_sub(delta.size);
+            self.descendants_cycles = self.descendants_cycles.saturating_sub(delta.cycles);
+            self.descendants_fee =
+                Capacity::shannons(self.descendants_fee.as_u64().saturating_sub(delta.fee));
+        }
     }
 
     /// Reset ancestor state by remove

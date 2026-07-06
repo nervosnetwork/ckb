@@ -332,6 +332,50 @@ impl BlockAssembler {
         Ok(())
     }
 
+    /// Apply a partial update to the current block template.
+    ///
+    /// The `update` closure receives a builder and the mutable size summary. It
+    /// should configure the builder with the new content and update `size`
+    /// accordingly. Returning `false` aborts the update without swapping.
+    async fn apply_partial_update<F>(
+        &self,
+        current: Arc<CurrentTemplate>,
+        version: u64,
+        label: &'static str,
+        update: F,
+    ) where
+        F: FnOnce(&mut BlockTemplateBuilder, &mut TemplateSize) -> bool,
+    {
+        let mut builder = BlockTemplateBuilder::from_template(&current.template);
+        let mut size = current.size;
+        if !update(&mut builder, &mut size) {
+            return;
+        }
+
+        builder
+            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
+            .current_time(cmp::max(
+                unix_time_as_millis(),
+                current.template.current_time,
+            ));
+
+        let mut new_current = (*current).clone();
+        new_current.template = builder.build();
+        new_current.size = size;
+
+        trace!(
+            "[BlockAssembler] {}-{} epoch-{} uncles-{} proposals-{} txs-{}",
+            label,
+            new_current.template.number,
+            new_current.template.epoch.number(),
+            new_current.template.uncles.len(),
+            new_current.template.proposals.len(),
+            new_current.template.transactions.len(),
+        );
+
+        self.try_swap_template(new_current, Some(version)).await;
+    }
+
     pub(crate) async fn update_uncles(&self) {
         let current = self.current.read().await.clone();
         let version = self.version.load(Ordering::SeqCst);
@@ -339,43 +383,29 @@ impl BlockAssembler {
         let max_block_bytes = consensus.max_block_bytes() as usize;
         let max_uncles_num = consensus.max_uncles_num();
         let current_uncles_num = current.template.uncles.len();
-        if current_uncles_num < max_uncles_num {
-            let remain_size = max_block_bytes.saturating_sub(current.size.total);
-
-            if remain_size > UncleBlockView::serialized_size_in_block() {
-                let uncles = self.prepare_uncles(&current.snapshot, &current.epoch).await;
-
-                let new_uncle_size = uncles.len() * UncleBlockView::serialized_size_in_block();
-                let new_total_size = current.size.calc_total_by_uncles(new_uncle_size);
-
-                if new_total_size < max_block_bytes {
-                    let mut builder = BlockTemplateBuilder::from_template(&current.template);
-                    builder
-                        .set_uncles(uncles)
-                        .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
-                        .current_time(cmp::max(
-                            unix_time_as_millis(),
-                            current.template.current_time,
-                        ));
-
-                    let mut new_current = (*current).clone();
-                    new_current.template = builder.build();
-                    new_current.size.uncles = new_uncle_size;
-                    new_current.size.total = new_total_size;
-
-                    trace!(
-                        "[BlockAssembler] update_uncles-{} epoch-{} uncles-{} proposals-{} txs-{}",
-                        new_current.template.number,
-                        new_current.template.epoch.number(),
-                        new_current.template.uncles.len(),
-                        new_current.template.proposals.len(),
-                        new_current.template.transactions.len(),
-                    );
-
-                    self.try_swap_template(new_current, Some(version)).await;
-                }
-            }
+        if current_uncles_num >= max_uncles_num {
+            return;
         }
+
+        let remain_size = max_block_bytes.saturating_sub(current.size.total);
+        if remain_size <= UncleBlockView::serialized_size_in_block() {
+            return;
+        }
+
+        let uncles = self.prepare_uncles(&current.snapshot, &current.epoch).await;
+        let new_uncle_size = uncles.len() * UncleBlockView::serialized_size_in_block();
+        let new_total_size = current.size.calc_total_by_uncles(new_uncle_size);
+        if new_total_size >= max_block_bytes {
+            return;
+        }
+
+        self.apply_partial_update(current, version, "update_uncles", |builder, size| {
+            builder.set_uncles(uncles);
+            size.uncles = new_uncle_size;
+            size.total = new_total_size;
+            true
+        })
+        .await;
     }
 
     pub(crate) async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) {
@@ -394,32 +424,17 @@ impl BlockAssembler {
         let new_proposals_size = proposals.len() * ProposalShortId::serialized_size();
         let new_total_size = current.size.calc_total_by_proposals(new_proposals_size);
         let max_block_bytes = consensus.max_block_bytes() as usize;
-        if new_total_size < max_block_bytes {
-            let mut builder = BlockTemplateBuilder::from_template(&current.template);
-            builder
-                .set_proposals(Vec::from_iter(proposals))
-                .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
-                .current_time(cmp::max(
-                    unix_time_as_millis(),
-                    current.template.current_time,
-                ));
-
-            let mut new_current = (*current).clone();
-            new_current.template = builder.build();
-            new_current.size.proposals = new_proposals_size;
-            new_current.size.total = new_total_size;
-
-            trace!(
-                "[BlockAssembler] update_proposals-{} epoch-{} uncles-{} proposals-{} txs-{}",
-                new_current.template.number,
-                new_current.template.epoch.number(),
-                new_current.template.uncles.len(),
-                new_current.template.proposals.len(),
-                new_current.template.transactions.len(),
-            );
-
-            self.try_swap_template(new_current, Some(version)).await;
+        if new_total_size >= max_block_bytes {
+            return;
         }
+
+        self.apply_partial_update(current, version, "update_proposals", |builder, size| {
+            builder.set_proposals(Vec::from_iter(proposals));
+            size.proposals = new_proposals_size;
+            size.total = new_total_size;
+            true
+        })
+        .await;
     }
 
     pub(crate) async fn update_transactions(
@@ -465,34 +480,16 @@ impl BlockAssembler {
         ) {
             let new_txs_size = Self::checked_entries_size(&checked_txs)?;
             let new_total_size = current.size.calc_total_by_txs(new_txs_size);
-            let mut builder = BlockTemplateBuilder::from_template(&current.template);
-            builder
-                .set_transactions(checked_txs)
-                .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
-                .current_time(cmp::max(
-                    unix_time_as_millis(),
-                    current.template.current_time,
-                ))
-                .dao(dao);
-            if let Some(data) = extension {
-                builder.extension(data);
-            }
-
-            let mut new_current = (*current).clone();
-            new_current.template = builder.build();
-            new_current.size.txs = new_txs_size;
-            new_current.size.total = new_total_size;
-
-            trace!(
-                "[BlockAssembler] update_transactions-{} epoch-{} uncles-{} proposals-{} txs-{}",
-                new_current.template.number,
-                new_current.template.epoch.number(),
-                new_current.template.uncles.len(),
-                new_current.template.proposals.len(),
-                new_current.template.transactions.len(),
-            );
-
-            self.try_swap_template(new_current, Some(version)).await;
+            self.apply_partial_update(current, version, "update_transactions", |builder, size| {
+                builder.set_transactions(checked_txs).dao(dao);
+                if let Some(data) = extension {
+                    builder.extension(data);
+                }
+                size.txs = new_txs_size;
+                size.total = new_total_size;
+                true
+            })
+            .await;
         }
         Ok(())
     }
