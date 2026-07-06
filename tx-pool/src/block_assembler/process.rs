@@ -23,10 +23,10 @@ pub(crate) async fn process(service: TxPoolService, message: &BlockAssemblerMess
         BlockAssemblerMessage::Reset(snapshot) => {
             if let Some(ref block_assembler) = service.block_assembler
                 && let Err(e) = block_assembler
-                    .update_blank(Arc::clone(snapshot), false)
+                    .reset_template(Arc::clone(snapshot), false)
                     .await
             {
-                ckb_logger::error!("block_assembler update_blank error {}", e);
+                ckb_logger::error!("block_assembler reset_template error {}", e);
             }
         }
     }

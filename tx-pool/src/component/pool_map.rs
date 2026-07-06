@@ -46,15 +46,54 @@ enum EntryOp {
 #[derive(MultiIndexMap, Clone)]
 pub struct PoolEntry {
     #[multi_index(hashed_unique)]
-    pub id: ProposalShortId,
+    pub(crate) id: ProposalShortId,
     #[multi_index(ordered_non_unique)]
-    pub score: AncestorsScoreSortKey,
+    pub(crate) score: AncestorsScoreSortKey,
     #[multi_index(hashed_non_unique)]
-    pub status: Status,
+    pub(crate) status: Status,
     #[multi_index(ordered_non_unique)]
-    pub evict_key: EvictKey,
+    pub(crate) evict_key: EvictKey,
     // other sort key
-    pub inner: TxEntry,
+    pub(crate) inner: TxEntry,
+}
+
+/// Aggregated statistics tracked by [`PoolMap`].
+#[derive(Default)]
+pub struct PoolStats {
+    // sum of all tx_pool tx's virtual sizes.
+    pub total_tx_size: usize,
+    // sum of all tx_pool tx's cycles.
+    pub total_tx_cycles: Cycle,
+    pub pending_count: usize,
+    pub gap_count: usize,
+    pub proposed_count: usize,
+}
+
+impl PoolStats {
+    pub fn clear(&mut self) {
+        self.total_tx_size = 0;
+        self.total_tx_cycles = 0;
+        self.pending_count = 0;
+        self.gap_count = 0;
+        self.proposed_count = 0;
+    }
+
+    fn adjust_status_count(&mut self, remove: Option<Status>, add: Option<Status>) {
+        if let Some(status) = remove {
+            match status {
+                Status::Pending => self.pending_count -= 1,
+                Status::Gap => self.gap_count -= 1,
+                Status::Proposed => self.proposed_count -= 1,
+            }
+        }
+        if let Some(status) = add {
+            match status {
+                Status::Pending => self.pending_count += 1,
+                Status::Gap => self.gap_count += 1,
+                Status::Proposed => self.proposed_count += 1,
+            }
+        }
+    }
 }
 
 pub struct PoolMap {
@@ -65,13 +104,7 @@ pub struct PoolMap {
     /// All the parent/children relationships
     pub(crate) links: TxLinksMap,
     pub(crate) max_ancestors_count: usize,
-    // sum of all tx_pool tx's virtual sizes.
-    pub(crate) total_tx_size: usize,
-    // sum of all tx_pool tx's cycles.
-    pub(crate) total_tx_cycles: Cycle,
-    pub(crate) pending_count: usize,
-    pub(crate) gap_count: usize,
-    pub(crate) proposed_count: usize,
+    pub(crate) stats: PoolStats,
 }
 
 impl PoolMap {
@@ -81,11 +114,7 @@ impl PoolMap {
             edges: Edges::default(),
             links: TxLinksMap::new(),
             max_ancestors_count,
-            total_tx_size: 0,
-            total_tx_cycles: 0,
-            pending_count: 0,
-            gap_count: 0,
-            proposed_count: 0,
+            stats: PoolStats::default(),
         }
     }
 
@@ -144,11 +173,11 @@ impl PoolMap {
     }
 
     pub(crate) fn pending_size(&self) -> usize {
-        self.pending_count + self.gap_count
+        self.stats.pending_count + self.stats.gap_count
     }
 
     pub(crate) fn proposed_size(&self) -> usize {
-        self.proposed_count
+        self.stats.proposed_count
     }
 
     pub(crate) fn sorted_proposed_iter(&self) -> impl Iterator<Item = &TxEntry> {
@@ -212,11 +241,11 @@ impl PoolMap {
         self.record_entry_edges(&entry)?;
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
-        self.track_entry_statics(None, Some(status));
+        self.track_entry_statistics(None, Some(status));
         let (total_tx_size, total_tx_cycles) =
-            self.updated_stat_for_add_tx(entry.size, entry.cycles)?;
-        self.total_tx_size = total_tx_size;
-        self.total_tx_cycles = total_tx_cycles;
+            self.update_stat_for_add_tx(entry.size, entry.cycles)?;
+        self.stats.total_tx_size = total_tx_size;
+        self.stats.total_tx_cycles = total_tx_cycles;
         Ok((true, evicts))
     }
 
@@ -229,7 +258,7 @@ impl PoolMap {
                 e.status = status;
             })
             .expect("inconsistent pool");
-        self.track_entry_statics(old_status, Some(status));
+        self.track_entry_statistics(old_status, Some(status));
     }
 
     pub(crate) fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
@@ -243,7 +272,7 @@ impl PoolMap {
             self.update_descendants_index_key(&entry.inner, EntryOp::Remove);
             self.remove_entry_edges(&entry.inner);
             self.remove_entry_links(id);
-            self.track_entry_statics(Some(entry.status), None);
+            self.track_entry_statistics(Some(entry.status), None);
             self.update_stat_for_remove_tx(entry.inner.size, entry.inner.cycles);
             entry.inner
         })
@@ -413,11 +442,7 @@ impl PoolMap {
         self.entries = MultiIndexPoolEntryMap::default();
         self.edges.clear();
         self.links.clear();
-        self.total_tx_size = 0;
-        self.total_tx_cycles = 0;
-        self.pending_count = 0;
-        self.gap_count = 0;
-        self.proposed_count = 0;
+        self.stats.clear();
     }
 
     pub(crate) fn score_sorted_iter_by_status(
@@ -549,7 +574,7 @@ impl PoolMap {
 
     // return (ancestors, parents, cell_ref_parents)
     // `cell_ref_parents` may be invalidate when the tx consuming the cell is submitted
-    fn get_tx_ancenstors(
+    fn get_tx_ancestors(
         &self,
         entry: &TransactionView,
     ) -> (
@@ -615,17 +640,17 @@ impl PoolMap {
     }
 
     /// Check ancestors and record for entry
-    // FIXME: In the scenario that a transaction passed all RBF rules, and then removed the conflicted
+    // TODO: In the scenario that a transaction passed all RBF rules, and then removed the conflicted
     // transaction in txpool, then failed with max ancestor limits, we now need to rollback the removing.
-    // this is not an issue currently, because RBF have a rule that not allow any unknown inputs except
-    // the conflicted inputs, so the new transaction can not be in a long transaction chain.
-    // but it's still safer to report an error before any writing kind of operation.
+    // This is not an issue currently, because RBF has a rule that does not allow any unknown inputs
+    // except the conflicted inputs, so the new transaction cannot be in a long transaction chain.
+    // But it's still safer to report an error before any write operation.
     fn check_and_record_ancestors(
         &mut self,
         entry: &mut TxEntry,
     ) -> Result<HashSet<TxEntry>, Reject> {
         let tx = entry.transaction();
-        let (ancestors, mut parents, cell_ref_parents) = self.get_tx_ancenstors(tx);
+        let (ancestors, mut parents, cell_ref_parents) = self.get_tx_ancestors(tx);
 
         let mut ancestors_count = ancestors.len() + 1;
         let mut evicted = Default::default();
@@ -700,33 +725,25 @@ impl PoolMap {
         });
     }
 
-    fn track_entry_statics(&mut self, remove: Option<Status>, add: Option<Status>) {
-        match remove {
-            Some(Status::Pending) => self.pending_count -= 1,
-            Some(Status::Gap) => self.gap_count -= 1,
-            Some(Status::Proposed) => self.proposed_count -= 1,
-            _ => {}
-        }
-        match add {
-            Some(Status::Pending) => self.pending_count += 1,
-            Some(Status::Gap) => self.gap_count += 1,
-            Some(Status::Proposed) => self.proposed_count += 1,
-            _ => {}
-        }
+    fn track_entry_statistics(&mut self, remove: Option<Status>, add: Option<Status>) {
+        self.stats.adjust_status_count(remove, add);
         assert_eq!(
-            self.pending_count + self.gap_count + self.proposed_count,
+            self.stats.pending_count + self.stats.gap_count + self.stats.proposed_count,
             self.entries.len()
         );
         if let Some(metrics) = ckb_metrics::handle() {
             metrics
                 .ckb_tx_pool_entry
                 .pending
-                .set(self.pending_count as i64);
-            metrics.ckb_tx_pool_entry.gap.set(self.gap_count as i64);
+                .set(self.stats.pending_count as i64);
+            metrics
+                .ckb_tx_pool_entry
+                .gap
+                .set(self.stats.gap_count as i64);
             metrics
                 .ckb_tx_pool_entry
                 .proposed
-                .set(self.proposed_count as i64);
+                .set(self.stats.proposed_count as i64);
         }
     }
 
@@ -743,23 +760,31 @@ impl PoolMap {
     }
 
     /// Calculate size and cycles statistics for adding a tx.
-    fn updated_stat_for_add_tx(
+    fn update_stat_for_add_tx(
         &self,
         tx_size: usize,
         cycles: Cycle,
     ) -> Result<(usize, Cycle), Reject> {
-        let total_tx_size = self.total_tx_size.checked_add(tx_size).ok_or_else(|| {
-            Reject::Full(format!(
-                "tx-pool total_tx_size {} overflows by add {}",
-                self.total_tx_size, tx_size
-            ))
-        })?;
-        let total_tx_cycles = self.total_tx_cycles.checked_add(cycles).ok_or_else(|| {
-            Reject::Full(format!(
-                "tx-pool total_tx_cycles {} overflows by add {}",
-                self.total_tx_cycles, cycles
-            ))
-        })?;
+        let total_tx_size = self
+            .stats
+            .total_tx_size
+            .checked_add(tx_size)
+            .ok_or_else(|| {
+                Reject::Full(format!(
+                    "tx-pool total_tx_size {} overflows by add {}",
+                    self.stats.total_tx_size, tx_size
+                ))
+            })?;
+        let total_tx_cycles = self
+            .stats
+            .total_tx_cycles
+            .checked_add(cycles)
+            .ok_or_else(|| {
+                Reject::Full(format!(
+                    "tx-pool total_tx_cycles {} overflows by add {}",
+                    self.stats.total_tx_cycles, cycles
+                ))
+            })?;
         Ok((total_tx_size, total_tx_cycles))
     }
 
@@ -767,12 +792,12 @@ impl PoolMap {
     /// cycles overflow is possible, currently obtaining cycles is not accurate
     fn update_stat_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
         match (
-            self.total_tx_size.checked_sub(tx_size),
-            self.total_tx_cycles.checked_sub(cycles),
+            self.stats.total_tx_size.checked_sub(tx_size),
+            self.stats.total_tx_cycles.checked_sub(cycles),
         ) {
             (Some(total_tx_size), Some(total_tx_cycles)) => {
-                self.total_tx_size = total_tx_size;
-                self.total_tx_cycles = total_tx_cycles;
+                self.stats.total_tx_size = total_tx_size;
+                self.stats.total_tx_cycles = total_tx_cycles;
             }
             _ => {
                 if let Some((total_tx_size, total_tx_cycles)) = self.recompute_total_stat() {
@@ -780,8 +805,8 @@ impl PoolMap {
                         "tx-pool total stats underflowed when removing size {} cycles {}, recomputed size {} cycles {}",
                         tx_size, cycles, total_tx_size, total_tx_cycles
                     );
-                    self.total_tx_size = total_tx_size;
-                    self.total_tx_cycles = total_tx_cycles;
+                    self.stats.total_tx_size = total_tx_size;
+                    self.stats.total_tx_cycles = total_tx_cycles;
                 } else {
                     error!(
                         "tx-pool total stats underflowed when removing size {} cycles {}, and recomputing overflowed",

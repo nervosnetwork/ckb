@@ -9,7 +9,7 @@ use ckb_types::{
 use ckb_util::shrink_to_fit;
 use std::collections::{HashMap, HashSet};
 
-const SHRINK_THRESHOLD: usize = 100;
+use crate::constants::SHRINK_THRESHOLD;
 
 /// 100 max block interval
 pub(crate) const ORPHAN_TX_EXPIRE_TIME: u64 = 100 * MAX_BLOCK_INTERVAL;

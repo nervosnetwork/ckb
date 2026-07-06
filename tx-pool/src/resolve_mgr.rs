@@ -2,25 +2,24 @@
 //!
 //! Transactions that could not be resolved at the submission entry (missing
 //! inputs / dependent on an in-flight tx) land in the ordered resolve queue.
-//! A single `OrderedResolver` worker pops them in arrival order, retries
+//! A single `ResolveHandler` worker pops them in arrival order, retries
 //! `pre_check`, and routes the result to `VerifyQueue` or the orphan pool.
 //! Keeping this stage ordered reduces orphan-pool churn for dependent txs.
 
 use crate::component::ordered_resolve_queue::OrderedResolveQueue;
 use crate::component::verify_queue::VerifyQueue;
 use crate::error::Reject;
+use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::TxPoolService;
-use crate::util::panic_payload_to_string;
-use ckb_logger::{debug, error, info};
+use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
+use ckb_logger::debug;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::packed::{Byte32, ProposalShortId};
-use futures_util::FutureExt;
 use std::collections::HashSet;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
 
 /// Maximum number of times a local orphan transaction is re-enqueued for
@@ -49,10 +48,17 @@ pub(crate) enum ResolveStageResult {
 /// resolver, so the resolve logic is not duplicated.
 pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> ResolveStageResult {
     let id = job.tx.proposal_short_id();
-    let (pre_check_ret, snapshot) = service.pre_check(&job.tx).await;
+    let tx_size = job.tx.data().serialized_size_in_block();
+    let (pre_check_ret, snapshot) = service.pre_check(&job.tx, tx_size).await;
 
     match pre_check_ret {
-        Ok((pre_resolve_tip, rtx, status, fee, tx_size)) => {
+        Ok(PreCheckedTx {
+            tip_hash: pre_resolve_tip,
+            rtx,
+            status,
+            fee,
+            tx_size,
+        }) => {
             debug!("resolve stage resolved tx {}", id);
             ResolveStageResult::Ready(ResolvedTx {
                 tx: job.tx,
@@ -77,224 +83,56 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
     }
 }
 
-/// Single ordered resolver worker.
-///
-/// Processes transactions that the entry classifier could not resolve because
-/// of missing inputs.  Keeping this worker single-threaded preserves arrival
-/// ordering for dependent transactions.
-pub(crate) struct OrderedResolver {
+#[derive(Clone)]
+struct ResolveHandler {
     ordered_queue: Arc<RwLock<OrderedResolveQueue>>,
     verify_queue: Arc<RwLock<VerifyQueue>>,
-    command_rx: watch::Receiver<ChunkCommand>,
     service: TxPoolService,
-    exit_signal: CancellationToken,
-    status: ChunkCommand,
 }
 
-impl Clone for OrderedResolver {
-    fn clone(&self) -> Self {
-        Self {
-            ordered_queue: Arc::clone(&self.ordered_queue),
-            verify_queue: Arc::clone(&self.verify_queue),
-            command_rx: self.command_rx.clone(),
-            exit_signal: self.exit_signal.clone(),
-            service: self.service.clone(),
-            status: self.status.clone(),
+impl JobHandler for ResolveHandler {
+    type Job = ResolveJob;
+    type Exit = ResolveExit;
+
+    fn worker_name(&self) -> &'static str {
+        "ordered resolver"
+    }
+
+    async fn is_queue_empty(&self) -> bool {
+        self.ordered_queue.read().await.is_empty()
+    }
+
+    async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
+        self.ordered_queue.read().await.subscribe()
+    }
+
+    async fn pop_one(&mut self) -> Option<ResolveJob> {
+        self.ordered_queue.write().await.pop_front()
+    }
+
+    async fn process_one(&mut self, job: ResolveJob) {
+        match resolve_job(&self.service, job.clone()).await {
+            ResolveStageResult::Ready(resolved) => {
+                self.push_to_verify_queue(resolved).await;
+            }
+            ResolveStageResult::Orphan(id, parents) => {
+                self.handle_orphan(job, id, parents).await;
+            }
+            ResolveStageResult::Reject(tx, reject) => {
+                self.handle_reject(tx, job.remote, reject).await;
+            }
+        }
+    }
+
+    fn make_exit(&self, outcome: WorkerOutcome) -> ResolveExit {
+        match outcome {
+            WorkerOutcome::Stopped => ResolveExit::Stopped,
+            WorkerOutcome::Panicked(message) => ResolveExit::Panicked { message },
         }
     }
 }
 
-impl OrderedResolver {
-    pub fn new(
-        service: TxPoolService,
-        ordered_queue: Arc<RwLock<OrderedResolveQueue>>,
-        verify_queue: Arc<RwLock<VerifyQueue>>,
-        command_rx: watch::Receiver<ChunkCommand>,
-        exit_signal: CancellationToken,
-    ) -> Self {
-        OrderedResolver {
-            ordered_queue,
-            verify_queue,
-            command_rx,
-            exit_signal,
-            service,
-            status: ChunkCommand::Resume,
-        }
-    }
-
-    pub fn start(self, exit_tx: tokio::sync::mpsc::UnboundedSender<ResolveExit>) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            let exit = match AssertUnwindSafe(self.run()).catch_unwind().await {
-                Ok(()) => ResolveExit::Stopped,
-                Err(payload) => ResolveExit::Panicked {
-                    message: panic_payload_to_string(payload.as_ref()),
-                },
-            };
-            if let Err(err) = exit_tx.send(exit) {
-                error!(
-                    "failed to notify tx-pool ordered resolver exit: {:?}",
-                    err.0
-                );
-            }
-        })
-    }
-
-    async fn run(mut self) {
-        let queue_ready = self.ordered_queue.read().await.subscribe();
-        self.refresh_status();
-        loop {
-            tokio::select! {
-                _ = self.exit_signal.cancelled() => {
-                    break;
-                }
-                _ = self.command_rx.changed() => {
-                    self.status = self.command_rx.borrow_and_update().to_owned();
-                    self.process_inner().await;
-                }
-                _ = queue_ready.notified() => {
-                    self.process_inner().await;
-                }
-            };
-        }
-    }
-
-    fn refresh_status(&mut self) {
-        self.status = self.command_rx.borrow().to_owned();
-    }
-
-    async fn process_inner(&mut self) {
-        loop {
-            if self.exit_signal.is_cancelled() {
-                info!("Ordered resolver::process_inner exit_signal is cancelled");
-                return;
-            }
-            self.refresh_status();
-            if self.status != ChunkCommand::Resume {
-                return;
-            }
-            if self.ordered_queue.read().await.is_empty() {
-                return;
-            }
-
-            let job = {
-                let mut queue = self.ordered_queue.write().await;
-                queue.pop_front()
-            };
-            let Some(job) = job else {
-                return;
-            };
-
-            match resolve_job(&self.service, job.clone()).await {
-                ResolveStageResult::Ready(resolved) => {
-                    self.push_to_verify_queue(resolved).await;
-                }
-                ResolveStageResult::Orphan(id, parents) => {
-                    if let Some((declared_cycle, peer)) = job.remote {
-                        debug!(
-                            "ordered resolve stage orphan tx {} from peer {}, parents {:?}",
-                            id, peer, parents
-                        );
-                        self.service
-                            .handle_missing_input_orphan(
-                                job.tx.clone(),
-                                peer,
-                                declared_cycle,
-                                parents,
-                            )
-                            .await;
-                    } else {
-                        // Local transactions with missing inputs are normally rejected.
-                        // The exception is when the missing parent is currently in the
-                        // pipeline (pre-check, ordered, verify, or already committed to
-                        // the pool). In that case we put the child back into the ordered
-                        // resolve queue so it can be retried once the parent is ready.
-                        let depends_on_pipeline = {
-                            let ordered_dep = {
-                                let ordered = self.ordered_queue.read().await;
-                                ordered.depends_on(&job.tx)
-                            };
-                            if ordered_dep {
-                                true
-                            } else {
-                                let verify_dep = {
-                                    let verify_queue = self.verify_queue.read().await;
-                                    verify_queue.depends_on(&job.tx)
-                                };
-                                if verify_dep {
-                                    true
-                                } else {
-                                    #[cfg(feature = "pipeline")]
-                                    let pre_check_dep =
-                                        self.service.pre_check_queue.depends_on(&job.tx);
-                                    #[cfg(not(feature = "pipeline"))]
-                                    let pre_check_dep = false;
-                                    if pre_check_dep {
-                                        true
-                                    } else {
-                                        // A parent may have left the verify queue and
-                                        // be in the middle of being committed to the pool.
-                                        // Treat an in-pool parent as still in-flight so
-                                        // the child does not burn an attempt while waiting.
-                                        let pool = self.service.tx_pool.read().await;
-                                        parents.iter().any(|parent_hash| {
-                                            pool.contains_proposal_id(
-                                                &ProposalShortId::from_tx_hash(parent_hash),
-                                            )
-                                        })
-                                    }
-                                }
-                            }
-                        };
-
-                        // If the missing parent is still in the in-flight pipeline,
-                        // keep retrying without burning an attempt. The child will be
-                        // re-resolved once the parent is committed to the pool.
-                        if depends_on_pipeline || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
-                            let mut job = job;
-                            if !depends_on_pipeline {
-                                job.attempts += 1;
-                            }
-                            debug!(
-                                "ordered resolve stage local orphan {} re-enqueue (attempt {}, depends_on_pipeline: {})",
-                                id, job.attempts, depends_on_pipeline
-                            );
-                            let tx = job.tx.clone();
-                            let mut ordered = self.ordered_queue.write().await;
-                            if let Err(reject) = ordered.add_tx(job) {
-                                drop(ordered);
-                                let (_ret, snapshot) = self
-                                    .service
-                                    .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
-                                    .await;
-                                self.service
-                                    .after_process(tx, None, &snapshot, &Err(reject))
-                                    .await;
-                            }
-                        } else {
-                            let reject = first_unknown_input_reject(&job.tx);
-                            let (_ret, snapshot) = self
-                                .service
-                                .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
-                                .await;
-                            self.service
-                                .after_process(job.tx, None, &snapshot, &Err(reject))
-                                .await;
-                        }
-                    }
-                }
-                ResolveStageResult::Reject(tx, reject) => {
-                    let (_ret, snapshot) = self
-                        .service
-                        .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
-                        .await;
-                    self.service
-                        .after_process(tx, job.remote, &snapshot, &Err(reject))
-                        .await;
-                }
-            }
-        }
-    }
-
+impl ResolveHandler {
     async fn push_to_verify_queue(&self, resolved: ResolvedTx) {
         // Extract fields needed for after_process before resolved is consumed by add_tx.
         let tx = resolved.tx.clone();
@@ -316,6 +154,148 @@ impl OrderedResolver {
         self.service
             .after_process(tx, remote, &snapshot, &Err(reject))
             .await;
+    }
+
+    async fn handle_orphan(
+        &mut self,
+        job: ResolveJob,
+        id: ProposalShortId,
+        parents: HashSet<Byte32>,
+    ) {
+        if let Some((declared_cycle, peer)) = job.remote {
+            debug!(
+                "ordered resolve stage orphan tx {} from peer {}, parents {:?}",
+                id, peer, parents
+            );
+            self.service
+                .handle_missing_input_orphan(job.tx.clone(), peer, declared_cycle, parents)
+                .await;
+            return;
+        }
+
+        // Local transactions with missing inputs are normally rejected.
+        // The exception is when the missing parent is currently in the
+        // pipeline (pre-check, ordered, verify, or already committed to
+        // the pool). In that case we put the child back into the ordered
+        // resolve queue so it can be retried once the parent is ready.
+        let depends_on_pipeline = self.depends_on_pipeline(&job.tx, &parents).await;
+
+        // If the missing parent is still in the in-flight pipeline,
+        // keep retrying without burning an attempt. The child will be
+        // re-resolved once the parent is committed to the pool.
+        if depends_on_pipeline || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
+            let mut job = job;
+            if !depends_on_pipeline {
+                job.attempts += 1;
+            }
+            debug!(
+                "ordered resolve stage local orphan {} re-enqueue (attempt {}, depends_on_pipeline: {})",
+                id, job.attempts, depends_on_pipeline
+            );
+            let tx = job.tx.clone();
+            let mut ordered = self.ordered_queue.write().await;
+            if let Err(reject) = ordered.add_tx(job) {
+                drop(ordered);
+                let (_ret, snapshot) = self
+                    .service
+                    .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
+                    .await;
+                self.service
+                    .after_process(tx, None, &snapshot, &Err(reject))
+                    .await;
+            }
+        } else {
+            let reject = first_unknown_input_reject(&job.tx);
+            let (_ret, snapshot) = self
+                .service
+                .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
+                .await;
+            self.service
+                .after_process(job.tx, None, &snapshot, &Err(reject))
+                .await;
+        }
+    }
+
+    async fn handle_reject(
+        &self,
+        tx: ckb_types::core::TransactionView,
+        remote: Option<(ckb_types::core::Cycle, ckb_network::PeerIndex)>,
+        reject: Reject,
+    ) {
+        let (_ret, snapshot) = self
+            .service
+            .with_tx_pool_read_lock(|_tx_pool, snapshot| snapshot)
+            .await;
+        self.service
+            .after_process(tx, remote, &snapshot, &Err(reject))
+            .await;
+    }
+
+    async fn depends_on_pipeline(
+        &self,
+        tx: &ckb_types::core::TransactionView,
+        parents: &HashSet<Byte32>,
+    ) -> bool {
+        let ordered_dep = {
+            let ordered = self.ordered_queue.read().await;
+            ordered.depends_on(tx)
+        };
+        if ordered_dep {
+            return true;
+        }
+
+        let verify_dep = {
+            let verify_queue = self.verify_queue.read().await;
+            verify_queue.depends_on(tx)
+        };
+        if verify_dep {
+            return true;
+        }
+
+        #[cfg(feature = "pipeline")]
+        if self.service.pre_check_queue.depends_on(tx) {
+            return true;
+        }
+
+        // A parent may have left the verify queue and be in the middle of
+        // being committed to the pool. Treat an in-pool parent as still
+        // in-flight so the child does not burn an attempt while waiting.
+        let pool = self.service.tx_pool.read().await;
+        parents.iter().any(|parent_hash| {
+            pool.contains_proposal_id(&ProposalShortId::from_tx_hash(parent_hash))
+        })
+    }
+}
+
+/// Single ordered resolver worker runner.
+///
+/// Processes transactions that the entry classifier could not resolve because
+/// of missing inputs. Keeping this worker single-threaded preserves arrival
+/// ordering for dependent transactions.
+pub(crate) struct OrderedResolver {
+    runner: WorkerRunner<ResolveHandler>,
+}
+
+impl OrderedResolver {
+    pub fn new(
+        service: TxPoolService,
+        ordered_queue: Arc<RwLock<OrderedResolveQueue>>,
+        verify_queue: Arc<RwLock<VerifyQueue>>,
+        command_rx: watch::Receiver<ChunkCommand>,
+        exit_signal: CancellationToken,
+    ) -> Self {
+        let handler = ResolveHandler {
+            ordered_queue,
+            verify_queue,
+            service,
+        };
+        Self {
+            runner: WorkerRunner::new(handler, command_rx, exit_signal),
+        }
+    }
+
+    pub fn start(self, exit_tx: mpsc::UnboundedSender<(usize, ResolveExit)>) -> JoinHandle<()> {
+        self.runner.start(0, exit_tx)
     }
 }
 

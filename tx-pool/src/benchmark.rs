@@ -398,7 +398,7 @@ async fn wait_for_pending(controller: &crate::TxPoolController, count: usize) {
 // ---------------------------------------------------------------------------
 
 /// Build a [`TxPoolService`] together with its pipeline workers for direct
-/// method calls (e.g. `process_tx`, `_test_accept_tx`).
+/// method calls (e.g. `process_tx`, `test_accept_tx`).
 ///
 /// This uses [`TxPoolServiceBuilder::build_bench_service`] for the service
 /// construction, ensuring the same assembly path as production code.  The
@@ -540,7 +540,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     handles.push(tokio::spawn(async move {
-        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
             panic!("tx-pool ordered resolver panicked: {message}");
         }
         let _ = resolver_handle.await;
@@ -560,14 +560,14 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
 
 /// How cycle counts should be measured for a set of transactions.
 enum MeasureMode {
-    /// Measure one sample tx via `_test_accept_tx` and apply the same cycle
+    /// Measure one sample tx via `test_accept_tx` and apply the same cycle
     /// count to every transaction in the set (appropriate for always_success
     /// scripts whose verification cost is deterministic).
     Uniform,
     /// Measure each tx individually via `process_tx`.  Required for dependent
     /// chains whose inputs resolve through the pool's locked path.
     PerTxProcess,
-    /// Measure each tx individually via `_test_accept_tx`.  Required for
+    /// Measure each tx individually via `test_accept_tx`.  Required for
     /// independent secp256k1 txs whose ECDSA verification cycles vary
     /// non-deterministically with signature values.
     PerTxTest,
@@ -633,7 +633,7 @@ fn measure_cycles(
                 let sample = &txs[0];
                 let c = handle
                     .service
-                    ._test_accept_tx(sample.clone())
+                    .test_accept_tx(sample.clone())
                     .await
                     .expect("measure uniform cycle")
                     .cycles;
@@ -675,9 +675,9 @@ fn measure_cycles(
                 for tx in txs {
                     let c = handle
                         .service
-                        ._test_accept_tx(tx.clone())
+                        .test_accept_tx(tx.clone())
                         .await
-                        .expect("measure cycles via _test_accept_tx")
+                        .expect("measure cycles via test_accept_tx")
                         .cycles;
                     cycles.insert(tx.hash(), c);
                 }

@@ -4,6 +4,7 @@ use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
 use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
+use crate::process::PreCheckedTx;
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
 use crate::verify_mgr::VerifyMgr;
@@ -196,7 +197,9 @@ fn service_with_pipeline_workers(
     #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     #[cfg(feature = "pipeline")]
-    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+        pre_check_cancel,
+    ));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
     let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
@@ -284,7 +287,7 @@ fn service_with_pipeline_workers(
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
-        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
             panic!("tx-pool ordered resolver panicked: {message}");
         }
         let _ = resolver_handle.await;
@@ -309,7 +312,7 @@ fn build_tx(input: &OutPoint, output_capacity: usize) -> TransactionView {
 
 async fn measured_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
     service
-        ._test_accept_tx(tx)
+        .test_accept_tx(tx)
         .await
         .expect("local test accept should succeed")
         .cycles
@@ -453,7 +456,9 @@ fn secp_service_with_pipeline_workers(
     #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     #[cfg(feature = "pipeline")]
-    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+        pre_check_cancel,
+    ));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
     let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
@@ -541,7 +546,7 @@ fn secp_service_with_pipeline_workers(
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
-        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
             panic!("tx-pool ordered resolver panicked: {message}");
         }
         let _ = resolver_handle.await;
@@ -600,15 +605,16 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
 #[cfg(feature = "pipeline")]
 async fn submit_local_tx(service: &TxPoolService, tx: TransactionView) -> u64 {
     let (ret, _snapshot) = service
-        ._process_tx(tx, None, None)
+        .process_tx_sync(tx, None, None)
         .await
         .expect("local process tx should return a result");
     ret.expect("local tx should be accepted").cycles
 }
 
 async fn verify_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
-    let (pre_check_ret, snapshot) = service.pre_check(&tx).await;
-    let (_tip_hash, rtx, status, _fee, _tx_size) =
+    let tx_size = tx.data().serialized_size_in_block();
+    let (pre_check_ret, snapshot) = service.pre_check(&tx, tx_size).await;
+    let PreCheckedTx { rtx, status, .. } =
         pre_check_ret.expect("pre_check for cycle measurement should succeed");
     let verify_cache = service.fetch_tx_verify_cache(&tx).await;
     let max_cycles = service.consensus.max_block_cycles();
@@ -1232,7 +1238,9 @@ fn service_with_rbf(
     #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     #[cfg(feature = "pipeline")]
-    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+        pre_check_cancel,
+    ));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
     let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
@@ -1319,7 +1327,7 @@ fn service_with_rbf(
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
-        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
             panic!("tx-pool ordered resolver panicked: {message}");
         }
         let _ = resolver_handle.await;
@@ -1366,7 +1374,9 @@ fn service_with_rbf_and_max_size(
     #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     #[cfg(feature = "pipeline")]
-    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+        pre_check_cancel,
+    ));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
     let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
@@ -1453,7 +1463,7 @@ fn service_with_rbf_and_max_size(
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
-        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
             panic!("tx-pool ordered resolver panicked: {message}");
         }
         let _ = resolver_handle.await;
@@ -1500,7 +1510,9 @@ fn secp_service_with_pipeline_workers_and_chunk(
     #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     #[cfg(feature = "pipeline")]
-    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+        pre_check_cancel,
+    ));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
     let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
@@ -1587,7 +1599,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
-        if let Some(ResolveExit::Panicked { message }) = resolve_exit_rx.recv().await {
+        if let Some((_, ResolveExit::Panicked { message })) = resolve_exit_rx.recv().await {
             panic!("tx-pool ordered resolver panicked: {message}");
         }
         let _ = resolver_handle.await;
@@ -2088,10 +2100,12 @@ async fn sort_txs_by_dependencies_keeps_original_order_on_cycle() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_check_queue_rejects_when_full() {
     let cancel = ckb_stop_handler::CancellationToken::new();
-    let queue = Arc::new(crate::process::PreCheckQueue::new(cancel));
+    let queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+        cancel,
+    ));
 
     let tx = TransactionBuilder::default().build();
-    let job = crate::process::PreCheckJob {
+    let job = crate::component::pre_check_queue::PreCheckJob {
         tx: tx.clone(),
         is_proposal_tx: false,
         remote: None,
@@ -2104,7 +2118,7 @@ async fn pre_check_queue_rejects_when_full() {
     let huge_tx = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from(vec![0u8; 300_000_000]).pack()])
         .build();
-    let huge_job = crate::process::PreCheckJob {
+    let huge_job = crate::component::pre_check_queue::PreCheckJob {
         tx: huge_tx,
         is_proposal_tx: false,
         remote: None,

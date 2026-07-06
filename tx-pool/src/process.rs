@@ -1,9 +1,10 @@
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
-#[cfg(feature = "pipeline")]
-use crate::component::flight_tracker::FlightTracker;
 use crate::component::orphan::Entry as OrphanEntry;
 use crate::component::pool_map::Status;
+#[cfg(feature = "pipeline")]
+use crate::component::pre_check_queue::PreCheckJob;
+use crate::constants::{GAP_PROPOSAL_INDEX, MALFORMED_TX_BAN_SECONDS, PROPOSED_PROPOSAL_INDEX};
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
@@ -58,279 +59,9 @@ impl TxStatus {
     fn with_env(self, header: &HeaderView) -> TxVerifyEnv {
         match self {
             TxStatus::Fresh => TxVerifyEnv::new_submit(header),
-            TxStatus::Gap => TxVerifyEnv::new_proposed(header, 0),
-            TxStatus::Proposed => TxVerifyEnv::new_proposed(header, 1),
+            TxStatus::Gap => TxVerifyEnv::new_proposed(header, GAP_PROPOSAL_INDEX),
+            TxStatus::Proposed => TxVerifyEnv::new_proposed(header, PROPOSED_PROPOSAL_INDEX),
         }
-    }
-}
-
-/// A classification job that is offloaded to the pre-check worker pool.
-#[cfg(feature = "pipeline")]
-#[derive(Clone)]
-pub(crate) struct PreCheckJob {
-    pub tx: TransactionView,
-    pub is_proposal_tx: bool,
-    pub remote: Option<(Cycle, PeerIndex)>,
-}
-
-/// 256mb for total_tx_size limit, default max_tx_pool_size is 180mb.
-#[cfg(feature = "pipeline")]
-const DEFAULT_MAX_PRE_CHECK_QUEUE_TX_SIZE: usize = 256_000_000;
-
-/// A small multi-consumer queue used by the pre-check worker pool.
-///
-/// It is intentionally kept separate from the ordered resolve queue: jobs here
-/// are independent and can be processed in any order, while the ordered queue
-/// must retry missing-input txs in arrival order.
-///
-/// `tokio::sync::Notify` is used for wake-ups; a permit is stored if a job is
-/// pushed before any worker is waiting, so a worker that calls `notified()`
-/// afterwards will wake up immediately.
-///
-/// The queue is bounded by total serialized tx size so a flood of large remote
-/// txs cannot grow it without limit.
-///
-/// Workers are cancelled via the `CancellationToken`; `pop()` returns `None`
-/// once the token is cancelled so the worker loop can exit cleanly.
-#[cfg(feature = "pipeline")]
-struct PreCheckQueueState {
-    inner: std::collections::VecDeque<PreCheckJob>,
-    index: std::collections::HashSet<ProposalShortId>,
-    flight: FlightTracker,
-}
-
-#[cfg(feature = "pipeline")]
-pub(crate) struct PreCheckQueue {
-    state: std::sync::Mutex<PreCheckQueueState>,
-    ready: tokio::sync::Notify,
-    cancel: ckb_stop_handler::CancellationToken,
-    total_tx_size: std::sync::atomic::AtomicUsize,
-}
-
-#[cfg(feature = "pipeline")]
-impl PreCheckQueue {
-    pub(crate) fn new(cancel: ckb_stop_handler::CancellationToken) -> Self {
-        Self {
-            state: std::sync::Mutex::new(PreCheckQueueState {
-                inner: std::collections::VecDeque::new(),
-                index: std::collections::HashSet::new(),
-                flight: FlightTracker::new(),
-            }),
-            ready: tokio::sync::Notify::new(),
-            cancel,
-            total_tx_size: std::sync::atomic::AtomicUsize::new(0),
-        }
-    }
-
-    fn tx_size(job: &PreCheckJob) -> usize {
-        job.tx.data().serialized_size_in_block()
-    }
-
-    /// Returns true if the queue is full.
-    pub fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size
-            .load(std::sync::atomic::Ordering::SeqCst)
-            .saturating_add(add_tx_size)
-            >= DEFAULT_MAX_PRE_CHECK_QUEUE_TX_SIZE
-    }
-
-    /// Returns true if the given tx spends or references an output produced by
-    /// a transaction currently in the pre-check queue.
-    pub fn depends_on(&self, tx: &TransactionView) -> bool {
-        let state = self.state.lock().expect("pre_check queue lock poisoned");
-        state.flight.depends_on(tx)
-    }
-
-    /// Returns true if the queue contains a job for the given proposal id.
-    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        let state = self.state.lock().expect("pre_check queue lock poisoned");
-        state.index.contains(id)
-    }
-
-    /// Returns the raw transaction for the given id, if it is waiting in the
-    /// pre-check queue.
-    pub fn get_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
-        let state = self.state.lock().expect("pre_check queue lock poisoned");
-        state
-            .inner
-            .iter()
-            .find(|job| &job.tx.proposal_short_id() == id)
-            .map(|job| job.tx.clone())
-    }
-
-    /// Remove a job from the queue by its short id.
-    pub fn remove_by_id(&self, id: &ProposalShortId) -> Option<TransactionView> {
-        let mut state = self.state.lock().expect("pre_check queue lock poisoned");
-        let pos = state
-            .inner
-            .iter()
-            .position(|job| &job.tx.proposal_short_id() == id)?;
-        let job = state.inner.remove(pos).expect("position exists");
-        state.index.remove(id);
-        state.flight.remove(id);
-        self.total_tx_size
-            .fetch_sub(Self::tx_size(&job), std::sync::atomic::Ordering::SeqCst);
-        Some(job.tx)
-    }
-
-    /// Remove all jobs submitted by the given peer.
-    pub fn remove_by_peer(&self, peer: &PeerIndex) -> Vec<TransactionView> {
-        let mut state = self.state.lock().expect("pre_check queue lock poisoned");
-        let to_remove: Vec<usize> = state
-            .inner
-            .iter()
-            .enumerate()
-            .filter(|(_, job)| job.remote.as_ref().is_some_and(|(_, p)| p == peer))
-            .map(|(idx, _)| idx)
-            .collect();
-
-        let mut removed = Vec::with_capacity(to_remove.len());
-        for idx in to_remove.into_iter().rev() {
-            let job = state.inner.remove(idx).expect("position exists");
-            let id = job.tx.proposal_short_id();
-            state.index.remove(&id);
-            state.flight.remove(&id);
-            self.total_tx_size
-                .fetch_sub(Self::tx_size(&job), std::sync::atomic::Ordering::SeqCst);
-            removed.push(job.tx);
-        }
-        removed
-    }
-
-    pub(crate) fn push(&self, job: PreCheckJob) -> Result<(), Reject> {
-        let mut state = self.state.lock().expect("pre_check queue lock poisoned");
-        let id = job.tx.proposal_short_id();
-        if state.index.contains(&id) {
-            return Ok(());
-        }
-        let tx_size = Self::tx_size(&job);
-        let tx_hash = job.tx.hash();
-        // The full check is performed while holding the lock so concurrent
-        // pushes cannot both observe a non-full queue and exceed the limit.
-        if self.is_full(tx_size) {
-            return Err(Reject::Full(format!(
-                "pre_check_queue total_tx_size exceeded, failed to add tx: {tx_hash:#x}"
-            )));
-        }
-        state.index.insert(id.clone());
-        state.flight.insert(id, &job.tx);
-        state.inner.push_back(job);
-        self.total_tx_size
-            .fetch_add(tx_size, std::sync::atomic::Ordering::SeqCst);
-        drop(state);
-        self.ready.notify_one();
-        Ok(())
-    }
-
-    /// Drain all pending jobs without cancelling the queue.
-    pub(crate) fn clear(&self) {
-        let mut state = self.state.lock().expect("pre_check queue lock poisoned");
-        state.inner.clear();
-        state.index.clear();
-        state.flight.clear();
-        self.total_tx_size
-            .store(0, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    /// Pop the next job, or return `None` if the queue has been cancelled.
-    pub(crate) async fn pop(&self) -> Option<PreCheckJob> {
-        loop {
-            {
-                let mut state = self.state.lock().expect("pre_check queue lock poisoned");
-                if let Some(job) = state.inner.pop_front() {
-                    let id = job.tx.proposal_short_id();
-                    state.index.remove(&id);
-                    state.flight.remove(&id);
-                    let tx_size = Self::tx_size(&job);
-                    self.total_tx_size
-                        .fetch_sub(tx_size, std::sync::atomic::Ordering::SeqCst);
-                    return Some(job);
-                }
-            }
-            tokio::select! {
-                _ = self.ready.notified() => {}
-                _ = self.cancel.cancelled() => return None,
-            }
-        }
-    }
-}
-
-#[cfg(all(test, feature = "pipeline"))]
-mod pre_check_queue_tests {
-    use super::*;
-    use ckb_test_chain_utils::always_success_cell;
-    use ckb_types::{
-        bytes::Bytes,
-        core::{Capacity, TransactionBuilder},
-        packed::{CellInput, CellOutput, OutPoint},
-        prelude::*,
-    };
-
-    fn dummy_tx(input: &OutPoint, output_capacity: usize) -> TransactionView {
-        let (_, _, always_success_script) = always_success_cell();
-        TransactionBuilder::default()
-            .input(CellInput::new(input.clone(), 0))
-            .output(
-                CellOutput::new_builder()
-                    .capacity(Capacity::bytes(output_capacity).unwrap())
-                    .lock(always_success_script.clone())
-                    .build(),
-            )
-            .output_data(Bytes::default().pack())
-            .build()
-    }
-
-    #[test]
-    fn remove_by_id_and_peer() {
-        use ckb_types::{h256, prelude::Pack};
-        let cancel = ckb_stop_handler::CancellationToken::new();
-        let queue = PreCheckQueue::new(cancel);
-        let input = OutPoint::new(
-            h256!("0x0101010101010101010101010101010101010101010101010101010101010101").pack(),
-            0,
-        );
-
-        let tx_a = dummy_tx(&input, 1_000);
-        let tx_b = dummy_tx(&OutPoint::new(tx_a.hash(), 0), 500);
-        let tx_c = dummy_tx(&OutPoint::new(tx_b.hash(), 0), 400);
-
-        queue
-            .push(PreCheckJob {
-                tx: tx_a.clone(),
-                is_proposal_tx: false,
-                remote: Some((0, 1.into())),
-            })
-            .unwrap();
-        queue
-            .push(PreCheckJob {
-                tx: tx_b.clone(),
-                is_proposal_tx: false,
-                remote: Some((0, 2.into())),
-            })
-            .unwrap();
-        queue
-            .push(PreCheckJob {
-                tx: tx_c.clone(),
-                is_proposal_tx: false,
-                remote: Some((0, 1.into())),
-            })
-            .unwrap();
-
-        assert!(queue.contains_key(&tx_b.proposal_short_id()));
-        assert_eq!(
-            queue.remove_by_id(&tx_b.proposal_short_id()),
-            Some(tx_b.clone())
-        );
-        assert!(!queue.contains_key(&tx_b.proposal_short_id()));
-        assert!(queue.contains_key(&tx_a.proposal_short_id()));
-        assert!(queue.contains_key(&tx_c.proposal_short_id()));
-
-        let removed = queue.remove_by_peer(&1.into());
-        assert_eq!(removed.len(), 2);
-        assert!(removed.iter().any(|tx| tx.hash() == tx_a.hash()));
-        assert!(removed.iter().any(|tx| tx.hash() == tx_c.hash()));
-        assert!(queue.get_tx(&tx_a.proposal_short_id()).is_none());
-        assert!(queue.get_tx(&tx_c.proposal_short_id()).is_none());
     }
 }
 
@@ -366,11 +97,126 @@ impl TxPoolService {
         .collect()
     }
 
+    fn try_submit_entry(
+        &self,
+        tx_pool: &mut TxPool,
+        snapshot: Arc<Snapshot>,
+        pre_resolve_tip: Byte32,
+        entry: TxEntry,
+        mut status: TxStatus,
+        entry_id: ProposalShortId,
+    ) -> SubmitEntryOutcome {
+        let mut reject_events = Vec::new();
+        let mut recovered = Vec::new();
+
+        let mut removed_old_txs = Vec::new();
+        let result = (|| -> Result<(), Reject> {
+            // check_rbf must be invoked in `write` lock to avoid concurrent issues.
+            let conflicts = if tx_pool.enable_rbf() {
+                tx_pool.check_rbf(&snapshot, &entry)?
+            } else {
+                // RBF is disabled but we found conflicts, return error here
+                // after_process will put this tx into conflicts_pool
+                let conflicted_outpoint =
+                    tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
+                if let Some(outpoint) = conflicted_outpoint {
+                    return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
+                }
+                HashSet::new()
+            };
+
+            // if snapshot changed by context switch we need redo time_relative verify
+            let tip_hash = snapshot.tip_hash();
+            if pre_resolve_tip != tip_hash {
+                debug!(
+                    "submit_entry {} context changed. previous:{} now:{}",
+                    entry.proposal_short_id(),
+                    pre_resolve_tip,
+                    tip_hash
+                );
+
+                status = check_rtx(tx_pool, &snapshot, &entry.rtx)?;
+
+                let tip_header = snapshot.tip_header();
+                let tx_env = status.with_env(tip_header);
+                time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
+            }
+
+            removed_old_txs = self.process_rbf(tx_pool, &entry, &conflicts, &mut reject_events);
+
+            // Txs whose inputs are not consumed by the new tx can be
+            // recovered immediately, regardless of whether the new tx
+            // ultimately succeeds.
+            let mut available_inputs: HashSet<OutPoint> = HashSet::new();
+            available_inputs.extend(
+                removed_old_txs
+                    .iter()
+                    .flat_map(|removed| removed.transaction().input_pts_iter()),
+            );
+            for input in entry.transaction().input_pts_iter() {
+                available_inputs.remove(&input);
+            }
+            recovered.extend(tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter()));
+
+            // Parents must be recovered before children so that the
+            // ordered resolver can re-resolve and accept them in the
+            // correct order.
+            #[cfg(feature = "pipeline")]
+            Self::sort_txs_by_dependencies(&mut recovered);
+
+            let evicted = submit_entry(tx_pool, status, &entry, &self.callbacks)?;
+
+            // in a corner case, a tx with lower fee rate may be rejected immediately
+            // after inserting into pool, return proper reject error here
+            for evict in evicted {
+                let reject = Reject::Invalidated(format!(
+                    "invalidated by tx {}",
+                    evict.transaction().hash()
+                ));
+                reject_events.push((evict, reject));
+            }
+
+            tx_pool.remove_conflict(&entry.proposal_short_id());
+            tx_pool
+                .limit_size(Some(&entry.proposal_short_id()), &mut reject_events)
+                .map_or(Ok(()), Err)?;
+
+            Ok(())
+        })();
+
+        // If the replacement was rejected after `process_rbf` removed the
+        // old conflicting transactions, the new tx's inputs are free
+        // again. Recover any txs stored in the conflict pool for those
+        // inputs (in particular the old tx itself) so that a failed
+        // RBF attempt cannot be used to evict in-pool transactions.
+        //
+        // IMPORTANT: exclude the entry transaction itself from recovery.
+        // It was just rejected by RBF; re-enqueueing it would cause a
+        // cycle where both the entry and the in-pool tx keep being
+        // recovered and failing RBF against each other indefinitely.
+        if result.is_err() {
+            recovered.extend(
+                tx_pool
+                    .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter())
+                    .into_iter()
+                    .filter(|tx| tx.proposal_short_id() != entry_id),
+            );
+            for tx in &recovered {
+                tx_pool.remove_conflict(&tx.proposal_short_id());
+            }
+            for old in removed_old_txs {
+                tx_pool.remove_conflict(&old.proposal_short_id());
+            }
+        }
+
+        (result, recovered, reject_events)
+    }
+
     pub(crate) async fn submit_entry(
         &self,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
-        mut status: TxStatus,
+        status: TxStatus,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         #[cfg(feature = "pipeline")]
         let (conflict_inputs, early_snapshot) =
@@ -401,10 +247,7 @@ impl TxPoolService {
             }
         }
 
-        #[cfg(feature = "pipeline")]
         let entry_id = entry.proposal_short_id();
-        #[cfg(feature = "pipeline")]
-        let entry_id_for_cleanup = entry_id.clone();
 
         // Separate the successful result from the collected reject events and
         // recovered txs. Reject callbacks must be dispatched and displaced txs
@@ -414,116 +257,15 @@ impl TxPoolService {
         // remote peer can evict in-pool txs via a crafted RBF replacement that
         // is itself rejected, leaving the node with neither transaction.
         let ((result, recovered, reject_events), snapshot) = self
-            .with_tx_pool_write_lock(move |tx_pool, snapshot| {
-                let mut reject_events = Vec::new();
-                let mut recovered = Vec::new();
-
-                let mut removed_old_txs = Vec::new();
-                let result = (|| -> Result<(), Reject> {
-                    // check_rbf must be invoked in `write` lock to avoid concurrent issues.
-                    let conflicts = if tx_pool.enable_rbf() {
-                        tx_pool.check_rbf(&snapshot, &entry)?
-                    } else {
-                        // RBF is disabled but we found conflicts, return error here
-                        // after_process will put this tx into conflicts_pool
-                        let conflicted_outpoint =
-                            tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
-                        if let Some(outpoint) = conflicted_outpoint {
-                            return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
-                        }
-                        HashSet::new()
-                    };
-
-                    // if snapshot changed by context switch we need redo time_relative verify
-                    let tip_hash = snapshot.tip_hash();
-                    if pre_resolve_tip != tip_hash {
-                        debug!(
-                            "submit_entry {} context changed. previous:{} now:{}",
-                            entry.proposal_short_id(),
-                            pre_resolve_tip,
-                            tip_hash
-                        );
-
-                        // destructuring assignments are not currently supported
-                        status = check_rtx(tx_pool, &snapshot, &entry.rtx)?;
-
-                        let tip_header = snapshot.tip_header();
-                        let tx_env = status.with_env(tip_header);
-                        time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
-                    }
-
-                    removed_old_txs =
-                        self.process_rbf(tx_pool, &entry, &conflicts, &mut reject_events);
-
-                    // Txs whose inputs are not consumed by the new tx can be
-                    // recovered immediately, regardless of whether the new tx
-                    // ultimately succeeds.
-                    let mut available_inputs: HashSet<OutPoint> = HashSet::new();
-                    available_inputs.extend(
-                        removed_old_txs
-                            .iter()
-                            .flat_map(|removed| removed.transaction().input_pts_iter()),
-                    );
-                    for input in entry.transaction().input_pts_iter() {
-                        available_inputs.remove(&input);
-                    }
-                    recovered.extend(
-                        tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter()),
-                    );
-
-                    // Parents must be recovered before children so that the
-                    // ordered resolver can re-resolve and accept them in the
-                    // correct order.
-                    #[cfg(feature = "pipeline")]
-                    Self::sort_txs_by_dependencies(&mut recovered);
-
-                    let evicted = _submit_entry(tx_pool, status, &entry, &self.callbacks)?;
-
-                    // in a corner case, a tx with lower fee rate may be rejected immediately
-                    // after inserting into pool, return proper reject error here
-                    for evict in evicted {
-                        let reject = Reject::Invalidated(format!(
-                            "invalidated by tx {}",
-                            evict.transaction().hash()
-                        ));
-                        reject_events.push((evict, reject));
-                    }
-
-                    tx_pool.remove_conflict(&entry.proposal_short_id());
-                    tx_pool
-                        .limit_size(Some(&entry.proposal_short_id()), &mut reject_events)
-                        .map_or(Ok(()), Err)?;
-
-                    Ok(())
-                })();
-
-                // If the replacement was rejected after `process_rbf` removed the
-                // old conflicting transactions, the new tx's inputs are free
-                // again. Recover any txs stored in the conflict pool for those
-                // inputs (in particular the old tx itself) so that a failed
-                // RBF attempt cannot be used to evict in-pool transactions.
-                //
-                // IMPORTANT: exclude the entry transaction itself from recovery.
-                // It was just rejected by RBF; re-enqueueing it would cause a
-                // cycle where both the entry and the in-pool tx keep being
-                // recovered and failing RBF against each other indefinitely.
-                if result.is_err() {
-                    let entry_id_clone = entry_id.clone();
-                    recovered.extend(
-                        tx_pool
-                            .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter())
-                            .into_iter()
-                            .filter(|tx| tx.proposal_short_id() != entry_id_clone),
-                    );
-                    for tx in &recovered {
-                        tx_pool.remove_conflict(&tx.proposal_short_id());
-                    }
-                    for old in removed_old_txs {
-                        tx_pool.remove_conflict(&old.proposal_short_id());
-                    }
-                }
-
-                (result, recovered, reject_events)
+            .with_tx_pool_write_lock(|tx_pool, snapshot| {
+                self.try_submit_entry(
+                    tx_pool,
+                    snapshot,
+                    pre_resolve_tip.clone(),
+                    entry.clone(),
+                    status,
+                    entry_id.clone(),
+                )
             })
             .await;
 
@@ -551,10 +293,7 @@ impl TxPoolService {
         // The RBF candidate has either been accepted or definitively rejected;
         // remove it from the in-flight fee-ordering gate.
         #[cfg(feature = "pipeline")]
-        self.rbf_candidates
-            .write()
-            .await
-            .remove(&entry_id_for_cleanup);
+        self.rbf_candidates.write().await.remove(&entry_id);
 
         (result, snapshot)
     }
@@ -668,9 +407,8 @@ impl TxPoolService {
     pub(crate) async fn pre_check(
         &self,
         tx: &TransactionView,
+        tx_size: usize,
     ) -> (Result<PreCheckedTx, Reject>, Arc<Snapshot>) {
-        let tx_size = tx.data().serialized_size_in_block();
-
         // Fast path: for transactions whose inputs and cell deps all come from the
         // chain (not from any tx currently in the pool), we can resolve and compute
         // the fee without holding the tx_pool read lock.  We only take the lock
@@ -703,7 +441,13 @@ impl TxPoolService {
                 };
                 let status = get_tx_status(&snapshot, &short_id);
                 (
-                    Ok((snapshot.tip_hash(), rtx, status, fee, tx_size)),
+                    Ok(PreCheckedTx {
+                        tip_hash: snapshot.tip_hash(),
+                        rtx,
+                        status,
+                        fee,
+                        tx_size,
+                    }),
                     snapshot,
                 )
             }
@@ -736,7 +480,13 @@ impl TxPoolService {
                 match res {
                     Ok((rtx, status)) => {
                         let fee = check_tx_fee(tx_pool, &snapshot, &rtx, tx_size)?;
-                        Ok((tip_hash, rtx, status, fee, tx_size))
+                        Ok(PreCheckedTx {
+                            tip_hash,
+                            rtx,
+                            status,
+                            fee,
+                            tx_size,
+                        })
                     }
                     Err(Reject::Resolve(OutPointError::Dead(out))) => {
                         let (rtx, status) = resolve_tx(tx_pool, &snapshot, tx.clone(), true)?;
@@ -755,7 +505,13 @@ impl TxPoolService {
                         // we only want to put it into conflicts pool after the verification stage passed
                         // then we will double-check conflicts txs in `submit_entry`
 
-                        Ok((tip_hash, rtx, status, fee, tx_size))
+                        Ok(PreCheckedTx {
+                            tip_hash,
+                            rtx,
+                            status,
+                            fee,
+                            tx_size,
+                        })
                     }
                     Err(err) => Err(err),
                 }
@@ -781,7 +537,7 @@ impl TxPoolService {
         Ok(())
     }
 
-    pub(crate) async fn resumeble_process_tx(
+    pub(crate) async fn resumable_process_tx_sync(
         &self,
         tx: TransactionView,
         is_proposal_tx: bool,
@@ -810,7 +566,7 @@ impl TxPoolService {
             // Synchronous fallback used for benchmarking the pre-pipeline baseline.
             let _ = is_proposal_tx;
             if let Some((ret, snapshot)) = self
-                ._process_tx(tx.clone(), remote.map(|r| r.0), None)
+                .process_tx_sync(tx.clone(), remote.map(|r| r.0), None)
                 .await
             {
                 self.after_process(tx, remote, &snapshot, &ret).await;
@@ -821,14 +577,16 @@ impl TxPoolService {
         }
     }
 
-    async fn resumeble_process_tx_and_notify_full_reject(
+    async fn resumable_process_tx_sync_and_notify_full_reject(
         &self,
         tx: TransactionView,
         is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
         let tx_hash = tx.hash();
-        let ret = self.resumeble_process_tx(tx, is_proposal_tx, remote).await;
+        let ret = self
+            .resumable_process_tx_sync(tx, is_proposal_tx, remote)
+            .await;
 
         if matches!(ret, Err(Reject::Full(_))) {
             self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
@@ -843,12 +601,16 @@ impl TxPoolService {
         declared_cycles: Cycle,
         peer: PeerIndex,
     ) -> Result<bool, Reject> {
-        self.resumeble_process_tx_and_notify_full_reject(tx, false, Some((declared_cycles, peer)))
-            .await
+        self.resumable_process_tx_sync_and_notify_full_reject(
+            tx,
+            false,
+            Some((declared_cycles, peer)),
+        )
+        .await
     }
 
     pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
-        self.resumeble_process_tx_and_notify_full_reject(tx, true, None)
+        self.resumable_process_tx_sync_and_notify_full_reject(tx, true, None)
             .await
     }
 
@@ -864,7 +626,7 @@ impl TxPoolService {
             debug!("reject tx {} already in orphan pool", tx.hash());
             return Err(Reject::Duplicated(tx.hash()));
         }
-        self._test_accept_tx(tx.clone()).await
+        self.test_accept_tx_core(tx.clone()).await
     }
 
     pub(crate) async fn process_tx(
@@ -880,7 +642,7 @@ impl TxPoolService {
         }
 
         if let Some((ret, snapshot)) = self
-            ._process_tx(tx.clone(), remote.map(|r| r.0), None)
+            .process_tx_sync(tx.clone(), remote.map(|r| r.0), None)
             .await
         {
             self.after_process(tx, remote, &snapshot, &ret).await;
@@ -902,6 +664,19 @@ impl TxPoolService {
                 "Failed to record recent_reject {} {} {}",
                 tx_hash, reject, e
             );
+        }
+    }
+
+    /// Notify the ordered resolver if there are jobs waiting.
+    ///
+    /// Must be called after a transaction is removed from the verify queue or
+    /// the in-pool set: the removed tx may have had descendants waiting in the
+    /// ordered resolve queue, and waking the resolver lets them be retried
+    /// (and rejected if the parent is gone) promptly.
+    async fn wake_ordered_resolver_if_needed(&self) {
+        let ordered = self.ordered_resolve_queue.read().await;
+        if !ordered.is_empty() {
+            ordered.subscribe().notify_one();
         }
     }
 
@@ -930,10 +705,7 @@ impl TxPoolService {
                 // retried (and rejected if the parent is gone) promptly.
                 #[cfg(feature = "pipeline")]
                 self.rbf_candidates.write().await.remove(&id);
-                let ordered = self.ordered_resolve_queue.read().await;
-                if !ordered.is_empty() {
-                    ordered.subscribe().notify_one();
-                }
+                self.wake_ordered_resolver_if_needed().await;
                 return true;
             }
         }
@@ -948,10 +720,7 @@ impl TxPoolService {
             tx_pool.remove_tx(&id)
         };
         if removed {
-            let ordered = self.ordered_resolve_queue.read().await;
-            if !ordered.is_empty() {
-                ordered.subscribe().notify_one();
-            }
+            self.wake_ordered_resolver_if_needed().await;
         }
         removed
     }
@@ -988,46 +757,69 @@ impl TxPoolService {
         }
 
         match remote {
-            Some((declared_cycle, peer)) => match ret {
-                Ok(_) => {
-                    debug!(
-                        "after_process remote send_result_to_relayer {} {}",
-                        tx_hash, peer
-                    );
-                    self.handle_verify_success(&tx, Some(peer)).await;
-                }
-                Err(reject) => {
-                    debug!(
-                        "after_process {} {} remote reject: {} ",
-                        tx_hash, peer, reject
-                    );
-                    if is_missing_input(reject) {
-                        let parents = tx.unique_parents();
-                        self.handle_missing_input_orphan(tx, peer, declared_cycle, parents)
-                            .await;
-                    } else {
-                        self.handle_remote_reject(&tx_hash, reject, peer).await;
-                    }
-                }
-            },
+            Some((declared_cycle, peer)) => {
+                self.after_process_remote(tx, declared_cycle, peer, ret)
+                    .await;
+            }
             None => {
-                match ret {
-                    Ok(_) | Err(Reject::Duplicated(_)) => {
-                        if matches!(ret, Err(Reject::Duplicated(_))) {
-                            debug!("after_process {} duplicated", tx_hash);
-                        } else {
-                            debug!("after_process local send_result_to_relayer {}", tx_hash);
-                        }
-                        // Re-broadcast tx when it's duplicated and submitted
-                        // through local rpc, or notify on fresh success.
-                        self.handle_verify_success(&tx, None).await;
-                    }
-                    Err(reject) => {
-                        debug!("after_process {} reject: {} ", tx_hash, reject);
-                        if reject.should_recorded() {
-                            self.put_recent_reject(&tx_hash, reject);
-                        }
-                    }
+                self.after_process_local(tx, tx_hash, ret).await;
+            }
+        }
+    }
+
+    async fn after_process_remote(
+        &self,
+        tx: TransactionView,
+        declared_cycle: Cycle,
+        peer: PeerIndex,
+        ret: &Result<Completed, Reject>,
+    ) {
+        let tx_hash = tx.hash();
+        match ret {
+            Ok(_) => {
+                debug!(
+                    "after_process remote send_result_to_relayer {} {}",
+                    tx_hash, peer
+                );
+                self.handle_verify_success(&tx, Some(peer)).await;
+            }
+            Err(reject) => {
+                debug!(
+                    "after_process {} {} remote reject: {} ",
+                    tx_hash, peer, reject
+                );
+                if is_missing_input(reject) {
+                    let parents = tx.unique_parents();
+                    self.handle_missing_input_orphan(tx, peer, declared_cycle, parents)
+                        .await;
+                } else {
+                    self.handle_remote_reject(&tx_hash, reject, peer).await;
+                }
+            }
+        }
+    }
+
+    async fn after_process_local(
+        &self,
+        tx: TransactionView,
+        tx_hash: Byte32,
+        ret: &Result<Completed, Reject>,
+    ) {
+        match ret {
+            Ok(_) | Err(Reject::Duplicated(_)) => {
+                if matches!(ret, Err(Reject::Duplicated(_))) {
+                    debug!("after_process {} duplicated", tx_hash);
+                } else {
+                    debug!("after_process local send_result_to_relayer {}", tx_hash);
+                }
+                // Re-broadcast tx when it's duplicated and submitted
+                // through local rpc, or notify on fresh success.
+                self.handle_verify_success(&tx, None).await;
+            }
+            Err(reject) => {
+                debug!("after_process {} reject: {} ", tx_hash, reject);
+                if reject.should_recorded() {
+                    self.put_recent_reject(&tx_hash, reject);
                 }
             }
         }
@@ -1182,7 +974,7 @@ impl TxPoolService {
                 #[cfg(not(feature = "pipeline"))]
                 {
                     if let Some((ret, snapshot)) = self
-                        ._process_tx(orphan.tx.clone(), Some(orphan.cycle), None)
+                        .process_tx_sync(orphan.tx.clone(), Some(orphan.cycle), None)
                         .await
                     {
                         let remote = Some((orphan.cycle, orphan.peer));
@@ -1207,7 +999,7 @@ impl TxPoolService {
     }
 
     async fn ban_malformed(&self, peer: PeerIndex, reason: String) {
-        const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
+        const DEFAULT_BAN_TIME: Duration = Duration::from_secs(MALFORMED_TX_BAN_SECONDS);
 
         #[cfg(feature = "with_sentry")]
         use sentry::{Level, capture_message, with_scope};
@@ -1262,26 +1054,34 @@ impl TxPoolService {
         }
     }
 
-    pub(crate) async fn _process_tx(
+    pub(crate) async fn process_tx_sync(
         &self,
         tx: TransactionView,
         declared_cycles: Option<Cycle>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
-        let (ret, snapshot) = self.pre_check(&tx).await;
+        let tx_size = tx.data().serialized_size_in_block();
+        let (ret, snapshot) = self.pre_check(&tx, tx_size).await;
 
-        let (pre_resolve_tip, rtx, status, fee, tx_size) =
-            try_or_return_with_snapshot!(ret, snapshot);
-
-        self.verify_and_submit_core(
-            tx,
+        let PreCheckedTx {
+            tip_hash: pre_resolve_tip,
             rtx,
             status,
             fee,
             tx_size,
-            pre_resolve_tip,
-            snapshot,
-            declared_cycles,
+        } = try_or_return_with_snapshot!(ret, snapshot);
+
+        self.verify_and_submit_core(
+            VerifyAndSubmitInput {
+                tx,
+                rtx,
+                status,
+                fee,
+                tx_size,
+                pre_resolve_tip,
+                snapshot,
+                declared_cycles,
+            },
             command_rx,
         )
         .await
@@ -1292,7 +1092,7 @@ impl TxPoolService {
     /// This is the second stage of the tx-pool pipeline: the resolver has
     /// already produced a [`ResolvedTx`], and this function runs the CPU-heavy
     /// contextual verification and the final write-locked submit.
-    pub(crate) async fn _verify_and_submit_tx(
+    pub(crate) async fn verify_and_submit_tx(
         &self,
         resolved: crate::resolved_tx::ResolvedTx,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
@@ -1312,6 +1112,31 @@ impl TxPoolService {
         let declared_cycles = remote.map(|(cycles, _)| cycles);
 
         self.verify_and_submit_core(
+            VerifyAndSubmitInput {
+                tx,
+                rtx,
+                status,
+                fee,
+                tx_size,
+                pre_resolve_tip,
+                snapshot,
+                declared_cycles,
+            },
+            command_rx,
+        )
+        .await
+    }
+
+    /// Shared core: verify a resolved transaction and submit it to the pool.
+    ///
+    /// Both `process_tx_sync` (sync path) and `verify_and_submit_tx` (pipeline
+    /// path) converge here after the resolve step.
+    async fn verify_and_submit_core(
+        &self,
+        input: VerifyAndSubmitInput,
+        command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
+    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
+        let VerifyAndSubmitInput {
             tx,
             rtx,
             status,
@@ -1320,28 +1145,7 @@ impl TxPoolService {
             pre_resolve_tip,
             snapshot,
             declared_cycles,
-            command_rx,
-        )
-        .await
-    }
-
-    /// Shared core: verify a resolved transaction and submit it to the pool.
-    ///
-    /// Both `_process_tx` (sync path) and `_verify_and_submit_tx` (pipeline
-    /// path) converge here after the resolve step.
-    #[allow(clippy::too_many_arguments)]
-    async fn verify_and_submit_core(
-        &self,
-        tx: TransactionView,
-        rtx: Arc<ResolvedTransaction>,
-        status: TxStatus,
-        fee: Capacity,
-        tx_size: usize,
-        pre_resolve_tip: Byte32,
-        snapshot: Arc<Snapshot>,
-        declared_cycles: Option<Cycle>,
-        command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
+        } = input;
         let wtx_hash = tx.witness_hash();
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
@@ -1423,10 +1227,14 @@ impl TxPoolService {
         Some((Ok(verified), submit_snapshot))
     }
 
-    pub(crate) async fn _test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
-        let (pre_check_ret, snapshot) = self.pre_check(&tx).await;
+    pub(crate) async fn test_accept_tx_core(
+        &self,
+        tx: TransactionView,
+    ) -> Result<Completed, Reject> {
+        let tx_size = tx.data().serialized_size_in_block();
+        let (pre_check_ret, snapshot) = self.pre_check(&tx, tx_size).await;
 
-        let (_tip_hash, rtx, status, _fee, _tx_size) = pre_check_ret?;
+        let PreCheckedTx { rtx, status, .. } = pre_check_ret?;
 
         // skip check the delay window
 
@@ -1551,7 +1359,7 @@ impl TxPoolService {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.tx_pool.write().await;
 
-            reject_events = _update_tx_pool_for_reorg(
+            reject_events = update_tx_pool_for_reorg(
                 &mut tx_pool,
                 &attached,
                 &detached_headers,
@@ -1581,7 +1389,7 @@ impl TxPoolService {
         // Pipeline path: recover detached transactions through the synchronous
         // per-tx entry point.  Dependent transactions must be processed after
         // their parents have already been submitted to the pool; a topological
-        // sort guarantees this ordering.  Using `_process_tx` here instead of
+        // sort guarantees this ordering.  Using `process_tx_sync` here instead of
         // the general pipeline keeps the recovery logic simple and correct while
         // still releasing the tx-pool write lock between transactions.
         #[cfg(feature = "pipeline")]
@@ -1591,7 +1399,7 @@ impl TxPoolService {
             let mut chunk_rx = self.chunk_rx.clone();
             for tx in retain {
                 if let Some((ret, snapshot)) = self
-                    ._process_tx(tx.clone(), None, Some(&mut chunk_rx))
+                    .process_tx_sync(tx.clone(), None, Some(&mut chunk_rx))
                     .await
                     && let Err(ref reject) = ret
                 {
@@ -1608,18 +1416,13 @@ impl TxPoolService {
 
     /// Check if a transaction depends on any in-flight pipeline transaction.
     /// If so, route it to the ordered resolve queue.
-    ///
-    /// Returns:
-    /// - `Ok(Some(true))` — tx was dependent and successfully enqueued
-    /// - `Ok(Some(false))` — tx was dependent but is a duplicate
-    /// - `Ok(None)` — tx is independent, caller should proceed with pre_check
     #[cfg(feature = "pipeline")]
     async fn check_and_route_dependent(
         &self,
         tx: &TransactionView,
         is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
-    ) -> Result<Option<bool>, Reject> {
+    ) -> Result<RouteDecision, Reject> {
         let id = tx.proposal_short_id();
         let depends_on_pipeline = {
             let ordered = self.ordered_resolve_queue.read().await;
@@ -1639,7 +1442,7 @@ impl TxPoolService {
         if depends_on_pipeline {
             let mut ordered = self.ordered_resolve_queue.write().await;
             if ordered.contains_key(&id) {
-                return Ok(Some(false));
+                return Ok(RouteDecision::Duplicate);
             }
             return ordered
                 .add_tx(crate::resolved_tx::ResolveJob {
@@ -1648,10 +1451,10 @@ impl TxPoolService {
                     is_proposal_tx,
                     attempts: 0,
                 })
-                .map(Some);
+                .map(|_| RouteDecision::Enqueued);
         }
 
-        Ok(None)
+        Ok(RouteDecision::Independent)
     }
 
     /// Classify a transaction and enqueue it for verification or ordered resolve.
@@ -1668,18 +1471,27 @@ impl TxPoolService {
     ) -> Result<bool, Reject> {
         let id = tx.proposal_short_id();
 
-        if let Some(routed) = self
+        match self
             .check_and_route_dependent(&tx, is_proposal_tx, remote)
             .await?
         {
-            return Ok(routed);
+            RouteDecision::Independent => {}
+            RouteDecision::Enqueued => return Ok(true),
+            RouteDecision::Duplicate => return Ok(false),
         }
 
         // Run pre_check once at the entry point.
-        let (pre_check_ret, snapshot) = self.pre_check(&tx).await;
+        let tx_size = tx.data().serialized_size_in_block();
+        let (pre_check_ret, snapshot) = self.pre_check(&tx, tx_size).await;
 
         match pre_check_ret {
-            Ok((pre_resolve_tip, rtx, status, fee, tx_size)) => {
+            Ok(PreCheckedTx {
+                tip_hash: pre_resolve_tip,
+                rtx,
+                status,
+                fee,
+                tx_size,
+            }) => {
                 // For RBF replacements, register the candidate before it enters
                 // the verify queue so lower-fee candidates can be rejected while
                 // a higher-fee candidate is already in flight.
@@ -1776,11 +1588,13 @@ impl TxPoolService {
         is_proposal_tx: bool,
         remote: Option<(Cycle, PeerIndex)>,
     ) -> Result<bool, Reject> {
-        if let Some(routed) = self
+        match self
             .check_and_route_dependent(&tx, is_proposal_tx, remote)
             .await?
         {
-            return Ok(routed);
+            RouteDecision::Independent => {}
+            RouteDecision::Enqueued => return Ok(true),
+            RouteDecision::Duplicate => return Ok(false),
         }
 
         let job = PreCheckJob {
@@ -1796,7 +1610,7 @@ impl TxPoolService {
     }
 
     async fn remove_orphan_txs_by_attach(&self, txs: &LinkedHashSet<TransactionView>) {
-        // CRITICAL: this must run after `_update_tx_pool_for_reorg` has replaced
+        // CRITICAL: this must run after `update_tx_pool_for_reorg` has replaced
         // `tx_pool.snapshot` with the post-attachment snapshot. Because the snapshot
         // already reflects the attached blocks, an orphan whose input was consumed by
         // one of those blocks resolves to `CellStatus::Dead` and is rejected here,
@@ -1837,7 +1651,7 @@ impl TxPoolService {
                 .await
                 {
                     let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
-                    if let Err(e) = _submit_entry(tx_pool, status, &entry, &self.callbacks) {
+                    if let Err(e) = submit_entry(tx_pool, status, &entry, &self.callbacks) {
                         error!("readd_detached_tx submit_entry {} error {}", tx_hash, e);
                     } else {
                         debug!("readd_detached_tx submit_entry {}", tx_hash);
@@ -1921,13 +1735,48 @@ impl TxPoolService {
     }
 }
 
-type PreCheckedTx = (
-    Byte32,                   // tip_hash
-    Arc<ResolvedTransaction>, // rtx
-    TxStatus,                 // status
-    Capacity,                 // tx fee
-    usize,                    // tx size
+pub(crate) struct PreCheckedTx {
+    /// Tip hash at the time the transaction was pre-checked.
+    pub(crate) tip_hash: Byte32,
+    /// Fully resolved transaction.
+    pub(crate) rtx: Arc<ResolvedTransaction>,
+    /// Current status (fresh / gap / proposed) relative to the proposal window.
+    pub(crate) status: TxStatus,
+    /// Transaction fee.
+    pub(crate) fee: Capacity,
+    /// Transaction size in bytes as serialized in a block.
+    pub(crate) tx_size: usize,
+}
+
+/// Outcome of [`TxPoolService::try_submit_entry`].
+pub(crate) type SubmitEntryOutcome = (
+    Result<(), Reject>,
+    Vec<TransactionView>,
+    Vec<(TxEntry, Reject)>,
 );
+
+/// Input bundle for [`TxPoolService::verify_and_submit_core`].
+pub(crate) struct VerifyAndSubmitInput {
+    pub(crate) tx: TransactionView,
+    pub(crate) rtx: Arc<ResolvedTransaction>,
+    pub(crate) status: TxStatus,
+    pub(crate) fee: Capacity,
+    pub(crate) tx_size: usize,
+    pub(crate) pre_resolve_tip: Byte32,
+    pub(crate) snapshot: Arc<Snapshot>,
+    pub(crate) declared_cycles: Option<Cycle>,
+}
+
+/// Decision made by [`TxPoolService::check_and_route_dependent`].
+#[cfg(feature = "pipeline")]
+pub(crate) enum RouteDecision {
+    /// Transaction is independent; caller should proceed with pre_check.
+    Independent,
+    /// Transaction depends on an in-flight tx and was enqueued for ordered resolve.
+    Enqueued,
+    /// Transaction depends on an in-flight tx but is a duplicate of one already queued.
+    Duplicate,
+}
 
 type ResolveResult = Result<(Arc<ResolvedTransaction>, TxStatus), Reject>;
 
@@ -1964,7 +1813,7 @@ fn resolve_tx(
         .map(|rtx| (rtx, tx_status))
 }
 
-fn _submit_entry(
+fn submit_entry(
     tx_pool: &mut TxPool,
     status: TxStatus,
     entry: &TxEntry,
@@ -1987,7 +1836,7 @@ fn _submit_entry(
     Ok(evicts)
 }
 
-fn _update_tx_pool_for_reorg(
+fn update_tx_pool_for_reorg(
     tx_pool: &mut TxPool,
     attached: &LinkedHashSet<TransactionView>,
     detached_headers: &HashSet<Byte32>,

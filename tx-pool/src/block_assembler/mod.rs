@@ -282,7 +282,7 @@ impl BlockAssembler {
         Ok(())
     }
 
-    pub(crate) async fn update_blank(
+    pub(crate) async fn reset_template(
         &self,
         snapshot: Arc<Snapshot>,
         force: bool,
@@ -334,7 +334,7 @@ impl BlockAssembler {
         let template = builder.build();
 
         trace!(
-            "[BlockAssembler] update_blank {} uncles-{} proposals-{} txs-{}",
+            "[BlockAssembler] reset_template {} uncles-{} proposals-{} txs-{}",
             template.number,
             template.uncles.len(),
             template.proposals.len(),
@@ -998,7 +998,6 @@ impl BlockTemplateBuilder {
         self
     }
 
-    #[allow(dead_code)]
     pub(crate) fn extension(&mut self, extension: Bytes) -> &mut Self {
         self.extension = Some(extension);
         self
@@ -1049,9 +1048,9 @@ pub(crate) fn uncle_to_template(uncle: &UncleBlockView) -> UncleTemplate {
 pub(crate) fn tx_entry_to_template(entry: &TxEntry) -> TransactionTemplate {
     TransactionTemplate {
         hash: entry.transaction().hash().into(),
-        required: false, // unimplemented
+        required: false, // not supported by CKB
         cycles: Some(entry.cycles.into()),
-        depends: None, // unimplemented
+        depends: None, // not supported by CKB
         data: entry.transaction().data().into(),
     }
 }

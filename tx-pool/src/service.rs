@@ -8,6 +8,7 @@ use crate::component::pool_map::Status;
 use crate::component::rbf_candidates::RbfCandidates;
 use crate::component::recent_reject::RecentReject;
 use crate::component::verify_queue::VerifyQueue;
+use crate::constants::SECONDS_PER_DAY;
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
 use crate::pool::TxPool;
@@ -41,6 +42,7 @@ use ckb_util::LinkedHashSet;
 use ckb_verification::cache::TxVerificationCache;
 use futures_util::FutureExt;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt;
 use std::panic::AssertUnwindSafe;
 use std::sync::{
     Arc,
@@ -60,13 +62,50 @@ use crate::{component::entry::TxEntry, process::PlugTarget};
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 pub(crate) const BLOCK_ASSEMBLER_CHANNEL_SIZE: usize = 100;
 
-pub(crate) struct Request<A, R> {
-    pub responder: oneshot::Sender<R>,
+fn respond<R: fmt::Debug>(responder: oneshot::Sender<R>, value: R, message: &'static str) {
+    if let Err(e) = responder.send(value) {
+        error!("Responder sending {} failed {:?}", message, e);
+    }
+}
+
+fn respond_async<R: fmt::Debug>(
+    responder: tokio::sync::oneshot::Sender<R>,
+    value: R,
+    message: &'static str,
+) {
+    if let Err(e) = responder.send(value) {
+        error!("Responder sending {} failed {:?}", message, e);
+    }
+}
+
+async fn enqueue_recover_txs(
+    ordered_queue: Arc<RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>>,
+    txs: Vec<TransactionView>,
+) {
+    let mut queue = ordered_queue.write().await;
+    for tx in txs {
+        debug!("recover back: {:?}", tx.proposal_short_id());
+        if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob {
+            tx,
+            remote: None,
+            is_proposal_tx: false,
+            attempts: 0,
+        }) {
+            warn!(
+                "failed to recover tx back to ordered resolve queue: {}",
+                reject
+            );
+        }
+    }
+}
+
+pub(crate) struct Request<R, A> {
+    pub responder: R,
     pub arguments: A,
 }
 
-impl<A, R> Request<A, R> {
-    pub(crate) fn call(arguments: A, responder: oneshot::Sender<R>) -> Request<A, R> {
+impl<R, A> Request<R, A> {
+    pub(crate) fn call(arguments: A, responder: R) -> Request<R, A> {
         Request {
             responder,
             arguments,
@@ -74,22 +113,10 @@ impl<A, R> Request<A, R> {
     }
 }
 
-pub(crate) struct AsyncRequest<A, R> {
-    pub responder: tokio::sync::oneshot::Sender<R>,
-    pub arguments: A,
-}
-
-impl<A, R> AsyncRequest<A, R> {
-    pub(crate) fn call(
-        arguments: A,
-        responder: tokio::sync::oneshot::Sender<R>,
-    ) -> AsyncRequest<A, R> {
-        AsyncRequest {
-            responder,
-            arguments,
-        }
-    }
-}
+/// Synchronous request using the `ckb_channel` oneshot responder.
+pub(crate) type SyncRequest<A, T> = Request<oneshot::Sender<T>, A>;
+/// Asynchronous request using the `tokio` oneshot responder.
+pub(crate) type AsyncRequest<A, T> = Request<tokio::sync::oneshot::Sender<T>, A>;
 
 pub(crate) struct Notify<A> {
     pub arguments: A,
@@ -122,41 +149,41 @@ pub(crate) type ChainReorgArgs = (
 pub(crate) type FeeEstimatesResult = Result<FeeRate, AnyError>;
 
 pub(crate) enum Message {
-    BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
-    SubmitLocalTx(Request<TransactionView, SubmitTxResult>),
-    RemoveLocalTx(Request<Byte32, bool>),
-    TestAcceptTx(Request<TransactionView, TestAcceptTxResult>),
-    SubmitRemoteTx(Request<(TransactionView, Cycle, PeerIndex), ()>),
+    BlockTemplate(SyncRequest<BlockTemplateArgs, BlockTemplateResult>),
+    SubmitLocalTx(SyncRequest<TransactionView, SubmitTxResult>),
+    RemoveLocalTx(SyncRequest<Byte32, bool>),
+    TestAcceptTx(SyncRequest<TransactionView, TestAcceptTxResult>),
+    SubmitRemoteTx(SyncRequest<(TransactionView, Cycle, PeerIndex), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
-    GetTxPoolInfo(Request<(), TxPoolInfo>),
-    GetLiveCell(Request<(OutPoint, bool), CellStatus>),
-    GetTxStatus(Request<Byte32, GetTxStatusResult>),
-    GetTransactionWithStatus(Request<Byte32, GetTransactionWithStatusResult>),
+    GetTxPoolInfo(SyncRequest<(), TxPoolInfo>),
+    GetLiveCell(SyncRequest<(OutPoint, bool), CellStatus>),
+    GetTxStatus(SyncRequest<Byte32, GetTxStatusResult>),
+    GetTransactionWithStatus(SyncRequest<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
     /// Replace the tx-pool snapshot, clear **all** in-pool entries, and drain
     /// all pipeline queues (ordered resolve, verification, orphan and pre-check).
-    ClearPool(Request<Arc<Snapshot>, ()>),
+    ClearPool(SyncRequest<Arc<Snapshot>, ()>),
     /// Clear only the pipeline queues (ordered resolve, verification, orphan
     /// and pre-check) without touching the already-accepted pool.
-    ClearPipeline(Request<(), ()>),
-    GetAllEntryInfo(Request<(), TxPoolEntryInfo>),
-    GetAllIds(Request<(), TxPoolIds>),
-    SavePool(Request<(), ()>),
-    GetPoolTxDetails(Request<Byte32, PoolTxDetailInfo>),
-    GetTotalRecentRejectNum(Request<(), Option<u64>>),
+    ClearPipeline(SyncRequest<(), ()>),
+    GetAllEntryInfo(SyncRequest<(), TxPoolEntryInfo>),
+    GetAllIds(SyncRequest<(), TxPoolIds>),
+    SavePool(SyncRequest<(), ()>),
+    GetPoolTxDetails(SyncRequest<Byte32, PoolTxDetailInfo>),
+    GetTotalRecentRejectNum(SyncRequest<(), Option<u64>>),
 
-    UpdateIBDState(Request<bool, ()>),
-    EstimateFeeRate(Request<(EstimateMode, bool), FeeEstimatesResult>),
+    UpdateIBDState(SyncRequest<bool, ()>),
+    EstimateFeeRate(SyncRequest<(EstimateMode, bool), FeeEstimatesResult>),
 
     // test
     #[cfg(feature = "internal")]
-    PlugEntry(Request<(Vec<TxEntry>, PlugTarget), ()>),
+    PlugEntry(SyncRequest<(Vec<TxEntry>, PlugTarget), ()>),
     #[cfg(feature = "internal")]
-    PackageTxs(Request<Option<u64>, Vec<TxEntry>>),
-    SubmitLocalTestTx(Request<TransactionView, SubmitTxResult>),
+    PackageTxs(SyncRequest<Option<u64>, Vec<TxEntry>>),
+    SubmitLocalTestTx(SyncRequest<TransactionView, SubmitTxResult>),
 }
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -612,7 +639,7 @@ impl TxPoolServiceBuilder {
     pub(crate) fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
         if !config.recent_reject.as_os_str().is_empty() {
             let recent_reject_ttl =
-                u8::max(1, config.keep_rejected_tx_hashes_days) as i32 * 24 * 60 * 60;
+                u8::max(1, config.keep_rejected_tx_hashes_days) as i32 * SECONDS_PER_DAY;
             match RecentReject::new(
                 &config.recent_reject,
                 config.keep_rejected_tx_hashes_count,
@@ -669,10 +696,12 @@ impl TxPoolServiceBuilder {
         #[cfg(feature = "pipeline")]
         let pre_check_cancel = self.signal_receiver.child_token();
         #[cfg(feature = "pipeline")]
-        let pre_check_queue =
-            Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel.clone()));
+        let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+            pre_check_cancel.clone(),
+        ));
 
-        let (deferred_sender, deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
+        let (deferred_sender, deferred_receiver) =
+            mpsc::channel::<DeferredTask>(crate::constants::DEFERRED_CHANNEL_SIZE);
 
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
@@ -727,28 +756,9 @@ impl TxPoolServiceBuilder {
                     let handler = async move {
                         match task {
                             DeferredTask::RecoverTxs(txs) => {
-                                let mut queue = ordered_resolve_queue.write().await;
-                                for tx in txs {
-                                    debug!("recover back: {:?}", tx.proposal_short_id());
-                                    if let Err(reject) =
-                                        queue.add_tx(crate::resolved_tx::ResolveJob {
-                                            tx,
-                                            remote: None,
-                                            is_proposal_tx: false,
-                                            attempts: 0,
-                                        })
-                                    {
-                                        warn!(
-                                            "failed to recover tx back to ordered resolve queue: {}",
-                                            reject
-                                        );
-                                    }
-                                }
+                                enqueue_recover_txs(ordered_resolve_queue, txs).await;
                             }
-                            DeferredTask::CacheUpdate {
-                                wtx_hash,
-                                verified,
-                            } => {
+                            DeferredTask::CacheUpdate { wtx_hash, verified } => {
                                 let mut guard = txs_verify_cache.write().await;
                                 guard.put(wtx_hash, verified);
                             }
@@ -762,20 +772,7 @@ impl TxPoolServiceBuilder {
                             // If a RecoverTxs task panicked, retry it directly
                             // without going back through the channel.
                             if let Some(txs) = recover_txs_for_retry {
-                                let mut queue = ordered_resolve_queue_retry.write().await;
-                                for tx in txs {
-                                    if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                        tx,
-                                        remote: None,
-                                        is_proposal_tx: false,
-                                        attempts: 0,
-                                    }) {
-                                        warn!(
-                                            "failed to recover tx back to ordered resolve queue after panic: {}",
-                                            reject
-                                        );
-                                    }
-                                }
+                                enqueue_recover_txs(ordered_resolve_queue_retry, txs).await;
                             }
                         }
                     }
@@ -851,7 +848,7 @@ impl TxPoolServiceBuilder {
                         let _ = handle.await;
                         break;
                     }
-                    Some(exit) = exit_rx.recv() => {
+                    Some((_worker_id, exit)) = exit_rx.recv() => {
                         let _ = handle.await;
                         match exit {
                             crate::resolve_mgr::ResolveExit::Stopped => {
@@ -877,7 +874,9 @@ impl TxPoolServiceBuilder {
         let process_service = service.clone();
         let signal_receiver = self.signal_receiver.clone();
         let max_workers = service.tx_pool_config.max_tx_verify_workers.max(1);
-        let semaphore = Arc::new(Semaphore::new(max_workers * 2));
+        let semaphore = Arc::new(Semaphore::new(
+            max_workers * crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER,
+        ));
         self.handle.spawn(async move {
             loop {
                 tokio::select! {
@@ -894,10 +893,10 @@ impl TxPoolServiceBuilder {
                         // Wait for all in-flight message-processing tasks to
                         // complete before persisting the pool state.  The
                         // semaphore bounds concurrent message handlers at
-                        // max_workers * 2, so acquiring all permits guarantees
+                        // max_workers * crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER, so acquiring all permits guarantees
                         // no handler is still running.
                         let _ = semaphore
-                            .acquire_many(max_workers as u32 * 2)
+                            .acquire_many(max_workers as u32 * crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER as u32)
                             .await;
                         info!("TxPool is saving, please wait...");
                         process_service.save_pool().await;
@@ -1058,9 +1057,12 @@ impl TxPoolServiceBuilder {
         #[cfg(feature = "pipeline")]
         let pre_check_cancel = signal.child_token();
         #[cfg(feature = "pipeline")]
-        let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+        let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+            pre_check_cancel,
+        ));
 
-        let (deferred_sender, deferred_receiver) = mpsc::channel::<DeferredTask>(1024);
+        let (deferred_sender, deferred_receiver) =
+            mpsc::channel::<DeferredTask>(crate::constants::DEFERRED_CHANNEL_SIZE);
 
         let service = TxPoolService {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
@@ -1107,7 +1109,7 @@ pub(crate) struct BenchServiceParts {
     #[cfg(feature = "pipeline")]
     pub signal: CancellationToken,
     #[cfg(feature = "pipeline")]
-    pub pre_check_queue: Arc<crate::process::PreCheckQueue>,
+    pub pre_check_queue: Arc<crate::component::pre_check_queue::PreCheckQueue>,
     pub deferred_receiver: mpsc::Receiver<DeferredTask>,
 }
 
@@ -1135,7 +1137,7 @@ pub(crate) struct TxPoolService {
     /// worker pool.  Dependent txs are still handled synchronously in the
     /// service actor to preserve ordering.
     #[cfg(feature = "pipeline")]
-    pub(crate) pre_check_queue: Arc<crate::process::PreCheckQueue>,
+    pub(crate) pre_check_queue: Arc<crate::component::pre_check_queue::PreCheckQueue>,
     /// Chunk command receiver used by the synchronous reorg recovery path so
     /// that detached transactions are not verified while the pipeline is
     /// suspended.
@@ -1155,13 +1157,17 @@ pub(crate) struct TxPoolService {
 pub(crate) enum PipelineTxLocation {
     /// In the pre-check queue (awaiting initial resolution).
     #[cfg(feature = "pipeline")]
-    PreChecking(TransactionView),
+    PreChecking { tx: TransactionView },
     /// In the ordered resolve queue (not yet resolved/verified).
-    Ordered(TransactionView),
+    Ordered { tx: TransactionView },
     /// In the verify queue (resolved, awaiting verification).
-    Verifying(TransactionView, Capacity, crate::process::TxStatus),
+    Verifying {
+        tx: TransactionView,
+        fee: Capacity,
+        status: crate::process::TxStatus,
+    },
     /// In the orphan pool (missing inputs).
-    Orphan(TransactionView, Cycle),
+    Orphan { tx: TransactionView, cycle: Cycle },
 }
 
 impl TxPoolService {
@@ -1173,30 +1179,33 @@ impl TxPoolService {
         #[cfg(feature = "pipeline")]
         {
             if let Some(tx) = self.pre_check_queue.get_tx(id) {
-                return Some(PipelineTxLocation::PreChecking(tx));
+                return Some(PipelineTxLocation::PreChecking { tx });
             }
         }
         {
             let ordered = self.ordered_resolve_queue.read().await;
             if let Some(tx) = ordered.get_tx(id) {
-                return Some(PipelineTxLocation::Ordered(tx.clone()));
+                return Some(PipelineTxLocation::Ordered { tx: tx.clone() });
             }
         }
         {
             let verify_queue = self.verify_queue.read().await;
             if let Some(entry) = verify_queue.get_tx_by_id(id) {
                 let resolved = &entry.resolved;
-                return Some(PipelineTxLocation::Verifying(
-                    resolved.tx.clone(),
-                    resolved.fee,
-                    resolved.status,
-                ));
+                return Some(PipelineTxLocation::Verifying {
+                    tx: resolved.tx.clone(),
+                    fee: resolved.fee,
+                    status: resolved.status,
+                });
             }
         }
         {
             let orphan = self.orphan.read().await;
             if let Some(entry) = orphan.get(id) {
-                return Some(PipelineTxLocation::Orphan(entry.tx.clone(), entry.cycle));
+                return Some(PipelineTxLocation::Orphan {
+                    tx: entry.tx.clone(),
+                    cycle: entry.cycle,
+                });
             }
         }
         None
@@ -1240,346 +1249,391 @@ pub enum TxVerificationResult {
     },
 }
 
-#[allow(clippy::cognitive_complexity)]
 async fn process(mut service: TxPoolService, message: Message) {
     match message {
-        Message::GetTxPoolInfo(Request { responder, .. }) => {
-            let info = service.info().await;
-            if let Err(e) = responder.send(info) {
-                error!("Responder sending get_tx_pool_info failed {:?}", e);
-            };
+        Message::GetTxPoolInfo(req) => service.handle_get_tx_pool_info(req).await,
+        Message::GetLiveCell(req) => service.handle_get_live_cell(req).await,
+        Message::BlockTemplate(req) => service.handle_block_template(req).await,
+        Message::SubmitLocalTx(req) => service.handle_submit_local_tx(req).await,
+        Message::SubmitLocalTestTx(req) => service.handle_submit_local_test_tx(req).await,
+        Message::RemoveLocalTx(req) => service.handle_remove_local_tx(req).await,
+        Message::TestAcceptTx(req) => service.handle_test_accept_tx(req).await,
+        Message::SubmitRemoteTx(req) => service.handle_submit_remote_tx(req).await,
+        Message::NotifyTxs(req) => service.handle_notify_txs(req).await,
+        Message::FreshProposalsFilter(req) => service.handle_fresh_proposals_filter(req).await,
+        Message::GetTxStatus(req) => service.handle_get_tx_status(req).await,
+        Message::GetTransactionWithStatus(req) => {
+            service.handle_get_transaction_with_status(req).await;
         }
-        Message::GetLiveCell(Request {
-            responder,
-            arguments: (out_point, with_data),
-        }) => {
-            let live_cell_status = service.get_live_cell(out_point, with_data).await;
-            if let Err(e) = responder.send(live_cell_status) {
-                error!("Responder sending get_live_cell failed {:?}", e);
-            };
-        }
-        Message::BlockTemplate(Request {
-            responder,
-            arguments: (_bytes_limit, _proposals_limit, _max_version),
-        }) => {
-            let block_template_result = service.get_block_template().await;
-            if let Err(e) = responder.send(block_template_result) {
-                error!("Responder sending block_template_result failed {:?}", e);
-            };
-        }
-        Message::SubmitLocalTx(Request {
-            responder,
-            arguments: tx,
-        }) => {
-            let result = service.process_tx(tx, None).await.map(|_| ());
-            if let Err(e) = responder.send(result) {
-                error!("Responder sending submit_tx result failed {:?}", e);
-            };
-        }
-        Message::SubmitLocalTestTx(Request {
-            responder,
-            arguments: tx,
-        }) => {
-            let result = service
-                .resumeble_process_tx(tx, false, None)
-                .await
-                .map(|_| ());
-            if let Err(e) = responder.send(result) {
-                error!("Responder sending submit_tx result failed {:?}", e);
-            };
-        }
-        Message::RemoveLocalTx(Request {
-            responder,
-            arguments: tx_hash,
-        }) => {
-            let result = service.remove_tx(tx_hash).await;
-            if let Err(e) = responder.send(result) {
-                error!("Responder sending remove_tx result failed {:?}", e);
-            };
-        }
-        Message::TestAcceptTx(Request {
-            responder,
-            arguments: tx,
-        }) => {
-            let result = service.test_accept_tx(tx).await;
-            if let Err(e) = responder.send(result.map(|r| r.into())) {
-                error!("Responder sending test_accept_tx result failed {:?}", e);
-            };
-        }
-        Message::SubmitRemoteTx(Request {
-            responder,
-            arguments: (tx, declared_cycles, peer),
-        }) => {
-            let _result = service.submit_remote_tx(tx, declared_cycles, peer).await;
-            if let Err(e) = responder.send(()) {
-                error!("Responder sending submit_tx result failed {:?}", e);
-            };
-        }
-        Message::NotifyTxs(Notify { arguments: txs }) => {
-            for tx in txs {
-                let _ret = service.notify_tx(tx).await;
-            }
-        }
-        Message::FreshProposalsFilter(AsyncRequest {
-            responder,
-            arguments: proposals,
-        }) => {
-            let new_proposals = service.exclude_existing_proposal(proposals).await;
-            if let Err(e) = responder.send(new_proposals) {
-                error!("Responder sending fresh_proposals_filter failed {:?}", e);
-            };
-        }
-        Message::GetTxStatus(Request {
-            responder,
-            arguments: hash,
-        }) => {
-            let id = ProposalShortId::from_tx_hash(&hash);
-            let pool_cycles = {
-                let tx_pool = service.tx_pool.read().await;
-                tx_pool
-                    .pool_map
-                    .get_by_id(&id)
-                    .map(|entry| (entry.status, entry.inner.cycles))
-            };
-            let ret = if let Some((status, cycles)) = pool_cycles {
-                let status = if status == Status::Proposed {
-                    TxStatus::Proposed
-                } else {
-                    TxStatus::Pending
-                };
-                Ok((status, Some(cycles)))
-            } else if service.find_tx_in_pipeline(&id).await.is_some() {
-                Ok((TxStatus::Pending, None))
-            } else if let Some(ref recent_reject_db) = service.recent_reject {
-                let recent_reject_result = recent_reject_db.get(&hash);
-                if let Ok(recent_reject) = recent_reject_result {
-                    if let Some(record) = recent_reject {
-                        Ok((TxStatus::Rejected(record), None))
-                    } else {
-                        Ok((TxStatus::Unknown, None))
-                    }
-                } else {
-                    Err(recent_reject_result.unwrap_err())
-                }
-            } else {
-                Ok((TxStatus::Unknown, None))
-            };
-
-            if let Err(e) = responder.send(ret) {
-                error!("Responder sending get_tx_status failed {:?}", e)
-            };
-        }
-        Message::GetTransactionWithStatus(Request {
-            responder,
-            arguments: hash,
-        }) => {
-            let id = ProposalShortId::from_tx_hash(&hash);
-            let pool_entry = {
-                let tx_pool = service.tx_pool.read().await;
-                tx_pool.pool_map.get_by_id(&id).map(|entry| {
-                    let status = entry.status;
-                    let entry = entry.inner.clone();
-                    let min_replace_fee = if status == Status::Proposed {
-                        None
-                    } else {
-                        tx_pool.min_replace_fee(&entry)
-                    };
-                    (status, entry, min_replace_fee)
-                })
-            };
-            let ret = if let Some((status, entry, min_replace_fee)) = pool_entry {
-                let tx_status = if status == Status::Proposed {
-                    TxStatus::Proposed
-                } else {
-                    TxStatus::Pending
-                };
-                Ok(TransactionWithStatus::with_status(
-                    Some(entry.transaction().clone()),
-                    entry.cycles,
-                    entry.timestamp,
-                    tx_status,
-                    Some(entry.fee),
-                    min_replace_fee,
-                ))
-            } else if let Some(location) = service.find_tx_in_pipeline(&id).await {
-                let (tx, tx_status, cycles, fee) = match location {
-                    #[cfg(feature = "pipeline")]
-                    PipelineTxLocation::PreChecking(tx) => (tx, TxStatus::Pending, None, None),
-                    PipelineTxLocation::Ordered(tx) => (tx, TxStatus::Pending, None, None),
-                    PipelineTxLocation::Verifying(tx, fee, status) => {
-                        let tx_status = if status == crate::process::TxStatus::Proposed {
-                            TxStatus::Proposed
-                        } else {
-                            TxStatus::Pending
-                        };
-                        (tx, tx_status, None, Some(fee))
-                    }
-                    PipelineTxLocation::Orphan(tx, cycle) => {
-                        (tx, TxStatus::Pending, Some(cycle), None)
-                    }
-                };
-                Ok(TransactionWithStatus {
-                    transaction: Some(tx),
-                    tx_status,
-                    cycles,
-                    fee,
-                    min_replace_fee: None,
-                    time_added_to_pool: None,
-                })
-            } else if let Some(ref recent_reject_db) = service.recent_reject {
-                match recent_reject_db.get(&hash) {
-                    Ok(Some(record)) => Ok(TransactionWithStatus::with_rejected(record)),
-                    Ok(_) => Ok(TransactionWithStatus::with_unknown()),
-                    Err(err) => Err(err),
-                }
-            } else {
-                Ok(TransactionWithStatus::with_unknown())
-            };
-
-            if let Err(e) = responder.send(ret) {
-                error!("Responder sending get_tx_status failed {:?}", e)
-            };
-        }
-        Message::FetchTxs(AsyncRequest {
-            responder,
-            arguments: short_ids,
-        }) => {
-            let txs_map = service.get_tx_for_compact_block(short_ids).await;
-            if let Err(e) = responder.send(txs_map) {
-                error!("Responder sending fetch_txs failed {:?}", e);
-            };
-        }
-        Message::FetchTxsWithCycles(AsyncRequest {
-            responder,
-            arguments: short_ids,
-        }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let txs = short_ids
-                .into_iter()
-                .filter_map(|short_id| {
-                    tx_pool
-                        .get_tx_with_cycles(&short_id)
-                        .map(|(tx, cycles)| (short_id, (tx, cycles)))
-                })
-                .collect();
-            if let Err(e) = responder.send(txs) {
-                error!("Responder sending fetch_txs_with_cycles failed {:?}", e);
-            };
-        }
-        Message::NewUncle(Notify { arguments: uncle }) => {
-            service.receive_candidate_uncle(uncle).await;
-        }
-        Message::ClearPool(Request {
-            responder,
-            arguments: new_snapshot,
-        }) => {
-            service.clear_pool(new_snapshot).await;
-            if let Err(e) = responder.send(()) {
-                error!("Responder sending clear_pool failed {:?}", e)
-            };
-        }
-        Message::ClearPipeline(Request { responder, .. }) => {
-            service.ordered_resolve_queue.write().await.clear();
-            service.verify_queue.write().await.clear();
-            service.orphan.write().await.clear();
-            #[cfg(feature = "pipeline")]
-            service.pre_check_queue.clear();
-            #[cfg(feature = "pipeline")]
-            service.rbf_candidates.write().await.clear();
-            if let Err(e) = responder.send(()) {
-                error!("Responder sending clear_pipeline failed {:?}", e)
-            };
-        }
-        Message::GetPoolTxDetails(Request {
-            responder,
-            arguments: tx_hash,
-        }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let id = ProposalShortId::from_tx_hash(&tx_hash);
-            let tx_details = tx_pool
-                .get_tx_detail(&id)
-                .unwrap_or(PoolTxDetailInfo::with_unknown());
-            if let Err(e) = responder.send(tx_details) {
-                error!("responder send get_pool_tx_details failed {:?}", e)
-            };
-        }
-        Message::GetAllEntryInfo(Request { responder, .. }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let info = tx_pool.get_all_entry_info();
-            if let Err(e) = responder.send(info) {
-                error!("Responder sending get_all_entry_info failed {:?}", e)
-            };
-        }
-        Message::GetAllIds(Request { responder, .. }) => {
-            let tx_pool = service.tx_pool.read().await;
-            let ids = tx_pool.get_ids();
-            if let Err(e) = responder.send(ids) {
-                error!("Responder sending get_ids failed {:?}", e)
-            };
-        }
-        Message::SavePool(Request { responder, .. }) => {
-            service.save_pool().await;
-            if let Err(e) = responder.send(()) {
-                error!("Responder sending save_pool failed {:?}", e)
-            };
-        }
-        Message::UpdateIBDState(Request {
-            responder,
-            arguments: in_ibd,
-        }) => {
-            service.update_ibd_state(in_ibd).await;
-            if let Err(e) = responder.send(()) {
-                error!("Responder sending update_ibd_state failed {:?}", e)
-            };
-        }
-        Message::EstimateFeeRate(Request {
-            responder,
-            arguments: (estimate_mode, enable_fallback),
-        }) => {
-            let fee_estimates_result = service
-                .estimate_fee_rate(estimate_mode, enable_fallback)
-                .await;
-            if let Err(e) = responder.send(fee_estimates_result) {
-                error!("Responder sending fee_estimates_result failed {:?}", e)
-            };
-        }
+        Message::FetchTxs(req) => service.handle_fetch_txs(req).await,
+        Message::FetchTxsWithCycles(req) => service.handle_fetch_txs_with_cycles(req).await,
+        Message::NewUncle(req) => service.handle_new_uncle(req).await,
+        Message::ClearPool(req) => service.handle_clear_pool(req).await,
+        Message::ClearPipeline(req) => service.handle_clear_pipeline(req).await,
+        Message::GetPoolTxDetails(req) => service.handle_get_pool_tx_details(req).await,
+        Message::GetAllEntryInfo(req) => service.handle_get_all_entry_info(req).await,
+        Message::GetAllIds(req) => service.handle_get_all_ids(req).await,
+        Message::SavePool(req) => service.handle_save_pool(req).await,
+        Message::UpdateIBDState(req) => service.handle_update_ibd_state(req).await,
+        Message::EstimateFeeRate(req) => service.handle_estimate_fee_rate(req).await,
         #[cfg(feature = "internal")]
-        Message::PlugEntry(Request {
-            responder,
-            arguments: (entries, target),
-        }) => {
-            service.plug_entry(entries, target).await;
-
-            if let Err(e) = responder.send(()) {
-                error!("Responder sending plug_entry failed {:?}", e);
-            };
-        }
+        Message::PlugEntry(req) => service.handle_plug_entry(req).await,
         #[cfg(feature = "internal")]
-        Message::PackageTxs(Request {
-            responder,
-            arguments: bytes_limit,
-        }) => {
-            let max_block_cycles = service.consensus.max_block_cycles();
-            let max_block_bytes = service.consensus.max_block_bytes();
-            let tx_pool = service.tx_pool.read().await;
-            let (txs, _size, _cycles) = tx_pool.package_txs(
-                max_block_cycles,
-                bytes_limit.unwrap_or(max_block_bytes) as usize,
-            );
-            if let Err(e) = responder.send(txs) {
-                error!("Responder sending plug_entry failed {:?}", e);
-            };
-        }
-        Message::GetTotalRecentRejectNum(Request { responder, .. }) => {
-            let total_recent_reject_num = service.get_total_recent_reject_num();
-            if let Err(e) = responder.send(total_recent_reject_num) {
-                error!("Responder sending total_recent_reject_num failed {:?}", e)
-            };
+        Message::PackageTxs(req) => service.handle_package_txs(req).await,
+        Message::GetTotalRecentRejectNum(req) => {
+            service.handle_get_total_recent_reject_num(req).await;
         }
     }
 }
 
 impl TxPoolService {
+    async fn handle_get_tx_pool_info(&self, req: SyncRequest<(), TxPoolInfo>) {
+        let SyncRequest { responder, .. } = req;
+        let info = self.info().await;
+        respond(responder, info, "get_tx_pool_info");
+    }
+
+    async fn handle_get_live_cell(&self, req: SyncRequest<(OutPoint, bool), CellStatus>) {
+        let SyncRequest {
+            responder,
+            arguments: (out_point, with_data),
+        } = req;
+        let live_cell_status = self.get_live_cell(out_point, with_data).await;
+        respond(responder, live_cell_status, "get_live_cell");
+    }
+
+    async fn handle_block_template(
+        &self,
+        req: SyncRequest<BlockTemplateArgs, BlockTemplateResult>,
+    ) {
+        let SyncRequest { responder, .. } = req;
+        let block_template_result = self.get_block_template().await;
+        respond(responder, block_template_result, "block_template_result");
+    }
+
+    async fn handle_submit_local_tx(&self, req: SyncRequest<TransactionView, SubmitTxResult>) {
+        let SyncRequest {
+            responder,
+            arguments: tx,
+        } = req;
+        let result = self.process_tx(tx, None).await.map(|_| ());
+        respond(responder, result, "submit_local_tx");
+    }
+
+    async fn handle_submit_local_test_tx(&self, req: SyncRequest<TransactionView, SubmitTxResult>) {
+        let SyncRequest {
+            responder,
+            arguments: tx,
+        } = req;
+        let result = self
+            .resumable_process_tx_sync(tx, false, None)
+            .await
+            .map(|_| ());
+        respond(responder, result, "submit_local_test_tx");
+    }
+
+    async fn handle_remove_local_tx(&self, req: SyncRequest<Byte32, bool>) {
+        let SyncRequest {
+            responder,
+            arguments: tx_hash,
+        } = req;
+        let result = self.remove_tx(tx_hash).await;
+        respond(responder, result, "remove_tx");
+    }
+
+    async fn handle_test_accept_tx(&self, req: SyncRequest<TransactionView, TestAcceptTxResult>) {
+        let SyncRequest {
+            responder,
+            arguments: tx,
+        } = req;
+        let result = self.test_accept_tx(tx).await;
+        respond(responder, result.map(|r| r.into()), "test_accept_tx");
+    }
+
+    async fn handle_submit_remote_tx(
+        &self,
+        req: SyncRequest<(TransactionView, Cycle, PeerIndex), ()>,
+    ) {
+        let SyncRequest {
+            responder,
+            arguments: (tx, declared_cycles, peer),
+        } = req;
+        let _result = self.submit_remote_tx(tx, declared_cycles, peer).await;
+        respond(responder, (), "submit_remote_tx");
+    }
+
+    async fn handle_notify_txs(&self, req: Notify<Vec<TransactionView>>) {
+        let Notify { arguments: txs } = req;
+        for tx in txs {
+            let _ret = self.notify_tx(tx).await;
+        }
+    }
+
+    async fn handle_fresh_proposals_filter(
+        &self,
+        req: AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>,
+    ) {
+        let AsyncRequest {
+            responder,
+            arguments: proposals,
+        } = req;
+        let new_proposals = self.exclude_existing_proposal(proposals).await;
+        respond_async(responder, new_proposals, "fresh_proposals_filter");
+    }
+
+    async fn handle_get_tx_status(&self, req: SyncRequest<Byte32, GetTxStatusResult>) {
+        let SyncRequest {
+            responder,
+            arguments: hash,
+        } = req;
+        let id = ProposalShortId::from_tx_hash(&hash);
+        let pool_cycles = {
+            let tx_pool = self.tx_pool.read().await;
+            tx_pool
+                .pool_map
+                .get_by_id(&id)
+                .map(|entry| (entry.status, entry.inner.cycles))
+        };
+        let ret = if let Some((status, cycles)) = pool_cycles {
+            let status = if status == Status::Proposed {
+                TxStatus::Proposed
+            } else {
+                TxStatus::Pending
+            };
+            Ok((status, Some(cycles)))
+        } else if self.find_tx_in_pipeline(&id).await.is_some() {
+            Ok((TxStatus::Pending, None))
+        } else {
+            self.lookup_recent_reject(
+                &hash,
+                |record| (TxStatus::Rejected(record), None),
+                || (TxStatus::Unknown, None),
+            )
+            .await
+        };
+        respond(responder, ret, "get_tx_status");
+    }
+
+    async fn handle_get_transaction_with_status(
+        &self,
+        req: SyncRequest<Byte32, GetTransactionWithStatusResult>,
+    ) {
+        let SyncRequest {
+            responder,
+            arguments: hash,
+        } = req;
+        let id = ProposalShortId::from_tx_hash(&hash);
+        let pool_entry = {
+            let tx_pool = self.tx_pool.read().await;
+            tx_pool.pool_map.get_by_id(&id).map(|entry| {
+                let status = entry.status;
+                let entry = entry.inner.clone();
+                let min_replace_fee = if status == Status::Proposed {
+                    None
+                } else {
+                    tx_pool.min_replace_fee(&entry)
+                };
+                (status, entry, min_replace_fee)
+            })
+        };
+        let ret = if let Some((status, entry, min_replace_fee)) = pool_entry {
+            let tx_status = if status == Status::Proposed {
+                TxStatus::Proposed
+            } else {
+                TxStatus::Pending
+            };
+            Ok(TransactionWithStatus::with_status(
+                Some(entry.transaction().clone()),
+                entry.cycles,
+                entry.timestamp,
+                tx_status,
+                Some(entry.fee),
+                min_replace_fee,
+            ))
+        } else if let Some(location) = self.find_tx_in_pipeline(&id).await {
+            let (tx, tx_status, cycles, fee) = match location {
+                #[cfg(feature = "pipeline")]
+                PipelineTxLocation::PreChecking { tx } => (tx, TxStatus::Pending, None, None),
+                PipelineTxLocation::Ordered { tx } => (tx, TxStatus::Pending, None, None),
+                PipelineTxLocation::Verifying { tx, fee, status } => {
+                    let tx_status = if status == crate::process::TxStatus::Proposed {
+                        TxStatus::Proposed
+                    } else {
+                        TxStatus::Pending
+                    };
+                    (tx, tx_status, None, Some(fee))
+                }
+                PipelineTxLocation::Orphan { tx, cycle } => {
+                    (tx, TxStatus::Pending, Some(cycle), None)
+                }
+            };
+            Ok(TransactionWithStatus {
+                transaction: Some(tx),
+                tx_status,
+                cycles,
+                fee,
+                min_replace_fee: None,
+                time_added_to_pool: None,
+            })
+        } else {
+            self.lookup_recent_reject(
+                &hash,
+                TransactionWithStatus::with_rejected,
+                TransactionWithStatus::with_unknown,
+            )
+            .await
+        };
+        respond(responder, ret, "get_transaction_with_status");
+    }
+
+    async fn handle_fetch_txs(
+        &self,
+        req: AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>,
+    ) {
+        let AsyncRequest {
+            responder,
+            arguments: short_ids,
+        } = req;
+        let txs_map = self.get_tx_for_compact_block(short_ids).await;
+        respond_async(responder, txs_map, "fetch_txs");
+    }
+
+    async fn handle_fetch_txs_with_cycles(
+        &self,
+        req: AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>,
+    ) {
+        let AsyncRequest {
+            responder,
+            arguments: short_ids,
+        } = req;
+        let tx_pool = self.tx_pool.read().await;
+        let txs = short_ids
+            .into_iter()
+            .filter_map(|short_id| {
+                tx_pool
+                    .get_tx_with_cycles(&short_id)
+                    .map(|(tx, cycles)| (short_id, (tx, cycles)))
+            })
+            .collect();
+        respond_async(responder, txs, "fetch_txs_with_cycles");
+    }
+
+    async fn handle_new_uncle(&self, req: Notify<UncleBlockView>) {
+        let Notify { arguments: uncle } = req;
+        self.receive_candidate_uncle(uncle).await;
+    }
+
+    async fn handle_clear_pool(&mut self, req: SyncRequest<Arc<Snapshot>, ()>) {
+        let SyncRequest {
+            responder,
+            arguments: new_snapshot,
+        } = req;
+        self.clear_pool(new_snapshot).await;
+        respond(responder, (), "clear_pool");
+    }
+
+    async fn handle_clear_pipeline(&self, req: SyncRequest<(), ()>) {
+        let SyncRequest { responder, .. } = req;
+        self.ordered_resolve_queue.write().await.clear();
+        self.verify_queue.write().await.clear();
+        self.orphan.write().await.clear();
+        #[cfg(feature = "pipeline")]
+        self.pre_check_queue.clear();
+        #[cfg(feature = "pipeline")]
+        self.rbf_candidates.write().await.clear();
+        respond(responder, (), "clear_pipeline");
+    }
+
+    async fn handle_get_pool_tx_details(&self, req: SyncRequest<Byte32, PoolTxDetailInfo>) {
+        let SyncRequest {
+            responder,
+            arguments: tx_hash,
+        } = req;
+        let tx_pool = self.tx_pool.read().await;
+        let id = ProposalShortId::from_tx_hash(&tx_hash);
+        let tx_details = tx_pool
+            .get_tx_detail(&id)
+            .unwrap_or(PoolTxDetailInfo::with_unknown());
+        respond(responder, tx_details, "get_pool_tx_details");
+    }
+
+    async fn handle_get_all_entry_info(&self, req: SyncRequest<(), TxPoolEntryInfo>) {
+        let SyncRequest { responder, .. } = req;
+        let tx_pool = self.tx_pool.read().await;
+        let info = tx_pool.get_all_entry_info();
+        respond(responder, info, "get_all_entry_info");
+    }
+
+    async fn handle_get_all_ids(&self, req: SyncRequest<(), TxPoolIds>) {
+        let SyncRequest { responder, .. } = req;
+        let tx_pool = self.tx_pool.read().await;
+        let ids = tx_pool.get_ids();
+        respond(responder, ids, "get_ids");
+    }
+
+    async fn handle_save_pool(&self, req: SyncRequest<(), ()>) {
+        let SyncRequest { responder, .. } = req;
+        self.save_pool().await;
+        respond(responder, (), "save_pool");
+    }
+
+    async fn handle_update_ibd_state(&self, req: SyncRequest<bool, ()>) {
+        let SyncRequest {
+            responder,
+            arguments: in_ibd,
+        } = req;
+        self.update_ibd_state(in_ibd).await;
+        respond(responder, (), "update_ibd_state");
+    }
+
+    async fn handle_estimate_fee_rate(
+        &self,
+        req: SyncRequest<(EstimateMode, bool), FeeEstimatesResult>,
+    ) {
+        let SyncRequest {
+            responder,
+            arguments: (estimate_mode, enable_fallback),
+        } = req;
+        let fee_estimates_result = self.estimate_fee_rate(estimate_mode, enable_fallback).await;
+        respond(responder, fee_estimates_result, "fee_estimates_result");
+    }
+
+    #[cfg(feature = "internal")]
+    async fn handle_plug_entry(&self, req: SyncRequest<(Vec<TxEntry>, PlugTarget), ()>) {
+        let SyncRequest {
+            responder,
+            arguments: (entries, target),
+        } = req;
+        self.plug_entry(entries, target).await;
+        respond(responder, (), "plug_entry");
+    }
+
+    #[cfg(feature = "internal")]
+    async fn handle_package_txs(&self, req: SyncRequest<Option<u64>, Vec<TxEntry>>) {
+        let SyncRequest {
+            responder,
+            arguments: bytes_limit,
+        } = req;
+        let max_block_cycles = self.consensus.max_block_cycles();
+        let max_block_bytes = self.consensus.max_block_bytes();
+        let tx_pool = self.tx_pool.read().await;
+        let (txs, _size, _cycles) = tx_pool.package_txs(
+            max_block_cycles,
+            bytes_limit.unwrap_or(max_block_bytes) as usize,
+        );
+        respond(responder, txs, "package_txs");
+    }
+
+    async fn handle_get_total_recent_reject_num(&self, req: SyncRequest<(), Option<u64>>) {
+        let SyncRequest { responder, .. } = req;
+        let total_recent_reject_num = self.get_total_recent_reject_num();
+        respond(
+            responder,
+            total_recent_reject_num,
+            "total_recent_reject_num",
+        );
+    }
+
     /// Tx-pool information
     async fn info(&self) -> TxPoolInfo {
         let tx_pool = self.tx_pool.read().await;
@@ -1592,8 +1646,8 @@ impl TxPoolService {
             pending_size: tx_pool.pool_map.pending_size(),
             proposed_size: tx_pool.pool_map.proposed_size(),
             orphan_size: orphan.len(),
-            total_tx_size: tx_pool.pool_map.total_tx_size,
-            total_tx_cycles: tx_pool.pool_map.total_tx_cycles,
+            total_tx_size: tx_pool.pool_map.stats.total_tx_size,
+            total_tx_cycles: tx_pool.pool_map.stats.total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
             min_rbf_rate: self.tx_pool_config.min_rbf_rate,
             last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
@@ -1607,6 +1661,27 @@ impl TxPoolService {
         self.recent_reject
             .as_ref()
             .map(|r| r.get_estimate_total_keys_num())
+    }
+
+    /// Look up a transaction hash in the recent-reject database.
+    ///
+    /// Returns `on_rejected(record)` if the tx was recently rejected,
+    /// `on_unknown()` if it is unknown or there is no recent-reject db.
+    async fn lookup_recent_reject<T>(
+        &self,
+        hash: &Byte32,
+        on_rejected: impl FnOnce(String) -> T,
+        on_unknown: impl FnOnce() -> T,
+    ) -> Result<T, AnyError> {
+        if let Some(ref db) = self.recent_reject {
+            match db.get(hash) {
+                Ok(Some(record)) => Ok(on_rejected(record)),
+                Ok(_) => Ok(on_unknown()),
+                Err(err) => Err(err),
+            }
+        } else {
+            Ok(on_unknown())
+        }
     }
 
     /// Get Live Cell Status
@@ -1749,8 +1824,8 @@ impl TxPoolService {
                 }
             }
 
-            if let Err(e) = block_assembler.update_blank(snapshot, true).await {
-                error!("block_assembler update_blank error {}", e);
+            if let Err(e) = block_assembler.reset_template(snapshot, true).await {
+                error!("block_assembler reset_template error {}", e);
             }
             block_assembler.notify().await;
         }

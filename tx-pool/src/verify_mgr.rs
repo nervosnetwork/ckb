@@ -1,11 +1,9 @@
-use crate::component::verify_queue::VerifyQueue;
+use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::service::TxPoolService;
-use crate::util::panic_payload_to_string;
+use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
 use ckb_logger::{debug, error, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
-use futures_util::FutureExt;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
@@ -22,147 +20,81 @@ enum WorkerExit {
     Panicked { role: WorkerRole, message: String },
 }
 
-struct Worker {
+#[derive(Clone)]
+struct VerifyHandler {
     tasks: Arc<RwLock<VerifyQueue>>,
-    command_rx: watch::Receiver<ChunkCommand>,
     service: TxPoolService,
-    exit_signal: CancellationToken,
-    status: ChunkCommand,
     role: WorkerRole,
+    /// A clone of the command receiver used by `verify_and_submit_tx` to check
+    /// for pause/cancel while verifying. `WorkerRunner` holds another clone for
+    /// its own select loop; sharing the same watch channel is cheap and correct.
+    command_rx: watch::Receiver<ChunkCommand>,
 }
 
-impl Clone for Worker {
-    fn clone(&self) -> Self {
-        Self {
-            tasks: Arc::clone(&self.tasks),
-            command_rx: self.command_rx.clone(),
-            exit_signal: self.exit_signal.clone(),
-            service: self.service.clone(),
-            status: self.status.clone(),
-            role: self.role.clone(),
-        }
-    }
-}
+impl JobHandler for VerifyHandler {
+    type Job = Entry;
+    type Exit = WorkerExit;
 
-impl Worker {
-    pub fn new(
-        service: TxPoolService,
-        tasks: Arc<RwLock<VerifyQueue>>,
-        command_rx: watch::Receiver<ChunkCommand>,
-        exit_signal: CancellationToken,
-        role: WorkerRole,
-    ) -> Self {
-        Worker {
-            service,
-            tasks,
-            command_rx,
-            exit_signal,
-            status: ChunkCommand::Resume,
-            role,
-        }
+    fn worker_name(&self) -> &'static str {
+        "verify worker"
     }
 
-    pub fn start(
-        self,
-        worker_id: usize,
-        exit_tx: mpsc::UnboundedSender<(usize, WorkerExit)>,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            let role = self.role.clone();
-            let exit = match AssertUnwindSafe(self.run()).catch_unwind().await {
-                Ok(()) => WorkerExit::Stopped { role },
-                Err(payload) => WorkerExit::Panicked {
-                    role,
-                    message: panic_payload_to_string(payload.as_ref()),
-                },
-            };
+    async fn is_queue_empty(&self) -> bool {
+        self.tasks.read().await.is_empty()
+    }
 
-            if let Err(err) = exit_tx.send((worker_id, exit)) {
-                error!("failed to notify tx-pool verify worker exit: {:?}", err.0);
+    async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
+        self.tasks.read().await.subscribe()
+    }
+
+    async fn pop_one(&mut self) -> Option<Entry> {
+        let mut tasks = self.tasks.write().await;
+        match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
+            Some(entry) => Some(entry),
+            None => {
+                if !tasks.is_empty() {
+                    tasks.re_notify();
+                    debug!(
+                        "Worker (role: {:?}) didn't get tx after pop_front, but tasks is not empty, notify other Workers now",
+                        self.role
+                    );
+                }
+                None
             }
-        })
-    }
-
-    async fn run(mut self) {
-        let queue_ready = self.tasks.read().await.subscribe();
-        self.refresh_status();
-        loop {
-            tokio::select! {
-                _ = self.exit_signal.cancelled() => {
-                    break;
-                }
-                _ = self.command_rx.changed() => {
-                    self.status = self.command_rx.borrow_and_update().to_owned();
-                    self.process_inner().await;
-                }
-                _ = queue_ready.notified() => {
-                    self.process_inner().await;
-                }
-            };
         }
     }
 
-    fn refresh_status(&mut self) {
-        self.status = self.command_rx.borrow().to_owned();
+    async fn process_one(&mut self, entry: Entry) {
+        let tx = entry.tx().clone();
+        let remote = entry.remote();
+        if let Some((res, snapshot)) = self
+            .service
+            .verify_and_submit_tx(entry.resolved, Some(&mut self.command_rx))
+            .await
+        {
+            self.service
+                .after_process(tx.clone(), remote, &snapshot, &res)
+                .await;
+        } else {
+            info!("verify_and_submit_tx for tx: {} returned none", tx.hash());
+        }
     }
 
-    async fn process_inner(&mut self) {
-        loop {
-            if self.exit_signal.is_cancelled() {
-                info!("Verify worker::process_inner exit_signal is cancelled");
-                return;
-            }
-            self.refresh_status();
-            if self.status != ChunkCommand::Resume {
-                return;
-            }
-            // cheap query to check queue is not empty
-            if self.tasks.read().await.is_empty() {
-                return;
-            }
-
-            self.refresh_status();
-            if self.status != ChunkCommand::Resume {
-                return;
-            }
-
-            // pick a entry to run verify
-            let entry = {
-                let mut tasks = self.tasks.write().await;
-                match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
-                    Some(entry) => entry,
-                    None => {
-                        if !tasks.is_empty() {
-                            tasks.re_notify();
-                            debug!(
-                                "Worker (role: {:?}) didn't got tx after pop_front, but tasks is not empty, notify other Workers now",
-                                self.role
-                            );
-                        }
-                        return;
-                    }
-                }
-            };
-
-            let tx = entry.tx().clone();
-            let remote = entry.remote();
-            if let Some((res, snapshot)) = self
-                .service
-                ._verify_and_submit_tx(entry.resolved, Some(&mut self.command_rx))
-                .await
-            {
-                self.service
-                    .after_process(tx.clone(), remote, &snapshot, &res)
-                    .await;
-            } else {
-                info!("_verify_and_submit_tx for tx: {} returned none", tx.hash());
-            }
+    fn make_exit(&self, outcome: WorkerOutcome) -> WorkerExit {
+        match outcome {
+            WorkerOutcome::Stopped => WorkerExit::Stopped {
+                role: self.role.clone(),
+            },
+            WorkerOutcome::Panicked(message) => WorkerExit::Panicked {
+                role: self.role.clone(),
+                message,
+            },
         }
     }
 }
 
 pub(crate) struct VerifyMgr {
-    workers: Vec<Worker>,
+    workers: Vec<WorkerRunner<VerifyHandler>>,
     join_handles: Option<Vec<Option<JoinHandle<()>>>>,
     signal_exit: CancellationToken,
 }
@@ -184,13 +116,13 @@ impl VerifyMgr {
                     } else {
                         WorkerRole::SubmitTimeFirst
                     };
-                    Worker::new(
-                        service.clone(),
-                        Arc::clone(&tasks),
-                        command_rx.clone(),
-                        signal_exit.clone(),
+                    let handler = VerifyHandler {
+                        tasks: Arc::clone(&tasks),
+                        service: service.clone(),
                         role,
-                    )
+                        command_rx: command_rx.clone(),
+                    };
+                    WorkerRunner::new(handler, command_rx.clone(), signal_exit.clone())
                 }
             })
             .collect();

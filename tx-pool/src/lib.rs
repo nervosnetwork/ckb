@@ -7,6 +7,7 @@ pub mod benchmark;
 pub mod block_assembler;
 mod callback;
 mod component;
+pub(crate) mod constants;
 pub mod error;
 mod network;
 mod persisted;
@@ -18,6 +19,7 @@ pub mod resolved_tx;
 pub mod service;
 mod util;
 mod verify_mgr;
+mod worker;
 
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::TxEntry;

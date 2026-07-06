@@ -1,6 +1,7 @@
 //! Top-level Pool type, methods, and tests
 use super::component::{TxEntry, tx_selector::TxSelector};
 use crate::component::pool_map::{PoolEntry, PoolMap, Status};
+use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
 use ckb_app_config::TxPoolConfig;
@@ -27,6 +28,13 @@ const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 const CONFLICTS_CACHE_SIZE: usize = 10_000;
 const CONFLICTS_INPUTS_CACHE_SIZE: usize = 30_000;
 const MAX_REPLACEMENT_CANDIDATES: usize = 100;
+
+fn reject_full_for_evicted(entry: &TxEntry) -> Reject {
+    Reject::Full(format!(
+        "the fee_rate for this transaction is: {}",
+        entry.fee_rate()
+    ))
+}
 
 /// Tx-pool implementation
 pub struct TxPool {
@@ -312,7 +320,7 @@ impl TxPool {
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Option<Reject> {
         let mut ret = None;
-        while self.pool_map.total_tx_size > self.config.max_tx_pool_size {
+        while self.pool_map.stats.total_tx_size > self.config.max_tx_pool_size {
             let next_evict_entry = || {
                 self.pool_map
                     .next_evict_entry(Status::Pending)
@@ -328,10 +336,7 @@ impl TxPool {
                         "Removed by size limit {} timestamp({})",
                         tx_hash, entry.timestamp
                     );
-                    let reject = Reject::Full(format!(
-                        "the fee_rate for this transaction is: {}",
-                        entry.fee_rate()
-                    ));
+                    let reject = reject_full_for_evicted(&entry);
                     if let Some(short_id) = current_entry_id
                         && entry.proposal_short_id() == *short_id
                     {
@@ -368,10 +373,7 @@ impl TxPool {
                         Ok((true, ref evicted)) => {
                             callbacks.call_pending(&entry);
                             for evict in evicted {
-                                let reject = Reject::Full(format!(
-                                    "the fee_rate for this transaction is: {}",
-                                    evict.fee_rate()
-                                ));
+                                let reject = reject_full_for_evicted(evict);
                                 reject_events.push((evict.clone(), reject));
                             }
                         }
@@ -595,7 +597,7 @@ impl TxPool {
         &self,
         target_to_be_committed: BlockNumber,
     ) -> Result<FeeRate, FeeEstimatorError> {
-        if !(3..=131).contains(&target_to_be_committed) {
+        if !(MIN_ESTIMATE_TARGET..=MAX_ESTIMATE_TARGET).contains(&target_to_be_committed) {
             return Err(FeeEstimatorError::NoProperFeeRate);
         }
         let closest = self.snapshot.consensus().tx_proposal_window().closest();

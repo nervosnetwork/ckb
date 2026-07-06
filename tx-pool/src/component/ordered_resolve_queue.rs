@@ -17,9 +17,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-// 256mb for total_tx_size limit, default max_tx_pool_size is 180mb
-const DEFAULT_MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE: usize = 256_000_000;
-const SHRINK_THRESHOLD: usize = 100;
+use crate::constants::{DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE, SHRINK_THRESHOLD};
 
 /// Ordered queue of raw transactions waiting for the ordered resolver.
 ///
@@ -89,7 +87,7 @@ impl OrderedResolveQueue {
 
     /// Returns true if the queue is full.
     pub fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size.saturating_add(add_tx_size) >= DEFAULT_MAX_ORDERED_RESOLVE_QUEUE_TX_SIZE
+        self.total_tx_size.saturating_add(add_tx_size) >= DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE
     }
 
     /// Returns true if the queue contains a live tx with the specified id.

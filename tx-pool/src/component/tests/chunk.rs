@@ -640,7 +640,9 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
     #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
     #[cfg(feature = "pipeline")]
-    let pre_check_queue = Arc::new(crate::process::PreCheckQueue::new(pre_check_cancel));
+    let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
+        pre_check_cancel,
+    ));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
     let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
