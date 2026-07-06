@@ -167,13 +167,13 @@ fn create_tor_secret_key(onion_private_key_path: String) -> Result<TorSecretKeyV
         key.public().get_onion_address()
     );
 
-    let mut file_options = OpenOptions::new();
-    let mut options = file_options.create(true).truncate(true).write(true);
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(true).write(true);
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options = options.mode(0o600);
+        options.mode(0o600);
     }
 
     let mut file = options.open(&onion_private_key_path).map_err(|err| {
