@@ -1,4 +1,4 @@
-//! Pre-check queue for the pipeline-mode tx-pool.
+//! Pre-check queue for the tx-pool pipeline.
 //!
 //! A small multi-consumer queue used by the pre-check worker pool. It is
 //! intentionally kept separate from the ordered resolve queue: jobs here are

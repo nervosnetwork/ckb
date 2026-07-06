@@ -623,14 +623,10 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
     let config = tx_pool_config();
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(16);
     let (block_assembler_sender, _) = mpsc::channel(1);
-    #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
-    #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
         pre_check_cancel,
     ));
@@ -658,18 +654,14 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
-        #[cfg(feature = "pipeline")]
         chunk_rx,
-        #[cfg(feature = "pipeline")]
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
         )),
         deferred_sender,
     };
 
-    #[cfg(feature = "pipeline")]
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
@@ -767,7 +759,6 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is
     );
 }
 
-#[cfg(feature = "pipeline")]
 #[tokio::test]
 async fn submit_remote_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
     let (service, tx_relay_receiver) = service_with_relay_receiver();
@@ -793,7 +784,6 @@ async fn submit_remote_tx_notifies_relayer_when_ordered_resolve_queue_is_full() 
     }
 }
 
-#[cfg(feature = "pipeline")]
 #[tokio::test]
 async fn notify_tx_notifies_relayer_when_ordered_resolve_queue_is_full() {
     let (service, tx_relay_receiver) = service_with_relay_receiver();

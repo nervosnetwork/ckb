@@ -3,15 +3,10 @@
 //! This module is only available with the `internal` feature. The actual binary
 //! target lives in `tx-pool/benches/pipeline.rs`.
 //!
-//! # Comparing sync vs pipeline
-//!
-//! Run each mode separately and then compare with Criterion's built-in
-//! baseline facility:
+//! Run with Criterion's built-in baseline facility:
 //!
 //! ```sh
-//! cargo bench --no-default-features --features internal --bench pipeline -- --save-baseline sync
-//! cargo bench --features "internal pipeline" --bench pipeline -- --save-baseline pipeline
-//! critcmp sync.json pipeline.json   # install critcmp with `cargo install critcmp`
+//! cargo bench -p ckb-tx-pool --features internal --bench pipeline -- --save-baseline current
 //! ```
 
 use crate::component::pipeline_queue::PipelineQueue;
@@ -426,7 +421,6 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // not affected by the process-wide exit signal used by the builder.
     let local_signal = CancellationToken::new();
     builder.signal_receiver = local_signal;
-    #[cfg_attr(not(feature = "pipeline"), allow(unused_mut))]
     let mut parts = builder.build_bench_service(Arc::clone(&shared.network));
 
     let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
@@ -498,12 +492,8 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     }
 
     // Spawn pipeline workers using the components from the builder.
-    #[cfg(feature = "pipeline")]
     let signal = parts.signal;
-    #[cfg(not(feature = "pipeline"))]
-    let signal = ckb_stop_handler::CancellationToken::new();
 
-    #[cfg(feature = "pipeline")]
     {
         let pre_check_workers =
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
@@ -523,10 +513,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // Create a fresh chunk channel shared by VerifyMgr, OrderedResolver and the
     // service itself (the reorg recovery path needs to observe pause/resume).
     let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-    #[cfg(feature = "pipeline")]
-    {
-        parts.service.chunk_rx = chunk_rx.clone();
-    }
+    parts.service.chunk_rx = chunk_rx.clone();
 
     let mut verify_mgr =
         crate::verify_mgr::VerifyMgr::new(parts.service.clone(), chunk_rx, signal.child_token());
@@ -1216,16 +1203,11 @@ fn register_warm_bench(
 // ---------------------------------------------------------------------------
 
 fn bench(c: &mut Criterion) {
-    let mode = if cfg!(feature = "pipeline") {
-        "pipeline"
-    } else {
-        "sync"
-    };
+    let mode = "pipeline";
 
     let matrix = bench_matrix();
 
     let non_dep_max = *matrix.sizes.iter().max().expect("sizes is non-empty");
-    #[cfg_attr(not(feature = "pipeline"), allow(unused_mut))]
     let mut data_sets = vec![
         (
             BenchData::new(TxType::AlwaysSuccess, non_dep_max, matrix.warm_pool_size),
@@ -1238,10 +1220,7 @@ fn bench(c: &mut Criterion) {
     ];
 
     // Dependent chain cycle measurement (PerTxProcess) relies on the pipeline's
-    // classify → ordered-resolve → verify path.  In sync mode the ordered
-    // resolver is idle and notify_tx cannot resolve pool-only dependencies, so
-    // skip dependent data sets when the pipeline feature is disabled.
-    #[cfg(feature = "pipeline")]
+    // classify → ordered-resolve → verify path.
     {
         let dep_max = *matrix
             .dependent_sizes

@@ -1,17 +1,13 @@
 # tx-pool Criterion Benchmark
 
-This module measures the throughput of the CKB tx-pool in **pipeline** mode versus **sync** mode.
+This module measures the throughput of the CKB tx-pool pipeline.
 
 ## Running
 
 ### Manually
 
 ```bash
-# pipeline mode (default features include pipeline)
 cargo bench -p ckb-tx-pool --features internal
-
-# sync mode (disable the pipeline feature)
-cargo bench -p ckb-tx-pool --no-default-features --features internal
 ```
 
 ### Using the comparison script
@@ -27,7 +23,7 @@ python3 devtools/tx_pool_bench.py --quick
 python3 devtools/tx_pool_bench.py --full
 ```
 
-The script runs pipeline and sync modes back-to-back, **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), and finally prints a comparison table.
+The script **streams each benchmark's progress in real time** (instead of waiting until the whole mode finishes), and finally prints a summary table.
 `--quick` sets `QUICK_BENCH=1`, `--full` sets `FULL_BENCH=1`, and the default uses the medium matrix.
 
 ## Matrices
@@ -90,7 +86,7 @@ Each workload is tested in two variants:
 ### Cycles measurement
 
 - All `always_success` transactions have the same cycle cost, so a single sample is measured and reused.
-- `secp256k1` and dependent-chain transactions may have different cycle costs, so each transaction is measured individually via `_test_accept_tx` / `process_tx` and stored as `HashMap<tx_hash, cycle>` to avoid order mismatches with a plain `Vec`.
+- `secp256k1` and dependent-chain transactions may have different cycle costs, so each transaction is measured individually via `test_accept_tx` / `process_tx` and stored as `HashMap<tx_hash, cycle>` to avoid order mismatches with a plain `Vec`.
 - `max_ancestors_count` is set to `1000` in the benchmark config so dependent chains do not hit the ancestor limit.
 
 ### Dependent-chain submission strategy

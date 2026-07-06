@@ -5,7 +5,6 @@ use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallba
 use crate::component::orphan::OrphanPool;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
-#[cfg(feature = "pipeline")]
 use crate::component::rbf_candidates::RbfCandidates;
 use crate::component::recent_reject::RecentReject;
 use crate::component::verify_queue::VerifyQueue;
@@ -686,17 +685,13 @@ impl TxPoolServiceBuilder {
         };
 
         let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
-        #[cfg(feature = "pipeline")]
         let max_workers = tx_pool.config.max_tx_verify_workers.max(1);
         // Cap pre-check concurrency to the number of available CPU cores so that
         // cheap pre-resolution does not starve the heavier verification workers
         // on the shared tokio runtime.
-        #[cfg(feature = "pipeline")]
         let pre_check_workers =
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-        #[cfg(feature = "pipeline")]
         let pre_check_cancel = self.signal_receiver.child_token();
-        #[cfg(feature = "pipeline")]
         let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
             pre_check_cancel.clone(),
         ));
@@ -719,11 +714,8 @@ impl TxPoolServiceBuilder {
             consensus,
             fee_estimator: self.fee_estimator,
             recent_reject,
-            #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
-            #[cfg(feature = "pipeline")]
             chunk_rx: self.chunk_rx.clone(),
-            #[cfg(feature = "pipeline")]
             rbf_candidates: Arc::new(RwLock::new(RbfCandidates::new())),
             deferred_sender,
         };
@@ -782,7 +774,6 @@ impl TxPoolServiceBuilder {
             });
         }
 
-        #[cfg(feature = "pipeline")]
         {
             for _ in 0..pre_check_workers {
                 let svc = service.clone();
@@ -1053,11 +1044,8 @@ impl TxPoolServiceBuilder {
         let recent_reject = self.recent_reject;
         let (block_assembler_sender, _) = self.block_assembler_channel;
 
-        #[cfg(feature = "pipeline")]
         let signal = self.signal_receiver;
-        #[cfg(feature = "pipeline")]
         let pre_check_cancel = signal.child_token();
-        #[cfg(feature = "pipeline")]
         let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
             pre_check_cancel,
         ));
@@ -1080,20 +1068,15 @@ impl TxPoolServiceBuilder {
             consensus,
             fee_estimator: self.fee_estimator,
             recent_reject,
-            #[cfg(feature = "pipeline")]
             pre_check_queue: Arc::clone(&pre_check_queue),
-            #[cfg(feature = "pipeline")]
             chunk_rx: self.chunk_rx,
-            #[cfg(feature = "pipeline")]
             rbf_candidates: Arc::new(RwLock::new(RbfCandidates::new())),
             deferred_sender,
         };
 
         BenchServiceParts {
             service,
-            #[cfg(feature = "pipeline")]
             signal,
-            #[cfg(feature = "pipeline")]
             pre_check_queue,
             deferred_receiver,
         }
@@ -1107,9 +1090,7 @@ impl TxPoolServiceBuilder {
 #[cfg(feature = "internal")]
 pub(crate) struct BenchServiceParts {
     pub service: TxPoolService,
-    #[cfg(feature = "pipeline")]
     pub signal: CancellationToken,
-    #[cfg(feature = "pipeline")]
     pub pre_check_queue: Arc<crate::component::pre_check_queue::PreCheckQueue>,
     pub deferred_receiver: mpsc::Receiver<DeferredTask>,
 }
@@ -1137,16 +1118,13 @@ pub(crate) struct TxPoolService {
     /// Queue used to offload independent tx classification to a fixed-size
     /// worker pool.  Dependent txs are still handled synchronously in the
     /// service actor to preserve ordering.
-    #[cfg(feature = "pipeline")]
     pub(crate) pre_check_queue: Arc<crate::component::pre_check_queue::PreCheckQueue>,
     /// Chunk command receiver used by the synchronous reorg recovery path so
     /// that detached transactions are not verified while the pipeline is
     /// suspended.
-    #[cfg(feature = "pipeline")]
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     /// Fee-ordering gate for conflicting RBF replacements that are concurrently
     /// in flight through the pipeline.  Ensures the highest-fee candidate wins.
-    #[cfg(feature = "pipeline")]
     pub(crate) rbf_candidates: Arc<RwLock<RbfCandidates>>,
     /// Bounded channel for deferred side-effects (recovery tx re-enqueue,
     /// verify cache updates). A single background worker drains this channel,
@@ -1157,7 +1135,6 @@ pub(crate) struct TxPoolService {
 /// Location and metadata of a transaction found in the pipeline queues.
 pub(crate) enum PipelineTxLocation {
     /// In the pre-check queue (awaiting initial resolution).
-    #[cfg(feature = "pipeline")]
     PreChecking { tx: TransactionView },
     /// In the ordered resolve queue (not yet resolved/verified).
     Ordered { tx: TransactionView },
@@ -1177,11 +1154,8 @@ impl TxPoolService {
         &self,
         id: &ProposalShortId,
     ) -> Option<PipelineTxLocation> {
-        #[cfg(feature = "pipeline")]
-        {
-            if let Some(tx) = self.pre_check_queue.get_tx(id) {
-                return Some(PipelineTxLocation::PreChecking { tx });
-            }
+        if let Some(tx) = self.pre_check_queue.get_tx(id) {
+            return Some(PipelineTxLocation::PreChecking { tx });
         }
         {
             let ordered = self.ordered_resolve_queue.read().await;
@@ -1325,10 +1299,13 @@ impl TxPoolService {
             responder,
             arguments: tx,
         } = req;
-        let result = self
-            .resumable_process_tx_sync(tx, false, None)
-            .await
-            .map(|_| ());
+        let result = async {
+            self.check_tx_basic_validity(&tx, None).await?;
+            self.classify_and_enqueue_tx_spawn(tx, false, None)
+                .await
+                .map(|_| ())
+        }
+        .await;
         respond(responder, result, "submit_local_test_tx");
     }
 
@@ -1452,7 +1429,6 @@ impl TxPoolService {
             ))
         } else if let Some(location) = self.find_tx_in_pipeline(&id).await {
             let (tx, tx_status, cycles, fee) = match location {
-                #[cfg(feature = "pipeline")]
                 PipelineTxLocation::PreChecking { tx } => (tx, TxStatus::Pending, None, None),
                 PipelineTxLocation::Ordered { tx } => (tx, TxStatus::Pending, None, None),
                 PipelineTxLocation::Verifying { tx, fee, status } => {
@@ -1534,13 +1510,7 @@ impl TxPoolService {
 
     async fn handle_clear_pipeline(&self, req: SyncRequest<(), ()>) {
         let SyncRequest { responder, .. } = req;
-        self.ordered_resolve_queue.write().await.clear();
-        self.verify_queue.write().await.clear();
-        self.orphan.write().await.clear();
-        #[cfg(feature = "pipeline")]
-        self.pre_check_queue.clear();
-        #[cfg(feature = "pipeline")]
-        self.rbf_candidates.write().await.clear();
+        self.clear_pipeline_queues().await;
         respond(responder, (), "clear_pipeline");
     }
 
@@ -1714,7 +1684,7 @@ impl TxPoolService {
     /// - already accepted and stored in the main pool (`pool_map`),
     /// - waiting for missing parents in the `orphan` pool,
     /// - waiting for resolution/verification in the `ordered_resolve_queue`,
-    /// - undergoing pre-check in the `pre_check_queue` (pipeline),
+    /// - undergoing pre-check in the `pre_check_queue`,
     /// - currently being verified (`verify_queue`).
     ///
     /// # Returns
@@ -1728,10 +1698,7 @@ impl TxPoolService {
             let ordered = self.ordered_resolve_queue.read().await;
             proposals.retain(|id| !ordered.contains_key(id));
         }
-        #[cfg(feature = "pipeline")]
-        {
-            proposals.retain(|id| !self.pre_check_queue.contains_key(id));
-        }
+        proposals.retain(|id| !self.pre_check_queue.contains_key(id));
         {
             let verify_queue = self.verify_queue.read().await;
             proposals.retain(|id| !verify_queue.contains_key(id));

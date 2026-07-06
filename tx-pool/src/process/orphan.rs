@@ -82,61 +82,40 @@ impl super::TxPoolService {
             for orphan in orphans.into_iter() {
                 let orphan_id = orphan.tx.proposal_short_id();
 
-                #[cfg(feature = "pipeline")]
+                match self
+                    .classify_and_enqueue_tx(
+                        orphan.tx.clone(),
+                        false,
+                        Some((orphan.cycle, orphan.peer)),
+                    )
+                    .await
                 {
-                    match self
-                        .classify_and_enqueue_tx(
-                            orphan.tx.clone(),
-                            false,
-                            Some((orphan.cycle, orphan.peer)),
-                        )
-                        .await
-                    {
-                        Ok(_) => {
-                            self.remove_orphan_tx(&orphan_id).await;
-                            // The orphan is now in the pipeline. Its own children
-                            // will be processed once it successfully submits via
-                            // the normal `after_process` -> `handle_verify_success`
-                            // path, so we do not need to push it back here.
-                        }
-                        Err(reject) => {
-                            // Keep the orphan if the only problem is that its
-                            // parents are not yet available or the pipeline queues
-                            // are temporarily full.  For any other reject reason
-                            // (malformed, low fee, etc.) remove it and notify the
-                            // peer.
-                            if crate::util::is_missing_input(&reject)
-                                || matches!(reject, Reject::Full(_))
-                            {
-                                warn!(
-                                    "process_orphan {} not ready ({reject}); keeping orphan from {}",
-                                    orphan.tx.hash(),
-                                    tx.hash(),
-                                );
-                            } else {
-                                self.remove_orphan_tx(&orphan_id).await;
-                                self.handle_remote_reject(&orphan.tx.hash(), &reject, orphan.peer)
-                                    .await;
-                            }
-                        }
+                    Ok(_) => {
+                        self.remove_orphan_tx(&orphan_id).await;
+                        // The orphan is now in the pipeline. Its own children
+                        // will be processed once it successfully submits via
+                        // the normal `after_process` -> `handle_verify_success`
+                        // path, so we do not need to push it back here.
                     }
-                }
-
-                #[cfg(not(feature = "pipeline"))]
-                {
-                    if let Some((ret, snapshot)) = self
-                        .process_tx_sync(orphan.tx.clone(), Some(orphan.cycle), None)
-                        .await
-                    {
-                        let remote = Some((orphan.cycle, orphan.peer));
-                        let keep = matches!(&ret, Err(reject) if crate::util::is_missing_input(reject) || matches!(reject, Reject::Full(_)));
-                        if !keep {
+                    Err(reject) => {
+                        // Keep the orphan if the only problem is that its
+                        // parents are not yet available or the pipeline queues
+                        // are temporarily full.  For any other reject reason
+                        // (malformed, low fee, etc.) remove it and notify the
+                        // peer.
+                        if crate::util::is_missing_input(&reject)
+                            || matches!(reject, Reject::Full(_))
+                        {
+                            warn!(
+                                "process_orphan {} not ready ({reject}); keeping orphan from {}",
+                                orphan.tx.hash(),
+                                tx.hash(),
+                            );
+                        } else {
                             self.remove_orphan_tx(&orphan_id).await;
+                            self.handle_remote_reject(&orphan.tx.hash(), &reject, orphan.peer)
+                                .await;
                         }
-                        // after_process handles remote reject notifications
-                        // internally; do NOT call handle_remote_reject here to
-                        // avoid double ban/relay/recent_reject.
-                        self.after_process(orphan.tx, remote, &snapshot, &ret).await;
                     }
                 }
             }

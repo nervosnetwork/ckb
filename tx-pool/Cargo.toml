@@ -70,8 +70,6 @@ harness = false
 required-features = ["internal"]
 
 [features]
-default = ["pipeline"]
-pipeline = []
 internal = [
     "criterion",
     "ckb-hash",

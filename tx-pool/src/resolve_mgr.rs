@@ -54,7 +54,7 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
 
     match pre_check_ret {
         Ok(PreCheckedTx {
-            tip_hash: pre_resolve_tip,
+            pre_resolve_tip,
             rtx,
             status,
             fee,
@@ -237,24 +237,7 @@ impl ResolveHandler {
         tx: &ckb_types::core::TransactionView,
         parents: &HashSet<Byte32>,
     ) -> bool {
-        let ordered_dep = {
-            let ordered = self.ordered_queue.read().await;
-            ordered.depends_on(tx)
-        };
-        if ordered_dep {
-            return true;
-        }
-
-        let verify_dep = {
-            let verify_queue = self.verify_queue.read().await;
-            verify_queue.depends_on(tx)
-        };
-        if verify_dep {
-            return true;
-        }
-
-        #[cfg(feature = "pipeline")]
-        if self.service.pre_check_queue.depends_on(tx) {
+        if self.service.depends_on_pipeline(tx).await {
             return true;
         }
 

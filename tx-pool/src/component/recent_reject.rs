@@ -20,7 +20,7 @@ const DEFAULT_SHARDS: u32 = 5;
 pub struct RecentReject {
     ttl: i32,
     shard_num: u32,
-    pub(crate) count_limit: u64,
+    count_limit: u64,
     /// Approximate key count across all shards.  Updated with sequentially
     /// consistent ordering so the estimate stays coherent with concurrent
     /// `put` and `shrink` operations.

@@ -1,6 +1,6 @@
 # CKB Tx-Pool Pipeline Architecture
 
-> `pipeline` is currently a Cargo feature flag. The plan is to merge it into the default code path and retire the legacy serial processing in a future release.
+> The tx-pool now runs exclusively in pipeline mode; the legacy serial processing path has been removed.
 
 ---
 
@@ -34,7 +34,7 @@ This separation enables:
 ```
                          ┌──────────────────────────┐
   submit entry (remote/  │  classify_and_enqueue_tx  │ ← unified classifier
-  local), reorg re-add   │  _spawn (pipeline mode)   │
+  local), reorg re-add   │          _spawn           │
                          └────────────┬─────────────┘
                                       │
                  ┌────────────────────┼─────────────────────┐
@@ -81,7 +81,7 @@ This separation enables:
 
 ### Stage Descriptions
 
-**Classify (entry point)** — `classify_and_enqueue_tx_spawn` is the pipeline entry for remote/local submissions. It calls `check_and_route_dependent` to check the FlightTracker of ordered_resolve_queue, verify_queue, and pre_check_queue. Dependent transactions go directly to OrderedResolveQueue; independent ones enter PreCheckQueue for parallel processing. `classify_and_enqueue_tx` (sync variant) is used for reorg re-adds.
+**Classify (entry point)** — `classify_and_enqueue_tx_spawn` is the pipeline entry for remote/local submissions. It calls `check_and_route_dependent` to check the FlightTracker of ordered_resolve_queue, verify_queue, and pre_check_queue. Dependent transactions go directly to OrderedResolveQueue; independent ones enter PreCheckQueue for parallel processing. `classify_and_enqueue_tx` is used for reorg re-adds.
 
 **PreCheckQueue** — FIFO queue bounded to 256 MB total serialized size. Worker count is `min(max_workers, available_parallelism())`. Workers pop jobs and execute pre_check (snapshot-only resolution for on-chain inputs, tx_pool read lock for pool-dependent inputs).
 
@@ -145,11 +145,11 @@ Reorg re-adds go through the classify entry point (not direct verify under write
 
 ### 3.12 Unified Verify-and-Submit Core
 
-`verify_and_submit_core` extracts the shared pre_check → verify → submit → after_process logic used by both pipeline and sync paths. `handle_verify_success` unifies relayer notification and orphan cascade recovery.
+`verify_and_submit_core` extracts the shared pre_check → verify → submit → after_process logic. `handle_verify_success` unifies relayer notification and orphan cascade recovery.
 
 ---
 
-## 4. Performance: Pipeline vs Sync
+## 4. Performance
 
 Benchmark environment: Apple M-series (arm64), macOS 24.6.0, Rust 1.95.0.
 Matrix: MEDIUM (100 tx/batch, peers [1, 4], workers [4, 8], 30 samples, Criterion 95% CI).
@@ -160,39 +160,39 @@ This is the primary production scenario. secp256k1 signature verification domina
 
 **Cold pool (empty pool, submit 100 txs):**
 
-| Scenario | Sync (ms) | Pipeline (ms) | Improvement |
-|----------|-----------|---------------|-------------|
-| 1 peer, 4 workers | 182.26 | 62.15 | **-65.9%** |
-| 1 peer, 8 workers | 183.05 | 51.15 | **-72.1%** |
-| 4 peers, 4 workers | 61.72 | 62.90 | ~flat |
-| 4 peers, 8 workers | 62.68 | 50.84 | **-18.9%** |
+| Scenario | Pipeline (ms) |
+|----------|---------------|
+| 1 peer, 4 workers | 62.15 |
+| 1 peer, 8 workers | 51.15 |
+| 4 peers, 4 workers | 62.90 |
+| 4 peers, 8 workers | 50.84 |
 
 **Warm pool (30 txs already in pool):**
 
-| Scenario | Sync (ms) | Pipeline (ms) | Improvement |
-|----------|-----------|---------------|-------------|
-| 1 peer, 4 workers | 184.70 | 64.00 | **-65.3%** |
-| 1 peer, 8 workers | 185.51 | 52.44 | **-71.7%** |
-| 4 peers, 4 workers | 63.27 | 64.13 | ~flat |
-| 4 peers, 8 workers | 63.43 | 52.36 | **-17.5%** |
+| Scenario | Pipeline (ms) |
+|----------|---------------|
+| 1 peer, 4 workers | 64.00 |
+| 1 peer, 8 workers | 52.44 |
+| 4 peers, 4 workers | 64.13 |
+| 4 peers, 8 workers | 52.36 |
 
 **Throughput (secp256k1, tx/s):**
 
-| Scenario | Sync | Pipeline | Improvement |
-|----------|------|----------|-------------|
-| 1 peer, 8 workers (cold) | 546 | 1,955 | **+258%** |
-| 1 peer, 8 workers (warm) | 539 | 1,907 | **+254%** |
-| 4 peers, 8 workers (cold) | 1,595 | 1,967 | **+23%** |
-| 4 peers, 8 workers (warm) | 1,577 | 1,910 | **+21%** |
+| Scenario | Pipeline |
+|----------|----------|
+| 1 peer, 8 workers (cold) | 1,955 |
+| 1 peer, 8 workers (warm) | 1,907 |
+| 4 peers, 8 workers (cold) | 1,967 |
+| 4 peers, 8 workers (warm) | 1,910 |
 
 **Analysis:**
 
-- **1-peer, 8 workers: pipeline achieves 72% latency reduction and 3.6× throughput**. The blocking pool parallelizes CPU-heavy secp256k1 verification across cores while sync serializes everything on the actor loop.
-- **8 workers outperform 4 workers in pipeline mode** (-72% vs -66% at 1-peer): more verify workers absorb more concurrent verification. In sync mode, worker count has no effect since processing is serial.
-- **4-peer secp256k1 at 8 workers**: pipeline still improves by 19%. The multi-peer submission pattern creates more concurrent verify work, which the pipeline can absorb.
+- **1-peer, 8 workers**: the blocking pool parallelizes CPU-heavy secp256k1 verification across cores.
+- **8 workers outperform 4 workers** at 1-peer: more verify workers absorb more concurrent verification.
+- **4-peer secp256k1 at 8 workers**: the multi-peer submission pattern creates more concurrent verify work, which the pipeline can absorb.
 - **Warm vs cold**: negligible difference — pool state lookups are O(1) and do not affect pipeline staging.
 
-### 4.2 Dependent Chain Transactions (Pipeline only)
+### 4.2 Dependent Chain Transactions
 
 10-deep dependency chain (child spends parent output), testing CPFP latency:
 
@@ -202,8 +202,6 @@ This is the primary production scenario. secp256k1 signature verification domina
 | 1 peer, 4 workers, warm secp256k1 | 20.70 |
 
 Push-based dependent wake-up ensures each child is re-enqueued immediately when its parent enters the pool, eliminating FIFO scan delay. Latency scales linearly with chain depth × single-tx resolve time.
-
-Sync mode cannot benchmark dependent chains (the `notify_tx` cycle measurement path requires the pipeline's classify → ordered-resolve → verify chain).
 
 ---
 
@@ -222,7 +220,7 @@ struct VerifyQueue {
 
 `SkipMap` provides lock-free insert, pop_back (highest score), arbitrary remove, and contains_key. Multiple workers can pop concurrently via CAS-based `Entry::remove()`. The key challenge is epoch pinning discipline — Entry handles must be dropped promptly to allow GC of removed nodes.
 
-This remains a design study; implementation is deferred until the pipeline feature is merged into the default path.
+This remains a design study; implementation is deferred.
 
 ---
 
@@ -251,14 +249,7 @@ This remains a design study; implementation is deferred until the pipeline featu
 ## 8. Running the Benchmark
 
 ```bash
-# Pipeline mode (default features include pipeline)
-cargo bench -p ckb-tx-pool --features "internal pipeline" --bench pipeline -- --save-baseline pipeline
-
-# Sync mode (disable pipeline)
-cargo bench -p ckb-tx-pool --no-default-features --features internal --bench pipeline -- --save-baseline sync
-
-# Compare
-critcmp sync.json pipeline.json
+cargo bench -p ckb-tx-pool --features internal --bench pipeline -- --save-baseline pipeline
 ```
 
 Matrix selection: `QUICK_BENCH=1` for fast validation, `FULL_BENCH=1` for comprehensive coverage, default is MEDIUM.
@@ -267,7 +258,7 @@ Matrix selection: `QUICK_BENCH=1` for fast validation, `FULL_BENCH=1` for compre
 
 ## 9. Test Coverage
 
-Pipeline unit tests (all pass with and without `pipeline` feature):
+Pipeline unit tests:
 - Independent remote/local tx processing
 - secp256k1 independent tx processing
 - Dependent tx ordering preservation

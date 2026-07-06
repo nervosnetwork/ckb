@@ -190,14 +190,10 @@ fn service_with_pipeline_workers(
         config.max_tx_verify_cycles,
         config.verify_ordering,
     )));
-    #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
-    #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
         pre_check_cancel,
     ));
@@ -219,11 +215,8 @@ fn service_with_pipeline_workers(
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
-        #[cfg(feature = "pipeline")]
         chunk_rx,
-        #[cfg(feature = "pipeline")]
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
         )),
@@ -257,7 +250,6 @@ fn service_with_pipeline_workers(
         });
     }
 
-    #[cfg(feature = "pipeline")]
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
@@ -449,14 +441,10 @@ fn secp_service_with_pipeline_workers(
         config.max_tx_verify_cycles,
         config.verify_ordering,
     )));
-    #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
-    #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
         pre_check_cancel,
     ));
@@ -478,11 +466,8 @@ fn secp_service_with_pipeline_workers(
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
-        #[cfg(feature = "pipeline")]
         chunk_rx,
-        #[cfg(feature = "pipeline")]
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
         )),
@@ -516,7 +501,6 @@ fn secp_service_with_pipeline_workers(
         });
     }
 
-    #[cfg(feature = "pipeline")]
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
@@ -603,10 +587,9 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
         .build()
 }
 
-#[cfg(feature = "pipeline")]
 async fn submit_local_tx(service: &TxPoolService, tx: TransactionView) -> u64 {
     let (ret, _snapshot) = service
-        .process_tx_sync(tx, None, None)
+        .process_tx_direct(tx, None, None)
         .await
         .expect("local process tx should return a result");
     ret.expect("local tx should be accepted").cycles
@@ -677,7 +660,6 @@ async fn pipeline_processes_independent_remote_txs() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_preserves_order_for_dependent_txs() {
     let (service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
@@ -1031,7 +1013,6 @@ async fn pipeline_processes_independent_secp_remote_txs() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_preserves_order_for_dependent_secp_txs() {
     // Realistic dependent chain: parent is a secp256k1 1-in-1-out tx, child spends
@@ -1158,13 +1139,12 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
     let detached_proposal_id: HashSet<ProposalShortId> = HashSet::new();
     let snapshot = service.tx_pool.read().await.cloned_snapshot();
 
-    // Trigger the reorg. In pipeline mode, this should call
-    // classify_and_enqueue_tx for each retained tx after releasing the write
-    // lock. The calls will fail with "already in pool" errors (expected),
-    // but the critical thing is:
+    // Trigger the reorg. This should call classify_and_enqueue_tx for each
+    // retained tx after releasing the write lock. The calls will fail with
+    // "already in pool" errors (expected), but the critical thing is:
     // - No panic
     // - Pool remains consistent
-    // - classify_and_enqueue_tx is exercised (pipeline path, not inline verify)
+    // - classify_and_enqueue_tx is exercised
     service
         .update_tx_pool_for_reorg(
             detached_blocks,
@@ -1221,7 +1201,6 @@ fn service_with_rbf(
     let (_store, snap) = snapshot_with_genesis(Arc::clone(&consensus));
     let mut config = tx_pool_config();
     config.min_rbf_rate = ckb_types::core::FeeRate::from_u64(1000);
-    #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
     let (block_assembler_sender, _) = mpsc::channel(1);
@@ -1233,12 +1212,9 @@ fn service_with_rbf(
         config.max_tx_verify_cycles,
         config.verify_ordering,
     )));
-    #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
         pre_check_cancel,
     ));
@@ -1260,11 +1236,8 @@ fn service_with_rbf(
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
-        #[cfg(feature = "pipeline")]
         chunk_rx,
-        #[cfg(feature = "pipeline")]
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
         )),
@@ -1297,7 +1270,6 @@ fn service_with_rbf(
         });
     }
 
-    #[cfg(feature = "pipeline")]
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
@@ -1357,7 +1329,6 @@ fn service_with_rbf_and_max_size(
     let mut config = tx_pool_config();
     config.min_rbf_rate = ckb_types::core::FeeRate::from_u64(1000);
     config.max_tx_pool_size = max_tx_pool_size;
-    #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
     let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
     let (block_assembler_sender, _) = mpsc::channel(1);
@@ -1369,12 +1340,9 @@ fn service_with_rbf_and_max_size(
         config.max_tx_verify_cycles,
         config.verify_ordering,
     )));
-    #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
         pre_check_cancel,
     ));
@@ -1396,11 +1364,8 @@ fn service_with_rbf_and_max_size(
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
-        #[cfg(feature = "pipeline")]
         chunk_rx,
-        #[cfg(feature = "pipeline")]
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
         )),
@@ -1433,7 +1398,6 @@ fn service_with_rbf_and_max_size(
         });
     }
 
-    #[cfg(feature = "pipeline")]
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
@@ -1503,14 +1467,10 @@ fn secp_service_with_pipeline_workers_and_chunk(
         config.max_tx_verify_cycles,
         config.verify_ordering,
     )));
-    #[cfg(feature = "pipeline")]
     let max_workers = config.max_tx_verify_workers.max(1);
-    #[cfg(feature = "pipeline")]
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-    #[cfg(feature = "pipeline")]
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    #[cfg(feature = "pipeline")]
     let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
         pre_check_cancel,
     ));
@@ -1532,11 +1492,8 @@ fn secp_service_with_pipeline_workers_and_chunk(
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        #[cfg(feature = "pipeline")]
         pre_check_queue: Arc::clone(&pre_check_queue),
-        #[cfg(feature = "pipeline")]
         chunk_rx,
-        #[cfg(feature = "pipeline")]
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
         )),
@@ -1569,7 +1526,6 @@ fn secp_service_with_pipeline_workers_and_chunk(
         });
     }
 
-    #[cfg(feature = "pipeline")]
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
@@ -1789,7 +1745,6 @@ async fn pipeline_semaphore_backpressure() {
 /// 2. Send `ChunkCommand::Suspend` — VerifyMgr stops picking up new work.
 /// 3. Send `ChunkCommand::Resume` — verification resumes.
 /// 4. All txs must eventually reach pending.
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_chunk_command_pause_resume() {
     let (service, _relay, signal, _store, issue_out_points, cell_deps, chunk_tx) =
@@ -2011,17 +1966,15 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
     .await
     .expect("tx_a should reach pending");
 
-    // Submit tx_b. In pipeline mode this merely enqueues the tx and returns
-    // Ok; in non-pipeline mode it may return the actual reject. Either way,
+    // Submit tx_b. This merely enqueues the tx and returns Ok; actual
     // success/failure is determined by inspecting the final pool state.
     let _ = service
         .submit_remote_tx(tx_b.clone(), cycles_b, 1.into())
         .await;
 
-    // Wait for tx_a to be recovered. In pipeline mode this involves the
-    // deferred worker, pre-check, verify, and submit stages; in non-pipeline
-    // mode the deferred task is processed asynchronously after `submit_remote_tx`
-    // returns. Either way, the observable outcome is tx_a back in the pool.
+    // Wait for tx_a to be recovered. This involves the deferred worker,
+    // pre-check, verify, and submit stages. The observable outcome is tx_a
+    // back in the pool.
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             {
@@ -2054,7 +2007,6 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
 }
 
 /// Topologically sort dependent transactions so parents come before children.
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sort_txs_by_dependencies_orders_parents_before_children() {
     let (_service, _relay, signal, _store, issue_out_points) = service_with_pipeline(1);
@@ -2077,7 +2029,6 @@ async fn sort_txs_by_dependencies_orders_parents_before_children() {
 }
 
 /// A cycle in the dependency graph should keep the original order.
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sort_txs_by_dependencies_keeps_original_order_on_cycle() {
     let (_service, _relay, signal, _store, issue_out_points) = service_with_pipeline(2);
@@ -2097,7 +2048,6 @@ async fn sort_txs_by_dependencies_keeps_original_order_on_cycle() {
 }
 
 /// The pre-check queue rejects new jobs once its size limit is exceeded.
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_check_queue_rejects_when_full() {
     let cancel = ckb_stop_handler::CancellationToken::new();
@@ -2139,7 +2089,6 @@ async fn pre_check_queue_rejects_when_full() {
 /// Only the highest-fee candidate should end up in the pool; lower-fee ones
 /// must be rejected rather than temporarily displacing the original tx and
 /// blocking the higher-fee candidate.
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_concurrent_rbf_prefers_highest_fee() {
     let (service, _relay, signal, _store, issue_out_points) = service_with_rbf(1);
@@ -2276,7 +2225,6 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
 /// higher-fee tx_r that is then rejected by the pool size limit, both tx_a
 /// and its descendants tx_b and tx_c must be re-submitted so that parents
 /// precede children in the recovery set.
-#[cfg(feature = "pipeline")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
     // Pool size large enough for a small three-tx chain but not for the

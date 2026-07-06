@@ -62,7 +62,7 @@ impl OrderedResolveQueue {
 
     /// Number of live jobs in the queue (excludes tombstoned entries).
     #[allow(dead_code)]
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.live_count
     }
 

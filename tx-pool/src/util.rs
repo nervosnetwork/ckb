@@ -109,7 +109,7 @@ pub(crate) async fn verify_rtx(
             .map_err(Reject::Verification);
     }
 
-    // Pipeline verification can be CPU-heavy (script VM).  Run the verifier on
+    // Transaction verification can be CPU-heavy (script VM).  Run the verifier on
     // the blocking pool so it doesn't starve the async runtime.
     let result = if let Some(command_rx) = command_rx {
         let mut command_rx = command_rx.clone();

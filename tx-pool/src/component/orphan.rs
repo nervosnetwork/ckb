@@ -40,8 +40,8 @@ impl Entry {
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct OrphanPool {
-    pub(crate) entries: HashMap<ProposalShortId, Entry>,
-    pub(crate) by_out_point: HashMap<OutPoint, HashSet<ProposalShortId>>,
+    entries: HashMap<ProposalShortId, Entry>,
+    by_out_point: HashMap<OutPoint, HashSet<ProposalShortId>>,
 }
 
 impl OrphanPool {
@@ -95,6 +95,23 @@ impl OrphanPool {
             self.remove_orphan_tx(&id);
         }
         self.shrink_to_fit();
+    }
+
+    /// Remove all orphan transactions submitted by the given peer.
+    ///
+    /// Returns the short ids of the removed transactions so callers can clean up
+    /// any related in-flight state (e.g. RBF candidates).
+    pub fn remove_by_peer(&mut self, peer: PeerIndex) -> Vec<ProposalShortId> {
+        let ids: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.peer == peer)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &ids {
+            self.remove_orphan_tx(id);
+        }
+        ids
     }
 
     pub fn clear(&mut self) {
