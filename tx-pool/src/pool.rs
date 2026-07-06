@@ -663,7 +663,11 @@ impl TxPool {
         tx_inputs: &[OutPoint],
         snapshot: &Snapshot,
     ) -> Result<(), Reject> {
-        let mut inputs = HashSet::new();
+        let inputs_capacity = conflicts
+            .iter()
+            .map(|c| c.inner.transaction().inputs().len())
+            .sum();
+        let mut inputs = HashSet::with_capacity(inputs_capacity);
         for c in conflicts.iter() {
             inputs.extend(c.inner.transaction().input_pts_iter());
         }
@@ -695,7 +699,7 @@ impl TxPool {
         // are not double-counted across multiple direct conflicts (3.7 fix).
         let mut seen_ids: HashSet<ProposalShortId> =
             conflicts.iter().map(|c| c.id.clone()).collect();
-        let mut ancestors: HashSet<ProposalShortId> = HashSet::new();
+        let mut ancestors: HashSet<ProposalShortId> = HashSet::with_capacity(tx_inputs.len() * 2);
         // Include inputs in ancestor set.
         for input in tx_inputs {
             let parent_id = ProposalShortId::from_tx_hash(&input.tx_hash());

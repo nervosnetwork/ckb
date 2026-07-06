@@ -415,7 +415,13 @@ impl TxPoolServiceBuilder {
                 tokio::select! {
                     Some(message) = receiver.recv() => {
                         let service_clone = service.clone();
-                        let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
+                        let permit = match Arc::clone(&semaphore).acquire_owned().await {
+                            Ok(permit) => permit,
+                            Err(_) => {
+                                info!("TxPool message dispatcher semaphore closed, exiting");
+                                break;
+                            }
+                        };
                         runtime_handle.spawn(async move {
                             let _permit = permit;
                             process(service_clone, message).await;

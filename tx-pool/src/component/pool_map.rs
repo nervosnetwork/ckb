@@ -595,7 +595,7 @@ impl PoolMap {
     fn record_entry_descendants(&mut self, entry: &TxEntry) {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let outputs = entry.transaction().output_pts();
-        let mut children = HashSet::new();
+        let mut children = HashSet::with_capacity(outputs.len());
 
         // collect children
         for o in outputs {

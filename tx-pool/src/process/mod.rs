@@ -90,7 +90,14 @@ impl TxPoolService {
         queue.contains_key(&tx.proposal_short_id())
     }
 
-    pub(crate) async fn with_tx_pool_read_lock<U, F: FnMut(&TxPool, Arc<Snapshot>) -> U>(
+    /// Read-lock the pool and run `f` without cloning the snapshot.
+    pub(crate) async fn read_tx_pool<U, F: FnOnce(&TxPool) -> U>(&self, f: F) -> U {
+        let tx_pool = self.tx_pool.read().await;
+        f(&tx_pool)
+    }
+
+    /// Read-lock the pool and return the result along with a cloned snapshot.
+    pub(crate) async fn read_tx_pool_with_snapshot<U, F: FnMut(&TxPool, Arc<Snapshot>) -> U>(
         &self,
         mut f: F,
     ) -> (U, Arc<Snapshot>) {
@@ -103,11 +110,8 @@ impl TxPoolService {
 
     /// Find the transaction inputs that are currently consumed by in-pool txs.
     /// These are the "conflict inputs" that matter for RBF ordering.
-    pub(crate) async fn find_conflict_inputs(
-        &self,
-        tx: &TransactionView,
-    ) -> (Vec<OutPoint>, Arc<Snapshot>) {
-        self.with_tx_pool_read_lock(|tx_pool, _snapshot| {
+    pub(crate) async fn find_conflict_inputs(&self, tx: &TransactionView) -> Vec<OutPoint> {
+        self.read_tx_pool(|tx_pool| {
             tx.input_pts_iter()
                 .filter(|out_point| {
                     tx_pool
@@ -142,14 +146,17 @@ impl TxPoolService {
         // the fee without holding the tx_pool read lock.  We only take the lock
         // briefly to check for txid collisions.
         let (collision, snapshot) = self
-            .with_tx_pool_read_lock(|tx_pool, _snapshot| check_txid_collision(tx_pool, tx).err())
+            .read_tx_pool_with_snapshot(|tx_pool, _snapshot| {
+                check_txid_collision(tx_pool, tx).err()
+            })
             .await;
         if let Some(reject) = collision {
             return (Err(reject), snapshot);
         }
 
         let short_id = tx.proposal_short_id();
-        let mut seen_inputs = HashSet::new();
+        let mut seen_inputs =
+            HashSet::with_capacity(tx.inputs().len().saturating_add(tx.cell_deps().len()));
         match resolve_transaction(
             tx.clone(),
             &mut seen_inputs,
@@ -195,7 +202,7 @@ impl TxPoolService {
         tx_size: usize,
     ) -> (Result<PreCheckedTx, Reject>, Arc<Snapshot>) {
         let (ret, snapshot) = self
-            .with_tx_pool_read_lock(|tx_pool, snapshot| {
+            .read_tx_pool_with_snapshot(|tx_pool, snapshot| {
                 let tip_hash = snapshot.tip_hash();
 
                 // Same txid means exactly the same transaction, including inputs, outputs, witnesses, etc.
@@ -650,7 +657,7 @@ impl TxPoolService {
         if remote.is_none() {
             return Ok(false);
         }
-        let conflict_inputs = self.find_conflict_inputs(tx).await.0;
+        let conflict_inputs = self.find_conflict_inputs(tx).await;
         if conflict_inputs.is_empty() {
             return Ok(false);
         }
@@ -845,7 +852,9 @@ impl TxPoolService {
         estimate_mode: EstimateMode,
         enable_fallback: bool,
     ) -> Result<FeeRate, AnyError> {
-        let all_entry_info = self.tx_pool.read().await.get_all_entry_info();
+        let all_entry_info = self
+            .read_tx_pool(|tx_pool| tx_pool.get_all_entry_info())
+            .await;
         match self
             .fee_estimator
             .estimate_fee_rate(estimate_mode, all_entry_info)

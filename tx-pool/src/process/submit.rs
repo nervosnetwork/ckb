@@ -189,8 +189,7 @@ impl TxPoolService {
         entry: TxEntry,
         status: Status,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
-        let (conflict_inputs, early_snapshot) =
-            self.find_conflict_inputs(entry.transaction()).await;
+        let conflict_inputs = self.find_conflict_inputs(entry.transaction()).await;
 
         // If a higher-fee RBF candidate appeared while this tx was waiting in
         // the verify queue, abort before replacing anything.  This prevents a
@@ -206,11 +205,14 @@ impl TxPoolService {
                     .is_superseded(&id, fee, &conflict_inputs)
                 {
                     self.rbf_candidates.write().await.remove(&id);
+                    let (_, snapshot) = self
+                        .read_tx_pool_with_snapshot(|_tx_pool, snapshot| snapshot)
+                        .await;
                     return (
                         Err(Reject::RBFRejected(
                             "superseded by higher-fee in-flight candidate".to_string(),
                         )),
-                        early_snapshot,
+                        snapshot,
                     );
                 }
             }
@@ -377,6 +379,10 @@ impl TxPoolService {
             snapshot,
             declared_cycles,
         } = input;
+        // Verification uses the snapshot captured at resolve time. If the chain
+        // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
+        // prepare_rbf_replacement re-runs check_rtx + time_relative_verify against
+        // the current snapshot to catch any state-dependent invalidation.
         let wtx_hash = tx.witness_hash();
         let instant = Instant::now();
         let is_sync_process = command_rx.is_none();
