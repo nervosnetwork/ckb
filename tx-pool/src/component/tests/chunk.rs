@@ -686,12 +686,8 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                tx,
-                                remote: None,
-                                is_proposal_tx: false,
-                                attempts: 0,
-                            });
+                            let _ =
+                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -717,12 +713,7 @@ async fn seed_parent_and_nearly_fill_queue(
     let mut ordered = service.ordered_resolve_queue.write().await;
     ordered.set_total_tx_size_for_test(256_000_000 - 1_000);
     ordered
-        .add_tx(ResolveJob {
-            tx: parent,
-            remote: None,
-            is_proposal_tx: false,
-            attempts: 0,
-        })
+        .add_tx(ResolveJob::new(parent, None, false))
         .unwrap();
     ordered.set_total_tx_size_for_test(256_000_000 - 1);
 }

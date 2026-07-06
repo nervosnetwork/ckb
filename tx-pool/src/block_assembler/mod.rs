@@ -230,11 +230,28 @@ impl BlockAssembler {
             new_current.template.transactions.len(),
         );
 
-        let mut guard = self.current.write().await;
-        *guard = Arc::new(new_current);
-        self.version.fetch_add(1, Ordering::SeqCst);
+        self.try_swap_template(new_current, None).await;
 
         Ok(())
+    }
+
+    /// Swap the current template if `expected_version` is still valid.
+    ///
+    /// `expected_version` of `None` means the swap is unconditional (used for
+    /// reorg finalization). Returns `true` if the swap happened.
+    async fn try_swap_template(
+        &self,
+        new_current: CurrentTemplate,
+        expected_version: Option<u64>,
+    ) -> bool {
+        let mut guard = self.current.write().await;
+        if expected_version.is_some_and(|expected| self.version.load(Ordering::SeqCst) != expected)
+        {
+            return false;
+        }
+        *guard = Arc::new(new_current);
+        self.version.fetch_add(1, Ordering::SeqCst);
+        true
     }
 
     pub(crate) async fn reset_template(
@@ -310,12 +327,8 @@ impl BlockAssembler {
             epoch: current_epoch,
         };
 
-        let mut guard = self.current.write().await;
-        if !force && self.version.load(Ordering::SeqCst) != version {
-            return Ok(());
-        }
-        *guard = Arc::new(new_blank);
-        self.version.fetch_add(1, Ordering::SeqCst);
+        let expected_version = if force { None } else { Some(version) };
+        self.try_swap_template(new_blank, expected_version).await;
         Ok(())
     }
 
@@ -359,12 +372,7 @@ impl BlockAssembler {
                         new_current.template.transactions.len(),
                     );
 
-                    let mut guard = self.current.write().await;
-                    if self.version.load(Ordering::SeqCst) != version {
-                        return;
-                    }
-                    *guard = Arc::new(new_current);
-                    self.version.fetch_add(1, Ordering::SeqCst);
+                    self.try_swap_template(new_current, Some(version)).await;
                 }
             }
         }
@@ -410,12 +418,7 @@ impl BlockAssembler {
                 new_current.template.transactions.len(),
             );
 
-            let mut guard = self.current.write().await;
-            if self.version.load(Ordering::SeqCst) != version {
-                return;
-            }
-            *guard = Arc::new(new_current);
-            self.version.fetch_add(1, Ordering::SeqCst);
+            self.try_swap_template(new_current, Some(version)).await;
         }
     }
 
@@ -489,12 +492,7 @@ impl BlockAssembler {
                 new_current.template.transactions.len(),
             );
 
-            let mut guard = self.current.write().await;
-            if self.version.load(Ordering::SeqCst) != version {
-                return Ok(());
-            }
-            *guard = Arc::new(new_current);
-            self.version.fetch_add(1, Ordering::SeqCst);
+            self.try_swap_template(new_current, Some(version)).await;
         }
         Ok(())
     }

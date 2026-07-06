@@ -233,12 +233,8 @@ fn service_with_pipeline_workers(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                tx,
-                                remote: None,
-                                is_proposal_tx: false,
-                                attempts: 0,
-                            });
+                            let _ =
+                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -484,12 +480,8 @@ fn secp_service_with_pipeline_workers(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                tx,
-                                remote: None,
-                                is_proposal_tx: false,
-                                attempts: 0,
-                            });
+                            let _ =
+                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -1253,12 +1245,8 @@ fn service_with_rbf(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                tx,
-                                remote: None,
-                                is_proposal_tx: false,
-                                attempts: 0,
-                            });
+                            let _ =
+                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -1381,12 +1369,8 @@ fn service_with_rbf_and_max_size(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                tx,
-                                remote: None,
-                                is_proposal_tx: false,
-                                attempts: 0,
-                            });
+                            let _ =
+                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -1509,12 +1493,8 @@ fn secp_service_with_pipeline_workers_and_chunk(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                tx,
-                                remote: None,
-                                is_proposal_tx: false,
-                                attempts: 0,
-                            });
+                            let _ =
+                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {

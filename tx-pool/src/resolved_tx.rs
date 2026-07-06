@@ -29,6 +29,22 @@ pub struct ResolveJob {
     pub attempts: u8,
 }
 
+impl ResolveJob {
+    /// Create a new resolve job for a transaction that has not been retried yet.
+    pub fn new(
+        tx: TransactionView,
+        remote: Option<(Cycle, PeerIndex)>,
+        is_proposal_tx: bool,
+    ) -> Self {
+        Self {
+            tx,
+            remote,
+            is_proposal_tx,
+            attempts: 0,
+        }
+    }
+}
+
 /// A transaction that has been resolved and is ready for verification.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedTx {

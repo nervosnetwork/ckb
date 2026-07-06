@@ -83,88 +83,129 @@ impl TxPoolService {
         guard.peek(&tx.witness_hash()).cloned()
     }
 
+    /// Check RBF conflicts, re-verify if the tip changed while the tx was in
+    /// flight, remove old conflicting transactions, and collect transactions that
+    /// can be recovered from the conflict pool.
+    ///
+    /// All work happens inside the write-lock transaction boundary so that any
+    /// error rolls back the `TxPool` mutations.
+    fn prepare_rbf_replacement(
+        &self,
+        tx_pool: &mut TxPool,
+        snapshot: &Arc<Snapshot>,
+        pre_resolve_tip: Byte32,
+        entry: &TxEntry,
+        mut status: TxStatus,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+    ) -> Result<(Vec<TxEntry>, Vec<TransactionView>, TxStatus), Reject> {
+        // check_rbf must be invoked in `write` lock to avoid concurrent issues.
+        let conflicts = if tx_pool.enable_rbf() {
+            tx_pool.check_rbf(snapshot, entry)?
+        } else {
+            // RBF is disabled but we found conflicts, return error here
+            // after_process will put this tx into conflicts_pool
+            let conflicted_outpoint = tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
+            if let Some(outpoint) = conflicted_outpoint {
+                return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
+            }
+            HashSet::new()
+        };
+
+        // if snapshot changed by context switch we need redo time_relative verify
+        let tip_hash = snapshot.tip_hash();
+        if pre_resolve_tip != tip_hash {
+            debug!(
+                "submit_entry {} context changed. previous:{} now:{}",
+                entry.proposal_short_id(),
+                pre_resolve_tip,
+                tip_hash
+            );
+
+            status = check_rtx(tx_pool, snapshot, &entry.rtx)?;
+
+            let tip_header = snapshot.tip_header();
+            let tx_env = status.with_env(tip_header);
+            time_relative_verify(Arc::clone(snapshot), Arc::clone(&entry.rtx), tx_env)?;
+        }
+
+        let removed_old_txs = self.process_rbf(tx_pool, entry, &conflicts, reject_events);
+
+        // Txs whose inputs are not consumed by the new tx can be
+        // recovered immediately, regardless of whether the new tx
+        // ultimately succeeds.
+        let mut available_inputs: HashSet<OutPoint> = HashSet::new();
+        available_inputs.extend(
+            removed_old_txs
+                .iter()
+                .flat_map(|removed| removed.transaction().input_pts_iter()),
+        );
+        for input in entry.transaction().input_pts_iter() {
+            available_inputs.remove(&input);
+        }
+        let mut recovered = Vec::new();
+        recovered.extend(tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter()));
+
+        // Parents must be recovered before children so that the
+        // ordered resolver can re-resolve and accept them in the
+        // correct order.
+        Self::sort_txs_by_dependencies(&mut recovered);
+
+        Ok((removed_old_txs, recovered, status))
+    }
+
+    /// Commit the entry to the pool, record reject events for evicted txs, and
+    /// apply size limits.
+    fn commit_and_apply_limits(
+        &self,
+        tx_pool: &mut TxPool,
+        entry: &TxEntry,
+        status: TxStatus,
+        reject_events: &mut Vec<(TxEntry, Reject)>,
+    ) -> Result<(), Reject> {
+        let evicted = commit_entry_to_pool(tx_pool, status, entry, &self.callbacks)?;
+
+        // in a corner case, a tx with lower fee rate may be rejected immediately
+        // after inserting into pool, return proper reject error here
+        for evict in evicted {
+            let reject =
+                Reject::Invalidated(format!("invalidated by tx {}", evict.transaction().hash()));
+            reject_events.push((evict, reject));
+        }
+
+        tx_pool.remove_conflict(&entry.proposal_short_id());
+        tx_pool
+            .limit_size(Some(&entry.proposal_short_id()), reject_events)
+            .map_or(Ok(()), Err)
+    }
+
     fn try_submit_entry(
         &self,
         tx_pool: &mut TxPool,
         snapshot: Arc<Snapshot>,
         pre_resolve_tip: Byte32,
         entry: TxEntry,
-        mut status: TxStatus,
+        status: TxStatus,
         entry_id: ProposalShortId,
     ) -> SubmitEntryOutcome {
         let mut reject_events = Vec::new();
         let mut recovered = Vec::new();
-
         let mut removed_old_txs = Vec::new();
+
+        // The closure is the write-lock transaction boundary: any error rolls
+        // back the `TxPool` mutations made inside it.
         let result = (|| -> Result<(), Reject> {
-            // check_rbf must be invoked in `write` lock to avoid concurrent issues.
-            let conflicts = if tx_pool.enable_rbf() {
-                tx_pool.check_rbf(&snapshot, &entry)?
-            } else {
-                // RBF is disabled but we found conflicts, return error here
-                // after_process will put this tx into conflicts_pool
-                let conflicted_outpoint =
-                    tx_pool.pool_map.find_conflict_outpoint(entry.transaction());
-                if let Some(outpoint) = conflicted_outpoint {
-                    return Err(Reject::Resolve(OutPointError::Dead(outpoint)));
-                }
-                HashSet::new()
-            };
+            let (removed, rec, final_status) = self.prepare_rbf_replacement(
+                tx_pool,
+                &snapshot,
+                pre_resolve_tip,
+                &entry,
+                status,
+                &mut reject_events,
+            )?;
+            removed_old_txs = removed;
+            recovered = rec;
 
-            // if snapshot changed by context switch we need redo time_relative verify
-            let tip_hash = snapshot.tip_hash();
-            if pre_resolve_tip != tip_hash {
-                debug!(
-                    "submit_entry {} context changed. previous:{} now:{}",
-                    entry.proposal_short_id(),
-                    pre_resolve_tip,
-                    tip_hash
-                );
-
-                status = check_rtx(tx_pool, &snapshot, &entry.rtx)?;
-
-                let tip_header = snapshot.tip_header();
-                let tx_env = status.with_env(tip_header);
-                time_relative_verify(snapshot, Arc::clone(&entry.rtx), tx_env)?;
-            }
-
-            removed_old_txs = self.process_rbf(tx_pool, &entry, &conflicts, &mut reject_events);
-
-            // Txs whose inputs are not consumed by the new tx can be
-            // recovered immediately, regardless of whether the new tx
-            // ultimately succeeds.
-            let mut available_inputs: HashSet<OutPoint> = HashSet::new();
-            available_inputs.extend(
-                removed_old_txs
-                    .iter()
-                    .flat_map(|removed| removed.transaction().input_pts_iter()),
-            );
-            for input in entry.transaction().input_pts_iter() {
-                available_inputs.remove(&input);
-            }
-            recovered.extend(tx_pool.get_conflicted_txs_from_inputs(available_inputs.into_iter()));
-
-            // Parents must be recovered before children so that the
-            // ordered resolver can re-resolve and accept them in the
-            // correct order.
-            Self::sort_txs_by_dependencies(&mut recovered);
-
-            let evicted = commit_entry_to_pool(tx_pool, status, &entry, &self.callbacks)?;
-
-            // in a corner case, a tx with lower fee rate may be rejected immediately
-            // after inserting into pool, return proper reject error here
-            for evict in evicted {
-                let reject = Reject::Invalidated(format!(
-                    "invalidated by tx {}",
-                    evict.transaction().hash()
-                ));
-                reject_events.push((evict, reject));
-            }
-
-            tx_pool.remove_conflict(&entry.proposal_short_id());
-            tx_pool
-                .limit_size(Some(&entry.proposal_short_id()), &mut reject_events)
-                .map_or(Ok(()), Err)?;
+            self.commit_and_apply_limits(tx_pool, &entry, final_status, &mut reject_events)?;
 
             Ok(())
         })();
@@ -868,6 +909,56 @@ impl TxPoolService {
         .await
     }
 
+    /// Side effects run after a transaction has been successfully submitted to
+    /// the pool: notify the block assembler, wake the ordered resolver, enqueue
+    /// a verify cache update, and record metrics.
+    async fn post_submit_side_effects(
+        &self,
+        status: TxStatus,
+        verified: Completed,
+        verify_cache: Option<CacheEntry>,
+        wtx_hash: &Byte32,
+        is_sync_process: bool,
+        instant: Instant,
+    ) {
+        self.notify_block_assembler(status).await;
+
+        // A newly submitted transaction may resolve dependent transactions that
+        // are waiting in the ordered resolve queue (e.g. children of a parent
+        // that was just re-added after a reorg). Wake the ordered resolver so
+        // those children can be retried promptly.
+        let queue = self.ordered_resolve_queue.read().await;
+        if !queue.is_empty() {
+            queue.subscribe().notify_one();
+        }
+
+        if verify_cache.is_none() {
+            // Defer cache update to the background worker instead of
+            // spawning a fire-and-forget task.
+            if let Err(e) =
+                self.deferred_sender
+                    .try_send(crate::service::DeferredTask::CacheUpdate {
+                        wtx_hash: wtx_hash.clone(),
+                        verified,
+                    })
+            {
+                warn!(
+                    "failed to enqueue verify cache update for {}: {}",
+                    wtx_hash, e
+                );
+            }
+        }
+
+        if let Some(metrics) = ckb_metrics::handle() {
+            let elapsed = instant.elapsed().as_secs_f64();
+            if is_sync_process {
+                metrics.ckb_tx_pool_sync_process.observe(elapsed);
+            } else {
+                metrics.ckb_tx_pool_async_process.observe(elapsed);
+            }
+        }
+    }
+
     /// Shared core: verify a resolved transaction and submit it to the pool.
     ///
     /// Both `process_tx_direct` (reorg recovery / local RPC path) and
@@ -929,42 +1020,15 @@ impl TxPoolService {
         let (ret, submit_snapshot) = self.submit_entry(pre_resolve_tip, entry, status).await;
         try_or_return_with_snapshot!(ret, submit_snapshot);
 
-        self.notify_block_assembler(status).await;
-
-        // A newly submitted transaction may resolve dependent transactions that
-        // are waiting in the ordered resolve queue (e.g. children of a parent
-        // that was just re-added after a reorg). Wake the ordered resolver so
-        // those children can be retried promptly.
-        let queue = self.ordered_resolve_queue.read().await;
-        if !queue.is_empty() {
-            queue.subscribe().notify_one();
-        }
-
-        if verify_cache.is_none() {
-            // Defer cache update to the background worker instead of
-            // spawning a fire-and-forget task.
-            if let Err(e) =
-                self.deferred_sender
-                    .try_send(crate::service::DeferredTask::CacheUpdate {
-                        wtx_hash: wtx_hash.clone(),
-                        verified,
-                    })
-            {
-                warn!(
-                    "failed to enqueue verify cache update for {}: {}",
-                    wtx_hash, e
-                );
-            }
-        }
-
-        if let Some(metrics) = ckb_metrics::handle() {
-            let elapsed = instant.elapsed().as_secs_f64();
-            if is_sync_process {
-                metrics.ckb_tx_pool_sync_process.observe(elapsed);
-            } else {
-                metrics.ckb_tx_pool_async_process.observe(elapsed);
-            }
-        }
+        self.post_submit_side_effects(
+            status,
+            verified,
+            verify_cache,
+            &wtx_hash,
+            is_sync_process,
+            instant,
+        )
+        .await;
 
         Some((Ok(verified), submit_snapshot))
     }
@@ -1174,16 +1238,64 @@ impl TxPoolService {
                 return Ok(RouteDecision::Duplicate);
             }
             return ordered
-                .add_tx(crate::resolved_tx::ResolveJob {
-                    tx: tx.clone(),
+                .add_tx(crate::resolved_tx::ResolveJob::new(
+                    tx.clone(),
                     remote,
                     is_proposal_tx,
-                    attempts: 0,
-                })
+                ))
                 .map(|_| RouteDecision::Enqueued);
         }
 
         Ok(RouteDecision::Independent)
+    }
+
+    /// Register an RBF candidate for a transaction that conflicts with in-pool
+    /// inputs. Returns `Ok(true)` if the tx was registered as an RBF candidate,
+    /// `Ok(false)` if there are no conflicts, and `Err` if a higher-fee
+    /// candidate is already in flight.
+    ///
+    /// When registration succeeds, lower-fee displaced candidates are removed
+    /// from the verify queue so that only the highest-fee replacement reaches
+    /// `submit_entry`.
+    async fn register_rbf_candidate(
+        &self,
+        id: &ProposalShortId,
+        tx: &TransactionView,
+        fee: Capacity,
+        remote: Option<(Cycle, PeerIndex)>,
+        snapshot: &Arc<Snapshot>,
+    ) -> Result<bool, Reject> {
+        if remote.is_none() {
+            return Ok(false);
+        }
+        let conflict_inputs = self.find_conflict_inputs(tx).await.0;
+        if conflict_inputs.is_empty() {
+            return Ok(false);
+        }
+
+        let mut rbf = self.rbf_candidates.write().await;
+        match rbf.register(id.clone(), fee, &conflict_inputs) {
+            Ok(displaced_ids) => {
+                // Higher-fee candidate(s) displaced lower-fee one(s) still
+                // waiting in the verify queue. Drop them so only the highest-fee
+                // tx reaches submit_entry.
+                if !displaced_ids.is_empty() {
+                    drop(rbf);
+                    let mut verify_queue = self.verify_queue.write().await;
+                    for displaced_id in &displaced_ids {
+                        verify_queue.remove_tx(displaced_id);
+                    }
+                }
+                Ok(true)
+            }
+            Err(reason) => {
+                drop(rbf);
+                let reject = Reject::RBFRejected(reason);
+                self.after_process(tx.clone(), remote, snapshot, &Err(reject.clone()))
+                    .await;
+                Err(reject)
+            }
+        }
     }
 
     /// Classify a transaction and enqueue it for verification or ordered resolve.
@@ -1223,37 +1335,9 @@ impl TxPoolService {
                 // For RBF replacements, register the candidate before it enters
                 // the verify queue so lower-fee candidates can be rejected while
                 // a higher-fee candidate is already in flight.
-                let conflict_inputs = if remote.is_some() {
-                    self.find_conflict_inputs(&tx).await.0
-                } else {
-                    Vec::new()
-                };
-                let rbf_registered = !conflict_inputs.is_empty();
-                if rbf_registered {
-                    let mut rbf = self.rbf_candidates.write().await;
-                    match rbf.register(id.clone(), fee, &conflict_inputs) {
-                        Ok(displaced_ids) => {
-                            // Higher-fee candidate(s) displaced lower-fee one(s)
-                            // still waiting in the verify queue.  Drop all
-                            // displaced candidates so only the highest-fee tx
-                            // reaches submit_entry.
-                            if !displaced_ids.is_empty() {
-                                drop(rbf);
-                                let mut verify_queue = self.verify_queue.write().await;
-                                for displaced_id in &displaced_ids {
-                                    verify_queue.remove_tx(displaced_id);
-                                }
-                            }
-                        }
-                        Err(reason) => {
-                            drop(rbf);
-                            let reject = Reject::RBFRejected(reason);
-                            self.after_process(tx, remote, &snapshot, &Err(reject.clone()))
-                                .await;
-                            return Err(reject);
-                        }
-                    }
-                }
+                let rbf_registered = self
+                    .register_rbf_candidate(&id, &tx, fee, remote, &snapshot)
+                    .await?;
 
                 let resolved = crate::resolved_tx::ResolvedTx {
                     tx: tx.clone(),
@@ -1287,12 +1371,11 @@ impl TxPoolService {
                 if ordered.contains_key(&id) {
                     return Ok(false);
                 }
-                ordered.add_tx(crate::resolved_tx::ResolveJob {
+                ordered.add_tx(crate::resolved_tx::ResolveJob::new(
                     tx,
                     remote,
                     is_proposal_tx,
-                    attempts: 0,
-                })
+                ))
             }
             Err(reject) => {
                 self.after_process(tx, remote, &snapshot, &Err(reject.clone()))

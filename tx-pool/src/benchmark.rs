@@ -9,17 +9,14 @@
 //! cargo bench -p ckb-tx-pool --features internal --bench pipeline -- --save-baseline current
 //! ```
 
-use crate::component::pipeline_queue::PipelineQueue;
 use crate::network::{DummyTxPoolNetwork, TxPoolNetworkHandle};
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
-use crate::util::panic_payload_to_string;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_logger::error;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
@@ -40,9 +37,7 @@ use ckb_types::{
 };
 use ckb_verification::cache::init_cache;
 use criterion::{BatchSize, BenchmarkGroup, Criterion, SamplingMode, Throughput, criterion_group};
-use futures_util::FutureExt;
 use std::collections::HashMap;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, watch};
@@ -431,64 +426,13 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
     // (which contains deferred_sender) would keep the mpsc channel open forever
     // because the receiver task would itself be holding a sender.
     {
-        let ordered_resolve_queue = Arc::clone(&parts.service.ordered_resolve_queue);
-        let txs_verify_cache = Arc::clone(&parts.service.txs_verify_cache);
-        let mut deferred_rx = parts.deferred_receiver;
-        handles.push(tokio::spawn(async move {
-            loop {
-                let task = match deferred_rx.recv().await {
-                    Some(task) => task,
-                    None => break,
-                };
-                let ordered_resolve_queue = Arc::clone(&ordered_resolve_queue);
-                let ordered_resolve_queue_retry = Arc::clone(&ordered_resolve_queue);
-                let txs_verify_cache = Arc::clone(&txs_verify_cache);
-                let recover_txs_for_retry = match &task {
-                    crate::service::DeferredTask::RecoverTxs(txs) => Some(txs.clone()),
-                    crate::service::DeferredTask::CacheUpdate { .. } => None,
-                };
-                let handler = async move {
-                    match task {
-                        crate::service::DeferredTask::RecoverTxs(txs) => {
-                            let mut queue = ordered_resolve_queue.write().await;
-                            for tx in txs {
-                                let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                    tx,
-                                    remote: None,
-                                    is_proposal_tx: false,
-                                    attempts: 0,
-                                });
-                            }
-                        }
-                        crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                            let mut guard = txs_verify_cache.write().await;
-                            guard.put(wtx_hash, verified);
-                        }
-                    }
-                };
-                match AssertUnwindSafe(handler).catch_unwind().await {
-                    Ok(()) => {}
-                    Err(payload) => {
-                        let message = panic_payload_to_string(payload.as_ref());
-                        error!(
-                            "benchmark deferred task worker panicked: {}; respawning",
-                            message
-                        );
-                        if let Some(txs) = recover_txs_for_retry {
-                            let mut queue = ordered_resolve_queue_retry.write().await;
-                            for tx in txs {
-                                let _ = queue.add_tx(crate::resolved_tx::ResolveJob {
-                                    tx,
-                                    remote: None,
-                                    is_proposal_tx: false,
-                                    attempts: 0,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }));
+        let handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
+        handles.push(crate::service::spawn_deferred_worker(
+            &handle,
+            Arc::clone(&parts.service.ordered_resolve_queue),
+            Arc::clone(&parts.service.txs_verify_cache),
+            parts.deferred_receiver,
+        ));
     }
 
     // Spawn pipeline workers using the components from the builder.

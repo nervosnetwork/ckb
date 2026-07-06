@@ -85,18 +85,72 @@ async fn enqueue_recover_txs(
     let mut queue = ordered_queue.write().await;
     for tx in txs {
         debug!("recover back: {:?}", tx.proposal_short_id());
-        if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob {
-            tx,
-            remote: None,
-            is_proposal_tx: false,
-            attempts: 0,
-        }) {
+        if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false)) {
             warn!(
                 "failed to recover tx back to ordered resolve queue: {}",
                 reject
             );
         }
     }
+}
+
+/// Spawn the deferred task worker with panic-respawn protection.
+///
+/// Recovery tx re-enqueue and verify cache updates run sequentially in a
+/// single background task. The worker only needs the ordered resolve queue
+/// and the verify cache; it must NOT keep a clone of `TxPoolService`
+/// (which holds `deferred_sender`), because the receiver task itself
+/// holding a sender would keep the channel open forever.
+pub(crate) fn spawn_deferred_worker(
+    handle: &Handle,
+    ordered_resolve_queue: Arc<
+        RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>,
+    >,
+    txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
+    deferred_receiver: mpsc::Receiver<DeferredTask>,
+) -> tokio::task::JoinHandle<()> {
+    handle.spawn(async move {
+        let mut deferred_rx = deferred_receiver;
+        loop {
+            // recv() is outside catch_unwind: the mpsc receiver is not
+            // poisoned by panics in the message handler below.
+            let task = match deferred_rx.recv().await {
+                Some(task) => task,
+                None => break, // channel closed, exit
+            };
+            let ordered_resolve_queue = Arc::clone(&ordered_resolve_queue);
+            let ordered_resolve_queue_retry = Arc::clone(&ordered_resolve_queue);
+            let txs_verify_cache = Arc::clone(&txs_verify_cache);
+            let recover_txs_for_retry = match &task {
+                DeferredTask::RecoverTxs(txs) => Some(txs.clone()),
+                DeferredTask::CacheUpdate { .. } => None,
+            };
+            let handler = async move {
+                match task {
+                    DeferredTask::RecoverTxs(txs) => {
+                        enqueue_recover_txs(ordered_resolve_queue, txs).await;
+                    }
+                    DeferredTask::CacheUpdate { wtx_hash, verified } => {
+                        let mut guard = txs_verify_cache.write().await;
+                        guard.put(wtx_hash, verified);
+                    }
+                }
+            };
+            match AssertUnwindSafe(handler).catch_unwind().await {
+                Ok(()) => {}
+                Err(payload) => {
+                    let message = panic_payload_to_string(payload.as_ref());
+                    error!("deferred task worker panicked: {}; respawning", message);
+                    // If a RecoverTxs task panicked, retry it directly
+                    // without going back through the channel.
+                    if let Some(txs) = recover_txs_for_retry {
+                        enqueue_recover_txs(ordered_resolve_queue_retry, txs).await;
+                    }
+                }
+            }
+        }
+        info!("deferred task worker exited (channel closed)");
+    })
 }
 
 pub(crate) struct Request<R, A> {
@@ -663,18 +717,39 @@ impl TxPoolServiceBuilder {
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start<N: TxPoolNetwork>(self, network: N) {
         let network: TxPoolNetworkHandle = Arc::new(network);
-        let consensus = self.snapshot.cloned_consensus();
 
+        // Move all builder fields into locals so the rest of the startup sequence
+        // can be expressed as a readable list of spawn calls without fighting the
+        // borrow checker over partial moves.
+        let Self {
+            tx_pool_config,
+            tx_pool_controller,
+            snapshot,
+            block_assembler,
+            txs_verify_cache,
+            callbacks,
+            receiver,
+            reorg_receiver,
+            signal_receiver,
+            handle,
+            tx_relay_sender,
+            chunk_rx,
+            started,
+            block_assembler_channel,
+            fee_estimator,
+            recent_reject,
+        } = self;
+
+        let consensus = snapshot.cloned_consensus();
         let ordered_resolve_queue = Arc::new(RwLock::new(
             crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
         ));
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
-            self.tx_pool_config.max_tx_verify_cycles,
-            self.tx_pool_config.verify_ordering,
+            tx_pool_config.max_tx_verify_cycles,
+            tx_pool_config.verify_ordering,
         )));
 
-        let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
-        let recent_reject = self.recent_reject;
+        let tx_pool = TxPool::new(tx_pool_config, snapshot);
         let txs = match tx_pool.load_from_file() {
             Ok(txs) => txs,
             Err(e) => {
@@ -684,14 +759,14 @@ impl TxPoolServiceBuilder {
             }
         };
 
-        let (block_assembler_sender, mut block_assembler_receiver) = self.block_assembler_channel;
+        let (block_assembler_sender, block_assembler_receiver) = block_assembler_channel;
         let max_workers = tx_pool.config.max_tx_verify_workers.max(1);
         // Cap pre-check concurrency to the number of available CPU cores so that
         // cheap pre-resolution does not starve the heavier verification workers
         // on the shared tokio runtime.
         let pre_check_workers =
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-        let pre_check_cancel = self.signal_receiver.child_token();
+        let pre_check_cancel = signal_receiver.child_token();
         let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
             pre_check_cancel.clone(),
         ));
@@ -703,133 +778,144 @@ impl TxPoolServiceBuilder {
             tx_pool_config: Arc::new(tx_pool.config.clone()),
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
-            block_assembler: self.block_assembler,
-            txs_verify_cache: self.txs_verify_cache,
-            callbacks: Arc::new(self.callbacks),
-            tx_relay_sender: self.tx_relay_sender,
+            block_assembler,
+            txs_verify_cache,
+            callbacks: Arc::new(callbacks),
+            tx_relay_sender,
             block_assembler_sender,
             ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
             verify_queue: Arc::clone(&verify_queue),
             network,
             consensus,
-            fee_estimator: self.fee_estimator,
+            fee_estimator,
             recent_reject,
             pre_check_queue: Arc::clone(&pre_check_queue),
-            chunk_rx: self.chunk_rx.clone(),
+            chunk_rx: chunk_rx.clone(),
             rbf_candidates: Arc::new(RwLock::new(RbfCandidates::new())),
             deferred_sender,
         };
 
-        // Spawn the deferred task worker with panic-respawn protection.
-        // Recovery tx re-enqueue and verify cache updates run sequentially
-        // in a single background task, with automatic respawn on panic.
-        {
-            // The worker only needs the ordered resolve queue and the verify
-            // cache.  It must NOT keep a clone of `TxPoolService` (which holds
-            // `deferred_sender`): doing so would keep the channel open forever
-            // because the receiver task itself would be holding a sender.
-            let ordered_resolve_queue = Arc::clone(&service.ordered_resolve_queue);
-            let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
-            self.handle.spawn(async move {
-                let mut deferred_rx = deferred_receiver;
+        spawn_deferred_worker(
+            &handle,
+            Arc::clone(&service.ordered_resolve_queue),
+            Arc::clone(&service.txs_verify_cache),
+            deferred_receiver,
+        );
+        Self::spawn_pre_check_workers(
+            &handle,
+            service.clone(),
+            Arc::clone(&pre_check_queue),
+            pre_check_cancel,
+            pre_check_workers,
+        );
+        Self::spawn_verify_mgr(
+            &handle,
+            service.clone(),
+            chunk_rx.clone(),
+            signal_receiver.clone(),
+        );
+        Self::spawn_resolver_monitor(
+            &handle,
+            service.clone(),
+            Arc::clone(&ordered_resolve_queue),
+            Arc::clone(&verify_queue),
+            chunk_rx,
+            signal_receiver.child_token(),
+        );
+        Self::spawn_message_dispatcher(&handle, service.clone(), receiver, signal_receiver.clone());
+        if let Some(ref block_assembler) = service.block_assembler {
+            Self::spawn_block_assembler_loop(
+                &handle,
+                service.clone(),
+                block_assembler.clone(),
+                block_assembler_receiver,
+                signal_receiver.clone(),
+            );
+        }
+        Self::spawn_reorg_handler(&handle, service, reorg_receiver, signal_receiver);
+
+        started.store(true, Ordering::Release);
+        if let Err(err) = tx_pool_controller.load_persisted_data(txs) {
+            error!("Failed to import persistent txs, cause: {}", err);
+        }
+    }
+
+    /// Spawn a pool of pre-check workers that pop jobs from the queue and
+    /// classify them into the pipeline.
+    fn spawn_pre_check_workers(
+        handle: &Handle,
+        service: TxPoolService,
+        pre_check_queue: Arc<crate::component::pre_check_queue::PreCheckQueue>,
+        pre_check_cancel: CancellationToken,
+        count: usize,
+    ) {
+        for _ in 0..count {
+            let svc = service.clone();
+            let queue = Arc::clone(&pre_check_queue);
+            let cancel = pre_check_cancel.child_token();
+            handle.spawn(async move {
                 loop {
-                    // recv() is outside catch_unwind: the mpsc receiver is not
-                    // poisoned by panics in the message handler below.
-                    let task = match deferred_rx.recv().await {
-                        Some(task) => task,
-                        None => break, // channel closed, exit
-                    };
-                    let ordered_resolve_queue = Arc::clone(&ordered_resolve_queue);
-                    let ordered_resolve_queue_retry = Arc::clone(&ordered_resolve_queue);
-                    let txs_verify_cache = Arc::clone(&txs_verify_cache);
-                    let recover_txs_for_retry = match &task {
-                        DeferredTask::RecoverTxs(txs) => Some(txs.clone()),
-                        DeferredTask::CacheUpdate { .. } => None,
-                    };
-                    let handler = async move {
-                        match task {
-                            DeferredTask::RecoverTxs(txs) => {
-                                enqueue_recover_txs(ordered_resolve_queue, txs).await;
-                            }
-                            DeferredTask::CacheUpdate { wtx_hash, verified } => {
-                                let mut guard = txs_verify_cache.write().await;
-                                guard.put(wtx_hash, verified);
-                            }
+                    let svc = svc.clone();
+                    let queue = Arc::clone(&queue);
+                    let worker = async move {
+                        while let Some(job) = queue.pop().await {
+                            let _ = svc
+                                .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
+                                .await;
                         }
                     };
-                    match AssertUnwindSafe(handler).catch_unwind().await {
-                        Ok(()) => {}
-                        Err(payload) => {
-                            let message = panic_payload_to_string(payload.as_ref());
-                            error!("deferred task worker panicked: {}; respawning", message);
-                            // If a RecoverTxs task panicked, retry it directly
-                            // without going back through the channel.
-                            if let Some(txs) = recover_txs_for_retry {
-                                enqueue_recover_txs(ordered_resolve_queue_retry, txs).await;
-                            }
+                    let exit = match AssertUnwindSafe(worker).catch_unwind().await {
+                        Ok(()) => crate::resolve_mgr::ResolveExit::Stopped,
+                        Err(payload) => crate::resolve_mgr::ResolveExit::Panicked {
+                            message: crate::util::panic_payload_to_string(payload.as_ref()),
+                        },
+                    };
+                    if cancel.is_cancelled() {
+                        break;
+                    }
+                    match exit {
+                        crate::resolve_mgr::ResolveExit::Stopped => {
+                            // Normal exit because the queue was cancelled.
+                            break;
+                        }
+                        crate::resolve_mgr::ResolveExit::Panicked { message } => {
+                            error!("tx-pool pre-check worker panicked: {}; respawning", message);
                         }
                     }
                 }
-                info!("deferred task worker exited (channel closed)");
             });
         }
+    }
 
-        {
-            for _ in 0..pre_check_workers {
-                let svc = service.clone();
-                let queue = Arc::clone(&pre_check_queue);
-                let cancel = pre_check_cancel.child_token();
-                self.handle.spawn(async move {
-                    loop {
-                        let svc = svc.clone();
-                        let queue = Arc::clone(&queue);
-                        let worker = async move {
-                            while let Some(job) = queue.pop().await {
-                                let _ = svc
-                                    .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                                    .await;
-                            }
-                        };
-                        let exit = match AssertUnwindSafe(worker).catch_unwind().await {
-                            Ok(()) => crate::resolve_mgr::ResolveExit::Stopped,
-                            Err(payload) => crate::resolve_mgr::ResolveExit::Panicked {
-                                message: crate::util::panic_payload_to_string(payload.as_ref()),
-                            },
-                        };
-                        if cancel.is_cancelled() {
-                            break;
-                        }
-                        match exit {
-                            crate::resolve_mgr::ResolveExit::Stopped => {
-                                // Normal exit because the queue was cancelled.
-                                break;
-                            }
-                            crate::resolve_mgr::ResolveExit::Panicked { message } => {
-                                error!(
-                                    "tx-pool pre-check worker panicked: {}; respawning",
-                                    message
-                                );
-                            }
-                        }
-                    }
-                });
-            }
-        }
+    /// Spawn the verification manager that supervises verify workers.
+    fn spawn_verify_mgr(
+        handle: &Handle,
+        service: TxPoolService,
+        chunk_rx: watch::Receiver<ChunkCommand>,
+        signal: CancellationToken,
+    ) {
+        let mut verify_mgr = VerifyMgr::new(service, chunk_rx, signal);
+        handle.spawn(async move { verify_mgr.run().await });
+    }
 
-        let chunk_rx_for_resolvers = self.chunk_rx.clone();
-        let mut verify_mgr =
-            VerifyMgr::new(service.clone(), self.chunk_rx, self.signal_receiver.clone());
-        self.handle.spawn(async move { verify_mgr.run().await });
-
-        let resolver_exit_signal = self.signal_receiver.child_token();
-        let service_for_resolver = service.clone();
-        self.handle.spawn(async move {
+    /// Spawn the ordered resolver monitor with panic-respawn protection.
+    fn spawn_resolver_monitor(
+        handle: &Handle,
+        service: TxPoolService,
+        ordered_resolve_queue: Arc<
+            RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>,
+        >,
+        verify_queue: Arc<RwLock<VerifyQueue>>,
+        chunk_rx: watch::Receiver<ChunkCommand>,
+        resolver_exit_signal: CancellationToken,
+    ) {
+        handle.spawn(async move {
             loop {
                 let resolver = crate::resolve_mgr::OrderedResolver::new(
-                    service_for_resolver.clone(),
+                    service.clone(),
                     Arc::clone(&ordered_resolve_queue),
                     Arc::clone(&verify_queue),
-                    chunk_rx_for_resolvers.clone(),
+                    chunk_rx.clone(),
                     resolver_exit_signal.clone(),
                 );
                 let (exit_tx, mut exit_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -858,24 +944,27 @@ impl TxPoolServiceBuilder {
             }
             info!("TxPool ordered resolver monitor exited");
         });
+    }
 
-        let mut receiver = self.receiver;
-        let mut reorg_receiver = self.reorg_receiver;
-        let handle_clone = self.handle.clone();
-
-        let process_service = service.clone();
-        let signal_receiver = self.signal_receiver.clone();
+    /// Spawn the main message dispatcher with bounded concurrency.
+    fn spawn_message_dispatcher(
+        handle: &Handle,
+        service: TxPoolService,
+        mut receiver: mpsc::Receiver<Message>,
+        signal_receiver: CancellationToken,
+    ) {
+        let runtime_handle = handle.clone();
         let max_workers = service.tx_pool_config.max_tx_verify_workers.max(1);
         let semaphore = Arc::new(Semaphore::new(
             max_workers * crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER,
         ));
-        self.handle.spawn(async move {
+        handle.spawn(async move {
             loop {
                 tokio::select! {
                     Some(message) = receiver.recv() => {
-                        let service_clone = process_service.clone();
+                        let service_clone = service.clone();
                         let permit = Arc::clone(&semaphore).acquire_owned().await.unwrap();
-                        handle_clone.spawn(async move {
+                        runtime_handle.spawn(async move {
                             let _permit = permit;
                             process(service_clone, message).await;
                         });
@@ -885,13 +974,14 @@ impl TxPoolServiceBuilder {
                         // Wait for all in-flight message-processing tasks to
                         // complete before persisting the pool state.  The
                         // semaphore bounds concurrent message handlers at
-                        // max_workers * crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER, so acquiring all permits guarantees
-                        // no handler is still running.
+                        // max_workers * MESSAGE_CONCURRENCY_MULTIPLIER, so
+                        // acquiring all permits guarantees no handler is still
+                        // running.
                         let _ = semaphore
                             .acquire_many(max_workers as u32 * crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER as u32)
                             .await;
                         info!("TxPool is saving, please wait...");
-                        process_service.save_pool().await;
+                        service.save_pool().await;
                         info!("TxPool process_service exit now");
                         break
                     },
@@ -899,72 +989,84 @@ impl TxPoolServiceBuilder {
                 }
             }
         });
+    }
 
-        let process_service = service.clone();
-        if let Some(ref block_assembler) = service.block_assembler {
-            let signal_receiver = self.signal_receiver.clone();
-            let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
-            if interval.is_zero() {
-                // block_assembler.update_interval_millis set zero interval should only be used for tests,
-                // external notification will be disabled.
-                ckb_logger::warn!(
-                    "block_assembler.update_interval_millis set to zero interval. \
-                    This should only be used for tests, as external notification will be disabled."
-                );
-                self.handle.spawn(async move {
-                    loop {
-                        tokio::select! {
-                            Some(message) = block_assembler_receiver.recv() => {
-                                let service_clone = process_service.clone();
-                                block_assembler::process(service_clone, &message).await;
-                            },
-                            _ = signal_receiver.cancelled() => {
-                                info!("TxPool block_assembler process service received exit signal, exit now");
-                                break
-                            },
-                            else => break,
-                        }
+    /// Spawn the block assembler message loop.
+    fn spawn_block_assembler_loop(
+        handle: &Handle,
+        service: TxPoolService,
+        block_assembler: BlockAssembler,
+        mut block_assembler_receiver: mpsc::Receiver<BlockAssemblerMessage>,
+        signal_receiver: CancellationToken,
+    ) {
+        let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
+        if interval.is_zero() {
+            // block_assembler.update_interval_millis set zero interval should only be used for tests,
+            // external notification will be disabled.
+            ckb_logger::warn!(
+                "block_assembler.update_interval_millis set to zero interval. \
+                This should only be used for tests, as external notification will be disabled."
+            );
+            handle.spawn(async move {
+                loop {
+                    tokio::select! {
+                        Some(message) = block_assembler_receiver.recv() => {
+                            let service_clone = service.clone();
+                            block_assembler::process(service_clone, &message).await;
+                        },
+                        _ = signal_receiver.cancelled() => {
+                            info!("TxPool block_assembler process service received exit signal, exit now");
+                            break
+                        },
+                        else => break,
                     }
-                });
-            } else {
-                self.handle.spawn(async move {
-                    let mut interval = tokio::time::interval(interval);
-                    let mut queue = LinkedHashSet::new();
-                    loop {
-                        tokio::select! {
-                            Some(message) = block_assembler_receiver.recv() => {
-                                if let BlockAssemblerMessage::Reset(..) = message {
-                                    let service_clone = process_service.clone();
-                                    queue.clear();
-                                    block_assembler::process(service_clone, &message).await;
-                                } else {
-                                    queue.insert(message);
-                                }
-                            },
-                            _ = interval.tick() => {
-                                for message in &queue {
-                                    let service_clone = process_service.clone();
-                                    block_assembler::process(service_clone, message).await;
-                                }
-                                if !queue.is_empty()
-                                    && let Some(ref block_assembler) = process_service.block_assembler {
-                                        block_assembler.notify().await;
-                                    }
+                }
+            });
+        } else {
+            handle.spawn(async move {
+                let mut interval = tokio::time::interval(interval);
+                let mut queue = LinkedHashSet::new();
+                loop {
+                    tokio::select! {
+                        Some(message) = block_assembler_receiver.recv() => {
+                            if let BlockAssemblerMessage::Reset(..) = message {
+                                let service_clone = service.clone();
                                 queue.clear();
+                                block_assembler::process(service_clone, &message).await;
+                            } else {
+                                queue.insert(message);
                             }
-                            _ = signal_receiver.cancelled() => {
-                                info!("TxPool block_assembler process service received exit signal, exit now");
-                                break
-                            },
-                            else => break,
+                        },
+                        _ = interval.tick() => {
+                            for message in &queue {
+                                let service_clone = service.clone();
+                                block_assembler::process(service_clone, message).await;
+                            }
+                            if !queue.is_empty()
+                                && let Some(ref block_assembler) = service.block_assembler {
+                                    block_assembler.notify().await;
+                                }
+                            queue.clear();
                         }
+                        _ = signal_receiver.cancelled() => {
+                            info!("TxPool block_assembler process service received exit signal, exit now");
+                            break
+                        },
+                        else => break,
                     }
-                });
-            }
+                }
+            });
         }
+    }
 
-        let signal_receiver = self.signal_receiver;
-        self.handle.spawn(async move {
+    /// Spawn the reorg handler with panic-respawn protection.
+    fn spawn_reorg_handler(
+        handle: &Handle,
+        service: TxPoolService,
+        mut reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
+        signal_receiver: CancellationToken,
+    ) {
+        handle.spawn(async move {
             loop {
                 let service = service.clone();
                 let reorg_result = AssertUnwindSafe(async {
@@ -1014,10 +1116,6 @@ impl TxPoolServiceBuilder {
                 }
             }
         });
-        self.started.store(true, Ordering::Release);
-        if let Err(err) = self.tx_pool_controller.load_persisted_data(txs) {
-            error!("Failed to import persistent txs, cause: {}", err);
-        }
     }
 
     /// Build a bare [`TxPoolService`] and its supporting queues **without**
@@ -1146,6 +1244,28 @@ pub(crate) enum PipelineTxLocation {
     },
     /// In the orphan pool (missing inputs).
     Orphan { tx: TransactionView, cycle: Cycle },
+}
+
+/// Result of looking up a transaction in the tx-pool or pipeline queues.
+pub(crate) enum ResolvedTxLocation {
+    /// Accepted in the main pool.
+    Pool {
+        status: Status,
+        entry: crate::component::entry::TxEntry,
+    },
+    /// In one of the pipeline queues.
+    Pipeline(PipelineTxLocation),
+    /// Not found in either place; the caller should check recent rejects.
+    NotFound,
+}
+
+/// Map the internal pool status to the RPC-visible tx status.
+pub(crate) fn map_pool_status(status: Status) -> TxStatus {
+    if status == Status::Proposed {
+        TxStatus::Proposed
+    } else {
+        TxStatus::Pending
+    }
 }
 
 impl TxPoolService {
@@ -1358,35 +1478,44 @@ impl TxPoolService {
         respond_async(responder, new_proposals, "fresh_proposals_filter");
     }
 
+    /// Look up a transaction in the main pool or in the in-flight pipeline.
+    async fn resolve_tx_location(&self, hash: &Byte32) -> ResolvedTxLocation {
+        let id = ProposalShortId::from_tx_hash(hash);
+        let pool_entry = {
+            let tx_pool = self.tx_pool.read().await;
+            tx_pool.pool_map.get_by_id(&id).map(|entry| {
+                let status = entry.status;
+                let entry = entry.inner.clone();
+                (status, entry)
+            })
+        };
+        if let Some((status, entry)) = pool_entry {
+            return ResolvedTxLocation::Pool { status, entry };
+        }
+        if let Some(location) = self.find_tx_in_pipeline(&id).await {
+            return ResolvedTxLocation::Pipeline(location);
+        }
+        ResolvedTxLocation::NotFound
+    }
+
     async fn handle_get_tx_status(&self, req: SyncRequest<Byte32, GetTxStatusResult>) {
         let SyncRequest {
             responder,
             arguments: hash,
         } = req;
-        let id = ProposalShortId::from_tx_hash(&hash);
-        let pool_cycles = {
-            let tx_pool = self.tx_pool.read().await;
-            tx_pool
-                .pool_map
-                .get_by_id(&id)
-                .map(|entry| (entry.status, entry.inner.cycles))
-        };
-        let ret = if let Some((status, cycles)) = pool_cycles {
-            let status = if status == Status::Proposed {
-                TxStatus::Proposed
-            } else {
-                TxStatus::Pending
-            };
-            Ok((status, Some(cycles)))
-        } else if self.find_tx_in_pipeline(&id).await.is_some() {
-            Ok((TxStatus::Pending, None))
-        } else {
-            self.lookup_recent_reject(
-                &hash,
-                |record| (TxStatus::Rejected(record), None),
-                || (TxStatus::Unknown, None),
-            )
-            .await
+        let ret = match self.resolve_tx_location(&hash).await {
+            ResolvedTxLocation::Pool { status, entry } => {
+                Ok((map_pool_status(status), Some(entry.cycles)))
+            }
+            ResolvedTxLocation::Pipeline(_) => Ok((TxStatus::Pending, None)),
+            ResolvedTxLocation::NotFound => {
+                self.lookup_recent_reject(
+                    &hash,
+                    |record| (TxStatus::Rejected(record), None),
+                    || (TxStatus::Unknown, None),
+                )
+                .await
+            }
         };
         respond(responder, ret, "get_tx_status");
     }
@@ -1399,65 +1528,58 @@ impl TxPoolService {
             responder,
             arguments: hash,
         } = req;
-        let id = ProposalShortId::from_tx_hash(&hash);
-        let pool_entry = {
-            let tx_pool = self.tx_pool.read().await;
-            tx_pool.pool_map.get_by_id(&id).map(|entry| {
-                let status = entry.status;
-                let entry = entry.inner.clone();
-                let min_replace_fee = if status == Status::Proposed {
-                    None
-                } else {
-                    tx_pool.min_replace_fee(&entry)
-                };
-                (status, entry, min_replace_fee)
-            })
-        };
-        let ret = if let Some((status, entry, min_replace_fee)) = pool_entry {
-            let tx_status = if status == Status::Proposed {
-                TxStatus::Proposed
-            } else {
-                TxStatus::Pending
-            };
-            Ok(TransactionWithStatus::with_status(
-                Some(entry.transaction().clone()),
-                entry.cycles,
-                entry.timestamp,
-                tx_status,
-                Some(entry.fee),
-                min_replace_fee,
-            ))
-        } else if let Some(location) = self.find_tx_in_pipeline(&id).await {
-            let (tx, tx_status, cycles, fee) = match location {
-                PipelineTxLocation::PreChecking { tx } => (tx, TxStatus::Pending, None, None),
-                PipelineTxLocation::Ordered { tx } => (tx, TxStatus::Pending, None, None),
-                PipelineTxLocation::Verifying { tx, fee, status } => {
-                    let tx_status = if status == crate::process::TxStatus::Proposed {
-                        TxStatus::Proposed
+        let ret = match self.resolve_tx_location(&hash).await {
+            ResolvedTxLocation::Pool { status, entry } => {
+                let min_replace_fee = {
+                    let tx_pool = self.tx_pool.read().await;
+                    if status == Status::Proposed {
+                        None
                     } else {
-                        TxStatus::Pending
-                    };
-                    (tx, tx_status, None, Some(fee))
-                }
-                PipelineTxLocation::Orphan { tx, cycle } => {
-                    (tx, TxStatus::Pending, Some(cycle), None)
-                }
-            };
-            Ok(TransactionWithStatus {
-                transaction: Some(tx),
-                tx_status,
-                cycles,
-                fee,
-                min_replace_fee: None,
-                time_added_to_pool: None,
-            })
-        } else {
-            self.lookup_recent_reject(
-                &hash,
-                TransactionWithStatus::with_rejected,
-                TransactionWithStatus::with_unknown,
-            )
-            .await
+                        tx_pool.min_replace_fee(&entry)
+                    }
+                };
+                Ok(TransactionWithStatus::with_status(
+                    Some(entry.transaction().clone()),
+                    entry.cycles,
+                    entry.timestamp,
+                    map_pool_status(status),
+                    Some(entry.fee),
+                    min_replace_fee,
+                ))
+            }
+            ResolvedTxLocation::Pipeline(location) => {
+                let (tx, tx_status, cycles, fee) = match location {
+                    PipelineTxLocation::PreChecking { tx } => (tx, TxStatus::Pending, None, None),
+                    PipelineTxLocation::Ordered { tx } => (tx, TxStatus::Pending, None, None),
+                    PipelineTxLocation::Verifying { tx, fee, status } => {
+                        let tx_status = if status == crate::process::TxStatus::Proposed {
+                            TxStatus::Proposed
+                        } else {
+                            TxStatus::Pending
+                        };
+                        (tx, tx_status, None, Some(fee))
+                    }
+                    PipelineTxLocation::Orphan { tx, cycle } => {
+                        (tx, TxStatus::Pending, Some(cycle), None)
+                    }
+                };
+                Ok(TransactionWithStatus {
+                    transaction: Some(tx),
+                    tx_status,
+                    cycles,
+                    fee,
+                    min_replace_fee: None,
+                    time_added_to_pool: None,
+                })
+            }
+            ResolvedTxLocation::NotFound => {
+                self.lookup_recent_reject(
+                    &hash,
+                    TransactionWithStatus::with_rejected,
+                    TransactionWithStatus::with_unknown,
+                )
+                .await
+            }
         };
         respond(responder, ret, "get_transaction_with_status");
     }
