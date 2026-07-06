@@ -5,8 +5,16 @@ use ckb_types::{
 };
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 
+/// Index that maps consumed or referenced out-points to the in-pool transactions
+/// that depend on them.
+///
+/// `inputs` records which transaction currently spends a given cell (used for
+/// double-spend detection). `deps` records which transactions reference a cell
+/// as a cell dep. `header_deps` records header dependencies for in-pool txs.
+/// This structure was historically called `Edges`; the current name reflects its
+/// actual purpose as an out-point → transaction index.
 #[derive(Default, Debug, Clone)]
-pub(crate) struct Edges {
+pub(crate) struct OutPointIndex {
     /// input-txid map represent in-pool tx's inputs
     pub(crate) inputs: HashMap<OutPoint, ProposalShortId>,
     /// dep-set<txid> map represent in-pool tx's deps
@@ -15,7 +23,7 @@ pub(crate) struct Edges {
     pub(crate) header_deps: HashMap<ProposalShortId, Vec<Byte32>>,
 }
 
-impl Edges {
+impl OutPointIndex {
     #[cfg(test)]
     pub(crate) fn inputs_len(&self) -> usize {
         self.inputs.len()

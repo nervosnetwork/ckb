@@ -3,8 +3,8 @@ extern crate rustc_hash;
 extern crate slab;
 use super::links::TxLinks;
 use crate::TxEntry;
-use crate::component::edges::Edges;
 use crate::component::links::{Relation, TxLinksMap};
+use crate::component::out_point_index::OutPointIndex;
 use crate::component::saturating_counter::SaturatingCounter;
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
@@ -138,7 +138,7 @@ pub struct PoolMap {
     /// The pool entries with different kinds of sort strategies
     pub(crate) entries: MultiIndexPoolEntryMap,
     /// All the deps, header_deps, inputs, outputs relationships
-    pub(crate) edges: Edges,
+    pub(crate) out_point_index: OutPointIndex,
     /// All the parent/children relationships
     pub(crate) links: TxLinksMap,
     pub(crate) max_ancestors_count: usize,
@@ -149,7 +149,7 @@ impl PoolMap {
     pub fn new(max_ancestors_count: usize) -> Self {
         PoolMap {
             entries: MultiIndexPoolEntryMap::default(),
-            edges: Edges::default(),
+            out_point_index: OutPointIndex::default(),
             links: TxLinksMap::new(),
             max_ancestors_count,
             stats: PoolStats::default(),
@@ -158,17 +158,17 @@ impl PoolMap {
 
     #[cfg(test)]
     pub(crate) fn header_deps_len(&self) -> usize {
-        self.edges.header_deps_len()
+        self.out_point_index.header_deps_len()
     }
 
     #[cfg(test)]
     pub(crate) fn deps_len(&self) -> usize {
-        self.edges.deps_len()
+        self.out_point_index.deps_len()
     }
 
     #[cfg(test)]
     pub(crate) fn inputs_len(&self) -> usize {
-        self.edges.inputs_len()
+        self.out_point_index.inputs_len()
     }
 
     #[cfg(test)]
@@ -204,10 +204,6 @@ impl PoolMap {
 
     pub(crate) fn get_by_id(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
         self.entries.get_by_id(id)
-    }
-
-    fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
-        self.get_by_id(id).expect("inconsistent pool")
     }
 
     pub(crate) fn pending_size(&self) -> usize {
@@ -374,7 +370,7 @@ impl PoolMap {
 
         // invalid header deps
         let mut ids = Vec::new();
-        for (tx_id, deps) in self.edges.header_deps.iter() {
+        for (tx_id, deps) in self.out_point_index.header_deps.iter() {
             for hash in deps {
                 if headers.contains(hash) {
                     ids.push((hash.clone(), tx_id.clone()));
@@ -395,20 +391,23 @@ impl PoolMap {
 
     pub(crate) fn find_conflict_tx(&self, tx: &TransactionView) -> HashSet<ProposalShortId> {
         tx.input_pts_iter()
-            .filter_map(|out_point| self.edges.get_input_ref(&out_point).cloned())
+            .filter_map(|out_point| self.out_point_index.get_input_ref(&out_point).cloned())
             .collect()
     }
 
     pub(crate) fn find_conflict_outpoint(&self, tx: &TransactionView) -> Option<OutPoint> {
-        tx.input_pts_iter()
-            .find_map(|out_point| self.edges.get_input_ref(&out_point).map(|_| out_point))
+        tx.input_pts_iter().find_map(|out_point| {
+            self.out_point_index
+                .get_input_ref(&out_point)
+                .map(|_| out_point)
+        })
     }
 
     pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ConflictEntry> {
         let mut conflicts = Vec::new();
 
         for i in tx.input_pts_iter() {
-            if let Some(id) = self.edges.remove_input(&i) {
+            if let Some(id) = self.out_point_index.remove_input(&i) {
                 let entries = self.remove_entry_and_descendants(&id);
                 if !entries.is_empty() {
                     let reject = Reject::Resolve(OutPointError::Dead(i.clone()));
@@ -418,7 +417,7 @@ impl PoolMap {
             }
 
             // deps consumed
-            if let Some(x) = self.edges.remove_deps(&i) {
+            if let Some(x) = self.out_point_index.remove_deps(&i) {
                 for id in x {
                     let entries = self.remove_entry_and_descendants(&id);
                     if !entries.is_empty() {
@@ -488,7 +487,7 @@ impl PoolMap {
 
     pub(crate) fn clear(&mut self) {
         self.entries = MultiIndexPoolEntryMap::default();
-        self.edges.clear();
+        self.out_point_index.clear();
         self.links.clear();
         self.stats.clear();
     }
@@ -566,7 +565,8 @@ impl PoolMap {
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
         for i in &inputs {
-            self.edges.insert_input(i.to_owned(), tx_short_id.clone())?;
+            self.out_point_index
+                .insert_input(i.to_owned(), tx_short_id.clone())?;
         }
 
         // record dep-txid
@@ -578,14 +578,14 @@ impl PoolMap {
             if inputs.contains(&d) {
                 continue;
             }
-            if self.edges.get_input_ref(&d).is_some() {
+            if self.out_point_index.get_input_ref(&d).is_some() {
                 return Err(Reject::Resolve(OutPointError::Dead(d)));
             }
-            self.edges.insert_deps(d, tx_short_id.clone());
+            self.out_point_index.insert_deps(d, tx_short_id.clone());
         }
         // record header_deps
         if !header_deps.is_empty() {
-            self.edges
+            self.out_point_index
                 .header_deps
                 .insert(tx_short_id, header_deps.into_iter().collect());
         }
@@ -599,10 +599,10 @@ impl PoolMap {
 
         // collect children
         for o in outputs {
-            if let Some(ids) = self.edges.get_deps_ref(&o).cloned() {
+            if let Some(ids) = self.out_point_index.get_deps_ref(&o).cloned() {
                 children.extend(ids);
             }
-            if let Some(id) = self.edges.get_input_ref(&o).cloned() {
+            if let Some(id) = self.out_point_index.get_input_ref(&o).cloned() {
                 children.insert(id);
             }
         }
@@ -636,7 +636,7 @@ impl PoolMap {
 
         for input in entry.inputs() {
             let input_pt = input.previous_output();
-            if let Some(deps) = self.edges.deps.get(&input_pt) {
+            if let Some(deps) = self.out_point_index.deps.get(&input_pt) {
                 cell_ref_parents.extend(deps.iter().cloned());
                 parents.extend(deps.iter().cloned());
             }
@@ -666,10 +666,19 @@ impl PoolMap {
         entry: &mut TxEntry,
         ancestors: HashSet<ProposalShortId>,
         parents: HashSet<ProposalShortId>,
-    ) {
+    ) -> Result<(), Reject> {
         // update parents references
         for ancestor_id in &ancestors {
-            let ancestor = self.get_by_id_checked(ancestor_id);
+            let ancestor = self.get_by_id(ancestor_id).ok_or_else(|| {
+                error!(
+                    "tx-pool internal invariant broken: missing entry for ancestor {}",
+                    ancestor_id
+                );
+                Reject::Malformed(
+                    "pool".to_string(),
+                    format!("inconsistent pool: missing entry for {}", ancestor_id),
+                )
+            })?;
             entry.add_ancestor_weight(&ancestor.inner);
         }
 
@@ -685,6 +694,7 @@ impl PoolMap {
                 children: Default::default(),
             },
         );
+        Ok(())
     }
 
     /// Check ancestors and record for entry
@@ -704,7 +714,7 @@ impl PoolMap {
         let mut evicted = Default::default();
 
         if ancestors_count <= self.max_ancestors_count {
-            self.record_ancestors_inner(entry, ancestors, parents);
+            self.record_ancestors_inner(entry, ancestors, parents)?;
             return Ok(evicted);
         }
 
@@ -743,21 +753,21 @@ impl PoolMap {
         // we can assume the number now is less than `max_ancestors_count`
         assert!(ancestors.len() < self.max_ancestors_count);
 
-        self.record_ancestors_inner(entry, ancestors, parents);
+        self.record_ancestors_inner(entry, ancestors, parents)?;
         Ok(evicted)
     }
 
     fn remove_entry_edges(&mut self, entry: &TxEntry) {
         for i in entry.transaction().input_pts_iter() {
             // release input record
-            self.edges.remove_input(&i);
+            self.out_point_index.remove_input(&i);
         }
         let id = entry.proposal_short_id();
         for d in entry.related_dep_out_points().cloned() {
-            self.edges.delete_txid_by_dep(d, &id);
+            self.out_point_index.delete_txid_by_dep(d, &id);
         }
 
-        self.edges.header_deps.remove(&id);
+        self.out_point_index.header_deps.remove(&id);
     }
 
     fn insert_entry(&mut self, entry: &TxEntry, status: Status) {

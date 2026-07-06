@@ -3,6 +3,7 @@
 use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
 use crate::component::pipeline_queue::PipelineQueue;
+use crate::component::pool_map::Status;
 use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
 use crate::process::PreCheckedTx;
@@ -210,12 +211,14 @@ fn service_with_pipeline_workers(
         callbacks: Arc::new(Callbacks::new()),
         network: super::chunk::dummy_network(),
         tx_relay_sender,
-        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        pre_check_queue: Arc::clone(&pre_check_queue),
+        queues: crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+            verify_queue: Arc::clone(&verify_queue),
+            pre_check_queue: Arc::clone(&pre_check_queue),
+        },
         chunk_rx,
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
@@ -457,12 +460,14 @@ fn secp_service_with_pipeline_workers(
         callbacks: Arc::new(Callbacks::new()),
         network: super::chunk::dummy_network(),
         tx_relay_sender,
-        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        pre_check_queue: Arc::clone(&pre_check_queue),
+        queues: crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+            verify_queue: Arc::clone(&verify_queue),
+            pre_check_queue: Arc::clone(&pre_check_queue),
+        },
         chunk_rx,
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
@@ -595,13 +600,9 @@ async fn verify_cycles(service: &TxPoolService, tx: TransactionView) -> u64 {
     let verify_cache = service.fetch_tx_verify_cache(&tx).await;
     let max_cycles = service.consensus.max_block_cycles();
     let tx_env = match status {
-        crate::process::TxStatus::Fresh => Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header())),
-        crate::process::TxStatus::Gap => {
-            Arc::new(TxVerifyEnv::new_proposed(snapshot.tip_header(), 0))
-        }
-        crate::process::TxStatus::Proposed => {
-            Arc::new(TxVerifyEnv::new_proposed(snapshot.tip_header(), 1))
-        }
+        Status::Pending => Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header())),
+        Status::Gap => Arc::new(TxVerifyEnv::new_proposed(snapshot.tip_header(), 0)),
+        Status::Proposed => Arc::new(TxVerifyEnv::new_proposed(snapshot.tip_header(), 1)),
     };
     let verified = crate::util::verify_rtx(
         Arc::clone(&snapshot),
@@ -744,8 +745,8 @@ async fn pipeline_rejects_conflicting_double_spend() {
         loop {
             let (pending, ordered_len, verify_len) = {
                 let pool = service.tx_pool.read().await;
-                let ordered = service.ordered_resolve_queue.read().await;
-                let verify = service.verify_queue.read().await;
+                let ordered = service.queues.ordered_resolve_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 (pool.pool_map.pending_size(), ordered.len(), verify.len())
             };
             if pending == 1 && ordered_len == 0 && verify_len == 0 {
@@ -809,7 +810,7 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
         loop {
             let (pending, verify_len) = {
                 let pool = service.tx_pool.read().await;
-                let verify = service.verify_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 (pool.pool_map.pending_size(), verify.len())
             };
             if pending == 1 || verify_len == 1 {
@@ -830,8 +831,8 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
         loop {
             let (pending, ordered_len, verify_len, orphan_len) = {
                 let pool = service.tx_pool.read().await;
-                let ordered = service.ordered_resolve_queue.read().await;
-                let verify = service.verify_queue.read().await;
+                let ordered = service.queues.ordered_resolve_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 let orphan = service.orphan.read().await;
                 (
                     pool.pool_map.pending_size(),
@@ -899,8 +900,8 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
         loop {
             let (pending, ordered_len, verify_len, orphan_len) = {
                 let pool = service.tx_pool.read().await;
-                let ordered = service.ordered_resolve_queue.read().await;
-                let verify = service.verify_queue.read().await;
+                let ordered = service.queues.ordered_resolve_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 let orphan = service.orphan.read().await;
                 (
                     pool.pool_map.pending_size(),
@@ -928,8 +929,8 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
         loop {
             let (pending, ordered_len, verify_len, orphan_len) = {
                 let pool = service.tx_pool.read().await;
-                let ordered = service.ordered_resolve_queue.read().await;
-                let verify = service.verify_queue.read().await;
+                let ordered = service.queues.ordered_resolve_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 let orphan = service.orphan.read().await;
                 (
                     pool.pool_map.pending_size(),
@@ -1158,8 +1159,8 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
     );
 
     // Verify the ordered resolve queue and verify queue are drained (no stuck txs).
-    let ordered_len = service.ordered_resolve_queue.read().await.len();
-    let verify_len = service.verify_queue.read().await.len();
+    let ordered_len = service.queues.ordered_resolve_queue.read().await.len();
+    let verify_len = service.queues.verify_queue.read().await.len();
     assert_eq!(
         ordered_len, 0,
         "ordered resolve queue should be empty after reorg classify calls fail"
@@ -1223,12 +1224,14 @@ fn service_with_rbf(
         callbacks: Arc::new(Callbacks::new()),
         network: super::chunk::dummy_network(),
         tx_relay_sender,
-        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        pre_check_queue: Arc::clone(&pre_check_queue),
+        queues: crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+            verify_queue: Arc::clone(&verify_queue),
+            pre_check_queue: Arc::clone(&pre_check_queue),
+        },
         chunk_rx,
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
@@ -1347,12 +1350,14 @@ fn service_with_rbf_and_max_size(
         callbacks: Arc::new(Callbacks::new()),
         network: super::chunk::dummy_network(),
         tx_relay_sender,
-        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        pre_check_queue: Arc::clone(&pre_check_queue),
+        queues: crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+            verify_queue: Arc::clone(&verify_queue),
+            pre_check_queue: Arc::clone(&pre_check_queue),
+        },
         chunk_rx,
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
@@ -1471,12 +1476,14 @@ fn secp_service_with_pipeline_workers_and_chunk(
         callbacks: Arc::new(Callbacks::new()),
         network: super::chunk::dummy_network(),
         tx_relay_sender,
-        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::clone(&verify_queue),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        pre_check_queue: Arc::clone(&pre_check_queue),
+        queues: crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+            verify_queue: Arc::clone(&verify_queue),
+            pre_check_queue: Arc::clone(&pre_check_queue),
+        },
         chunk_rx,
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
@@ -1859,8 +1866,8 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
         loop {
             let (b_in_pool, ordered_len, verify_len) = {
                 let pool = service.tx_pool.read().await;
-                let ordered = service.ordered_resolve_queue.read().await;
-                let verify = service.verify_queue.read().await;
+                let ordered = service.queues.ordered_resolve_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 (
                     pool.get_tx_from_pool(&id_b).is_some(),
                     ordered.len(),
@@ -2149,8 +2156,8 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
         loop {
             let (pending, ordered_len, verify_len, settled) = {
                 let pool = service.tx_pool.read().await;
-                let ordered = service.ordered_resolve_queue.read().await;
-                let verify = service.verify_queue.read().await;
+                let ordered = service.queues.ordered_resolve_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 let settled = pool.get_tx_from_pool(&original_id).is_none()
                     && pool.get_tx_from_pool(&expected_id).is_some()
                     && ids
@@ -2307,8 +2314,8 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
         loop {
             let (a_in_pool, b_in_pool, c_in_pool, r_in_pool, ordered_len, verify_len) = {
                 let pool = service.tx_pool.read().await;
-                let ordered = service.ordered_resolve_queue.read().await;
-                let verify = service.verify_queue.read().await;
+                let ordered = service.queues.ordered_resolve_queue.read().await;
+                let verify = service.queues.verify_queue.read().await;
                 (
                     pool.get_tx_from_pool(&id_a).is_some(),
                     pool.get_tx_from_pool(&id_b).is_some(),

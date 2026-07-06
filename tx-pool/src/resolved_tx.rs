@@ -5,7 +5,7 @@
 //! in-pool cell overlay.  It runs as a single ordered worker so that dependent
 //! transactions are resolved in the order they arrive.
 
-use crate::process::TxStatus;
+use crate::component::pool_map::Status;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
@@ -53,7 +53,7 @@ pub struct ResolvedTx {
     /// The resolved transaction.
     pub rtx: Arc<ResolvedTransaction>,
     /// Pool status derived at resolve time.
-    pub status: TxStatus,
+    pub status: Status,
     /// Transaction fee calculated at resolve time.
     pub fee: Capacity,
     /// Serialized transaction size.

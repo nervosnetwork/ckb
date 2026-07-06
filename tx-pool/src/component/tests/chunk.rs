@@ -1,6 +1,7 @@
 use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
 use crate::component::pipeline_queue::PipelineQueue;
+use crate::component::pool_map::Status;
 use crate::component::tests::util::build_tx;
 use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
@@ -50,7 +51,7 @@ fn dummy_resolved_tx(
     ResolvedTx {
         tx: tx.clone(),
         rtx,
-        status: crate::process::TxStatus::Fresh,
+        status: Status::Pending,
         fee: Capacity::zero(),
         tx_size: tx.data().serialized_size_in_block(),
         pre_resolve_tip: Default::default(),
@@ -382,7 +383,7 @@ fn dummy_resolved_tx_with_fee(
     ResolvedTx {
         tx: tx.clone(),
         rtx,
-        status: crate::process::TxStatus::Fresh,
+        status: Status::Pending,
         fee: Capacity::shannons(fee_shannons),
         tx_size: tx.data().serialized_size_in_block(),
         pre_resolve_tip: Default::default(),
@@ -646,15 +647,17 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
         callbacks: Arc::new(Callbacks::new()),
         network: dummy_network(),
         tx_relay_sender,
-        ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-        verify_queue: Arc::new(RwLock::new(VerifyQueue::new(
-            config.max_tx_verify_cycles,
-            config.verify_ordering,
-        ))),
         block_assembler_sender,
         fee_estimator: FeeEstimator::new_dummy(),
         recent_reject: None,
-        pre_check_queue: Arc::clone(&pre_check_queue),
+        queues: crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
+            verify_queue: Arc::new(RwLock::new(VerifyQueue::new(
+                config.max_tx_verify_cycles,
+                config.verify_ordering,
+            ))),
+            pre_check_queue: Arc::clone(&pre_check_queue),
+        },
         chunk_rx,
         rbf_candidates: Arc::new(RwLock::new(
             crate::component::rbf_candidates::RbfCandidates::new(),
@@ -710,7 +713,7 @@ async fn seed_parent_and_nearly_fill_queue(
     service: &TxPoolService,
     parent: ckb_types::core::TransactionView,
 ) {
-    let mut ordered = service.ordered_resolve_queue.write().await;
+    let mut ordered = service.queues.ordered_resolve_queue.write().await;
     ordered.set_total_tx_size_for_test(256_000_000 - 1_000);
     ordered
         .add_tx(ResolveJob::new(parent, None, false))
@@ -743,6 +746,7 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is
     assert!(service.orphan.read().await.contains_key(&orphan_id));
     assert!(
         !service
+            .queues
             .ordered_resolve_queue
             .read()
             .await

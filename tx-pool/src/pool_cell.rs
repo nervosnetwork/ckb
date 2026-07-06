@@ -17,7 +17,12 @@ impl<'a> PoolCell<'a> {
 
 impl<'a> PoolCell<'a> {
     fn is_consumed_by_pool(&self, out_point: &OutPoint) -> bool {
-        !self.rbf && self.pool_map.edges.get_input_ref(out_point).is_some()
+        !self.rbf
+            && self
+                .pool_map
+                .out_point_index
+                .get_input_ref(out_point)
+                .is_some()
     }
 }
 

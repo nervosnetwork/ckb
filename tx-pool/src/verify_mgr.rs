@@ -110,7 +110,7 @@ impl VerifyMgr {
         let worker_num = service.tx_pool_config.max_tx_verify_workers;
         let workers: Vec<_> = (0..worker_num)
             .map({
-                let tasks = Arc::clone(&service.verify_queue);
+                let tasks = Arc::clone(&service.queues.verify_queue);
                 let signal_exit = signal_exit.clone();
                 move |idx| {
                     let role = if idx == 0 && worker_num > 1 {
