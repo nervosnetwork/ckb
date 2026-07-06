@@ -156,14 +156,6 @@ impl TxPool {
         self.pool_map.get_by_id(id).is_some()
     }
 
-    pub(crate) fn set_entry_proposed(&mut self, short_id: &ProposalShortId) {
-        self.pool_map.set_entry(short_id, Status::Proposed)
-    }
-
-    pub(crate) fn set_entry_gap(&mut self, short_id: &ProposalShortId) {
-        self.pool_map.set_entry(short_id, Status::Gap)
-    }
-
     pub(crate) fn record_conflict(&mut self, tx: TransactionView) {
         let short_id = tx.proposal_short_id();
         for input in tx.input_pts_iter() {
@@ -320,7 +312,7 @@ impl TxPool {
         reject_events: &mut Vec<(TxEntry, Reject)>,
     ) -> Option<Reject> {
         let mut ret = None;
-        while self.pool_map.stats.total_tx_size > self.config.max_tx_pool_size {
+        while self.pool_map.stats.total_tx_size.get() > self.config.max_tx_pool_size {
             let next_evict_entry = || {
                 self.pool_map
                     .next_evict_entry(Status::Pending)
@@ -419,15 +411,19 @@ impl TxPool {
             .map_err(Reject::Resolve)
     }
 
-    pub(crate) fn gap_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
+    pub(crate) fn transition_to_status(
+        &mut self,
+        short_id: &ProposalShortId,
+        target: Status,
+    ) -> Result<(), Reject> {
         match self.get_pool_entry(short_id) {
             Some(entry) => {
                 let tx_hash = entry.inner.transaction().hash();
-                if entry.status == Status::Gap {
+                if entry.status == target {
                     Err(Reject::Duplicated(tx_hash))
                 } else {
-                    debug!("gap_rtx: {:?} => {:?}", tx_hash, short_id);
-                    self.set_entry_gap(short_id);
+                    debug!("transition_to_status: {:?} => {:?}", tx_hash, short_id);
+                    self.pool_map.set_entry(short_id, target);
                     Ok(())
                 }
             }
@@ -438,23 +434,12 @@ impl TxPool {
         }
     }
 
+    pub(crate) fn gap_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
+        self.transition_to_status(short_id, Status::Gap)
+    }
+
     pub(crate) fn proposed_rtx(&mut self, short_id: &ProposalShortId) -> Result<(), Reject> {
-        match self.get_pool_entry(short_id) {
-            Some(entry) => {
-                let tx_hash = entry.inner.transaction().hash();
-                if entry.status == Status::Proposed {
-                    Err(Reject::Duplicated(tx_hash))
-                } else {
-                    debug!("proposed_rtx: {:?} => {:?}", tx_hash, short_id);
-                    self.set_entry_proposed(short_id);
-                    Ok(())
-                }
-            }
-            None => Err(Reject::Malformed(
-                String::from("invalid short_id"),
-                Default::default(),
-            )),
-        }
+        self.transition_to_status(short_id, Status::Proposed)
     }
 
     /// Get to-be-proposal transactions that may be included in the next block.

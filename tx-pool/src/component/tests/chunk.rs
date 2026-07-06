@@ -1,7 +1,8 @@
 use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
+use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::tests::util::build_tx;
-use crate::component::verify_queue::{Entry, VerifyQueue};
+use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::{TxPoolService, TxVerificationResult};
@@ -61,9 +62,7 @@ fn dummy_resolved_tx(
 #[tokio::test]
 async fn verify_queue_basic() {
     let tx = TransactionBuilder::default().build();
-    let entry = Entry {
-        resolved: dummy_resolved_tx(tx.clone(), None, false),
-    };
+    let entry = dummy_resolved_tx(tx.clone(), None, false);
     let tx2 = build_tx(vec![(&tx.hash(), 0)], 1);
 
     let id = tx.proposal_short_id();
@@ -129,11 +128,11 @@ async fn verify_queue_basic() {
     assert_eq!(counts, 4);
 
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx);
+    assert_eq!(cur.unwrap().tx, tx);
 
     assert!(!queue.is_empty());
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx2);
+    assert_eq!(cur.unwrap().tx, tx2);
 
     assert!(queue.is_empty());
 
@@ -221,17 +220,17 @@ async fn test_verify_different_cycles() {
 
     // first should pop the proposal tx
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx_4_proposal);
+    assert_eq!(cur.unwrap().tx, tx_4_proposal);
 
     // tx0 should be the first tx in the queue
     let cur = queue.pop_front(true);
-    assert_eq!(*cur.unwrap().tx(), tx0);
+    assert_eq!(cur.unwrap().tx, tx0);
 
     let cur = queue.pop_front(true);
-    assert_eq!(*cur.unwrap().tx(), tx2);
+    assert_eq!(cur.unwrap().tx, tx2);
 
     let cur = queue.pop_front(true);
-    assert_eq!(*cur.unwrap().tx(), tx3);
+    assert_eq!(cur.unwrap().tx, tx3);
 
     // now there is no small cycle tx
     let cur = queue.pop_front(true);
@@ -239,7 +238,7 @@ async fn test_verify_different_cycles() {
 
     // pop the tx with the large cycle
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx1);
+    assert_eq!(cur.unwrap().tx, tx1);
 
     let cur = queue.pop_front(false);
     assert!(cur.is_none());
@@ -311,16 +310,16 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
     );
 
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx1_proposal);
+    assert_eq!(cur.unwrap().tx, tx1_proposal);
 
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx2_proposal);
+    assert_eq!(cur.unwrap().tx, tx2_proposal);
 
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx0);
+    assert_eq!(cur.unwrap().tx, tx0);
 
     let cur = queue.pop_front(false);
-    assert_eq!(*cur.unwrap().tx(), tx3);
+    assert_eq!(cur.unwrap().tx, tx3);
 }
 
 #[tokio::test]
@@ -328,24 +327,18 @@ async fn verify_queue_remove() {
     let tx1 = TransactionBuilder::default()
         .set_outputs_data(vec![Default::default()])
         .build();
-    let entry1 = Entry {
-        resolved: dummy_resolved_tx(tx1.clone(), Some((1, SessionId::new(1))), false),
-    };
-    let entry1_id = entry1.tx().proposal_short_id();
+    let entry1 = dummy_resolved_tx(tx1.clone(), Some((1, SessionId::new(1))), false);
+    let entry1_id = entry1.tx.proposal_short_id();
     eprintln!("entry1_id: {:?}", entry1_id);
     let tx2 = TransactionBuilder::default()
         .set_cell_deps(vec![Default::default(), Default::default()])
         .build();
-    let entry2 = Entry {
-        resolved: dummy_resolved_tx(tx2.clone(), Some((2, SessionId::new(2))), false),
-    };
-    let entry2_id = entry2.tx().proposal_short_id();
+    let entry2 = dummy_resolved_tx(tx2.clone(), Some((2, SessionId::new(2))), false);
+    let entry2_id = entry2.tx.proposal_short_id();
     eprintln!("entry2_id: {:?}", entry2_id);
     let tx3 = TransactionBuilder::default().build();
-    let entry3 = Entry {
-        resolved: dummy_resolved_tx(tx3.clone(), None, false),
-    };
-    let entry3_id = entry3.tx().proposal_short_id();
+    let entry3 = dummy_resolved_tx(tx3.clone(), None, false);
+    let entry3_id = entry3.tx.proposal_short_id();
     eprintln!("entry3_id: {:?}", entry3_id);
 
     let tx4 = TransactionBuilder::default()
@@ -355,17 +348,15 @@ async fn verify_queue_remove() {
             Default::default(),
         ])
         .build();
-    let entry4 = Entry {
-        resolved: dummy_resolved_tx(tx4.clone(), Some((4, SessionId::new(1))), false),
-    };
-    let entry4_id = entry4.tx().proposal_short_id();
+    let entry4 = dummy_resolved_tx(tx4.clone(), Some((4, SessionId::new(1))), false);
+    let entry4_id = entry4.tx.proposal_short_id();
 
     let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
 
-    assert!(queue.add_tx(entry1.resolved.clone()).unwrap());
-    assert!(queue.add_tx(entry2.resolved.clone()).unwrap());
-    assert!(queue.add_tx(entry3.resolved.clone()).unwrap());
-    assert!(queue.add_tx(entry4.resolved.clone()).unwrap());
+    assert!(queue.add_tx(entry1.clone()).unwrap());
+    assert!(queue.add_tx(entry2.clone()).unwrap());
+    assert!(queue.add_tx(entry3.clone()).unwrap());
+    assert!(queue.add_tx(entry4.clone()).unwrap());
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert!(queue.contains_key(&entry1_id));
@@ -479,21 +470,21 @@ async fn verify_queue_fee_rate_pop_order() {
     // Pop order should be: highest fee first → lowest fee last.
     let e1 = queue.pop_front(false).unwrap();
     assert_eq!(
-        e1.tx().proposal_short_id(),
+        e1.tx.proposal_short_id(),
         ids[2],
         "first pop should be highest fee"
     );
 
     let e2 = queue.pop_front(false).unwrap();
     assert_eq!(
-        e2.tx().proposal_short_id(),
+        e2.tx.proposal_short_id(),
         ids[1],
         "second pop should be middle fee"
     );
 
     let e3 = queue.pop_front(false).unwrap();
     assert_eq!(
-        e3.tx().proposal_short_id(),
+        e3.tx.proposal_short_id(),
         ids[0],
         "third pop should be lowest fee"
     );
@@ -578,7 +569,7 @@ async fn verify_queue_fee_rate_remove_and_repeek() {
 
     // Pop should return id3.
     let popped = queue.pop_front(false).unwrap();
-    assert_eq!(popped.tx().proposal_short_id(), id3);
+    assert_eq!(popped.tx.proposal_short_id(), id3);
 
     // Queue should be empty.
     assert!(queue.is_empty());

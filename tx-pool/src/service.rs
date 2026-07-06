@@ -3,6 +3,7 @@
 use crate::block_assembler::{self, BlockAssembler};
 use crate::callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback};
 use crate::component::orphan::OrphanPool;
+use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
 #[cfg(feature = "pipeline")]
 use crate::component::rbf_candidates::RbfCandidates;
@@ -1190,8 +1191,7 @@ impl TxPoolService {
         }
         {
             let verify_queue = self.verify_queue.read().await;
-            if let Some(entry) = verify_queue.get_tx_by_id(id) {
-                let resolved = &entry.resolved;
+            if let Some(resolved) = verify_queue.get_tx_by_id(id) {
                 return Some(PipelineTxLocation::Verifying {
                     tx: resolved.tx.clone(),
                     fee: resolved.fee,
@@ -1646,8 +1646,8 @@ impl TxPoolService {
             pending_size: tx_pool.pool_map.pending_size(),
             proposed_size: tx_pool.pool_map.proposed_size(),
             orphan_size: orphan.len(),
-            total_tx_size: tx_pool.pool_map.stats.total_tx_size,
-            total_tx_cycles: tx_pool.pool_map.stats.total_tx_cycles,
+            total_tx_size: tx_pool.pool_map.stats.total_tx_size.get(),
+            total_tx_cycles: tx_pool.pool_map.stats.total_tx_cycles.get(),
             min_fee_rate: self.tx_pool_config.min_fee_rate,
             min_rbf_rate: self.tx_pool_config.min_rbf_rate,
             last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
@@ -1773,7 +1773,7 @@ impl TxPoolService {
             txs.extend(short_ids.iter().filter_map(|short_id| {
                 verify_queue
                     .get_tx_by_id(short_id)
-                    .map(|entry| (short_id.to_owned(), entry.tx().to_owned()))
+                    .map(|resolved| (short_id.to_owned(), resolved.tx.to_owned()))
             }));
         }
         {

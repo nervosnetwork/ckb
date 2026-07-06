@@ -7,6 +7,7 @@
 //! Keeping this stage ordered reduces orphan-pool churn for dependent txs.
 
 use crate::component::ordered_resolve_queue::OrderedResolveQueue;
+use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::verify_queue::VerifyQueue;
 use crate::error::Reject;
 use crate::process::PreCheckedTx;

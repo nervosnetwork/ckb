@@ -116,20 +116,6 @@ impl RbfCandidates {
         }
     }
 
-    /// Remove all candidates whose conflict inputs intersect the given out-point.
-    /// Useful when an in-pool tx is removed and its inputs are no longer conflicted.
-    #[allow(dead_code)]
-    pub fn remove_by_input(&mut self, input: &OutPoint) {
-        if let Some((_, id)) = self.by_input.remove(input)
-            && let Some(inputs) = self.by_id.get_mut(&id)
-        {
-            inputs.retain(|i| i != input);
-            if inputs.is_empty() {
-                self.by_id.remove(&id);
-            }
-        }
-    }
-
     /// Clear all tracked candidates.
     pub fn clear(&mut self) {
         self.by_input.clear();

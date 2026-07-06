@@ -5,6 +5,7 @@ use super::links::TxLinks;
 use crate::TxEntry;
 use crate::component::edges::Edges;
 use crate::component::links::{Relation, TxLinksMap};
+use crate::component::saturating_counter::SaturatingCounter;
 use crate::component::sort_key::{AncestorsScoreSortKey, EvictKey};
 use crate::error::Reject;
 use ckb_logger::{debug, error, trace};
@@ -61,9 +62,9 @@ pub struct PoolEntry {
 #[derive(Default)]
 pub struct PoolStats {
     // sum of all tx_pool tx's virtual sizes.
-    pub total_tx_size: usize,
+    pub total_tx_size: SaturatingCounter<usize>,
     // sum of all tx_pool tx's cycles.
-    pub total_tx_cycles: Cycle,
+    pub total_tx_cycles: SaturatingCounter<Cycle>,
     pub pending_count: usize,
     pub gap_count: usize,
     pub proposed_count: usize,
@@ -71,8 +72,8 @@ pub struct PoolStats {
 
 impl PoolStats {
     pub fn clear(&mut self) {
-        self.total_tx_size = 0;
-        self.total_tx_cycles = 0;
+        self.total_tx_size.set(0);
+        self.total_tx_cycles.set(0);
         self.pending_count = 0;
         self.gap_count = 0;
         self.proposed_count = 0;
@@ -92,6 +93,43 @@ impl PoolStats {
                 Status::Gap => self.gap_count += 1,
                 Status::Proposed => self.proposed_count += 1,
             }
+        }
+    }
+
+    /// Atomically adjust cached total size and cycles for a removed tx.
+    /// If either counter underflows, use `recompute` (precomputed by the caller)
+    /// to recover both counters together and stay consistent.
+    fn adjust_totals(
+        &mut self,
+        tx_size: usize,
+        cycles: Cycle,
+        recompute: Option<(usize, Cycle)>,
+        action: &'static str,
+    ) {
+        match (
+            self.total_tx_size.get().checked_sub(tx_size),
+            self.total_tx_cycles.get().checked_sub(cycles),
+        ) {
+            (Some(size), Some(cycles)) => {
+                self.total_tx_size.set(size);
+                self.total_tx_cycles.set(cycles);
+            }
+            _ => match recompute {
+                Some((size, cycles)) => {
+                    error!(
+                        "tx-pool total stats underflowed when removing size {} cycles {} in {}, recomputed size {} cycles {}",
+                        tx_size, cycles, action, size, cycles
+                    );
+                    self.total_tx_size.set(size);
+                    self.total_tx_cycles.set(cycles);
+                }
+                None => {
+                    error!(
+                        "tx-pool total stats underflowed when removing size {} cycles {} in {}, and recomputing overflowed",
+                        tx_size, cycles, action
+                    );
+                }
+            },
         }
     }
 }
@@ -244,8 +282,8 @@ impl PoolMap {
         self.track_entry_statistics(None, Some(status));
         let (total_tx_size, total_tx_cycles) =
             self.update_stat_for_add_tx(entry.size, entry.cycles)?;
-        self.stats.total_tx_size = total_tx_size;
-        self.stats.total_tx_cycles = total_tx_cycles;
+        self.stats.total_tx_size.set(total_tx_size);
+        self.stats.total_tx_cycles.set(total_tx_cycles);
         Ok((true, evicts))
     }
 
@@ -563,7 +601,7 @@ impl PoolMap {
             for child in &children {
                 self.links.add_parent(child, tx_short_id.clone());
             }
-            if let Some(links) = self.links.inner.get_mut(&tx_short_id) {
+            if let Some(links) = self.links.get_mut(&tx_short_id) {
                 links.children.extend(children);
             }
             self.update_descendants_index_key(entry, EntryOp::Add);
@@ -594,14 +632,14 @@ impl PoolMap {
             }
 
             let id = ProposalShortId::from_tx_hash(&input_pt.tx_hash());
-            if self.links.inner.contains_key(&id) {
+            if self.links.contains_key(&id) {
                 parents.insert(id);
             }
         }
         for cell_dep in entry.cell_deps() {
             let dep_pt = cell_dep.out_point();
             let id = ProposalShortId::from_tx_hash(&dep_pt.tx_hash());
-            if self.links.inner.contains_key(&id) {
+            if self.links.contains_key(&id) {
                 parents.insert(id);
             }
         }
@@ -768,52 +806,51 @@ impl PoolMap {
         let total_tx_size = self
             .stats
             .total_tx_size
+            .get()
             .checked_add(tx_size)
             .ok_or_else(|| {
                 Reject::Full(format!(
                     "tx-pool total_tx_size {} overflows by add {}",
-                    self.stats.total_tx_size, tx_size
+                    self.stats.total_tx_size.get(),
+                    tx_size
                 ))
             })?;
         let total_tx_cycles = self
             .stats
             .total_tx_cycles
+            .get()
             .checked_add(cycles)
             .ok_or_else(|| {
                 Reject::Full(format!(
                     "tx-pool total_tx_cycles {} overflows by add {}",
-                    self.stats.total_tx_cycles, cycles
+                    self.stats.total_tx_cycles.get(),
+                    cycles
                 ))
             })?;
         Ok((total_tx_size, total_tx_cycles))
     }
 
-    /// Update size and cycles statistics for remove tx
-    /// cycles overflow is possible, currently obtaining cycles is not accurate
+    /// Update size and cycles statistics for remove tx.
+    /// Cycles overflow is possible because cycle counts are not always accurate.
     fn update_stat_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
-        match (
-            self.stats.total_tx_size.checked_sub(tx_size),
-            self.stats.total_tx_cycles.checked_sub(cycles),
-        ) {
-            (Some(total_tx_size), Some(total_tx_cycles)) => {
-                self.stats.total_tx_size = total_tx_size;
-                self.stats.total_tx_cycles = total_tx_cycles;
-            }
-            _ => {
-                if let Some((total_tx_size, total_tx_cycles)) = self.recompute_total_stat() {
-                    error!(
-                        "tx-pool total stats underflowed when removing size {} cycles {}, recomputed size {} cycles {}",
-                        tx_size, cycles, total_tx_size, total_tx_cycles
-                    );
-                    self.stats.total_tx_size = total_tx_size;
-                    self.stats.total_tx_cycles = total_tx_cycles;
-                } else {
-                    error!(
-                        "tx-pool total stats underflowed when removing size {} cycles {}, and recomputing overflowed",
-                        tx_size, cycles
-                    );
-                }
-            }
-        }
+        let needs_recompute = self
+            .stats
+            .total_tx_size
+            .get()
+            .checked_sub(tx_size)
+            .is_none()
+            || self
+                .stats
+                .total_tx_cycles
+                .get()
+                .checked_sub(cycles)
+                .is_none();
+        let recompute = if needs_recompute {
+            self.recompute_total_stat()
+        } else {
+            None
+        };
+        self.stats
+            .adjust_totals(tx_size, cycles, recompute, "remove_tx");
     }
 }

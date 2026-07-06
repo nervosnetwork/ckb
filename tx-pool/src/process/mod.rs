@@ -1,7 +1,6 @@
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
-use crate::component::orphan::Entry as OrphanEntry;
-use crate::component::pool_map::Status;
+use crate::component::pipeline_queue::PipelineQueue;
 #[cfg(feature = "pipeline")]
 use crate::component::pre_check_queue::PreCheckJob;
 use crate::constants::{GAP_PROPOSAL_INDEX, MALFORMED_TX_BAN_SECONDS, PROPOSED_PROPOSAL_INDEX};
@@ -39,6 +38,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
+
+mod orphan;
+mod rbf;
+mod reorg;
 
 /// A list for plug target for `plug_entry` method
 pub enum PlugTarget {
@@ -314,57 +317,9 @@ impl TxPoolService {
         }
     }
 
-    // Remove conflicting transactions for RBF and record them in the conflicts
-    // cache so they can be recovered if the replacement fails. Returns the set
-    // of removed entries; the caller decides which ones to recover and when to
-    // clean up the conflicts cache.
-    fn process_rbf(
-        &self,
-        tx_pool: &mut TxPool,
-        entry: &TxEntry,
-        conflicts: &HashSet<ProposalShortId>,
-        reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) -> Vec<TxEntry> {
-        if conflicts.is_empty() {
-            return Vec::new();
-        }
-
-        let all_removed: Vec<_> = conflicts
-            .iter()
-            .flat_map(|id| tx_pool.pool_map.remove_entry_and_descendants(id))
-            .collect();
-
-        for old in &all_removed {
-            debug!(
-                "remove conflict tx {} for RBF by new tx {}",
-                old.transaction().hash(),
-                entry.transaction().hash()
-            );
-            let reject =
-                Reject::RBFRejected(format!("replaced by tx {}", entry.transaction().hash()));
-
-            // collect reject events for dispatch outside write lock
-            reject_events.push((old.clone(), reject));
-        }
-
-        // Record every removed entry (direct conflicts and their descendants)
-        // in the conflicts cache so that they can all be recovered if the
-        // replacement fails or if their inputs become available again.
-        for old in &all_removed {
-            tx_pool.record_conflict(old.transaction().clone());
-        }
-
-        all_removed
-    }
-
     pub(crate) async fn verify_queue_contains(&self, tx: &TransactionView) -> bool {
         let queue = self.verify_queue.read().await;
         queue.contains_key(&tx.proposal_short_id())
-    }
-
-    pub(crate) async fn orphan_contains(&self, tx: &TransactionView) -> bool {
-        let orphan = self.orphan.read().await;
-        orphan.contains_key(&tx.proposal_short_id())
     }
 
     pub(crate) async fn with_tx_pool_read_lock<U, F: FnMut(&TxPool, Arc<Snapshot>) -> U>(
@@ -863,135 +818,6 @@ impl TxPoolService {
         }
     }
 
-    /// Route a transaction with missing inputs to the orphan pool and notify
-    /// the relayer about the missing parents.
-    ///
-    /// Used by both [`Self::after_process`] (which computes parents from the
-    /// tx) and the ordered resolver (which receives parents from the resolve
-    /// stage result).
-    pub(crate) async fn handle_missing_input_orphan(
-        &self,
-        tx: TransactionView,
-        peer: PeerIndex,
-        declared_cycle: Cycle,
-        parents: HashSet<Byte32>,
-    ) {
-        // Only notify the relayer after the tx has actually been accepted into
-        // the orphan pool. This avoids telling peers about missing parents for
-        // a tx that we end up dropping (e.g. duplicate orphan or pool full).
-        if self.add_orphan(tx, peer, declared_cycle).await {
-            self.send_result_to_relayer(TxVerificationResult::UnknownParents { peer, parents });
-        }
-    }
-
-    pub(crate) async fn add_orphan(
-        &self,
-        tx: TransactionView,
-        peer: PeerIndex,
-        declared_cycle: Cycle,
-    ) -> bool {
-        let (added, evicted_txs) =
-            self.orphan
-                .write()
-                .await
-                .add_orphan_tx(tx, peer, declared_cycle);
-        // for any evicted orphan tx, we should send reject to relayer
-        // so that we mark it as `unknown` in filter
-        for tx_hash in evicted_txs {
-            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
-        }
-        added
-    }
-
-    pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
-        let orphan = self.orphan.read().await;
-        orphan
-            .find_by_previous(tx)
-            .iter()
-            .filter_map(|id| orphan.get(id).cloned())
-            .collect::<Vec<_>>()
-    }
-
-    pub(crate) async fn remove_orphan_tx(&self, id: &ProposalShortId) {
-        self.orphan.write().await.remove_orphan_tx(id);
-    }
-
-    /// Remove all orphans which are resolved by the given transaction.
-    ///
-    /// The search is breadth-first: each orphan is routed through the same
-    /// pipeline entry point as other remote transactions. When an orphan is
-    /// eventually verified and submitted, `after_process` will recursively
-    /// process its own descendants in the orphan pool.
-    pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
-        let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
-        orphan_queue.push_back(tx.clone());
-
-        while let Some(previous) = orphan_queue.pop_front() {
-            let orphans = self.find_orphan_by_previous(&previous).await;
-            for orphan in orphans.into_iter() {
-                let orphan_id = orphan.tx.proposal_short_id();
-
-                #[cfg(feature = "pipeline")]
-                {
-                    match self
-                        .classify_and_enqueue_tx(
-                            orphan.tx.clone(),
-                            false,
-                            Some((orphan.cycle, orphan.peer)),
-                        )
-                        .await
-                    {
-                        Ok(_) => {
-                            self.remove_orphan_tx(&orphan_id).await;
-                            // The orphan is now in the pipeline. Its own children
-                            // will be processed once it successfully submits via
-                            // the normal `after_process` -> `handle_verify_success`
-                            // path, so we do not need to push it back here.
-                        }
-                        Err(reject) => {
-                            // Keep the orphan if the only problem is that its
-                            // parents are not yet available or the pipeline queues
-                            // are temporarily full.  For any other reject reason
-                            // (malformed, low fee, etc.) remove it and notify the
-                            // peer.
-                            if crate::util::is_missing_input(&reject)
-                                || matches!(reject, Reject::Full(_))
-                            {
-                                warn!(
-                                    "process_orphan {} not ready ({reject}); keeping orphan from {}",
-                                    orphan.tx.hash(),
-                                    tx.hash(),
-                                );
-                            } else {
-                                self.remove_orphan_tx(&orphan_id).await;
-                                self.handle_remote_reject(&orphan.tx.hash(), &reject, orphan.peer)
-                                    .await;
-                            }
-                        }
-                    }
-                }
-
-                #[cfg(not(feature = "pipeline"))]
-                {
-                    if let Some((ret, snapshot)) = self
-                        .process_tx_sync(orphan.tx.clone(), Some(orphan.cycle), None)
-                        .await
-                    {
-                        let remote = Some((orphan.cycle, orphan.peer));
-                        let keep = matches!(&ret, Err(reject) if crate::util::is_missing_input(reject) || matches!(reject, Reject::Full(_)));
-                        if !keep {
-                            self.remove_orphan_tx(&orphan_id).await;
-                        }
-                        // after_process handles remote reject notifications
-                        // internally; do NOT call handle_remote_reject here to
-                        // avoid double ban/relay/recent_reject.
-                        self.after_process(orphan.tx, remote, &snapshot, &ret).await;
-                    }
-                }
-            }
-        }
-    }
-
     pub(crate) fn send_result_to_relayer(&self, result: TxVerificationResult) {
         if let Err(e) = self.tx_relay_sender.send(result) {
             error!("tx-pool tx_relay_sender internal error {}", e);
@@ -1359,7 +1185,7 @@ impl TxPoolService {
             // This closure is used to limit the lifetime of mutable tx_pool.
             let mut tx_pool = self.tx_pool.write().await;
 
-            reject_events = update_tx_pool_for_reorg(
+            reject_events = reorg::update_tx_pool_for_reorg(
                 &mut tx_pool,
                 &attached,
                 &detached_headers,
@@ -1609,19 +1435,6 @@ impl TxPoolService {
         Ok(true)
     }
 
-    async fn remove_orphan_txs_by_attach(&self, txs: &LinkedHashSet<TransactionView>) {
-        // CRITICAL: this must run after `update_tx_pool_for_reorg` has replaced
-        // `tx_pool.snapshot` with the post-attachment snapshot. Because the snapshot
-        // already reflects the attached blocks, an orphan whose input was consumed by
-        // one of those blocks resolves to `CellStatus::Dead` and is rejected here,
-        // instead of being accepted back into the pipeline.
-        for tx in txs.iter() {
-            self.process_orphan_tx(tx).await;
-        }
-        let mut orphan = self.orphan.write().await;
-        orphan.remove_orphan_txs(txs.iter().map(|tx| tx.proposal_short_id()));
-    }
-
     #[cfg(not(feature = "pipeline"))]
     async fn readd_detached_tx(
         &self,
@@ -1834,85 +1647,4 @@ fn submit_entry(
         }
     }
     Ok(evicts)
-}
-
-fn update_tx_pool_for_reorg(
-    tx_pool: &mut TxPool,
-    attached: &LinkedHashSet<TransactionView>,
-    detached_headers: &HashSet<Byte32>,
-    detached_proposal_id: HashSet<ProposalShortId>,
-    snapshot: Arc<Snapshot>,
-    callbacks: &Callbacks,
-    mine_mode: bool,
-) -> Vec<(TxEntry, Reject)> {
-    let mut reject_events = Vec::new();
-
-    tx_pool.snapshot = Arc::clone(&snapshot);
-
-    // NOTE: `remove_by_detached_proposal` will try to re-put the given expired/detached proposals into
-    // pending-pool if they can be found within txpool. As for a transaction
-    // which is both expired and committed at the one time(commit at its end of commit-window),
-    // we should treat it as a committed and not re-put into pending-pool. So we should ensure
-    // that involves `remove_committed_txs` before `remove_expired`.
-    tx_pool.remove_committed_txs(attached.iter(), detached_headers, &mut reject_events);
-    tx_pool.remove_by_detached_proposal(detached_proposal_id.iter(), callbacks, &mut reject_events);
-
-    // mine mode:
-    // pending ---> gap ----> proposed
-    // try move gap to proposed
-    if mine_mode {
-        let mut proposals = Vec::new();
-        let mut gaps = Vec::new();
-
-        for entry in tx_pool.pool_map.entries.get_by_status(&Status::Gap) {
-            let short_id = entry.inner.proposal_short_id();
-            if snapshot.proposals().contains_proposed(&short_id) {
-                proposals.push((short_id, entry.inner.clone()));
-            }
-        }
-
-        for entry in tx_pool.pool_map.entries.get_by_status(&Status::Pending) {
-            let short_id = entry.inner.proposal_short_id();
-            let elem = (short_id.clone(), entry.inner.clone());
-            if snapshot.proposals().contains_proposed(&short_id) {
-                proposals.push(elem);
-            } else if snapshot.proposals().contains_gap(&short_id) {
-                gaps.push(elem);
-            }
-        }
-
-        for (id, entry) in proposals {
-            debug!("begin to proposed: {:x}", id);
-            if let Err(e) = tx_pool.proposed_rtx(&id) {
-                debug!(
-                    "Failed to add proposed tx {}, reason: {}",
-                    entry.transaction().hash(),
-                    e
-                );
-                reject_events.push((entry, e));
-            } else {
-                callbacks.call_proposed(&entry)
-            }
-        }
-
-        for (id, entry) in gaps {
-            debug!("begin to gap: {:x}", id);
-            if let Err(e) = tx_pool.gap_rtx(&id) {
-                debug!(
-                    "Failed to add tx to gap {}, reason: {}",
-                    entry.transaction().hash(),
-                    e
-                );
-                reject_events.push((entry, e));
-            }
-        }
-    }
-
-    // Remove expired transaction from pending
-    tx_pool.remove_expired(&mut reject_events);
-
-    // Remove transactions from the pool until its size <= size_limit.
-    let _ = tx_pool.limit_size(None, &mut reject_events);
-
-    reject_events
 }

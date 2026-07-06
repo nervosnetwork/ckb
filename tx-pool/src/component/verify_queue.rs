@@ -3,14 +3,15 @@
 extern crate rustc_hash;
 extern crate slab;
 use crate::component::flight_tracker::FlightTracker;
+use crate::component::pipeline_queue::PipelineQueue;
+use crate::component::saturating_counter::SaturatingCounter;
 use crate::resolved_tx::ResolvedTx;
 use ckb_app_config::VerifyOrdering;
-use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::tx_pool::get_transaction_weight;
 use ckb_types::{
-    core::{Cycle, FeeRate, TransactionView, tx_pool::Reject},
+    core::{FeeRate, tx_pool::Reject},
     packed::ProposalShortId,
 };
 use ckb_util::shrink_to_fit;
@@ -18,32 +19,7 @@ use multi_index_map::MultiIndexMap;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-use crate::constants::{DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE, SHRINK_THRESHOLD};
-
-/// The verify queue Entry to verify.
-#[derive(Debug, Clone)]
-pub struct Entry {
-    /// Resolved transaction ready for verification.
-    pub(crate) resolved: ResolvedTx,
-}
-
-impl Entry {
-    /// The raw transaction.
-    pub fn tx(&self) -> &TransactionView {
-        &self.resolved.tx
-    }
-
-    /// Declared cycles and source peer, if this is a remote transaction.
-    pub fn remote(&self) -> Option<(Cycle, PeerIndex)> {
-        self.resolved.remote
-    }
-}
-
-impl PartialEq for Entry {
-    fn eq(&self, other: &Entry) -> bool {
-        self.tx() == other.tx()
-    }
-}
+use crate::constants::SHRINK_THRESHOLD;
 
 /// Compute an inverted fee rate so that ascending iteration over the index
 /// yields descending fee-rate order.  `u64::MAX - fee_rate` is used as the
@@ -77,8 +53,8 @@ struct VerifyEntry {
     /// Whether this is a proposal transaction.
     is_proposal_tx: bool,
 
-    /// other sort key
-    inner: Entry,
+    /// The resolved transaction ready for verification.
+    inner: ResolvedTx,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -94,7 +70,7 @@ pub(crate) struct VerifyQueue {
     /// subscribe this notify to get be notified when there is item in the queue
     ready_rx: Arc<Notify>,
     /// total tx size in the queue, will reject new transaction if exceed the limit
-    total_tx_size: usize,
+    total_tx_size: SaturatingCounter<usize>,
     /// large cycle threshold, from `pool_config.max_tx_verify_cycles`
     large_cycle_threshold: u64,
     /// Output out-points of txs currently in this queue.
@@ -109,28 +85,17 @@ impl VerifyQueue {
         VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
             ready_rx: Arc::new(Notify::new()),
-            total_tx_size: 0,
+            total_tx_size: SaturatingCounter::new(0),
             large_cycle_threshold,
             flight: FlightTracker::new(),
             ordering,
         }
     }
 
-    /// Returns true if the given tx spends an output produced by another tx
-    /// that is currently in this queue.
-    pub fn depends_on(&self, tx: &TransactionView) -> bool {
-        self.flight.depends_on(tx)
-    }
-
     fn recompute_total_tx_size(&self) -> Option<usize> {
         self.inner.iter().try_fold(0usize, |total, (_, entry)| {
-            total.checked_add(entry.inner.resolved.tx_size)
+            total.checked_add(entry.inner.tx_size)
         })
-    }
-
-    /// Returns true if the queue contains no txs.
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -139,21 +104,11 @@ impl VerifyQueue {
 
     #[cfg(test)]
     pub fn total_tx_size(&self) -> usize {
-        self.total_tx_size
+        self.total_tx_size.get()
     }
 
-    /// Returns true if the queue is full.
-    pub fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size.saturating_add(add_tx_size) >= DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE
-    }
-
-    /// Returns true if the queue contains a tx with the specified id.
-    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.inner.get_by_id(id).is_some()
-    }
-
-    /// Returns true if the queue contains a tx with the specified id.
-    pub fn get_tx_by_id(&self, id: &ProposalShortId) -> Option<&Entry> {
+    /// Returns the resolved tx for the given id, if present.  O(1).
+    pub fn get_tx_by_id(&self, id: &ProposalShortId) -> Option<&ResolvedTx> {
         self.inner.get_by_id(id).map(|e| &e.inner)
     }
 
@@ -162,68 +117,17 @@ impl VerifyQueue {
         shrink_to_fit!(self.inner, SHRINK_THRESHOLD);
     }
 
-    /// get a queue_rx to subscribe the txs count in the queue
-    pub fn subscribe(&self) -> Arc<Notify> {
-        Arc::clone(&self.ready_rx)
-    }
-
-    /// Remove a tx from the queue
-    pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<Entry> {
-        self.flight.remove(id);
-        self.inner.remove_by_id(id).map(|e| {
-            let tx_size = e.inner.resolved.tx_size;
-            if let Some(total_tx_size) = self.total_tx_size.checked_sub(tx_size) {
-                self.total_tx_size = total_tx_size;
-            } else if let Some(total_tx_size) = self.recompute_total_tx_size() {
-                error!(
-                    "verify_queue total_tx_size {} underflowed by sub {}, recomputed {}",
-                    self.total_tx_size, tx_size, total_tx_size
-                );
-                self.total_tx_size = total_tx_size;
-            } else {
-                error!(
-                    "verify_queue total_tx_size {} underflowed by sub {}, and recomputing overflowed",
-                    self.total_tx_size, tx_size
-                );
-            }
-            self.shrink_to_fit();
-            e.inner
-        })
-    }
-
-    /// Remove multiple txs from the queue
+    /// Remove multiple txs from the queue.
     pub fn remove_txs(&mut self, ids: impl Iterator<Item = ProposalShortId>) {
         for id in ids {
-            self.remove_tx(&id);
+            <Self as PipelineQueue>::remove_tx(self, &id);
         }
     }
 
-    /// Remove multiple txs from the queue from a specified peer.
-    /// Returns the short ids of the removed txs.
-    pub fn remove_txs_by_peer(&mut self, peer: &PeerIndex) -> Vec<ProposalShortId> {
-        let ids: Vec<_> = self
-            .inner
-            .iter()
-            .filter(|&(_cycle, entry)| {
-                entry
-                    .inner
-                    .resolved
-                    .remote
-                    .as_ref()
-                    .is_some_and(|(_, p)| p == peer)
-            })
-            .map(|(_cycle, entry)| entry.id.clone())
-            .collect();
-
-        let removed = ids.clone();
-        self.remove_txs(ids.into_iter());
-        removed
-    }
-
-    /// Returns the first entry in the queue and remove it
-    pub fn pop_front(&mut self, only_small_cycle: bool) -> Option<Entry> {
+    /// Returns the first entry in the queue and remove it.
+    pub fn pop_front(&mut self, only_small_cycle: bool) -> Option<ResolvedTx> {
         if let Some(short_id) = self.peek(only_small_cycle) {
-            self.remove_tx(&short_id)
+            <Self as PipelineQueue>::remove_tx(self, &short_id)
         } else {
             None
         }
@@ -251,12 +155,12 @@ impl VerifyQueue {
             self.inner
                 .iter_by_priority_order()
                 .find(|e| !e.is_large_cycle)
-                .map(|e| e.inner.tx().proposal_short_id())
+                .map(|e| e.inner.tx.proposal_short_id())
         } else {
             self.inner
                 .iter_by_priority_order()
                 .next()
-                .map(|e| e.inner.tx().proposal_short_id())
+                .map(|e| e.inner.tx.proposal_short_id())
         }
     }
 
@@ -267,7 +171,7 @@ impl VerifyQueue {
             .iter_by_inverted_fee_rate()
             .find(|e| e.is_proposal_tx && !(only_small_cycle && e.is_large_cycle))
         {
-            return Some(proposal_entry.inner.tx().proposal_short_id());
+            return Some(proposal_entry.inner.tx.proposal_short_id());
         }
 
         // Non-proposal txs — highest fee rate first.
@@ -279,7 +183,7 @@ impl VerifyQueue {
             self.inner.iter_by_inverted_fee_rate().next()
         };
 
-        entry.map(|e| e.inner.tx().proposal_short_id())
+        entry.map(|e| e.inner.tx.proposal_short_id())
     }
 
     /// Compute fee rate for a resolved tx.
@@ -296,9 +200,71 @@ impl VerifyQueue {
         FeeRate::calculate(resolved.fee, weight)
     }
 
-    /// If the queue did not have this tx present, true is returned.
-    /// If the queue did have this tx present, false is returned.
-    pub fn add_tx(&mut self, resolved: ResolvedTx) -> Result<bool, Reject> {
+    /// When OnlySmallCycleTx Worker is wakeup, but found the tx is large cycle tx, notify other workers.
+    pub fn re_notify(&self) {
+        self.ready_rx.notify_waiters();
+    }
+}
+
+impl PipelineQueue for VerifyQueue {
+    type Tx = ResolvedTx;
+
+    fn total_tx_size(&self) -> &SaturatingCounter<usize> {
+        &self.total_tx_size
+    }
+
+    fn flight(&self) -> &FlightTracker {
+        &self.flight
+    }
+
+    fn ready_rx(&self) -> &Arc<Notify> {
+        &self.ready_rx
+    }
+
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    fn contains_key(&self, id: &ProposalShortId) -> bool {
+        self.inner.get_by_id(id).is_some()
+    }
+
+    fn remove_tx(&mut self, id: &ProposalShortId) -> Option<ResolvedTx> {
+        self.flight.remove(id);
+        self.inner.remove_by_id(id).map(|e| {
+            let tx_size = e.inner.tx_size;
+            let recompute = self
+                .total_tx_size
+                .get()
+                .checked_sub(tx_size)
+                .is_none()
+                .then(|| self.recompute_total_tx_size())
+                .flatten();
+            self.total_tx_size.sub_or_recompute(
+                tx_size,
+                recompute,
+                "verify_queue total_tx_size",
+                "remove_tx",
+            );
+            self.shrink_to_fit();
+            e.inner
+        })
+    }
+
+    fn remove_txs_by_peer(&mut self, peer: &PeerIndex) -> Vec<ProposalShortId> {
+        let ids: Vec<_> = self
+            .inner
+            .iter()
+            .filter(|&(_cycle, entry)| entry.inner.remote.as_ref().is_some_and(|(_, p)| p == peer))
+            .map(|(_cycle, entry)| entry.id.clone())
+            .collect();
+
+        let removed = ids.clone();
+        self.remove_txs(ids.into_iter());
+        removed
+    }
+
+    fn add_tx(&mut self, resolved: ResolvedTx) -> Result<bool, Reject> {
         let id = resolved.tx.proposal_short_id();
         if self.contains_key(&id) {
             if resolved.is_proposal_tx {
@@ -341,41 +307,39 @@ impl VerifyQueue {
                 resolved.tx.hash()
             )));
         }
-        let total_tx_size = self.total_tx_size.checked_add(tx_size).ok_or_else(|| {
-            Reject::Full(format!(
-                "verify_queue total_tx_size overflowed, failed to add tx: {:#x}",
-                resolved.tx.hash()
-            ))
-        })?;
+        let total_tx_size = self
+            .total_tx_size
+            .get()
+            .checked_add(tx_size)
+            .ok_or_else(|| {
+                Reject::Full(format!(
+                    "verify_queue total_tx_size overflowed, failed to add tx: {:#x}",
+                    resolved.tx.hash()
+                ))
+            })?;
         let fee_rate = self.compute_fee_rate(&resolved);
         self.inner.insert(VerifyEntry {
             id: id.clone(),
             added_time,
             inverted_fee_rate: invert_fee_rate(fee_rate.as_u64()),
             priority_order: (priority, added_time),
-            inner: Entry { resolved },
+            inner: resolved,
             is_large_cycle,
             is_proposal_tx,
         });
         self.flight.insert(
             id.clone(),
-            self.inner.get_by_id(&id).expect("just inserted").inner.tx(),
+            &self.inner.get_by_id(&id).expect("just inserted").inner.tx,
         );
-        self.total_tx_size = total_tx_size;
+        self.total_tx_size.set(total_tx_size);
         self.ready_rx.notify_one();
         Ok(true)
     }
 
-    /// When OnlySmallCycleTx Worker is wakeup, but found the tx is large cycle tx, notify other workers.
-    pub fn re_notify(&self) {
-        self.ready_rx.notify_waiters();
-    }
-
-    /// Clears the map, removing all elements.
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.inner.clear();
         self.flight.clear();
-        self.total_tx_size = 0;
+        self.total_tx_size.set(0);
         self.shrink_to_fit();
     }
 }

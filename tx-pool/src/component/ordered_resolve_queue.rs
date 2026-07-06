@@ -6,9 +6,10 @@
 //! dependent transactions.
 
 use crate::component::flight_tracker::FlightTracker;
+use crate::component::pipeline_queue::PipelineQueue;
+use crate::component::saturating_counter::SaturatingCounter;
 use crate::error::Reject;
 use crate::resolved_tx::ResolveJob;
-use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::ProposalShortId;
@@ -17,7 +18,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Notify;
 
-use crate::constants::{DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE, SHRINK_THRESHOLD};
+use crate::constants::SHRINK_THRESHOLD;
 
 /// Ordered queue of raw transactions waiting for the ordered resolver.
 ///
@@ -40,7 +41,7 @@ pub(crate) struct OrderedResolveQueue {
     /// Subscribe this notify to get notified when an item is added.
     ready_rx: Arc<Notify>,
     /// Total tx size in the queue; new txs are rejected if this would exceed the limit.
-    total_tx_size: usize,
+    total_tx_size: SaturatingCounter<usize>,
     /// Output out-points of txs currently in this queue.
     flight: FlightTracker,
 }
@@ -54,20 +55,9 @@ impl OrderedResolveQueue {
             removed: HashSet::new(),
             live_count: 0,
             ready_rx: Arc::new(Notify::new()),
-            total_tx_size: 0,
+            total_tx_size: SaturatingCounter::new(0),
             flight: FlightTracker::new(),
         }
-    }
-
-    /// Returns true if the given tx spends an output produced by another tx
-    /// that is currently in this queue.
-    pub fn depends_on(&self, tx: &TransactionView) -> bool {
-        self.flight.depends_on(tx)
-    }
-
-    /// Returns true if the queue contains no live (non-tombstoned) txs.
-    pub fn is_empty(&self) -> bool {
-        self.live_count == 0
     }
 
     /// Number of live jobs in the queue (excludes tombstoned entries).
@@ -78,21 +68,11 @@ impl OrderedResolveQueue {
 
     #[cfg(test)]
     pub fn set_total_tx_size_for_test(&mut self, total_tx_size: usize) {
-        self.total_tx_size = total_tx_size;
+        self.total_tx_size.set(total_tx_size);
     }
 
     fn tx_size(job: &ResolveJob) -> usize {
         job.tx.data().serialized_size_in_block()
-    }
-
-    /// Returns true if the queue is full.
-    pub fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size.saturating_add(add_tx_size) >= DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE
-    }
-
-    /// Returns true if the queue contains a live tx with the specified id.
-    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.lookup.contains_key(id)
     }
 
     /// Returns the raw transaction for the given id, if present.  O(1).
@@ -125,44 +105,55 @@ impl OrderedResolveQueue {
             .expect("lookup contains id from inner");
         self.live_count -= 1;
         self.flight.remove(&id);
-        if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
-            self.total_tx_size = total;
-        } else {
-            error!(
-                "ordered_resolve_queue total_tx_size {} underflowed by sub {} in pop_front",
-                self.total_tx_size,
-                Self::tx_size(&job)
-            );
-            self.total_tx_size = 0;
-        }
+        self.total_tx_size.sub_or_zero(
+            Self::tx_size(&job),
+            "ordered_resolve_queue total_tx_size",
+            "pop_front",
+        );
         Some(job)
     }
+}
 
-    /// Remove a tx from the queue by its short id.  O(1) — marks the entry
-    /// as tombstoned; the `VecDeque` slot is reclaimed lazily by `pop_front`.
-    pub fn remove_tx(&mut self, id: &ProposalShortId) -> Option<ResolveJob> {
+impl PipelineQueue for OrderedResolveQueue {
+    type Tx = ResolveJob;
+
+    fn total_tx_size(&self) -> &SaturatingCounter<usize> {
+        &self.total_tx_size
+    }
+
+    fn flight(&self) -> &FlightTracker {
+        &self.flight
+    }
+
+    fn ready_rx(&self) -> &Arc<Notify> {
+        &self.ready_rx
+    }
+
+    fn is_empty(&self) -> bool {
+        self.live_count == 0
+    }
+
+    fn contains_key(&self, id: &ProposalShortId) -> bool {
+        self.lookup.contains_key(id)
+    }
+
+    fn remove_tx(&mut self, id: &ProposalShortId) -> Option<ResolveJob> {
         let job = self.lookup.remove(id)?;
         self.removed.insert(id.clone());
         self.live_count -= 1;
         self.flight.remove(id);
-        if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
-            self.total_tx_size = total;
-        } else {
-            error!(
-                "ordered_resolve_queue total_tx_size {} underflowed by sub {} in remove_tx",
-                self.total_tx_size,
-                Self::tx_size(&job)
-            );
-            self.total_tx_size = 0;
-        }
+        self.total_tx_size.sub_or_zero(
+            Self::tx_size(&job),
+            "ordered_resolve_queue total_tx_size",
+            "remove_tx",
+        );
         // Attempt to reclaim the front slot if this id happens to be there.
         self.drain_tombstones();
         self.shrink_to_fit();
         Some(job)
     }
 
-    /// Remove all jobs submitted by the given peer.
-    pub fn remove_txs_by_peer(&mut self, peer: &PeerIndex) {
+    fn remove_txs_by_peer(&mut self, peer: &PeerIndex) -> Vec<ProposalShortId> {
         // First pass: identify which ids to remove.
         let to_remove: Vec<ProposalShortId> = self
             .inner
@@ -180,28 +171,20 @@ impl OrderedResolveQueue {
                 self.removed.insert(id.clone());
                 self.live_count -= 1;
                 self.flight.remove(id);
-                if let Some(total) = self.total_tx_size.checked_sub(Self::tx_size(&job)) {
-                    self.total_tx_size = total;
-                } else {
-                    error!(
-                        "ordered_resolve_queue total_tx_size {} underflowed by sub {} in remove_txs_by_peer",
-                        self.total_tx_size,
-                        Self::tx_size(&job)
-                    );
-                    self.total_tx_size = 0;
-                }
+                self.total_tx_size.sub_or_zero(
+                    Self::tx_size(&job),
+                    "ordered_resolve_queue total_tx_size",
+                    "remove_txs_by_peer",
+                );
             }
         }
 
         self.drain_tombstones();
         self.shrink_to_fit();
+        to_remove
     }
 
-    /// Add a job to the back of the queue.
-    ///
-    /// Returns `Ok(true)` if the job was newly added, `Ok(false)` if it was a
-    /// duplicate, and `Err(Reject::Full)` if the queue is full.
-    pub fn add_tx(&mut self, job: ResolveJob) -> Result<bool, Reject> {
+    fn add_tx(&mut self, job: ResolveJob) -> Result<bool, Reject> {
         let id = job.tx.proposal_short_id();
         if self.lookup.contains_key(&id) {
             return Ok(false);
@@ -213,11 +196,16 @@ impl OrderedResolveQueue {
                 "ordered_resolve_queue total_tx_size exceeded, failed to add tx: {tx_hash:#x}",
             )));
         }
-        self.total_tx_size = self.total_tx_size.checked_add(tx_size).ok_or_else(|| {
-            Reject::Full(format!(
-                "ordered_resolve_queue total_tx_size overflowed, failed to add tx: {tx_hash:#x}",
-            ))
-        })?;
+        self.total_tx_size.set(
+            self.total_tx_size
+                .get()
+                .checked_add(tx_size)
+                .ok_or_else(|| {
+                    Reject::Full(format!(
+                        "ordered_resolve_queue total_tx_size overflowed, failed to add tx: {tx_hash:#x}",
+                    ))
+                })?,
+        );
         self.flight.insert(id.clone(), &job.tx);
         self.lookup.insert(id.clone(), job);
         self.inner.push_back(id);
@@ -226,19 +214,13 @@ impl OrderedResolveQueue {
         Ok(true)
     }
 
-    /// Subscribe to queue readiness notifications.
-    pub fn subscribe(&self) -> Arc<Notify> {
-        Arc::clone(&self.ready_rx)
-    }
-
-    /// Clears the queue, removing all elements.
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.inner.clear();
         self.lookup.clear();
         self.removed.clear();
         self.live_count = 0;
         self.flight.clear();
-        self.total_tx_size = 0;
+        self.total_tx_size.set(0);
         self.shrink_to_fit();
     }
 }

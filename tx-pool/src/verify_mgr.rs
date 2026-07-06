@@ -1,4 +1,6 @@
-use crate::component::verify_queue::{Entry, VerifyQueue};
+use crate::component::pipeline_queue::PipelineQueue;
+use crate::component::verify_queue::VerifyQueue;
+use crate::resolved_tx::ResolvedTx;
 use crate::service::TxPoolService;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
 use ckb_logger::{debug, error, info};
@@ -32,7 +34,7 @@ struct VerifyHandler {
 }
 
 impl JobHandler for VerifyHandler {
-    type Job = Entry;
+    type Job = ResolvedTx;
     type Exit = WorkerExit;
 
     fn worker_name(&self) -> &'static str {
@@ -47,10 +49,10 @@ impl JobHandler for VerifyHandler {
         self.tasks.read().await.subscribe()
     }
 
-    async fn pop_one(&mut self) -> Option<Entry> {
+    async fn pop_one(&mut self) -> Option<ResolvedTx> {
         let mut tasks = self.tasks.write().await;
         match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
-            Some(entry) => Some(entry),
+            Some(resolved) => Some(resolved),
             None => {
                 if !tasks.is_empty() {
                     tasks.re_notify();
@@ -64,12 +66,12 @@ impl JobHandler for VerifyHandler {
         }
     }
 
-    async fn process_one(&mut self, entry: Entry) {
-        let tx = entry.tx().clone();
-        let remote = entry.remote();
+    async fn process_one(&mut self, resolved: ResolvedTx) {
+        let tx = resolved.tx.clone();
+        let remote = resolved.remote;
         if let Some((res, snapshot)) = self
             .service
-            .verify_and_submit_tx(entry.resolved, Some(&mut self.command_rx))
+            .verify_and_submit_tx(resolved, Some(&mut self.command_rx))
             .await
         {
             self.service

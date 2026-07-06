@@ -15,9 +15,15 @@ impl<'a> PoolCell<'a> {
     }
 }
 
+impl<'a> PoolCell<'a> {
+    fn is_consumed_by_pool(&self, out_point: &OutPoint) -> bool {
+        !self.rbf && self.pool_map.edges.get_input_ref(out_point).is_some()
+    }
+}
+
 impl<'a> CellProvider for PoolCell<'a> {
     fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
-        if !self.rbf && self.pool_map.edges.get_input_ref(out_point).is_some() {
+        if self.is_consumed_by_pool(out_point) {
             return CellStatus::Dead;
         }
         if let Some((output, data)) = self.pool_map.get_output_with_data(out_point) {
@@ -33,7 +39,7 @@ impl<'a> CellProvider for PoolCell<'a> {
 
 impl<'a> CellChecker for PoolCell<'a> {
     fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
-        if !self.rbf && self.pool_map.edges.get_input_ref(out_point).is_some() {
+        if self.is_consumed_by_pool(out_point) {
             return Some(false);
         }
         if self.pool_map.get_output_with_data(out_point).is_some() {

@@ -24,7 +24,7 @@ impl TxLinks {
 
 #[derive(Default, Debug, Clone)]
 pub struct TxLinksMap {
-    pub inner: HashMap<ProposalShortId, TxLinks>,
+    inner: HashMap<ProposalShortId, TxLinks>,
 }
 
 impl TxLinksMap {
@@ -89,6 +89,14 @@ impl TxLinksMap {
 
     pub fn get_parents(&self, short_id: &ProposalShortId) -> Option<&HashSet<ProposalShortId>> {
         self.inner.get(short_id).map(|link| &link.parents)
+    }
+
+    pub fn contains_key(&self, short_id: &ProposalShortId) -> bool {
+        self.inner.contains_key(short_id)
+    }
+
+    pub fn get_mut(&mut self, short_id: &ProposalShortId) -> Option<&mut TxLinks> {
+        self.inner.get_mut(short_id)
     }
 
     pub fn remove(&mut self, short_id: &ProposalShortId) -> Option<TxLinks> {

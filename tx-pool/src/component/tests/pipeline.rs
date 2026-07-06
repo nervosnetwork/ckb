@@ -2,6 +2,7 @@
 
 use crate::callback::Callbacks;
 use crate::component::orphan::OrphanPool;
+use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
 use crate::process::PreCheckedTx;

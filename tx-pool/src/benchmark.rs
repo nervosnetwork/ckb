@@ -14,6 +14,7 @@
 //! critcmp sync.json pipeline.json   # install critcmp with `cargo install critcmp`
 //! ```
 
+use crate::component::pipeline_queue::PipelineQueue;
 use crate::network::{DummyTxPoolNetwork, TxPoolNetworkHandle};
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
@@ -332,7 +333,8 @@ impl Drop for ServiceHandle {
 
 /// RAII handle for the bare service used by cycle measurement.
 struct BenchServiceHandle {
-    #[allow(dead_code)]
+    /// Kept alive so that the underlying service is not dropped while
+    /// benchmark tasks are still running.
     service: TxPoolService,
     signal: CancellationToken,
     handles: Vec<tokio::task::JoinHandle<()>>,
@@ -852,50 +854,10 @@ fn build_single_dependent_chain(shared: &SharedBench, count: usize) -> Vec<Trans
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline metrics (P3-9)
-// ---------------------------------------------------------------------------
-
-/// Snapshot of internal pipeline queue depths at a point in time.
-#[derive(Default, Clone, Debug)]
-#[allow(dead_code)]
-struct PipelineMetrics {
-    pending: usize,
-    orphan_size: usize,
-}
-
-#[allow(dead_code)]
-impl PipelineMetrics {
-    /// Collect metrics directly from the service's internal state (used by
-    /// `measure_cycles` where no controller exists).
-    fn snapshot_from_service(service: &TxPoolService) -> Self {
-        let orphan_size = service.orphan.try_read().map(|o| o.len()).unwrap_or(0);
-        Self {
-            pending: 0, // not easily accessible without a controller
-            orphan_size,
-        }
-    }
-
-    fn snapshot(controller: &crate::TxPoolController) -> Self {
-        let info = controller.get_tx_pool_info().ok();
-        Self {
-            pending: info.as_ref().map(|i| i.pending_size).unwrap_or(0),
-            orphan_size: info.as_ref().map(|i| i.orphan_size).unwrap_or(0),
-        }
-    }
-}
-
-impl std::fmt::Display for PipelineMetrics {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "pending={} orphan={}", self.pending, self.orphan_size,)
-    }
-}
-
-// ---------------------------------------------------------------------------
 // BenchData — pre-built transactions and cycle counts for one tx type
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)]
 enum TxType {
     AlwaysSuccess,
     Secp256k1,
@@ -1073,7 +1035,6 @@ const QUICK_WARM_POOL_SIZE: usize = 50;
 const QUICK_DEPENDENT_SIZES: &[usize] = &[10];
 const QUICK_DEPENDENT_WARM_POOL_SIZE: usize = 10;
 
-#[allow(dead_code)]
 struct BenchMatrix {
     sizes: &'static [usize],
     peer_counts: &'static [usize],

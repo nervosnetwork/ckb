@@ -30,7 +30,7 @@ pub struct ResolveJob {
 }
 
 /// A transaction that has been resolved and is ready for verification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedTx {
     /// The raw transaction.
     pub tx: TransactionView,
