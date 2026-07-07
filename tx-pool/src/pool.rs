@@ -225,6 +225,12 @@ impl TxPool {
                 for short_id in set {
                     if seen.insert(short_id.clone())
                         && let Some(tx) = self.conflicts_cache.peek(short_id)
+                        // Only recover a tx if *all* of its inputs are currently
+                        // available.  A tx that still conflicts with the in-pool
+                        // state would be rejected again and, if both conflicting
+                        // txs are in the conflicts cache, can trigger an
+                        // infinite recover/reject loop (RBF cycling).
+                        && self.pool_map.find_conflict_outpoint(tx).is_none()
                     {
                         result.push(tx.clone());
                     }
