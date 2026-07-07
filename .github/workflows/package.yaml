@@ -517,7 +517,7 @@ jobs:
     permissions:
       actions: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     steps:
       - name: Comment artifact links
         uses: actions/github-script@v7
