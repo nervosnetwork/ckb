@@ -365,10 +365,10 @@ impl TxPoolServiceBuilder {
             },
         );
 
-        started.store(true, Ordering::Release);
         if let Err(err) = tx_pool_controller.load_persisted_data(txs) {
             error!("Failed to import persistent txs, cause: {}", err);
         }
+        started.store(true, Ordering::Release);
     }
 
     /// Spawn a pool of pre-check workers that pop jobs from the queue and

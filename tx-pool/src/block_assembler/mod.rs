@@ -150,7 +150,7 @@ impl BlockAssembler {
         })
     }
 
-    pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<(), AnyError> {
+    pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<bool, AnyError> {
         // Serialize with `reset_template` so that the snapshot we read here
         // cannot be reset between the read and the final unconditional swap.
         // Partial updates remain concurrent because they do not take this lock.
@@ -169,7 +169,7 @@ impl BlockAssembler {
         let (proposals, txs, basic_size) = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
-                return Ok(());
+                return Ok(false);
             }
 
             let proposals =
@@ -244,9 +244,11 @@ impl BlockAssembler {
             new_current.template.transactions.len(),
         );
 
-        self.try_swap_template(new_current, None).await;
+        // `expected_version == None` means unconditional swap, so this always
+        // returns true; propagate it for clarity and future-proofing.
+        let swapped = self.try_swap_template(new_current, None).await;
 
-        Ok(())
+        Ok(swapped)
     }
 
     /// Swap the current template if `expected_version` is still valid.

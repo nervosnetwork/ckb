@@ -20,7 +20,7 @@
 use ckb_logger::debug;
 use ckb_types::{
     core::FeeRate,
-    packed::{Byte32, OutPoint, ProposalShortId},
+    packed::{OutPoint, ProposalShortId},
 };
 use std::collections::{HashMap, HashSet};
 
@@ -150,17 +150,13 @@ impl RbfCandidates {
     }
 
     /// Remove candidates whose conflict inputs reference any of the given
-    /// transaction hashes. Called after those transactions are committed so
-    /// the stale candidates do not block future replacements.
-    pub fn remove_by_conflict_tx_hashes(&mut self, tx_hashes: &HashSet<Byte32>) {
+    /// outpoints. Called after those outpoints are spent by committed
+    /// transactions so the stale candidates do not block future replacements.
+    pub fn remove_by_conflict_outpoints(&mut self, outpoints: &HashSet<OutPoint>) {
         let ids_to_remove: Vec<ProposalShortId> = self
             .by_id
             .iter()
-            .filter(|(_id, inputs)| {
-                inputs
-                    .iter()
-                    .any(|input| tx_hashes.contains(&input.tx_hash()))
-            })
+            .filter(|(_id, inputs)| inputs.iter().any(|input| outpoints.contains(input)))
             .map(|(id, _)| id.clone())
             .collect();
         for id in ids_to_remove {
@@ -302,5 +298,45 @@ mod tests {
         rbf.remove(&id_c);
         assert!(rbf.by_input.is_empty());
         assert!(rbf.by_id.is_empty());
+    }
+
+    #[test]
+    fn remove_by_conflict_outpoints_cleans_stale_candidates() {
+        let mut rbf = RbfCandidates::new();
+        let input0 = out_point(0);
+        let input1 = out_point(1);
+        let input2 = out_point(2);
+        let id_a = id(0);
+        let id_b = id(1);
+
+        // Candidate A conflicts with input0.
+        rbf.register(
+            id_a.clone(),
+            FeeRate::from_u64(100),
+            std::slice::from_ref(&input0),
+        )
+        .unwrap();
+        // Candidate B conflicts with input1 and input2.
+        rbf.register(
+            id_b.clone(),
+            FeeRate::from_u64(100),
+            &[input1.clone(), input2.clone()],
+        )
+        .unwrap();
+
+        // A committed transaction spends input0 and input2. Both A and B should
+        // be removed because their conflict inputs are now consumed on-chain.
+        let committed_outpoints: HashSet<OutPoint> =
+            [input0.clone(), input2.clone()].into_iter().collect();
+        rbf.remove_by_conflict_outpoints(&committed_outpoints);
+
+        assert_eq!(rbf.by_id.get(&id_a), None);
+        assert_eq!(rbf.by_id.get(&id_b), None);
+        assert_eq!(rbf.by_input.get(&input0), None);
+        assert_eq!(rbf.by_input.get(&input2), None);
+
+        // input1 is untouched, so its reverse index entry should also be gone
+        // because candidate B was fully removed.
+        assert_eq!(rbf.by_input.get(&input1), None);
     }
 }

@@ -12,8 +12,9 @@
 //! 2. `verify_queue`
 //! 3. `rbf_candidates`
 //! 4. `orphan`
-//! 5. `tx_pool`
-//! 6. `block_assembler.template_lock` (and then `block_assembler.current`)
+//! 5. `block_assembler.template_lock`
+//! 6. `tx_pool` (`update_full`/`reset_template` hold `template_lock` first,
+//!    then read `tx_pool`; partial updates do not acquire `template_lock`)
 //!
 //! Read-only aggregations such as `info()` should acquire each lock in
 //! isolation rather than holding several at once.

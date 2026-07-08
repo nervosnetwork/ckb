@@ -32,7 +32,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_logger::error;
+use ckb_logger::{debug, error};
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -507,10 +507,11 @@ impl TxPoolService {
 
     pub async fn update_block_assembler_after_tx_pool_reorg(&self) {
         if let Some(ref block_assembler) = self.block_assembler {
-            if let Err(e) = block_assembler.update_full(&self.tx_pool).await {
-                error!("block_assembler update failed {:?}", e);
+            match block_assembler.update_full(&self.tx_pool).await {
+                Ok(true) => block_assembler.notify().await,
+                Ok(false) => debug!("block_assembler update_full skipped (tip mismatch)"),
+                Err(e) => error!("block_assembler update failed {:?}", e),
             }
-            block_assembler.notify().await;
         }
     }
 

@@ -593,10 +593,15 @@ impl TxPoolService {
         // In-pool transactions that were committed may still have in-flight RBF
         // candidates targeting them. Remove those stale candidates so they do
         // not block future replacements for the now-freed inputs.
+        //
+        // RBF candidates store conflict inputs as OutPoints (the outputs they
+        // want to spend). A committed transaction spends those same outpoints,
+        // so we match by outpoint rather than by the committed tx's own hash.
         {
-            let committed_tx_hashes: HashSet<_> = attached.iter().map(|tx| tx.hash()).collect();
+            let committed_outpoints: HashSet<OutPoint> =
+                attached.iter().flat_map(|tx| tx.input_pts_iter()).collect();
             let mut rbf = self.rbf_candidates.write().await;
-            rbf.remove_by_conflict_tx_hashes(&committed_tx_hashes);
+            rbf.remove_by_conflict_outpoints(&committed_outpoints);
         }
 
         self.remove_orphan_txs_by_attach(&attached).await;

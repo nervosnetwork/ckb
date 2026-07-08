@@ -423,9 +423,10 @@ impl TransactionView {
         packed::ProposalShortId::from_tx_hash(&self.hash())
     }
 
-    /// return deduplicate parent tx_hashes
+    /// return deduplicate parent tx_hashes (inputs and cell-deps)
     pub fn unique_parents(&self) -> HashSet<packed::Byte32> {
         self.input_pts_iter()
+            .chain(self.cell_deps_iter().map(|dep| dep.out_point()))
             .map(|outpoint| outpoint.tx_hash())
             .collect()
     }
