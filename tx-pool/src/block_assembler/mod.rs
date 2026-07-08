@@ -66,6 +66,14 @@ pub struct BlockAssembler {
     /// Monotonic version used by non-forced updates to detect concurrent
     /// reorgs. A successful write increments this counter.
     pub(crate) version: Arc<AtomicU64>,
+    /// Serializes `reset_template` with the read-and-swap window of
+    /// `update_full`. `reset_template` holds this lock for its whole duration
+    /// so that the `version` read for non-force resets is consistent with the
+    /// subsequent swap; `update_full` holds it from the read of `current` until
+    /// its own swap. This prevents a reset from swapping between
+    /// `update_full`'s read and swap while still allowing partial updates
+    /// (`update_uncles/proposals/transactions`) to run concurrently.
+    pub(crate) template_lock: Arc<Mutex<()>>,
     pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
 }
 
@@ -134,6 +142,7 @@ impl BlockAssembler {
             candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
             current: Arc::new(RwLock::new(Arc::new(current))),
             version: Arc::new(AtomicU64::new(0)),
+            template_lock: Arc::new(Mutex::new(())),
             poster: Arc::new(
                 Client::builder(hyper_util::rt::TokioExecutor::new())
                     .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
@@ -142,6 +151,11 @@ impl BlockAssembler {
     }
 
     pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<(), AnyError> {
+        // Serialize with `reset_template` so that the snapshot we read here
+        // cannot be reset between the read and the final unconditional swap.
+        // Partial updates remain concurrent because they do not take this lock.
+        let _template_guard = self.template_lock.lock().await;
+
         // Reorg finalization has the highest priority: it never checks the
         // version and always succeeds, so a concurrent non-forced update can
         // never overwrite the reorg result.
@@ -259,6 +273,15 @@ impl BlockAssembler {
         snapshot: Arc<Snapshot>,
         force: bool,
     ) -> Result<(), AnyError> {
+        // Serialize with `update_full` so that a reorg finalization and an
+        // explicit reset never interleave with each other. We must hold the
+        // lock while reading `version` for non-force resets: otherwise a
+        // concurrent `update_full` could increment `version` between the read
+        // and the swap and cause the reset to be silently ignored.
+        // Partial updates (`update_uncles/proposals/transactions`) do not take
+        // this lock and remain concurrent.
+        let _template_guard = self.template_lock.lock().await;
+
         // Non-forced blank updates (Reset messages) must not overwrite a reorg
         // that happened while they were building.
         let version = if force {
