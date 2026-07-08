@@ -140,7 +140,10 @@ impl PipelineWorkerHandles {
                 warn!("pre-check worker {i} did not exit within shutdown timeout");
             }
         }
-        if tokio::time::timeout(timeout, self.verify_mgr).await.is_err() {
+        if tokio::time::timeout(timeout, self.verify_mgr)
+            .await
+            .is_err()
+        {
             warn!("verify manager did not exit within shutdown timeout");
         }
         if tokio::time::timeout(timeout, self.resolver).await.is_err() {

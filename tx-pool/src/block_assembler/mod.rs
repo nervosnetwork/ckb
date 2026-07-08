@@ -377,8 +377,10 @@ impl BlockAssembler {
     }
 
     pub(crate) async fn update_uncles(&self) {
-        let current = self.current.read().await.clone();
-        let version = self.version.load(Ordering::SeqCst);
+        let (current, version) = {
+            let guard = self.current.read().await;
+            (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
+        };
         let consensus = current.snapshot.consensus();
         let max_block_bytes = consensus.max_block_bytes() as usize;
         let max_uncles_num = consensus.max_uncles_num();
@@ -409,8 +411,10 @@ impl BlockAssembler {
     }
 
     pub(crate) async fn update_proposals(&self, tx_pool: &RwLock<TxPool>) {
-        let current = self.current.read().await.clone();
-        let version = self.version.load(Ordering::SeqCst);
+        let (current, version) = {
+            let guard = self.current.read().await;
+            (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
+        };
         let consensus = current.snapshot.consensus();
         let uncles = &current.template.uncles;
         let proposals = {
@@ -441,8 +445,10 @@ impl BlockAssembler {
         &self,
         tx_pool: &RwLock<TxPool>,
     ) -> Result<(), AnyError> {
-        let current = self.current.read().await.clone();
-        let version = self.version.load(Ordering::SeqCst);
+        let (current, version) = {
+            let guard = self.current.read().await;
+            (Arc::clone(&*guard), self.version.load(Ordering::SeqCst))
+        };
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
         let max_block_bytes = consensus.max_block_bytes() as usize;

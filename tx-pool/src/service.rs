@@ -345,6 +345,11 @@ impl TxPoolService {
     /// - undergoing pre-check in the `pre_check_queue`,
     /// - currently being verified (`verify_queue`).
     ///
+    /// These locations are exactly the same stages searched by
+    /// [`Self::get_tx_for_compact_block`], so filtering them out here is safe:
+    /// a proposal marked as "known" can always be retrieved later for compact
+    /// block reconstruction.
+    ///
     /// # Returns
     ///
     /// A new `Vec<ProposalShortId>` containing only the proposals that are **completely new**.
@@ -376,11 +381,13 @@ impl TxPoolService {
     ///
     /// During compact block relay, a node may receive a block that contains transactions
     /// still being verified and not yet present in the main mempool. This method searches
-    /// **both** primary locations where a transaction can reside when its short ID is known:
+    /// all locations where a transaction can reside when its short ID is known:
     ///
-    /// 1. `pool_map` – the main mempool (already accepted transactions)
-    /// 2. `verify_queue` – transactions currently undergoing background validation
-    /// 3. `orphan_pool`   – Orphan transactions that are waiting for missing parents
+    /// 1. `ordered_resolve_queue` – transactions waiting for parent resolution
+    /// 2. `pre_check_queue` – transactions awaiting pre-check by workers
+    /// 3. `verify_queue` – transactions currently undergoing background validation
+    /// 4. `orphan_pool` – orphan transactions waiting for missing parents
+    /// 5. `pool_map` – the main mempool (already accepted transactions)
     ///
     /// # Returns
     /// A map containing only the transactions that were found, keyed by their short ID.
@@ -393,6 +400,20 @@ impl TxPoolService {
         short_ids: HashSet<ProposalShortId>,
     ) -> HashMap<ProposalShortId, TransactionView> {
         let mut txs = HashMap::with_capacity(short_ids.len());
+        {
+            let ordered = self.queues.ordered_resolve_queue.read().await;
+            txs.extend(short_ids.iter().filter_map(|short_id| {
+                ordered
+                    .get_tx(short_id)
+                    .map(|tx| (short_id.to_owned(), tx.clone()))
+            }));
+        }
+        txs.extend(short_ids.iter().filter_map(|short_id| {
+            self.queues
+                .pre_check_queue
+                .get_tx(short_id)
+                .map(|tx| (short_id.to_owned(), tx))
+        }));
         {
             let verify_queue = self.queues.verify_queue.read().await;
             txs.extend(short_ids.iter().filter_map(|short_id| {
