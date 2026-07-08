@@ -64,6 +64,10 @@ pub enum Reject {
     /// Invalidated by cell consuming Tx
     #[error("Invalidated: {0}")]
     Invalidated(String),
+
+    /// Internal error that should not occur during normal operation.
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 fn is_malformed_from_verification(error: &Error) -> bool {

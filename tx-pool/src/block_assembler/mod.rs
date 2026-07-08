@@ -17,7 +17,7 @@ use ckb_app_config::BlockAssemblerConfig;
 use ckb_dao::DaoCalculator;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate as JsonBlockTemplate;
-use ckb_logger::{debug, error, trace};
+use ckb_logger::{debug, error, trace, warn};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -501,24 +501,37 @@ impl BlockAssembler {
             txs
         };
 
-        if let Ok((dao, checked_txs, _failed_txs)) = Self::calc_dao(
+        match Self::calc_dao(
             &current.snapshot,
             &current.epoch,
             current_template.cellbase.clone(),
             txs,
         ) {
-            let new_txs_size = Self::checked_entries_size(&checked_txs)?;
-            let new_total_size = current.size.calc_total_by_txs(new_txs_size);
-            self.apply_partial_update(current, version, "update_transactions", |builder, size| {
-                builder.set_transactions(checked_txs).dao(dao);
-                if let Some(data) = extension {
-                    builder.extension(data);
-                }
-                size.txs = new_txs_size;
-                size.total = new_total_size;
-                true
-            })
-            .await;
+            Ok((dao, checked_txs, _failed_txs)) => {
+                let new_txs_size = Self::checked_entries_size(&checked_txs)?;
+                let new_total_size = current.size.calc_total_by_txs(new_txs_size);
+                self.apply_partial_update(
+                    current,
+                    version,
+                    "update_transactions",
+                    |builder, size| {
+                        builder.set_transactions(checked_txs).dao(dao);
+                        if let Some(data) = extension {
+                            builder.extension(data);
+                        }
+                        size.txs = new_txs_size;
+                        size.total = new_total_size;
+                        true
+                    },
+                )
+                .await;
+            }
+            Err(err) => {
+                warn!(
+                    "[BlockAssembler] update_transactions: calc_dao failed, \
+                     keeping previous transactions and DAO: {err}"
+                );
+            }
         }
         Ok(())
     }

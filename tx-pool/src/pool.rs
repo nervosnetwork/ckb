@@ -537,6 +537,14 @@ impl TxPool {
         }
     }
 
+    /// Collect all transactions in the pool without removing them.
+    pub(crate) fn get_all_txs(&self) -> Vec<TransactionView> {
+        self.pool_map
+            .iter()
+            .map(|entry| entry.inner.transaction().clone())
+            .collect()
+    }
+
     pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
         let mut txs = TxSelector::new(&self.pool_map)
             .txs_to_commit(usize::MAX, Cycle::MAX)

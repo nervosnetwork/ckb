@@ -329,6 +329,9 @@ pub enum PoolTransactionReject {
 
     /// Invalidated rejected
     Invalidated(String),
+
+    /// Internal error
+    Internal(String),
 }
 
 impl From<Reject> for PoolTransactionReject {
@@ -350,6 +353,7 @@ impl From<Reject> for PoolTransactionReject {
             Reject::Expiry(_) => Self::Expiry(format!("{reject}")),
             Reject::RBFRejected(_) => Self::RBFRejected(format!("{reject}")),
             Reject::Invalidated(_) => Self::Invalidated(format!("{reject}")),
+            Reject::Internal(_) => Self::Internal(format!("{reject}")),
         }
     }
 }

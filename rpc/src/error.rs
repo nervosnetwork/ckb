@@ -194,6 +194,7 @@ impl RPCError {
                 RPCError::PoolRejectedTransactionBySizeLimit
             }
             Reject::Expiry(_) => RPCError::TransactionExpired,
+            Reject::Internal(_) => RPCError::CKBInternalError,
         };
         RPCError::custom_with_error(code, reject)
     }

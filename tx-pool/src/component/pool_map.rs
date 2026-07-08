@@ -82,9 +82,9 @@ impl PoolStats {
     fn adjust_status_count(&mut self, remove: Option<Status>, add: Option<Status>) {
         if let Some(status) = remove {
             match status {
-                Status::Pending => self.pending_count -= 1,
-                Status::Gap => self.gap_count -= 1,
-                Status::Proposed => self.proposed_count -= 1,
+                Status::Pending => self.pending_count = self.pending_count.saturating_sub(1),
+                Status::Gap => self.gap_count = self.gap_count.saturating_sub(1),
+                Status::Proposed => self.proposed_count = self.proposed_count.saturating_sub(1),
             }
         }
         if let Some(status) = add {

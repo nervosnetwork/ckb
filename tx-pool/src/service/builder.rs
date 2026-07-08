@@ -131,35 +131,41 @@ struct BackgroundWorkerHandles {
 }
 
 impl BackgroundWorkerHandles {
-    /// Wait for every background worker to finish, logging a warning if any of
-    /// them does not exit within the supplied timeout.
+    /// Wait for every background worker to finish concurrently, logging a
+    /// warning if any of them does not exit within the supplied timeout.
+    ///
+    /// All workers are awaited in parallel so the total shutdown time is
+    /// bounded by `timeout` rather than `N * timeout`.
     async fn quiesce(self, timeout: Duration) {
-        if tokio::time::timeout(timeout, self.deferred).await.is_err() {
-            warn!("deferred worker did not exit within shutdown timeout");
-        }
+        let mut tasks: Vec<(String, tokio::task::JoinHandle<()>)> = Vec::new();
+        tasks.push(("deferred worker".to_owned(), self.deferred));
         for (i, handle) in self.pre_check.into_iter().enumerate() {
-            if tokio::time::timeout(timeout, handle).await.is_err() {
-                warn!("pre-check worker {i} did not exit within shutdown timeout");
+            tasks.push((format!("pre-check worker {i}"), handle));
+        }
+        tasks.push(("verify manager".to_owned(), self.verify_mgr));
+        tasks.push(("ordered resolver".to_owned(), self.resolver));
+        if let Some(handle) = self.block_assembler {
+            tasks.push(("block assembler loop".to_owned(), handle));
+        }
+        if let Some(handle) = self.reorg {
+            tasks.push(("reorg handler".to_owned(), handle));
+        }
+
+        let results = tokio::time::timeout(
+            timeout,
+            futures_util::future::join_all(tasks.iter_mut().map(|(_, h)| h)),
+        )
+        .await;
+
+        match results {
+            Ok(_) => {}
+            Err(_) => {
+                for (label, handle) in &tasks {
+                    if !handle.is_finished() {
+                        warn!("{label} did not exit within shutdown timeout");
+                    }
+                }
             }
-        }
-        if tokio::time::timeout(timeout, self.verify_mgr)
-            .await
-            .is_err()
-        {
-            warn!("verify manager did not exit within shutdown timeout");
-        }
-        if tokio::time::timeout(timeout, self.resolver).await.is_err() {
-            warn!("ordered resolver did not exit within shutdown timeout");
-        }
-        if let Some(handle) = self.block_assembler
-            && tokio::time::timeout(timeout, handle).await.is_err()
-        {
-            warn!("block assembler loop did not exit within shutdown timeout");
-        }
-        if let Some(handle) = self.reorg
-            && tokio::time::timeout(timeout, handle).await.is_err()
-        {
-            warn!("reorg handler did not exit within shutdown timeout");
         }
     }
 }

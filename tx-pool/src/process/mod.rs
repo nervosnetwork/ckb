@@ -351,12 +351,20 @@ impl TxPoolService {
     ) -> Result<Completed, Reject> {
         self.check_tx_basic_validity(&tx, remote).await?;
 
-        let (ret, snapshot) = self
+        if let Some((ret, snapshot)) = self
             .process_tx_direct(tx.clone(), remote.map(|r| r.0), None)
             .await
-            .expect("process_tx_direct always returns Some");
-        self.after_process(tx, remote, &snapshot, &ret, false).await;
-        ret
+        {
+            self.after_process(tx, remote, &snapshot, &ret, false).await;
+            ret
+        } else {
+            // process_tx_direct currently always returns Some, but guard
+            // against a future None return (e.g. chunk interruption) rather
+            // than panicking.
+            Err(Reject::Internal(
+                "process_tx_direct returned None".to_string(),
+            ))
+        }
     }
 
     pub(crate) fn put_recent_reject(&self, tx_hash: &Byte32, reject: &Reject) {

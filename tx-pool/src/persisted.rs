@@ -18,6 +18,11 @@ impl TxPool {
         let mut persisted_data_file = self.config.persisted_data.clone();
         persisted_data_file.set_extension(format!("v{VERSION}"));
 
+        // Remove any stale temporary file left by a previous interrupted
+        // persistence attempt. The final file, if it exists, is authoritative.
+        let tmp_file = persisted_data_file.with_extension(format!("v{VERSION}.tmp"));
+        let _ = std::fs::remove_file(&tmp_file);
+
         if persisted_data_file.exists() {
             let mut file = OpenOptions::new()
                 .read(true)
@@ -54,38 +59,73 @@ impl TxPool {
         }
     }
 
+    /// Persist the current in-memory pool to disk.
+    ///
+    /// This function performs blocking file I/O. It is intended to be called
+    /// during shutdown while the tx-pool write lock is held, so no new
+    /// transactions can enter the pool between collecting the transactions and
+    /// draining them.
     pub(crate) fn save_into_file(&mut self) -> Result<(), AnyError> {
         let mut persisted_data_file = self.config.persisted_data.clone();
         persisted_data_file.set_extension(format!("v{VERSION}"));
 
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&persisted_data_file)
-            .map_err(|err| {
+        // Step 1: Collect transactions WITHOUT draining the pool.
+        // If anything fails below, the in-memory pool remains intact.
+        let all_txs = self.get_all_txs();
+        let txs = TransactionVec::new_builder()
+            .extend(all_txs.iter().map(|tx| tx.data()))
+            .build();
+
+        // Step 2: Write to a temporary file first.
+        let tmp_file = persisted_data_file.with_extension(format!("v{VERSION}.tmp"));
+        let write_result = (|| -> Result<(), AnyError> {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp_file)
+                .map_err(|err| {
+                    let errmsg = format!(
+                        "Failed to open temp file [{tmp_file:?}] for tx-pool persistence, cause: {err}"
+                    );
+                    OtherError::new(errmsg)
+                })?;
+
+            file.write_all(txs.as_slice()).map_err(|err| {
                 let errmsg = format!(
-                    "Failed to open the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
+                    "Failed to write tx-pool data into temp file [{tmp_file:?}], cause: {err}"
                 );
                 OtherError::new(errmsg)
             })?;
 
-        let txs = TransactionVec::new_builder()
-            .extend(self.drain_all_transactions().iter().map(|tx| tx.data()))
-            .build();
+            file.sync_all().map_err(|err| {
+                let errmsg = format!("Failed to sync temp file [{tmp_file:?}], cause: {err}");
+                OtherError::new(errmsg)
+            })?;
+            drop(file);
 
-        file.write_all(txs.as_slice()).map_err(|err| {
-            let errmsg = format!(
-                "Failed to write the tx-pool persisted data into file [{persisted_data_file:?}], cause: {err}"
-            );
-            OtherError::new(errmsg)
-        })?;
-        file.sync_all().map_err(|err| {
-            let errmsg = format!(
-                "Failed to sync the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
-            );
-            OtherError::new(errmsg)
-        })?;
+            // Step 3: Rename the temporary file to the final name. On the same
+            // filesystem this is typically atomic; cross-volume renames are not
+            // handled here and will return an error.
+            std::fs::rename(&tmp_file, &persisted_data_file).map_err(|err| {
+                let errmsg = format!(
+                    "Failed to rename temp file [{tmp_file:?}] to [{persisted_data_file:?}], cause: {err}"
+                );
+                OtherError::new(errmsg)
+            })?;
+            Ok(())
+        })();
+
+        if write_result.is_err() {
+            // Best-effort cleanup of the incomplete temporary file. Ignore
+            // removal errors: the file may not exist or may be unreadable.
+            let _ = std::fs::remove_file(&tmp_file);
+            return write_result;
+        }
+
+        // Step 4: Only after successful persistence, drain the in-memory pool.
+        self.drain_all_transactions();
+
         Ok(())
     }
 }

@@ -55,6 +55,17 @@ impl PreCheckQueue {
         job.tx.data().serialized_size_in_block()
     }
 
+    /// Atomically subtract `amount` from `total_tx_size`, saturating at zero.
+    /// Uses a CAS loop to prevent underflow wraparound that would cause
+    /// `is_full` to return true permanently.
+    fn sub_total_tx_size(&self, amount: usize) {
+        self.total_tx_size
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+                Some(current.saturating_sub(amount))
+            })
+            .expect("closure always returns Some");
+    }
+
     fn lock(&self) -> MutexGuard<'_, PreCheckQueueState> {
         self.state.lock().expect("pre_check queue lock poisoned")
     }
@@ -101,8 +112,7 @@ impl PreCheckQueue {
         let job = state.inner.remove(pos).expect("position exists");
         state.index.remove(id);
         state.flight.remove(id);
-        self.total_tx_size
-            .fetch_sub(Self::tx_size(&job), Ordering::SeqCst);
+        self.sub_total_tx_size(Self::tx_size(&job));
         Some(job.tx)
     }
 
@@ -123,8 +133,7 @@ impl PreCheckQueue {
             let id = job.tx.proposal_short_id();
             state.index.remove(&id);
             state.flight.remove(&id);
-            self.total_tx_size
-                .fetch_sub(Self::tx_size(&job), Ordering::SeqCst);
+            self.sub_total_tx_size(Self::tx_size(&job));
             removed.push(job.tx);
         }
         removed
@@ -173,7 +182,7 @@ impl PreCheckQueue {
                     state.index.remove(&id);
                     state.flight.remove(&id);
                     let tx_size = Self::tx_size(&job);
-                    self.total_tx_size.fetch_sub(tx_size, Ordering::SeqCst);
+                    self.sub_total_tx_size(tx_size);
                     return Some(job);
                 }
             }
