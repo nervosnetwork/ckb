@@ -24,3 +24,8 @@ pub(crate) const PROPOSED_PROPOSAL_INDEX: u64 = 1;
 
 pub(crate) const DEFERRED_CHANNEL_SIZE: usize = 1024;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
+
+/// Maximum time the shutdown path waits for each pipeline-worker group
+/// (deferred worker, pre-check workers, verify manager, ordered resolver)
+/// to finish its current job before persisting the tx-pool state.
+pub(crate) const PIPELINE_SHUTDOWN_TIMEOUT_SECONDS: u64 = 30;

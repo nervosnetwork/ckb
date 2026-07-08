@@ -432,6 +432,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
             Arc::clone(&parts.service.queues.ordered_resolve_queue),
             Arc::clone(&parts.service.txs_verify_cache),
             parts.deferred_receiver,
+            parts.signal.child_token(),
         ));
     }
 

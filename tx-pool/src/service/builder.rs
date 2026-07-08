@@ -6,7 +6,10 @@ use crate::component::orphan::OrphanPool;
 use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::recent_reject::RecentReject;
 use crate::component::verify_queue::VerifyQueue;
-use crate::constants::{DEFERRED_CHANNEL_SIZE, MESSAGE_CONCURRENCY_MULTIPLIER, SECONDS_PER_DAY};
+use crate::constants::{
+    DEFERRED_CHANNEL_SIZE, MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS,
+    SECONDS_PER_DAY,
+};
 use crate::network::{TxPoolNetwork, TxPoolNetworkHandle};
 use crate::pool::TxPool;
 use crate::service::{BLOCK_ASSEMBLER_CHANNEL_SIZE, DEFAULT_CHANNEL_SIZE};
@@ -114,7 +117,39 @@ impl TxPoolServiceBuilder {
 
         (builder, controller)
     }
+}
 
+/// Handles for the pipeline workers that must quiesce before the pool is
+/// persisted on graceful shutdown.
+struct PipelineWorkerHandles {
+    deferred: tokio::task::JoinHandle<()>,
+    pre_check: Vec<tokio::task::JoinHandle<()>>,
+    verify_mgr: tokio::task::JoinHandle<()>,
+    resolver: tokio::task::JoinHandle<()>,
+}
+
+impl PipelineWorkerHandles {
+    /// Wait for every pipeline worker to finish, logging a warning if any of
+    /// them does not exit within the supplied timeout.
+    async fn quiesce(self, timeout: Duration) {
+        if tokio::time::timeout(timeout, self.deferred).await.is_err() {
+            warn!("deferred worker did not exit within shutdown timeout");
+        }
+        for (i, handle) in self.pre_check.into_iter().enumerate() {
+            if tokio::time::timeout(timeout, handle).await.is_err() {
+                warn!("pre-check worker {i} did not exit within shutdown timeout");
+            }
+        }
+        if tokio::time::timeout(timeout, self.verify_mgr).await.is_err() {
+            warn!("verify manager did not exit within shutdown timeout");
+        }
+        if tokio::time::timeout(timeout, self.resolver).await.is_err() {
+            warn!("ordered resolver did not exit within shutdown timeout");
+        }
+    }
+}
+
+impl TxPoolServiceBuilder {
     /// Register new pending callback
     pub fn register_pending(&mut self, callback: PendingCallback) {
         self.callbacks.register_pending(callback);
@@ -249,26 +284,27 @@ impl TxPoolServiceBuilder {
             deferred_sender,
         };
 
-        spawn_deferred_worker(
+        let deferred_handle = spawn_deferred_worker(
             &handle,
             Arc::clone(&service.queues.ordered_resolve_queue),
             Arc::clone(&service.txs_verify_cache),
             deferred_receiver,
+            signal_receiver.child_token(),
         );
-        Self::spawn_pre_check_workers(
+        let pre_check_handles = Self::spawn_pre_check_workers(
             &handle,
             service.clone(),
             Arc::clone(&pre_check_queue),
             pre_check_cancel,
             pre_check_workers,
         );
-        Self::spawn_verify_mgr(
+        let verify_mgr_handle = Self::spawn_verify_mgr(
             &handle,
             service.clone(),
             chunk_rx.clone(),
             signal_receiver.clone(),
         );
-        Self::spawn_resolver_monitor(
+        let resolver_handle = Self::spawn_resolver_monitor(
             &handle,
             service.clone(),
             Arc::clone(&ordered_resolve_queue),
@@ -276,7 +312,18 @@ impl TxPoolServiceBuilder {
             chunk_rx,
             signal_receiver.child_token(),
         );
-        Self::spawn_message_dispatcher(&handle, service.clone(), receiver, signal_receiver.clone());
+        Self::spawn_message_dispatcher(
+            &handle,
+            service.clone(),
+            receiver,
+            signal_receiver.clone(),
+            PipelineWorkerHandles {
+                deferred: deferred_handle,
+                pre_check: pre_check_handles,
+                verify_mgr: verify_mgr_handle,
+                resolver: resolver_handle,
+            },
+        );
         if let Some(ref block_assembler) = service.block_assembler {
             Self::spawn_block_assembler_loop(
                 &handle,
@@ -295,19 +342,21 @@ impl TxPoolServiceBuilder {
     }
 
     /// Spawn a pool of pre-check workers that pop jobs from the queue and
-    /// classify them into the pipeline.
+    /// classify them into the pipeline.  Returns the spawned task handles so
+    /// the shutdown path can quiesce them before persisting.
     fn spawn_pre_check_workers(
         handle: &Handle,
         service: TxPoolService,
         pre_check_queue: Arc<crate::component::pre_check_queue::PreCheckQueue>,
         pre_check_cancel: CancellationToken,
         count: usize,
-    ) {
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let mut handles = Vec::with_capacity(count);
         for _ in 0..count {
             let svc = service.clone();
             let queue = Arc::clone(&pre_check_queue);
             let cancel = pre_check_cancel.child_token();
-            handle.spawn(async move {
+            let handle = handle.spawn(async move {
                 loop {
                     let svc = svc.clone();
                     let queue = Arc::clone(&queue);
@@ -338,21 +387,27 @@ impl TxPoolServiceBuilder {
                     }
                 }
             });
+            handles.push(handle);
         }
+        handles
     }
 
-    /// Spawn the verification manager that supervises verify workers.
+    /// Spawn the verification manager that supervises verify workers.  Returns
+    /// the spawned task handle so the shutdown path can quiesce it before
+    /// persisting.
     fn spawn_verify_mgr(
         handle: &Handle,
         service: TxPoolService,
         chunk_rx: watch::Receiver<ChunkCommand>,
         signal: CancellationToken,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         let mut verify_mgr = VerifyMgr::new(service, chunk_rx, signal);
-        handle.spawn(async move { verify_mgr.run().await });
+        handle.spawn(async move { verify_mgr.run().await })
     }
 
     /// Spawn the ordered resolver monitor with panic-respawn protection.
+    /// Returns the spawned task handle so the shutdown path can quiesce it
+    /// before persisting.
     fn spawn_resolver_monitor(
         handle: &Handle,
         service: TxPoolService,
@@ -362,7 +417,7 @@ impl TxPoolServiceBuilder {
         verify_queue: Arc<RwLock<VerifyQueue>>,
         chunk_rx: watch::Receiver<ChunkCommand>,
         resolver_exit_signal: CancellationToken,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         handle.spawn(async move {
             loop {
                 let resolver = crate::resolve_mgr::OrderedResolver::new(
@@ -397,7 +452,7 @@ impl TxPoolServiceBuilder {
                 }
             }
             info!("TxPool ordered resolver monitor exited");
-        });
+        })
     }
 
     /// Spawn the main message dispatcher with bounded concurrency.
@@ -406,7 +461,8 @@ impl TxPoolServiceBuilder {
         service: TxPoolService,
         mut receiver: mpsc::Receiver<Message>,
         signal_receiver: CancellationToken,
-    ) {
+        worker_handles: PipelineWorkerHandles,
+    ) -> tokio::task::JoinHandle<()> {
         let runtime_handle = handle.clone();
         let max_workers = service.tx_pool_config.max_tx_verify_workers.max(1);
         let semaphore = Arc::new(Semaphore::new(max_workers * MESSAGE_CONCURRENCY_MULTIPLIER));
@@ -438,6 +494,12 @@ impl TxPoolServiceBuilder {
                         let _ = semaphore
                             .acquire_many(max_workers as u32 * MESSAGE_CONCURRENCY_MULTIPLIER as u32)
                             .await;
+
+                        info!("TxPool is quiescing pipeline workers...");
+                        worker_handles
+                            .quiesce(Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS))
+                            .await;
+
                         info!("TxPool is saving, please wait...");
                         service.save_pool().await;
                         info!("TxPool process_service exit now");
@@ -446,7 +508,7 @@ impl TxPoolServiceBuilder {
                     else => break,
                 }
             }
-        });
+        })
     }
 
     /// Spawn the block assembler message loop.
@@ -667,15 +729,20 @@ pub(crate) fn spawn_deferred_worker(
     >,
     txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     deferred_receiver: mpsc::Receiver<DeferredTask>,
+    cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     handle.spawn(async move {
         let mut deferred_rx = deferred_receiver;
         loop {
             // recv() is outside catch_unwind: the mpsc receiver is not
             // poisoned by panics in the message handler below.
-            let task = match deferred_rx.recv().await {
-                Some(task) => task,
-                None => break, // channel closed, exit
+            let task = tokio::select! {
+                Some(task) = deferred_rx.recv() => task,
+                _ = cancel.cancelled() => {
+                    info!("deferred task worker received exit signal, exit now");
+                    break;
+                }
+                else => break,
             };
             let ordered_resolve_queue = Arc::clone(&ordered_resolve_queue);
             let ordered_resolve_queue_retry = Arc::clone(&ordered_resolve_queue);
