@@ -365,10 +365,7 @@ Set miner.client.auth_token and block_assembler.notify_auth_token to the same va
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
-async fn handle<B>(
-    client: Client,
-    req: Request<B>,
-) -> Result<Response<Empty<Bytes>>, Error>
+async fn handle<B>(client: Client, req: Request<B>) -> Result<Response<Empty<Bytes>>, Error>
 where
     B: Body + Send,
     B::Data: Send,
@@ -449,7 +446,7 @@ mod tests {
             listen: None,
             auth_token,
         };
-        let client = Client::new(new_work_tx, config, runtime.clone());
+        let client = Client::new(new_work_tx, config, runtime);
         (client, new_work_rx)
     }
 
@@ -458,7 +455,9 @@ mod tests {
         auth_header: Option<&str>,
         body: Bytes,
     ) -> Request<Full<Bytes>> {
-        let mut builder = Request::builder().method(method).uri("http://127.0.0.1:8888/");
+        let mut builder = Request::builder()
+            .method(method)
+            .uri("http://127.0.0.1:8888/");
         if let Some(header) = auth_header {
             builder = builder.header(hyper::header::AUTHORIZATION, header);
         }
@@ -511,7 +510,10 @@ mod tests {
         assert_eq!(client.current_work_id.load(Ordering::SeqCst), 42);
 
         let work = rx.recv();
-        assert!(matches!(work, Ok(Works::New(_))), "expected new work notification");
+        assert!(
+            matches!(work, Ok(Works::New(_))),
+            "expected new work notification"
+        );
     }
 
     #[tokio::test]
