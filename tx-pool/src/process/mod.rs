@@ -274,8 +274,9 @@ impl TxPoolService {
 
     /// Common pre-flight checks shared by all transaction submission paths.
     ///
-    /// Runs non-contextual verification and rejects duplicates that are already
-    /// in the verify queue or the orphan pool.
+    /// Runs non-contextual verification and rejects duplicates that are
+    /// already in any pipeline queue (ordered resolve, pre-check, verify)
+    /// or the orphan pool.
     pub(crate) async fn check_tx_basic_validity(
         &self,
         tx: &TransactionView,
@@ -283,13 +284,26 @@ impl TxPoolService {
     ) -> Result<(), Reject> {
         self.non_contextual_verify(tx, remote).await?;
 
+        let dup = || Reject::Duplicated(tx.hash());
+        let id = tx.proposal_short_id();
+
+        {
+            let ordered = self.queues.ordered_resolve_queue.read().await;
+            if ordered.contains_key(&id) {
+                return Err(dup());
+            }
+        }
+
+        if self.queues.pre_check_queue.contains_key(&id) {
+            return Err(dup());
+        }
+
         if self.verify_queue_contains(tx).await {
-            return Err(Reject::Duplicated(tx.hash()));
+            return Err(dup());
         }
 
         if self.orphan_contains(tx).await {
-            debug!("reject tx {} already in orphan pool", tx.hash());
-            return Err(Reject::Duplicated(tx.hash()));
+            return Err(dup());
         }
 
         Ok(())

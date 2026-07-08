@@ -31,6 +31,14 @@ impl TxPoolService {
         let guard = self.txs_verify_cache.read().await;
         guard.peek(&tx.witness_hash()).cloned()
     }
+    /// Remove a transaction from the in-flight RBF fee-ordering gate.
+    ///
+    /// Called on every exit path from the verify → submit pipeline (verify
+    /// failure, cycles mismatch, successful submission) to prevent ghost
+    /// entries that are never cleaned up.
+    async fn remove_rbf_candidate(&self, id: &ProposalShortId) {
+        self.rbf_candidates.write().await.remove(id);
+    }
     /// Check RBF conflicts, re-verify if the tip changed while the tx was in
     /// flight, remove old conflicting transactions, and collect transactions that
     /// can be recovered from the conflict pool.
@@ -176,9 +184,21 @@ impl TxPoolService {
             for tx in &recovered {
                 tx_pool.remove_conflict(&tx.proposal_short_id());
             }
-            for old in removed_old_txs {
+            for old in &removed_old_txs {
                 tx_pool.remove_conflict(&old.proposal_short_id());
             }
+
+            // When RBF fails, the old transactions removed by process_rbf are
+            // being recovered back into the pool.  Suppress their reject
+            // callbacks to avoid spurious reject-then-accept sequences: the
+            // subscriber would first hear "tx X was replaced" and then see X
+            // reappear as pending.
+            let recovered_ids: HashSet<ProposalShortId> = recovered
+                .iter()
+                .map(|tx| tx.proposal_short_id())
+                .chain(removed_old_txs.iter().map(|e| e.proposal_short_id()))
+                .collect();
+            reject_events.retain(|(entry, _)| !recovered_ids.contains(&entry.proposal_short_id()));
         }
 
         (result, recovered, reject_events)
@@ -204,7 +224,7 @@ impl TxPoolService {
                     .await
                     .is_superseded(&id, fee, &conflict_inputs)
                 {
-                    self.rbf_candidates.write().await.remove(&id);
+                    self.remove_rbf_candidate(&id).await;
                     let (_, snapshot) = self
                         .read_tx_pool_with_snapshot(|_tx_pool, snapshot| snapshot)
                         .await;
@@ -263,7 +283,7 @@ impl TxPoolService {
 
         // The RBF candidate has either been accepted or definitively rejected;
         // remove it from the in-flight fee-ordering gate.
-        self.rbf_candidates.write().await.remove(&entry_id);
+        self.remove_rbf_candidate(&entry_id).await;
 
         (result, snapshot)
     }
@@ -402,7 +422,13 @@ impl TxPoolService {
         )
         .await;
 
-        let verified = try_or_return_with_snapshot!(verified_ret, snapshot);
+        let verified = match verified_ret {
+            Ok(v) => v,
+            Err(err) => {
+                self.remove_rbf_candidate(&tx.proposal_short_id()).await;
+                return Some((Err(err), snapshot));
+            }
+        };
 
         if let Some(declared) = declared_cycles
             && declared != verified.cycles
@@ -413,6 +439,7 @@ impl TxPoolService {
                 verified.cycles,
                 tx.hash()
             );
+            self.remove_rbf_candidate(&tx.proposal_short_id()).await;
             return Some((
                 Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
                 snapshot,
