@@ -1,14 +1,15 @@
 name: Package
 
 permissions:
-  # for actions/create-release, actions/upload-release-asset
-  contents: write
+  contents: read
 
 concurrency:
   group: package-${{ github.ref }}
   cancel-in-progress: true
 
 on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
   push:
     branches:
       - "pkg/*"
@@ -18,9 +19,97 @@ env:
   RUST_BACKTRACE: full
 
 jobs:
+  detect-release-tests:
+    name: Detect release package tests
+    runs-on: ubuntu-22.04
+    outputs:
+      any: ${{ steps.detect.outputs.any }}
+      linux-x64: ${{ steps.detect.outputs.linux-x64 }}
+      linux-aarch64: ${{ steps.detect.outputs.linux-aarch64 }}
+      centos: ${{ steps.detect.outputs.centos }}
+      macos-x64: ${{ steps.detect.outputs.macos-x64 }}
+      macos-aarch64: ${{ steps.detect.outputs.macos-aarch64 }}
+      windows: ${{ steps.detect.outputs.windows }}
+      package-tag: ${{ steps.detect.outputs.package-tag }}
+    steps:
+      - name: Detect requested package tests
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          linux_x64=false
+          linux_aarch64=false
+          centos=false
+          macos_x64=false
+          macos_aarch64=false
+          windows=false
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            linux_x64=true
+            linux_aarch64=true
+            centos=true
+            macos_x64=true
+            macos_aarch64=true
+            windows=true
+            package_tag="${GITHUB_REF#refs/heads/pkg/}"
+          else
+            body="$(printf '%s' "${PR_BODY:-}" | tr '[:upper:]' '[:lower:]')"
+            if [[ "$body" == *"#linux-release-test"* ]]; then
+              linux_x64=true
+              linux_aarch64=true
+              centos=true
+            fi
+            if [[ "$body" == *"#linux-x64-release-test"* || "$body" == *"#linux-x86_64-release-test"* ]]; then
+              linux_x64=true
+            fi
+            if [[ "$body" == *"#linux-aarch64-release-test"* ]]; then
+              linux_aarch64=true
+            fi
+            if [[ "$body" == *"#centos-release-test"* ]]; then
+              centos=true
+            fi
+            if [[ "$body" == *"#macos-release-test"* ]]; then
+              macos_x64=true
+              macos_aarch64=true
+            fi
+            if [[ "$body" == *"#macos-x64-release-test"* || "$body" == *"#macos-x86_64-release-test"* ]]; then
+              macos_x64=true
+            fi
+            if [[ "$body" == *"#macos-aarch64-release-test"* ]]; then
+              macos_aarch64=true
+            fi
+            if [[ "$body" == *"#windows-release-test"* || "$body" == *"#windows-x64-release-test"* || "$body" == *"#windows-x86_64-release-test"* ]]; then
+              windows=true
+            fi
+            package_tag="pr-${PR_NUMBER}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          fi
+
+          any=false
+          if [ "$linux_x64" = true ] || [ "$linux_aarch64" = true ] || [ "$centos" = true ] || [ "$macos_x64" = true ] || [ "$macos_aarch64" = true ] || [ "$windows" = true ]; then
+            any=true
+          fi
+
+          {
+            echo "linux-x64=$linux_x64"
+            echo "linux-aarch64=$linux_aarch64"
+            echo "centos=$centos"
+            echo "macos-x64=$macos_x64"
+            echo "macos-aarch64=$macos_aarch64"
+            echo "windows=$windows"
+            echo "any=$any"
+            echo "package-tag=$package_tag"
+          } >> "$GITHUB_OUTPUT"
+
   get-ckb-cli-version:
     name: Get CKB CLI Version
     runs-on: ubuntu-22.04
+    needs:
+      - detect-release-tests
+    if: needs.detect-release-tests.outputs.any == 'true'
     outputs:
       version: ${{ steps.get-version.outputs.version }}
     steps:
@@ -33,6 +122,9 @@ jobs:
   create-release:
     name: Create release
     runs-on: ubuntu-22.04
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
     outputs:
       upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
@@ -56,7 +148,15 @@ jobs:
     name: package-for-linux
     runs-on: ubuntu-22.04
     needs:
+      - detect-release-tests
       - get-ckb-cli-version
+    if: |
+      needs.detect-release-tests.outputs.linux-x64 == 'true' &&
+      (
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      )
     strategy:
       matrix:
         include:
@@ -66,34 +166,34 @@ jobs:
             build_target: "prod_portable"
     steps:
       - uses: actions/checkout@v6
-      - name: Set Env
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Build CKB and Package CKB
+        run: |
+          docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make ${{ matrix.build_target }}
+          devtools/ci/package.sh target/prod/ckb
+          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
+      - name: Sign archive
+        if: github.event_name == 'push'
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make ${{ matrix.build_target }}
           gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          devtools/ci/package.sh target/prod/ckb
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
+          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       BUILDER_IMAGE: nervos/ckb-docker-builder:focal-rust-1.92.0
+      GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
       REL_PKG: ${{ matrix.rel_pkg }}
       CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
@@ -101,42 +201,49 @@ jobs:
     name: package-for-linux-aarch64
     runs-on: ubuntu-22.04
     needs:
+      - detect-release-tests
       - get-ckb-cli-version
+    if: |
+      needs.detect-release-tests.outputs.linux-aarch64 == 'true' &&
+      (
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      )
     steps:
       - uses: actions/checkout@v6
-      - name: Set Env
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Add rust target
         run: rustup target add aarch64-unknown-linux-gnu
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib && sudo apt-get install -y build-essential clang gcc-aarch64-linux-gnu g++-aarch64-linux-gnu build-essential
       - name: Build CKB and Package CKB
+        run: |
+          PKG_CONFIG_ALLOW_CROSS=1 CC=gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CKB_BUILD_TARGET="--target=aarch64-unknown-linux-gnu" make prod_portable
+
+          devtools/ci/package.sh target/aarch64-unknown-linux-gnu/prod/ckb
+          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
+      - name: Sign archive
+        if: github.event_name == 'push'
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-
-          PKG_CONFIG_ALLOW_CROSS=1 CC=gcc CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CKB_BUILD_TARGET="--target=aarch64-unknown-linux-gnu" make prod_portable
-
           gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          devtools/ci/package.sh target/aarch64-unknown-linux-gnu/prod/ckb
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
+          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
+      GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
       REL_PKG: aarch64-unknown-linux-gnu.tar.gz
       CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
@@ -144,7 +251,15 @@ jobs:
     name: package-for-centos
     runs-on: ubuntu-22.04
     needs:
+      - detect-release-tests
       - get-ckb-cli-version
+    if: |
+      needs.detect-release-tests.outputs.centos == 'true' &&
+      (
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      )
     strategy:
       matrix:
         include:
@@ -154,34 +269,34 @@ jobs:
             build_target: "prod_portable"
     steps:
       - uses: actions/checkout@v6
-      - name: Set Env
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Build CKB and Package CKB
+        run: |
+          docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make ${{ matrix.build_target }}
+          devtools/ci/package.sh target/prod/ckb
+          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
+      - name: Sign archive
+        if: github.event_name == 'push'
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make ${{ matrix.build_target }}
           gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          devtools/ci/package.sh target/prod/ckb
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
+          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
       BUILDER_IMAGE: nervos/ckb-docker-builder:centos-7-rust-1.92.0
+      GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
       REL_PKG: ${{ matrix.rel_pkg }}
       CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
@@ -189,7 +304,15 @@ jobs:
     name: package-for-mac
     runs-on: macos-15-intel
     needs:
+      - detect-release-tests
       - get-ckb-cli-version
+    if: |
+      needs.detect-release-tests.outputs.macos-x64 == 'true' &&
+      (
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      )
     strategy:
       matrix:
         include:
@@ -199,35 +322,34 @@ jobs:
             build_target: "prod_portable"
     steps:
       - uses: actions/checkout@v6
-      - name: Set Env
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Build CKB and Package CKB
+        run: |
+          make ${{ matrix.build_target }}
+
+          devtools/ci/package.sh target/prod/ckb
+          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
+      - name: Sign archive
+        if: github.event_name == 'push'
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-
-          make ${{ matrix.build_target }}
-
           gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          devtools/ci/package.sh target/prod/ckb
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
+          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
+      GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
       REL_PKG: ${{ matrix.rel_pkg }}
       CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
@@ -235,7 +357,15 @@ jobs:
     name: package-for-mac-aarch64
     runs-on: macos-15
     needs:
+      - detect-release-tests
       - get-ckb-cli-version
+    if: |
+      needs.detect-release-tests.outputs.macos-aarch64 == 'true' &&
+      (
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      )
     strategy:
       matrix:
         include:
@@ -250,10 +380,6 @@ jobs:
           echo /opt/homebrew/sbin >> $GITHUB_PATH
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v6
-      - name: Set Env
-        run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-          echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Install Depedencies
         run: |
           if ! type -f gpg &> /dev/null; then
@@ -263,30 +389,33 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           fi
       - name: Build CKB and Package CKB
+        run: |
+          make ${{ matrix.build_target }}
+
+          devtools/ci/package.sh target/prod/ckb
+          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
+      - name: Sign archive
+        if: github.event_name == 'push'
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
         run: |
-          export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
-
-          make ${{ matrix.build_target }}
-
           gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          devtools/ci/package.sh target/prod/ckb
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }} ${{ github.workspace }}
-          mv ${{ github.workspace }}/releases/ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc ${{ github.workspace }}
+          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
+      GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
       REL_PKG: ${{ matrix.rel_pkg }}
       CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
 
@@ -294,7 +423,15 @@ jobs:
     name: package-for-windows
     runs-on: windows-2022
     needs:
+      - detect-release-tests
       - get-ckb-cli-version
+    if: |
+      needs.detect-release-tests.outputs.windows == 'true' &&
+      (
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      )
     steps:
       - name: Install Dependencies
         run: |
@@ -302,20 +439,28 @@ jobs:
           iwr -useb get.scoop.sh -outfile 'install-scoop.ps1'
           .\install-scoop.ps1 -RunAsAdmin
           scoop install llvm
-          echo ("GIT_TAG_NAME=" + $env:GITHUB_REF.replace('refs/heads/pkg/', '')) >> $env:GITHUB_ENV
           echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "LIBCLANG_PATH=$env:USERPROFILE\scoop\apps\llvm\current\bin" >> $env:GITHUB_ENV
       - uses: actions/checkout@v6
       - name: Build
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
         run: |
           devtools/windows/make prod
+      - name: Smoke test Windows store open
+        run: |
+          $smokeDir = Join-Path $env:RUNNER_TEMP "ckb-smoke"
+          $exportDir = Join-Path $smokeDir "export"
+          Remove-Item $smokeDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $exportDir -Force | Out-Null
+          & "target\release\ckb.exe" init -C $smokeDir --chain dev --force
+          & "target\release\ckb.exe" export -C $smokeDir -t $exportDir --from 0 --to 0
       - name: Download ckb-cli
         run: |
           iwr -useb "https://github.com/nervosnetwork/ckb-cli/releases/download/$($env:CKB_CLI_VERSION)/ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc.zip" -outfile "ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc.zip"
       - name: Prepare archive
         run: |
-          $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
           mkdir releases
           mkdir releases/ckb_$($env:GIT_TAG_NAME)_x86_64-pc-windows-msvc
           cp -r target/release/ckb.exe,README.md,CHANGELOG.md,COPYING,docs releases/ckb_$($env:GIT_TAG_NAME)_x86_64-pc-windows-msvc
@@ -325,9 +470,10 @@ jobs:
           mv ckb-cli_$($env:CKB_CLI_VERSION)_x86_64-pc-windows-msvc/ckb-cli.exe releases/ckb_$( $env:GIT_TAG_NAME)_x86_64-pc-windows-msvc/
       - name: Archive Files
         run: |
-          $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
           Compress-Archive -Path releases/ckb_$( $env:GIT_TAG_NAME)_x86_64-pc-windows-msvc -DestinationPath releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)
+          Move-Item "$env:GITHUB_WORKSPACE\releases\ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)" "$env:GITHUB_WORKSPACE"
       - name: Sign Archive
+        if: github.event_name == 'push'
         env:
           LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
           GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
@@ -335,27 +481,133 @@ jobs:
           $CYGPWD = cygpath -u (Get-Location)
           gpg --quiet --batch --yes --decrypt --passphrase="$env:LARGE_SECRET_PASSPHRASE" --output "$CYGPWD/devtools/ci/signer.asc" "$CYGPWD/devtools/ci/signer.asc.gpg"
           gpg --import "$CYGPWD/devtools/ci/signer.asc"
-          $env:GIT_TAG_NAME=($env:GITHUB_REF -split '/')[3]
-          gpg -u "$env:GPG_SIGNER" -ab "$CYGPWD/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
-          mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG) ${{ github.workspace }}
-          mv ${{ github.workspace }}/releases/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG).asc ${{ github.workspace }}
+          gpg -u "$env:GPG_SIGNER" -ab "$CYGPWD/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
       - name: upload-artifact
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-artifact
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
     env:
+      GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
       REL_PKG: x86_64-pc-windows-msvc.zip
       CKB_CLI_VERSION: ${{ needs.get-ckb-cli-version.outputs.version }}
+
+  comment-release-test-artifacts:
+    name: Comment release package test artifacts
+    runs-on: ubuntu-22.04
+    needs:
+      - detect-release-tests
+      - package-for-linux
+      - package-for-linux-aarch64
+      - package-for-centos
+      - package-for-mac
+      - package-for-mac-aarch64
+      - package-for-windows
+    if: |
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.detect-release-tests.outputs.any == 'true'
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment artifact links
+        uses: actions/github-script@v7
+        env:
+          GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
+          LINUX_X64_RESULT: ${{ needs.package-for-linux.result }}
+          LINUX_AARCH64_RESULT: ${{ needs.package-for-linux-aarch64.result }}
+          CENTOS_RESULT: ${{ needs.package-for-centos.result }}
+          MACOS_X64_RESULT: ${{ needs.package-for-mac.result }}
+          MACOS_AARCH64_RESULT: ${{ needs.package-for-mac-aarch64.result }}
+          WINDOWS_RESULT: ${{ needs.package-for-windows.result }}
+        with:
+          script: |
+            const marker = '<!-- ckb-release-package-test-artifacts -->';
+            const { owner, repo } = context.repo;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const prefix = `ckb_${process.env.GIT_TAG_NAME}_`;
+
+            const { data } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner,
+              repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+
+            const artifacts = data.artifacts
+              .filter((artifact) => artifact.name.startsWith(prefix) && !artifact.name.endsWith('.asc'))
+              .sort((a, b) => a.name.localeCompare(b.name));
+
+            const artifactLines = artifacts.length > 0
+              ? artifacts.map((artifact) => {
+                  const url = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}/artifacts/${artifact.id}`;
+                  return `- [${artifact.name}](${url})`;
+                }).join('\n')
+              : '- No package artifacts were uploaded. Check the workflow run for failed or skipped jobs.';
+
+            const results = [
+              ['Linux x64', process.env.LINUX_X64_RESULT],
+              ['Linux aarch64', process.env.LINUX_AARCH64_RESULT],
+              ['CentOS', process.env.CENTOS_RESULT],
+              ['macOS x64', process.env.MACOS_X64_RESULT],
+              ['macOS aarch64', process.env.MACOS_AARCH64_RESULT],
+              ['Windows x64', process.env.WINDOWS_RESULT],
+            ].map(([name, result]) => `- ${name}: ${result}`).join('\n');
+
+            const body = [
+              marker,
+              `Release package test artifacts for \`${process.env.GIT_TAG_NAME}\`.`,
+              '',
+              `Workflow run: [Package #${context.runNumber}](${runUrl})`,
+              '',
+              artifactLines,
+              '',
+              'Job results:',
+              results,
+            ].join('\n');
+
+            const issue_number = context.payload.pull_request.number;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) =>
+              comment.user.type === 'Bot' && comment.body && comment.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
 
   Upload_File:
     name: Upload_Zip_File
     runs-on: ubuntu-22.04
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
