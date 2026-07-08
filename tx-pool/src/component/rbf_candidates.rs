@@ -68,16 +68,40 @@ impl RbfCandidates {
             }
         }
 
+        // Collect unique lower-fee candidates that are displaced by this new
+        // candidate.
         let mut displaced: Vec<ProposalShortId> = Vec::new();
         for input in conflict_inputs {
-            if let Some((existing_fee, existing_id)) =
-                self.by_input.insert(input.clone(), (fee, id.clone()))
-                && existing_fee < fee
-                && existing_id != id
-                && !displaced.contains(&existing_id)
+            if let Some((existing_fee, existing_id)) = self.by_input.get(input)
+                && *existing_fee < fee
+                && existing_id != &id
+                && !displaced.contains(existing_id)
             {
-                displaced.push(existing_id);
+                displaced.push(existing_id.clone());
             }
+        }
+
+        // Fully unregister each displaced candidate from *all* of its indexed
+        // inputs.  A displaced candidate may cover more inputs than the new
+        // candidate overlaps with; leaving those entries behind would cause
+        // later replacements for the other inputs to be rejected by a candidate
+        // that is no longer in flight.
+        for displaced_id in &displaced {
+            if let Some(inputs) = self.by_id.remove(displaced_id) {
+                for input in inputs {
+                    if self
+                        .by_input
+                        .get(&input)
+                        .is_some_and(|(_, candidate_id)| candidate_id == displaced_id)
+                    {
+                        self.by_input.remove(&input);
+                    }
+                }
+            }
+        }
+
+        for input in conflict_inputs {
+            self.by_input.insert(input.clone(), (fee, id.clone()));
         }
         self.by_id.insert(id, conflict_inputs.to_vec());
         Ok(displaced)
@@ -207,5 +231,53 @@ mod tests {
         // Removing the new candidate frees both.
         rbf.remove(&id_b);
         assert!(rbf.by_input.is_empty());
+    }
+
+    #[test]
+    fn displaced_candidate_is_fully_unregistered() {
+        let mut rbf = RbfCandidates::new();
+        let input0 = out_point(0);
+        let input1 = out_point(1);
+        let id_a = id(0);
+        let id_b = id(1);
+        let id_c = id(2);
+
+        // Candidate A covers two inputs.
+        rbf.register(
+            id_a.clone(),
+            Capacity::shannons(100),
+            &[input0.clone(), input1.clone()],
+        )
+        .unwrap();
+
+        // Candidate B only overlaps input0 but has a higher fee.  It must
+        // displace A entirely, including input1 which B does not touch.
+        let displaced = rbf
+            .register(
+                id_b.clone(),
+                Capacity::shannons(200),
+                std::slice::from_ref(&input0),
+            )
+            .unwrap();
+        assert_eq!(displaced, vec![id_a.clone()]);
+
+        // input1 must no longer be held by the displaced candidate A, otherwise
+        // a later replacement for input1 would be rejected by a ghost candidate.
+        assert_eq!(rbf.by_input.get(&input1), None);
+        assert_eq!(rbf.by_id.get(&id_a), None);
+
+        // A new candidate for input1 (previously held only by A) should succeed.
+        rbf.register(
+            id_c.clone(),
+            Capacity::shannons(150),
+            std::slice::from_ref(&input1),
+        )
+        .unwrap();
+
+        // Cleanup.
+        rbf.remove(&id_b);
+        rbf.remove(&id_c);
+        assert!(rbf.by_input.is_empty());
+        assert!(rbf.by_id.is_empty());
     }
 }
