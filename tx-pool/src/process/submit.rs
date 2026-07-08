@@ -22,6 +22,7 @@ use tokio::sync::watch;
 use super::{
     PreCheckedTx, SubmitEntryOutcome, VerifyAndSubmitInput, get_tx_status, status_to_verify_env,
 };
+use crate::tx_source::TxSource;
 
 type AddToPoolFn = fn(&mut TxPool, TxEntry) -> Result<(bool, HashSet<TxEntry>), Reject>;
 type PoolCallbackFn = fn(&Callbacks, &TxEntry);
@@ -252,11 +253,13 @@ impl TxPoolService {
 
         if !conflict_inputs.is_empty() {
             // Hold the RBF read lock across the tx_pool write so that no
-            // higher-fee candidate can register between the superseded check
-            // and the actual submit. The lock ordering here is rbf (read) ->
-            // tx_pool (write), consistent with the intended pipeline hierarchy.
+            // higher-fee-rate candidate can register between the superseded
+            // check and the actual submit. The lock ordering here is rbf
+            // (read) -> tx_pool (write), consistent with the intended
+            // pipeline hierarchy.
+            let entry_fee_rate = entry.fee_rate();
             let rbf_guard = self.rbf_candidates.read().await;
-            if rbf_guard.is_superseded(&entry_id, entry.fee, &conflict_inputs) {
+            if rbf_guard.is_superseded(&entry_id, entry_fee_rate, &conflict_inputs) {
                 drop(rbf_guard);
                 self.remove_rbf_candidate(&entry_id).await;
                 let (_, snapshot) = self
@@ -264,7 +267,7 @@ impl TxPoolService {
                     .await;
                 return (
                     Err(Reject::RBFRejected(
-                        "superseded by higher-fee in-flight candidate".to_string(),
+                        "superseded by higher-fee-rate in-flight candidate".to_string(),
                     )),
                     snapshot,
                 );
@@ -311,7 +314,7 @@ impl TxPoolService {
         }
     }
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
-        self.check_tx_basic_validity(&tx, None).await?;
+        self.check_tx_basic_validity(&tx, TxSource::local()).await?;
         self.test_accept_tx_core(tx.clone()).await
     }
     /// Verify and submit a transaction whose inputs have already been resolved.
@@ -332,11 +335,8 @@ impl TxPoolService {
             tx_size,
             pre_resolve_tip,
             snapshot,
-            remote,
-            is_proposal_tx: _,
+            source,
         } = resolved;
-
-        let declared_cycles = remote.map(|(cycles, _)| cycles);
 
         self.verify_and_submit_core(
             VerifyAndSubmitInput {
@@ -347,7 +347,7 @@ impl TxPoolService {
                 tx_size,
                 pre_resolve_tip,
                 snapshot,
-                declared_cycles,
+                source,
             },
             command_rx,
         )
@@ -420,8 +420,9 @@ impl TxPoolService {
             tx_size,
             pre_resolve_tip,
             snapshot,
-            declared_cycles,
+            source,
         } = input;
+        let declared_cycles = source.cycles();
         // Verification uses the snapshot captured at resolve time. If the chain
         // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
         // prepare_rbf_replacement re-runs check_rtx + time_relative_verify against

@@ -161,7 +161,7 @@ impl PipelineQueue for OrderedResolveQueue {
             .filter(|id| {
                 self.lookup
                     .get(*id)
-                    .is_some_and(|job| job.remote.as_ref().is_some_and(|(_, p)| p == peer))
+                    .is_some_and(|job| job.source.peer().is_some_and(|p| p == *peer))
             })
             .cloned()
             .collect();

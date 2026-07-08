@@ -33,6 +33,7 @@ mod process;
 mod resolve_mgr;
 mod resolved_tx;
 pub mod service;
+pub(crate) mod tx_source;
 mod util;
 mod verify_mgr;
 mod worker;

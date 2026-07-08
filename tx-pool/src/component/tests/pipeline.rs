@@ -9,6 +9,7 @@ use crate::pool::TxPool;
 use crate::process::PreCheckedTx;
 use crate::resolve_mgr::{OrderedResolver, ResolveExit};
 use crate::service::TxPoolService;
+use crate::tx_source::TxSource;
 use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
@@ -236,8 +237,8 @@ fn service_with_pipeline_workers(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ =
-                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
+                            let _ = queue
+                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::Local));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -255,9 +256,7 @@ fn service_with_pipeline_workers(
             let queue = Arc::clone(&pre_check_queue);
             tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
-                    let _ = svc
-                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                        .await;
+                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             });
         }
@@ -485,8 +484,8 @@ fn secp_service_with_pipeline_workers(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ =
-                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
+                            let _ = queue
+                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::Local));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -504,9 +503,7 @@ fn secp_service_with_pipeline_workers(
             let queue = Arc::clone(&pre_check_queue);
             tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
-                    let _ = svc
-                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                        .await;
+                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             });
         }
@@ -586,7 +583,7 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
 
 async fn submit_local_tx(service: &TxPoolService, tx: TransactionView) -> u64 {
     let (ret, _snapshot) = service
-        .process_tx_direct(tx, None, None)
+        .process_tx_direct(tx, TxSource::Local, None)
         .await
         .expect("local process tx should return a result");
     ret.expect("local tx should be accepted").cycles
@@ -629,7 +626,13 @@ async fn pipeline_processes_independent_remote_txs() {
     for tx in &txs {
         let cycles = measured_cycles(&service, tx.clone()).await;
         service
-            .submit_remote_tx(tx.clone(), cycles, 1.into())
+            .submit_remote_tx(
+                tx.clone(),
+                TxSource::Remote {
+                    cycles,
+                    peer: 1.into(),
+                },
+            )
             .await
             .expect("enqueue remote tx should succeed");
     }
@@ -670,12 +673,24 @@ async fn pipeline_preserves_order_for_dependent_txs() {
     // pool.  For the always-success script the verification cost is identical
     // for both transactions, so we reuse tx_a's cycle count for tx_b.
     service
-        .submit_remote_tx(tx_b.clone(), tx_a_cycles, 1.into())
+        .submit_remote_tx(
+            tx_b.clone(),
+            TxSource::Remote {
+                cycles: tx_a_cycles,
+                peer: 1.into(),
+            },
+        )
         .await
         .unwrap();
 
     service
-        .submit_remote_tx(tx_a.clone(), tx_a_cycles, 1.into())
+        .submit_remote_tx(
+            tx_a.clone(),
+            TxSource::Remote {
+                cycles: tx_a_cycles,
+                peer: 1.into(),
+            },
+        )
         .await
         .unwrap();
 
@@ -730,10 +745,28 @@ async fn pipeline_rejects_conflicting_double_spend() {
 
     let service_a = service.clone();
     let service_b = service.clone();
-    let handle_a =
-        tokio::spawn(async move { service_a.submit_remote_tx(tx_a, cycles_a, 1.into()).await });
-    let handle_b =
-        tokio::spawn(async move { service_b.submit_remote_tx(tx_b, cycles_b, 1.into()).await });
+    let handle_a = tokio::spawn(async move {
+        service_a
+            .submit_remote_tx(
+                tx_a,
+                TxSource::Remote {
+                    cycles: cycles_a,
+                    peer: 1.into(),
+                },
+            )
+            .await
+    });
+    let handle_b = tokio::spawn(async move {
+        service_b
+            .submit_remote_tx(
+                tx_b,
+                TxSource::Remote {
+                    cycles: cycles_b,
+                    peer: 1.into(),
+                },
+            )
+            .await
+    });
 
     let (res_a, res_b) = tokio::join!(handle_a, handle_b);
     let _ = res_a.expect("task a should not panic");
@@ -803,7 +836,13 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
     // verify queue or already accepted).  Only then submit tx_b so that the
     // cell-dep-on-in-flight-input path is exercised deterministically.
     service
-        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .submit_remote_tx(
+            tx_a.clone(),
+            TxSource::Remote {
+                cycles: cycles_a,
+                peer: 1.into(),
+            },
+        )
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -823,7 +862,13 @@ async fn pipeline_serializes_cell_dep_on_in_flight_input() {
     .expect("tx_a should enter the pipeline");
 
     service
-        .submit_remote_tx(tx_b.clone(), cycles_b, 2.into())
+        .submit_remote_tx(
+            tx_b.clone(),
+            TxSource::Remote {
+                cycles: cycles_b,
+                peer: 2.into(),
+            },
+        )
         .await
         .unwrap();
 
@@ -893,7 +938,7 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
 
     // Submit tx_a first and wait until it is accepted.
     service
-        .process_tx(tx_a.clone(), None)
+        .process_tx(tx_a.clone(), TxSource::Local)
         .await
         .expect("tx_a should be accepted");
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -921,7 +966,7 @@ async fn pipeline_allows_same_cell_as_input_and_cell_dep() {
 
     // Now tx_b's input and cell dep point to the same in-pool out-point.
     service
-        .process_tx(tx_b.clone(), None)
+        .process_tx(tx_b.clone(), TxSource::Local)
         .await
         .expect("tx_b should be accepted even though its cell dep is also its input");
 
@@ -982,7 +1027,13 @@ async fn pipeline_processes_independent_secp_remote_txs() {
 
     for (tx, cycles) in txs.iter().zip(&cycles) {
         service
-            .submit_remote_tx(tx.clone(), *cycles, 1.into())
+            .submit_remote_tx(
+                tx.clone(),
+                TxSource::Remote {
+                    cycles: *cycles,
+                    peer: 1.into(),
+                },
+            )
             .await
             .expect("enqueue secp remote tx should succeed");
     }
@@ -1033,12 +1084,24 @@ async fn pipeline_preserves_order_for_dependent_secp_txs() {
     // Submit child first; it cannot resolve yet because the parent output is not
     // in the chain nor in any queue.
     service
-        .submit_remote_tx(child.clone(), child_cycles, 1.into())
+        .submit_remote_tx(
+            child.clone(),
+            TxSource::Remote {
+                cycles: child_cycles,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("enqueue child secp tx should succeed");
 
     service
-        .submit_remote_tx(parent.clone(), parent_cycles, 1.into())
+        .submit_remote_tx(
+            parent.clone(),
+            TxSource::Remote {
+                cycles: parent_cycles,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("enqueue parent secp tx should succeed");
 
@@ -1088,7 +1151,13 @@ async fn pipeline_reorg_routes_retained_txs_through_classify() {
     for tx in &txs {
         let cycles = measured_cycles(&service, tx.clone()).await;
         service
-            .submit_remote_tx(tx.clone(), cycles, 1.into())
+            .submit_remote_tx(
+                tx.clone(),
+                TxSource::Remote {
+                    cycles,
+                    peer: 1.into(),
+                },
+            )
             .await
             .expect("enqueue remote tx should succeed");
     }
@@ -1248,8 +1317,8 @@ fn service_with_rbf(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ =
-                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
+                            let _ = queue
+                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::Local));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -1267,9 +1336,7 @@ fn service_with_rbf(
             let queue = Arc::clone(&pre_check_queue);
             tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
-                    let _ = svc
-                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                        .await;
+                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             });
         }
@@ -1374,8 +1441,8 @@ fn service_with_rbf_and_max_size(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ =
-                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
+                            let _ = queue
+                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::Local));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -1393,9 +1460,7 @@ fn service_with_rbf_and_max_size(
             let queue = Arc::clone(&pre_check_queue);
             tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
-                    let _ = svc
-                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                        .await;
+                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             });
         }
@@ -1500,8 +1565,8 @@ fn secp_service_with_pipeline_workers_and_chunk(
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ =
-                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
+                            let _ = queue
+                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::Local));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -1519,9 +1584,7 @@ fn secp_service_with_pipeline_workers_and_chunk(
             let queue = Arc::clone(&pre_check_queue);
             tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
-                    let _ = svc
-                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                        .await;
+                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             });
         }
@@ -1577,7 +1640,13 @@ async fn pipeline_dedup_double_submission() {
 
     // First submission.
     service
-        .submit_remote_tx(tx.clone(), cycles, 1.into())
+        .submit_remote_tx(
+            tx.clone(),
+            TxSource::Remote {
+                cycles,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("first submission should succeed");
 
@@ -1599,7 +1668,15 @@ async fn pipeline_dedup_double_submission() {
     // - verify_queue / ordered_resolve_queue contains checks
     // - pool_map.add_entry returns Ok((false, _)) for existing short_id
     // Either way, the pool must still have exactly 1 tx.
-    let second_result = service.submit_remote_tx(tx.clone(), cycles, 1.into()).await;
+    let second_result = service
+        .submit_remote_tx(
+            tx.clone(),
+            TxSource::Remote {
+                cycles,
+                peer: 1.into(),
+            },
+        )
+        .await;
     // The result may be Ok (silent dedup in pool_map) or Err(Duplicated).
     // Both are correct behavior — what matters is the pool state.
     let _ = second_result;
@@ -1641,7 +1718,13 @@ async fn pipeline_high_pre_check_worker_cap() {
     for tx in &txs {
         let cycles = measured_cycles(&service, tx.clone()).await;
         service
-            .submit_remote_tx(tx.clone(), cycles, 1.into())
+            .submit_remote_tx(
+                tx.clone(),
+                TxSource::Remote {
+                    cycles,
+                    peer: 1.into(),
+                },
+            )
             .await
             .expect("enqueue remote tx should succeed");
     }
@@ -1693,9 +1776,15 @@ async fn pipeline_semaphore_backpressure() {
         let tx = tx.clone();
         let cycles = *cycles;
         handles.push(tokio::spawn(async move {
-            svc.submit_remote_tx(tx, cycles, 1.into())
-                .await
-                .expect("submit under backpressure should succeed");
+            svc.submit_remote_tx(
+                tx,
+                TxSource::Remote {
+                    cycles,
+                    peer: 1.into(),
+                },
+            )
+            .await
+            .expect("submit under backpressure should succeed");
         }));
     }
     for h in handles {
@@ -1749,7 +1838,13 @@ async fn pipeline_chunk_command_pause_resume() {
 
     for (tx, cycles) in txs.iter().zip(&cycles_vec) {
         service
-            .submit_remote_tx(tx.clone(), *cycles, 1.into())
+            .submit_remote_tx(
+                tx.clone(),
+                TxSource::Remote {
+                    cycles: *cycles,
+                    peer: 1.into(),
+                },
+            )
             .await
             .expect("enqueue secp tx should succeed");
     }
@@ -1830,7 +1925,13 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
 
     // Submit tx_a and wait for it to reach pending.
     service
-        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .submit_remote_tx(
+            tx_a.clone(),
+            TxSource::Remote {
+                cycles: cycles_a,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("tx_a should be accepted");
 
@@ -1856,7 +1957,13 @@ async fn pipeline_rbf_displaces_lower_fee_tx() {
 
     // Submit tx_b — triggers RBF, displacing tx_a.
     service
-        .submit_remote_tx(tx_b.clone(), cycles_b, 1.into())
+        .submit_remote_tx(
+            tx_b.clone(),
+            TxSource::Remote {
+                cycles: cycles_b,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("tx_b (RBF replacement) should be accepted");
 
@@ -1937,7 +2044,13 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
 
     // Submit tx_a and wait for it to reach pending.
     service
-        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .submit_remote_tx(
+            tx_a.clone(),
+            TxSource::Remote {
+                cycles: cycles_a,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("tx_a should be accepted");
 
@@ -1956,7 +2069,13 @@ async fn pipeline_rbf_rejected_replacement_recovers_original_tx() {
     // Submit tx_b. This merely enqueues the tx and returns Ok; actual
     // success/failure is determined by inspecting the final pool state.
     let _ = service
-        .submit_remote_tx(tx_b.clone(), cycles_b, 1.into())
+        .submit_remote_tx(
+            tx_b.clone(),
+            TxSource::Remote {
+                cycles: cycles_b,
+                peer: 1.into(),
+            },
+        )
         .await;
 
     // Wait for tx_a to be recovered. This involves the deferred worker,
@@ -2045,8 +2164,7 @@ async fn pre_check_queue_rejects_when_full() {
     let tx = TransactionBuilder::default().build();
     let job = crate::component::pre_check_queue::PreCheckJob {
         tx: tx.clone(),
-        is_proposal_tx: false,
-        remote: None,
+        source: TxSource::Local,
     };
 
     // First push succeeds.
@@ -2058,8 +2176,7 @@ async fn pre_check_queue_rejects_when_full() {
         .build();
     let huge_job = crate::component::pre_check_queue::PreCheckJob {
         tx: huge_tx,
-        is_proposal_tx: false,
-        remote: None,
+        source: TxSource::Local,
     };
     assert!(
         matches!(queue.push(huge_job), Err(crate::error::Reject::Full(_))),
@@ -2086,7 +2203,13 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
     let original_id = original.proposal_short_id();
     let original_cycles = measured_cycles(&service, original.clone()).await;
     service
-        .submit_remote_tx(original, original_cycles, 1.into())
+        .submit_remote_tx(
+            original,
+            TxSource::Remote {
+                cycles: original_cycles,
+                peer: 1.into(),
+            },
+        )
         .await
         .unwrap();
 
@@ -2131,7 +2254,14 @@ async fn pipeline_concurrent_rbf_prefers_highest_fee() {
         let cycles = measured_cycles(&service, tx.clone()).await;
         let svc = service.clone();
         handles.push(tokio::spawn(async move {
-            svc.submit_remote_tx(tx, cycles, peer.into()).await
+            svc.submit_remote_tx(
+                tx,
+                TxSource::Remote {
+                    cycles,
+                    peer: peer.into(),
+                },
+            )
+            .await
         }));
     }
 
@@ -2250,7 +2380,13 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
     // Submit tx_a and wait for it to reach pending so that tx_b can be
     // resolved against the pool.
     service
-        .submit_remote_tx(tx_a.clone(), cycles_a, 1.into())
+        .submit_remote_tx(
+            tx_a.clone(),
+            TxSource::Remote {
+                cycles: cycles_a,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("tx_a should be accepted");
 
@@ -2268,7 +2404,13 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
 
     let cycles_b = measured_cycles(&service, tx_b.clone()).await;
     service
-        .submit_remote_tx(tx_b.clone(), cycles_b, 1.into())
+        .submit_remote_tx(
+            tx_b.clone(),
+            TxSource::Remote {
+                cycles: cycles_b,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("tx_b should be accepted");
 
@@ -2286,7 +2428,13 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
 
     let cycles_c = measured_cycles(&service, tx_c.clone()).await;
     service
-        .submit_remote_tx(tx_c.clone(), cycles_c, 1.into())
+        .submit_remote_tx(
+            tx_c.clone(),
+            TxSource::Remote {
+                cycles: cycles_c,
+                peer: 1.into(),
+            },
+        )
         .await
         .expect("tx_c should be accepted");
 
@@ -2306,7 +2454,13 @@ async fn pipeline_rbf_rejected_replacement_recovers_descendants_in_order() {
 
     // Submit the oversized replacement.
     let _ = service
-        .submit_remote_tx(tx_r.clone(), cycles_r, 1.into())
+        .submit_remote_tx(
+            tx_r.clone(),
+            TxSource::Remote {
+                cycles: cycles_r,
+                peer: 1.into(),
+            },
+        )
         .await;
 
     // Wait for the pipeline to drain and the original chain to be recovered.

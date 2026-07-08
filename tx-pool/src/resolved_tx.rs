@@ -6,10 +6,10 @@
 //! transactions are resolved in the order they arrive.
 
 use crate::component::pool_map::Status;
-use ckb_network::PeerIndex;
+use crate::tx_source::TxSource;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
-    core::{Capacity, Cycle, TransactionView, cell::ResolvedTransaction},
+    core::{Capacity, TransactionView, cell::ResolvedTransaction},
     packed::Byte32,
 };
 use std::sync::Arc;
@@ -19,10 +19,8 @@ use std::sync::Arc;
 pub struct ResolveJob {
     /// The raw transaction to resolve.
     pub tx: TransactionView,
-    /// Declared cycles and source peer for remote transactions.
-    pub remote: Option<(Cycle, PeerIndex)>,
-    /// Whether this transaction came from a block proposal.
-    pub is_proposal_tx: bool,
+    /// The origin of the transaction (remote, local, or proposal notification).
+    pub source: TxSource,
     /// Number of times this local transaction has been retried because its
     /// inputs were not yet available. Used to bound retries for orphans that
     /// are not satisfiable.
@@ -31,15 +29,10 @@ pub struct ResolveJob {
 
 impl ResolveJob {
     /// Create a new resolve job for a transaction that has not been retried yet.
-    pub fn new(
-        tx: TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
-        is_proposal_tx: bool,
-    ) -> Self {
+    pub fn new(tx: TransactionView, source: TxSource) -> Self {
         Self {
             tx,
-            remote,
-            is_proposal_tx,
+            source,
             attempts: 0,
         }
     }
@@ -62,9 +55,6 @@ pub struct ResolvedTx {
     pub pre_resolve_tip: Byte32,
     /// Snapshot used during resolve; reused for verification.
     pub snapshot: Arc<Snapshot>,
-    /// Declared cycles and source peer for remote transactions.
-    pub remote: Option<(Cycle, PeerIndex)>,
-    /// Whether this transaction came from a block proposal and should be
-    /// prioritized in the verify queue.
-    pub is_proposal_tx: bool,
+    /// The origin of the transaction (remote, local, or proposal notification).
+    pub source: TxSource,
 }

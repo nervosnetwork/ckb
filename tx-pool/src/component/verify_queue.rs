@@ -50,7 +50,13 @@ struct VerifyEntry {
     /// whether the tx is a large cycle tx
     #[multi_index(hashed_non_unique)]
     is_large_cycle: bool,
-    /// Whether this is a proposal transaction.
+    /// Whether this entry has been promoted to proposal priority.
+    ///
+    /// This is a runtime promotion state, independent of `inner.source`. A
+    /// remote transaction (`TxSource::Remote`) can be re-submitted as a
+    /// proposal notification; in that case `inner.source` stays `Remote` (so
+    /// we keep the peer/cycles metadata) while this flag flips to `true` to
+    /// grant proposal priority in the verify queue.
     is_proposal_tx: bool,
 
     /// The resolved transaction ready for verification.
@@ -189,12 +195,12 @@ impl VerifyQueue {
     /// Compute fee rate for a resolved tx.
     ///
     /// For remote txs, declared cycles are used to compute weight.
-    /// For local txs (cycles unknown), `large_cycle_threshold` is used as a
-    /// conservative estimate so that local txs are not unfairly penalised.
+    /// For local/proposal txs (cycles unknown), `large_cycle_threshold` is used
+    /// as a conservative estimate so that they are not unfairly penalised.
     fn compute_fee_rate(&self, resolved: &ResolvedTx) -> FeeRate {
         let declared_cycles = resolved
-            .remote
-            .map(|(cycles, _)| cycles)
+            .source
+            .cycles()
             .unwrap_or(self.large_cycle_threshold);
         let weight = get_transaction_weight(resolved.tx_size, declared_cycles);
         FeeRate::calculate(resolved.fee, weight)
@@ -255,8 +261,8 @@ impl PipelineQueue for VerifyQueue {
         let ids: Vec<_> = self
             .inner
             .iter()
-            .filter(|&(_cycle, entry)| entry.inner.remote.as_ref().is_some_and(|(_, p)| p == peer))
-            .map(|(_cycle, entry)| entry.id.clone())
+            .filter(|&(_idx, entry)| entry.inner.source.peer().is_some_and(|p| p == *peer))
+            .map(|(_idx, entry)| entry.id.clone())
             .collect();
 
         let removed = ids.clone();
@@ -267,7 +273,7 @@ impl PipelineQueue for VerifyQueue {
     fn add_tx(&mut self, resolved: ResolvedTx) -> Result<bool, Reject> {
         let id = resolved.tx.proposal_short_id();
         if self.contains_key(&id) {
-            if resolved.is_proposal_tx {
+            if resolved.source.is_proposal_tx() {
                 // If the existing entry is not yet a proposal tx, promote it
                 // in place without the costly remove + shrink + reinsert cycle.
                 let mut promoted = false;
@@ -291,11 +297,11 @@ impl PipelineQueue for VerifyQueue {
         }
         let tx_size = resolved.tx_size;
         let is_large_cycle = resolved
-            .remote
-            .map(|(cycles, _)| cycles > self.large_cycle_threshold)
-            .unwrap_or(false);
+            .source
+            .cycles()
+            .is_some_and(|cycles| cycles > self.large_cycle_threshold);
         let added_time = unix_time_as_millis();
-        let is_proposal_tx = resolved.is_proposal_tx;
+        let is_proposal_tx = resolved.source.is_proposal_tx();
         let priority = if is_proposal_tx {
             VerifyPriority::Proposal
         } else {

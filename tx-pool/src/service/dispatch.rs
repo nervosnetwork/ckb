@@ -7,10 +7,11 @@ use crate::service::{
     PipelineTxLocation, ResolvedTxLocation, SubmitTxResult, SyncRequest, TestAcceptTxResult,
     TxPoolService, map_pool_status, respond,
 };
+use crate::tx_source::TxSource;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
-        Cycle, EstimateMode, TransactionView, UncleBlockView,
+        EstimateMode, TransactionView, UncleBlockView,
         cell::CellStatus,
         tx_pool::{
             PoolTxDetailInfo, TransactionWithStatus, TxPoolEntryInfo, TxPoolIds, TxPoolInfo,
@@ -92,7 +93,7 @@ impl TxPoolService {
             responder,
             arguments: tx,
         } = req;
-        let result = self.process_tx(tx, None).await.map(|_| ());
+        let result = self.process_tx(tx, TxSource::local()).await.map(|_| ());
         respond(responder, result, "submit_local_tx");
     }
 
@@ -102,8 +103,8 @@ impl TxPoolService {
             arguments: tx,
         } = req;
         let result = async {
-            self.check_tx_basic_validity(&tx, None).await?;
-            self.classify_and_enqueue_tx_spawn(tx, false, None)
+            self.check_tx_basic_validity(&tx, TxSource::local()).await?;
+            self.classify_and_enqueue_tx_spawn(tx, TxSource::local())
                 .await
                 .map(|_| ())
         }
@@ -129,15 +130,12 @@ impl TxPoolService {
         respond(responder, result.map(|r| r.into()), "test_accept_tx");
     }
 
-    async fn handle_submit_remote_tx(
-        &self,
-        req: SyncRequest<(TransactionView, Cycle, ckb_network::PeerIndex), ()>,
-    ) {
+    async fn handle_submit_remote_tx(&self, req: SyncRequest<(TransactionView, TxSource), ()>) {
         let SyncRequest {
             responder,
-            arguments: (tx, declared_cycles, peer),
+            arguments: (tx, source),
         } = req;
-        let _result = self.submit_remote_tx(tx, declared_cycles, peer).await;
+        let _result = self.submit_remote_tx(tx, source).await;
         respond(responder, (), "submit_remote_tx");
     }
 

@@ -3,13 +3,14 @@ use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
 use ckb_types::{
-    core::{Cycle, TransactionView},
+    core::TransactionView,
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_util::shrink_to_fit;
 use std::collections::{HashMap, HashSet};
 
 use crate::constants::SHRINK_THRESHOLD;
+use crate::tx_source::TxSource;
 
 /// Expiration time for orphan transactions, expressed as a multiple of the
 /// maximum block interval.
@@ -31,26 +32,24 @@ pub(crate) const DEFAULT_MAX_ORPHAN_TRANSACTIONS: usize = 100;
 pub struct Entry {
     /// Transaction
     pub tx: TransactionView,
-    /// peer id
-    pub peer: PeerIndex,
-    /// Declared cycles
-    pub cycle: Cycle,
-    /// Whether this tx was received as a block proposal and should be
-    /// prioritised when it re-enters the verification pipeline.
-    pub is_proposal_tx: bool,
+    /// The origin of the transaction (remote, local, or proposal notification).
+    pub source: TxSource,
     /// Expire timestamp
     pub expires_at: u64,
 }
 
 impl Entry {
-    pub fn new(tx: TransactionView, peer: PeerIndex, cycle: Cycle, is_proposal_tx: bool) -> Entry {
+    pub fn new(tx: TransactionView, source: TxSource) -> Entry {
         Entry {
             tx,
-            peer,
-            cycle,
-            is_proposal_tx,
+            source,
             expires_at: ckb_systemtime::unix_time().as_secs() + ORPHAN_TX_EXPIRE_TIME,
         }
+    }
+
+    /// Returns the peer index if this orphan came from a remote source.
+    pub fn peer(&self) -> Option<PeerIndex> {
+        self.source.peer()
     }
 }
 
@@ -121,7 +120,7 @@ impl OrphanPool {
         let ids: Vec<_> = self
             .entries
             .iter()
-            .filter(|(_, entry)| entry.peer == peer)
+            .filter(|(_, entry)| entry.peer() == Some(peer))
             .map(|(id, _)| id.clone())
             .collect();
         for id in &ids {
@@ -178,23 +177,15 @@ impl OrphanPool {
     /// Returns `(true, evicted_txs)` if the transaction was newly inserted and
     /// is still present after eviction, or `(false, evicted_txs)` if it was
     /// already present or was evicted by the size limit.
-    pub fn add_orphan_tx(
-        &mut self,
-        tx: TransactionView,
-        peer: PeerIndex,
-        declared_cycle: Cycle,
-        is_proposal_tx: bool,
-    ) -> (bool, Vec<Byte32>) {
+    pub fn add_orphan_tx(&mut self, tx: TransactionView, source: TxSource) -> (bool, Vec<Byte32>) {
         let id = tx.proposal_short_id();
         if self.entries.contains_key(&id) {
             return (false, vec![]);
         }
 
         debug!("add_orphan_tx {}", tx.hash());
-        self.entries.insert(
-            id.clone(),
-            Entry::new(tx.clone(), peer, declared_cycle, is_proposal_tx),
-        );
+        self.entries
+            .insert(id.clone(), Entry::new(tx.clone(), source));
 
         for out_point in tx
             .input_pts_iter()

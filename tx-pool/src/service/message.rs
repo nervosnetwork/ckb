@@ -1,10 +1,10 @@
 //! Tx-pool service message definitions.
 
 use crate::service::{Notify, Request};
+use crate::tx_source::TxSource;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
@@ -41,7 +41,7 @@ pub(crate) enum Message {
     SubmitLocalTx(SyncRequest<TransactionView, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, bool>),
     TestAcceptTx(SyncRequest<TransactionView, TestAcceptTxResult>),
-    SubmitRemoteTx(SyncRequest<(TransactionView, Cycle, PeerIndex), ()>),
+    SubmitRemoteTx(SyncRequest<(TransactionView, TxSource), ()>),
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),

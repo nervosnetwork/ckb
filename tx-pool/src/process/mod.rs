@@ -7,6 +7,7 @@ use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
 use crate::try_or_return_with_snapshot;
+use crate::tx_source::TxSource;
 use crate::util::{
     check_tx_fee, check_tx_fee_with_min_fee_rate, check_txid_collision, non_contextual_verify,
 };
@@ -14,10 +15,10 @@ use ckb_error::{AnyError, InternalErrorKind};
 use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info};
-use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_types::core::error::OutPointError;
+use ckb_types::core::tx_pool::get_transaction_weight;
 use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
@@ -44,6 +45,17 @@ pub enum PlugTarget {
     Pending,
     /// Proposed pool
     Proposed,
+}
+
+/// Routing decision from [`TxPoolService::check_and_route_dependent`].
+#[derive(Debug)]
+enum RouteDecision {
+    /// The tx does not depend on any in-flight pipeline tx.
+    Independent,
+    /// The tx was enqueued in the ordered resolve queue.
+    Enqueued,
+    /// The tx is a duplicate of an already-queued tx.
+    Duplicate,
 }
 
 /// Map a pool status to the verification environment used for contextual checks.
@@ -258,14 +270,13 @@ impl TxPoolService {
     pub(crate) async fn non_contextual_verify(
         &self,
         tx: &TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
     ) -> Result<(), Reject> {
         if let Err(reject) = non_contextual_verify(&self.consensus, tx) {
             if reject.is_malformed_tx()
-                && let Some(remote) = remote
+                && let Some(peer) = source.peer()
             {
-                self.ban_malformed(remote.1, format!("reject {reject}"))
-                    .await;
+                self.ban_malformed(peer, format!("reject {reject}")).await;
             }
             return Err(reject);
         }
@@ -280,9 +291,9 @@ impl TxPoolService {
     pub(crate) async fn check_tx_basic_validity(
         &self,
         tx: &TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
     ) -> Result<(), Reject> {
-        self.non_contextual_verify(tx, remote).await?;
+        self.non_contextual_verify(tx, source).await?;
 
         let dup = || Reject::Duplicated(tx.hash());
         let id = tx.proposal_short_id();
@@ -312,15 +323,13 @@ impl TxPoolService {
     async fn classify_and_enqueue_with_full_reject_notification(
         &self,
         tx: TransactionView,
-        is_proposal_tx: bool,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
     ) -> Result<bool, Reject> {
-        let ret = self
-            .classify_and_enqueue_tx_spawn(tx.clone(), is_proposal_tx, remote)
-            .await;
+        let tx_hash = tx.hash();
+        let ret = self.classify_and_enqueue_tx_spawn(tx, source).await;
 
         if matches!(ret, Err(Reject::Full(_))) {
-            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash: tx.hash() });
+            self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
         }
 
         ret
@@ -329,33 +338,29 @@ impl TxPoolService {
     pub(crate) async fn submit_remote_tx(
         &self,
         tx: TransactionView,
-        declared_cycles: Cycle,
-        peer: PeerIndex,
+        source: TxSource,
     ) -> Result<bool, Reject> {
-        let remote = Some((declared_cycles, peer));
-        self.check_tx_basic_validity(&tx, remote).await?;
-        self.classify_and_enqueue_with_full_reject_notification(tx, false, remote)
+        self.check_tx_basic_validity(&tx, source).await?;
+        self.classify_and_enqueue_with_full_reject_notification(tx, source)
             .await
     }
 
     pub(crate) async fn notify_tx(&self, tx: TransactionView) -> Result<bool, Reject> {
-        self.check_tx_basic_validity(&tx, None).await?;
-        self.classify_and_enqueue_with_full_reject_notification(tx, true, None)
+        self.check_tx_basic_validity(&tx, TxSource::Proposal)
+            .await?;
+        self.classify_and_enqueue_with_full_reject_notification(tx, TxSource::Proposal)
             .await
     }
 
     pub(crate) async fn process_tx(
         &self,
         tx: TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
     ) -> Result<Completed, Reject> {
-        self.check_tx_basic_validity(&tx, remote).await?;
+        self.check_tx_basic_validity(&tx, source).await?;
 
-        if let Some((ret, snapshot)) = self
-            .process_tx_direct(tx.clone(), remote.map(|r| r.0), None)
-            .await
-        {
-            self.after_process(tx, remote, &snapshot, &ret, false).await;
+        if let Some((ret, snapshot)) = self.process_tx_direct(tx.clone(), source, None).await {
+            self.after_process(tx, source, &snapshot, &ret).await;
             ret
         } else {
             // process_tx_direct currently always returns Some, but guard
@@ -441,7 +446,7 @@ impl TxPoolService {
     pub(crate) async fn process_tx_direct(
         &self,
         tx: TransactionView,
-        declared_cycles: Option<Cycle>,
+        source: TxSource,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
         let tx_size = tx.data().serialized_size_in_block();
@@ -464,7 +469,7 @@ impl TxPoolService {
                 tx_size,
                 pre_resolve_tip,
                 snapshot,
-                declared_cycles,
+                source,
             },
             command_rx,
         )
@@ -611,12 +616,13 @@ impl TxPoolService {
             let mut chunk_rx = self.chunk_rx.clone();
             for tx in retain {
                 if let Some((ret, snapshot)) = self
-                    .process_tx_direct(tx.clone(), None, Some(&mut chunk_rx))
+                    .process_tx_direct(tx.clone(), TxSource::Local, Some(&mut chunk_rx))
                     .await
                     && let Err(ref reject) = ret
                 {
                     debug!("reorg re-add failed: {}", reject);
-                    self.after_process(tx, None, &snapshot, &ret, false).await;
+                    self.after_process(tx, TxSource::Local, &snapshot, &ret)
+                        .await;
                 } else {
                     // The detached tx is now back in the pool. Wake up any
                     // orphans that depend on it (including via cell dep).
@@ -647,8 +653,7 @@ impl TxPoolService {
     async fn check_and_route_dependent(
         &self,
         tx: &TransactionView,
-        is_proposal_tx: bool,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
     ) -> Result<RouteDecision, Reject> {
         let id = tx.proposal_short_id();
 
@@ -658,35 +663,40 @@ impl TxPoolService {
                 return Ok(RouteDecision::Duplicate);
             }
             return ordered
-                .add_tx(crate::resolved_tx::ResolveJob::new(
-                    tx.clone(),
-                    remote,
-                    is_proposal_tx,
-                ))
+                .add_tx(crate::resolved_tx::ResolveJob::new(tx.clone(), source))
                 .map(|_| RouteDecision::Enqueued);
         }
 
         Ok(RouteDecision::Independent)
     }
 
+    /// Compute the fee rate used for RBF candidate ordering.
+    ///
+    /// The peer-supplied declared cycles are used to compute the transaction
+    /// weight, and the fee rate is derived from that weight. This function is
+    /// only called for remote peer submissions.
+    fn compute_fee_rate(&self, fee: Capacity, tx_size: usize, cycles: Cycle) -> FeeRate {
+        let weight = get_transaction_weight(tx_size, cycles);
+        FeeRate::calculate(fee, weight)
+    }
+
     /// Register an RBF candidate for a transaction that conflicts with in-pool
     /// inputs. Returns `Ok(true)` if the tx was registered as an RBF candidate,
-    /// `Ok(false)` if there are no conflicts, and `Err` if a higher-fee
+    /// `Ok(false)` if there are no conflicts, and `Err` if a higher-fee-rate
     /// candidate is already in flight.
     ///
-    /// When registration succeeds, lower-fee displaced candidates are removed
-    /// from the verify queue so that only the highest-fee replacement reaches
-    /// `submit_entry`.
+    /// When registration succeeds, lower-fee-rate displaced candidates are
+    /// removed from the verify queue so that only the highest-fee-rate
+    /// replacement reaches `submit_entry`.
     async fn register_rbf_candidate(
         &self,
         id: &ProposalShortId,
         tx: &TransactionView,
-        fee: Capacity,
-        remote: Option<(Cycle, PeerIndex)>,
+        fee_rate: FeeRate,
+        source: &TxSource,
         snapshot: &Arc<Snapshot>,
-        is_proposal_tx: bool,
     ) -> Result<bool, Reject> {
-        if remote.is_none() {
+        if source.cycles().is_none() {
             return Ok(false);
         }
         let conflict_inputs = self.find_conflict_inputs(tx).await;
@@ -695,12 +705,12 @@ impl TxPoolService {
         }
 
         let mut rbf = self.rbf_candidates.write().await;
-        match rbf.register(id.clone(), fee, &conflict_inputs) {
+        match rbf.register(id.clone(), fee_rate, &conflict_inputs) {
             Ok(displaced_ids) => {
-                // Higher-fee candidate(s) displaced lower-fee one(s) still
-                // waiting in the verify queue. Drop them so only the highest-fee
-                // tx reaches submit_entry, and notify the relayer so the txs are
-                // not treated as still in-flight.
+                // Higher-fee-rate candidate(s) displaced lower-fee-rate one(s)
+                // still waiting in the verify queue. Drop them so only the
+                // highest-fee-rate tx reaches submit_entry, and notify the
+                // relayer so the txs are not treated as still in-flight.
                 if !displaced_ids.is_empty() {
                     drop(rbf);
                     let displaced = {
@@ -711,17 +721,11 @@ impl TxPoolService {
                             .collect::<Vec<_>>()
                     };
                     let ret = Err(Reject::RBFRejected(
-                        "superseded by higher-fee in-flight candidate".to_string(),
+                        "superseded by higher-fee-rate in-flight candidate".to_string(),
                     ));
                     for resolved in displaced {
-                        self.after_process(
-                            resolved.tx,
-                            resolved.remote,
-                            &resolved.snapshot,
-                            &ret,
-                            resolved.is_proposal_tx,
-                        )
-                        .await;
+                        self.after_process(resolved.tx, resolved.source, &resolved.snapshot, &ret)
+                            .await;
                     }
                 }
                 Ok(true)
@@ -729,14 +733,8 @@ impl TxPoolService {
             Err(reason) => {
                 drop(rbf);
                 let reject = Reject::RBFRejected(reason);
-                self.after_process(
-                    tx.clone(),
-                    remote,
-                    snapshot,
-                    &Err(reject.clone()),
-                    is_proposal_tx,
-                )
-                .await;
+                self.after_process(tx.clone(), *source, snapshot, &Err(reject.clone()))
+                    .await;
                 Err(reject)
             }
         }
@@ -750,15 +748,11 @@ impl TxPoolService {
     pub(crate) async fn classify_and_enqueue_tx(
         &self,
         tx: TransactionView,
-        is_proposal_tx: bool,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
     ) -> Result<bool, Reject> {
         let id = tx.proposal_short_id();
 
-        match self
-            .check_and_route_dependent(&tx, is_proposal_tx, remote)
-            .await?
-        {
+        match self.check_and_route_dependent(&tx, source).await? {
             RouteDecision::Independent => {}
             RouteDecision::Enqueued => return Ok(true),
             RouteDecision::Duplicate => return Ok(false),
@@ -777,11 +771,27 @@ impl TxPoolService {
                 tx_size,
             }) => {
                 // For RBF replacements, register the candidate before it enters
-                // the verify queue so lower-fee candidates can be rejected while
-                // a higher-fee candidate is already in flight.
-                let rbf_registered = self
-                    .register_rbf_candidate(&id, &tx, fee, remote, &snapshot, is_proposal_tx)
-                    .await?;
+                // the verify queue so lower-fee-rate candidates can be rejected
+                // while a higher-fee-rate candidate is already in flight.
+                //
+                // Fast-path duplicate check: a remote tx that is already in the
+                // verify queue should not register as an RBF candidate and
+                // displace lower-fee-rate candidates. Proposals are not checked
+                // here because they may need to promote an existing entry.
+                if source.cycles().is_some() {
+                    let verify_queue = self.queues.verify_queue.read().await;
+                    if verify_queue.contains_key(&id) {
+                        return Ok(false);
+                    }
+                }
+
+                let rbf_registered = if let Some(cycles) = source.cycles() {
+                    let fee_rate = self.compute_fee_rate(fee, tx_size, cycles);
+                    self.register_rbf_candidate(&id, &tx, fee_rate, &source, &snapshot)
+                        .await?
+                } else {
+                    false
+                };
 
                 let resolved = crate::resolved_tx::ResolvedTx {
                     tx: tx.clone(),
@@ -791,13 +801,21 @@ impl TxPoolService {
                     tx_size,
                     pre_resolve_tip,
                     snapshot: Arc::clone(&snapshot),
-                    remote,
-                    is_proposal_tx,
+                    source,
                 };
                 let reject = {
                     let mut verify_queue = self.queues.verify_queue.write().await;
                     match verify_queue.add_tx(resolved) {
-                        Ok(added) => return Ok(added),
+                        Ok(added) => {
+                            if !added && rbf_registered {
+                                // Lost the race: another task inserted the same
+                                // tx while we were registering. Clean up our RBF
+                                // registration so the input is not blocked.
+                                drop(verify_queue);
+                                self.rbf_candidates.write().await.remove(&id);
+                            }
+                            return Ok(added);
+                        }
                         Err(reject) => reject,
                     }
                 };
@@ -806,7 +824,7 @@ impl TxPoolService {
                 if rbf_registered {
                     self.rbf_candidates.write().await.remove(&id);
                 }
-                self.after_process(tx, remote, &snapshot, &Err(reject.clone()), is_proposal_tx)
+                self.after_process(tx, source, &snapshot, &Err(reject.clone()))
                     .await;
                 Err(reject)
             }
@@ -815,14 +833,10 @@ impl TxPoolService {
                 if ordered.contains_key(&id) {
                     return Ok(false);
                 }
-                ordered.add_tx(crate::resolved_tx::ResolveJob::new(
-                    tx,
-                    remote,
-                    is_proposal_tx,
-                ))
+                ordered.add_tx(crate::resolved_tx::ResolveJob::new(tx, source))
             }
             Err(reject) => {
-                self.after_process(tx, remote, &snapshot, &Err(reject.clone()), is_proposal_tx)
+                self.after_process(tx, source, &snapshot, &Err(reject.clone()))
                     .await;
                 Err(reject)
             }
@@ -839,23 +853,15 @@ impl TxPoolService {
     pub(crate) async fn classify_and_enqueue_tx_spawn(
         &self,
         tx: TransactionView,
-        is_proposal_tx: bool,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
     ) -> Result<bool, Reject> {
-        match self
-            .check_and_route_dependent(&tx, is_proposal_tx, remote)
-            .await?
-        {
+        match self.check_and_route_dependent(&tx, source).await? {
             RouteDecision::Independent => {}
             RouteDecision::Enqueued => return Ok(true),
             RouteDecision::Duplicate => return Ok(false),
         }
 
-        let job = PreCheckJob {
-            tx,
-            is_proposal_tx,
-            remote,
-        };
+        let job = PreCheckJob { tx, source };
         self.queues.pre_check_queue.push(job)?;
 
         // Returning Ok(true) only means the tx was accepted into the pipeline;
@@ -961,17 +967,7 @@ pub(crate) struct VerifyAndSubmitInput {
     pub(crate) tx_size: usize,
     pub(crate) pre_resolve_tip: Byte32,
     pub(crate) snapshot: Arc<Snapshot>,
-    pub(crate) declared_cycles: Option<Cycle>,
-}
-
-/// Decision made by [`TxPoolService::check_and_route_dependent`].
-pub(crate) enum RouteDecision {
-    /// Transaction is independent; caller should proceed with pre_check.
-    Independent,
-    /// Transaction depends on an in-flight tx and was enqueued for ordered resolve.
-    Enqueued,
-    /// Transaction depends on an in-flight tx but is a duplicate of one already queued.
-    Duplicate,
+    pub(crate) source: TxSource,
 }
 
 type ResolveResult = Result<(Arc<ResolvedTransaction>, Status), Reject>;

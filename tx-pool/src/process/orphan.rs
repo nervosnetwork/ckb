@@ -1,9 +1,9 @@
 use crate::component::orphan::Entry as OrphanEntry;
 use crate::error::Reject;
 use crate::service::TxVerificationResult;
+use crate::tx_source::TxSource;
 use ckb_logger::warn;
-use ckb_network::PeerIndex;
-use ckb_types::core::{Cycle, TransactionView};
+use ckb_types::core::TransactionView;
 use ckb_types::packed::{Byte32, ProposalShortId};
 use ckb_util::LinkedHashSet;
 use std::collections::{HashSet, VecDeque};
@@ -23,34 +23,21 @@ impl super::TxPoolService {
     pub(crate) async fn handle_missing_input_orphan(
         &self,
         tx: TransactionView,
-        peer: PeerIndex,
-        declared_cycle: Cycle,
+        source: TxSource,
         parents: HashSet<Byte32>,
-        is_proposal_tx: bool,
     ) {
         // Only notify the relayer after the tx has actually been accepted into
         // the orphan pool. This avoids telling peers about missing parents for
         // a tx that we end up dropping (e.g. duplicate orphan or pool full).
-        if self
-            .add_orphan(tx, peer, declared_cycle, is_proposal_tx)
-            .await
+        if self.add_orphan(tx, source).await
+            && let Some(peer) = source.peer()
         {
             self.send_result_to_relayer(TxVerificationResult::UnknownParents { peer, parents });
         }
     }
 
-    pub(crate) async fn add_orphan(
-        &self,
-        tx: TransactionView,
-        peer: PeerIndex,
-        declared_cycle: Cycle,
-        is_proposal_tx: bool,
-    ) -> bool {
-        let (added, evicted_txs) =
-            self.orphan
-                .write()
-                .await
-                .add_orphan_tx(tx, peer, declared_cycle, is_proposal_tx);
+    pub(crate) async fn add_orphan(&self, tx: TransactionView, source: TxSource) -> bool {
+        let (added, evicted_txs) = self.orphan.write().await.add_orphan_tx(tx, source);
         // for any evicted orphan tx, we should send reject to relayer
         // so that we mark it as `unknown` in filter
         for tx_hash in evicted_txs {
@@ -75,9 +62,10 @@ impl super::TxPoolService {
     /// Remove all orphans which are resolved by the given transaction.
     ///
     /// The search is breadth-first: each orphan is routed through the same
-    /// pipeline entry point as other remote transactions. When an orphan is
-    /// eventually verified and submitted, `after_process` will recursively
-    /// process its own descendants in the orphan pool.
+    /// pipeline entry point as other remote transactions and block proposal
+    /// notifications. When an orphan is eventually verified and submitted,
+    /// `after_process` will recursively process its own descendants in the
+    /// orphan pool.
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
         let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
         orphan_queue.push_back(tx.clone());
@@ -86,15 +74,10 @@ impl super::TxPoolService {
             let orphans = self.find_orphan_by_previous(&previous).await;
             for orphan in orphans.into_iter() {
                 let orphan_id = orphan.tx.proposal_short_id();
+                let orphan_hash = orphan.tx.hash();
+                let orphan_peer = orphan.peer();
 
-                match self
-                    .classify_and_enqueue_tx(
-                        orphan.tx.clone(),
-                        orphan.is_proposal_tx,
-                        Some((orphan.cycle, orphan.peer)),
-                    )
-                    .await
-                {
+                match self.classify_and_enqueue_tx(orphan.tx, orphan.source).await {
                     Ok(_) => {
                         self.remove_orphan_tx(&orphan_id).await;
                         // The orphan is now in the pipeline. Its own children
@@ -113,13 +96,14 @@ impl super::TxPoolService {
                         {
                             warn!(
                                 "process_orphan {} not ready ({reject}); keeping orphan from {}",
-                                orphan.tx.hash(),
+                                orphan_hash,
                                 tx.hash(),
                             );
                         } else {
                             self.remove_orphan_tx(&orphan_id).await;
-                            self.handle_remote_reject(&orphan.tx.hash(), &reject, orphan.peer)
-                                .await;
+                            if let Some(peer) = orphan_peer {
+                                self.handle_remote_reject(&orphan_hash, &reject, peer).await;
+                            }
                         }
                     }
                 }

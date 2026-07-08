@@ -181,8 +181,9 @@ pub(crate) struct TxPoolService {
     /// that detached transactions are not verified while the pipeline is
     /// suspended.
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
-    /// Fee-ordering gate for conflicting RBF replacements that are concurrently
-    /// in flight through the pipeline.  Ensures the highest-fee candidate wins.
+    /// Fee-rate-ordering gate for conflicting RBF replacements that are
+    /// concurrently in flight through the pipeline.  Ensures the
+    /// highest-fee-rate candidate wins.
     pub(crate) rbf_candidates: Arc<RwLock<crate::component::rbf_candidates::RbfCandidates>>,
     /// Bounded channel for deferred side-effects (recovery tx re-enqueue,
     /// verify cache updates). A single background worker drains this channel,
@@ -255,7 +256,7 @@ impl TxPoolService {
             if let Some(entry) = orphan.get(id) {
                 return Some(PipelineTxLocation::Orphan {
                     tx: entry.tx.clone(),
-                    cycle: entry.cycle,
+                    cycle: entry.source.cycles().unwrap_or(0),
                 });
             }
         }

@@ -17,6 +17,7 @@ use crate::service::{
     BlockAssemblerMessage, ChainReorgArgs, DeferredTask, Message, Notify, TxPoolController,
     TxPoolService, TxVerificationResult, process,
 };
+use crate::tx_source::TxSource;
 use crate::util::panic_payload_to_string;
 use crate::verify_mgr::VerifyMgr;
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -391,9 +392,7 @@ impl TxPoolServiceBuilder {
                     let queue = Arc::clone(&queue);
                     let worker = async move {
                         while let Some(job) = queue.pop().await {
-                            let _ = svc
-                                .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                                .await;
+                            let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                         }
                     };
                     let exit = match AssertUnwindSafe(worker).catch_unwind().await {
@@ -815,7 +814,9 @@ async fn enqueue_recover_txs(
     let mut queue = ordered_queue.write().await;
     for tx in txs {
         debug!("recover back: {:?}", tx.proposal_short_id());
-        if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false)) {
+        if let Err(reject) =
+            queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::local()))
+        {
             warn!(
                 "failed to recover tx back to ordered resolve queue: {}",
                 reject

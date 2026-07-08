@@ -8,9 +8,10 @@
 use crate::component::flight_tracker::FlightTracker;
 use crate::constants::DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE;
 use crate::error::Reject;
+use crate::tx_source::TxSource;
 use ckb_network::PeerIndex;
 use ckb_stop_handler::CancellationToken;
-use ckb_types::core::{Cycle, TransactionView};
+use ckb_types::core::TransactionView;
 use ckb_types::packed::ProposalShortId;
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,8 +21,7 @@ use std::sync::{Mutex, MutexGuard};
 #[derive(Clone)]
 pub(crate) struct PreCheckJob {
     pub tx: TransactionView,
-    pub is_proposal_tx: bool,
-    pub remote: Option<(Cycle, PeerIndex)>,
+    pub source: TxSource,
 }
 
 struct PreCheckQueueState {
@@ -123,7 +123,7 @@ impl PreCheckQueue {
             .inner
             .iter()
             .enumerate()
-            .filter(|(_, job)| job.remote.as_ref().is_some_and(|(_, p)| p == peer))
+            .filter(|(_, job)| job.source.peer().is_some_and(|p| p == *peer))
             .map(|(idx, _)| idx)
             .collect();
 
@@ -236,22 +236,28 @@ mod tests {
         queue
             .push(PreCheckJob {
                 tx: tx_a.clone(),
-                is_proposal_tx: false,
-                remote: Some((0, 1.into())),
+                source: TxSource::Remote {
+                    cycles: 0,
+                    peer: 1.into(),
+                },
             })
             .unwrap();
         queue
             .push(PreCheckJob {
                 tx: tx_b.clone(),
-                is_proposal_tx: false,
-                remote: Some((0, 2.into())),
+                source: TxSource::Remote {
+                    cycles: 0,
+                    peer: 2.into(),
+                },
             })
             .unwrap();
         queue
             .push(PreCheckJob {
                 tx: tx_c.clone(),
-                is_proposal_tx: false,
-                remote: Some((0, 1.into())),
+                source: TxSource::Remote {
+                    cycles: 0,
+                    peer: 1.into(),
+                },
             })
             .unwrap();
 

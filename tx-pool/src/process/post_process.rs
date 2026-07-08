@@ -2,12 +2,13 @@ use crate::component::pipeline_queue::PipelineQueue;
 use crate::constants::MALFORMED_TX_BAN_SECONDS;
 use crate::error::Reject;
 use crate::service::{TxPoolService, TxVerificationResult};
+use crate::tx_source::TxSource;
 use crate::util::is_missing_input;
 use ckb_logger::{Level::Trace, debug, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
+use ckb_types::core::TransactionView;
 use ckb_types::core::error::OutPointError;
-use ckb_types::core::{Cycle, TransactionView};
 use ckb_types::packed::Byte32;
 use ckb_verification::cache::Completed;
 use std::time::Duration;
@@ -16,10 +17,9 @@ impl TxPoolService {
     pub(crate) async fn after_process(
         &self,
         tx: TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
         _snapshot: &Snapshot,
         ret: &Result<Completed, Reject>,
-        is_proposal_tx: bool,
     ) {
         let tx_hash = tx.hash();
 
@@ -45,12 +45,18 @@ impl TxPoolService {
             }
         }
 
-        match remote {
-            Some((declared_cycle, peer)) => {
-                self.after_process_remote(tx, declared_cycle, peer, ret, is_proposal_tx)
-                    .await;
+        match source {
+            TxSource::Remote { .. } => {
+                self.after_process_remote(tx, source, ret).await;
             }
-            None => {
+            TxSource::Proposal => {
+                // Proposal txs are a distinct source variant. For relay
+                // purposes they are handled like local submissions, while the
+                // verify queue uses `is_proposal_tx` to grant them priority.
+                // They have no declared cycles or peer.
+                self.after_process_local(tx, tx_hash, ret).await;
+            }
+            TxSource::Local => {
                 self.after_process_local(tx, tx_hash, ret).await;
             }
         }
@@ -61,22 +67,25 @@ impl TxPoolService {
     pub(crate) async fn reject_with_after_process(
         &self,
         tx: TransactionView,
-        remote: Option<(Cycle, PeerIndex)>,
+        source: TxSource,
         reject: Reject,
-        is_proposal_tx: bool,
     ) {
         let snapshot = self.tx_pool.read().await.cloned_snapshot();
-        self.after_process(tx, remote, &snapshot, &Err(reject), is_proposal_tx)
+        self.after_process(tx, source, &snapshot, &Err(reject))
             .await;
     }
     pub(crate) async fn after_process_remote(
         &self,
         tx: TransactionView,
-        declared_cycle: Cycle,
-        peer: PeerIndex,
+        source: TxSource,
         ret: &Result<Completed, Reject>,
-        is_proposal_tx: bool,
     ) {
+        // after_process_remote is only dispatched for Remote sources by
+        // after_process, so peer() is always Some here.
+        let peer = source
+            .peer()
+            .expect("after_process_remote called with non-remote source");
+
         let tx_hash = tx.hash();
         match ret {
             Ok(_) => {
@@ -93,14 +102,7 @@ impl TxPoolService {
                 );
                 if is_missing_input(reject) {
                     let parents = tx.unique_parents();
-                    self.handle_missing_input_orphan(
-                        tx,
-                        peer,
-                        declared_cycle,
-                        parents,
-                        is_proposal_tx,
-                    )
-                    .await;
+                    self.handle_missing_input_orphan(tx, source, parents).await;
                 } else {
                     self.handle_remote_reject(&tx_hash, reject, peer).await;
                 }

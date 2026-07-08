@@ -6,6 +6,7 @@ use crate::service::{
     FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
     Request, SubmitTxResult, TestAcceptTxResult,
 };
+use crate::tx_source::TxSource;
 use ckb_async_runtime::Handle;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
@@ -164,7 +165,8 @@ impl TxPoolController {
         declared_cycles: Cycle,
         peer: PeerIndex,
     ) -> Result<(), AnyError> {
-        send_message!(self, SubmitRemoteTx, (tx, declared_cycles, peer))
+        let source = TxSource::remote(declared_cycles, peer);
+        send_message!(self, SubmitRemoteTx, (tx, source))
     }
 
     /// Receive txs from network, try to add txs to tx-pool

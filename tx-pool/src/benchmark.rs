@@ -447,9 +447,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
             let queue = Arc::clone(&parts.service.queues.pre_check_queue);
             handles.push(tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
-                    let _ = svc
-                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                        .await;
+                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             }));
         }

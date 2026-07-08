@@ -7,6 +7,7 @@ use crate::component::verify_queue::VerifyQueue;
 use crate::pool::TxPool;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::{TxPoolService, TxVerificationResult};
+use crate::tx_source::TxSource;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_db::RocksDB;
@@ -44,8 +45,7 @@ fn test_snapshot() -> Arc<Snapshot> {
 
 fn dummy_resolved_tx(
     tx: ckb_types::core::TransactionView,
-    remote: Option<(u64, SessionId)>,
-    is_proposal_tx: bool,
+    source: crate::tx_source::TxSource,
 ) -> ResolvedTx {
     let rtx = Arc::new(ResolvedTransaction::dummy_resolve(tx.clone()));
     ResolvedTx {
@@ -56,14 +56,13 @@ fn dummy_resolved_tx(
         tx_size: tx.data().serialized_size_in_block(),
         pre_resolve_tip: Default::default(),
         snapshot: test_snapshot(),
-        remote,
-        is_proposal_tx,
+        source,
     }
 }
 #[tokio::test]
 async fn verify_queue_basic() {
     let tx = TransactionBuilder::default().build();
-    let entry = dummy_resolved_tx(tx.clone(), None, false);
+    let entry = dummy_resolved_tx(tx.clone(), crate::tx_source::TxSource::Local);
     let tx2 = build_tx(vec![(&tx.hash(), 0)], 1);
 
     let id = tx.proposal_short_id();
@@ -87,14 +86,20 @@ async fn verify_queue_basic() {
 
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .add_tx(dummy_resolved_tx(
+                tx.clone(),
+                crate::tx_source::TxSource::Local
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert!(
         !queue
-            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .add_tx(dummy_resolved_tx(
+                tx.clone(),
+                crate::tx_source::TxSource::Local
+            ))
             .unwrap()
     );
 
@@ -103,7 +108,10 @@ async fn verify_queue_basic() {
 
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .add_tx(dummy_resolved_tx(
+                tx.clone(),
+                crate::tx_source::TxSource::Local
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -112,14 +120,20 @@ async fn verify_queue_basic() {
 
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx.clone(), None, false))
+            .add_tx(dummy_resolved_tx(
+                tx.clone(),
+                crate::tx_source::TxSource::Local
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
 
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx2.clone(), None, false))
+            .add_tx(dummy_resolved_tx(
+                tx2.clone(),
+                crate::tx_source::TxSource::Local
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -161,12 +175,16 @@ async fn test_verify_different_cycles() {
         count
     });
 
-    let remote = |cycles| Some((cycles, SessionId::default()));
-
     let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx0.clone(), remote(1001), false))
+            .add_tx(dummy_resolved_tx(
+                tx0.clone(),
+                crate::tx_source::TxSource::Remote {
+                    cycles: 1001,
+                    peer: SessionId::default(),
+                },
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -176,8 +194,10 @@ async fn test_verify_different_cycles() {
         queue
             .add_tx(dummy_resolved_tx(
                 tx1.clone(),
-                remote(MAX_TX_VERIFY_CYCLES + 1),
-                false
+                crate::tx_source::TxSource::Remote {
+                    cycles: MAX_TX_VERIFY_CYCLES + 1,
+                    peer: SessionId::default(),
+                },
             ))
             .unwrap()
     );
@@ -186,7 +206,13 @@ async fn test_verify_different_cycles() {
     let tx2 = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx2.clone(), remote(1001), false))
+            .add_tx(dummy_resolved_tx(
+                tx2.clone(),
+                crate::tx_source::TxSource::Remote {
+                    cycles: 1001,
+                    peer: SessionId::default(),
+                },
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -195,7 +221,13 @@ async fn test_verify_different_cycles() {
     let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx3.clone(), remote(1001), false))
+            .add_tx(dummy_resolved_tx(
+                tx3.clone(),
+                crate::tx_source::TxSource::Remote {
+                    cycles: 1001,
+                    peer: SessionId::default(),
+                },
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -212,8 +244,7 @@ async fn test_verify_different_cycles() {
         queue
             .add_tx(dummy_resolved_tx(
                 tx_4_proposal.clone(),
-                remote(2000000),
-                true
+                crate::tx_source::TxSource::Proposal,
             ))
             .unwrap()
     );
@@ -277,12 +308,16 @@ async fn verify_queue_renotify_does_not_store_permit() {
 #[tokio::test]
 async fn verify_queue_pops_proposals_by_arrival_order() {
     let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
-    let remote = |cycles| Some((cycles, SessionId::default()));
-
     let tx0 = build_tx(vec![(&H256([0; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx0.clone(), remote(1001), false))
+            .add_tx(dummy_resolved_tx(
+                tx0.clone(),
+                crate::tx_source::TxSource::Remote {
+                    cycles: 1001,
+                    peer: SessionId::default(),
+                },
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -290,7 +325,10 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
     let tx1_proposal = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx1_proposal.clone(), remote(1001), true))
+            .add_tx(dummy_resolved_tx(
+                tx1_proposal.clone(),
+                crate::tx_source::TxSource::Proposal,
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -298,7 +336,10 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
     let tx2_proposal = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx2_proposal.clone(), remote(1001), true))
+            .add_tx(dummy_resolved_tx(
+                tx2_proposal.clone(),
+                crate::tx_source::TxSource::Proposal,
+            ))
             .unwrap()
     );
     sleep(std::time::Duration::from_millis(100)).await;
@@ -306,7 +347,13 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
     let tx3 = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
     assert!(
         queue
-            .add_tx(dummy_resolved_tx(tx3.clone(), remote(1001), false))
+            .add_tx(dummy_resolved_tx(
+                tx3.clone(),
+                crate::tx_source::TxSource::Remote {
+                    cycles: 1001,
+                    peer: SessionId::default(),
+                },
+            ))
             .unwrap()
     );
 
@@ -328,17 +375,29 @@ async fn verify_queue_remove() {
     let tx1 = TransactionBuilder::default()
         .set_outputs_data(vec![Default::default()])
         .build();
-    let entry1 = dummy_resolved_tx(tx1.clone(), Some((1, SessionId::new(1))), false);
+    let entry1 = dummy_resolved_tx(
+        tx1.clone(),
+        crate::tx_source::TxSource::Remote {
+            cycles: 1,
+            peer: SessionId::new(1),
+        },
+    );
     let entry1_id = entry1.tx.proposal_short_id();
     eprintln!("entry1_id: {:?}", entry1_id);
     let tx2 = TransactionBuilder::default()
         .set_cell_deps(vec![Default::default(), Default::default()])
         .build();
-    let entry2 = dummy_resolved_tx(tx2.clone(), Some((2, SessionId::new(2))), false);
+    let entry2 = dummy_resolved_tx(
+        tx2.clone(),
+        crate::tx_source::TxSource::Remote {
+            cycles: 2,
+            peer: SessionId::new(2),
+        },
+    );
     let entry2_id = entry2.tx.proposal_short_id();
     eprintln!("entry2_id: {:?}", entry2_id);
     let tx3 = TransactionBuilder::default().build();
-    let entry3 = dummy_resolved_tx(tx3.clone(), None, false);
+    let entry3 = dummy_resolved_tx(tx3.clone(), crate::tx_source::TxSource::Local);
     let entry3_id = entry3.tx.proposal_short_id();
     eprintln!("entry3_id: {:?}", entry3_id);
 
@@ -349,7 +408,13 @@ async fn verify_queue_remove() {
             Default::default(),
         ])
         .build();
-    let entry4 = dummy_resolved_tx(tx4.clone(), Some((4, SessionId::new(1))), false);
+    let entry4 = dummy_resolved_tx(
+        tx4.clone(),
+        crate::tx_source::TxSource::Remote {
+            cycles: 4,
+            peer: SessionId::new(1),
+        },
+    );
     let entry4_id = entry4.tx.proposal_short_id();
 
     let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES, VerifyOrdering::ArrivalTime);
@@ -377,7 +442,7 @@ async fn verify_queue_remove() {
 fn dummy_resolved_tx_with_fee(
     tx: ckb_types::core::TransactionView,
     fee_shannons: u64,
-    is_proposal_tx: bool,
+    source: crate::tx_source::TxSource,
 ) -> ResolvedTx {
     let rtx = Arc::new(ResolvedTransaction::dummy_resolve(tx.clone()));
     ResolvedTx {
@@ -388,8 +453,7 @@ fn dummy_resolved_tx_with_fee(
         tx_size: tx.data().serialized_size_in_block(),
         pre_resolve_tip: Default::default(),
         snapshot: test_snapshot(),
-        remote: None,
-        is_proposal_tx,
+        source,
     }
 }
 
@@ -401,7 +465,8 @@ async fn verify_queue_peek_arrival_time_ordering() {
     let tx_high_fee = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("high").pack()])
         .build();
-    let rtx_high = dummy_resolved_tx_with_fee(tx_high_fee, 10_000, false);
+    let rtx_high =
+        dummy_resolved_tx_with_fee(tx_high_fee, 10_000, crate::tx_source::TxSource::Local);
     let id_high = rtx_high.tx.proposal_short_id();
 
     sleep(std::time::Duration::from_millis(5)).await;
@@ -409,7 +474,7 @@ async fn verify_queue_peek_arrival_time_ordering() {
     let tx_low_fee = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("low").pack()])
         .build();
-    let rtx_low = dummy_resolved_tx_with_fee(tx_low_fee, 100, false);
+    let rtx_low = dummy_resolved_tx_with_fee(tx_low_fee, 100, crate::tx_source::TxSource::Local);
     let _id_low = rtx_low.tx.proposal_short_id();
 
     queue.add_tx(rtx_high).unwrap();
@@ -432,13 +497,13 @@ async fn verify_queue_peek_fee_rate_ordering() {
     let tx_low = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("low-fee").pack()])
         .build();
-    let rtx_low = dummy_resolved_tx_with_fee(tx_low, 100, false);
+    let rtx_low = dummy_resolved_tx_with_fee(tx_low, 100, crate::tx_source::TxSource::Local);
     let _id_low = rtx_low.tx.proposal_short_id();
 
     let tx_high = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("high-fee").pack()])
         .build();
-    let rtx_high = dummy_resolved_tx_with_fee(tx_high, 10_000, false);
+    let rtx_high = dummy_resolved_tx_with_fee(tx_high, 10_000, crate::tx_source::TxSource::Local);
     let id_high = rtx_high.tx.proposal_short_id();
 
     queue.add_tx(rtx_low).unwrap();
@@ -463,7 +528,7 @@ async fn verify_queue_fee_rate_pop_order() {
         let tx = TransactionBuilder::default()
             .set_outputs_data(vec![Bytes::from(format!("tx-{i}")).pack()])
             .build();
-        let rtx = dummy_resolved_tx_with_fee(tx, fee, false);
+        let rtx = dummy_resolved_tx_with_fee(tx, fee, crate::tx_source::TxSource::Local);
         ids.push(rtx.tx.proposal_short_id());
         queue.add_tx(rtx).unwrap();
     }
@@ -501,14 +566,15 @@ async fn verify_queue_proposal_always_first_in_fee_rate_mode() {
     let tx_high = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("high-fee-normal").pack()])
         .build();
-    let rtx_high = dummy_resolved_tx_with_fee(tx_high, 100_000, false);
+    let rtx_high = dummy_resolved_tx_with_fee(tx_high, 100_000, crate::tx_source::TxSource::Local);
     let id_high = rtx_high.tx.proposal_short_id();
 
     // Add a low-fee proposal tx.
     let tx_proposal = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("low-fee-proposal").pack()])
         .build();
-    let rtx_proposal = dummy_resolved_tx_with_fee(tx_proposal, 1, true);
+    let rtx_proposal =
+        dummy_resolved_tx_with_fee(tx_proposal, 1, crate::tx_source::TxSource::Proposal);
     let id_proposal = rtx_proposal.tx.proposal_short_id();
 
     queue.add_tx(rtx_high).unwrap();
@@ -534,19 +600,19 @@ async fn verify_queue_fee_rate_remove_and_repeek() {
     let tx1 = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("fee-1000").pack()])
         .build();
-    let rtx1 = dummy_resolved_tx_with_fee(tx1, 1_000, false);
+    let rtx1 = dummy_resolved_tx_with_fee(tx1, 1_000, crate::tx_source::TxSource::Local);
     let id1 = rtx1.tx.proposal_short_id();
 
     let tx2 = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("fee-5000").pack()])
         .build();
-    let rtx2 = dummy_resolved_tx_with_fee(tx2, 5_000, false);
+    let rtx2 = dummy_resolved_tx_with_fee(tx2, 5_000, crate::tx_source::TxSource::Local);
     let id2 = rtx2.tx.proposal_short_id();
 
     let tx3 = TransactionBuilder::default()
         .set_outputs_data(vec![Bytes::from("fee-3000").pack()])
         .build();
-    let rtx3 = dummy_resolved_tx_with_fee(tx3, 3_000, false);
+    let rtx3 = dummy_resolved_tx_with_fee(tx3, 3_000, crate::tx_source::TxSource::Local);
     let id3 = rtx3.tx.proposal_short_id();
 
     queue.add_tx(rtx1).unwrap();
@@ -671,9 +737,7 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
             let queue = Arc::clone(&pre_check_queue);
             tokio::spawn(async move {
                 while let Some(job) = queue.pop().await {
-                    let _ = svc
-                        .classify_and_enqueue_tx(job.tx, job.is_proposal_tx, job.remote)
-                        .await;
+                    let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             });
         }
@@ -689,8 +753,8 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
                         for tx in txs {
-                            let _ =
-                                queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, None, false));
+                            let _ = queue
+                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::Local));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -716,7 +780,7 @@ async fn seed_parent_and_nearly_fill_queue(
     let mut ordered = service.queues.ordered_resolve_queue.write().await;
     ordered.set_total_tx_size_for_test(256_000_000 - 1_000);
     ordered
-        .add_tx(ResolveJob::new(parent, None, false))
+        .add_tx(ResolveJob::new(parent, TxSource::Local))
         .unwrap();
     ordered.set_total_tx_size_for_test(256_000_000 - 1);
 }
@@ -731,7 +795,13 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is
     seed_parent_and_nearly_fill_queue(&service, parent.clone()).await;
 
     service
-        .add_orphan(orphan.clone(), 1.into(), MAX_TX_VERIFY_CYCLES + 1, false)
+        .add_orphan(
+            orphan.clone(),
+            TxSource::Remote {
+                cycles: MAX_TX_VERIFY_CYCLES + 1,
+                peer: 1.into(),
+            },
+        )
         .await;
 
     let service_clone = service.clone();
@@ -764,7 +834,13 @@ async fn submit_remote_tx_notifies_relayer_when_ordered_resolve_queue_is_full() 
     seed_parent_and_nearly_fill_queue(&service, parent).await;
 
     let ret = service
-        .submit_remote_tx(tx, MAX_TX_VERIFY_CYCLES, 1.into())
+        .submit_remote_tx(
+            tx,
+            TxSource::Remote {
+                cycles: MAX_TX_VERIFY_CYCLES,
+                peer: 1.into(),
+            },
+        )
         .await;
 
     assert!(matches!(ret, Err(crate::error::Reject::Full(_))));
@@ -888,7 +964,14 @@ async fn handle_missing_input_orphan_notifies_relayer_once() {
 
     // First call should add to orphan pool and notify relayer.
     service
-        .handle_missing_input_orphan(orphan.clone(), 1.into(), 100, parents.clone(), false)
+        .handle_missing_input_orphan(
+            orphan.clone(),
+            TxSource::Remote {
+                cycles: 100,
+                peer: 1.into(),
+            },
+            parents.clone(),
+        )
         .await;
 
     assert!(service.orphan.read().await.contains_key(&orphan_id));
@@ -906,7 +989,14 @@ async fn handle_missing_input_orphan_notifies_relayer_once() {
     // Second call for the same tx is a duplicate; orphan pool already contains
     // it, so the relayer must not receive another UnknownParents notification.
     service
-        .handle_missing_input_orphan(orphan, 2.into(), 100, parents, false)
+        .handle_missing_input_orphan(
+            orphan,
+            TxSource::Remote {
+                cycles: 100,
+                peer: 2.into(),
+            },
+            parents,
+        )
         .await;
 
     assert!(

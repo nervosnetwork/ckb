@@ -13,6 +13,7 @@ use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
 use crate::service::TxPoolService;
+use crate::tx_source::TxSource;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
 use ckb_logger::debug;
 use ckb_script::ChunkCommand;
@@ -69,8 +70,7 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
                 tx_size,
                 pre_resolve_tip,
                 snapshot,
-                remote: job.remote,
-                is_proposal_tx: job.is_proposal_tx,
+                source: job.source,
             })
         }
         Err(reject) => {
@@ -120,8 +120,7 @@ impl JobHandler for ResolveHandler {
                 self.handle_orphan(job, id, parents).await;
             }
             ResolveStageResult::Reject(tx, reject) => {
-                self.handle_reject(tx, job.remote, reject, job.is_proposal_tx)
-                    .await;
+                self.handle_reject(tx, job.source, reject).await;
             }
         }
     }
@@ -137,10 +136,9 @@ impl JobHandler for ResolveHandler {
 impl ResolveHandler {
     async fn push_to_verify_queue(&self, resolved: ResolvedTx) {
         // Extract fields needed for after_process before resolved is consumed by add_tx.
+        let source = resolved.source;
         let tx = resolved.tx.clone();
-        let remote = resolved.remote;
         let snapshot = Arc::clone(&resolved.snapshot);
-        let is_proposal_tx = resolved.is_proposal_tx;
 
         let reject = {
             let mut queue = self.verify_queue.write().await;
@@ -155,7 +153,7 @@ impl ResolveHandler {
         };
         // verify_queue lock released before after_process
         self.service
-            .after_process(tx, remote, &snapshot, &Err(reject), is_proposal_tx)
+            .after_process(tx, source, &snapshot, &Err(reject))
             .await;
     }
 
@@ -165,19 +163,13 @@ impl ResolveHandler {
         id: ProposalShortId,
         parents: HashSet<Byte32>,
     ) {
-        if let Some((declared_cycle, peer)) = job.remote {
+        if let Some(peer) = job.source.peer() {
             debug!(
                 "ordered resolve stage orphan tx {} from peer {}, parents {:?}",
                 id, peer, parents
             );
             self.service
-                .handle_missing_input_orphan(
-                    job.tx.clone(),
-                    peer,
-                    declared_cycle,
-                    parents,
-                    job.is_proposal_tx,
-                )
+                .handle_missing_input_orphan(job.tx.clone(), job.source, parents)
                 .await;
             return;
         }
@@ -202,18 +194,18 @@ impl ResolveHandler {
                 id, job.attempts, depends_on_pipeline
             );
             let tx = job.tx.clone();
-            let is_proposal_tx = job.is_proposal_tx;
+            let source = job.source;
             let mut ordered = self.ordered_queue.write().await;
             if let Err(reject) = ordered.add_tx(job) {
                 drop(ordered);
                 self.service
-                    .reject_with_after_process(tx, None, reject, is_proposal_tx)
+                    .reject_with_after_process(tx, source, reject)
                     .await;
             }
         } else {
             let reject = first_unknown_input_reject(&job.tx);
             self.service
-                .reject_with_after_process(job.tx, None, reject, job.is_proposal_tx)
+                .reject_with_after_process(job.tx, job.source, reject)
                 .await;
         }
     }
@@ -221,12 +213,11 @@ impl ResolveHandler {
     async fn handle_reject(
         &self,
         tx: ckb_types::core::TransactionView,
-        remote: Option<(ckb_types::core::Cycle, ckb_network::PeerIndex)>,
+        source: TxSource,
         reject: Reject,
-        is_proposal_tx: bool,
     ) {
         self.service
-            .reject_with_after_process(tx, remote, reject, is_proposal_tx)
+            .reject_with_after_process(tx, source, reject)
             .await;
     }
 
