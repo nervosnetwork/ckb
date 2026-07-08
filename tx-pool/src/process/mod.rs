@@ -355,7 +355,7 @@ impl TxPoolService {
             .process_tx_direct(tx.clone(), remote.map(|r| r.0), None)
             .await
             .expect("process_tx_direct always returns Some");
-        self.after_process(tx, remote, &snapshot, &ret).await;
+        self.after_process(tx, remote, &snapshot, &ret, false).await;
         ret
     }
 
@@ -577,6 +577,15 @@ impl TxPoolService {
             self.callbacks.call_reject(&entry, reject);
         }
 
+        // In-pool transactions that were committed may still have in-flight RBF
+        // candidates targeting them. Remove those stale candidates so they do
+        // not block future replacements for the now-freed inputs.
+        {
+            let committed_tx_hashes: HashSet<_> = attached.iter().map(|tx| tx.hash()).collect();
+            let mut rbf = self.rbf_candidates.write().await;
+            rbf.remove_by_conflict_tx_hashes(&committed_tx_hashes);
+        }
+
         self.remove_orphan_txs_by_attach(&attached).await;
         {
             let mut queue = self.queues.verify_queue.write().await;
@@ -599,7 +608,7 @@ impl TxPoolService {
                     && let Err(ref reject) = ret
                 {
                     debug!("reorg re-add failed: {}", reject);
-                    self.after_process(tx, None, &snapshot, &ret).await;
+                    self.after_process(tx, None, &snapshot, &ret, false).await;
                 } else {
                     // The detached tx is now back in the pool. Wake up any
                     // orphans that depend on it (including via cell dep).
@@ -667,6 +676,7 @@ impl TxPoolService {
         fee: Capacity,
         remote: Option<(Cycle, PeerIndex)>,
         snapshot: &Arc<Snapshot>,
+        is_proposal_tx: bool,
     ) -> Result<bool, Reject> {
         if remote.is_none() {
             return Ok(false);
@@ -681,12 +691,29 @@ impl TxPoolService {
             Ok(displaced_ids) => {
                 // Higher-fee candidate(s) displaced lower-fee one(s) still
                 // waiting in the verify queue. Drop them so only the highest-fee
-                // tx reaches submit_entry.
+                // tx reaches submit_entry, and notify the relayer so the txs are
+                // not treated as still in-flight.
                 if !displaced_ids.is_empty() {
                     drop(rbf);
-                    let mut verify_queue = self.queues.verify_queue.write().await;
-                    for displaced_id in &displaced_ids {
-                        verify_queue.remove_tx(displaced_id);
+                    let displaced = {
+                        let mut verify_queue = self.queues.verify_queue.write().await;
+                        displaced_ids
+                            .iter()
+                            .filter_map(|displaced_id| verify_queue.remove_tx(displaced_id))
+                            .collect::<Vec<_>>()
+                    };
+                    let ret = Err(Reject::RBFRejected(
+                        "superseded by higher-fee in-flight candidate".to_string(),
+                    ));
+                    for resolved in displaced {
+                        self.after_process(
+                            resolved.tx,
+                            resolved.remote,
+                            &resolved.snapshot,
+                            &ret,
+                            resolved.is_proposal_tx,
+                        )
+                        .await;
                     }
                 }
                 Ok(true)
@@ -694,8 +721,14 @@ impl TxPoolService {
             Err(reason) => {
                 drop(rbf);
                 let reject = Reject::RBFRejected(reason);
-                self.after_process(tx.clone(), remote, snapshot, &Err(reject.clone()))
-                    .await;
+                self.after_process(
+                    tx.clone(),
+                    remote,
+                    snapshot,
+                    &Err(reject.clone()),
+                    is_proposal_tx,
+                )
+                .await;
                 Err(reject)
             }
         }
@@ -739,7 +772,7 @@ impl TxPoolService {
                 // the verify queue so lower-fee candidates can be rejected while
                 // a higher-fee candidate is already in flight.
                 let rbf_registered = self
-                    .register_rbf_candidate(&id, &tx, fee, remote, &snapshot)
+                    .register_rbf_candidate(&id, &tx, fee, remote, &snapshot, is_proposal_tx)
                     .await?;
 
                 let resolved = crate::resolved_tx::ResolvedTx {
@@ -765,7 +798,7 @@ impl TxPoolService {
                 if rbf_registered {
                     self.rbf_candidates.write().await.remove(&id);
                 }
-                self.after_process(tx, remote, &snapshot, &Err(reject.clone()))
+                self.after_process(tx, remote, &snapshot, &Err(reject.clone()), is_proposal_tx)
                     .await;
                 Err(reject)
             }
@@ -781,7 +814,7 @@ impl TxPoolService {
                 ))
             }
             Err(reject) => {
-                self.after_process(tx, remote, &snapshot, &Err(reject.clone()))
+                self.after_process(tx, remote, &snapshot, &Err(reject.clone()), is_proposal_tx)
                     .await;
                 Err(reject)
             }
@@ -826,9 +859,9 @@ impl TxPoolService {
     pub(crate) async fn clear_pipeline_queues(&self) {
         self.queues.ordered_resolve_queue.write().await.clear();
         self.queues.verify_queue.write().await.clear();
-        self.orphan.write().await.clear();
-        self.queues.pre_check_queue.clear();
         self.rbf_candidates.write().await.clear();
+        self.queues.pre_check_queue.clear();
+        self.orphan.write().await.clear();
     }
 
     pub(crate) async fn clear_pool(&mut self, new_snapshot: Arc<Snapshot>) {

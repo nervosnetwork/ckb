@@ -264,24 +264,51 @@ impl TxPoolService {
 
     /// Tx-pool information
     pub(crate) async fn info(&self) -> TxPoolInfo {
-        let tx_pool = self.tx_pool.read().await;
-        let orphan = self.orphan.read().await;
-        let verify_queue = self.queues.verify_queue.read().await;
-        let tip_header = tx_pool.snapshot.tip_header();
+        // Read each lock in isolation to avoid holding multiple locks at once.
+        // TxPoolInfo is best-effort, so a consistent snapshot is not required.
+        let (
+            tip_hash,
+            tip_number,
+            pending_size,
+            proposed_size,
+            total_tx_size,
+            total_tx_cycles,
+            last_txs_updated_at,
+        ) = {
+            let tx_pool = self.tx_pool.read().await;
+            let tip_header = tx_pool.snapshot.tip_header();
+            (
+                tip_header.hash(),
+                tip_header.number(),
+                tx_pool.pool_map.pending_size(),
+                tx_pool.pool_map.proposed_size(),
+                tx_pool.pool_map.stats.total_tx_size.get(),
+                tx_pool.pool_map.stats.total_tx_cycles.get(),
+                tx_pool.pool_map.get_max_update_time(),
+            )
+        };
+        let orphan_size = {
+            let orphan = self.orphan.read().await;
+            orphan.len()
+        };
+        let verify_queue_size = {
+            let verify_queue = self.queues.verify_queue.read().await;
+            verify_queue.len()
+        };
         TxPoolInfo {
-            tip_hash: tip_header.hash(),
-            tip_number: tip_header.number(),
-            pending_size: tx_pool.pool_map.pending_size(),
-            proposed_size: tx_pool.pool_map.proposed_size(),
-            orphan_size: orphan.len(),
-            total_tx_size: tx_pool.pool_map.stats.total_tx_size.get(),
-            total_tx_cycles: tx_pool.pool_map.stats.total_tx_cycles.get(),
+            tip_hash,
+            tip_number,
+            pending_size,
+            proposed_size,
+            orphan_size,
+            total_tx_size,
+            total_tx_cycles,
             min_fee_rate: self.tx_pool_config.min_fee_rate,
             min_rbf_rate: self.tx_pool_config.min_rbf_rate,
-            last_txs_updated_at: tx_pool.pool_map.get_max_update_time(),
+            last_txs_updated_at,
             tx_size_limit: TRANSACTION_SIZE_LIMIT,
             max_tx_pool_size: self.tx_pool_config.max_tx_pool_size as u64,
-            verify_queue_size: verify_queue.len(),
+            verify_queue_size,
         }
     }
 

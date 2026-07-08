@@ -69,13 +69,14 @@ impl JobHandler for VerifyHandler {
     async fn process_one(&mut self, resolved: ResolvedTx) {
         let tx = resolved.tx.clone();
         let remote = resolved.remote;
+        let is_proposal_tx = resolved.is_proposal_tx;
         if let Some((res, snapshot)) = self
             .service
             .verify_and_submit_tx(resolved, Some(&mut self.command_rx))
             .await
         {
             self.service
-                .after_process(tx.clone(), remote, &snapshot, &res)
+                .after_process(tx.clone(), remote, &snapshot, &res, is_proposal_tx)
                 .await;
         } else {
             info!("verify_and_submit_tx for tx: {} returned none", tx.hash());

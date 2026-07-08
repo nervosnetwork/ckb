@@ -119,17 +119,19 @@ impl TxPoolServiceBuilder {
     }
 }
 
-/// Handles for the pipeline workers that must quiesce before the pool is
+/// Handles for the background workers that must quiesce before the pool is
 /// persisted on graceful shutdown.
-struct PipelineWorkerHandles {
+struct BackgroundWorkerHandles {
     deferred: tokio::task::JoinHandle<()>,
     pre_check: Vec<tokio::task::JoinHandle<()>>,
     verify_mgr: tokio::task::JoinHandle<()>,
     resolver: tokio::task::JoinHandle<()>,
+    block_assembler: Option<tokio::task::JoinHandle<()>>,
+    reorg: Option<tokio::task::JoinHandle<()>>,
 }
 
-impl PipelineWorkerHandles {
-    /// Wait for every pipeline worker to finish, logging a warning if any of
+impl BackgroundWorkerHandles {
+    /// Wait for every background worker to finish, logging a warning if any of
     /// them does not exit within the supplied timeout.
     async fn quiesce(self, timeout: Duration) {
         if tokio::time::timeout(timeout, self.deferred).await.is_err() {
@@ -148,6 +150,16 @@ impl PipelineWorkerHandles {
         }
         if tokio::time::timeout(timeout, self.resolver).await.is_err() {
             warn!("ordered resolver did not exit within shutdown timeout");
+        }
+        if let Some(handle) = self.block_assembler
+            && tokio::time::timeout(timeout, handle).await.is_err()
+        {
+            warn!("block assembler loop did not exit within shutdown timeout");
+        }
+        if let Some(handle) = self.reorg
+            && tokio::time::timeout(timeout, handle).await.is_err()
+        {
+            warn!("reorg handler did not exit within shutdown timeout");
         }
     }
 }
@@ -315,28 +327,36 @@ impl TxPoolServiceBuilder {
             chunk_rx,
             signal_receiver.child_token(),
         );
-        Self::spawn_message_dispatcher(
-            &handle,
-            service.clone(),
-            receiver,
-            signal_receiver.clone(),
-            PipelineWorkerHandles {
-                deferred: deferred_handle,
-                pre_check: pre_check_handles,
-                verify_mgr: verify_mgr_handle,
-                resolver: resolver_handle,
-            },
-        );
-        if let Some(ref block_assembler) = service.block_assembler {
+        let block_assembler_handle = service.block_assembler.as_ref().map(|block_assembler| {
             Self::spawn_block_assembler_loop(
                 &handle,
                 service.clone(),
                 block_assembler.clone(),
                 block_assembler_receiver,
                 signal_receiver.clone(),
-            );
-        }
-        Self::spawn_reorg_handler(&handle, service, reorg_receiver, signal_receiver);
+            )
+        });
+        let reorg_handle = Self::spawn_reorg_handler(
+            &handle,
+            service.clone(),
+            reorg_receiver,
+            signal_receiver.clone(),
+        );
+
+        Self::spawn_message_dispatcher(
+            &handle,
+            service,
+            receiver,
+            signal_receiver,
+            BackgroundWorkerHandles {
+                deferred: deferred_handle,
+                pre_check: pre_check_handles,
+                verify_mgr: verify_mgr_handle,
+                resolver: resolver_handle,
+                block_assembler: block_assembler_handle,
+                reorg: Some(reorg_handle),
+            },
+        );
 
         started.store(true, Ordering::Release);
         if let Err(err) = tx_pool_controller.load_persisted_data(txs) {
@@ -464,7 +484,7 @@ impl TxPoolServiceBuilder {
         service: TxPoolService,
         mut receiver: mpsc::Receiver<Message>,
         signal_receiver: CancellationToken,
-        worker_handles: PipelineWorkerHandles,
+        worker_handles: BackgroundWorkerHandles,
     ) -> tokio::task::JoinHandle<()> {
         let runtime_handle = handle.clone();
         let max_workers = service.tx_pool_config.max_tx_verify_workers.max(1);
@@ -498,7 +518,7 @@ impl TxPoolServiceBuilder {
                             .acquire_many(max_workers as u32 * MESSAGE_CONCURRENCY_MULTIPLIER as u32)
                             .await;
 
-                        info!("TxPool is quiescing pipeline workers...");
+                        info!("TxPool is quiescing background workers...");
                         worker_handles
                             .quiesce(Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS))
                             .await;
@@ -521,7 +541,7 @@ impl TxPoolServiceBuilder {
         block_assembler: BlockAssembler,
         mut block_assembler_receiver: mpsc::Receiver<BlockAssemblerMessage>,
         signal_receiver: CancellationToken,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         let interval = Duration::from_millis(block_assembler.config.update_interval_millis);
         if interval.is_zero() {
             // block_assembler.update_interval_millis set zero interval should only be used for tests,
@@ -544,7 +564,7 @@ impl TxPoolServiceBuilder {
                         else => break,
                     }
                 }
-            });
+            })
         } else {
             handle.spawn(async move {
                 let mut interval = tokio::time::interval(interval);
@@ -578,7 +598,7 @@ impl TxPoolServiceBuilder {
                         else => break,
                     }
                 }
-            });
+            })
         }
     }
 
@@ -588,7 +608,7 @@ impl TxPoolServiceBuilder {
         service: TxPoolService,
         mut reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
         signal_receiver: CancellationToken,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         handle.spawn(async move {
             loop {
                 let service = service.clone();
@@ -638,7 +658,7 @@ impl TxPoolServiceBuilder {
                     }
                 }
             }
-        });
+        })
     }
 
     /// Build a bare [`TxPoolService`] and its supporting queues **without**
@@ -647,7 +667,7 @@ impl TxPoolServiceBuilder {
     ///
     /// This is the single source of truth for service construction used by
     /// both [`Self::start`] (production) and the benchmark harness.  The
-    /// caller is responsible for spawning the pipeline workers that the
+    /// caller is responsible for spawning the background workers that the
     /// returned service depends on.
     #[cfg(feature = "internal")]
     pub(crate) fn build_bench_service(self, network: TxPoolNetworkHandle) -> BenchServiceParts {

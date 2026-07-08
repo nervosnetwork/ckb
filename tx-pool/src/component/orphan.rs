@@ -35,16 +35,20 @@ pub struct Entry {
     pub peer: PeerIndex,
     /// Declared cycles
     pub cycle: Cycle,
+    /// Whether this tx was received as a block proposal and should be
+    /// prioritised when it re-enters the verification pipeline.
+    pub is_proposal_tx: bool,
     /// Expire timestamp
     pub expires_at: u64,
 }
 
 impl Entry {
-    pub fn new(tx: TransactionView, peer: PeerIndex, cycle: Cycle) -> Entry {
+    pub fn new(tx: TransactionView, peer: PeerIndex, cycle: Cycle, is_proposal_tx: bool) -> Entry {
         Entry {
             tx,
             peer,
             cycle,
+            is_proposal_tx,
             expires_at: ckb_systemtime::unix_time().as_secs() + ORPHAN_TX_EXPIRE_TIME,
         }
     }
@@ -171,23 +175,25 @@ impl OrphanPool {
 
     /// Add a transaction to the orphan pool.
     ///
-    /// Returns `(true, evicted_txs)` if the transaction was newly inserted,
-    /// or `(false, vec![])` if it was already present (in which case nothing
-    /// is changed).
+    /// Returns `(true, evicted_txs)` if the transaction was newly inserted and
+    /// is still present after eviction, or `(false, evicted_txs)` if it was
+    /// already present or was evicted by the size limit.
     pub fn add_orphan_tx(
         &mut self,
         tx: TransactionView,
         peer: PeerIndex,
         declared_cycle: Cycle,
+        is_proposal_tx: bool,
     ) -> (bool, Vec<Byte32>) {
-        if self.entries.contains_key(&tx.proposal_short_id()) {
+        let id = tx.proposal_short_id();
+        if self.entries.contains_key(&id) {
             return (false, vec![]);
         }
 
         debug!("add_orphan_tx {}", tx.hash());
         self.entries.insert(
-            tx.proposal_short_id(),
-            Entry::new(tx.clone(), peer, declared_cycle),
+            id.clone(),
+            Entry::new(tx.clone(), peer, declared_cycle, is_proposal_tx),
         );
 
         for out_point in tx
@@ -197,12 +203,13 @@ impl OrphanPool {
             self.by_out_point
                 .entry(out_point)
                 .or_default()
-                .insert(tx.proposal_short_id());
+                .insert(id.clone());
         }
 
         // DoS prevention: do not allow OrphanPool to grow unbounded
         let evicted_txs = self.limit_size();
-        (true, evicted_txs)
+        let retained = self.entries.contains_key(&id);
+        (retained, evicted_txs)
     }
 
     pub fn find_by_previous(&self, tx: &TransactionView) -> Vec<&ProposalShortId> {

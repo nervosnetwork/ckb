@@ -318,6 +318,7 @@ impl PipelineQueue for VerifyQueue {
                 ))
             })?;
         let fee_rate = self.compute_fee_rate(&resolved);
+        let tx = resolved.tx.clone();
         self.inner.insert(VerifyEntry {
             id: id.clone(),
             added_time,
@@ -327,10 +328,7 @@ impl PipelineQueue for VerifyQueue {
             is_large_cycle,
             is_proposal_tx,
         });
-        self.flight.insert(
-            id.clone(),
-            &self.inner.get_by_id(&id).expect("just inserted").inner.tx,
-        );
+        self.flight.insert(id.clone(), &tx);
         self.total_tx_size.set(total_tx_size);
         self.ready_rx.notify_one();
         Ok(true)

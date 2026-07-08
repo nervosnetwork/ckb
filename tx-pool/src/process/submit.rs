@@ -203,63 +203,16 @@ impl TxPoolService {
 
         (result, recovered, reject_events)
     }
-    pub(crate) async fn submit_entry(
+    /// Dispatch reject callbacks, enqueue recovered txs, and remove the RBF
+    /// candidate after the write-locked submit is complete.
+    async fn dispatch_submit_aftermath(
         &self,
-        pre_resolve_tip: Byte32,
-        entry: TxEntry,
-        status: Status,
+        entry_id: &ProposalShortId,
+        result: Result<(), Reject>,
+        recovered: Vec<TransactionView>,
+        reject_events: Vec<(TxEntry, Reject)>,
+        snapshot: Arc<Snapshot>,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
-        let conflict_inputs = self.find_conflict_inputs(entry.transaction()).await;
-
-        // If a higher-fee RBF candidate appeared while this tx was waiting in
-        // the verify queue, abort before replacing anything.  This prevents a
-        // lower-fee candidate from front-running a higher-fee one.
-        {
-            if !conflict_inputs.is_empty() {
-                let id = entry.proposal_short_id();
-                let fee = entry.fee;
-                if self
-                    .rbf_candidates
-                    .read()
-                    .await
-                    .is_superseded(&id, fee, &conflict_inputs)
-                {
-                    self.remove_rbf_candidate(&id).await;
-                    let (_, snapshot) = self
-                        .read_tx_pool_with_snapshot(|_tx_pool, snapshot| snapshot)
-                        .await;
-                    return (
-                        Err(Reject::RBFRejected(
-                            "superseded by higher-fee in-flight candidate".to_string(),
-                        )),
-                        snapshot,
-                    );
-                }
-            }
-        }
-
-        let entry_id = entry.proposal_short_id();
-
-        // Separate the successful result from the collected reject events and
-        // recovered txs. Reject callbacks must be dispatched and displaced txs
-        // must be recovered even if the closure returns an error after
-        // `process_rbf` has already removed old transactions (e.g. the
-        // replacement fails the pool ancestor/size limits). Without this, a
-        // remote peer can evict in-pool txs via a crafted RBF replacement that
-        // is itself rejected, leaving the node with neither transaction.
-        let ((result, recovered, reject_events), snapshot) = self
-            .with_tx_pool_write_lock(|tx_pool, snapshot| {
-                self.try_submit_entry(
-                    tx_pool,
-                    snapshot,
-                    pre_resolve_tip.clone(),
-                    entry.clone(),
-                    status,
-                    entry_id.clone(),
-                )
-            })
-            .await;
-
         // Dispatch reject callbacks outside the write lock, regardless of
         // whether the submission itself succeeded.
         for (entry, reject) in reject_events {
@@ -283,9 +236,79 @@ impl TxPoolService {
 
         // The RBF candidate has either been accepted or definitively rejected;
         // remove it from the in-flight fee-ordering gate.
-        self.remove_rbf_candidate(&entry_id).await;
+        self.remove_rbf_candidate(entry_id).await;
 
         (result, snapshot)
+    }
+
+    pub(crate) async fn submit_entry(
+        &self,
+        pre_resolve_tip: Byte32,
+        entry: TxEntry,
+        status: Status,
+    ) -> (Result<(), Reject>, Arc<Snapshot>) {
+        let conflict_inputs = self.find_conflict_inputs(entry.transaction()).await;
+        let entry_id = entry.proposal_short_id();
+
+        if !conflict_inputs.is_empty() {
+            // Hold the RBF read lock across the tx_pool write so that no
+            // higher-fee candidate can register between the superseded check
+            // and the actual submit. The lock ordering here is rbf (read) ->
+            // tx_pool (write), consistent with the intended pipeline hierarchy.
+            let rbf_guard = self.rbf_candidates.read().await;
+            if rbf_guard.is_superseded(&entry_id, entry.fee, &conflict_inputs) {
+                drop(rbf_guard);
+                self.remove_rbf_candidate(&entry_id).await;
+                let (_, snapshot) = self
+                    .read_tx_pool_with_snapshot(|_tx_pool, snapshot| snapshot)
+                    .await;
+                return (
+                    Err(Reject::RBFRejected(
+                        "superseded by higher-fee in-flight candidate".to_string(),
+                    )),
+                    snapshot,
+                );
+            }
+
+            let mut tx_pool = self.tx_pool.write().await;
+            let snapshot = tx_pool.cloned_snapshot();
+            let (result, recovered, reject_events) = self.try_submit_entry(
+                &mut tx_pool,
+                Arc::clone(&snapshot),
+                pre_resolve_tip,
+                entry,
+                status,
+                entry_id.clone(),
+            );
+            drop(tx_pool);
+            drop(rbf_guard);
+
+            self.dispatch_submit_aftermath(&entry_id, result, recovered, reject_events, snapshot)
+                .await
+        } else {
+            // Separate the successful result from the collected reject events and
+            // recovered txs. Reject callbacks must be dispatched and displaced txs
+            // must be recovered even if the closure returns an error after
+            // `process_rbf` has already removed old transactions (e.g. the
+            // replacement fails the pool ancestor/size limits). Without this, a
+            // remote peer can evict in-pool txs via a crafted RBF replacement that
+            // is itself rejected, leaving the node with neither transaction.
+            let ((result, recovered, reject_events), snapshot) = self
+                .with_tx_pool_write_lock(|tx_pool, snapshot| {
+                    self.try_submit_entry(
+                        tx_pool,
+                        snapshot,
+                        pre_resolve_tip.clone(),
+                        entry.clone(),
+                        status,
+                        entry_id.clone(),
+                    )
+                })
+                .await;
+
+            self.dispatch_submit_aftermath(&entry_id, result, recovered, reject_events, snapshot)
+                .await
+        }
     }
     pub(crate) async fn test_accept_tx(&self, tx: TransactionView) -> Result<Completed, Reject> {
         self.check_tx_basic_validity(&tx, None).await?;

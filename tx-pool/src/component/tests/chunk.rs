@@ -731,7 +731,7 @@ async fn process_orphan_tx_keeps_high_cycle_orphan_when_ordered_resolve_queue_is
     seed_parent_and_nearly_fill_queue(&service, parent.clone()).await;
 
     service
-        .add_orphan(orphan.clone(), 1.into(), MAX_TX_VERIFY_CYCLES + 1)
+        .add_orphan(orphan.clone(), 1.into(), MAX_TX_VERIFY_CYCLES + 1, false)
         .await;
 
     let service_clone = service.clone();
@@ -888,7 +888,7 @@ async fn handle_missing_input_orphan_notifies_relayer_once() {
 
     // First call should add to orphan pool and notify relayer.
     service
-        .handle_missing_input_orphan(orphan.clone(), 1.into(), 100, parents.clone())
+        .handle_missing_input_orphan(orphan.clone(), 1.into(), 100, parents.clone(), false)
         .await;
 
     assert!(service.orphan.read().await.contains_key(&orphan_id));
@@ -906,7 +906,7 @@ async fn handle_missing_input_orphan_notifies_relayer_once() {
     // Second call for the same tx is a duplicate; orphan pool already contains
     // it, so the relayer must not receive another UnknownParents notification.
     service
-        .handle_missing_input_orphan(orphan, 2.into(), 100, parents)
+        .handle_missing_input_orphan(orphan, 2.into(), 100, parents, false)
         .await;
 
     assert!(

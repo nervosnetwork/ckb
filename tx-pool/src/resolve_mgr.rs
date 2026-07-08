@@ -120,7 +120,8 @@ impl JobHandler for ResolveHandler {
                 self.handle_orphan(job, id, parents).await;
             }
             ResolveStageResult::Reject(tx, reject) => {
-                self.handle_reject(tx, job.remote, reject).await;
+                self.handle_reject(tx, job.remote, reject, job.is_proposal_tx)
+                    .await;
             }
         }
     }
@@ -139,6 +140,7 @@ impl ResolveHandler {
         let tx = resolved.tx.clone();
         let remote = resolved.remote;
         let snapshot = Arc::clone(&resolved.snapshot);
+        let is_proposal_tx = resolved.is_proposal_tx;
 
         let reject = {
             let mut queue = self.verify_queue.write().await;
@@ -153,7 +155,7 @@ impl ResolveHandler {
         };
         // verify_queue lock released before after_process
         self.service
-            .after_process(tx, remote, &snapshot, &Err(reject))
+            .after_process(tx, remote, &snapshot, &Err(reject), is_proposal_tx)
             .await;
     }
 
@@ -169,7 +171,13 @@ impl ResolveHandler {
                 id, peer, parents
             );
             self.service
-                .handle_missing_input_orphan(job.tx.clone(), peer, declared_cycle, parents)
+                .handle_missing_input_orphan(
+                    job.tx.clone(),
+                    peer,
+                    declared_cycle,
+                    parents,
+                    job.is_proposal_tx,
+                )
                 .await;
             return;
         }
@@ -194,17 +202,18 @@ impl ResolveHandler {
                 id, job.attempts, depends_on_pipeline
             );
             let tx = job.tx.clone();
+            let is_proposal_tx = job.is_proposal_tx;
             let mut ordered = self.ordered_queue.write().await;
             if let Err(reject) = ordered.add_tx(job) {
                 drop(ordered);
                 self.service
-                    .reject_with_after_process(tx, None, reject)
+                    .reject_with_after_process(tx, None, reject, is_proposal_tx)
                     .await;
             }
         } else {
             let reject = first_unknown_input_reject(&job.tx);
             self.service
-                .reject_with_after_process(job.tx, None, reject)
+                .reject_with_after_process(job.tx, None, reject, job.is_proposal_tx)
                 .await;
         }
     }
@@ -214,9 +223,10 @@ impl ResolveHandler {
         tx: ckb_types::core::TransactionView,
         remote: Option<(ckb_types::core::Cycle, ckb_network::PeerIndex)>,
         reject: Reject,
+        is_proposal_tx: bool,
     ) {
         self.service
-            .reject_with_after_process(tx, remote, reject)
+            .reject_with_after_process(tx, remote, reject, is_proposal_tx)
             .await;
     }
 

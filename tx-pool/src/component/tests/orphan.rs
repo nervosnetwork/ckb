@@ -9,14 +9,14 @@ fn test_orphan() {
     assert_eq!(orphan.len(), 0);
     assert!(!orphan.contains_key(&tx1.proposal_short_id()));
 
-    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0);
+    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0, false);
     assert_eq!(orphan.len(), 1);
 
-    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0);
+    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0, false);
     assert_eq!(orphan.len(), 1);
 
     let tx2 = build_tx(vec![(&tx1.hash(), 0)], 1);
-    orphan.add_orphan_tx(tx2.clone(), 0.into(), 0);
+    orphan.add_orphan_tx(tx2.clone(), 0.into(), 0, false);
     assert_eq!(orphan.len(), 2);
 
     orphan.remove_orphan_tx(&tx1.proposal_short_id());
@@ -33,8 +33,8 @@ fn test_orphan_allows_double_spends_of_unknown_input() {
     let tx2 = build_tx(vec![(&parent_hash, 0)], 2);
     let mut orphan = OrphanPool::new();
 
-    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0);
-    orphan.add_orphan_tx(tx2.clone(), 0.into(), 0);
+    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0, false);
+    orphan.add_orphan_tx(tx2.clone(), 0.into(), 0, false);
 
     assert_eq!(orphan.len(), 2);
     let txs = orphan.find_by_previous(&parent);
@@ -52,11 +52,11 @@ fn test_orphan_duplicated() {
     let tx3 = build_tx(vec![(&tx2.hash(), 0)], 1);
     let tx4 = build_tx(vec![(&tx3.hash(), 0), (&tx1.hash(), 1)], 1);
     let tx5 = build_tx(vec![(&tx1.hash(), 0)], 2);
-    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0);
-    orphan.add_orphan_tx(tx2.clone(), 0.into(), 0);
-    orphan.add_orphan_tx(tx3, 0.into(), 0);
-    orphan.add_orphan_tx(tx4.clone(), 0.into(), 0);
-    orphan.add_orphan_tx(tx5.clone(), 0.into(), 0);
+    orphan.add_orphan_tx(tx1.clone(), 0.into(), 0, false);
+    orphan.add_orphan_tx(tx2.clone(), 0.into(), 0, false);
+    orphan.add_orphan_tx(tx3, 0.into(), 0, false);
+    orphan.add_orphan_tx(tx4.clone(), 0.into(), 0, false);
+    orphan.add_orphan_tx(tx5.clone(), 0.into(), 0, false);
     assert_eq!(orphan.len(), 5);
 
     let txs = orphan.find_by_previous(&tx2);

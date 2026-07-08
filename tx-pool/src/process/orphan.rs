@@ -26,11 +26,15 @@ impl super::TxPoolService {
         peer: PeerIndex,
         declared_cycle: Cycle,
         parents: HashSet<Byte32>,
+        is_proposal_tx: bool,
     ) {
         // Only notify the relayer after the tx has actually been accepted into
         // the orphan pool. This avoids telling peers about missing parents for
         // a tx that we end up dropping (e.g. duplicate orphan or pool full).
-        if self.add_orphan(tx, peer, declared_cycle).await {
+        if self
+            .add_orphan(tx, peer, declared_cycle, is_proposal_tx)
+            .await
+        {
             self.send_result_to_relayer(TxVerificationResult::UnknownParents { peer, parents });
         }
     }
@@ -40,12 +44,13 @@ impl super::TxPoolService {
         tx: TransactionView,
         peer: PeerIndex,
         declared_cycle: Cycle,
+        is_proposal_tx: bool,
     ) -> bool {
         let (added, evicted_txs) =
             self.orphan
                 .write()
                 .await
-                .add_orphan_tx(tx, peer, declared_cycle);
+                .add_orphan_tx(tx, peer, declared_cycle, is_proposal_tx);
         // for any evicted orphan tx, we should send reject to relayer
         // so that we mark it as `unknown` in filter
         for tx_hash in evicted_txs {
@@ -85,7 +90,7 @@ impl super::TxPoolService {
                 match self
                     .classify_and_enqueue_tx(
                         orphan.tx.clone(),
-                        false,
+                        orphan.is_proposal_tx,
                         Some((orphan.cycle, orphan.peer)),
                     )
                     .await

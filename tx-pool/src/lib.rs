@@ -1,6 +1,22 @@
 //! CKB Tx-pool stores transactions, which is designed for CKB
 //! [Two-Step-Transaction-Confirmation](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#Two-Step-Transaction-Confirmation)
 //! mechanism
+//!
+//! # Lock hierarchy
+//!
+//! The pipeline and the main pool use several async locks. To avoid deadlocks,
+//! acquire them in the following order whenever more than one is needed in the
+//! same task:
+//!
+//! 1. `ordered_resolve_queue`
+//! 2. `verify_queue`
+//! 3. `rbf_candidates`
+//! 4. `orphan`
+//! 5. `tx_pool`
+//! 6. `block_assembler.template_lock` (and then `block_assembler.current`)
+//!
+//! Read-only aggregations such as `info()` should acquire each lock in
+//! isolation rather than holding several at once.
 
 #[cfg(feature = "internal")]
 pub mod benchmark;

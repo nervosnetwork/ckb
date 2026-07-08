@@ -20,9 +20,9 @@
 use ckb_logger::debug;
 use ckb_types::{
     core::Capacity,
-    packed::{OutPoint, ProposalShortId},
+    packed::{Byte32, OutPoint, ProposalShortId},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Lightweight fee-ordering gate for in-flight RBF replacements.
 #[derive(Default)]
@@ -144,6 +144,25 @@ impl RbfCandidates {
     pub fn clear(&mut self) {
         self.by_input.clear();
         self.by_id.clear();
+    }
+
+    /// Remove candidates whose conflict inputs reference any of the given
+    /// transaction hashes. Called after those transactions are committed so
+    /// the stale candidates do not block future replacements.
+    pub fn remove_by_conflict_tx_hashes(&mut self, tx_hashes: &HashSet<Byte32>) {
+        let ids_to_remove: Vec<ProposalShortId> = self
+            .by_id
+            .iter()
+            .filter(|(_id, inputs)| {
+                inputs
+                    .iter()
+                    .any(|input| tx_hashes.contains(&input.tx_hash()))
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids_to_remove {
+            self.remove(&id);
+        }
     }
 }
 

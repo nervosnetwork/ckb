@@ -19,6 +19,7 @@ impl TxPoolService {
         remote: Option<(Cycle, PeerIndex)>,
         _snapshot: &Snapshot,
         ret: &Result<Completed, Reject>,
+        is_proposal_tx: bool,
     ) {
         let tx_hash = tx.hash();
 
@@ -46,7 +47,7 @@ impl TxPoolService {
 
         match remote {
             Some((declared_cycle, peer)) => {
-                self.after_process_remote(tx, declared_cycle, peer, ret)
+                self.after_process_remote(tx, declared_cycle, peer, ret, is_proposal_tx)
                     .await;
             }
             None => {
@@ -62,9 +63,10 @@ impl TxPoolService {
         tx: TransactionView,
         remote: Option<(Cycle, PeerIndex)>,
         reject: Reject,
+        is_proposal_tx: bool,
     ) {
         let snapshot = self.tx_pool.read().await.cloned_snapshot();
-        self.after_process(tx, remote, &snapshot, &Err(reject))
+        self.after_process(tx, remote, &snapshot, &Err(reject), is_proposal_tx)
             .await;
     }
     pub(crate) async fn after_process_remote(
@@ -73,6 +75,7 @@ impl TxPoolService {
         declared_cycle: Cycle,
         peer: PeerIndex,
         ret: &Result<Completed, Reject>,
+        is_proposal_tx: bool,
     ) {
         let tx_hash = tx.hash();
         match ret {
@@ -90,8 +93,14 @@ impl TxPoolService {
                 );
                 if is_missing_input(reject) {
                     let parents = tx.unique_parents();
-                    self.handle_missing_input_orphan(tx, peer, declared_cycle, parents)
-                        .await;
+                    self.handle_missing_input_orphan(
+                        tx,
+                        peer,
+                        declared_cycle,
+                        parents,
+                        is_proposal_tx,
+                    )
+                    .await;
                 } else {
                     self.handle_remote_reject(&tx_hash, reject, peer).await;
                 }
@@ -197,13 +206,17 @@ impl TxPoolService {
             .write()
             .await
             .remove_txs_by_peer(&peer);
+        // Clean up the in-flight RBF gate while still respecting the lock
+        // hierarchy (rbf_candidates is acquired before orphan).
+        {
+            let mut rbf = self.rbf_candidates.write().await;
+            for id in removed_ids {
+                rbf.remove(&id);
+            }
+        }
         // Remove orphan txs from the banned peer so they are not re-processed
         // after the ban.
         self.orphan.write().await.remove_by_peer(peer);
         self.queues.pre_check_queue.remove_by_peer(&peer);
-        let mut rbf = self.rbf_candidates.write().await;
-        for id in removed_ids {
-            rbf.remove(&id);
-        }
     }
 }
