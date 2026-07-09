@@ -28,7 +28,8 @@ use serde::{Deserialize, Serialize};
 ///       "type": null
 ///     }
 ///   },
-///   "status": "live"
+///   "status": "live",
+///   "block_hash": "0x7978ec7ce5b507cfb52e149e36b1a23f6062ed150503c85bbf825da3599095ed"
 /// }
 /// # "#).unwrap();
 /// ```
@@ -37,7 +38,8 @@ use serde::{Deserialize, Serialize};
 /// # serde_json::from_str::<ckb_jsonrpc_types::CellWithStatus>(r#"
 /// {
 ///   "cell": null,
-///   "status": "unknown"
+///   "status": "unknown",
+///   "block_hash": null
 /// }
 /// # "#).unwrap();
 /// ```
@@ -60,6 +62,11 @@ pub struct CellWithStatus {
     /// * `unknown` - CKB does not know the status of the cell. Either the transaction creating
     ///   this cell is not in the chain yet, or it is no longer live.
     pub status: String,
+    /// The block hash containing the transaction that created this live cell.
+    ///
+    /// This is `null` when the cell is not live, or when the live cell has not been committed in a
+    /// block yet.
+    pub block_hash: Option<H256>,
 }
 
 /// The JSON view of a cell combining the fields in cell output and cell data.
@@ -134,14 +141,21 @@ impl From<CellMeta> for CellInfo {
 
 impl From<CellStatus> for CellWithStatus {
     fn from(status: CellStatus) -> Self {
-        let (cell, status) = match status {
-            CellStatus::Live(cell_meta) => (Some(cell_meta), "live"),
-            CellStatus::Dead => (None, "dead"),
-            CellStatus::Unknown => (None, "unknown"),
+        let (cell, status, block_hash) = match status {
+            CellStatus::Live(cell_meta) => {
+                let block_hash = cell_meta
+                    .transaction_info
+                    .as_ref()
+                    .map(|tx_info| tx_info.block_hash.clone().into());
+                (Some(cell_meta), "live", block_hash)
+            }
+            CellStatus::Dead => (None, "dead", None),
+            CellStatus::Unknown => (None, "unknown", None),
         };
         Self {
             cell: cell.map(Into::into),
             status: status.to_string(),
+            block_hash,
         }
     }
 }
