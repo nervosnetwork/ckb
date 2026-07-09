@@ -9,12 +9,24 @@
 //! same task:
 //!
 //! 1. `ordered_resolve_queue`
-//! 2. `verify_queue`
-//! 3. `rbf_candidates`
+//! 2. `rbf_candidates`
+//! 3. `verify_queue`
 //! 4. `orphan`
 //! 5. `block_assembler.template_lock`
-//! 6. `tx_pool` (`update_full`/`reset_template` hold `template_lock` first,
-//!    then read `tx_pool`; partial updates do not acquire `template_lock`)
+//! 6. `tx_pool`
+//!
+//! `rbf_candidates` must be acquired before `verify_queue` because
+//! `register_rbf_candidate` and `update_tx_pool_for_reorg` hold
+//! `rbf_candidates.write()` while adding or removing entries in
+//! `verify_queue`. Keeping this order everywhere (e.g. `remove_tx`,
+//! `ban_malformed`) avoids deadlocks.
+//!
+//! `block_assembler.template_lock` guards the current block template.
+//! `update_full` and `reset_template` acquire `template_lock` first and then
+//! read `tx_pool` so that a concurrent `Reset` cannot swap the template while
+//! the full update is in progress. Partial updates such as `update_uncles`,
+//! `update_proposals` and `update_transactions` do not touch the template and
+//! therefore do not acquire `template_lock`.
 //!
 //! Read-only aggregations such as `info()` should acquire each lock in
 //! isolation rather than holding several at once.

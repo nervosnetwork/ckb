@@ -16,6 +16,21 @@
 //! index again; if a higher-fee-rate candidate has appeared in the meantime, the
 //! current candidate aborts.  The candidate is unregistered after `submit_entry`
 //! finishes, whether it succeeded or failed.
+//!
+//! # Weight-based vs size-based fee rates
+//!
+//! The fee rates stored here are *weight-based*: they are computed with
+//! [`ckb_types::core::tx_pool::get_transaction_weight`], which uses both the
+//! serialized transaction size and the declared cycles.  Weight is available
+//! here because candidates are registered after pre-check, when the remote peer
+//! has already supplied a cycles value.
+//!
+//! This is deliberately different from the RBF replacement fee floor enforced
+//! by the pool (see [`TxPool::calculate_min_replace_fee`]) and the normal
+//! `min_fee_rate` check, both of which use the raw serialized size because
+//! cycles are not available at the moment a transaction is first submitted.
+//! The weight-based ordering here only affects scheduling among conflicting
+//! in-flight candidates; it never lowers the size-based fee floor.
 
 use ckb_logger::debug;
 use ckb_types::{
@@ -24,14 +39,38 @@ use ckb_types::{
 };
 use std::collections::{HashMap, HashSet};
 
-/// Lightweight fee-rate-ordering gate for in-flight RBF replacements.
+/// Lightweight weight-based fee-rate-ordering gate for in-flight RBF
+/// replacements.
+///
+/// See the module-level documentation for the distinction between the
+/// weight-based ordering used here and the size-based fee checks used by the
+/// pool.
 #[derive(Default)]
 pub(crate) struct RbfCandidates {
-    /// Highest-fee-rate candidate currently known for each conflict input.
+    /// Highest weight-based fee-rate candidate currently known for each conflict
+    /// input.
     by_input: HashMap<OutPoint, (FeeRate, ProposalShortId)>,
     /// Reverse index so we can clean up by candidate id when it leaves the
     /// pipeline or is removed by management commands.
     by_id: HashMap<ProposalShortId, Vec<OutPoint>>,
+}
+
+/// A pending RBF registration that has been validated but not yet committed.
+///
+/// The caller must either call [`RbfCandidates::commit`] after the candidate
+/// has been successfully added to the verify queue, or drop the registration
+/// (which leaves `RbfCandidates` unchanged). This makes displacement atomic
+/// with verify-queue insertion: lower-fee-rate candidates are only removed
+/// from the pipeline once the higher-fee-rate candidate is guaranteed to enter
+/// it.
+#[derive(Debug)]
+pub(crate) struct RbfRegistration {
+    new_id: ProposalShortId,
+    new_fee_rate: FeeRate,
+    new_conflict_inputs: Vec<OutPoint>,
+    /// Full state of displaced candidates so they can be removed from the
+    /// verify queue and their RBF registrations atomically committed.
+    pub(crate) displaced: Vec<(ProposalShortId, FeeRate, Vec<OutPoint>)>,
 }
 
 impl RbfCandidates {
@@ -43,25 +82,33 @@ impl RbfCandidates {
         }
     }
 
-    /// Attempt to register a candidate.  Returns `Ok(displaced_ids)` (possibly
-    /// empty) if registration succeeded; the vector contains **all**
-    /// lower-fee-rate candidates that were displaced across every conflict
-    /// input.  Returns `Err` if a higher-fee-rate candidate is already
-    /// registered for any input.
+    /// Validate a candidate and compute the registration delta without mutating
+    /// the index.
+    ///
+    /// The caller (which must hold `rbf_candidates.write()`) should commit the
+    /// registration after the candidate has been successfully inserted into the
+    /// verify queue.  This makes displacement atomic with verify-queue
+    /// insertion and avoids losing displaced candidates if the insertion fails.
+    /// Returns `Err` if a higher-fee-rate candidate is already registered for
+    /// any input.
+    ///
+    /// `weight_based_fee_rate` must be the weight-based fee rate (see
+    /// module-level docs); comparisons inside the index assume all stored rates
+    /// use the same unit.
     pub fn register(
-        &mut self,
+        &self,
         id: ProposalShortId,
-        fee_rate: FeeRate,
+        weight_based_fee_rate: FeeRate,
         conflict_inputs: &[OutPoint],
-    ) -> Result<Vec<ProposalShortId>, String> {
+    ) -> Result<RbfRegistration, String> {
         for input in conflict_inputs {
             if let Some((existing_fee_rate, existing_id)) = self.by_input.get(input)
-                && (*existing_fee_rate > fee_rate
-                    || (*existing_fee_rate == fee_rate && *existing_id != id))
+                && (*existing_fee_rate > weight_based_fee_rate
+                    || (*existing_fee_rate == weight_based_fee_rate && *existing_id != id))
             {
                 debug!(
                     "RBF candidate {} fee_rate {} rejected: input {:?} already held by {} fee_rate {}",
-                    id, fee_rate, input, existing_id, existing_fee_rate
+                    id, weight_based_fee_rate, input, existing_id, existing_fee_rate
                 );
                 return Err(format!(
                     "input {:?} already has higher-fee-rate RBF candidate {}",
@@ -71,24 +118,47 @@ impl RbfCandidates {
         }
 
         // Collect unique lower-fee-rate candidates that are displaced by this
-        // new candidate.
-        let mut displaced: Vec<ProposalShortId> = Vec::new();
+        // new candidate, including their full state so they can be removed from
+        // the verify queue once the registration is committed.
+        let mut displaced: Vec<(ProposalShortId, FeeRate, Vec<OutPoint>)> = Vec::new();
+        let mut seen: HashSet<ProposalShortId> = HashSet::new();
         for input in conflict_inputs {
             if let Some((existing_fee_rate, existing_id)) = self.by_input.get(input)
-                && *existing_fee_rate < fee_rate
+                && *existing_fee_rate < weight_based_fee_rate
                 && existing_id != &id
-                && !displaced.contains(existing_id)
+                && seen.insert(existing_id.clone())
+                && let Some(inputs) = self.by_id.get(existing_id)
             {
-                displaced.push(existing_id.clone());
+                displaced.push((existing_id.clone(), *existing_fee_rate, inputs.clone()));
             }
         }
+
+        Ok(RbfRegistration {
+            new_id: id,
+            new_fee_rate: weight_based_fee_rate,
+            new_conflict_inputs: conflict_inputs.to_vec(),
+            displaced,
+        })
+    }
+
+    /// Atomically commit a pending registration: remove displaced candidates
+    /// from the index and install the new candidate.
+    ///
+    /// Must be called while holding `rbf_candidates.write()`.
+    pub fn commit(&mut self, registration: RbfRegistration) {
+        let RbfRegistration {
+            new_id,
+            new_fee_rate,
+            new_conflict_inputs,
+            displaced,
+        } = registration;
 
         // Fully unregister each displaced candidate from *all* of its indexed
         // inputs.  A displaced candidate may cover more inputs than the new
         // candidate overlaps with; leaving those entries behind would cause
         // later replacements for the other inputs to be rejected by a candidate
         // that is no longer in flight.
-        for displaced_id in &displaced {
+        for (displaced_id, _, _) in &displaced {
             if let Some(inputs) = self.by_id.remove(displaced_id) {
                 for input in inputs {
                     if self
@@ -102,28 +172,29 @@ impl RbfCandidates {
             }
         }
 
-        for input in conflict_inputs {
-            self.by_input.insert(input.clone(), (fee_rate, id.clone()));
+        for input in &new_conflict_inputs {
+            self.by_input
+                .insert(input.clone(), (new_fee_rate, new_id.clone()));
         }
-        self.by_id.insert(id, conflict_inputs.to_vec());
-        Ok(displaced)
+        self.by_id.insert(new_id, new_conflict_inputs);
     }
 
-    /// Returns true if a higher-fee-rate candidate has been registered for any
-    /// of the given conflict inputs.  Equal-fee-rate entries are allowed only
-    /// when the id matches (i.e. the candidate is checking itself).
+    /// Returns true if a higher weight-based fee-rate candidate has been
+    /// registered for any of the given conflict inputs.  Equal-fee-rate entries
+    /// are allowed only when the id matches (i.e. the candidate is checking
+    /// itself).
     pub fn is_superseded(
         &self,
         id: &ProposalShortId,
-        fee_rate: FeeRate,
+        weight_based_fee_rate: FeeRate,
         conflict_inputs: &[OutPoint],
     ) -> bool {
         conflict_inputs.iter().any(|input| {
             self.by_input
                 .get(input)
                 .is_some_and(|(existing_fee_rate, existing_id)| {
-                    *existing_fee_rate > fee_rate
-                        || (*existing_fee_rate == fee_rate && existing_id != id)
+                    *existing_fee_rate > weight_based_fee_rate
+                        || (*existing_fee_rate == weight_based_fee_rate && existing_id != id)
                 })
         })
     }
@@ -189,12 +260,14 @@ mod tests {
         let id_a = id(0);
         let id_b = id(1);
 
-        rbf.register(
-            id_a.clone(),
-            FeeRate::from_u64(100),
-            std::slice::from_ref(&input),
-        )
-        .unwrap();
+        let reg = rbf
+            .register(
+                id_a.clone(),
+                FeeRate::from_u64(100),
+                std::slice::from_ref(&input),
+            )
+            .unwrap();
+        rbf.commit(reg);
         // Lower-fee-rate candidate is rejected.
         assert!(
             rbf.register(
@@ -210,10 +283,10 @@ mod tests {
 
         // Remove the old candidate and register a new one.
         rbf.remove(&id_a);
-        assert!(
-            rbf.register(id_b, FeeRate::from_u64(50), std::slice::from_ref(&input))
-                .is_ok()
-        );
+        let reg = rbf
+            .register(id_b, FeeRate::from_u64(50), std::slice::from_ref(&input))
+            .unwrap();
+        rbf.commit(reg);
     }
 
     #[test]
@@ -224,12 +297,14 @@ mod tests {
         let id_a = id(0);
         let id_b = id(1);
 
-        rbf.register(
-            id_a.clone(),
-            FeeRate::from_u64(100),
-            &[input0.clone(), input1.clone()],
-        )
-        .unwrap();
+        let reg = rbf
+            .register(
+                id_a.clone(),
+                FeeRate::from_u64(100),
+                &[input0.clone(), input1.clone()],
+            )
+            .unwrap();
+        rbf.commit(reg);
 
         // Candidate that only conflicts with one input but with lower fee rate
         // is rejected.
@@ -243,10 +318,12 @@ mod tests {
         );
 
         // Higher-fee-rate candidate can take over both inputs.
-        let displaced = rbf
+        let reg = rbf
             .register(id_b.clone(), FeeRate::from_u64(200), &[input0, input1])
             .unwrap();
-        assert_eq!(displaced, vec![id_a]);
+        let displaced_ids: Vec<_> = reg.displaced.iter().map(|(id, _, _)| id.clone()).collect();
+        assert_eq!(displaced_ids, vec![id_a]);
+        rbf.commit(reg);
         // Removing the new candidate frees both.
         rbf.remove(&id_b);
         assert!(rbf.by_input.is_empty());
@@ -262,23 +339,27 @@ mod tests {
         let id_c = id(2);
 
         // Candidate A covers two inputs.
-        rbf.register(
-            id_a.clone(),
-            FeeRate::from_u64(100),
-            &[input0.clone(), input1.clone()],
-        )
-        .unwrap();
+        let reg = rbf
+            .register(
+                id_a.clone(),
+                FeeRate::from_u64(100),
+                &[input0.clone(), input1.clone()],
+            )
+            .unwrap();
+        rbf.commit(reg);
 
         // Candidate B only overlaps input0 but has a higher fee rate.  It must
         // displace A entirely, including input1 which B does not touch.
-        let displaced = rbf
+        let reg = rbf
             .register(
                 id_b.clone(),
                 FeeRate::from_u64(200),
                 std::slice::from_ref(&input0),
             )
             .unwrap();
-        assert_eq!(displaced, vec![id_a.clone()]);
+        let displaced_ids: Vec<_> = reg.displaced.iter().map(|(id, _, _)| id.clone()).collect();
+        assert_eq!(displaced_ids, vec![id_a.clone()]);
+        rbf.commit(reg);
 
         // input1 must no longer be held by the displaced candidate A, otherwise
         // a later replacement for input1 would be rejected by a ghost candidate.
@@ -286,12 +367,14 @@ mod tests {
         assert_eq!(rbf.by_id.get(&id_a), None);
 
         // A new candidate for input1 (previously held only by A) should succeed.
-        rbf.register(
-            id_c.clone(),
-            FeeRate::from_u64(150),
-            std::slice::from_ref(&input1),
-        )
-        .unwrap();
+        let reg = rbf
+            .register(
+                id_c.clone(),
+                FeeRate::from_u64(150),
+                std::slice::from_ref(&input1),
+            )
+            .unwrap();
+        rbf.commit(reg);
 
         // Cleanup.
         rbf.remove(&id_b);

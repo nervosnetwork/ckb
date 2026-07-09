@@ -6,6 +6,7 @@
 //! retry missing-input txs in arrival order.
 
 use crate::component::flight_tracker::FlightTracker;
+use crate::component::saturating_counter::SaturatingCounter;
 use crate::constants::DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE;
 use crate::error::Reject;
 use crate::tx_source::TxSource;
@@ -14,7 +15,6 @@ use ckb_stop_handler::CancellationToken;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::ProposalShortId;
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 /// A classification job that is offloaded to the pre-check worker pool.
@@ -28,13 +28,19 @@ struct PreCheckQueueState {
     inner: VecDeque<PreCheckJob>,
     index: HashSet<ProposalShortId>,
     flight: FlightTracker,
+    /// Total serialized size of all transactions currently in the queue.
+    ///
+    /// This counter is kept inside the mutex-protected state because every
+    /// operation that changes it already holds `state`. There is no need for
+    /// atomics: the critical sections are short, never cross `.await`, and
+    /// `tokio::sync::Notify` handles asynchronous wake-ups.
+    total_tx_size: SaturatingCounter<usize>,
 }
 
 pub(crate) struct PreCheckQueue {
     state: Mutex<PreCheckQueueState>,
     ready: tokio::sync::Notify,
     cancel: CancellationToken,
-    total_tx_size: AtomicUsize,
 }
 
 impl PreCheckQueue {
@@ -44,10 +50,10 @@ impl PreCheckQueue {
                 inner: VecDeque::new(),
                 index: HashSet::new(),
                 flight: FlightTracker::new(),
+                total_tx_size: SaturatingCounter::new(0),
             }),
             ready: tokio::sync::Notify::new(),
             cancel,
-            total_tx_size: AtomicUsize::new(0),
         }
     }
 
@@ -55,27 +61,16 @@ impl PreCheckQueue {
         job.tx.data().serialized_size_in_block()
     }
 
-    /// Atomically subtract `amount` from `total_tx_size`, saturating at zero.
-    /// Uses a CAS loop to prevent underflow wraparound that would cause
-    /// `is_full` to return true permanently.
-    fn sub_total_tx_size(&self, amount: usize) {
-        self.total_tx_size
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-                Some(current.saturating_sub(amount))
-            })
-            .expect("closure always returns Some");
-    }
-
     fn lock(&self) -> MutexGuard<'_, PreCheckQueueState> {
         self.state.lock().expect("pre_check queue lock poisoned")
     }
 
     /// Returns true if the queue is full.
-    pub fn is_full(&self, add_tx_size: usize) -> bool {
-        self.total_tx_size
-            .load(Ordering::SeqCst)
-            .saturating_add(add_tx_size)
-            >= DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE
+    ///
+    /// Must be called while holding the queue lock so the size check is
+    /// consistent with concurrent modifications.
+    fn is_full_locked(&self, state: &PreCheckQueueState, add_tx_size: usize) -> bool {
+        state.total_tx_size.get().saturating_add(add_tx_size) >= DEFAULT_MAX_PIPELINE_QUEUE_TX_SIZE
     }
 
     /// Returns true if the given tx spends or references an output produced by
@@ -112,7 +107,11 @@ impl PreCheckQueue {
         let job = state.inner.remove(pos).expect("position exists");
         state.index.remove(id);
         state.flight.remove(id);
-        self.sub_total_tx_size(Self::tx_size(&job));
+        state.total_tx_size.sub_or_zero(
+            Self::tx_size(&job),
+            "pre_check_queue total_tx_size",
+            "remove_by_id",
+        );
         Some(job.tx)
     }
 
@@ -133,7 +132,11 @@ impl PreCheckQueue {
             let id = job.tx.proposal_short_id();
             state.index.remove(&id);
             state.flight.remove(&id);
-            self.sub_total_tx_size(Self::tx_size(&job));
+            state.total_tx_size.sub_or_zero(
+                Self::tx_size(&job),
+                "pre_check_queue total_tx_size",
+                "remove_by_peer",
+            );
             removed.push(job.tx);
         }
         removed
@@ -149,7 +152,7 @@ impl PreCheckQueue {
         let tx_hash = job.tx.hash();
         // The full check is performed while holding the lock so concurrent
         // pushes cannot both observe a non-full queue and exceed the limit.
-        if self.is_full(tx_size) {
+        if self.is_full_locked(&state, tx_size) {
             return Err(Reject::Full(format!(
                 "pre_check_queue total_tx_size exceeded, failed to add tx: {tx_hash:#x}"
             )));
@@ -157,7 +160,8 @@ impl PreCheckQueue {
         state.index.insert(id.clone());
         state.flight.insert(id, &job.tx);
         state.inner.push_back(job);
-        self.total_tx_size.fetch_add(tx_size, Ordering::SeqCst);
+        let new_total = state.total_tx_size.get().saturating_add(tx_size);
+        state.total_tx_size.set(new_total);
         drop(state);
         self.ready.notify_one();
         Ok(())
@@ -169,7 +173,7 @@ impl PreCheckQueue {
         state.inner.clear();
         state.index.clear();
         state.flight.clear();
-        self.total_tx_size.store(0, Ordering::SeqCst);
+        state.total_tx_size.set(0);
     }
 
     /// Pop the next job, or return `None` if the queue has been cancelled.
@@ -182,7 +186,11 @@ impl PreCheckQueue {
                     state.index.remove(&id);
                     state.flight.remove(&id);
                     let tx_size = Self::tx_size(&job);
-                    self.sub_total_tx_size(tx_size);
+                    state.total_tx_size.sub_or_zero(
+                        tx_size,
+                        "pre_check_queue total_tx_size",
+                        "pop",
+                    );
                     return Some(job);
                 }
             }

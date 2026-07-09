@@ -1,10 +1,9 @@
-use crate::component::orphan::Entry as OrphanEntry;
 use crate::error::Reject;
 use crate::service::TxVerificationResult;
 use crate::tx_source::TxSource;
 use ckb_logger::warn;
 use ckb_types::core::TransactionView;
-use ckb_types::packed::{Byte32, ProposalShortId};
+use ckb_types::packed::Byte32;
 use ckb_util::LinkedHashSet;
 use std::collections::{HashSet, VecDeque};
 
@@ -46,19 +45,6 @@ impl super::TxPoolService {
         added
     }
 
-    pub(crate) async fn find_orphan_by_previous(&self, tx: &TransactionView) -> Vec<OrphanEntry> {
-        let orphan = self.orphan.read().await;
-        orphan
-            .find_by_previous(tx)
-            .iter()
-            .filter_map(|id| orphan.get(id).cloned())
-            .collect::<Vec<_>>()
-    }
-
-    pub(crate) async fn remove_orphan_tx(&self, id: &ProposalShortId) {
-        self.orphan.write().await.remove_orphan_tx(id);
-    }
-
     /// Remove all orphans which are resolved by the given transaction.
     ///
     /// The search is breadth-first: each orphan is routed through the same
@@ -66,20 +52,36 @@ impl super::TxPoolService {
     /// notifications. When an orphan is eventually verified and submitted,
     /// `after_process` will recursively process its own descendants in the
     /// orphan pool.
+    ///
+    /// Removals are batched into a single write lock: an orphan's success or
+    /// failure in the pipeline does not depend on its siblings being removed
+    /// first, so there is no need to pay the cost of a write lock per orphan.
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
         let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
         orphan_queue.push_back(tx.clone());
 
         while let Some(previous) = orphan_queue.pop_front() {
-            let orphans = self.find_orphan_by_previous(&previous).await;
-            for orphan in orphans.into_iter() {
-                let orphan_id = orphan.tx.proposal_short_id();
+            // Collect the orphan entries under a single read lock, then process
+            // them outside the lock. This keeps the critical section short and
+            // avoids cloning transactions while holding the write lock.
+            let orphans: Vec<_> = {
+                let orphan = self.orphan.read().await;
+                orphan
+                    .find_by_previous(&previous)
+                    .into_iter()
+                    .cloned()
+                    .filter_map(|id| orphan.get(&id).cloned().map(|entry| (id, entry)))
+                    .collect()
+            };
+
+            let mut to_remove = Vec::new();
+            for (orphan_id, orphan) in orphans.into_iter() {
                 let orphan_hash = orphan.tx.hash();
-                let orphan_peer = orphan.peer();
+                let orphan_peer = orphan.source.peer();
 
                 match self.classify_and_enqueue_tx(orphan.tx, orphan.source).await {
                     Ok(_) => {
-                        self.remove_orphan_tx(&orphan_id).await;
+                        to_remove.push(orphan_id);
                         // The orphan is now in the pipeline. Its own children
                         // will be processed once it successfully submits via
                         // the normal `after_process` -> `handle_verify_success`
@@ -100,12 +102,19 @@ impl super::TxPoolService {
                                 tx.hash(),
                             );
                         } else {
-                            self.remove_orphan_tx(&orphan_id).await;
+                            to_remove.push(orphan_id);
                             if let Some(peer) = orphan_peer {
                                 self.handle_remote_reject(&orphan_hash, &reject, peer).await;
                             }
                         }
                     }
+                }
+            }
+
+            if !to_remove.is_empty() {
+                let mut orphan = self.orphan.write().await;
+                for id in to_remove {
+                    orphan.remove_orphan_tx(&id);
                 }
             }
         }

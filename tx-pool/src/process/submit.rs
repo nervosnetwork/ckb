@@ -32,14 +32,6 @@ impl TxPoolService {
         let guard = self.txs_verify_cache.read().await;
         guard.peek(&tx.witness_hash()).cloned()
     }
-    /// Remove a transaction from the in-flight RBF fee-ordering gate.
-    ///
-    /// Called on every exit path from the verify → submit pipeline (verify
-    /// failure, cycles mismatch, successful submission) to prevent ghost
-    /// entries that are never cleaned up.
-    async fn remove_rbf_candidate(&self, id: &ProposalShortId) {
-        self.rbf_candidates.write().await.remove(id);
-    }
     /// Check RBF conflicts, re-verify if the tip changed while the tx was in
     /// flight, remove old conflicting transactions, and collect transactions that
     /// can be recovered from the conflict pool.
@@ -204,8 +196,9 @@ impl TxPoolService {
 
         (result, recovered, reject_events)
     }
-    /// Dispatch reject callbacks, enqueue recovered txs, and remove the RBF
-    /// candidate after the write-locked submit is complete.
+    /// Dispatch reject callbacks, enqueue recovered txs, clean up stale RBF
+    /// registrations, and remove the current RBF candidate after the write-locked
+    /// submit is complete.
     async fn dispatch_submit_aftermath(
         &self,
         entry_id: &ProposalShortId,
@@ -216,9 +209,15 @@ impl TxPoolService {
     ) -> (Result<(), Reject>, Arc<Snapshot>) {
         // Dispatch reject callbacks outside the write lock, regardless of
         // whether the submission itself succeeded.
-        for (entry, reject) in reject_events {
-            self.callbacks.call_reject(&entry, reject);
+        for (entry, reject) in &reject_events {
+            self.callbacks.call_reject(entry, reject.clone());
         }
+
+        // In-pool entries that were removed by this submit (RBF-replaced or
+        // evicted by size limits) have freed their inputs. Clean up any RBF
+        // candidates still targeting those inputs so they do not block future
+        // replacements.
+        self.cleanup_rbf_for_removed_entries(&reject_events).await;
 
         // Send recovered txs to the deferred worker after the write lock is
         // released. Use .send().await rather than try_send so that recovery

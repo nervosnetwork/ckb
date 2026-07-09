@@ -9,14 +9,13 @@ use ckb_fee_estimator::Error as FeeEstimatorError;
 use ckb_logger::{debug, error};
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_types::core::tx_pool::PoolTxDetailInfo;
 use ckb_types::core::{BlockNumber, FeeRate};
 use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
         Capacity, Cycle, TransactionView, UncleBlockView,
         cell::{OverlayCellChecker, OverlayCellProvider, ResolvedTransaction, resolve_transaction},
-        tx_pool::{TxPoolEntryInfo, TxPoolIds},
+        tx_pool::{PoolTxDetailInfo, TxPoolEntryInfo, TxPoolIds},
     },
     packed::{Byte32, ProposalShortId},
 };
@@ -108,7 +107,14 @@ impl TxPool {
         self.config.min_rbf_rate > self.config.min_fee_rate
     }
 
-    /// The least required fee rate to allow tx to be replaced
+    /// The least required fee for a replacement transaction to be accepted.
+    ///
+    /// The incremental RBF fee is computed against the replacement transaction's
+    /// serialized `size`, not its weight. This matches how `min_fee_rate` is
+    /// enforced at submission time (see [`check_tx_fee_with_min_fee_rate`]),
+    /// because cycles are not reliably available when a tx is first submitted.
+    /// Using size here keeps the replacement threshold consistent with the pool's
+    /// normal fee policy.
     pub fn min_replace_fee(&self, tx: &TxEntry) -> Option<Capacity> {
         if !self.enable_rbf() {
             return None;
@@ -121,12 +127,20 @@ impl TxPool {
             .filter_map(|id| self.get_pool_entry(id))
             .collect::<Vec<_>>();
         conflicts.extend(descendants);
-        self.calculate_min_replace_fee(&conflicts, tx.size)
+        self.calculate_min_replace_fee(&conflicts, tx.size as u64)
     }
 
     /// min_replace_fee = sum(replaced_txs.fee) + extra_rbf_fee
-    fn calculate_min_replace_fee(&self, conflicts: &[&PoolEntry], size: usize) -> Option<Capacity> {
-        let extra_rbf_fee = self.config.min_rbf_rate.fee(size as u64);
+    ///
+    /// `size` is the replacement transaction's serialized size in bytes. It is
+    /// intentionally not a weight: the replacement threshold must use the same
+    /// unit as `min_fee_rate` (shannons per kilo-bytes), which is calculated from
+    /// size because cycles are not available at submission time. The RBF
+    /// in-flight candidate gate ([`RbfCandidates`]) uses a separate weight-based
+    /// fee rate for ordering, but that gate only affects queue scheduling and
+    /// never lowers the replacement fee floor computed here.
+    fn calculate_min_replace_fee(&self, conflicts: &[&PoolEntry], size: u64) -> Option<Capacity> {
+        let extra_rbf_fee = self.config.min_rbf_rate.fee(size);
         // don't account for duplicate txs
         let replaced_sum_fee = conflicts
             .iter()
@@ -410,9 +424,8 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> bool {
-        let entries = self.pool_map.remove_entry_and_descendants(id);
-        !entries.is_empty()
+    pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
+        self.pool_map.remove_entry_and_descendants(id)
     }
 
     pub(crate) fn check_rtx_from_pool(&self, rtx: &ResolvedTransaction) -> Result<(), Reject> {
@@ -778,7 +791,7 @@ impl TxPool {
     }
 
     /// Check that the new tx does not reference any conflicted tx as a cell dep.
-    fn check_rbf_no_conflict_cell_deps(
+    pub(crate) fn check_rbf_no_conflict_cell_deps(
         &self,
         all_conflicted: &[&PoolEntry],
         entry: &TxEntry,
@@ -801,9 +814,14 @@ impl TxPool {
 
     /// RBF Rule #3 & #4: the new tx's fee must be higher than the total fee of
     /// all conflicted txs and must meet the minimum replacement fee rate.
+    ///
+    /// The minimum replacement fee uses the replacement tx's serialized size,
+    /// consistent with `min_fee_rate`. See [`calculate_min_replace_fee`].
     fn check_rbf_fee(&self, all_conflicted: &[&PoolEntry], entry: &TxEntry) -> Result<(), Reject> {
         let fee = entry.fee;
-        if let Some(min_replace_fee) = self.calculate_min_replace_fee(all_conflicted, entry.size) {
+        if let Some(min_replace_fee) =
+            self.calculate_min_replace_fee(all_conflicted, entry.size as u64)
+        {
             if fee < min_replace_fee {
                 return Err(Reject::RBFRejected(format!(
                     "Tx's current fee is {}, expect it to >= {} to replace old txs",

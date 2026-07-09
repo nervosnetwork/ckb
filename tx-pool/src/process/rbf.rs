@@ -1,11 +1,91 @@
 use crate::component::entry::TxEntry;
+use crate::component::pipeline_queue::PipelineQueue;
 use crate::error::Reject;
 use crate::pool::TxPool;
-use ckb_logger::debug;
-use ckb_types::packed::ProposalShortId;
+use crate::resolved_tx::ResolvedTx;
+use crate::tx_source::TxSource;
+use ckb_types::core::tx_pool::get_transaction_weight;
+use ckb_types::core::{Capacity, Cycle, FeeRate, TransactionView};
+use ckb_types::packed::{OutPoint, ProposalShortId};
 use std::collections::HashSet;
 
 impl super::TxPoolService {
+    /// Remove a transaction from the in-flight RBF fee-ordering gate.
+    ///
+    /// Called on every exit path from the verify → submit pipeline (verify
+    /// failure, cycles mismatch, successful submission) to prevent ghost
+    /// entries that are never cleaned up.
+    pub(crate) async fn remove_rbf_candidate(&self, id: &ProposalShortId) {
+        self.rbf_candidates.write().await.remove(id);
+    }
+
+    /// Compute the weight-based fee rate used for RBF in-flight candidate
+    /// ordering.
+    ///
+    /// This fee rate uses [`get_transaction_weight`], which incorporates the
+    /// peer-supplied declared cycles. It is only used to decide which remote
+    /// candidate should be allowed into the verify queue first when multiple
+    /// candidates conflict on the same inputs.
+    ///
+    /// This is intentionally different from the size-based fee rate used for the
+    /// tx-pool `min_fee_rate` and the RBF replacement fee floor (see
+    /// [`TxPool::calculate_min_replace_fee`]), because at submission time cycles
+    /// are not reliably available, whereas here the remote peer has already
+    /// declared them.
+    pub(crate) fn compute_weight_based_fee_rate(
+        &self,
+        fee: Capacity,
+        tx_size: usize,
+        cycles: Cycle,
+    ) -> FeeRate {
+        let weight = get_transaction_weight(tx_size, cycles);
+        FeeRate::calculate(fee, weight)
+    }
+
+    /// Find the transaction inputs that are currently consumed by in-pool txs.
+    /// These are the "conflict inputs" that matter for RBF ordering.
+    pub(crate) async fn find_conflict_inputs(&self, tx: &TransactionView) -> Vec<OutPoint> {
+        self.read_tx_pool(|tx_pool| {
+            tx.input_pts_iter()
+                .filter(|out_point| {
+                    tx_pool
+                        .pool_map
+                        .out_point_index
+                        .get_input_ref(out_point)
+                        .is_some()
+                })
+                .collect()
+        })
+        .await
+    }
+
+    /// Clean up in-flight RBF candidates whose conflict inputs were consumed by
+    /// transactions that have just been removed from the pool.
+    ///
+    /// This is a best-effort liveness helper: when a pool entry is evicted or
+    /// replaced, the inputs it was consuming become free, but a concurrent RBF
+    /// candidate may still hold those inputs in `rbf_candidates`. Removing the
+    /// stale registrations prevents future replacements from being blocked by a
+    /// candidate that is no longer racing against anyone.
+    pub(crate) async fn cleanup_rbf_for_removed_entries(
+        &self,
+        removed_entries: &[(TxEntry, Reject)],
+    ) {
+        if removed_entries.is_empty() {
+            return;
+        }
+        let outpoints: HashSet<OutPoint> = removed_entries
+            .iter()
+            .flat_map(|(entry, _)| entry.transaction().input_pts_iter())
+            .collect();
+        if !outpoints.is_empty() {
+            self.rbf_candidates
+                .write()
+                .await
+                .remove_by_conflict_outpoints(&outpoints);
+        }
+    }
+
     // Remove conflicting transactions for RBF and record them in the conflicts
     // cache so they can be recovered if the replacement fails. Returns the set
     // of removed entries; the caller decides which ones to recover and when to
@@ -27,7 +107,7 @@ impl super::TxPoolService {
             .collect();
 
         for old in &all_removed {
-            debug!(
+            ckb_logger::debug!(
                 "remove conflict tx {} for RBF by new tx {}",
                 old.transaction().hash(),
                 entry.transaction().hash()
@@ -47,5 +127,106 @@ impl super::TxPoolService {
         }
 
         all_removed
+    }
+
+    /// Register a remote transaction as an RBF candidate and enqueue it for
+    /// verification.
+    ///
+    /// This helper encapsulates the lock-order sensitive dance between
+    /// `rbf_candidates` and `verify_queue`:
+    ///   1. Validate the candidate and compute the displacement set while
+    ///      holding `rbf_candidates.write()`.
+    ///   2. Insert into the verify queue.
+    ///   3. Commit the registration and remove displaced candidates atomically.
+    ///
+    /// This guarantees that lower-fee-rate displaced candidates are only removed
+    /// from the pipeline once the higher-fee-rate candidate is successfully
+    /// queued (P0-2 fix), and maintains the global lock order
+    /// `rbf_candidates -> verify_queue` (P0-1 fix).
+    ///
+    /// Returns `Ok(true)` if the tx was newly queued, `Ok(false)` if it was a
+    /// duplicate, and `Err` if registration or queuing failed.
+    pub(crate) async fn register_rbf_candidate(
+        &self,
+        tx: TransactionView,
+        source: TxSource,
+        resolved: &ResolvedTx,
+        fee: Capacity,
+        tx_size: usize,
+        cycles: Cycle,
+    ) -> Result<bool, Reject> {
+        let id = tx.proposal_short_id();
+
+        // Fast-path duplicate check: a remote tx already in the verify queue
+        // should not register as an RBF candidate and displace lower-fee-rate
+        // candidates.
+        {
+            let verify_queue = self.queues.verify_queue.read().await;
+            if verify_queue.contains_key(&id) {
+                return Ok(false);
+            }
+        }
+
+        let conflict_inputs = self.find_conflict_inputs(&tx).await;
+        if conflict_inputs.is_empty() {
+            return Ok(false);
+        }
+
+        let fee_rate = self.compute_weight_based_fee_rate(fee, tx_size, cycles);
+        let mut rbf_guard = self.rbf_candidates.write().await;
+        match rbf_guard.register(id.clone(), fee_rate, &conflict_inputs) {
+            Ok(registration) => {
+                let mut verify_queue = self.queues.verify_queue.write().await;
+                match verify_queue.add_tx(resolved.clone()) {
+                    Ok(added) => {
+                        if !added {
+                            // Duplicate: the same tx was inserted concurrently.
+                            // Drop the pending registration without displacing
+                            // anyone.
+                            drop(verify_queue);
+                            drop(registration);
+                            return Ok(false);
+                        }
+
+                        // Success: commit the registration and remove displaced
+                        // candidates from the verify queue while holding both
+                        // locks.
+                        let displaced = registration
+                            .displaced
+                            .iter()
+                            .filter_map(|(id, _, _)| verify_queue.remove_tx(id))
+                            .collect::<Vec<_>>();
+                        rbf_guard.commit(registration);
+                        drop(verify_queue);
+                        drop(rbf_guard);
+
+                        if !displaced.is_empty() {
+                            let ret = Err(Reject::RBFRejected(
+                                "superseded by higher-fee-rate in-flight candidate".to_string(),
+                            ));
+                            for resolved in displaced {
+                                self.after_process(resolved.tx, resolved.source, &ret).await;
+                            }
+                        }
+                        Ok(true)
+                    }
+                    Err(reject) => {
+                        // Verify queue rejected the tx (e.g. Full). Drop the
+                        // pending registration so the inputs are not blocked.
+                        drop(verify_queue);
+                        drop(registration);
+                        drop(rbf_guard);
+                        self.after_process(tx, source, &Err(reject.clone())).await;
+                        Err(reject)
+                    }
+                }
+            }
+            Err(reason) => {
+                drop(rbf_guard);
+                let reject = Reject::RBFRejected(reason);
+                self.after_process(tx, source, &Err(reject.clone())).await;
+                Err(reject)
+            }
+        }
     }
 }

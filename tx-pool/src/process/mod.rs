@@ -17,12 +17,12 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::{debug, error, info};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
+use ckb_store::ChainStore;
 use ckb_types::core::error::OutPointError;
-use ckb_types::core::tx_pool::get_transaction_weight;
 use ckb_types::packed::OutPoint;
 use ckb_types::{
     core::{
-        BlockView, Capacity, Cycle, EstimateMode, FeeRate, HeaderView, TransactionView,
+        BlockView, Capacity, EstimateMode, FeeRate, HeaderView, TransactionView,
         cell::{ResolvedTransaction, resolve_transaction},
     },
     packed::{Byte32, ProposalShortId},
@@ -118,23 +118,6 @@ impl TxPoolService {
 
         let ret = f(&tx_pool, Arc::clone(&snapshot));
         (ret, snapshot)
-    }
-
-    /// Find the transaction inputs that are currently consumed by in-pool txs.
-    /// These are the "conflict inputs" that matter for RBF ordering.
-    pub(crate) async fn find_conflict_inputs(&self, tx: &TransactionView) -> Vec<OutPoint> {
-        self.read_tx_pool(|tx_pool| {
-            tx.input_pts_iter()
-                .filter(|out_point| {
-                    tx_pool
-                        .pool_map
-                        .out_point_index
-                        .get_input_ref(out_point)
-                        .is_some()
-                })
-                .collect()
-        })
-        .await
     }
 
     pub(crate) async fn with_tx_pool_write_lock<U, F: FnMut(&mut TxPool, Arc<Snapshot>) -> U>(
@@ -359,8 +342,8 @@ impl TxPoolService {
     ) -> Result<Completed, Reject> {
         self.check_tx_basic_validity(&tx, source).await?;
 
-        if let Some((ret, snapshot)) = self.process_tx_direct(tx.clone(), source, None).await {
-            self.after_process(tx, source, &snapshot, &ret).await;
+        if let Some((ret, _snapshot)) = self.process_tx_direct(tx.clone(), source, None).await {
+            self.after_process(tx, source, &ret).await;
             ret
         } else {
             // process_tx_direct currently always returns Some, but guard
@@ -408,15 +391,21 @@ impl TxPoolService {
             }
         }
         {
+            // Lock hierarchy: rbf_candidates must be acquired before
+            // verify_queue. Holding rbf_candidates while checking verify_queue
+            // prevents a deadlock with register_rbf_candidate / update_reorg,
+            // which take rbf_candidates.write() before verify_queue.write().
+            // Orphan and tx_pool are checked after verify_queue so that the
+            // global order remains consistent across remove_tx and
+            // ban_malformed: ordered -> rbf -> verify -> orphan -> tx_pool.
+            let mut rbf = self.rbf_candidates.write().await;
             let mut queue = self.queues.verify_queue.write().await;
             if queue.remove_tx(&id).is_some() {
-                // Release verify_queue write lock before acquiring other locks
-                // to respect the documented lock ordering convention.
                 drop(queue);
+                rbf.remove(&id);
                 // The removed tx may have had descendants waiting in the
                 // ordered resolve queue. Wake the resolver so they can be
                 // retried (and rejected if the parent is gone) promptly.
-                self.rbf_candidates.write().await.remove(&id);
                 self.wake_ordered_resolver_if_needed().await;
                 return true;
             }
@@ -427,14 +416,78 @@ impl TxPoolService {
                 return true;
             }
         }
-        let removed = {
+        let removed_entries = {
             let mut tx_pool = self.tx_pool.write().await;
             tx_pool.remove_tx(&id)
         };
-        if removed {
+        if !removed_entries.is_empty() {
+            // The removed pool entries have released their inputs. Clean up
+            // any in-flight RBF candidates targeting those inputs so they do
+            // not block future replacements.
+            let outpoints: HashSet<OutPoint> = removed_entries
+                .iter()
+                .flat_map(|entry| entry.transaction().input_pts_iter())
+                .collect();
+            self.rbf_candidates
+                .write()
+                .await
+                .remove_by_conflict_outpoints(&outpoints);
             self.wake_ordered_resolver_if_needed().await;
         }
-        removed
+        !removed_entries.is_empty()
+    }
+
+    /// Returns true if every parent of `tx` that is not already on-chain is
+    /// currently in the tx-pool or one of the pipeline queues.
+    ///
+    /// This is used by the ordered resolver to decide whether a local orphan
+    /// with missing inputs should retry without burning an attempt. We only
+    /// skip the attempt counter when all missing parents are actually in flight;
+    /// if any parent is permanently missing, the attempt counter must advance so
+    /// that the orphan is eventually rejected.
+    pub(crate) async fn all_missing_parents_in_flight(&self, parents: &HashSet<Byte32>) -> bool {
+        let missing_parents: Vec<Byte32> = {
+            let pool = self.tx_pool.read().await;
+            let snapshot = pool.cloned_snapshot();
+            parents
+                .iter()
+                .filter(|h| !snapshot.transaction_exists(h))
+                .cloned()
+                .collect()
+        };
+        if missing_parents.is_empty() {
+            return true;
+        }
+
+        for parent_hash in missing_parents {
+            let parent_id = ProposalShortId::from_tx_hash(&parent_hash);
+            if self.tx_pool.read().await.contains_proposal_id(&parent_id) {
+                continue;
+            }
+            if self
+                .queues
+                .ordered_resolve_queue
+                .read()
+                .await
+                .contains_key(&parent_id)
+            {
+                continue;
+            }
+            if self
+                .queues
+                .verify_queue
+                .read()
+                .await
+                .contains_key(&parent_id)
+            {
+                continue;
+            }
+            if self.queues.pre_check_queue.contains_key(&parent_id) {
+                continue;
+            }
+            return false;
+        }
+        true
     }
 
     pub(crate) fn send_result_to_relayer(&self, result: TxVerificationResult) {
@@ -585,24 +638,13 @@ impl TxPoolService {
             );
         }
 
-        // Dispatch reject callbacks outside the write lock
-        for (entry, reject) in reject_events {
-            self.callbacks.call_reject(&entry, reject);
+        // Dispatch reject callbacks outside the write lock, then clean up
+        // in-flight RBF candidates targeting inputs that have just been freed
+        // by the reorg (committed, expired, detached, or evicted transactions).
+        for (entry, reject) in &reject_events {
+            self.callbacks.call_reject(entry, reject.clone());
         }
-
-        // In-pool transactions that were committed may still have in-flight RBF
-        // candidates targeting them. Remove those stale candidates so they do
-        // not block future replacements for the now-freed inputs.
-        //
-        // RBF candidates store conflict inputs as OutPoints (the outputs they
-        // want to spend). A committed transaction spends those same outpoints,
-        // so we match by outpoint rather than by the committed tx's own hash.
-        {
-            let committed_outpoints: HashSet<OutPoint> =
-                attached.iter().flat_map(|tx| tx.input_pts_iter()).collect();
-            let mut rbf = self.rbf_candidates.write().await;
-            rbf.remove_by_conflict_outpoints(&committed_outpoints);
-        }
+        self.cleanup_rbf_for_removed_entries(&reject_events).await;
 
         self.remove_orphan_txs_by_attach(&attached).await;
         {
@@ -620,14 +662,13 @@ impl TxPoolService {
             Self::sort_txs_by_dependencies(&mut retain);
             let mut chunk_rx = self.chunk_rx.clone();
             for tx in retain {
-                if let Some((ret, snapshot)) = self
+                if let Some((ret, _snapshot)) = self
                     .process_tx_direct(tx.clone(), TxSource::Local, Some(&mut chunk_rx))
                     .await
                     && let Err(ref reject) = ret
                 {
                     debug!("reorg re-add failed: {}", reject);
-                    self.after_process(tx, TxSource::Local, &snapshot, &ret)
-                        .await;
+                    self.after_process(tx, TxSource::Local, &ret).await;
                 } else {
                     // The detached tx is now back in the pool. Wake up any
                     // orphans that depend on it (including via cell dep).
@@ -675,76 +716,6 @@ impl TxPoolService {
         Ok(RouteDecision::Independent)
     }
 
-    /// Compute the fee rate used for RBF candidate ordering.
-    ///
-    /// The peer-supplied declared cycles are used to compute the transaction
-    /// weight, and the fee rate is derived from that weight. This function is
-    /// only called for remote peer submissions.
-    fn compute_fee_rate(&self, fee: Capacity, tx_size: usize, cycles: Cycle) -> FeeRate {
-        let weight = get_transaction_weight(tx_size, cycles);
-        FeeRate::calculate(fee, weight)
-    }
-
-    /// Register an RBF candidate for a transaction that conflicts with in-pool
-    /// inputs. Returns `Ok(true)` if the tx was registered as an RBF candidate,
-    /// `Ok(false)` if there are no conflicts, and `Err` if a higher-fee-rate
-    /// candidate is already in flight.
-    ///
-    /// When registration succeeds, lower-fee-rate displaced candidates are
-    /// removed from the verify queue so that only the highest-fee-rate
-    /// replacement reaches `submit_entry`.
-    async fn register_rbf_candidate(
-        &self,
-        id: &ProposalShortId,
-        tx: &TransactionView,
-        fee_rate: FeeRate,
-        source: &TxSource,
-        snapshot: &Arc<Snapshot>,
-    ) -> Result<bool, Reject> {
-        if source.cycles().is_none() {
-            return Ok(false);
-        }
-        let conflict_inputs = self.find_conflict_inputs(tx).await;
-        if conflict_inputs.is_empty() {
-            return Ok(false);
-        }
-
-        let mut rbf = self.rbf_candidates.write().await;
-        match rbf.register(id.clone(), fee_rate, &conflict_inputs) {
-            Ok(displaced_ids) => {
-                // Higher-fee-rate candidate(s) displaced lower-fee-rate one(s)
-                // still waiting in the verify queue. Drop them so only the
-                // highest-fee-rate tx reaches submit_entry, and notify the
-                // relayer so the txs are not treated as still in-flight.
-                if !displaced_ids.is_empty() {
-                    drop(rbf);
-                    let displaced = {
-                        let mut verify_queue = self.queues.verify_queue.write().await;
-                        displaced_ids
-                            .iter()
-                            .filter_map(|displaced_id| verify_queue.remove_tx(displaced_id))
-                            .collect::<Vec<_>>()
-                    };
-                    let ret = Err(Reject::RBFRejected(
-                        "superseded by higher-fee-rate in-flight candidate".to_string(),
-                    ));
-                    for resolved in displaced {
-                        self.after_process(resolved.tx, resolved.source, &resolved.snapshot, &ret)
-                            .await;
-                    }
-                }
-                Ok(true)
-            }
-            Err(reason) => {
-                drop(rbf);
-                let reject = Reject::RBFRejected(reason);
-                self.after_process(tx.clone(), *source, snapshot, &Err(reject.clone()))
-                    .await;
-                Err(reject)
-            }
-        }
-    }
-
     /// Classify a transaction and enqueue it for verification or ordered resolve.
     ///
     /// This is the core entry-point classifier.  It checks whether the tx
@@ -775,29 +746,8 @@ impl TxPoolService {
                 fee,
                 tx_size,
             }) => {
-                // For RBF replacements, register the candidate before it enters
-                // the verify queue so lower-fee-rate candidates can be rejected
-                // while a higher-fee-rate candidate is already in flight.
-                //
-                // Fast-path duplicate check: a remote tx that is already in the
-                // verify queue should not register as an RBF candidate and
-                // displace lower-fee-rate candidates. Proposals are not checked
-                // here because they may need to promote an existing entry.
-                if source.cycles().is_some() {
-                    let verify_queue = self.queues.verify_queue.read().await;
-                    if verify_queue.contains_key(&id) {
-                        return Ok(false);
-                    }
-                }
-
-                let rbf_registered = if let Some(cycles) = source.cycles() {
-                    let fee_rate = self.compute_fee_rate(fee, tx_size, cycles);
-                    self.register_rbf_candidate(&id, &tx, fee_rate, &source, &snapshot)
-                        .await?
-                } else {
-                    false
-                };
-
+                // Build the resolved tx early; it will be moved into the verify
+                // queue on success or dropped on failure.
                 let resolved = crate::resolved_tx::ResolvedTx {
                     tx: tx.clone(),
                     rtx,
@@ -808,30 +758,34 @@ impl TxPoolService {
                     snapshot: Arc::clone(&snapshot),
                     source,
                 };
-                let reject = {
-                    let mut verify_queue = self.queues.verify_queue.write().await;
-                    match verify_queue.add_tx(resolved) {
-                        Ok(added) => {
-                            if !added && rbf_registered {
-                                // Lost the race: another task inserted the same
-                                // tx while we were registering. Clean up our RBF
-                                // registration so the input is not blocked.
-                                drop(verify_queue);
-                                self.rbf_candidates.write().await.remove(&id);
-                            }
-                            return Ok(added);
-                        }
-                        Err(reject) => reject,
+
+                // For RBF replacements, validate the candidate and compute the
+                // displacement set while holding rbf_candidates.write(), then
+                // insert into the verify queue and commit the registration
+                // atomically. This guarantees that lower-fee-rate displaced
+                // candidates are only removed from the pipeline once the higher-
+                // fee-rate candidate is successfully queued (P0-2 fix), and it
+                // maintains the global lock order rbf_candidates -> verify_queue
+                // (P0-1 fix).
+                if let Some(cycles) = source.cycles() {
+                    match self
+                        .register_rbf_candidate(tx.clone(), source, &resolved, fee, tx_size, cycles)
+                        .await
+                    {
+                        Ok(true) => return Ok(true),
+                        Ok(false) => {}
+                        Err(reject) => return Err(reject),
                     }
-                };
-                // The verify queue rejected the tx (e.g., it is full). Clean up
-                // the RBF registration so the input is not blocked forever.
-                if rbf_registered {
-                    self.rbf_candidates.write().await.remove(&id);
                 }
-                self.after_process(tx, source, &snapshot, &Err(reject.clone()))
-                    .await;
-                Err(reject)
+
+                let mut verify_queue = self.queues.verify_queue.write().await;
+                match verify_queue.add_tx(resolved) {
+                    Ok(added) => Ok(added),
+                    Err(reject) => {
+                        self.after_process(tx, source, &Err(reject.clone())).await;
+                        Err(reject)
+                    }
+                }
             }
             Err(reject) if crate::util::is_missing_input(&reject) => {
                 let mut ordered = self.queues.ordered_resolve_queue.write().await;
@@ -841,8 +795,7 @@ impl TxPoolService {
                 ordered.add_tx(crate::resolved_tx::ResolveJob::new(tx, source))
             }
             Err(reject) => {
-                self.after_process(tx, source, &snapshot, &Err(reject.clone()))
-                    .await;
+                self.after_process(tx, source, &Err(reject.clone())).await;
                 Err(reject)
             }
         }

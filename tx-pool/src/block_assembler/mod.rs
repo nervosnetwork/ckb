@@ -89,26 +89,56 @@ impl BlockAssembler {
             .next_epoch_ext(tip_header, &snapshot.borrow_as_data_loader())
             .expect("tip header's epoch should be stored")
             .epoch();
-        let mut builder = BlockTemplateBuilder::new(&snapshot, &current_epoch)?;
-
-        let cellbase = Self::build_cellbase(&config, &snapshot)
-            .expect("build cellbase for BlockAssembler initial");
-
-        let extension =
-            Self::build_extension(&snapshot).expect("build extension for BlockAssembler initial");
-        let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension.clone());
-
-        let (dao, _checked_txs, _failed_txs) =
-            Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])
-                .expect("calc_dao for BlockAssembler initial");
 
         let work_id = AtomicU64::new(0);
+        let current =
+            Self::build_blank_template(&config, &work_id, snapshot, &current_epoch, vec![])
+                .expect("build initial blank template for BlockAssembler");
+
+        Ok(Self {
+            config: Arc::new(config),
+            work_id: Arc::new(work_id),
+            candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
+            current: Arc::new(RwLock::new(Arc::new(current))),
+            version: Arc::new(AtomicU64::new(0)),
+            template_lock: Arc::new(Mutex::new(())),
+            poster: Arc::new(
+                Client::builder(hyper_util::rt::TokioExecutor::new())
+                    .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
+            ),
+        })
+    }
+
+    /// Build a fresh blank template from `snapshot`.
+    ///
+    /// `uncles` is empty during initial construction and is populated by
+    /// `reset_template` after a reorg. Sharing this path avoids duplicating the
+    /// cellbase, extension, DAO and size calculations between `new` and
+    /// `reset_template`.
+    fn build_blank_template(
+        config: &BlockAssemblerConfig,
+        work_id: &AtomicU64,
+        snapshot: Arc<Snapshot>,
+        current_epoch: &EpochExt,
+        uncles: Vec<UncleBlockView>,
+    ) -> Result<CurrentTemplate, AnyError> {
+        let tip_header = snapshot.tip_header();
+        let mut builder = BlockTemplateBuilder::new(&snapshot, current_epoch)?;
+
+        let cellbase = Self::build_cellbase(config, &snapshot)?;
+        let extension = Self::build_extension(&snapshot)?;
+        let basic_block_size =
+            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
+        let uncles_size = uncles.len() * UncleBlockView::serialized_size_in_block();
+
+        let (dao, _checked_txs, _failed_txs) =
+            Self::calc_dao(&snapshot, current_epoch, cellbase.clone(), vec![])?;
 
         builder
             .transactions(vec![])
             .proposals(vec![])
             .cellbase(cellbase)
+            .uncles(uncles)
             .work_id(work_id.fetch_add(1, Ordering::SeqCst))
             .current_time(cmp::max(
                 unix_time_as_millis(),
@@ -126,27 +156,15 @@ impl BlockAssembler {
         let size = TemplateSize {
             txs: 0,
             proposals: 0,
-            uncles: 0,
+            uncles: uncles_size,
             total: basic_block_size,
         };
-        let current = CurrentTemplate {
+
+        Ok(CurrentTemplate {
             template,
             size,
             snapshot,
-            epoch: current_epoch,
-        };
-
-        Ok(Self {
-            config: Arc::new(config),
-            work_id: Arc::new(work_id),
-            candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
-            current: Arc::new(RwLock::new(Arc::new(current))),
-            version: Arc::new(AtomicU64::new(0)),
-            template_lock: Arc::new(Mutex::new(())),
-            poster: Arc::new(
-                Client::builder(hyper_util::rt::TokioExecutor::new())
-                    .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
-            ),
+            epoch: current_epoch.clone(),
         })
     }
 
@@ -293,64 +311,27 @@ impl BlockAssembler {
         };
 
         let consensus = snapshot.consensus();
-        let tip_header = snapshot.tip_header();
         let current_epoch = consensus
-            .next_epoch_ext(tip_header, &snapshot.borrow_as_data_loader())
+            .next_epoch_ext(snapshot.tip_header(), &snapshot.borrow_as_data_loader())
             .expect("tip header's epoch should be stored")
             .epoch();
-        let mut builder = BlockTemplateBuilder::new(&snapshot, &current_epoch)?;
 
-        let cellbase = Self::build_cellbase(&self.config, &snapshot)?;
         let uncles = self.prepare_uncles(&snapshot, &current_epoch).await;
-        let uncles_size = uncles.len() * UncleBlockView::serialized_size_in_block();
-
-        let extension = Self::build_extension(&snapshot)?;
-        let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
-
-        let (dao, _checked_txs, _failed_txs) =
-            Self::calc_dao(&snapshot, &current_epoch, cellbase.clone(), vec![])?;
-
-        builder
-            .transactions(vec![])
-            .proposals(vec![])
-            .cellbase(cellbase)
-            .uncles(uncles)
-            .work_id(self.work_id.fetch_add(1, Ordering::SeqCst))
-            .current_time(cmp::max(
-                unix_time_as_millis(),
-                tip_header
-                    .timestamp()
-                    .checked_add(1)
-                    .ok_or(BlockAssemblerError::Overflow)?,
-            ))
-            .dao(dao);
-        if let Some(data) = extension {
-            builder.extension(data);
-        }
-        let template = builder.build();
+        let new_blank = Self::build_blank_template(
+            &self.config,
+            &self.work_id,
+            snapshot,
+            &current_epoch,
+            uncles,
+        )?;
 
         trace!(
             "[BlockAssembler] reset_template {} uncles-{} proposals-{} txs-{}",
-            template.number,
-            template.uncles.len(),
-            template.proposals.len(),
-            template.transactions.len(),
+            new_blank.template.number,
+            new_blank.template.uncles.len(),
+            new_blank.template.proposals.len(),
+            new_blank.template.transactions.len(),
         );
-
-        let size = TemplateSize {
-            txs: 0,
-            proposals: 0,
-            uncles: uncles_size,
-            total: basic_block_size,
-        };
-
-        let new_blank = CurrentTemplate {
-            template,
-            size,
-            snapshot,
-            epoch: current_epoch,
-        };
 
         let expected_version = if force { None } else { Some(version) };
         self.try_swap_template(new_blank, expected_version).await;

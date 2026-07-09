@@ -6,7 +6,6 @@ use crate::tx_source::TxSource;
 use crate::util::is_missing_input;
 use ckb_logger::{Level::Trace, debug, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
-use ckb_snapshot::Snapshot;
 use ckb_types::core::TransactionView;
 use ckb_types::core::error::OutPointError;
 use ckb_types::packed::Byte32;
@@ -18,7 +17,6 @@ impl TxPoolService {
         &self,
         tx: TransactionView,
         source: TxSource,
-        _snapshot: &Snapshot,
         ret: &Result<Completed, Reject>,
     ) {
         let tx_hash = tx.hash();
@@ -70,9 +68,7 @@ impl TxPoolService {
         source: TxSource,
         reject: Reject,
     ) {
-        let snapshot = self.tx_pool.read().await.cloned_snapshot();
-        self.after_process(tx, source, &snapshot, &Err(reject))
-            .await;
+        self.after_process(tx, source, &Err(reject)).await;
     }
     pub(crate) async fn after_process_remote(
         &self,
@@ -202,20 +198,24 @@ impl TxPoolService {
             .write()
             .await
             .remove_txs_by_peer(&peer);
-        let removed_ids = self
-            .queues
-            .verify_queue
-            .write()
-            .await
-            .remove_txs_by_peer(&peer);
-        // Clean up the in-flight RBF gate while still respecting the lock
-        // hierarchy (rbf_candidates is acquired before orphan).
-        {
+        // Maintain the global lock order rbf_candidates -> verify_queue.
+        // Acquire rbf_candidates first, then verify_queue, and clean up RBF
+        // registrations for the removed txs while holding both locks. This
+        // matches the order used in remove_tx and prevents deadlock with
+        // register_rbf_candidate / update_tx_pool_for_reorg.
+        let _removed_ids = {
             let mut rbf = self.rbf_candidates.write().await;
-            for id in removed_ids {
-                rbf.remove(&id);
+            let removed_ids = self
+                .queues
+                .verify_queue
+                .write()
+                .await
+                .remove_txs_by_peer(&peer);
+            for id in &removed_ids {
+                rbf.remove(id);
             }
-        }
+            removed_ids
+        };
         // Remove orphan txs from the banned peer so they are not re-processed
         // after the ban.
         self.orphan.write().await.remove_by_peer(peer);

@@ -138,7 +138,6 @@ impl ResolveHandler {
         // Extract fields needed for after_process before resolved is consumed by add_tx.
         let source = resolved.source;
         let tx = resolved.tx.clone();
-        let snapshot = Arc::clone(&resolved.snapshot);
 
         let reject = {
             let mut queue = self.verify_queue.write().await;
@@ -152,9 +151,7 @@ impl ResolveHandler {
             }
         };
         // verify_queue lock released before after_process
-        self.service
-            .after_process(tx, source, &snapshot, &Err(reject))
-            .await;
+        self.service.after_process(tx, source, &Err(reject)).await;
     }
 
     async fn handle_orphan(
@@ -175,23 +172,26 @@ impl ResolveHandler {
         }
 
         // Local transactions with missing inputs are normally rejected.
-        // The exception is when the missing parent is currently in the
+        // The exception is when every missing parent is currently in the
         // pipeline (pre-check, ordered, verify, or already committed to
         // the pool). In that case we put the child back into the ordered
         // resolve queue so it can be retried once the parent is ready.
-        let depends_on_pipeline = self.depends_on_pipeline(&job.tx, &parents).await;
+        //
+        // We require *all* missing parents to be in flight: if one parent is
+        // in the pool but another is permanently missing, retrying forever
+        // would never succeed. In that case we burn an attempt so the orphan
+        // is eventually rejected.
+        let all_missing_parents_in_flight =
+            self.service.all_missing_parents_in_flight(&parents).await;
 
-        // If the missing parent is still in the in-flight pipeline,
-        // keep retrying without burning an attempt. The child will be
-        // re-resolved once the parent is committed to the pool.
-        if depends_on_pipeline || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
+        if all_missing_parents_in_flight || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
             let mut job = job;
-            if !depends_on_pipeline {
+            if !all_missing_parents_in_flight {
                 job.attempts += 1;
             }
             debug!(
-                "ordered resolve stage local orphan {} re-enqueue (attempt {}, depends_on_pipeline: {})",
-                id, job.attempts, depends_on_pipeline
+                "ordered resolve stage local orphan {} re-enqueue (attempt {}, all_missing_parents_in_flight: {})",
+                id, job.attempts, all_missing_parents_in_flight
             );
             let tx = job.tx.clone();
             let source = job.source;
@@ -219,24 +219,6 @@ impl ResolveHandler {
         self.service
             .reject_with_after_process(tx, source, reject)
             .await;
-    }
-
-    async fn depends_on_pipeline(
-        &self,
-        tx: &ckb_types::core::TransactionView,
-        parents: &HashSet<Byte32>,
-    ) -> bool {
-        if self.service.depends_on_pipeline(tx).await {
-            return true;
-        }
-
-        // A parent may have left the verify queue and be in the middle of
-        // being committed to the pool. Treat an in-pool parent as still
-        // in-flight so the child does not burn an attempt while waiting.
-        let pool = self.service.tx_pool.read().await;
-        parents.iter().any(|parent_hash| {
-            pool.contains_proposal_id(&ProposalShortId::from_tx_hash(parent_hash))
-        })
     }
 }
 
