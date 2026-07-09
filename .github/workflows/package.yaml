@@ -175,11 +175,12 @@ jobs:
         if: github.event_name == 'push'
         env:
           CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_KEY_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_KEY_PASSPHRASE }}
           CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
-          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg --quiet --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --decrypt --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -226,11 +227,12 @@ jobs:
         if: github.event_name == 'push'
         env:
           CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_KEY_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_KEY_PASSPHRASE }}
           CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
-          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg --quiet --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --decrypt --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -278,11 +280,12 @@ jobs:
         if: github.event_name == 'push'
         env:
           CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_KEY_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_KEY_PASSPHRASE }}
           CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
-          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg --quiet --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --decrypt --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -332,11 +335,12 @@ jobs:
         if: github.event_name == 'push'
         env:
           CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_KEY_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_KEY_PASSPHRASE }}
           CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
-          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg --quiet --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --decrypt --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -398,11 +402,12 @@ jobs:
         if: github.event_name == 'push'
         env:
           CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_KEY_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_KEY_PASSPHRASE }}
           CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
-          gpg --import devtools/ci/signer.asc
-          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg --quiet --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --decrypt --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -476,12 +481,13 @@ jobs:
         if: github.event_name == 'push'
         env:
           CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_KEY_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_KEY_PASSPHRASE }}
           CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
           $CYGPWD = cygpath -u (Get-Location)
-          gpg --quiet --batch --yes --decrypt --passphrase="$env:CKB_RELEASE_GPG_PASSPHRASE" --output "$CYGPWD/devtools/ci/signer.asc" "$CYGPWD/devtools/ci/signer.asc.gpg"
-          gpg --import "$CYGPWD/devtools/ci/signer.asc"
-          gpg -u "$env:CKB_RELEASE_GPG_SIGNER" -ab "$CYGPWD/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
+          gpg --quiet --batch --yes --pinentry-mode loopback --passphrase="$env:CKB_RELEASE_GPG_PASSPHRASE" --decrypt --output "$CYGPWD/devtools/ci/signer.asc" "$CYGPWD/devtools/ci/signer.asc.gpg"
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$env:CKB_RELEASE_GPG_KEY_PASSPHRASE" --import "$CYGPWD/devtools/ci/signer.asc"
+          gpg --batch --yes --pinentry-mode loopback --passphrase="$env:CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$env:CKB_RELEASE_GPG_SIGNER" -ab "$CYGPWD/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
       - name: upload-artifact
         uses: actions/upload-artifact@v6
         with:
