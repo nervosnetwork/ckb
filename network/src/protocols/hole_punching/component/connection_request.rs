@@ -210,7 +210,8 @@ impl<'a> ConnectionRequestProcess<'a> {
                 | TransportType::Onion
                 | TransportType::Ws
                 | TransportType::Wss
-                | TransportType::Tls => None,
+                | TransportType::Tls
+                | TransportType::QuicV1 => None,
                 TransportType::Tcp => {
                     if addr
                         .iter()
