@@ -19,6 +19,12 @@ pub(crate) trait CounterValue: Copy + Default + Display + PartialOrd {
     /// The additive identity.
     fn zero() -> Self;
 
+    /// The maximum representable value.
+    fn max_value() -> Self;
+
+    /// Checked addition.
+    fn checked_add(self, rhs: Self) -> Option<Self>;
+
     /// Checked subtraction.
     fn checked_sub(self, rhs: Self) -> Option<Self>;
 }
@@ -26,6 +32,14 @@ pub(crate) trait CounterValue: Copy + Default + Display + PartialOrd {
 impl CounterValue for usize {
     fn zero() -> Self {
         0
+    }
+
+    fn max_value() -> Self {
+        Self::MAX
+    }
+
+    fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.checked_add(rhs)
     }
 
     fn checked_sub(self, rhs: Self) -> Option<Self> {
@@ -36,6 +50,14 @@ impl CounterValue for usize {
 impl CounterValue for u64 {
     fn zero() -> Self {
         0
+    }
+
+    fn max_value() -> Self {
+        Self::MAX
+    }
+
+    fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.checked_add(rhs)
     }
 
     fn checked_sub(self, rhs: Self) -> Option<Self> {
@@ -101,5 +123,57 @@ impl<T: CounterValue> SaturatingCounter<T> {
                 self.value = T::zero();
             }
         }
+    }
+
+    /// Add `delta` with saturation on overflow.
+    ///
+    /// If the addition would overflow the representable range, the counter is
+    /// clamped to the maximum value and an error is logged. This matches the
+    /// behaviour of the manual `get().saturating_add(...).set(...)` pattern it
+    /// replaces.
+    pub(crate) fn add_saturating(&mut self, delta: T, name: &'static str, action: &'static str) {
+        match self.value.checked_add(delta) {
+            Some(v) => self.value = v,
+            None => {
+                error!(
+                    "{} {} overflowed by add {} in {}, clamped to max",
+                    name, self.value, delta, action
+                );
+                self.value = T::max_value();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_saturating_normal() {
+        let mut c = SaturatingCounter::<usize>::new(10);
+        c.add_saturating(5, "test", "add");
+        assert_eq!(c.get(), 15);
+    }
+
+    #[test]
+    fn add_saturating_clamps_on_overflow() {
+        let mut c = SaturatingCounter::<u64>::new(u64::MAX - 1);
+        c.add_saturating(5, "test", "overflow");
+        assert_eq!(c.get(), u64::MAX);
+    }
+
+    #[test]
+    fn sub_or_zero_recovers_from_underflow() {
+        let mut c = SaturatingCounter::<usize>::new(3);
+        c.sub_or_zero(10, "test", "underflow");
+        assert_eq!(c.get(), 0);
+    }
+
+    #[test]
+    fn sub_or_recompute_uses_provided_value() {
+        let mut c = SaturatingCounter::<usize>::new(3);
+        c.sub_or_recompute(10, Some(7), "test", "recompute");
+        assert_eq!(c.get(), 7);
     }
 }

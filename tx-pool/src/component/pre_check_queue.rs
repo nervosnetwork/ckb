@@ -116,29 +116,39 @@ impl PreCheckQueue {
     }
 
     /// Remove all jobs submitted by the given peer.
+    ///
+    /// Runs in a single linear pass over the queue (`O(n)`) and preserves the
+    /// relative order of the jobs that remain. The total size counter and the
+    /// auxiliary indexes are updated while iterating.
     pub fn remove_by_peer(&self, peer: &PeerIndex) -> Vec<TransactionView> {
         let mut state = self.lock();
-        let to_remove: Vec<usize> = state
-            .inner
-            .iter()
-            .enumerate()
-            .filter(|(_, job)| job.source.peer().is_some_and(|p| p == *peer))
-            .map(|(idx, _)| idx)
-            .collect();
-
-        let mut removed = Vec::with_capacity(to_remove.len());
-        for idx in to_remove.into_iter().rev() {
-            let job = state.inner.remove(idx).expect("position exists");
-            let id = job.tx.proposal_short_id();
-            state.index.remove(&id);
-            state.flight.remove(&id);
-            state.total_tx_size.sub_or_zero(
-                Self::tx_size(&job),
-                "pre_check_queue total_tx_size",
-                "remove_by_peer",
-            );
-            removed.push(job.tx);
-        }
+        let mut removed = Vec::new();
+        // Split the borrow so `retain` can mutate `inner` while the closure
+        // updates the auxiliary indexes.
+        let PreCheckQueueState {
+            inner,
+            index,
+            flight,
+            total_tx_size,
+        } = &mut *state;
+        // `VecDeque::retain` preserves the relative order of kept jobs and
+        // avoids the O(n²) cost of repeated `remove(idx)` on a deque.
+        inner.retain(|job| {
+            if job.source.peer().is_some_and(|p| p == *peer) {
+                let id = job.tx.proposal_short_id();
+                index.remove(&id);
+                flight.remove(&id);
+                total_tx_size.sub_or_zero(
+                    Self::tx_size(job),
+                    "pre_check_queue total_tx_size",
+                    "remove_by_peer",
+                );
+                removed.push(job.tx.clone());
+                false
+            } else {
+                true
+            }
+        });
         removed
     }
 
@@ -160,8 +170,9 @@ impl PreCheckQueue {
         state.index.insert(id.clone());
         state.flight.insert(id, &job.tx);
         state.inner.push_back(job);
-        let new_total = state.total_tx_size.get().saturating_add(tx_size);
-        state.total_tx_size.set(new_total);
+        state
+            .total_tx_size
+            .add_saturating(tx_size, "pre_check_queue total_tx_size", "push");
         drop(state);
         self.ready.notify_one();
         Ok(())
@@ -284,5 +295,66 @@ mod tests {
         assert!(removed.iter().any(|tx| tx.hash() == tx_c.hash()));
         assert!(queue.get_tx(&tx_a.proposal_short_id()).is_none());
         assert!(queue.get_tx(&tx_c.proposal_short_id()).is_none());
+    }
+
+    #[test]
+    fn remove_by_peer_preserves_order_and_updates_size() {
+        let cancel = CancellationToken::new();
+        let queue = PreCheckQueue::new(cancel);
+        let input = OutPoint::new(
+            h256!("0x0202020202020202020202020202020202020202020202020202020202020202").pack(),
+            0,
+        );
+
+        let tx_a = dummy_tx(&input, 1_000);
+        let tx_b = dummy_tx(&OutPoint::new(tx_a.hash(), 0), 500);
+        let tx_c = dummy_tx(&OutPoint::new(tx_b.hash(), 0), 400);
+        let tx_d = dummy_tx(&OutPoint::new(tx_c.hash(), 0), 300);
+
+        let jobs = [
+            (tx_a.clone(), 1),
+            (tx_b.clone(), 2),
+            (tx_c.clone(), 1),
+            (tx_d.clone(), 2),
+        ];
+        let mut expected_total = 0usize;
+        for (tx, peer) in &jobs {
+            queue
+                .push(PreCheckJob {
+                    tx: tx.clone(),
+                    source: TxSource::Remote {
+                        cycles: 0,
+                        peer: (*peer).into(),
+                    },
+                })
+                .unwrap();
+            expected_total += PreCheckQueue::tx_size(&PreCheckJob {
+                tx: tx.clone(),
+                source: TxSource::Local,
+            });
+        }
+
+        let initial_size = queue.lock().total_tx_size.get();
+        assert_eq!(initial_size, expected_total);
+
+        // Remove peer 1: tx_a and tx_c should go, tx_b and tx_d stay in order.
+        let removed = queue.remove_by_peer(&1.into());
+        assert_eq!(removed.len(), 2);
+        assert_eq!(removed[0].hash(), tx_a.hash());
+        assert_eq!(removed[1].hash(), tx_c.hash());
+
+        let state = queue.lock();
+        assert_eq!(state.inner.len(), 2);
+        assert_eq!(state.inner[0].tx.hash(), tx_b.hash());
+        assert_eq!(state.inner[1].tx.hash(), tx_d.hash());
+
+        let expected_remaining = PreCheckQueue::tx_size(&PreCheckJob {
+            tx: tx_b,
+            source: TxSource::Local,
+        }) + PreCheckQueue::tx_size(&PreCheckJob {
+            tx: tx_d,
+            source: TxSource::Local,
+        });
+        assert_eq!(state.total_tx_size.get(), expected_remaining);
     }
 }

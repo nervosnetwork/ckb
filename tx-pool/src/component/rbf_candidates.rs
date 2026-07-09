@@ -85,18 +85,18 @@ impl RbfCandidates {
     /// Validate a candidate and compute the registration delta without mutating
     /// the index.
     ///
-    /// The caller (which must hold `rbf_candidates.write()`) should commit the
-    /// registration after the candidate has been successfully inserted into the
-    /// verify queue.  This makes displacement atomic with verify-queue
-    /// insertion and avoids losing displaced candidates if the insertion fails.
-    /// Returns `Err` if a higher-fee-rate candidate is already registered for
-    /// any input.
+    /// `&mut self` enforces that this is called while holding `rbf_candidates.write()`.
+    /// The caller should commit the registration after the candidate has been
+    /// successfully inserted into the verify queue.  This makes displacement
+    /// atomic with verify-queue insertion and avoids losing displaced candidates
+    /// if the insertion fails. Returns `Err` if a higher-or-equal-fee-rate
+    /// candidate is already registered for any input.
     ///
     /// `weight_based_fee_rate` must be the weight-based fee rate (see
     /// module-level docs); comparisons inside the index assume all stored rates
     /// use the same unit.
     pub fn register(
-        &self,
+        &mut self,
         id: ProposalShortId,
         weight_based_fee_rate: FeeRate,
         conflict_inputs: &[OutPoint],
@@ -111,7 +111,7 @@ impl RbfCandidates {
                     id, weight_based_fee_rate, input, existing_id, existing_fee_rate
                 );
                 return Err(format!(
-                    "input {:?} already has higher-fee-rate RBF candidate {}",
+                    "input {:?} already has higher-or-equal-fee-rate RBF candidate {}",
                     input, existing_id
                 ));
             }
@@ -221,8 +221,9 @@ impl RbfCandidates {
     }
 
     /// Remove candidates whose conflict inputs reference any of the given
-    /// outpoints. Called after those outpoints are spent by committed
-    /// transactions so the stale candidates do not block future replacements.
+    /// outpoints. Called after those outpoints have been freed by committed,
+    /// evicted, or replaced transactions so the stale candidates do not block
+    /// future replacements.
     pub fn remove_by_conflict_outpoints(&mut self, outpoints: &HashSet<OutPoint>) {
         let ids_to_remove: Vec<ProposalShortId> = self
             .by_id
@@ -393,19 +394,23 @@ mod tests {
         let id_b = id(1);
 
         // Candidate A conflicts with input0.
-        rbf.register(
-            id_a.clone(),
-            FeeRate::from_u64(100),
-            std::slice::from_ref(&input0),
-        )
-        .unwrap();
+        let reg_a = rbf
+            .register(
+                id_a.clone(),
+                FeeRate::from_u64(100),
+                std::slice::from_ref(&input0),
+            )
+            .unwrap();
+        rbf.commit(reg_a);
         // Candidate B conflicts with input1 and input2.
-        rbf.register(
-            id_b.clone(),
-            FeeRate::from_u64(100),
-            &[input1.clone(), input2.clone()],
-        )
-        .unwrap();
+        let reg_b = rbf
+            .register(
+                id_b.clone(),
+                FeeRate::from_u64(100),
+                &[input1.clone(), input2.clone()],
+            )
+            .unwrap();
+        rbf.commit(reg_b);
 
         // A committed transaction spends input0 and input2. Both A and B should
         // be removed because their conflict inputs are now consumed on-chain.
@@ -421,5 +426,58 @@ mod tests {
         // input1 is untouched, so its reverse index entry should also be gone
         // because candidate B was fully removed.
         assert_eq!(rbf.by_input.get(&input1), None);
+    }
+
+    #[test]
+    fn remove_by_conflict_outpoints_keeps_untouched_candidates() {
+        let mut rbf = RbfCandidates::new();
+        let input0 = out_point(0);
+        let input1 = out_point(1);
+        let id_a = id(0);
+        let id_b = id(1);
+
+        let reg_a = rbf
+            .register(
+                id_a.clone(),
+                FeeRate::from_u64(100),
+                std::slice::from_ref(&input0),
+            )
+            .unwrap();
+        rbf.commit(reg_a);
+        let reg_b = rbf
+            .register(
+                id_b.clone(),
+                FeeRate::from_u64(200),
+                std::slice::from_ref(&input1),
+            )
+            .unwrap();
+        rbf.commit(reg_b);
+
+        // Only input0 is spent; candidate B must remain untouched.
+        rbf.remove_by_conflict_outpoints(&[input0.clone()].into_iter().collect());
+        assert_eq!(rbf.by_id.get(&id_a), None);
+        assert!(rbf.by_id.contains_key(&id_b));
+        assert!(rbf.by_input.contains_key(&input1));
+        assert_eq!(rbf.by_input.get(&input0), None);
+    }
+
+    #[test]
+    fn remove_by_conflict_outpoints_empty_is_noop() {
+        let mut rbf = RbfCandidates::new();
+        let input0 = out_point(0);
+        let id_a = id(0);
+
+        let reg = rbf
+            .register(
+                id_a.clone(),
+                FeeRate::from_u64(100),
+                std::slice::from_ref(&input0),
+            )
+            .unwrap();
+        rbf.commit(reg);
+
+        rbf.remove_by_conflict_outpoints(&HashSet::new());
+        assert!(rbf.by_id.contains_key(&id_a));
+        assert!(rbf.by_input.contains_key(&input0));
     }
 }

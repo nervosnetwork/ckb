@@ -6,7 +6,7 @@ use crate::constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX};
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::{BlockAssemblerMessage, TxPoolService, TxVerificationResult};
-use crate::try_or_return_with_snapshot;
+use crate::try_or_return;
 use crate::tx_source::TxSource;
 use crate::util::{
     check_tx_fee, check_tx_fee_with_min_fee_rate, check_txid_collision, non_contextual_verify,
@@ -342,7 +342,7 @@ impl TxPoolService {
     ) -> Result<Completed, Reject> {
         self.check_tx_basic_validity(&tx, source).await?;
 
-        if let Some((ret, _snapshot)) = self.process_tx_direct(tx.clone(), source, None).await {
+        if let Some(ret) = self.process_tx_direct(tx.clone(), source, None).await {
             self.after_process(tx, source, &ret).await;
             ret
         } else {
@@ -424,14 +424,8 @@ impl TxPoolService {
             // The removed pool entries have released their inputs. Clean up
             // any in-flight RBF candidates targeting those inputs so they do
             // not block future replacements.
-            let outpoints: HashSet<OutPoint> = removed_entries
-                .iter()
-                .flat_map(|entry| entry.transaction().input_pts_iter())
-                .collect();
-            self.rbf_candidates
-                .write()
-                .await
-                .remove_by_conflict_outpoints(&outpoints);
+            self.cleanup_rbf_for_removed_entries(removed_entries.iter())
+                .await;
             self.wake_ordered_resolver_if_needed().await;
         }
         !removed_entries.is_empty()
@@ -446,24 +440,24 @@ impl TxPoolService {
     /// if any parent is permanently missing, the attempt counter must advance so
     /// that the orphan is eventually rejected.
     pub(crate) async fn all_missing_parents_in_flight(&self, parents: &HashSet<Byte32>) -> bool {
-        let missing_parents: Vec<Byte32> = {
+        // Collect parents that are neither on-chain nor already in the pool, while
+        // holding a single read guard. This avoids re-acquiring the tx_pool lock
+        // for every missing parent.
+        let missing_ids: Vec<ProposalShortId> = {
             let pool = self.tx_pool.read().await;
             let snapshot = pool.cloned_snapshot();
             parents
                 .iter()
                 .filter(|h| !snapshot.transaction_exists(h))
-                .cloned()
+                .map(ProposalShortId::from_tx_hash)
+                .filter(|id| !pool.contains_proposal_id(id))
                 .collect()
         };
-        if missing_parents.is_empty() {
+        if missing_ids.is_empty() {
             return true;
         }
 
-        for parent_hash in missing_parents {
-            let parent_id = ProposalShortId::from_tx_hash(&parent_hash);
-            if self.tx_pool.read().await.contains_proposal_id(&parent_id) {
-                continue;
-            }
+        for parent_id in missing_ids {
             if self
                 .queues
                 .ordered_resolve_queue
@@ -501,7 +495,7 @@ impl TxPoolService {
         tx: TransactionView,
         source: TxSource,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
+    ) -> Option<Result<Completed, Reject>> {
         let tx_size = tx.data().serialized_size_in_block();
         let (ret, snapshot) = self.pre_check(&tx, tx_size).await;
 
@@ -511,7 +505,7 @@ impl TxPoolService {
             status,
             fee,
             tx_size,
-        } = try_or_return_with_snapshot!(ret, snapshot);
+        } = try_or_return!(ret);
 
         self.verify_and_submit_core(
             VerifyAndSubmitInput {
@@ -644,7 +638,8 @@ impl TxPoolService {
         for (entry, reject) in &reject_events {
             self.callbacks.call_reject(entry, reject.clone());
         }
-        self.cleanup_rbf_for_removed_entries(&reject_events).await;
+        self.cleanup_rbf_for_removed_entries(reject_events.iter().map(|(entry, _)| entry))
+            .await;
 
         self.remove_orphan_txs_by_attach(&attached).await;
         {
@@ -662,7 +657,7 @@ impl TxPoolService {
             Self::sort_txs_by_dependencies(&mut retain);
             let mut chunk_rx = self.chunk_rx.clone();
             for tx in retain {
-                if let Some((ret, _snapshot)) = self
+                if let Some(ret) = self
                     .process_tx_direct(tx.clone(), TxSource::Local, Some(&mut chunk_rx))
                     .await
                     && let Err(ref reject) = ret

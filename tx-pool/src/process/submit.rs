@@ -5,7 +5,7 @@ use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
-use crate::try_or_return_with_snapshot;
+use crate::try_or_return;
 use crate::util::{time_relative_verify, verify_rtx};
 use ckb_logger::{debug, info, warn};
 use ckb_script::ChunkCommand;
@@ -217,7 +217,8 @@ impl TxPoolService {
         // evicted by size limits) have freed their inputs. Clean up any RBF
         // candidates still targeting those inputs so they do not block future
         // replacements.
-        self.cleanup_rbf_for_removed_entries(&reject_events).await;
+        self.cleanup_rbf_for_removed_entries(reject_events.iter().map(|(entry, _)| entry))
+            .await;
 
         // Send recovered txs to the deferred worker after the write lock is
         // released. Use .send().await rather than try_send so that recovery
@@ -325,7 +326,7 @@ impl TxPoolService {
         &self,
         resolved: crate::resolved_tx::ResolvedTx,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
+    ) -> Option<Result<Completed, Reject>> {
         let crate::resolved_tx::ResolvedTx {
             tx,
             rtx,
@@ -410,7 +411,7 @@ impl TxPoolService {
         &self,
         input: VerifyAndSubmitInput,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
+    ) -> Option<Result<Completed, Reject>> {
         let VerifyAndSubmitInput {
             tx,
             rtx,
@@ -449,7 +450,7 @@ impl TxPoolService {
             Ok(v) => v,
             Err(err) => {
                 self.remove_rbf_candidate(&tx.proposal_short_id()).await;
-                return Some((Err(err), snapshot));
+                return Some(Err(err));
             }
         };
 
@@ -463,16 +464,13 @@ impl TxPoolService {
                 tx.hash()
             );
             self.remove_rbf_candidate(&tx.proposal_short_id()).await;
-            return Some((
-                Err(Reject::DeclaredWrongCycles(declared, verified.cycles)),
-                snapshot,
-            ));
+            return Some(Err(Reject::DeclaredWrongCycles(declared, verified.cycles)));
         }
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, submit_snapshot) = self.submit_entry(pre_resolve_tip, entry, status).await;
-        try_or_return_with_snapshot!(ret, submit_snapshot);
+        let (ret, _submit_snapshot) = self.submit_entry(pre_resolve_tip, entry, status).await;
+        try_or_return!(ret);
 
         self.post_submit_side_effects(
             status,
@@ -484,7 +482,7 @@ impl TxPoolService {
         )
         .await;
 
-        Some((Ok(verified), submit_snapshot))
+        Some(Ok(verified))
     }
     pub(crate) async fn test_accept_tx_core(
         &self,

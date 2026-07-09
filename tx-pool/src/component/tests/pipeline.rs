@@ -582,7 +582,7 @@ fn build_secp_tx(input: &OutPoint, cell_deps: &[CellDep], output_capacity: u64) 
 }
 
 async fn submit_local_tx(service: &TxPoolService, tx: TransactionView) -> u64 {
-    let (ret, _snapshot) = service
+    let ret = service
         .process_tx_direct(tx, TxSource::Local, None)
         .await
         .expect("local process tx should return a result");

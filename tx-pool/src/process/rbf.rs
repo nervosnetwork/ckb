@@ -59,25 +59,43 @@ impl super::TxPoolService {
         .await
     }
 
-    /// Clean up in-flight RBF candidates whose conflict inputs were consumed by
-    /// transactions that have just been removed from the pool.
+    /// Clean up in-flight RBF candidates whose conflict inputs are no longer
+    /// consumed by any in-pool transaction.
     ///
-    /// This is a best-effort liveness helper: when a pool entry is evicted or
-    /// replaced, the inputs it was consuming become free, but a concurrent RBF
-    /// candidate may still hold those inputs in `rbf_candidates`. Removing the
-    /// stale registrations prevents future replacements from being blocked by a
-    /// candidate that is no longer racing against anyone.
-    pub(crate) async fn cleanup_rbf_for_removed_entries(
+    /// This is a best-effort liveness helper: when a pool entry is evicted,
+    /// replaced, or committed, some of the inputs it was consuming may become
+    /// free. A concurrent RBF candidate may still hold those inputs in
+    /// `rbf_candidates`; removing the stale registrations prevents future
+    /// replacements from being blocked by a candidate that is no longer racing
+    /// against anyone.
+    ///
+    /// Inputs that are still consumed by an in-pool transaction are *not*
+    /// included, because a candidate targeting them is still a valid competitor
+    /// for the current owner of those inputs.
+    ///
+    /// # Lock ordering
+    ///
+    /// The `tx_pool` read guard is dropped before `rbf_candidates` is locked.
+    /// This is intentional: `submit_entry` holds `rbf_candidates.read()` while
+    /// taking `tx_pool.write()`, so the two locks must never be acquired in
+    /// opposite order. Keep this invariant if you refactor this helper.
+    pub(crate) async fn cleanup_rbf_for_removed_entries<'a>(
         &self,
-        removed_entries: &[(TxEntry, Reject)],
+        removed_entries: impl IntoIterator<Item = &'a TxEntry> + Send,
     ) {
-        if removed_entries.is_empty() {
-            return;
-        }
-        let outpoints: HashSet<OutPoint> = removed_entries
-            .iter()
-            .flat_map(|(entry, _)| entry.transaction().input_pts_iter())
-            .collect();
+        let outpoints: HashSet<OutPoint> = {
+            let pool = self.tx_pool.read().await;
+            removed_entries
+                .into_iter()
+                .flat_map(|entry| entry.transaction().input_pts_iter())
+                .filter(|outpoint| {
+                    pool.pool_map
+                        .out_point_index
+                        .get_input_ref(outpoint)
+                        .is_none()
+                })
+                .collect()
+        };
         if !outpoints.is_empty() {
             self.rbf_candidates
                 .write()

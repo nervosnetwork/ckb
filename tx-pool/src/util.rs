@@ -173,17 +173,14 @@ pub(crate) fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> S
     }
 }
 
-/// Unwraps a result or propagates its error with snapshot.
+/// Unwraps a result or propagates its error inside an `Option<Result<_, _>>`.
 #[macro_export]
-macro_rules! try_or_return_with_snapshot {
-    ($expr:expr, $snapshot:expr) => {
+macro_rules! try_or_return {
+    ($expr:expr) => {
         match $expr {
             core::result::Result::Ok(val) => val,
             core::result::Result::Err(err) => {
-                return Some((
-                    core::result::Result::Err(core::convert::From::from(err)),
-                    $snapshot,
-                ));
+                return Some(core::result::Result::Err(core::convert::From::from(err)));
             }
         }
     };

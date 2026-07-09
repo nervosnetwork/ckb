@@ -92,7 +92,7 @@ impl BlockAssembler {
 
         let work_id = AtomicU64::new(0);
         let current =
-            Self::build_blank_template(&config, &work_id, snapshot, &current_epoch, vec![])
+            Self::build_base_template(&config, &work_id, snapshot, &current_epoch, vec![])
                 .expect("build initial blank template for BlockAssembler");
 
         Ok(Self {
@@ -109,13 +109,14 @@ impl BlockAssembler {
         })
     }
 
-    /// Build a fresh blank template from `snapshot`.
+    /// Build a fresh base template from `snapshot`.
     ///
-    /// `uncles` is empty during initial construction and is populated by
-    /// `reset_template` after a reorg. Sharing this path avoids duplicating the
-    /// cellbase, extension, DAO and size calculations between `new` and
-    /// `reset_template`.
-    fn build_blank_template(
+    /// The returned template contains no transactions or proposals; it only has
+    /// the cellbase, DAO, extension and (optionally) uncles. `uncles` is empty
+    /// during initial construction and is populated by `reset_template` after a
+    /// reorg. Sharing this path avoids duplicating the cellbase, extension, DAO
+    /// and size calculations between `new` and `reset_template`.
+    fn build_base_template(
         config: &BlockAssemblerConfig,
         work_id: &AtomicU64,
         snapshot: Arc<Snapshot>,
@@ -317,7 +318,7 @@ impl BlockAssembler {
             .epoch();
 
         let uncles = self.prepare_uncles(&snapshot, &current_epoch).await;
-        let new_blank = Self::build_blank_template(
+        let new_blank = Self::build_base_template(
             &self.config,
             &self.work_id,
             snapshot,
@@ -447,6 +448,12 @@ impl BlockAssembler {
         .await;
     }
 
+    /// Update the transaction set of the current block template.
+    ///
+    /// Because this is a partial update, the block extension cannot change
+    /// without a tip change. The extension already stored in the current
+    /// template is reused instead of recomputing the MMR root on every update.
+    /// A tip mismatch aborts the update early.
     pub(crate) async fn update_transactions(
         &self,
         tx_pool: &RwLock<TxPool>,
@@ -458,18 +465,20 @@ impl BlockAssembler {
         let consensus = current.snapshot.consensus();
         let current_template = &current.template;
         let max_block_bytes = consensus.max_block_bytes() as usize;
-        let extension = Self::build_extension(&current.snapshot)?;
         let txs = {
             let tx_pool_reader = tx_pool.read().await;
             if current.snapshot.tip_hash() != tx_pool_reader.snapshot().tip_hash() {
                 return Ok(());
             }
 
+            // The extension cannot change without a tip change, so reuse the one
+            // already stored in the current template instead of recomputing it
+            // from the snapshot.
             let basic_block_size = Self::basic_block_size(
                 current_template.cellbase.data(),
                 &current_template.uncles,
                 current_template.proposals.iter(),
-                extension.clone(),
+                current_template.extension.clone(),
             );
 
             let txs_size_limit = max_block_bytes.checked_sub(basic_block_size);
@@ -498,10 +507,9 @@ impl BlockAssembler {
                     version,
                     "update_transactions",
                     |builder, size| {
+                        // `from_template` already copied the extension; only
+                        // transactions and DAO need to change here.
                         builder.set_transactions(checked_txs).dao(dao);
-                        if let Some(data) = extension {
-                            builder.extension(data);
-                        }
                         size.txs = new_txs_size;
                         size.total = new_total_size;
                         true

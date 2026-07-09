@@ -69,7 +69,7 @@ impl JobHandler for VerifyHandler {
     async fn process_one(&mut self, resolved: ResolvedTx) {
         let tx = resolved.tx.clone();
         let source = resolved.source;
-        if let Some((res, _snapshot)) = self
+        if let Some(res) = self
             .service
             .verify_and_submit_tx(resolved, Some(&mut self.command_rx))
             .await

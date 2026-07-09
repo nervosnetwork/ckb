@@ -6,8 +6,8 @@ use crate::tx_source::TxSource;
 use crate::util::is_missing_input;
 use ckb_logger::{Level::Trace, debug, log_enabled_target, trace_target};
 use ckb_network::PeerIndex;
-use ckb_types::core::TransactionView;
 use ckb_types::core::error::OutPointError;
+use ckb_types::core::{Cycle, TransactionView};
 use ckb_types::packed::Byte32;
 use ckb_verification::cache::Completed;
 use std::time::Duration;
@@ -44,8 +44,8 @@ impl TxPoolService {
         }
 
         match source {
-            TxSource::Remote { .. } => {
-                self.after_process_remote(tx, source, ret).await;
+            TxSource::Remote { cycles, peer } => {
+                self.after_process_remote(tx, peer, cycles, ret).await;
             }
             TxSource::Proposal => {
                 // Proposal txs are a distinct source variant. For relay
@@ -70,18 +70,19 @@ impl TxPoolService {
     ) {
         self.after_process(tx, source, &Err(reject)).await;
     }
+    /// Post-process a remote transaction result.
+    ///
+    /// `peer` and `cycles` are passed explicitly rather than inside `TxSource`
+    /// so the remote-only preconditions are visible in the signature. The
+    /// `TxSource::Remote` variant is reconstructed only when the tx needs to be
+    /// stored in the orphan pool.
     pub(crate) async fn after_process_remote(
         &self,
         tx: TransactionView,
-        source: TxSource,
+        peer: PeerIndex,
+        cycles: Cycle,
         ret: &Result<Completed, Reject>,
     ) {
-        // after_process_remote is only dispatched for Remote sources by
-        // after_process, so peer() is always Some here.
-        let peer = source
-            .peer()
-            .expect("after_process_remote called with non-remote source");
-
         let tx_hash = tx.hash();
         match ret {
             Ok(_) => {
@@ -98,6 +99,9 @@ impl TxPoolService {
                 );
                 if is_missing_input(reject) {
                     let parents = tx.unique_parents();
+                    // Orphan storage still uses TxSource, so reconstruct the
+                    // remote variant only for the missing-input path.
+                    let source = TxSource::Remote { cycles, peer };
                     self.handle_missing_input_orphan(tx, source, parents).await;
                 } else {
                     self.handle_remote_reject(&tx_hash, reject, peer).await;
