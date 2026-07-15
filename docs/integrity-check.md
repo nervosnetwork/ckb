@@ -13,7 +13,7 @@ All the binaries available from GitHub releases are signed via following PGP key
 You can import the public keys from the keyserver network:
 
 ```
-gpg --recv-keys 8D09AC56856F84AFDB2CEB12E21C4F2E34FF2E93 3B9BFAD9AB00F5A27249872AD4C6D843F9C2D100
+gpg --recv-keys 37F67AEEAC33DF1F
 ```
 
 For releases signed by the new Nervos CI key, signatures may be made by signing
