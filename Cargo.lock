@@ -522,7 +522,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f178e62ed3e8b7338f2cb581fc19bebcbc0814e009f305ab1d6954ff15a4b99"
 dependencies = [
- "rand 0.8.6",
+ "rand 0.8.7",
 ]
 
 [[package]]
@@ -755,7 +755,7 @@ dependencies = [
  "ckb-verification-traits",
  "num_cpus",
  "path-clean",
- "rand 0.8.6",
+ "rand 0.8.7",
  "sentry",
  "serde",
  "serde_json",
@@ -799,7 +799,7 @@ dependencies = [
  "ckb-verification",
  "ckb-verification-traits",
  "criterion",
- "rand 0.8.6",
+ "rand 0.8.7",
  "tempfile",
 ]
 
@@ -957,7 +957,7 @@ version = "1.1.1"
 dependencies = [
  "ckb-fixed-hash",
  "faster-hex",
- "rand 0.8.6",
+ "rand 0.8.7",
  "secp256k1",
  "thiserror 1.0.69",
 ]
@@ -1121,7 +1121,7 @@ dependencies = [
  "ckb-types",
  "faster-hex",
  "memchr",
- "rand 0.8.6",
+ "rand 0.8.7",
  "tempfile",
 ]
 
@@ -1378,7 +1378,7 @@ dependencies = [
  "indicatif",
  "jsonrpc-core",
  "lru",
- "rand 0.8.6",
+ "rand 0.8.7",
  "rand_distr",
  "serde",
  "serde_json",
@@ -1392,7 +1392,7 @@ dependencies = [
  "ckb-crypto",
  "ckb-error",
  "ckb-logger",
- "rand 0.8.6",
+ "rand 0.8.7",
 ]
 
 [[package]]
@@ -1420,7 +1420,7 @@ dependencies = [
  "ipnetwork",
  "num_cpus",
  "proptest",
- "rand 0.8.6",
+ "rand 0.8.7",
  "secp256k1",
  "sentry",
  "serde",
@@ -1584,7 +1584,7 @@ dependencies = [
  "hex",
  "include_dir",
  "log",
- "rand 0.8.6",
+ "rand 0.8.7",
  "serde_json",
  "sql-builder",
  "sqlx",
@@ -1696,7 +1696,7 @@ dependencies = [
  "faster-hex",
  "molecule",
  "proptest",
- "rand 0.8.6",
+ "rand 0.8.7",
  "serde",
  "tempfile",
  "tiny-keccak",
@@ -1767,7 +1767,7 @@ dependencies = [
  "ckb-util",
  "ctrlc",
  "libc",
- "rand 0.8.6",
+ "rand 0.8.7",
  "tokio",
  "tokio-util",
 ]
@@ -1826,7 +1826,7 @@ dependencies = [
  "itertools 0.11.0",
  "keyed_priority_queue",
  "lru",
- "rand 0.8.6",
+ "rand 0.8.7",
  "sentry",
  "tempfile",
  "tokio",
@@ -1884,7 +1884,7 @@ dependencies = [
  "jsonrpc-core",
  "log",
  "nix 0.29.0",
- "rand 0.8.6",
+ "rand 0.8.7",
  "reqwest",
  "serde_json",
  "tempfile",
@@ -1948,7 +1948,7 @@ dependencies = [
  "hyper-util",
  "lru",
  "multi_index_map",
- "rand 0.8.6",
+ "rand 0.8.7",
  "rustc-hash 1.1.0",
  "sentry",
  "serde_json",
@@ -2033,7 +2033,7 @@ dependencies = [
  "ckb-types",
  "ckb-verification",
  "ckb-verification-traits",
- "rand 0.8.6",
+ "rand 0.8.7",
  "rayon",
  "tokio",
 ]
@@ -3416,7 +3416,7 @@ dependencies = [
  "idna",
  "ipnet",
  "once_cell",
- "rand 0.8.6",
+ "rand 0.8.7",
  "thiserror 1.0.69",
  "tinyvec",
  "tokio",
@@ -3437,7 +3437,7 @@ dependencies = [
  "lru-cache",
  "once_cell",
  "parking_lot 0.12.5",
- "rand 0.8.6",
+ "rand 0.8.7",
  "resolv-conf",
  "smallvec",
  "thiserror 1.0.69",
@@ -4486,7 +4486,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.7",
  "smallvec",
  "zeroize",
 ]
@@ -5094,7 +5094,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
 dependencies = [
  "phf_shared 0.11.3",
- "rand 0.8.6",
+ "rand 0.8.7",
 ]
 
 [[package]]
@@ -5468,9 +5468,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
+checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -5551,7 +5551,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.7",
 ]
 
 [[package]]
@@ -6006,7 +6006,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50c5943d326858130af85e049f2661ba3c78b26589b8ab98e65e80ae44a1252"
 dependencies = [
  "bitcoin_hashes",
- "rand 0.8.6",
+ "rand 0.8.7",
  "secp256k1-sys",
 ]
 
@@ -6107,7 +6107,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "161283cfe8e99c8f6f236a402b9ccf726b201f365988b5bb637ebca0abbd4a30"
 dependencies = [
  "once_cell",
- "rand 0.8.6",
+ "rand 0.8.7",
  "sentry-types",
  "serde",
  "serde_json",
@@ -6164,7 +6164,7 @@ checksum = "5d68cdf6bc41b8ff3ae2a9c4671e97426dcdd154cc1d4b6b72813f285d6b163f"
 dependencies = [
  "debugid",
  "hex",
- "rand 0.8.6",
+ "rand 0.8.7",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -6631,7 +6631,7 @@ dependencies = [
  "memchr",
  "once_cell",
  "percent-encoding",
- "rand 0.8.6",
+ "rand 0.8.7",
  "rsa",
  "serde",
  "sha1",
@@ -6669,7 +6669,7 @@ dependencies = [
  "md-5",
  "memchr",
  "once_cell",
- "rand 0.8.6",
+ "rand 0.8.7",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -6893,7 +6893,7 @@ dependencies = [
  "molecule",
  "nohash-hasher",
  "parking_lot 0.12.5",
- "rand 0.8.6",
+ "rand 0.8.7",
  "socket2 0.6.3",
  "tentacle-multiaddr",
  "tentacle-secio",
@@ -6940,7 +6940,7 @@ dependencies = [
  "molecule",
  "openssl",
  "openssl-sys",
- "rand 0.8.6",
+ "rand 0.8.7",
  "rand_core 0.6.4",
  "ring",
  "secp256k1",
@@ -6965,7 +6965,7 @@ dependencies = [
  "percent-encoding",
  "pest",
  "pest_derive",
- "rand 0.8.6",
+ "rand 0.8.7",
  "regex",
  "serde",
  "serde_json",
@@ -7335,7 +7335,7 @@ dependencies = [
  "indexmap 1.9.3",
  "pin-project",
  "pin-project-lite",
- "rand 0.8.6",
+ "rand 0.8.7",
  "slab",
  "tokio",
  "tokio-util",
