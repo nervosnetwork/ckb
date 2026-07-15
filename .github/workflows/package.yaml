@@ -174,12 +174,12 @@ jobs:
       - name: Sign archive
         if: github.event_name == 'push'
         env:
-          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+          CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -225,12 +225,12 @@ jobs:
       - name: Sign archive
         if: github.event_name == 'push'
         env:
-          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+          CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -277,12 +277,12 @@ jobs:
       - name: Sign archive
         if: github.event_name == 'push'
         env:
-          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+          CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -331,12 +331,12 @@ jobs:
       - name: Sign archive
         if: github.event_name == 'push'
         env:
-          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+          CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -397,12 +397,12 @@ jobs:
       - name: Sign archive
         if: github.event_name == 'push'
         env:
-          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+          CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
-          gpg --quiet --batch --yes --decrypt --passphrase="$LARGE_SECRET_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
+          gpg --quiet --batch --yes --decrypt --passphrase="$CKB_RELEASE_GPG_PASSPHRASE" --output devtools/ci/signer.asc devtools/ci/signer.asc.gpg
           gpg --import devtools/ci/signer.asc
-          gpg -u "$GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
+          gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
         uses: actions/upload-artifact@v6
         with:
@@ -475,13 +475,13 @@ jobs:
       - name: Sign Archive
         if: github.event_name == 'push'
         env:
-          LARGE_SECRET_PASSPHRASE: ${{ secrets.LARGE_SECRET_PASSPHRASE }}
-          GPG_SIGNER: ${{ secrets.GPG_SIGNER }}
+          CKB_RELEASE_GPG_PASSPHRASE: ${{ secrets.CKB_RELEASE_GPG_PASSPHRASE }}
+          CKB_RELEASE_GPG_SIGNER: ${{ secrets.CKB_RELEASE_GPG_SIGNER }}
         run: |
           $CYGPWD = cygpath -u (Get-Location)
-          gpg --quiet --batch --yes --decrypt --passphrase="$env:LARGE_SECRET_PASSPHRASE" --output "$CYGPWD/devtools/ci/signer.asc" "$CYGPWD/devtools/ci/signer.asc.gpg"
+          gpg --quiet --batch --yes --decrypt --passphrase="$env:CKB_RELEASE_GPG_PASSPHRASE" --output "$CYGPWD/devtools/ci/signer.asc" "$CYGPWD/devtools/ci/signer.asc.gpg"
           gpg --import "$CYGPWD/devtools/ci/signer.asc"
-          gpg -u "$env:GPG_SIGNER" -ab "$CYGPWD/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
+          gpg -u "$env:CKB_RELEASE_GPG_SIGNER" -ab "$CYGPWD/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
       - name: upload-artifact
         uses: actions/upload-artifact@v6
         with:

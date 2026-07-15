@@ -41,7 +41,7 @@ if [ "${REL_PKG#*.}" = "tar.gz" ]; then
 else
   zip -r $PKG_NAME.zip $PKG_NAME
 fi
-if [ -n "${GPG_SIGNER:-}" ]; then
-  gpg -u "$GPG_SIGNER" -ab "$ARCHIVE_NAME"
+if [ -n "${CKB_RELEASE_GPG_SIGNER:-}" ]; then
+  gpg -u "$CKB_RELEASE_GPG_SIGNER" -ab "$ARCHIVE_NAME"
 fi
 popd
