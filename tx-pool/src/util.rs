@@ -82,6 +82,18 @@ pub(crate) fn non_contextual_verify(
     Ok(())
 }
 
+fn verify_dao_script_size(
+    snapshot: &Snapshot,
+    rtx: Arc<ResolvedTransaction>,
+) -> Result<(), ckb_error::Error> {
+    DaoScriptSizeVerifier::new(
+        Arc::clone(&rtx),
+        snapshot.cloned_consensus(),
+        snapshot.borrow_as_data_loader(),
+    )
+    .verify()
+}
+
 pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
@@ -94,8 +106,9 @@ pub(crate) async fn verify_rtx(
     let data_loader = snapshot.as_data_loader();
 
     if let Some(completed) = cache_entry {
-        TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+        TimeRelativeTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
             .verify()
+            .and_then(|_| verify_dao_script_size(&snapshot, Arc::clone(&rtx)))
             .map(|_| *completed)
             .map_err(Reject::Verification)
     } else if let Some(command_rx) = command_rx {
@@ -108,8 +121,7 @@ pub(crate) async fn verify_rtx(
         .verify_with_pause(max_tx_verify_cycles, command_rx)
         .await
         .and_then(|result| {
-            DaoScriptSizeVerifier::new(rtx, snapshot.cloned_consensus(), snapshot.as_data_loader())
-                .verify()?;
+            verify_dao_script_size(&snapshot, rtx)?;
             Ok(result)
         })
         .map_err(Reject::Verification)
@@ -118,12 +130,7 @@ pub(crate) async fn verify_rtx(
             ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
                 .verify(max_tx_verify_cycles, false)
                 .and_then(|result| {
-                    DaoScriptSizeVerifier::new(
-                        rtx,
-                        snapshot.cloned_consensus(),
-                        snapshot.as_data_loader(),
-                    )
-                    .verify()?;
+                    verify_dao_script_size(&snapshot, rtx)?;
                     Ok(result)
                 })
                 .map_err(Reject::Verification)
