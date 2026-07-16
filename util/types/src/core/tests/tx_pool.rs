@@ -92,6 +92,12 @@ fn test_if_is_malformed_tx() {
         assert_eq!(reject.is_malformed_tx(), is_malformed);
     }
 
+    let tx_error = TransactionError::DaoOutputDataMismatch { index: 0 };
+    assert!(tx_error.is_malformed_tx());
+    let error = ErrorKind::Transaction.because(tx_error);
+    let reject = Reject::Verification(error);
+    assert!(reject.is_malformed_tx());
+
     {
         let error_kind = ErrorKind::Script;
         let error = error_kind.because(DefaultError);
