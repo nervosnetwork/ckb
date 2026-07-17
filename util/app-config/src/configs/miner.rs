@@ -34,6 +34,9 @@ pub struct ClientConfig {
     /// If `listen` is set but this token is not configured, ckb-miner will
     /// accept any request that deserializes as a BlockTemplate, which can be
     /// abused if the notify endpoint is reachable by untrusted parties.
+    ///
+    /// Must be non-empty and free of leading/trailing whitespace; ckb-miner
+    /// refuses to start otherwise.
     pub auth_token: Option<String>,
 }
 

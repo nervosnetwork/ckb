@@ -694,8 +694,13 @@ impl BlockAssembler {
                     .header("content-type", "application/json");
 
                 if let Some(token) = &self.config.notify_auth_token {
-                    let mut auth_value = HeaderValue::from_str(&format!("Bearer {token}"))
-                        .expect("valid authorization header value");
+                    let mut auth_value = match HeaderValue::from_str(&format!("Bearer {token}")) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            error!("invalid block_assembler.notify_auth_token: {err}");
+                            continue;
+                        }
+                    };
                     auth_value.set_sensitive(true);
                     req_builder = req_builder.header(hyper::header::AUTHORIZATION, auth_value);
                 }

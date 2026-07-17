@@ -85,6 +85,9 @@ pub struct BlockAssemblerConfig {
     /// send the header `Authorization: Bearer <token>` with every notify
     /// request. The receiving ckb-miner must be configured with the same token
     /// in `miner.client.auth_token`, otherwise notifications will be rejected.
+    ///
+    /// Must be non-empty and free of leading/trailing whitespace; the node
+    /// refuses to start otherwise.
     #[serde(default)]
     pub notify_auth_token: Option<String>,
 }
