@@ -39,7 +39,7 @@ impl TxPoolService {
         ) {
             let mut tx_pool = self.tx_pool.write().await;
             if tx_pool.pool_map.find_conflict_outpoint(&tx).is_some() {
-                tx_pool.record_conflict(tx.clone());
+                tx_pool.record_conflict(tx.clone(), source);
             }
         }
 

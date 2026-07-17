@@ -77,7 +77,6 @@ impl super::TxPoolService {
             let mut to_remove = Vec::new();
             for (orphan_id, orphan) in orphans.into_iter() {
                 let orphan_hash = orphan.tx.hash();
-                let orphan_peer = orphan.source.peer();
 
                 match self.classify_and_enqueue_tx(orphan.tx, orphan.source).await {
                     Ok(_) => {
@@ -91,8 +90,12 @@ impl super::TxPoolService {
                         // Keep the orphan if the only problem is that its
                         // parents are not yet available or the pipeline queues
                         // are temporarily full.  For any other reject reason
-                        // (malformed, low fee, etc.) remove it and notify the
-                        // peer.
+                        // (malformed, low fee, etc.) remove it.
+                        //
+                        // `classify_and_enqueue_tx` already ran `after_process`
+                        // for this reject (relayer notification, ban, recent
+                        // reject), so we must not run `handle_remote_reject`
+                        // again here.
                         if crate::util::is_missing_input(&reject)
                             || matches!(reject, Reject::Full(_))
                         {
@@ -103,9 +106,6 @@ impl super::TxPoolService {
                             );
                         } else {
                             to_remove.push(orphan_id);
-                            if let Some(peer) = orphan_peer {
-                                self.handle_remote_reject(&orphan_hash, &reject, peer).await;
-                            }
                         }
                     }
                 }

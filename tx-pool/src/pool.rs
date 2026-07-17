@@ -4,6 +4,7 @@ use crate::component::pool_map::{PoolEntry, PoolMap, Status};
 use crate::constants::{MAX_ESTIMATE_TARGET, MIN_ESTIMATE_TARGET};
 use crate::error::Reject;
 use crate::pool_cell::PoolCell;
+use crate::tx_source::TxSource;
 use ckb_app_config::TxPoolConfig;
 use ckb_fee_estimator::Error as FeeEstimatorError;
 use ckb_logger::{debug, error};
@@ -68,8 +69,9 @@ pub struct TxPool {
     pub(crate) snapshot: Arc<Snapshot>,
     // expiration milliseconds,
     pub(crate) expiry: u64,
-    // conflicted transaction cache
-    pub(crate) conflicts_cache: lru::LruCache<ProposalShortId, TransactionView>,
+    // conflicted transaction cache; stores the original pipeline source so that
+    // recovered transactions keep their origin (peer/cycles) where known
+    pub(crate) conflicts_cache: lru::LruCache<ProposalShortId, (TransactionView, TxSource)>,
     // conflicted transaction outputs cache, input -> set of conflicting tx ids.
     // A set is necessary because multiple txs can conflict on the same input;
     // a single-value cache would silently drop older conflicts and break
@@ -120,7 +122,8 @@ impl TxPool {
             return None;
         }
 
-        let mut conflicts = vec![self.get_pool_entry(&tx.proposal_short_id()).unwrap()];
+        let entry = self.get_pool_entry(&tx.proposal_short_id())?;
+        let mut conflicts = vec![entry];
         let descendants = self.pool_map.calc_descendants(&tx.proposal_short_id());
         let descendants = descendants
             .iter()
@@ -191,7 +194,7 @@ impl TxPool {
         self.pool_map.get_by_id(id).is_some()
     }
 
-    pub(crate) fn record_conflict(&mut self, tx: TransactionView) {
+    pub(crate) fn record_conflict(&mut self, tx: TransactionView, source: TxSource) {
         let short_id = tx.proposal_short_id();
         for input in tx.input_pts_iter() {
             if let Some(set) = self.conflicts_outputs_cache.get_mut(&input) {
@@ -202,7 +205,7 @@ impl TxPool {
                 self.conflicts_outputs_cache.put(input, set);
             }
         }
-        self.conflicts_cache.put(short_id.clone(), tx);
+        self.conflicts_cache.put(short_id.clone(), (tx, source));
         debug!(
             "record_conflict {:?} now cache size: {}",
             short_id,
@@ -211,7 +214,7 @@ impl TxPool {
     }
 
     pub(crate) fn remove_conflict(&mut self, short_id: &ProposalShortId) {
-        if let Some(tx) = self.conflicts_cache.pop(short_id) {
+        if let Some((tx, _)) = self.conflicts_cache.pop(short_id) {
             for input in tx.input_pts_iter() {
                 if let Some(set) = self.conflicts_outputs_cache.get_mut(&input) {
                     set.remove(short_id);
@@ -231,14 +234,14 @@ impl TxPool {
     pub(crate) fn get_conflicted_txs_from_inputs(
         &self,
         inputs: impl Iterator<Item = OutPoint>,
-    ) -> Vec<TransactionView> {
+    ) -> Vec<(TransactionView, TxSource)> {
         let mut result = Vec::new();
         let mut seen = HashSet::new();
         for input in inputs {
             if let Some(set) = self.conflicts_outputs_cache.peek(&input) {
                 for short_id in set {
                     if seen.insert(short_id.clone())
-                        && let Some(tx) = self.conflicts_cache.peek(short_id)
+                        && let Some((tx, source)) = self.conflicts_cache.peek(short_id)
                         // Only recover a tx if *all* of its inputs are currently
                         // available.  A tx that still conflicts with the in-pool
                         // state would be rejected again and, if both conflicting
@@ -246,7 +249,7 @@ impl TxPool {
                         // infinite recover/reject loop (RBF cycling).
                         && self.pool_map.find_conflict_outpoint(tx).is_none()
                     {
-                        result.push(tx.clone());
+                        result.push((tx.clone(), *source));
                     }
                 }
             }
@@ -541,7 +544,7 @@ impl TxPool {
         let conflicted = self
             .conflicts_cache
             .iter()
-            .map(|(_id, tx)| tx.hash())
+            .map(|(_id, (tx, _))| tx.hash())
             .collect();
         TxPoolEntryInfo {
             pending,

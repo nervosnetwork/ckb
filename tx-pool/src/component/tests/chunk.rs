@@ -752,9 +752,9 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
                 match task {
                     crate::service::DeferredTask::RecoverTxs(txs) => {
                         let mut queue = ordered.write().await;
-                        for tx in txs {
+                        for (tx, source) in txs {
                             let _ = queue
-                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::Local));
+                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {

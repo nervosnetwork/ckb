@@ -20,7 +20,8 @@ use std::time::Instant;
 use tokio::sync::watch;
 
 use super::{
-    PreCheckedTx, SubmitEntryOutcome, VerifyAndSubmitInput, get_tx_status, status_to_verify_env,
+    PreCheckedTx, RecoveredTxs, SubmitEntryOutcome, VerifyAndSubmitInput, get_tx_status,
+    status_to_verify_env,
 };
 use crate::tx_source::TxSource;
 
@@ -46,7 +47,7 @@ impl TxPoolService {
         entry: &TxEntry,
         mut status: Status,
         reject_events: &mut Vec<(TxEntry, Reject)>,
-    ) -> Result<(Vec<TxEntry>, Vec<TransactionView>, Status), Reject> {
+    ) -> Result<(Vec<TxEntry>, RecoveredTxs, Status), Reject> {
         // check_rbf must be invoked in `write` lock to avoid concurrent issues.
         let conflicts = if tx_pool.enable_rbf() {
             tx_pool.check_rbf(snapshot, entry)?
@@ -59,6 +60,13 @@ impl TxPoolService {
             }
             HashSet::new()
         };
+
+        // Remove conflicting transactions *before* re-checking the resolved
+        // transaction. `check_rtx` uses `PoolCell` in non-RBF mode, so any
+        // input still consumed by an in-pool conflict would be reported as
+        // `Dead`. Removing the conflicts first keeps a tip change from
+        // incorrectly rejecting a valid RBF replacement.
+        let removed_old_txs = self.process_rbf(tx_pool, entry, &conflicts, reject_events);
 
         // if snapshot changed by context switch we need redo time_relative verify
         let tip_hash = snapshot.tip_hash();
@@ -76,8 +84,6 @@ impl TxPoolService {
             let tx_env = status_to_verify_env(status, tip_header);
             time_relative_verify(Arc::clone(snapshot), Arc::clone(&entry.rtx), tx_env)?;
         }
-
-        let removed_old_txs = self.process_rbf(tx_pool, entry, &conflicts, reject_events);
 
         // Txs whose inputs are not consumed by the new tx can be
         // recovered immediately, regardless of whether the new tx
@@ -97,7 +103,7 @@ impl TxPoolService {
         // Parents must be recovered before children so that the
         // ordered resolver can re-resolve and accept them in the
         // correct order.
-        Self::sort_txs_by_dependencies(&mut recovered);
+        Self::sort_by_dependencies(&mut recovered, |(tx, _)| tx);
 
         Ok((removed_old_txs, recovered, status))
     }
@@ -172,9 +178,9 @@ impl TxPoolService {
                 tx_pool
                     .get_conflicted_txs_from_inputs(entry.transaction().input_pts_iter())
                     .into_iter()
-                    .filter(|tx| tx.proposal_short_id() != entry_id),
+                    .filter(|(tx, _)| tx.proposal_short_id() != entry_id),
             );
-            for tx in &recovered {
+            for (tx, _) in &recovered {
                 tx_pool.remove_conflict(&tx.proposal_short_id());
             }
             for old in &removed_old_txs {
@@ -188,7 +194,7 @@ impl TxPoolService {
             // reappear as pending.
             let recovered_ids: HashSet<ProposalShortId> = recovered
                 .iter()
-                .map(|tx| tx.proposal_short_id())
+                .map(|(tx, _)| tx.proposal_short_id())
                 .chain(removed_old_txs.iter().map(|e| e.proposal_short_id()))
                 .collect();
             reject_events.retain(|(entry, _)| !recovered_ids.contains(&entry.proposal_short_id()));
@@ -203,7 +209,7 @@ impl TxPoolService {
         &self,
         entry_id: &ProposalShortId,
         result: Result<(), Reject>,
-        recovered: Vec<TransactionView>,
+        recovered: RecoveredTxs,
         reject_events: Vec<(TxEntry, Reject)>,
         snapshot: Arc<Snapshot>,
     ) -> (Result<(), Reject>, Arc<Snapshot>) {

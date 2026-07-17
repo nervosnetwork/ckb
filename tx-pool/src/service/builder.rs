@@ -809,14 +809,12 @@ pub(crate) fn spawn_deferred_worker(
 
 async fn enqueue_recover_txs(
     ordered_queue: Arc<RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>>,
-    txs: Vec<TransactionView>,
+    txs: Vec<(TransactionView, TxSource)>,
 ) {
     let mut queue = ordered_queue.write().await;
-    for tx in txs {
+    for (tx, source) in txs {
         debug!("recover back: {:?}", tx.proposal_short_id());
-        if let Err(reject) =
-            queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, TxSource::local()))
-        {
+        if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source)) {
             warn!(
                 "failed to recover tx back to ordered resolve queue: {}",
                 reject

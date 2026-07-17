@@ -21,9 +21,12 @@ pub(crate) async fn process(service: TxPoolService, message: &BlockAssemblerMess
             }
         }
         BlockAssemblerMessage::Reset(snapshot) => {
+            // Management-triggered resets (e.g. `clear_pool`) must not be
+            // dropped by the version check: the pool has already been cleared,
+            // so the template must be rebuilt unconditionally.
             if let Some(ref block_assembler) = service.block_assembler
                 && let Err(e) = block_assembler
-                    .reset_template(Arc::clone(snapshot), false)
+                    .reset_template(Arc::clone(snapshot), true)
                     .await
             {
                 ckb_logger::error!("block_assembler reset_template error {}", e);

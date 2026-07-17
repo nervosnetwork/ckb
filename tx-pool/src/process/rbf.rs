@@ -140,8 +140,11 @@ impl super::TxPoolService {
         // Record every removed entry (direct conflicts and their descendants)
         // in the conflicts cache so that they can all be recovered if the
         // replacement fails or if their inputs become available again.
+        //
+        // The original pipeline source is not retained once a transaction has
+        // entered the pool, so recovered entries fall back to `TxSource::Local`.
         for old in &all_removed {
-            tx_pool.record_conflict(old.transaction().clone());
+            tx_pool.record_conflict(old.transaction().clone(), TxSource::Local);
         }
 
         all_removed

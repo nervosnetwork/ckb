@@ -21,6 +21,7 @@ use ckb_stop_handler::CancellationToken;
 use ckb_types::packed::{Byte32, ProposalShortId};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -30,6 +31,13 @@ use tokio::task::JoinHandle;
 /// giving us enough slack to recover from the small race window between a
 /// parent leaving the verify queue and being committed to the pool.
 pub(crate) const MAX_LOCAL_ORPHAN_ATTEMPTS: u8 = 5;
+
+/// Delay before re-enqueueing a local orphan whose missing parents are still
+/// in flight. Without this delay the single ordered resolver would retry the
+/// same job in a tight loop until the parent lands, burning CPU and snapshot
+/// I/O. The delay is short enough that it does not materially delay
+/// confirmation once the parent is accepted.
+pub(crate) const LOCAL_ORPHAN_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// Result of attempting to resolve one transaction.
 #[derive(Debug)]
@@ -139,6 +147,30 @@ impl ResolveHandler {
         let source = resolved.source;
         let tx = resolved.tx.clone();
 
+        // Apply the same in-flight RBF fee-ordering gate as the entry
+        // classifier so dependent or recovered remote replacements cannot
+        // bypass it (they enter the verify queue through this path).
+        if let Some(cycles) = source.cycles() {
+            match self
+                .service
+                .register_rbf_candidate(
+                    tx.clone(),
+                    source,
+                    &resolved,
+                    resolved.fee,
+                    resolved.tx_size,
+                    cycles,
+                )
+                .await
+            {
+                Ok(true) => return,
+                Ok(false) => {}
+                // register_rbf_candidate already ran after_process for the
+                // rejection; nothing more to do here.
+                Err(_) => return,
+            }
+        }
+
         let reject = {
             let mut queue = self.verify_queue.write().await;
             match queue.add_tx(resolved) {
@@ -184,14 +216,33 @@ impl ResolveHandler {
         let all_missing_parents_in_flight =
             self.service.all_missing_parents_in_flight(&parents).await;
 
-        if all_missing_parents_in_flight || job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
-            let mut job = job;
-            if !all_missing_parents_in_flight {
-                job.attempts += 1;
-            }
+        if all_missing_parents_in_flight {
+            // The parents are still in flight, so this orphan will resolve
+            // once they land. Re-enqueue it after a short delay instead of
+            // retrying immediately: the single ordered resolver would
+            // otherwise spin on this job until the parent is accepted.
             debug!(
-                "ordered resolve stage local orphan {} re-enqueue (attempt {}, all_missing_parents_in_flight: {})",
-                id, job.attempts, all_missing_parents_in_flight
+                "ordered resolve stage local orphan {} delayed re-enqueue (parents in flight)",
+                id
+            );
+            let ordered_queue = Arc::clone(&self.ordered_queue);
+            let service = self.service.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(LOCAL_ORPHAN_RETRY_DELAY).await;
+                let tx = job.tx.clone();
+                let source = job.source;
+                let mut ordered = ordered_queue.write().await;
+                if let Err(reject) = ordered.add_tx(job) {
+                    drop(ordered);
+                    service.reject_with_after_process(tx, source, reject).await;
+                }
+            });
+        } else if job.attempts < MAX_LOCAL_ORPHAN_ATTEMPTS {
+            let mut job = job;
+            job.attempts += 1;
+            debug!(
+                "ordered resolve stage local orphan {} re-enqueue (attempt {})",
+                id, job.attempts
             );
             let tx = job.tx.clone();
             let source = job.source;

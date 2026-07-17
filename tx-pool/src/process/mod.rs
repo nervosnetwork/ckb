@@ -529,22 +529,33 @@ impl TxPoolService {
     /// chance to enter the in-flight pipeline, otherwise it will be treated as a
     /// local orphan and have to wait for a retry.
     pub(crate) fn sort_txs_by_dependencies(txs: &mut Vec<TransactionView>) {
-        if txs.len() <= 1 {
+        Self::sort_by_dependencies(txs, |tx| tx);
+    }
+
+    /// Topologically sort a list of items that wrap transactions so that
+    /// parents are placed before their children. `tx_of` extracts the
+    /// transaction reference from each item.
+    pub(crate) fn sort_by_dependencies<T>(
+        items: &mut Vec<T>,
+        tx_of: impl Fn(&T) -> &TransactionView,
+    ) {
+        if items.len() <= 1 {
             return;
         }
 
         let mut output_to_index: HashMap<OutPoint, usize> =
-            HashMap::with_capacity(txs.len().saturating_mul(2));
-        for (i, tx) in txs.iter().enumerate() {
-            let tx_hash = tx.hash();
-            for idx in 0..tx.outputs().len() {
+            HashMap::with_capacity(items.len().saturating_mul(2));
+        for (i, item) in items.iter().enumerate() {
+            let tx_hash = tx_of(item).hash();
+            for idx in 0..tx_of(item).outputs().len() {
                 output_to_index.insert(OutPoint::new(tx_hash.clone(), idx as u32), i);
             }
         }
 
-        let mut in_degree = vec![0usize; txs.len()];
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); txs.len()];
-        for (i, tx) in txs.iter().enumerate() {
+        let mut in_degree = vec![0usize; items.len()];
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); items.len()];
+        for (i, item) in items.iter().enumerate() {
+            let tx = tx_of(item);
             for input in tx.input_pts_iter() {
                 if let Some(&parent) = output_to_index.get(&input)
                     && parent != i
@@ -564,8 +575,8 @@ impl TxPoolService {
             }
         }
 
-        let mut ready: VecDeque<usize> = (0..txs.len()).filter(|&i| in_degree[i] == 0).collect();
-        let mut sorted = Vec::with_capacity(txs.len());
+        let mut ready: VecDeque<usize> = (0..items.len()).filter(|&i| in_degree[i] == 0).collect();
+        let mut sorted = Vec::with_capacity(items.len());
         while let Some(i) = ready.pop_front() {
             sorted.push(i);
             for &child in &children[i] {
@@ -576,14 +587,14 @@ impl TxPoolService {
             }
         }
 
-        if sorted.len() != txs.len() {
+        if sorted.len() != items.len() {
             // A cycle should never happen in valid detached blocks, but if it
             // does we keep the original order rather than losing transactions.
             return;
         }
 
-        let mut remaining: Vec<Option<TransactionView>> = txs.drain(..).map(Some).collect();
-        txs.extend(
+        let mut remaining: Vec<Option<T>> = items.drain(..).map(Some).collect();
+        items.extend(
             sorted
                 .into_iter()
                 .map(|i| remaining[i].take().expect("index valid")),
@@ -773,8 +784,14 @@ impl TxPoolService {
                     }
                 }
 
-                let mut verify_queue = self.queues.verify_queue.write().await;
-                match verify_queue.add_tx(resolved) {
+                // Release the verify_queue lock before running after_process:
+                // after_process may acquire tx_pool and other locks, and must
+                // never run while holding a pipeline-queue write lock.
+                let add_result = {
+                    let mut verify_queue = self.queues.verify_queue.write().await;
+                    verify_queue.add_tx(resolved)
+                };
+                match add_result {
                     Ok(added) => Ok(added),
                     Err(reject) => {
                         self.after_process(tx, source, &Err(reject.clone())).await;
@@ -904,12 +921,12 @@ pub(crate) struct PreCheckedTx {
     pub(crate) tx_size: usize,
 }
 
+/// Transactions recovered from the conflict cache after a failed or partial
+/// RBF replacement, paired with their original pipeline source.
+pub(crate) type RecoveredTxs = Vec<(TransactionView, TxSource)>;
+
 /// Outcome of [`TxPoolService::try_submit_entry`].
-pub(crate) type SubmitEntryOutcome = (
-    Result<(), Reject>,
-    Vec<TransactionView>,
-    Vec<(TxEntry, Reject)>,
-);
+pub(crate) type SubmitEntryOutcome = (Result<(), Reject>, RecoveredTxs, Vec<(TxEntry, Reject)>);
 
 /// Input bundle for [`TxPoolService::verify_and_submit_core`].
 pub(crate) struct VerifyAndSubmitInput {
