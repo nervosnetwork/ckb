@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.208.0](https://github.com/nervosnetwork/ckb/compare/v0.207.0...v0.208.0) - 2026-07-14
+
+### Changed
+
+- sign key need key passphrase
+- bump to v0.208.0-rc0
+- Update CKB release signing key
+- Upgrade tentacle dependencies (#5277)
+- *(deps)* update crossbeam-epoch for RustSec advisory (#5276)
+- *(deps)* bump openssl from 0.10.77 to 0.10.81 (#5244)
+
+### Fixed
+
+- Fix Windows release CRT dependency (#5274)
+- Ensure integration test required checks fail on chunk failures (#5241) (by @Officeyutong)
+
+### Contributors
+
+- @Officeyutong
+
 ## [0.207.0](https://github.com/nervosnetwork/ckb/compare/v0.206.0...v0.207.0) - 2026-06-10
 
 ### Changed
