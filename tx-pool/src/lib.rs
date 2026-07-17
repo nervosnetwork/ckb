@@ -21,6 +21,17 @@
 //! `verify_queue`. Keeping this order everywhere (e.g. `remove_tx`,
 //! `ban_malformed`) avoids deadlocks.
 //!
+//! `pre_check_queue` is *not* part of the async hierarchy: it uses a
+//! `std::sync::Mutex` internally with short, never-awaiting critical
+//! sections, so it may be acquired at any point but must never be held
+//! across an `.await`.
+//!
+//! `after_process` (and everything it calls: relayer notification, ban,
+//! recent-reject recording, conflict-cache updates) must never be invoked
+//! while holding a lock from levels 1-4: it may acquire `tx_pool` and block
+//! on channels, so holding a pipeline lock across it stalls the pipeline
+//! and can self-deadlock.
+//!
 //! `block_assembler.template_lock` guards the current block template.
 //! `update_full` and `reset_template` acquire `template_lock` first and then
 //! read `tx_pool` so that a concurrent `Reset` cannot swap the template while

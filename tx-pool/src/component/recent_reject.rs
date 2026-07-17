@@ -1,4 +1,5 @@
 use crate::error::Reject;
+use crate::util::block_offload;
 use ckb_db::DBWithTTL;
 use ckb_error::{AnyError, OtherError};
 use ckb_logger::error;
@@ -30,6 +31,9 @@ pub struct RecentReject {
     /// thread-safe).  `put` / `get` acquire a *read* lock (concurrent), while
     /// `shrink` acquires a *write* lock (exclusive) to drop and recreate a
     /// column family.
+    ///
+    /// All DB access goes through [`block_offload`], which moves the blocking I/O
+    /// off the async executor when a tokio runtime is available.
     db: RwLock<DBWithTTL>,
 }
 
@@ -88,7 +92,7 @@ impl RecentReject {
         // cannot drop the column family while we are writing to it.
         let mut fast_path_ok = false;
         let mut is_new_key = false;
-        {
+        block_offload(|| {
             let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
             let existed = match db.get_pinned(&shard, hash_slice) {
                 Ok(v) => v.is_some(),
@@ -114,7 +118,8 @@ impl RecentReject {
                     }
                 }
             }
-        }
+            Ok(())
+        })?;
 
         if fast_path_ok {
             if is_new_key {
@@ -126,7 +131,7 @@ impl RecentReject {
         // Slow path: the shard column family is missing (e.g. `shrink`
         // dropped it but failed to recreate it).  Upgrade to a write lock,
         // create the column family on demand, and retry the write.
-        {
+        block_offload(|| {
             let mut db = self
                 .db
                 .write()
@@ -140,7 +145,8 @@ impl RecentReject {
                     return Err(err);
                 }
             }
-        }
+            Ok::<(), AnyError>(())
+        })?;
         // The shard was empty (it had just been dropped), so this is a new key.
         // Call `maybe_shrink` only after releasing the write lock to avoid
         // deadlock: `shrink` also needs the write lock.
@@ -161,17 +167,19 @@ impl RecentReject {
     pub fn get(&self, hash: &Byte32) -> Result<Option<String>, AnyError> {
         let slice = hash.as_slice();
         let shard = self.get_shard(slice).to_string();
-        let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
-        let ret = db.get_pinned(&shard, slice)?;
-        match ret {
-            Some(bytes) => {
-                let s = String::from_utf8(bytes.to_vec()).map_err(|e| {
-                    OtherError::new(format!("recent reject value is not valid utf-8: {e}"))
-                })?;
-                Ok(Some(s))
+        block_offload(|| {
+            let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
+            let ret = db.get_pinned(&shard, slice)?;
+            match ret {
+                Some(bytes) => {
+                    let s = String::from_utf8(bytes.to_vec()).map_err(|e| {
+                        OtherError::new(format!("recent reject value is not valid utf-8: {e}"))
+                    })?;
+                    Ok(Some(s))
+                }
+                None => Ok(None),
             }
-            None => Ok(None),
-        }
+        })
     }
 
     /// Returns the approximate total number of stored rejection entries.
@@ -196,26 +204,28 @@ impl RecentReject {
     }
 
     fn shrink(&self) -> Result<u64, AnyError> {
-        // Exclusive write lock: blocks all concurrent put/get while we drop
-        // and recreate a column family.  This is a very cold path (triggered
-        // only when key count exceeds `count_limit`), so brief contention is
-        // acceptable.
-        let mut db = self
-            .db
-            .write()
-            .map_err(|e| OtherError::new(e.to_string()))?;
-
         let mut rng = thread_rng();
         let shard = rng.sample(Uniform::new(0, self.shard_num)).to_string();
-        // Estimate the keys in this shard before dropping it, then decrement
-        // the atomic counter by that amount.  Using a bounded subtraction
-        // instead of `store(estimate_total_keys_num())` prevents the counter
-        // from being overwritten by a stale estimate while other threads are
-        // concurrently calling `put`.
-        let dropped_estimate = db.estimate_num_keys_cf(&shard)?.unwrap_or(0);
-        db.drop_cf(&shard)?;
-        db.create_cf_with_ttl(&shard, self.ttl)?;
-        drop(db);
+        let dropped_estimate = block_offload(|| {
+            // Exclusive write lock: blocks all concurrent put/get while we
+            // drop and recreate a column family.  This is a very cold path
+            // (triggered only when key count exceeds `count_limit`), so brief
+            // contention is acceptable.
+            let mut db = self
+                .db
+                .write()
+                .map_err(|e| OtherError::new(e.to_string()))?;
+
+            // Estimate the keys in this shard before dropping it, then
+            // decrement the atomic counter by that amount.  Using a bounded
+            // subtraction instead of `store(estimate_total_keys_num())`
+            // prevents the counter from being overwritten by a stale estimate
+            // while other threads are concurrently calling `put`.
+            let dropped_estimate = db.estimate_num_keys_cf(&shard)?.unwrap_or(0);
+            db.drop_cf(&shard)?;
+            db.create_cf_with_ttl(&shard, self.ttl)?;
+            Ok::<u64, AnyError>(dropped_estimate)
+        })?;
 
         // Saturating decrement to avoid underflow if the estimate overshoots
         // the actual counter.

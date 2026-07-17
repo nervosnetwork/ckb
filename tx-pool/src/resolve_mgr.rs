@@ -6,9 +6,8 @@
 //! `pre_check`, and routes the result to `VerifyQueue` or the orphan pool.
 //! Keeping this stage ordered reduces orphan-pool churn for dependent txs.
 
-use crate::component::ordered_resolve_queue::OrderedResolveQueue;
 use crate::component::pipeline_queue::PipelineQueue;
-use crate::component::verify_queue::VerifyQueue;
+use crate::component::pipeline_queues::PipelineQueues;
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
@@ -22,7 +21,7 @@ use ckb_types::packed::{Byte32, ProposalShortId};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 /// Maximum number of times a local orphan transaction is re-enqueued for
@@ -94,8 +93,7 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
 
 #[derive(Clone)]
 struct ResolveHandler {
-    ordered_queue: Arc<RwLock<OrderedResolveQueue>>,
-    verify_queue: Arc<RwLock<VerifyQueue>>,
+    queues: Arc<PipelineQueues>,
     service: TxPoolService,
 }
 
@@ -108,15 +106,15 @@ impl JobHandler for ResolveHandler {
     }
 
     async fn is_queue_empty(&self) -> bool {
-        self.ordered_queue.read().await.is_empty()
+        self.queues.ordered_resolve_queue.read().await.is_empty()
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
-        self.ordered_queue.read().await.subscribe()
+        self.queues.ordered_resolve_queue.read().await.subscribe()
     }
 
     async fn pop_one(&mut self) -> Option<ResolveJob> {
-        self.ordered_queue.write().await.pop_front()
+        self.queues.ordered_resolve_queue.write().await.pop_front()
     }
 
     async fn process_one(&mut self, job: ResolveJob) {
@@ -143,47 +141,17 @@ impl JobHandler for ResolveHandler {
 
 impl ResolveHandler {
     async fn push_to_verify_queue(&self, resolved: ResolvedTx) {
-        // Extract fields needed for after_process before resolved is consumed by add_tx.
-        let source = resolved.source;
-        let tx = resolved.tx.clone();
-
-        // Apply the same in-flight RBF fee-ordering gate as the entry
-        // classifier so dependent or recovered remote replacements cannot
-        // bypass it (they enter the verify queue through this path).
-        if let Some(cycles) = source.cycles() {
-            match self
-                .service
-                .register_rbf_candidate(
-                    tx.clone(),
-                    source,
-                    &resolved,
-                    resolved.fee,
-                    resolved.tx_size,
-                    cycles,
-                )
-                .await
-            {
-                Ok(true) => return,
-                Ok(false) => {}
-                // register_rbf_candidate already ran after_process for the
-                // rejection; nothing more to do here.
-                Err(_) => return,
+        let tx_hash = resolved.tx.hash();
+        // The verify queue has a single entry point so the in-flight RBF gate
+        // and the after_process side effects cannot be bypassed or duplicated.
+        match self.service.enqueue_resolved_tx(resolved).await {
+            Ok(true) => {}
+            Ok(false) => {
+                debug!("resolved tx {} already in verify queue", tx_hash);
             }
+            // enqueue_resolved_tx already ran after_process for the rejection.
+            Err(_) => {}
         }
-
-        let reject = {
-            let mut queue = self.verify_queue.write().await;
-            match queue.add_tx(resolved) {
-                Ok(true) => return,
-                Ok(false) => {
-                    debug!("resolved tx {} already in verify queue", tx.hash());
-                    return;
-                }
-                Err(reject) => reject,
-            }
-        };
-        // verify_queue lock released before after_process
-        self.service.after_process(tx, source, &Err(reject)).await;
     }
 
     async fn handle_orphan(
@@ -221,17 +189,22 @@ impl ResolveHandler {
             // once they land. Re-enqueue it after a short delay instead of
             // retrying immediately: the single ordered resolver would
             // otherwise spin on this job until the parent is accepted.
+            //
+            // Note: during the delay window the job lives only in this spawned
+            // task, so `remove_tx` cannot see it and it may be re-added after
+            // an explicit removal. The window is small (50ms) and harmless —
+            // the re-added tx goes through the normal pipeline again.
             debug!(
                 "ordered resolve stage local orphan {} delayed re-enqueue (parents in flight)",
                 id
             );
-            let ordered_queue = Arc::clone(&self.ordered_queue);
+            let queues = Arc::clone(&self.queues);
             let service = self.service.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(LOCAL_ORPHAN_RETRY_DELAY).await;
                 let tx = job.tx.clone();
                 let source = job.source;
-                let mut ordered = ordered_queue.write().await;
+                let mut ordered = queues.ordered_resolve_queue.write().await;
                 if let Err(reject) = ordered.add_tx(job) {
                     drop(ordered);
                     service.reject_with_after_process(tx, source, reject).await;
@@ -246,7 +219,7 @@ impl ResolveHandler {
             );
             let tx = job.tx.clone();
             let source = job.source;
-            let mut ordered = self.ordered_queue.write().await;
+            let mut ordered = self.queues.ordered_resolve_queue.write().await;
             if let Err(reject) = ordered.add_tx(job) {
                 drop(ordered);
                 self.service
@@ -285,16 +258,11 @@ pub(crate) struct OrderedResolver {
 impl OrderedResolver {
     pub fn new(
         service: TxPoolService,
-        ordered_queue: Arc<RwLock<OrderedResolveQueue>>,
-        verify_queue: Arc<RwLock<VerifyQueue>>,
+        queues: Arc<PipelineQueues>,
         command_rx: watch::Receiver<ChunkCommand>,
         exit_signal: CancellationToken,
     ) -> Self {
-        let handler = ResolveHandler {
-            ordered_queue,
-            verify_queue,
-            service,
-        };
+        let handler = ResolveHandler { queues, service };
         Self {
             runner: WorkerRunner::new(handler, command_rx, exit_signal),
         }

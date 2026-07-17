@@ -262,7 +262,7 @@ impl PoolMap {
             })
     }
 
-    /// Inesrt a `TxEntry` into pool_map.
+    /// Insert a `TxEntry` into pool_map.
     ///
     /// ## Returns
     ///
@@ -281,16 +281,54 @@ impl PoolMap {
             return Ok((false, evicts));
         }
         trace!("pool_map.add_{:?} {}", status, entry.transaction().hash());
+
+        // All fallible checks run *before* any mutation. A failure after
+        // `check_and_record_ancestors` has evicted transactions would lose the
+        // evicted set, because the `Err` return cannot carry it.
+        self.pre_validate_entry_edges(&entry)?;
+        let (total_tx_size, total_tx_cycles) =
+            self.update_stat_for_add_tx(entry.size, entry.cycles)?;
+
         evicts = self.check_and_record_ancestors(&mut entry)?;
-        self.record_entry_edges(&entry)?;
+        self.record_entry_edges(&entry);
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
         self.track_entry_statistics(None, Some(status));
-        let (total_tx_size, total_tx_cycles) =
-            self.update_stat_for_add_tx(entry.size, entry.cycles)?;
         self.stats.total_tx_size.set(total_tx_size);
         self.stats.total_tx_cycles.set(total_tx_cycles);
         Ok((true, evicts))
+    }
+
+    /// Read-only validation of the edge conflicts that `record_entry_edges`
+    /// would otherwise discover mid-mutation:
+    ///
+    /// - none of the entry's inputs is already consumed by another in-pool tx;
+    /// - none of the entry's cell-deps is consumed by another in-pool tx
+    ///   (deps that are also inputs of this same tx are exempt).
+    ///
+    /// Between this check and `record_entry_edges` only
+    /// `check_and_record_ancestors` runs, which can *free* inputs but never
+    /// occupy new ones, so the validation result stays valid.
+    fn pre_validate_entry_edges(&self, entry: &TxEntry) -> Result<(), Reject> {
+        let inputs: HashSet<OutPoint> = entry.transaction().input_pts_iter().collect();
+        for i in &inputs {
+            if let Some(conflict) = self.out_point_index.get_input_ref(i) {
+                debug!(
+                    "pre_validate_entry_edges: input {:?} already consumed by {}",
+                    i, conflict
+                );
+                return Err(Reject::Resolve(OutPointError::Dead(i.clone())));
+            }
+        }
+        for d in entry.related_dep_out_points() {
+            if inputs.contains(d) {
+                continue;
+            }
+            if self.out_point_index.get_input_ref(d).is_some() {
+                return Err(Reject::Resolve(OutPointError::Dead(d.clone())));
+            }
+        }
+        Ok(())
     }
 
     /// Change the status of the entry, only used for `gap_rtx` and `proposed_rtx`
@@ -556,7 +594,7 @@ impl PoolMap {
         }
     }
 
-    fn record_entry_edges(&mut self, entry: &TxEntry) -> Result<(), Reject> {
+    fn record_entry_edges(&mut self, entry: &TxEntry) {
         let tx_short_id: ProposalShortId = entry.proposal_short_id();
         let header_deps = entry.transaction().header_deps();
         let related_dep_out_points: Vec<_> = entry.related_dep_out_points().cloned().collect();
@@ -564,9 +602,14 @@ impl PoolMap {
 
         // if input reference a in-pool output, connect it
         // otherwise, record input for conflict check
+        //
+        // Cannot fail: `add_entry` ran `pre_validate_entry_edges` before any
+        // mutation, and the only mutation in between (ancestor eviction) frees
+        // inputs rather than occupying them.
         for i in &inputs {
             self.out_point_index
-                .insert_input(i.to_owned(), tx_short_id.clone())?;
+                .insert_input(i.to_owned(), tx_short_id.clone())
+                .expect("entry inputs pre-validated as unoccupied");
         }
 
         // record dep-txid
@@ -578,9 +621,7 @@ impl PoolMap {
             if inputs.contains(&d) {
                 continue;
             }
-            if self.out_point_index.get_input_ref(&d).is_some() {
-                return Err(Reject::Resolve(OutPointError::Dead(d)));
-            }
+            debug_assert!(self.out_point_index.get_input_ref(&d).is_none());
             self.out_point_index.insert_deps(d, tx_short_id.clone());
         }
         // record header_deps
@@ -589,7 +630,6 @@ impl PoolMap {
                 .header_deps
                 .insert(tx_short_id, header_deps.into_iter().collect());
         }
-        Ok(())
     }
 
     fn record_entry_descendants(&mut self, entry: &TxEntry) {

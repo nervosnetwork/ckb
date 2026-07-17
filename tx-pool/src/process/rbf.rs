@@ -4,8 +4,7 @@ use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::resolved_tx::ResolvedTx;
 use crate::tx_source::TxSource;
-use ckb_types::core::tx_pool::get_transaction_weight;
-use ckb_types::core::{Capacity, Cycle, FeeRate, TransactionView};
+use ckb_types::core::{Capacity, FeeRate, TransactionView};
 use ckb_types::packed::{OutPoint, ProposalShortId};
 use std::collections::HashSet;
 
@@ -16,30 +15,22 @@ impl super::TxPoolService {
     /// failure, cycles mismatch, successful submission) to prevent ghost
     /// entries that are never cleaned up.
     pub(crate) async fn remove_rbf_candidate(&self, id: &ProposalShortId) {
-        self.rbf_candidates.write().await.remove(id);
+        self.queues.rbf_candidates.write().await.remove(id);
     }
 
-    /// Compute the weight-based fee rate used for RBF in-flight candidate
+    /// Compute the size-based fee rate used for RBF in-flight candidate
     /// ordering.
     ///
-    /// This fee rate uses [`get_transaction_weight`], which incorporates the
-    /// peer-supplied declared cycles. It is only used to decide which remote
-    /// candidate should be allowed into the verify queue first when multiple
-    /// candidates conflict on the same inputs.
-    ///
-    /// This is intentionally different from the size-based fee rate used for the
-    /// tx-pool `min_fee_rate` and the RBF replacement fee floor (see
-    /// [`TxPool::calculate_min_replace_fee`]), because at submission time cycles
-    /// are not reliably available, whereas here the remote peer has already
-    /// declared them.
-    pub(crate) fn compute_weight_based_fee_rate(
-        &self,
-        fee: Capacity,
-        tx_size: usize,
-        cycles: Cycle,
-    ) -> FeeRate {
-        let weight = get_transaction_weight(tx_size, cycles);
-        FeeRate::calculate(fee, weight)
+    /// The gate must not trust peer-declared cycles: a malicious peer could
+    /// declare artificially low cycles to inflate a weight-based fee rate and
+    /// displace honest candidates (the lie is only caught later, at
+    /// `DeclaredWrongCycles`, after the honest candidate has already been
+    /// evicted from the pipeline). Using the same size-based fee rate as
+    /// `min_fee_rate` and [`TxPool::calculate_min_replace_fee`] removes the
+    /// manipulable input and keeps the ordering consistent with the pool's
+    /// RBF replacement fee floor.
+    pub(crate) fn compute_size_based_fee_rate(&self, fee: Capacity, tx_size: usize) -> FeeRate {
+        FeeRate::calculate(fee, tx_size as u64)
     }
 
     /// Find the transaction inputs that are currently consumed by in-pool txs.
@@ -97,7 +88,8 @@ impl super::TxPoolService {
                 .collect()
         };
         if !outpoints.is_empty() {
-            self.rbf_candidates
+            self.queues
+                .rbf_candidates
                 .write()
                 .await
                 .remove_by_conflict_outpoints(&outpoints);
@@ -174,7 +166,6 @@ impl super::TxPoolService {
         resolved: &ResolvedTx,
         fee: Capacity,
         tx_size: usize,
-        cycles: Cycle,
     ) -> Result<bool, Reject> {
         let id = tx.proposal_short_id();
 
@@ -193,8 +184,8 @@ impl super::TxPoolService {
             return Ok(false);
         }
 
-        let fee_rate = self.compute_weight_based_fee_rate(fee, tx_size, cycles);
-        let mut rbf_guard = self.rbf_candidates.write().await;
+        let fee_rate = self.compute_size_based_fee_rate(fee, tx_size);
+        let mut rbf_guard = self.queues.rbf_candidates.write().await;
         match rbf_guard.register(id.clone(), fee_rate, &conflict_inputs) {
             Ok(registration) => {
                 let mut verify_queue = self.queues.verify_queue.write().await;

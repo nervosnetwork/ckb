@@ -17,20 +17,17 @@
 //! current candidate aborts.  The candidate is unregistered after `submit_entry`
 //! finishes, whether it succeeded or failed.
 //!
-//! # Weight-based vs size-based fee rates
+//! # Fee-rate unit
 //!
-//! The fee rates stored here are *weight-based*: they are computed with
-//! [`ckb_types::core::tx_pool::get_transaction_weight`], which uses both the
-//! serialized transaction size and the declared cycles.  Weight is available
-//! here because candidates are registered after pre-check, when the remote peer
-//! has already supplied a cycles value.
+//! The fee rates stored here are *size-based* (`FeeRate::calculate(fee,
+//! tx_size)`), the same unit used by `min_fee_rate` and by the RBF replacement
+//! fee floor ([`TxPool::calculate_min_replace_fee`]).
 //!
-//! This is deliberately different from the RBF replacement fee floor enforced
-//! by the pool (see [`TxPool::calculate_min_replace_fee`]) and the normal
-//! `min_fee_rate` check, both of which use the raw serialized size because
-//! cycles are not available at the moment a transaction is first submitted.
-//! The weight-based ordering here only affects scheduling among conflicting
-//! in-flight candidates; it never lowers the size-based fee floor.
+//! A weight-based rate would incorporate peer-declared cycles, but those are
+//! not verified until the verify stage (`DeclaredWrongCycles`): a malicious
+//! peer could declare artificially low cycles to inflate its weight-based fee
+//! rate and displace honest candidates before the lie is caught. Using the
+//! size-based rate removes that manipulable input from the ordering gate.
 
 use ckb_logger::debug;
 use ckb_types::{
@@ -39,15 +36,14 @@ use ckb_types::{
 };
 use std::collections::{HashMap, HashSet};
 
-/// Lightweight weight-based fee-rate-ordering gate for in-flight RBF
+/// Lightweight size-based fee-rate-ordering gate for in-flight RBF
 /// replacements.
 ///
-/// See the module-level documentation for the distinction between the
-/// weight-based ordering used here and the size-based fee checks used by the
-/// pool.
+/// See the module-level documentation for why the gate uses the same
+/// size-based fee-rate unit as the pool's fee checks.
 #[derive(Default)]
 pub(crate) struct RbfCandidates {
-    /// Highest weight-based fee-rate candidate currently known for each conflict
+    /// Highest size-based fee-rate candidate currently known for each conflict
     /// input.
     by_input: HashMap<OutPoint, (FeeRate, ProposalShortId)>,
     /// Reverse index so we can clean up by candidate id when it leaves the
@@ -92,23 +88,22 @@ impl RbfCandidates {
     /// if the insertion fails. Returns `Err` if a higher-or-equal-fee-rate
     /// candidate is already registered for any input.
     ///
-    /// `weight_based_fee_rate` must be the weight-based fee rate (see
-    /// module-level docs); comparisons inside the index assume all stored rates
-    /// use the same unit.
+    /// `fee_rate` must be the size-based fee rate (see module-level docs);
+    /// comparisons inside the index assume all stored rates use the same unit.
     pub fn register(
         &mut self,
         id: ProposalShortId,
-        weight_based_fee_rate: FeeRate,
+        fee_rate: FeeRate,
         conflict_inputs: &[OutPoint],
     ) -> Result<RbfRegistration, String> {
         for input in conflict_inputs {
             if let Some((existing_fee_rate, existing_id)) = self.by_input.get(input)
-                && (*existing_fee_rate > weight_based_fee_rate
-                    || (*existing_fee_rate == weight_based_fee_rate && *existing_id != id))
+                && (*existing_fee_rate > fee_rate
+                    || (*existing_fee_rate == fee_rate && *existing_id != id))
             {
                 debug!(
                     "RBF candidate {} fee_rate {} rejected: input {:?} already held by {} fee_rate {}",
-                    id, weight_based_fee_rate, input, existing_id, existing_fee_rate
+                    id, fee_rate, input, existing_id, existing_fee_rate
                 );
                 return Err(format!(
                     "input {:?} already has higher-or-equal-fee-rate RBF candidate {}",
@@ -124,7 +119,7 @@ impl RbfCandidates {
         let mut seen: HashSet<ProposalShortId> = HashSet::new();
         for input in conflict_inputs {
             if let Some((existing_fee_rate, existing_id)) = self.by_input.get(input)
-                && *existing_fee_rate < weight_based_fee_rate
+                && *existing_fee_rate < fee_rate
                 && existing_id != &id
                 && seen.insert(existing_id.clone())
                 && let Some(inputs) = self.by_id.get(existing_id)
@@ -135,7 +130,7 @@ impl RbfCandidates {
 
         Ok(RbfRegistration {
             new_id: id,
-            new_fee_rate: weight_based_fee_rate,
+            new_fee_rate: fee_rate,
             new_conflict_inputs: conflict_inputs.to_vec(),
             displaced,
         })
@@ -179,22 +174,22 @@ impl RbfCandidates {
         self.by_id.insert(new_id, new_conflict_inputs);
     }
 
-    /// Returns true if a higher weight-based fee-rate candidate has been
+    /// Returns true if a higher size-based fee-rate candidate has been
     /// registered for any of the given conflict inputs.  Equal-fee-rate entries
     /// are allowed only when the id matches (i.e. the candidate is checking
     /// itself).
     pub fn is_superseded(
         &self,
         id: &ProposalShortId,
-        weight_based_fee_rate: FeeRate,
+        fee_rate: FeeRate,
         conflict_inputs: &[OutPoint],
     ) -> bool {
         conflict_inputs.iter().any(|input| {
             self.by_input
                 .get(input)
                 .is_some_and(|(existing_fee_rate, existing_id)| {
-                    *existing_fee_rate > weight_based_fee_rate
-                        || (*existing_fee_rate == weight_based_fee_rate && existing_id != id)
+                    *existing_fee_rate > fee_rate
+                        || (*existing_fee_rate == fee_rate && existing_id != id)
                 })
         })
     }

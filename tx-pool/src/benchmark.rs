@@ -429,8 +429,8 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
         let handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
         handles.push(crate::service::spawn_deferred_worker(
             &handle,
-            Arc::clone(&parts.service.queues.ordered_resolve_queue),
-            Arc::clone(&parts.service.txs_verify_cache),
+            Arc::clone(&parts.service.queues),
+            Arc::clone(&parts.service.aux.txs_verify_cache),
             parts.deferred_receiver,
             parts.signal.child_token(),
         ));
@@ -444,9 +444,9 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
         for _ in 0..pre_check_workers {
             let svc = parts.service.clone();
-            let queue = Arc::clone(&parts.service.queues.pre_check_queue);
+            let queues = Arc::clone(&parts.service.queues);
             handles.push(tokio::spawn(async move {
-                while let Some(job) = queue.pop().await {
+                while let Some(job) = queues.pre_check_queue.pop().await {
                     let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             }));
@@ -464,8 +464,7 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
 
     let ordered_resolver = OrderedResolver::new(
         parts.service.clone(),
-        Arc::clone(&parts.service.queues.ordered_resolve_queue),
-        Arc::clone(&parts.service.queues.verify_queue),
+        Arc::clone(&parts.service.queues),
         chunk_tx.subscribe(),
         signal.child_token(),
     );

@@ -1,11 +1,9 @@
 use crate::callback::Callbacks;
 use crate::component::entry::TxEntry;
-use crate::component::pipeline_queue::PipelineQueue;
 use crate::component::pool_map::Status;
 use crate::error::Reject;
 use crate::pool::TxPool;
 use crate::service::TxPoolService;
-use crate::try_or_return;
 use crate::util::{time_relative_verify, verify_rtx};
 use ckb_logger::{debug, info, warn};
 use ckb_script::ChunkCommand;
@@ -19,10 +17,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
 
-use super::{
-    PreCheckedTx, RecoveredTxs, SubmitEntryOutcome, VerifyAndSubmitInput, get_tx_status,
-    status_to_verify_env,
-};
+use super::{PreCheckedTx, RecoveredTxs, SubmitEntryOutcome, get_tx_status, status_to_verify_env};
 use crate::tx_source::TxSource;
 
 type AddToPoolFn = fn(&mut TxPool, TxEntry) -> Result<(bool, HashSet<TxEntry>), Reject>;
@@ -30,7 +25,7 @@ type PoolCallbackFn = fn(&Callbacks, &TxEntry);
 
 impl TxPoolService {
     pub(crate) async fn fetch_tx_verify_cache(&self, tx: &TransactionView) -> Option<CacheEntry> {
-        let guard = self.txs_verify_cache.read().await;
+        let guard = self.aux.txs_verify_cache.read().await;
         guard.peek(&tx.witness_hash()).cloned()
     }
     /// Check RBF conflicts, re-verify if the tip changed while the tx was in
@@ -211,8 +206,7 @@ impl TxPoolService {
         result: Result<(), Reject>,
         recovered: RecoveredTxs,
         reject_events: Vec<(TxEntry, Reject)>,
-        snapshot: Arc<Snapshot>,
-    ) -> (Result<(), Reject>, Arc<Snapshot>) {
+    ) -> Result<(), Reject> {
         // Dispatch reject callbacks outside the write lock, regardless of
         // whether the submission itself succeeded.
         for (entry, reject) in &reject_events {
@@ -245,7 +239,7 @@ impl TxPoolService {
         // remove it from the in-flight fee-ordering gate.
         self.remove_rbf_candidate(entry_id).await;
 
-        (result, snapshot)
+        result
     }
 
     pub(crate) async fn submit_entry(
@@ -253,7 +247,7 @@ impl TxPoolService {
         pre_resolve_tip: Byte32,
         entry: TxEntry,
         status: Status,
-    ) -> (Result<(), Reject>, Arc<Snapshot>) {
+    ) -> Result<(), Reject> {
         let conflict_inputs = self.find_conflict_inputs(entry.transaction()).await;
         let entry_id = entry.proposal_short_id();
 
@@ -263,20 +257,19 @@ impl TxPoolService {
             // check and the actual submit. The lock ordering here is rbf
             // (read) -> tx_pool (write), consistent with the intended
             // pipeline hierarchy.
-            let entry_fee_rate = entry.fee_rate();
-            let rbf_guard = self.rbf_candidates.read().await;
+            //
+            // The gate stores size-based fee rates (see
+            // `compute_size_based_fee_rate`), so the entry must be compared in
+            // the same unit, not via `TxEntry::fee_rate` (which is
+            // weight-based).
+            let entry_fee_rate = self.compute_size_based_fee_rate(entry.fee, entry.size);
+            let rbf_guard = self.queues.rbf_candidates.read().await;
             if rbf_guard.is_superseded(&entry_id, entry_fee_rate, &conflict_inputs) {
                 drop(rbf_guard);
                 self.remove_rbf_candidate(&entry_id).await;
-                let (_, snapshot) = self
-                    .read_tx_pool_with_snapshot(|_tx_pool, snapshot| snapshot)
-                    .await;
-                return (
-                    Err(Reject::RBFRejected(
-                        "superseded by higher-fee-rate in-flight candidate".to_string(),
-                    )),
-                    snapshot,
-                );
+                return Err(Reject::RBFRejected(
+                    "superseded by higher-fee-rate in-flight candidate".to_string(),
+                ));
             }
 
             let mut tx_pool = self.tx_pool.write().await;
@@ -292,7 +285,7 @@ impl TxPoolService {
             drop(tx_pool);
             drop(rbf_guard);
 
-            self.dispatch_submit_aftermath(&entry_id, result, recovered, reject_events, snapshot)
+            self.dispatch_submit_aftermath(&entry_id, result, recovered, reject_events)
                 .await
         } else {
             // Separate the successful result from the collected reject events and
@@ -302,20 +295,22 @@ impl TxPoolService {
             // replacement fails the pool ancestor/size limits). Without this, a
             // remote peer can evict in-pool txs via a crafted RBF replacement that
             // is itself rejected, leaving the node with neither transaction.
-            let ((result, recovered, reject_events), snapshot) = self
-                .with_tx_pool_write_lock(|tx_pool, snapshot| {
-                    self.try_submit_entry(
-                        tx_pool,
-                        snapshot,
-                        pre_resolve_tip.clone(),
-                        entry.clone(),
-                        status,
-                        entry_id.clone(),
-                    )
-                })
-                .await;
+            let (result, recovered, reject_events) = {
+                let mut tx_pool = self.tx_pool.write().await;
+                let snapshot = tx_pool.cloned_snapshot();
+                let outcome = self.try_submit_entry(
+                    &mut tx_pool,
+                    snapshot,
+                    pre_resolve_tip,
+                    entry,
+                    status,
+                    entry_id.clone(),
+                );
+                drop(tx_pool);
+                outcome
+            };
 
-            self.dispatch_submit_aftermath(&entry_id, result, recovered, reject_events, snapshot)
+            self.dispatch_submit_aftermath(&entry_id, result, recovered, reject_events)
                 .await
         }
     }
@@ -332,32 +327,8 @@ impl TxPoolService {
         &self,
         resolved: crate::resolved_tx::ResolvedTx,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Option<Result<Completed, Reject>> {
-        let crate::resolved_tx::ResolvedTx {
-            tx,
-            rtx,
-            status,
-            fee,
-            tx_size,
-            pre_resolve_tip,
-            snapshot,
-            source,
-        } = resolved;
-
-        self.verify_and_submit_core(
-            VerifyAndSubmitInput {
-                tx,
-                rtx,
-                status,
-                fee,
-                tx_size,
-                pre_resolve_tip,
-                snapshot,
-                source,
-            },
-            command_rx,
-        )
-        .await
+    ) -> Result<Completed, Reject> {
+        self.verify_and_submit_core(resolved, command_rx).await
     }
     /// Side effects run after a transaction has been successfully submitted to
     /// the pool: notify the block assembler, wake the ordered resolver, enqueue
@@ -377,10 +348,7 @@ impl TxPoolService {
         // are waiting in the ordered resolve queue (e.g. children of a parent
         // that was just re-added after a reorg). Wake the ordered resolver so
         // those children can be retried promptly.
-        let queue = self.queues.ordered_resolve_queue.read().await;
-        if !queue.is_empty() {
-            queue.subscribe().notify_one();
-        }
+        self.wake_ordered_resolver_if_needed().await;
 
         if verify_cache.is_none() {
             // Defer cache update to the background worker instead of
@@ -415,10 +383,10 @@ impl TxPoolService {
     /// resolve step.
     pub(crate) async fn verify_and_submit_core(
         &self,
-        input: VerifyAndSubmitInput,
+        resolved: crate::resolved_tx::ResolvedTx,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    ) -> Option<Result<Completed, Reject>> {
-        let VerifyAndSubmitInput {
+    ) -> Result<Completed, Reject> {
+        let crate::resolved_tx::ResolvedTx {
             tx,
             rtx,
             status,
@@ -427,7 +395,7 @@ impl TxPoolService {
             pre_resolve_tip,
             snapshot,
             source,
-        } = input;
+        } = resolved;
         let declared_cycles = source.cycles();
         // Verification uses the snapshot captured at resolve time. If the chain
         // tip has advanced since then (detected via pre_resolve_tip != tip_hash),
@@ -456,7 +424,7 @@ impl TxPoolService {
             Ok(v) => v,
             Err(err) => {
                 self.remove_rbf_candidate(&tx.proposal_short_id()).await;
-                return Some(Err(err));
+                return Err(err);
             }
         };
 
@@ -470,13 +438,12 @@ impl TxPoolService {
                 tx.hash()
             );
             self.remove_rbf_candidate(&tx.proposal_short_id()).await;
-            return Some(Err(Reject::DeclaredWrongCycles(declared, verified.cycles)));
+            return Err(Reject::DeclaredWrongCycles(declared, verified.cycles));
         }
 
         let entry = TxEntry::new(rtx, verified.cycles, fee, tx_size);
 
-        let (ret, _submit_snapshot) = self.submit_entry(pre_resolve_tip, entry, status).await;
-        try_or_return!(ret);
+        self.submit_entry(pre_resolve_tip, entry, status).await?;
 
         self.post_submit_side_effects(
             status,
@@ -488,7 +455,7 @@ impl TxPoolService {
         )
         .await;
 
-        Some(Ok(verified))
+        Ok(verified)
     }
     pub(crate) async fn test_accept_tx_core(
         &self,

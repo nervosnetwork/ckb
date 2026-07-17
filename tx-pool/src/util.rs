@@ -91,16 +91,35 @@ pub(crate) fn non_contextual_verify(
     Ok(())
 }
 
+/// Run a blocking operation off the async executor when running on a
+/// multi-threaded tokio runtime (all production paths), or inline otherwise
+/// (e.g. current-thread test runtimes, plain sync tests).
+///
+/// Used for operations that can hit disk, such as RocksDB access or the
+/// snapshot data loader, which must not run directly on the async executor.
+pub(crate) fn block_offload<T>(f: impl FnOnce() -> T) -> T {
+    match Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            block_in_place(f)
+        }
+        _ => f(),
+    }
+}
+
 fn verify_dao_script_size(
     snapshot: &Snapshot,
     rtx: Arc<ResolvedTransaction>,
 ) -> Result<(), ckb_error::Error> {
-    DaoScriptSizeVerifier::new(
-        Arc::clone(&rtx),
-        snapshot.cloned_consensus(),
-        snapshot.borrow_as_data_loader(),
-    )
-    .verify()
+    // DAO verification loads cell data through the data loader, which may hit
+    // RocksDB. Keep it off the async executor, like the script verifier.
+    block_offload(|| {
+        DaoScriptSizeVerifier::new(
+            Arc::clone(&rtx),
+            snapshot.cloned_consensus(),
+            snapshot.borrow_as_data_loader(),
+        )
+        .verify()
+    })
 }
 
 pub(crate) async fn verify_rtx(
@@ -184,17 +203,4 @@ pub(crate) fn panic_payload_to_string(payload: &(dyn std::any::Any + Send)) -> S
     } else {
         "non-string panic payload".to_owned()
     }
-}
-
-/// Unwraps a result or propagates its error inside an `Option<Result<_, _>>`.
-#[macro_export]
-macro_rules! try_or_return {
-    ($expr:expr) => {
-        match $expr {
-            core::result::Result::Ok(val) => val,
-            core::result::Result::Err(err) => {
-                return Some(core::result::Result::Err(core::convert::From::from(err)));
-            }
-        }
-    };
 }

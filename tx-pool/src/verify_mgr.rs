@@ -1,5 +1,5 @@
 use crate::component::pipeline_queue::PipelineQueue;
-use crate::component::verify_queue::VerifyQueue;
+use crate::component::pipeline_queues::PipelineQueues;
 use crate::resolved_tx::ResolvedTx;
 use crate::service::TxPoolService;
 use crate::worker::{JobHandler, WorkerOutcome, WorkerRunner};
@@ -7,7 +7,7 @@ use ckb_logger::{debug, error, info};
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,7 +24,7 @@ enum WorkerExit {
 
 #[derive(Clone)]
 struct VerifyHandler {
-    tasks: Arc<RwLock<VerifyQueue>>,
+    queues: Arc<PipelineQueues>,
     service: TxPoolService,
     role: WorkerRole,
     /// A clone of the command receiver used by `verify_and_submit_tx` to check
@@ -42,15 +42,15 @@ impl JobHandler for VerifyHandler {
     }
 
     async fn is_queue_empty(&self) -> bool {
-        self.tasks.read().await.is_empty()
+        self.queues.verify_queue.read().await.is_empty()
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
-        self.tasks.read().await.subscribe()
+        self.queues.verify_queue.read().await.subscribe()
     }
 
     async fn pop_one(&mut self) -> Option<ResolvedTx> {
-        let mut tasks = self.tasks.write().await;
+        let mut tasks = self.queues.verify_queue.write().await;
         match tasks.pop_front(self.role == WorkerRole::OnlySmallCycleTx) {
             Some(resolved) => Some(resolved),
             None => {
@@ -69,15 +69,11 @@ impl JobHandler for VerifyHandler {
     async fn process_one(&mut self, resolved: ResolvedTx) {
         let tx = resolved.tx.clone();
         let source = resolved.source;
-        if let Some(res) = self
+        let res = self
             .service
             .verify_and_submit_tx(resolved, Some(&mut self.command_rx))
-            .await
-        {
-            self.service.after_process(tx.clone(), source, &res).await;
-        } else {
-            info!("verify_and_submit_tx for tx: {} returned none", tx.hash());
-        }
+            .await;
+        self.service.after_process(tx.clone(), source, &res).await;
     }
 
     fn make_exit(&self, outcome: WorkerOutcome) -> WorkerExit {
@@ -108,7 +104,7 @@ impl VerifyMgr {
         let worker_num = service.tx_pool_config.max_tx_verify_workers;
         let workers: Vec<_> = (0..worker_num)
             .map({
-                let tasks = Arc::clone(&service.queues.verify_queue);
+                let queues = Arc::clone(&service.queues);
                 let signal_exit = signal_exit.clone();
                 move |idx| {
                     let role = if idx == 0 && worker_num > 1 {
@@ -117,7 +113,7 @@ impl VerifyMgr {
                         WorkerRole::SubmitTimeFirst
                     };
                     let handler = VerifyHandler {
-                        tasks: Arc::clone(&tasks),
+                        queues: Arc::clone(&queues),
                         service: service.clone(),
                         role,
                         command_rx: command_rx.clone(),

@@ -248,13 +248,22 @@ impl TxPoolServiceBuilder {
         } = self;
 
         let consensus = snapshot.cloned_consensus();
-        let ordered_resolve_queue = Arc::new(RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ));
-        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
-            tx_pool_config.max_tx_verify_cycles,
-            tx_pool_config.verify_ordering,
-        )));
+        let pre_check_cancel = signal_receiver.child_token();
+        // One `Arc` shared by the service and every worker: the queue fields
+        // inside are plain locks, not per-queue `Arc`s.
+        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: RwLock::new(
+                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+            ),
+            verify_queue: RwLock::new(VerifyQueue::new(
+                tx_pool_config.max_tx_verify_cycles,
+                tx_pool_config.verify_ordering,
+            )),
+            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
+                pre_check_cancel.clone(),
+            ),
+            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
+        });
 
         let tx_pool = TxPool::new(tx_pool_config, snapshot);
         let txs = match tx_pool.load_from_file() {
@@ -273,10 +282,6 @@ impl TxPoolServiceBuilder {
         // on the shared tokio runtime.
         let pre_check_workers =
             max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-        let pre_check_cancel = signal_receiver.child_token();
-        let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
-            pre_check_cancel.clone(),
-        ));
 
         let (deferred_sender, deferred_receiver) =
             mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
@@ -286,37 +291,32 @@ impl TxPoolServiceBuilder {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
             block_assembler,
-            txs_verify_cache,
             callbacks: Arc::new(callbacks),
             tx_relay_sender,
             block_assembler_sender,
             network,
             consensus,
-            fee_estimator,
-            recent_reject,
-            queues: crate::component::pipeline_queues::PipelineQueues {
-                ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-                verify_queue: Arc::clone(&verify_queue),
-                pre_check_queue: Arc::clone(&pre_check_queue),
+            aux: crate::service::AuxServices {
+                txs_verify_cache,
+                recent_reject,
+                fee_estimator,
             },
+            queues: Arc::clone(&queues),
             chunk_rx: chunk_rx.clone(),
-            rbf_candidates: Arc::new(RwLock::new(
-                crate::component::rbf_candidates::RbfCandidates::new(),
-            )),
             deferred_sender,
         };
 
         let deferred_handle = spawn_deferred_worker(
             &handle,
-            Arc::clone(&service.queues.ordered_resolve_queue),
-            Arc::clone(&service.txs_verify_cache),
+            Arc::clone(&queues),
+            Arc::clone(&service.aux.txs_verify_cache),
             deferred_receiver,
             signal_receiver.child_token(),
         );
         let pre_check_handles = Self::spawn_pre_check_workers(
             &handle,
             service.clone(),
-            Arc::clone(&pre_check_queue),
+            Arc::clone(&queues),
             pre_check_cancel,
             pre_check_workers,
         );
@@ -329,8 +329,7 @@ impl TxPoolServiceBuilder {
         let resolver_handle = Self::spawn_resolver_monitor(
             &handle,
             service.clone(),
-            Arc::clone(&ordered_resolve_queue),
-            Arc::clone(&verify_queue),
+            Arc::clone(&queues),
             chunk_rx,
             signal_receiver.child_token(),
         );
@@ -377,21 +376,21 @@ impl TxPoolServiceBuilder {
     fn spawn_pre_check_workers(
         handle: &Handle,
         service: TxPoolService,
-        pre_check_queue: Arc<crate::component::pre_check_queue::PreCheckQueue>,
+        queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
         pre_check_cancel: CancellationToken,
         count: usize,
     ) -> Vec<tokio::task::JoinHandle<()>> {
         let mut handles = Vec::with_capacity(count);
         for _ in 0..count {
             let svc = service.clone();
-            let queue = Arc::clone(&pre_check_queue);
+            let queues = Arc::clone(&queues);
             let cancel = pre_check_cancel.child_token();
             let handle = handle.spawn(async move {
                 loop {
                     let svc = svc.clone();
-                    let queue = Arc::clone(&queue);
+                    let queues = Arc::clone(&queues);
                     let worker = async move {
-                        while let Some(job) = queue.pop().await {
+                        while let Some(job) = queues.pre_check_queue.pop().await {
                             let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                         }
                     };
@@ -439,10 +438,7 @@ impl TxPoolServiceBuilder {
     fn spawn_resolver_monitor(
         handle: &Handle,
         service: TxPoolService,
-        ordered_resolve_queue: Arc<
-            RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>,
-        >,
-        verify_queue: Arc<RwLock<VerifyQueue>>,
+        queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
         chunk_rx: watch::Receiver<ChunkCommand>,
         resolver_exit_signal: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
@@ -450,8 +446,7 @@ impl TxPoolServiceBuilder {
             loop {
                 let resolver = crate::resolve_mgr::OrderedResolver::new(
                     service.clone(),
-                    Arc::clone(&ordered_resolve_queue),
-                    Arc::clone(&verify_queue),
+                    Arc::clone(&queues),
                     chunk_rx.clone(),
                     resolver_exit_signal.clone(),
                 );
@@ -508,7 +503,16 @@ impl TxPoolServiceBuilder {
                         };
                         runtime_handle.spawn(async move {
                             let _permit = permit;
-                            process(service_clone, message).await;
+                            // Message handlers must never take the whole
+                            // dispatcher down with a panic: catch and log,
+                            // matching the deferred worker's behaviour.
+                            let handler = process(service_clone, message);
+                            if let Err(payload) = AssertUnwindSafe(handler).catch_unwind().await {
+                                error!(
+                                    "tx-pool message handler panicked: {}",
+                                    panic_payload_to_string(payload.as_ref())
+                                );
+                            }
                         });
                     },
                     _ = signal_receiver.cancelled() => {
@@ -678,23 +682,25 @@ impl TxPoolServiceBuilder {
     pub(crate) fn build_bench_service(self, network: TxPoolNetworkHandle) -> BenchServiceParts {
         let consensus = self.snapshot.cloned_consensus();
 
-        let ordered_resolve_queue = Arc::new(RwLock::new(
-            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-        ));
-        let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(
-            self.tx_pool_config.max_tx_verify_cycles,
-            self.tx_pool_config.verify_ordering,
-        )));
+        let signal = self.signal_receiver;
+        let pre_check_cancel = signal.child_token();
+        let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
+            ordered_resolve_queue: RwLock::new(
+                crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+            ),
+            verify_queue: RwLock::new(VerifyQueue::new(
+                self.tx_pool_config.max_tx_verify_cycles,
+                self.tx_pool_config.verify_ordering,
+            )),
+            pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(
+                pre_check_cancel,
+            ),
+            rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
+        });
 
         let tx_pool = TxPool::new(self.tx_pool_config, self.snapshot);
         let recent_reject = self.recent_reject;
         let (block_assembler_sender, _) = self.block_assembler_channel;
-
-        let signal = self.signal_receiver;
-        let pre_check_cancel = signal.child_token();
-        let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
-            pre_check_cancel,
-        ));
 
         let (deferred_sender, deferred_receiver) =
             mpsc::channel::<DeferredTask>(DEFERRED_CHANNEL_SIZE);
@@ -704,23 +710,18 @@ impl TxPoolServiceBuilder {
             tx_pool: Arc::new(RwLock::new(tx_pool)),
             orphan: Arc::new(RwLock::new(OrphanPool::new())),
             block_assembler: self.block_assembler,
-            txs_verify_cache: self.txs_verify_cache,
             callbacks: Arc::new(self.callbacks),
             tx_relay_sender: self.tx_relay_sender,
             block_assembler_sender,
             network,
             consensus,
-            fee_estimator: self.fee_estimator,
-            recent_reject,
-            queues: crate::component::pipeline_queues::PipelineQueues {
-                ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-                verify_queue: Arc::clone(&verify_queue),
-                pre_check_queue: Arc::clone(&pre_check_queue),
+            aux: crate::service::AuxServices {
+                txs_verify_cache: self.txs_verify_cache,
+                recent_reject,
+                fee_estimator: self.fee_estimator,
             },
+            queues,
             chunk_rx: self.chunk_rx,
-            rbf_candidates: Arc::new(RwLock::new(
-                crate::component::rbf_candidates::RbfCandidates::new(),
-            )),
             deferred_sender,
         };
 
@@ -752,9 +753,7 @@ pub(crate) struct BenchServiceParts {
 /// holding a sender would keep the channel open forever.
 pub(crate) fn spawn_deferred_worker(
     handle: &Handle,
-    ordered_resolve_queue: Arc<
-        RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>,
-    >,
+    queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
     txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     deferred_receiver: mpsc::Receiver<DeferredTask>,
     cancel: CancellationToken,
@@ -772,8 +771,8 @@ pub(crate) fn spawn_deferred_worker(
                 }
                 else => break,
             };
-            let ordered_resolve_queue = Arc::clone(&ordered_resolve_queue);
-            let ordered_resolve_queue_retry = Arc::clone(&ordered_resolve_queue);
+            let queues = Arc::clone(&queues);
+            let queues_retry = Arc::clone(&queues);
             let txs_verify_cache = Arc::clone(&txs_verify_cache);
             let recover_txs_for_retry = match &task {
                 DeferredTask::RecoverTxs(txs) => Some(txs.clone()),
@@ -782,7 +781,7 @@ pub(crate) fn spawn_deferred_worker(
             let handler = async move {
                 match task {
                     DeferredTask::RecoverTxs(txs) => {
-                        enqueue_recover_txs(ordered_resolve_queue, txs).await;
+                        enqueue_recover_txs(queues, txs).await;
                     }
                     DeferredTask::CacheUpdate { wtx_hash, verified } => {
                         let mut guard = txs_verify_cache.write().await;
@@ -798,7 +797,7 @@ pub(crate) fn spawn_deferred_worker(
                     // If a RecoverTxs task panicked, retry it directly
                     // without going back through the channel.
                     if let Some(txs) = recover_txs_for_retry {
-                        enqueue_recover_txs(ordered_resolve_queue_retry, txs).await;
+                        enqueue_recover_txs(queues_retry, txs).await;
                     }
                 }
             }
@@ -808,10 +807,10 @@ pub(crate) fn spawn_deferred_worker(
 }
 
 async fn enqueue_recover_txs(
-    ordered_queue: Arc<RwLock<crate::component::ordered_resolve_queue::OrderedResolveQueue>>,
+    queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
     txs: Vec<(TransactionView, TxSource)>,
 ) {
-    let mut queue = ordered_queue.write().await;
+    let mut queue = queues.ordered_resolve_queue.write().await;
     for (tx, source) in txs {
         debug!("recover back: {:?}", tx.proposal_short_id());
         if let Err(reject) = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source)) {

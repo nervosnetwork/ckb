@@ -123,8 +123,10 @@ impl TxPool {
             return write_result;
         }
 
-        // Step 4: Only after successful persistence, drain the in-memory pool.
-        self.drain_all_transactions();
+        // Step 4: Only after successful persistence, drop the in-memory pool.
+        // The transactions were already collected in step 1, so there is no
+        // need to run a full `TxSelector` pass here just to discard the result.
+        self.pool_map.clear();
 
         Ok(())
     }

@@ -5,7 +5,7 @@ use ckb_logger::warn;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::Byte32;
 use ckb_util::LinkedHashSet;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 impl super::TxPoolService {
     pub(crate) async fn orphan_contains(&self, tx: &TransactionView) -> bool {
@@ -45,77 +45,70 @@ impl super::TxPoolService {
         added
     }
 
-    /// Remove all orphans which are resolved by the given transaction.
+    /// Remove all orphans which are directly resolved by the given transaction.
     ///
-    /// The search is breadth-first: each orphan is routed through the same
-    /// pipeline entry point as other remote transactions and block proposal
-    /// notifications. When an orphan is eventually verified and submitted,
-    /// `after_process` will recursively process its own descendants in the
-    /// orphan pool.
+    /// Only the direct children of `tx` are re-routed here, through the same
+    /// pipeline entry point as other remote transactions. When such an orphan
+    /// is eventually verified and submitted, `after_process` recursively
+    /// processes *its* children in the orphan pool — the recursion happens
+    /// through `after_process`, not in this function.
     ///
     /// Removals are batched into a single write lock: an orphan's success or
     /// failure in the pipeline does not depend on its siblings being removed
     /// first, so there is no need to pay the cost of a write lock per orphan.
     pub(crate) async fn process_orphan_tx(&self, tx: &TransactionView) {
-        let mut orphan_queue: VecDeque<TransactionView> = VecDeque::new();
-        orphan_queue.push_back(tx.clone());
+        // Collect the orphan entries under a single read lock, then process
+        // them outside the lock. This keeps the critical section short and
+        // avoids cloning transactions while holding the write lock.
+        let orphans: Vec<_> = {
+            let orphan = self.orphan.read().await;
+            orphan
+                .find_by_previous(tx)
+                .into_iter()
+                .cloned()
+                .filter_map(|id| orphan.get(&id).cloned().map(|entry| (id, entry)))
+                .collect()
+        };
 
-        while let Some(previous) = orphan_queue.pop_front() {
-            // Collect the orphan entries under a single read lock, then process
-            // them outside the lock. This keeps the critical section short and
-            // avoids cloning transactions while holding the write lock.
-            let orphans: Vec<_> = {
-                let orphan = self.orphan.read().await;
-                orphan
-                    .find_by_previous(&previous)
-                    .into_iter()
-                    .cloned()
-                    .filter_map(|id| orphan.get(&id).cloned().map(|entry| (id, entry)))
-                    .collect()
-            };
+        let mut to_remove = Vec::new();
+        for (orphan_id, orphan) in orphans.into_iter() {
+            let orphan_hash = orphan.tx.hash();
 
-            let mut to_remove = Vec::new();
-            for (orphan_id, orphan) in orphans.into_iter() {
-                let orphan_hash = orphan.tx.hash();
-
-                match self.classify_and_enqueue_tx(orphan.tx, orphan.source).await {
-                    Ok(_) => {
+            match self.classify_and_enqueue_tx(orphan.tx, orphan.source).await {
+                Ok(_) => {
+                    to_remove.push(orphan_id);
+                    // The orphan is now in the pipeline. Its own children
+                    // will be processed once it successfully submits via
+                    // the normal `after_process` -> `handle_verify_success`
+                    // path, so we do not need to push it back here.
+                }
+                Err(reject) => {
+                    // Keep the orphan if the only problem is that its
+                    // parents are not yet available or the pipeline queues
+                    // are temporarily full.  For any other reject reason
+                    // (malformed, low fee, etc.) remove it.
+                    //
+                    // `classify_and_enqueue_tx` already ran `after_process`
+                    // for this reject (relayer notification, ban, recent
+                    // reject), so we must not run `handle_remote_reject`
+                    // again here.
+                    if crate::util::is_missing_input(&reject) || matches!(reject, Reject::Full(_)) {
+                        warn!(
+                            "process_orphan {} not ready ({reject}); keeping orphan from {}",
+                            orphan_hash,
+                            tx.hash(),
+                        );
+                    } else {
                         to_remove.push(orphan_id);
-                        // The orphan is now in the pipeline. Its own children
-                        // will be processed once it successfully submits via
-                        // the normal `after_process` -> `handle_verify_success`
-                        // path, so we do not need to push it back here.
-                    }
-                    Err(reject) => {
-                        // Keep the orphan if the only problem is that its
-                        // parents are not yet available or the pipeline queues
-                        // are temporarily full.  For any other reject reason
-                        // (malformed, low fee, etc.) remove it.
-                        //
-                        // `classify_and_enqueue_tx` already ran `after_process`
-                        // for this reject (relayer notification, ban, recent
-                        // reject), so we must not run `handle_remote_reject`
-                        // again here.
-                        if crate::util::is_missing_input(&reject)
-                            || matches!(reject, Reject::Full(_))
-                        {
-                            warn!(
-                                "process_orphan {} not ready ({reject}); keeping orphan from {}",
-                                orphan_hash,
-                                tx.hash(),
-                            );
-                        } else {
-                            to_remove.push(orphan_id);
-                        }
                     }
                 }
             }
+        }
 
-            if !to_remove.is_empty() {
-                let mut orphan = self.orphan.write().await;
-                for id in to_remove {
-                    orphan.remove_orphan_tx(&id);
-                }
+        if !to_remove.is_empty() {
+            let mut orphan = self.orphan.write().await;
+            for id in to_remove {
+                orphan.remove_orphan_tx(&id);
             }
         }
     }

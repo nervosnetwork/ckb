@@ -26,7 +26,7 @@ use ckb_types::{
     bytes,
     core::{
         Capacity, EpochExt, ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
-        cell::{OverlayCellChecker, TransactionsChecker},
+        cell::{CellChecker, TransactionsChecker},
     },
     packed::{
         self, Byte32, Bytes, CellInput, CellOutput, CellbaseWitness, OutPoint, ProposalShortId,
@@ -36,9 +36,9 @@ use ckb_types::{
 };
 use http_body_util::Full;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
-    Arc,
+    Arc, Mutex as StdMutex,
     atomic::{AtomicU64, Ordering},
 };
 use std::{cmp, iter};
@@ -52,6 +52,60 @@ pub(crate) use state::{CurrentTemplate, TemplateSize};
 
 type FailedTxs = (ProposalShortId, Option<OutPoint>);
 type CalcDaoResult = Result<(Byte32, Vec<TxEntry>, Vec<FailedTxs>), AnyError>;
+
+/// Per-tip memo of chain-cell liveness results, shared across block-template
+/// updates.
+///
+/// `calc_dao` checks every candidate transaction's inputs against the chain
+/// snapshot on every template update, and those lookups can hit RocksDB. The
+/// snapshot is immutable within a tip, so the results are memoized here and
+/// reused until the tip changes (detected automatically via the tip-hash
+/// stamp, no explicit invalidation is required).
+///
+/// Only the chain-snapshot fallback is memoized: the in-block overlay
+/// (`TransactionsChecker`) changes on every update and is always evaluated
+/// fresh.
+#[derive(Default)]
+struct CellLivenessMemo {
+    tip_hash: Option<Byte32>,
+    inner: HashMap<OutPoint, Option<bool>>,
+}
+
+impl CellLivenessMemo {
+    fn get_or_load(&mut self, snapshot: &Snapshot, out_point: &OutPoint) -> Option<bool> {
+        let tip_hash = snapshot.tip_hash();
+        if self.tip_hash.as_ref() != Some(&tip_hash) {
+            self.tip_hash = Some(tip_hash);
+            self.inner.clear();
+        }
+        if let Some(&live) = self.inner.get(out_point) {
+            return live;
+        }
+        let live = snapshot.is_live(out_point);
+        self.inner.insert(out_point.clone(), live);
+        live
+    }
+}
+
+/// Cell checker that memoizes the chain-snapshot fallback per tip while
+/// evaluating the in-block overlay fresh on every call.
+struct MemoizedChecker<'a> {
+    transactions_checker: &'a TransactionsChecker,
+    snapshot: &'a Snapshot,
+    memo: &'a StdMutex<CellLivenessMemo>,
+}
+
+impl CellChecker for MemoizedChecker<'_> {
+    fn is_live(&self, out_point: &OutPoint) -> Option<bool> {
+        // Overlay first, matching `OverlayCellChecker` semantics: in-block
+        // producers/consumers change on every update and are never memoized.
+        if let Some(live) = self.transactions_checker.is_live(out_point) {
+            return Some(live);
+        }
+        let mut memo = self.memo.lock().expect("cell liveness memo poisoned");
+        memo.get_or_load(self.snapshot, out_point)
+    }
+}
 
 /// Block generator
 #[derive(Clone)]
@@ -74,6 +128,10 @@ pub struct BlockAssembler {
     /// `update_full`'s read and swap while still allowing partial updates
     /// (`update_uncles/proposals/transactions`) to run concurrently.
     pub(crate) template_lock: Arc<Mutex<()>>,
+    /// Shared per-tip memo of chain-cell liveness for `calc_dao`. Uses a
+    /// `std::sync::Mutex` because the critical sections are short and never
+    /// cross `.await`.
+    cell_liveness_memo: Arc<StdMutex<CellLivenessMemo>>,
     pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
 }
 
@@ -91,9 +149,16 @@ impl BlockAssembler {
             .epoch();
 
         let work_id = AtomicU64::new(0);
-        let current =
-            Self::build_base_template(&config, &work_id, snapshot, &current_epoch, vec![])
-                .expect("build initial blank template for BlockAssembler");
+        let cell_liveness_memo = Arc::new(StdMutex::new(CellLivenessMemo::default()));
+        let current = Self::build_base_template(
+            &config,
+            &work_id,
+            snapshot,
+            &current_epoch,
+            vec![],
+            &cell_liveness_memo,
+        )
+        .expect("build initial blank template for BlockAssembler");
 
         Ok(Self {
             config: Arc::new(config),
@@ -102,6 +167,7 @@ impl BlockAssembler {
             current: Arc::new(RwLock::new(Arc::new(current))),
             version: Arc::new(AtomicU64::new(0)),
             template_lock: Arc::new(Mutex::new(())),
+            cell_liveness_memo,
             poster: Arc::new(
                 Client::builder(hyper_util::rt::TokioExecutor::new())
                     .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
@@ -122,6 +188,7 @@ impl BlockAssembler {
         snapshot: Arc<Snapshot>,
         current_epoch: &EpochExt,
         uncles: Vec<UncleBlockView>,
+        memo: &StdMutex<CellLivenessMemo>,
     ) -> Result<CurrentTemplate, AnyError> {
         let tip_header = snapshot.tip_header();
         let mut builder = BlockTemplateBuilder::new(&snapshot, current_epoch)?;
@@ -133,7 +200,7 @@ impl BlockAssembler {
         let uncles_size = uncles.len() * UncleBlockView::serialized_size_in_block();
 
         let (dao, _checked_txs, _failed_txs) =
-            Self::calc_dao(&snapshot, current_epoch, cellbase.clone(), vec![])?;
+            Self::calc_dao(&snapshot, current_epoch, cellbase.clone(), vec![], memo)?;
 
         builder
             .transactions(vec![])
@@ -217,6 +284,7 @@ impl BlockAssembler {
             &current.epoch,
             current_template.cellbase.clone(),
             txs,
+            &self.cell_liveness_memo,
         )?;
         if !failed_txs.is_empty() {
             for (id, out_point) in failed_txs {
@@ -324,6 +392,7 @@ impl BlockAssembler {
             snapshot,
             &current_epoch,
             uncles,
+            &self.cell_liveness_memo,
         )?;
 
         trace!(
@@ -498,6 +567,7 @@ impl BlockAssembler {
             &current.epoch,
             current_template.cellbase.clone(),
             txs,
+            &self.cell_liveness_memo,
         ) {
             Ok((dao, checked_txs, _failed_txs)) => {
                 let new_txs_size = Self::checked_entries_size(&checked_txs)?;
@@ -677,6 +747,7 @@ impl BlockAssembler {
         current_epoch: &EpochExt,
         cellbase: TransactionView,
         entries: Vec<TxEntry>,
+        memo: &StdMutex<CellLivenessMemo>,
     ) -> CalcDaoResult {
         let tip_header = snapshot.tip_header();
         let consensus = snapshot.consensus();
@@ -688,13 +759,14 @@ impl BlockAssembler {
             entries
                 .into_iter()
                 .filter_map(|entry| {
-                    let overlay_cell_checker =
-                        OverlayCellChecker::new(&transactions_checker, snapshot);
-                    if let Err(err) =
-                        entry
-                            .rtx
-                            .check(&mut seen_inputs, &overlay_cell_checker, snapshot)
-                    {
+                    // The chain-snapshot fallback goes through the per-tip
+                    // memo; only the in-block overlay is rebuilt per entry.
+                    let checker = MemoizedChecker {
+                        transactions_checker: &transactions_checker,
+                        snapshot,
+                        memo,
+                    };
+                    if let Err(err) = entry.rtx.check(&mut seen_inputs, &checker, snapshot) {
                         error!(
                             "Resolving transactions while building block template, \
                              tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",

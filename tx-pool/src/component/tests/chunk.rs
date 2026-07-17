@@ -694,49 +694,46 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
     let pre_check_workers =
         max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
     let pre_check_cancel = ckb_stop_handler::CancellationToken::new();
-    let pre_check_queue = Arc::new(crate::component::pre_check_queue::PreCheckQueue::new(
-        pre_check_cancel,
-    ));
     let (deferred_sender, mut deferred_receiver) = mpsc::channel(1024);
     let (_chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
 
-    let ordered_resolve_queue = Arc::new(RwLock::new(
-        crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
-    ));
+    let queues = Arc::new(crate::component::pipeline_queues::PipelineQueues {
+        ordered_resolve_queue: RwLock::new(
+            crate::component::ordered_resolve_queue::OrderedResolveQueue::new(),
+        ),
+        verify_queue: RwLock::new(VerifyQueue::new(
+            config.max_tx_verify_cycles,
+            config.verify_ordering,
+        )),
+        pre_check_queue: crate::component::pre_check_queue::PreCheckQueue::new(pre_check_cancel),
+        rbf_candidates: RwLock::new(crate::component::rbf_candidates::RbfCandidates::new()),
+    });
     let service = TxPoolService {
         tx_pool: Arc::new(RwLock::new(TxPool::new(config.clone(), snapshot))),
         orphan: Arc::new(RwLock::new(OrphanPool::new())),
         consensus: Arc::clone(&consensus),
-        tx_pool_config: Arc::new(config.clone()),
+        tx_pool_config: Arc::new(config),
         block_assembler: None,
-        txs_verify_cache: Arc::new(RwLock::new(init_cache())),
         callbacks: Arc::new(Callbacks::new()),
         network: dummy_network(),
         tx_relay_sender,
         block_assembler_sender,
-        fee_estimator: FeeEstimator::new_dummy(),
-        recent_reject: None,
-        queues: crate::component::pipeline_queues::PipelineQueues {
-            ordered_resolve_queue: Arc::clone(&ordered_resolve_queue),
-            verify_queue: Arc::new(RwLock::new(VerifyQueue::new(
-                config.max_tx_verify_cycles,
-                config.verify_ordering,
-            ))),
-            pre_check_queue: Arc::clone(&pre_check_queue),
+        aux: crate::service::AuxServices {
+            txs_verify_cache: Arc::new(RwLock::new(init_cache())),
+            recent_reject: None,
+            fee_estimator: FeeEstimator::new_dummy(),
         },
+        queues: Arc::clone(&queues),
         chunk_rx,
-        rbf_candidates: Arc::new(RwLock::new(
-            crate::component::rbf_candidates::RbfCandidates::new(),
-        )),
         deferred_sender,
     };
 
     {
         for _ in 0..pre_check_workers {
             let svc = service.clone();
-            let queue = Arc::clone(&pre_check_queue);
+            let queues = Arc::clone(&queues);
             tokio::spawn(async move {
-                while let Some(job) = queue.pop().await {
+                while let Some(job) = queues.pre_check_queue.pop().await {
                     let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                 }
             });
@@ -745,16 +742,15 @@ fn service_with_relay_receiver() -> (TxPoolService, ckb_channel::Receiver<TxVeri
 
     // Drain deferred tasks (RBF recovery + verify cache updates) for tests.
     {
-        let ordered = Arc::clone(&ordered_resolve_queue);
-        let txs_verify_cache = Arc::clone(&service.txs_verify_cache);
+        let queues = Arc::clone(&queues);
+        let txs_verify_cache = Arc::clone(&service.aux.txs_verify_cache);
         tokio::spawn(async move {
             while let Some(task) = deferred_receiver.recv().await {
                 match task {
                     crate::service::DeferredTask::RecoverTxs(txs) => {
-                        let mut queue = ordered.write().await;
+                        let mut queue = queues.ordered_resolve_queue.write().await;
                         for (tx, source) in txs {
-                            let _ = queue
-                                .add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
+                            let _ = queue.add_tx(crate::resolved_tx::ResolveJob::new(tx, source));
                         }
                     }
                     crate::service::DeferredTask::CacheUpdate { wtx_hash, verified } => {
@@ -895,7 +891,10 @@ fn service_with_recent_reject() -> (TxPoolService, ckb_channel::Receiver<TxVerif
     let _ = Box::leak(Box::new(tmp_dir));
     (
         TxPoolService {
-            recent_reject: Some(Arc::new(recent_reject)),
+            aux: crate::service::AuxServices {
+                recent_reject: Some(Arc::new(recent_reject)),
+                ..service.aux.clone()
+            },
             ..service
         },
         receiver,
@@ -920,7 +919,11 @@ async fn handle_remote_reject_records_reject_and_rejects_relay() {
         "malformed reject should not be relayed"
     );
     // Recorded in recent_reject.
-    let recent_reject = service.recent_reject.as_ref().expect("recent_reject set");
+    let recent_reject = service
+        .aux
+        .recent_reject
+        .as_ref()
+        .expect("recent_reject set");
     assert!(
         recent_reject.get(&tx_hash).unwrap().is_some(),
         "malformed reject should be recorded"
@@ -946,7 +949,11 @@ async fn handle_remote_reject_relays_allowed_rejects() {
         _ => panic!("expected Reject relay"),
     }
     // Also recorded.
-    let recent_reject = service.recent_reject.as_ref().expect("recent_reject set");
+    let recent_reject = service
+        .aux
+        .recent_reject
+        .as_ref()
+        .expect("recent_reject set");
     assert!(
         recent_reject.get(&tx_hash).unwrap().is_some(),
         "declared-wrong-cycles reject should be recorded"

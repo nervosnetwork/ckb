@@ -156,6 +156,21 @@ pub enum TxVerificationResult {
     },
 }
 
+/// Auxiliary read-mostly services bundled to keep [`TxPoolService`] field
+/// count down. All three share the service lifecycle.
+///
+/// The `Arc`s here are kept deliberately: `txs_verify_cache` is shared with
+/// `Shared` outside the tx-pool, and `recent_reject` is captured by the
+/// registered reject callback in `shared_builder`.
+#[derive(Clone)]
+pub(crate) struct AuxServices {
+    pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
+    /// Recent-reject database (RocksDB with TTL), owned by the service rather
+    /// than `TxPool` so that `put` / `get` never need the tx-pool write lock.
+    pub(crate) recent_reject: Option<Arc<RecentReject>>,
+    pub(crate) fee_estimator: FeeEstimator,
+}
+
 #[derive(Clone)]
 pub(crate) struct TxPoolService {
     pub(crate) tx_pool: Arc<RwLock<TxPool>>,
@@ -163,28 +178,19 @@ pub(crate) struct TxPoolService {
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) tx_pool_config: Arc<TxPoolConfig>,
     pub(crate) block_assembler: Option<BlockAssembler>,
-    pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) callbacks: Arc<Callbacks>,
     pub(crate) network: crate::network::TxPoolNetworkHandle,
     pub(crate) tx_relay_sender: ckb_channel::Sender<TxVerificationResult>,
     pub(crate) block_assembler_sender: mpsc::Sender<BlockAssemblerMessage>,
-    pub(crate) fee_estimator: FeeEstimator,
-    /// Lock-free recent-reject database (RocksDB with TTL).
-    /// Owned by the service rather than `TxPool` so that `put` / `get` never
-    /// need the tx-pool write lock.
-    pub(crate) recent_reject: Option<Arc<RecentReject>>,
-    /// The three pipeline queues (pre-check, ordered-resolve, verify) bundled
-    /// together because they share the same lifecycle and are always accessed
-    /// as a unit.
-    pub(crate) queues: crate::component::pipeline_queues::PipelineQueues,
+    pub(crate) aux: AuxServices,
+    /// The pipeline queues (pre-check, ordered-resolve, verify) and the
+    /// in-flight RBF gate, bundled behind a single `Arc` because they share
+    /// the same lifecycle and the same lock hierarchy.
+    pub(crate) queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
     /// Chunk command receiver used by the synchronous reorg recovery path so
     /// that detached transactions are not verified while the pipeline is
     /// suspended.
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
-    /// Fee-rate-ordering gate for conflicting RBF replacements that are
-    /// concurrently in flight through the pipeline.  Ensures the
-    /// highest-fee-rate candidate wins.
-    pub(crate) rbf_candidates: Arc<RwLock<crate::component::rbf_candidates::RbfCandidates>>,
     /// Bounded channel for deferred side-effects (recovery tx re-enqueue,
     /// verify cache updates). A single background worker drains this channel,
     /// preventing unbounded task accumulation under high RBF frequency.
@@ -314,7 +320,8 @@ impl TxPoolService {
     }
 
     pub(crate) fn get_total_recent_reject_num(&self) -> Option<u64> {
-        self.recent_reject
+        self.aux
+            .recent_reject
             .as_ref()
             .map(|r| r.get_estimate_total_keys_num())
     }
@@ -329,7 +336,7 @@ impl TxPoolService {
         on_rejected: impl FnOnce(String) -> T,
         on_unknown: impl FnOnce() -> T,
     ) -> Result<T, AnyError> {
-        if let Some(ref db) = self.recent_reject {
+        if let Some(ref db) = self.aux.recent_reject {
             match db.get(hash) {
                 Ok(Some(record)) => Ok(on_rejected(record)),
                 Ok(_) => Ok(on_unknown()),

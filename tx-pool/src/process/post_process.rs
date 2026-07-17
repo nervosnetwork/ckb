@@ -208,7 +208,7 @@ impl TxPoolService {
         // matches the order used in remove_tx and prevents deadlock with
         // register_rbf_candidate / update_tx_pool_for_reorg.
         let _removed_ids = {
-            let mut rbf = self.rbf_candidates.write().await;
+            let mut rbf = self.queues.rbf_candidates.write().await;
             let removed_ids = self
                 .queues
                 .verify_queue

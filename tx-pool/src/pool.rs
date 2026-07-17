@@ -561,33 +561,6 @@ impl TxPool {
             .collect()
     }
 
-    pub(crate) fn drain_all_transactions(&mut self) -> Vec<TransactionView> {
-        let mut txs = TxSelector::new(&self.pool_map)
-            .txs_to_commit(usize::MAX, Cycle::MAX)
-            .0
-            .into_iter()
-            .map(|tx_entry| tx_entry.into_transaction())
-            .collect::<Vec<_>>();
-        let mut pending = self
-            .pool_map
-            .entries
-            .remove_by_status(&Status::Pending)
-            .into_iter()
-            .map(|e| e.inner.into_transaction())
-            .collect::<Vec<_>>();
-        txs.append(&mut pending);
-        let mut gap = self
-            .pool_map
-            .entries
-            .remove_by_status(&Status::Gap)
-            .into_iter()
-            .map(|e| e.inner.into_transaction())
-            .collect::<Vec<_>>();
-        txs.append(&mut gap);
-        self.pool_map.clear();
-        txs
-    }
-
     pub(crate) fn clear(&mut self, snapshot: Arc<Snapshot>) {
         self.pool_map.clear();
         self.snapshot = snapshot;
