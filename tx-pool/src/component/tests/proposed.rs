@@ -696,6 +696,42 @@ fn test_max_ancestors_with_dep() {
 }
 
 #[test]
+fn add_entry_eviction_updates_total_stats() {
+    // Regression test: when `add_entry` evicts a cell_ref_parent to fit the
+    // ancestor limit, the total size/cycles counters must account for the
+    // eviction *and* the new entry. A value computed before the eviction
+    // would clobber the decrement and over-count the pool forever.
+    let mut pool = PoolMap::new(1);
+    // tx_a cell-deps on (0x1, 0); tx_b consumes (0x1, 0) as an input, so tx_a
+    // is tx_b's cell_ref_parent and is evicted when the ancestor limit (1) is
+    // exceeded.
+    let tx_a = build_tx_with_dep(
+        vec![(&Byte32::zero(), 0)],
+        vec![(&h256!("0x1").into(), 0)],
+        1,
+    );
+    let tx_b = build_tx_with_dep(
+        vec![(&h256!("0x1").into(), 0)],
+        vec![(&h256!("0x2").into(), 0)],
+        1,
+    );
+    let entry_a = TxEntry::dummy_resolve(tx_a, 100, Capacity::shannons(100), 200);
+    let entry_b = TxEntry::dummy_resolve(tx_b, 300, Capacity::shannons(100), 400);
+
+    pool.add_proposed(entry_a).unwrap();
+    assert_eq!(pool.stats.total_tx_size.get(), 200);
+    assert_eq!(pool.stats.total_tx_cycles.get(), 100);
+
+    let (added, evicts) = pool.add_entry(entry_b, Status::Proposed).unwrap();
+    assert!(added);
+    assert_eq!(evicts.len(), 1, "cell_ref_parent should be evicted");
+    assert_eq!(pool.entries.len(), 1);
+    // The counters must reflect only tx_b, not the pre-eviction sum.
+    assert_eq!(pool.stats.total_tx_size.get(), 400);
+    assert_eq!(pool.stats.total_tx_cycles.get(), 300);
+}
+
+#[test]
 fn test_container_bench_add_limits() {
     use rand::Rng;
     let mut rng = rand::thread_rng();

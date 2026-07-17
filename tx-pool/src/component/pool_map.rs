@@ -289,15 +289,16 @@ impl PoolMap {
         //   1. pre-validate inputs (defensive: input conflicts are always
         //      resolved before `add_entry`, and eviction never occupies new
         //      inputs, so an early check is safe);
-        //   2. pre-compute the stat update (read-only);
+        //   2. defensive overflow check for the stat counters (read-only; the
+        //      actual deltas are applied after eviction, because eviction
+        //      itself decrements the counters);
         //   3. evict/record ancestors (may free dep conflicts);
         //   4. pre-validate deps (must be after eviction);
         //   5. mutate freely.
         // Any failure happens before the mutating steps, so the evicted set
         // can never be lost on the `Err` path.
         self.pre_validate_entry_inputs(&entry)?;
-        let (total_tx_size, total_tx_cycles) =
-            self.update_stat_for_add_tx(entry.size, entry.cycles)?;
+        self.update_stat_for_add_tx(entry.size, entry.cycles)?;
 
         evicts = self.check_and_record_ancestors(&mut entry)?;
         self.pre_validate_entry_deps(&entry)?;
@@ -306,8 +307,19 @@ impl PoolMap {
         self.insert_entry(&entry, status);
         self.record_entry_descendants(&entry);
         self.track_entry_statistics(None, Some(status));
-        self.stats.total_tx_size.set(total_tx_size);
-        self.stats.total_tx_cycles.set(total_tx_cycles);
+        // Apply the stat deltas *after* eviction: applying values computed
+        // before it would clobber the decrements `update_stat_for_remove_tx`
+        // made for the evicted entries. The overflow case was already
+        // rejected by the check above, so `add_saturating` cannot actually
+        // overflow here.
+        self.stats
+            .total_tx_size
+            .add_saturating(entry.size, "pool_map total_tx_size", "add_entry");
+        self.stats.total_tx_cycles.add_saturating(
+            entry.cycles,
+            "pool_map total_tx_cycles",
+            "add_entry",
+        );
         Ok((true, evicts))
     }
 
