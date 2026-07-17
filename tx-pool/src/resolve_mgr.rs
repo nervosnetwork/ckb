@@ -7,7 +7,6 @@
 //! Keeping this stage ordered reduces orphan-pool churn for dependent txs.
 
 use crate::component::pipeline_queue::PipelineQueue;
-use crate::component::pipeline_queues::PipelineQueues;
 use crate::error::Reject;
 use crate::process::PreCheckedTx;
 use crate::resolved_tx::{ResolveJob, ResolvedTx};
@@ -93,7 +92,6 @@ pub(crate) async fn resolve_job(service: &TxPoolService, job: ResolveJob) -> Res
 
 #[derive(Clone)]
 struct ResolveHandler {
-    queues: Arc<PipelineQueues>,
     service: TxPoolService,
 }
 
@@ -106,15 +104,30 @@ impl JobHandler for ResolveHandler {
     }
 
     async fn is_queue_empty(&self) -> bool {
-        self.queues.ordered_resolve_queue.read().await.is_empty()
+        self.service
+            .queues
+            .ordered_resolve_queue
+            .read()
+            .await
+            .is_empty()
     }
 
     async fn queue_ready(&self) -> Arc<tokio::sync::Notify> {
-        self.queues.ordered_resolve_queue.read().await.subscribe()
+        self.service
+            .queues
+            .ordered_resolve_queue
+            .read()
+            .await
+            .subscribe()
     }
 
     async fn pop_one(&mut self) -> Option<ResolveJob> {
-        self.queues.ordered_resolve_queue.write().await.pop_front()
+        self.service
+            .queues
+            .ordered_resolve_queue
+            .write()
+            .await
+            .pop_front()
     }
 
     async fn process_one(&mut self, job: ResolveJob) {
@@ -198,7 +211,7 @@ impl ResolveHandler {
                 "ordered resolve stage local orphan {} delayed re-enqueue (parents in flight)",
                 id
             );
-            let queues = Arc::clone(&self.queues);
+            let queues = Arc::clone(&self.service.queues);
             let service = self.service.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(LOCAL_ORPHAN_RETRY_DELAY).await;
@@ -219,7 +232,7 @@ impl ResolveHandler {
             );
             let tx = job.tx.clone();
             let source = job.source;
-            let mut ordered = self.queues.ordered_resolve_queue.write().await;
+            let mut ordered = self.service.queues.ordered_resolve_queue.write().await;
             if let Err(reject) = ordered.add_tx(job) {
                 drop(ordered);
                 self.service
@@ -258,11 +271,10 @@ pub(crate) struct OrderedResolver {
 impl OrderedResolver {
     pub fn new(
         service: TxPoolService,
-        queues: Arc<PipelineQueues>,
         command_rx: watch::Receiver<ChunkCommand>,
         exit_signal: CancellationToken,
     ) -> Self {
-        let handler = ResolveHandler { queues, service };
+        let handler = ResolveHandler { service };
         Self {
             runner: WorkerRunner::new(handler, command_rx, exit_signal),
         }

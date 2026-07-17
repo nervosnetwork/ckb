@@ -464,7 +464,6 @@ fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle
 
     let ordered_resolver = OrderedResolver::new(
         parts.service.clone(),
-        Arc::clone(&parts.service.queues),
         chunk_tx.subscribe(),
         signal.child_token(),
     );

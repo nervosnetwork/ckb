@@ -316,7 +316,6 @@ impl TxPoolServiceBuilder {
         let pre_check_handles = Self::spawn_pre_check_workers(
             &handle,
             service.clone(),
-            Arc::clone(&queues),
             pre_check_cancel,
             pre_check_workers,
         );
@@ -329,7 +328,6 @@ impl TxPoolServiceBuilder {
         let resolver_handle = Self::spawn_resolver_monitor(
             &handle,
             service.clone(),
-            Arc::clone(&queues),
             chunk_rx,
             signal_receiver.child_token(),
         );
@@ -376,21 +374,18 @@ impl TxPoolServiceBuilder {
     fn spawn_pre_check_workers(
         handle: &Handle,
         service: TxPoolService,
-        queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
         pre_check_cancel: CancellationToken,
         count: usize,
     ) -> Vec<tokio::task::JoinHandle<()>> {
         let mut handles = Vec::with_capacity(count);
         for _ in 0..count {
             let svc = service.clone();
-            let queues = Arc::clone(&queues);
             let cancel = pre_check_cancel.child_token();
             let handle = handle.spawn(async move {
                 loop {
                     let svc = svc.clone();
-                    let queues = Arc::clone(&queues);
                     let worker = async move {
-                        while let Some(job) = queues.pre_check_queue.pop().await {
+                        while let Some(job) = svc.queues.pre_check_queue.pop().await {
                             let _ = svc.classify_and_enqueue_tx(job.tx, job.source).await;
                         }
                     };
@@ -438,7 +433,6 @@ impl TxPoolServiceBuilder {
     fn spawn_resolver_monitor(
         handle: &Handle,
         service: TxPoolService,
-        queues: Arc<crate::component::pipeline_queues::PipelineQueues>,
         chunk_rx: watch::Receiver<ChunkCommand>,
         resolver_exit_signal: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
@@ -446,7 +440,6 @@ impl TxPoolServiceBuilder {
             loop {
                 let resolver = crate::resolve_mgr::OrderedResolver::new(
                     service.clone(),
-                    Arc::clone(&queues),
                     chunk_rx.clone(),
                     resolver_exit_signal.clone(),
                 );

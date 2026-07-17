@@ -263,12 +263,8 @@ fn service_with_pipeline_workers(
     let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
 
-    let ordered_resolver = OrderedResolver::new(
-        service.clone(),
-        Arc::clone(&queues),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
+    let ordered_resolver =
+        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
@@ -504,12 +500,8 @@ fn secp_service_with_pipeline_workers(
     let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
 
-    let ordered_resolver = OrderedResolver::new(
-        service.clone(),
-        Arc::clone(&queues),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
+    let ordered_resolver =
+        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
@@ -1331,12 +1323,8 @@ fn service_with_rbf(
     let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
 
-    let ordered_resolver = OrderedResolver::new(
-        service.clone(),
-        Arc::clone(&queues),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
+    let ordered_resolver =
+        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
@@ -1449,12 +1437,8 @@ fn service_with_rbf_and_max_size(
     let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
 
-    let ordered_resolver = OrderedResolver::new(
-        service.clone(),
-        Arc::clone(&queues),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
+    let ordered_resolver =
+        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
@@ -1567,12 +1551,8 @@ fn secp_service_with_pipeline_workers_and_chunk(
     let mut verify_mgr = VerifyMgr::new(service.clone(), chunk_rx, signal.child_token());
     tokio::spawn(async move { verify_mgr.run().await });
 
-    let ordered_resolver = OrderedResolver::new(
-        service.clone(),
-        Arc::clone(&queues),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    );
+    let ordered_resolver =
+        OrderedResolver::new(service.clone(), chunk_tx.subscribe(), signal.child_token());
     let (resolve_exit_tx, mut resolve_exit_rx) = tokio::sync::mpsc::unbounded_channel();
     let resolver_handle = ordered_resolver.start(resolve_exit_tx);
     tokio::spawn(async move {
