@@ -91,6 +91,18 @@ pub(crate) fn non_contextual_verify(
     Ok(())
 }
 
+fn verify_dao_script_size(
+    snapshot: &Snapshot,
+    rtx: Arc<ResolvedTransaction>,
+) -> Result<(), ckb_error::Error> {
+    DaoScriptSizeVerifier::new(
+        Arc::clone(&rtx),
+        snapshot.cloned_consensus(),
+        snapshot.borrow_as_data_loader(),
+    )
+    .verify()
+}
+
 pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
@@ -103,15 +115,14 @@ pub(crate) async fn verify_rtx(
     let data_loader = snapshot.as_data_loader();
 
     if let Some(completed) = cache_entry {
-        return TimeRelativeTransactionVerifier::new(rtx, consensus, data_loader, tx_env)
+        TimeRelativeTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
             .verify()
+            .and_then(|_| verify_dao_script_size(&snapshot, Arc::clone(&rtx)))
             .map(|_| *completed)
-            .map_err(Reject::Verification);
-    }
-
-    // Transaction verification can be CPU-heavy (script VM).  Run the verifier on
-    // the blocking pool so it doesn't starve the async runtime.
-    let result = if let Some(command_rx) = command_rx {
+            .map_err(Reject::Verification)
+    } else if let Some(command_rx) = command_rx {
+        // Transaction verification can be CPU-heavy (script VM). Run the verifier on
+        // the blocking pool so it doesn't starve the async runtime.
         let mut command_rx = command_rx.clone();
         let rtx_for_verifier = Arc::clone(&rtx);
         block_in_place(|| {
@@ -126,20 +137,22 @@ pub(crate) async fn verify_rtx(
                 .await
             })
         })
+        .and_then(|result| {
+            verify_dao_script_size(&snapshot, rtx)?;
+            Ok(result)
+        })
+        .map_err(Reject::Verification)
     } else {
         block_in_place(|| {
             ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
                 .verify(max_tx_verify_cycles, false)
         })
-    };
-
-    result
-        .and_then(|completed| {
-            DaoScriptSizeVerifier::new(rtx, snapshot.cloned_consensus(), snapshot.as_data_loader())
-                .verify()?;
-            Ok(completed)
+        .and_then(|result| {
+            verify_dao_script_size(&snapshot, rtx)?;
+            Ok(result)
         })
         .map_err(Reject::Verification)
+    }
 }
 
 pub(crate) fn time_relative_verify(
