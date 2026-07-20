@@ -34,4 +34,5 @@ console.workspace = true
 eaglesong.workspace = true
 base64.workspace = true
 jsonrpc-core.workspace = true
+subtle.workspace = true
 tokio = { workspace = true, features = ["sync"] }
