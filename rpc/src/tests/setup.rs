@@ -88,6 +88,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             notify: vec![],
             notify_scripts: vec![],
             notify_timeout_millis: 800,
+            notify_auth_token: None,
         }))
         .build()
         .unwrap();

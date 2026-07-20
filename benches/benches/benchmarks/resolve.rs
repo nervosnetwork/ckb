@@ -69,6 +69,7 @@ fn block_assembler_config() -> BlockAssemblerConfig {
         notify: vec![],
         notify_scripts: vec![],
         notify_timeout_millis: 800,
+        notify_auth_token: None,
     }
 }
 

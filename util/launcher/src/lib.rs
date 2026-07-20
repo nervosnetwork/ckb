@@ -65,6 +65,17 @@ impl Launcher {
         let block_assembler_config = if let Some(mut block_assembler) =
             self.args.config.block_assembler.clone()
         {
+            if block_assembler
+                .notify_auth_token
+                .as_deref()
+                .is_some_and(|token| token.trim().is_empty() || token.trim() != token)
+            {
+                eprintln!(
+                    "block_assembler.notify_auth_token must be non-empty and contain no leading or trailing whitespace"
+                );
+                return Err(ExitCode::Config);
+            }
+
             let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
                 let secp_cell_data =
                     Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())

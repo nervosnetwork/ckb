@@ -37,6 +37,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
         notify: vec![],
         notify_scripts: vec![],
         notify_timeout_millis: 800,
+        notify_auth_token: None,
     };
     let (shared, mut pack) = builder
         .block_assembler_config(Some(config))
